@@ -127,7 +127,6 @@ public sealed class Orchestrator(
         var facts = await Recall(request.Text, run, ct);
         if (facts.Length > 0)
             chain = chain with { Blocks = [.. chain.Blocks, new ChainBlock("memory/recall", "1", PromptText.Sha256(facts), BlockSource.Runtime)] };
-        var instructionRefs = instructions.Select(i => new InstructionRef(i.Key, PromptText.Sha256(i.Value))).ToList();
 
         async Task<NodeResult> RunNode(PlanNode node, IReadOnlyList<ResultContract> upstream, ForkPoint? fork, TaskCompletionSource<ForkPoint?>? primed, CancellationToken token)
         {
@@ -137,6 +136,7 @@ public sealed class Orchestrator(
                 (request.Inputs ?? []).Select(i => i.Id).ToHashSet(), inputText, cap, TimeSpan.FromMinutes(15),
                 kind.Budget.MaxInputTokens, kind.Compaction?.TriggerTokens, fork);
 
+            var instructionRefs = nodeRequest.Instructions.Select(i => new InstructionRef(i.Key, PromptText.Sha256(i.Value))).ToList();
             using var span = Telemetry.Source.StartActivity("chargehand.node");
             TagChain(span, chain);
             span?.SetTag("chargehand.node", node.Id);
