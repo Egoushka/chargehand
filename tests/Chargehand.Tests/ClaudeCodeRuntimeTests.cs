@@ -15,7 +15,7 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
     private static readonly NodeSpec Spec = new("/w", "build", new ModelRef("anthropic", "claude-sonnet-5"), [], new Dictionary<string, string>());
 
     [Fact]
-    public void Default_preset_rules_become_a_read_only_catalog_with_shell_prefixes()
+    public void Default_preset_rules_become_a_read_only_catalog_without_shell()
     {
         var (tools, allowed, disallowed) = ClaudeCodeWorkerRuntime.Permissions(Preset.Load(Repo.Path("presets"), "default").NodeKinds["worker"].Rules);
         Assert.DoesNotContain("Edit", tools);
@@ -24,9 +24,8 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         Assert.DoesNotContain("Agent", tools);
         Assert.DoesNotContain("AskUserQuestion", tools);
         Assert.Contains("Read", allowed);
-        Assert.Contains("Bash(git log*)", allowed);
-        Assert.DoesNotContain("Bash", allowed);
-        Assert.Contains("Bash(rg *--pre*)", disallowed);
+        Assert.DoesNotContain("Bash", tools);
+        Assert.DoesNotContain(allowed, a => a.StartsWith("Bash", StringComparison.Ordinal));
         Assert.Contains("Read(**/*.env)", disallowed);
         // Deny wins in Claude Code, so the exception inside *.env.* stays denied (fails closed).
         Assert.Contains("Read(**/*.env.*)", disallowed);

@@ -21,7 +21,7 @@ public class ConfigFileTests
         Assert.DoesNotContain("\"always\"", json.GetRawText(), StringComparison.Ordinal);
     }
 
-    /// <summary>ADR 0006: every preset denies secret files and shell reads that bypass .gitignore, after its broad allow.</summary>
+    /// <summary>ADR 0006: every preset denies secret files after its broad allow.</summary>
     [Theory]
     [MemberData(nameof(Presets))]
     public void Shipped_presets_deny_secrets(string file)
@@ -36,8 +36,24 @@ public class ConfigFileTests
                 Assert.DoesNotContain(kind.Permissions, p => p.Effect == "allow");
                 continue;
             }
-            foreach (var required in new[] { "read *.env deny", "read *.env.* deny", "shell rg *--no-ignore* deny", "shell rg * -u* deny" })
+            foreach (var required in new[] { "read *.env deny", "read *.env.* deny" })
                 Assert.True(rules.LastIndexOf(required) > rules.IndexOf("* * allow"), $"{file}: '{required}' missing or before the broad allow");
+        }
+    }
+
+    /// <summary>
+    /// ADR 0006: no preset gives a worker the shell tool. OpenCode 2.0.16 drops a tool from the catalog when the last
+    /// rule whose action matches it is "* deny"; any shell allow after that would match quoting-dependent source text.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Presets))]
+    public void Shipped_presets_remove_the_shell_tool(string file)
+    {
+        var preset = Chargehand.Config.Preset.Load(Repo.Path("presets"), file[..^5]);
+        foreach (var kind in preset.NodeKinds.Values)
+        {
+            var last = kind.Permissions.Last(p => p.Action is "shell" or "*");
+            Assert.True(last is { Resource: "*", Effect: "deny" }, $"{file}: last shell rule is '{last.Action} {last.Resource} {last.Effect}'");
         }
     }
 
