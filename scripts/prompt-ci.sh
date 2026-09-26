@@ -32,7 +32,9 @@ repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 head=$(gh pr view "$pr" --json headRefOid -q .headRefOid)
 git fetch -q origin main "pull/$pr/head"
 base=$(git merge-base origin/main "$head")
-work=$(mktemp -d)
+# Resolved path: macOS's temporary directory sits behind the /var -> /private/var link, and a clean build of the
+# runner there fails to resolve its project references.
+work=$(cd "$(mktemp -d)" && pwd -P)
 trap 'git worktree remove --force "$work/runner" 2>/dev/null || true; rm -rf "$work"' EXIT
 
 status() { # <state> <description>
@@ -75,7 +77,7 @@ if [ -n "$trusted" ]; then
 else
   src=$(git rev-parse --show-toplevel)
 fi
-dotnet build -v q -c Release "$src/src/Chargehand.Cli" >/dev/null
+dotnet build -v q -c Release "$src/src/Chargehand.Cli" >&2
 gh pr view "$pr" --json body -q .body > "$work/body"
 
 set +e
