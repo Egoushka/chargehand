@@ -27,6 +27,19 @@ plus the permission ruleset passed at session creation, with budgets enforced by
 - V2 compaction keys are `auto`, `keep.tokens`, `buffer` (v1's `preserve_recent_tokens` and `reserved` map onto
   them).
 
+## Evidence (shell rule matching, 2.0.16 source, 2026-09-27)
+
+- The shell tool parses the command with tree-sitter-bash and asserts `shell` once with one resource per `command`
+  node, nested substitutions included: the node's source text, trimmed (with its redirections when it has any).
+  `cd`-like commands are checked as `external_directory` instead. Any resource matching a `deny` denies the call.
+- A rule's resource is a wildcard over that text: `*` is any run of characters (newlines included), `?` one
+  character, a trailing ` *` also matches nothing. Nothing is unquoted or normalised first, so `--p""re` or
+  `--pr\e` escape a deny on `--pre` while the shell still passes `--pre`. `git` also takes unique prefixes of long
+  options (`--out`), and `rg` searches a file named on the command line even when `.gitignore` excludes it.
+- Consequence: allowing `git grep*`, `git log*` or `git show*` let a worker run programs (`git grep -O`) and write
+  files (`--output`); `rg *` let it read an ignored `*.env` by naming it. No deny list over source text closes
+  these.
+
 ## Decision
 
 - `preset/v1` (`schemas/preset/v1`); files in `presets/<name>.yaml`. v0 shipped `default`; phase 4 adds `cheap`,
@@ -38,16 +51,19 @@ plus the permission ruleset passed at session creation, with budgets enforced by
   `context.approved`. Only `strict` sets thresholds: intake's estimate is uncalibrated (ADR 0005; phase 4 saw
   $0.35 estimated for a ~$0.01 run), so elsewhere it would stop runs at random.
 - Rulesets are ordered, last match wins; write the broad rule first, then exceptions.
-- Every preset denies reading `*.env` and `*.env.*` (allowing `*.env.example`), and any shell allowlist entry that
-  could bypass `.gitignore` (`rg --no-ignore`, `rg -u`). Shell tools that read files are a residual path around
-  `read` rules; keep shell allowlists to searchers that honour `.gitignore`.
+- Every preset denies reading `*.env` and `*.env.*` (allowing `*.env.example`).
+- No preset gives workers the shell tool (a trailing `shell * deny`; tested): rules cannot constrain a command's
+  arguments (evidence above). Workers search with OpenCode's `read`, `grep` and `glob` tools and lose `git`
+  history until a sandbox exists. Residual: `grep` asserts its pattern, not the path it searches, so `read`
+  rules do not govern which files it reads (whether it honours `.gitignore` for a named file is untested).
 - Prefer `deny` over `ask`: the orchestrator's watcher rejects any remaining ask, which may end the node.
 - The orchestrator answers pending permissions only with `once` or `reject`, never `always`.
 - Defaults: `cheap` = small-model workers, no critic. `thorough` = large-model workers plus a critic from
   another model family on writing nodes only. `strict` = `thorough` plus approval above risk `low` or an
-  estimate above $0.50. v0 `default` = edits denied, shell denied except a read-only allowlist, web fetch,
-  external directories, questions and subagents denied.
+  estimate above $0.50. v0 `default` = edits, shell, web fetch, external directories, questions and subagents
+  denied.
 
 ## Reopen if
 
-A sandboxing ADR exists (then `autonomous`), or phase 4 shows a cheaper model meeting the bar in a cell.
+A sandboxing ADR exists (then `autonomous`, and shell or `git` history for workers inside it), or phase 4 shows a
+cheaper model meeting the bar in a cell.

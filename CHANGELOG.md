@@ -181,10 +181,16 @@ Answer quality is judged blind by the owner (pending at the time of this entry).
 - `chargehand serve` requires its bearer key on loopback too (any local process can reach the port), accepts only a
   loopback Host header (DNS rebinding from a browser) and sends no CORS headers.
 - Prompt CI never builds or runs a pull request's code: the runner is the trusted checkout's build and the pull
-  request contributes only `prompts/` and `presets/`. Those still steer a worker whose allowed commands can run
-  programs (`git grep -O`), so a fork's pull request or any preset change runs only after the owner has read the
-  diff (`--reviewed`), and a symbolic link among them stops the run. GitHub holds no model, gateway, tracing or
-  tailnet key; evals use their own OpenCode server and a spend-capped gateway key limited to the small model.
+  request contributes only `prompts/` and `presets/`. Those still steer a worker, and a preset can grant it tools,
+  so a fork's pull request or any preset change runs only after the owner has read the diff (`--reviewed`), and
+  a symbolic link among them stops the run. GitHub holds no model, gateway, tracing or tailnet key; evals use their
+  own OpenCode server and a spend-capped gateway key limited to the small model.
+- Presets `default` 0.5.0, `cheap` 0.3.0, `thorough` 0.3.0 and `strict` 0.2.0 remove the shell tool from workers;
+  prompt blocks `preset/default` 0.3.0, `preset/cheap`, `preset/thorough` and `preset/strict` 0.2.0 point to the
+  `grep` and `glob` tools instead. OpenCode matches shell rules against each command's source text, so the
+  `git grep*`, `git log*` and `git show*` allows admitted program execution (`git grep -O`) and file writes
+  (`--output`), and quoting or naming a file got past the `rg` denies. Prompt CI runs pull request prompts
+  against these presets (ADR 0006).
 
 - Preset `default` 0.3.0 denies reading `*.env` / `*.env.*` and `rg --no-ignore` / `rg -u`. The session ruleset's
   leading allow had overridden the OpenCode agent's own ask-before-reading-`.env` rules, so a worker could read

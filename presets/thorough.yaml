@@ -3,7 +3,7 @@
 # permission rule wins; a trailing "<action> * deny" removes that tool from the worker's catalog entirely.
 schema: preset/v1
 name: thorough
-version: 0.2.0
+version: 0.3.0
 allowed_actions: [answer, split, improve, ask, deny]
 node_kinds:
   worker:
@@ -17,15 +17,9 @@ node_kinds:
       - { action: read, resource: "*.env", effect: deny }
       - { action: read, resource: "*.env.*", effect: deny }
       - { action: read, resource: "*.env.example", effect: allow }
+      # No shell (ADR 0006): OpenCode matches each sub-command's source text, which shell quoting changes without
+      # changing the command, so no allowlist of flexible commands holds. Search with read, grep and glob instead.
       - { action: shell, resource: "*", effect: deny }
-      - { action: shell, resource: "git log*", effect: allow }
-      - { action: shell, resource: "git show*", effect: allow }
-      - { action: shell, resource: "git grep*", effect: allow }
-      - { action: shell, resource: "ls*", effect: allow }
-      - { action: shell, resource: "rg *", effect: allow }
-      - { action: shell, resource: "rg *--pre*", effect: deny }
-      - { action: shell, resource: "rg *--no-ignore*", effect: deny }
-      - { action: shell, resource: "rg * -u*", effect: deny }
       - { action: webfetch, resource: "*", effect: deny }
       - { action: external_directory, resource: "*", effect: deny }
       - { action: question, resource: "*", effect: deny }
