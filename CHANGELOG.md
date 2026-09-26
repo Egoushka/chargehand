@@ -22,6 +22,10 @@ All notable changes to this project are documented here. The format follows
   above the new optional `compaction.trigger_tokens` in `preset/v1`.
 - `request/v1`: optional `context.approved` to run past a preset's approval thresholds.
 - Intake prompt 0.2.0 says when to split.
+- `chargehand cache <run>`: cache report with reads, writes and hit rate per call; per node, the first instruction
+  entry, prompt block or as-sent field that differs where a prefix should have been shared (the previous call, or
+  the node it forked or could have forked); a checklist for breakers outside the prompt chain. Call records now
+  carry the fork parent and the hashed instruction entries.
 
 - v0: one request, one worker, traced (roadmap phase 3). `chargehand run` reads `request/v1`, runs intake
   (Task Spec via OpenCode's stateless generate; only `answer` executes, the chosen action is logged), runs one
