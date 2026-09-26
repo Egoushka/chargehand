@@ -9,6 +9,8 @@ namespace Chargehand.OpenCode;
 /// </summary>
 public interface IOpenCodeClient
 {
+    Task<string> VersionAsync(CancellationToken ct);
+
     Task<SessionInfo> CreateSessionAsync(CreateSessionBody body, CancellationToken ct);
 
     Task<SessionInfo> GetSessionAsync(string sessionId, CancellationToken ct);
@@ -56,4 +58,4 @@ public sealed record LocationBody(string Directory);
 
 public sealed record RuleBody(string Action, string Resource, string Effect);
 
-public sealed record SessionInfo(string Id, string Agent, ModelBody Model, LocationBody Location, string? Outcome);
+public sealed record SessionInfo(string Id, string Agent, ModelBody Model, LocationBody Location, string? Outcome, string? ProjectID = null);

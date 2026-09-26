@@ -4,4 +4,8 @@
     <ProjectReference Include="..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+
 </Project>

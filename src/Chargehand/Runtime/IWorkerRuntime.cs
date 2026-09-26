@@ -60,7 +60,18 @@ public enum IdleOutcome { Succeeded, Failed, Interrupted }
 
 public sealed record TokenCounts(long Input, long Output, long Reasoning, long CacheRead, long CacheWrite);
 
-public sealed record WorkerMessage(string Id, WorkerMessageKind Kind, DateTimeOffset Created, string? Text, TokenCounts? Tokens);
+/// <param name="ToolOutput">Concatenated tool inputs and outputs of an assistant message (evidence scope).</param>
+public sealed record WorkerMessage(
+    string Id,
+    WorkerMessageKind Kind,
+    DateTimeOffset Created,
+    string? Text,
+    TokenCounts? Tokens,
+    DateTimeOffset? Completed = null,
+    string? Model = null,
+    string? ToolOutput = null,
+    string? Error = null,
+    IdleOutcome? Outcome = null);
 
 public enum WorkerMessageKind { User, Assistant, Compaction, Idle, Other }
 

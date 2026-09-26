@@ -1,0 +1,20 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "agent": { "title": { "disable": true } },
+  "enabled_providers": ["provider"],
+  "model": "provider/small-model",
+  "small_model": "provider/small-model",
+  "compaction": { "auto": true, "keep": { "tokens": 15000 }, "buffer": 120000 },
+  "provider": {
+    "provider": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "https://gateway.example.com/v1", "apiKey": "{file:/path/to/gateway-key}" },
+      "models": {
+        "small-model": { "name": "Small", "limit": { "context": 200000, "output": 32000 }, "tool_call": true, "reasoning": true },
+        "large-model": { "name": "Large", "limit": { "context": 200000, "output": 32000 }, "tool_call": true, "reasoning": true }
+      }
+    }
+  }
+}

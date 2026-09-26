@@ -5,8 +5,8 @@ An orchestrator that turns a request into a typed **Task Spec**, runs it on one 
 directory), and returns a **result contract** with evidence for every claim — to people through a
 CLI and to programs through HTTP and MCP.
 
-**Status: pre-alpha.** The repository holds architecture decisions, JSON Schemas and interfaces.
-There is no working orchestrator yet.
+**Status: pre-alpha (v0).** One request, one worker, traced: intake → one OpenCode session →
+`result/v1` with resolved evidence. Splitting, presets beyond `default`, memory, HTTP and MCP come later.
 
 ## Why
 
@@ -35,6 +35,22 @@ Non-goals: its own agent loop, direct calls to model providers, parallelism for 
 Requires an OpenCode V2 server of the pinned version (2.0.16) that the orchestrator starts itself; see
 [ADR 0004](docs/adr/0004-opencode-major-and-runtime-adapter.md). Worker checkouts must live outside the
 OpenCode user's home directory ([ADR 0003](docs/adr/0003-where-it-runs.md)).
+
+## Running v0
+
+1. Copy `profiles/example.json` to `profiles/local.json` and `profiles/opencode.example.json` to
+   `profiles/local.opencode.json`; fill in your gateway, models, prices and secret-store item names.
+2. Start the orchestrator's own OpenCode server (pinned version, own state directory, loopback only):
+   `scripts/opencode-serve.sh <opencode-binary> profiles/local.opencode.json 4296`
+3. Put a checkout at the commit you want answered under `worker_root` (outside your home directory).
+4. Run a request:
+
+```bash
+dotnet run --project src/Chargehand.Cli -- run < request.json      # request/v1 in, result/v1 out
+dotnet run --project src/Chargehand.Cli -- show <run-id>           # calls, tokens, cache %, cost
+dotnet run --project src/Chargehand.Cli -- reconcile <run-id> < spend-rows.jsonl
+dotnet run --project src/Chargehand.Cli -- prompts sync            # mirror prompt blocks to Langfuse
+```
 
 ## Build
 

@@ -4,4 +4,8 @@
     <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Chargehand.Tests" />
+  </ItemGroup>
+
 </Project>

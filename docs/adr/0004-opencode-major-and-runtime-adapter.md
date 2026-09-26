@@ -45,6 +45,9 @@ Adapter rules learned in the spike:
 - Disable the hidden `title` agent in the server config (`agent.title.disable`): it adds one small-model call
   per session.
 - `wait` has no timeout; the node deadline (ADR 0011) is enforced by the client.
+- The first request to a location that is still booting fails with `400 Model unavailable` about a second before
+  its providers load (seen on every fresh server start in v0 development). The client retries that one error for
+  up to ~3 s; nothing else is retried at this layer.
 
 ## Consequences
 

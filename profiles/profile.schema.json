@@ -5,34 +5,91 @@
   "description": "Environment-specific settings. Your own lives in profiles/local.json (gitignored). Secrets are referenced by secret-store item name, never stored here.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "opencode", "worker_root", "default_preset", "intake_model", "prices"],
+  "required": [
+    "schema",
+    "opencode",
+    "worker_root",
+    "default_preset",
+    "intake_model",
+    "prices"
+  ],
   "properties": {
-    "$schema": { "type": "string" },
-    "schema": { "const": "profile/v1" },
-    "secret_store": { "enum": ["keychain", "env"], "default": "keychain" },
+    "$schema": {
+      "type": "string"
+    },
+    "schema": {
+      "const": "profile/v1"
+    },
+    "secret_store": {
+      "enum": [
+        "keychain",
+        "env"
+      ],
+      "default": "keychain"
+    },
     "opencode": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["url", "password_secret"],
+      "required": [
+        "url",
+        "password_secret",
+        "version"
+      ],
       "properties": {
-        "url": { "type": "string", "format": "uri", "description": "The orchestrator's own OpenCode server, bound to loopback." },
-        "password_secret": { "type": "string", "description": "Secret item holding OPENCODE_SERVER_PASSWORD." },
-        "binary": { "type": "string", "description": "Pinned OpenCode binary the launcher starts." },
-        "version": { "type": "string", "description": "Expected /api/info version; the adapter refuses to run on a mismatch." }
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "The orchestrator's own OpenCode server, bound to loopback."
+        },
+        "password_secret": {
+          "type": "string",
+          "description": "Secret item holding OPENCODE_SERVER_PASSWORD."
+        },
+        "binary": {
+          "type": "string",
+          "description": "Pinned OpenCode binary the launcher starts."
+        },
+        "version": {
+          "type": "string",
+          "description": "Expected /api/info version; the adapter refuses to run on a mismatch."
+        }
       }
     },
-    "worker_root": { "type": "string", "description": "Where worker checkouts and worktrees live. Must be outside the OpenCode user's home: OpenCode discovers skills by walking up from the session directory." },
-    "default_preset": { "type": "string" },
-    "intake_model": { "type": "string", "pattern": "^[^/\\s]+/[^\\s#]+(#[a-z]+)?$" },
-    "run_cap_usd": { "type": "number", "exclusiveMinimum": 0 },
-    "run_log": { "type": "string", "description": "Path of the run log (SQLite or JSONL)." },
+    "worker_root": {
+      "type": "string",
+      "description": "Where worker checkouts and worktrees live. Must be outside the OpenCode user's home: OpenCode discovers skills by walking up from the session directory."
+    },
+    "default_preset": {
+      "type": "string"
+    },
+    "intake_model": {
+      "type": "string",
+      "pattern": "^[^/\\s]+/[^\\s#]+(#[a-z]+)?$"
+    },
+    "run_cap_usd": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Hard cap per run in USD; the worker is interrupted above it (ADR 0011). Default 1.00."
+    },
+    "run_log": {
+      "type": "string",
+      "description": "Path of the JSONL run log. Default runs/run-log.jsonl (gitignored)."
+    },
     "telemetry": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "otlp_endpoint": { "type": "string", "format": "uri", "description": "OTLP/HTTP traces endpoint." },
-        "public_key_secret": { "type": "string" },
-        "secret_key_secret": { "type": "string" }
+        "otlp_endpoint": {
+          "type": "string",
+          "format": "uri",
+          "description": "OTLP/HTTP traces endpoint."
+        },
+        "public_key_secret": {
+          "type": "string"
+        },
+        "secret_key_secret": {
+          "type": "string"
+        }
       }
     },
     "prices": {
@@ -41,13 +98,38 @@
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["input", "output", "cache_read", "cache_write"],
+        "required": [
+          "input",
+          "output",
+          "cache_read",
+          "cache_write"
+        ],
         "properties": {
-          "input": { "type": "number", "minimum": 0 },
-          "output": { "type": "number", "minimum": 0 },
-          "cache_read": { "type": "number", "minimum": 0 },
-          "cache_write": { "type": "number", "minimum": 0 }
+          "input": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_read": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cache_write": {
+            "type": "number",
+            "minimum": 0
+          }
         }
+      }
+    },
+    "models": {
+      "type": "object",
+      "description": "Maps the placeholder models presets name (e.g. provider/worker-model) to your OpenCode provider/model ids.",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[^/\\s]+/[^\\s#]+(#[a-z]+)?$"
       }
     }
   }

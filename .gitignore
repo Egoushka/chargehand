@@ -18,3 +18,4 @@ runs/
 
 # graft local graph cache (regenerable)
 /graft/
+.ignore

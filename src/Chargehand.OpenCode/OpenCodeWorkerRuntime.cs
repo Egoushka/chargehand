@@ -1,0 +1,129 @@
+using System.Text;
+using System.Text.Json;
+using Chargehand.Runtime;
+
+namespace Chargehand.OpenCode;
+
+/// <summary>IWorkerRuntime over OpenCode V2 (ADR 0004). Create with <see cref="ConnectAsync"/>, which pins the version.</summary>
+public sealed class OpenCodeWorkerRuntime : IWorkerRuntime
+{
+    private readonly IOpenCodeClient _oc;
+
+    internal OpenCodeWorkerRuntime(IOpenCodeClient oc, string version)
+    {
+        _oc = oc;
+        Version = version;
+    }
+
+    public string Version { get; }
+
+    /// <summary>Refuses a server whose version differs from the pinned one.</summary>
+    public static async Task<OpenCodeWorkerRuntime> ConnectAsync(IOpenCodeClient oc, string pinnedVersion, CancellationToken ct)
+    {
+        var version = await oc.VersionAsync(ct);
+        return version == pinnedVersion
+            ? new OpenCodeWorkerRuntime(oc, version)
+            : throw new InvalidOperationException($"OpenCode server runs {version}; this adapter is pinned to {pinnedVersion}.");
+    }
+
+    public async Task<WorkerSession> CreateAsync(NodeSpec spec, CancellationToken ct)
+    {
+        var s = await _oc.CreateSessionAsync(new CreateSessionBody(
+            spec.Agent,
+            new ModelBody(spec.Model.ProviderId, spec.Model.ModelId, spec.Model.Variant),
+            new LocationBody(spec.Directory),
+            spec.Permissions.Select(r => new RuleBody(r.Action, r.Resource, r.Effect.ToString().ToLowerInvariant())).ToList(),
+            spec.Metadata), ct);
+        return new WorkerSession(s.Id, s.Location.Directory);
+    }
+
+    public Task SetInstructionAsync(string sessionId, string key, string value, CancellationToken ct) => _oc.PutInstructionAsync(sessionId, key, value, ct);
+
+    public Task SubmitAsync(string sessionId, string text, CancellationToken ct) => _oc.PromptAsync(sessionId, text, ct);
+
+    public async Task<IdleOutcome> AwaitIdleAsync(string sessionId, CancellationToken ct)
+    {
+        await _oc.WaitAsync(sessionId, ct);
+        var idle = (await ReadMessagesAsync(sessionId, ct)).FirstOrDefault(m => m.Kind == WorkerMessageKind.Idle);
+        return idle?.Outcome ?? IdleOutcome.Failed;
+    }
+
+    public async Task InterruptAsync(string sessionId, CancellationToken ct) => await _oc.InterruptAsync(sessionId, ct);
+
+    public async Task<IReadOnlyList<WorkerMessage>> ReadMessagesAsync(string sessionId, CancellationToken ct) =>
+        (await _oc.MessagesAsync(sessionId, ct)).Select(Map).ToList();
+
+    public async Task<IReadOnlyList<PermissionRequest>> PendingPermissionsAsync(string sessionId, CancellationToken ct) =>
+        (await _oc.PermissionsAsync(sessionId, ct)).Select(p => new PermissionRequest(
+            p.GetProperty("id").GetString()!,
+            p.GetProperty("action").GetString()!,
+            p.GetProperty("resources").EnumerateArray().Select(r => r.GetString()!).ToList())).ToList();
+
+    public Task AnswerPermissionAsync(string sessionId, string requestId, PermissionDecision decision, string? message, CancellationToken ct) =>
+        _oc.ReplyPermissionAsync(sessionId, requestId, decision == PermissionDecision.Once ? "once" : "reject", message, ct);
+
+    public async Task<WorkerSession> ForkAsync(string sessionId, string? beforeMessageId, CancellationToken ct)
+    {
+        var s = await _oc.ForkAsync(sessionId, beforeMessageId, ct);
+        return new WorkerSession(s.Id, s.Location.Directory);
+    }
+
+    public Task CompactAsync(string sessionId, CancellationToken ct) => _oc.CompactAsync(sessionId, ct);
+
+    public async Task<IReadOnlyList<FileDiff>> DiffAsync(string sessionId, CancellationToken ct) =>
+        (await _oc.DiffAsync(sessionId, ct)).Select(d => new FileDiff(
+            d.GetProperty("file").GetString()!,
+            d.TryGetProperty("patch", out var p) ? p.GetString() ?? "" : "",
+            d.TryGetProperty("additions", out var a) ? a.GetInt32() : 0,
+            d.TryGetProperty("deletions", out var del) ? del.GetInt32() : 0,
+            d.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "")).ToList();
+
+    public Task<string> GenerateAsync(ModelRef model, string prompt, CancellationToken ct) => _oc.GenerateAsync(model.ProviderId, model.ModelId, prompt, ct);
+
+    /// <summary>Messages are an untagged union dispatched on "type" (the spec declares no discriminator).</summary>
+    internal static WorkerMessage Map(JsonElement m)
+    {
+        var type = m.GetProperty("type").GetString();
+        var time = m.GetProperty("time");
+        var created = DateTimeOffset.FromUnixTimeMilliseconds(time.GetProperty("created").GetInt64());
+        DateTimeOffset? completed = time.TryGetProperty("completed", out var c) ? DateTimeOffset.FromUnixTimeMilliseconds(c.GetInt64()) : null;
+        switch (type)
+        {
+            case "assistant":
+                var text = new StringBuilder();
+                var tools = new StringBuilder();
+                if (m.TryGetProperty("content", out var parts))
+                    foreach (var p in parts.EnumerateArray())
+                    {
+                        var pt = p.GetProperty("type").GetString();
+                        if (pt == "text")
+                            text.Append(p.GetProperty("text").GetString());
+                        else if (pt == "tool" && p.TryGetProperty("state", out var state))
+                            tools.Append(state.GetRawText()).Append('\n');
+                    }
+                return new WorkerMessage(
+                    m.GetProperty("id").GetString()!, WorkerMessageKind.Assistant, created, text.ToString(), Tokens(m), completed,
+                    m.TryGetProperty("model", out var model) ? $"{model.GetProperty("providerID").GetString()}/{model.GetProperty("id").GetString()}" : null,
+                    tools.ToString(),
+                    m.TryGetProperty("error", out var err) && err.ValueKind != JsonValueKind.Null ? err.GetRawText() : null);
+            case "idle":
+                var outcome = m.TryGetProperty("outcome", out var o) ? o.GetString() : null;
+                return new WorkerMessage(m.GetProperty("id").GetString()!, WorkerMessageKind.Idle, created, null, null,
+                    Outcome: outcome switch { "succeeded" => IdleOutcome.Succeeded, "interrupted" => IdleOutcome.Interrupted, _ => IdleOutcome.Failed });
+            default:
+                var kind = type switch { "user" => WorkerMessageKind.User, "compaction" => WorkerMessageKind.Compaction, _ => WorkerMessageKind.Other };
+                return new WorkerMessage(m.GetProperty("id").GetString()!, kind, created,
+                    m.TryGetProperty("text", out var t) ? t.GetString() : null, kind == WorkerMessageKind.Compaction ? Tokens(m) : null, completed);
+        }
+    }
+
+    private static TokenCounts? Tokens(JsonElement m)
+    {
+        if (!m.TryGetProperty("tokens", out var t) || t.ValueKind != JsonValueKind.Object)
+            return null;
+        var cache = t.GetProperty("cache");
+        return new TokenCounts(
+            (long)t.GetProperty("input").GetDouble(), (long)t.GetProperty("output").GetDouble(), (long)t.GetProperty("reasoning").GetDouble(),
+            (long)cache.GetProperty("read").GetDouble(), (long)cache.GetProperty("write").GetDouble());
+    }
+}

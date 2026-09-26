@@ -10,6 +10,8 @@ dotnet test                           # schema tests, contract test against docs
 dotnet format --verify-no-changes     # lint / format check (CI runs this)
 scripts/gen-opencode-api.py <url>     # regenerate docs/opencode-api.md + spec (needs OPENCODE_SERVER_PASSWORD)
 gitleaks git --redact -v              # secret scan over history
+scripts/opencode-serve.sh <bin> <cfg> [port]   # start the orchestrator's own OpenCode server
+dotnet run --project src/Chargehand.Cli -- run|show|reconcile|prompts sync   # v0 CLI (profiles/local.json)
 ```
 
 Hooks: `git config core.hooksPath .githooks` (denylist + gitleaks on pre-commit, Conventional

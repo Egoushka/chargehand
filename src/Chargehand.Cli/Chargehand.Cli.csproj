@@ -9,4 +9,9 @@
     <ProjectReference Include="..\Chargehand.OpenCode\Chargehand.OpenCode.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="OpenTelemetry" Version="1.19.1" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.19.1" />
+  </ItemGroup>
+
 </Project>

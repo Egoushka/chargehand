@@ -10,15 +10,29 @@
   },
   "worker_root": "/srv/chargehand/work",
   "default_preset": "default",
-  "intake_model": "provider/model-name",
+  "intake_model": "provider/small-model",
   "run_cap_usd": 1.0,
-  "run_log": "runs/run-log.sqlite",
+  "run_log": "runs/run-log.jsonl",
   "telemetry": {
     "otlp_endpoint": "https://langfuse.example.com/api/public/otel/v1/traces",
     "public_key_secret": "chargehand-langfuse-public-key",
     "secret_key_secret": "chargehand-langfuse-secret-key"
   },
   "prices": {
-    "provider/model-name": { "input": 0.10, "output": 0.50, "cache_read": 0.01, "cache_write": 0.125 }
+    "provider/small-model": {
+      "input": 0.1,
+      "output": 0.5,
+      "cache_read": 0.01,
+      "cache_write": 0.125
+    },
+    "provider/large-model": {
+      "input": 2.0,
+      "output": 10.0,
+      "cache_read": 0.2,
+      "cache_write": 2.5
+    }
+  },
+  "models": {
+    "provider/worker-model": "provider/large-model"
   }
 }

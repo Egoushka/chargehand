@@ -2,7 +2,7 @@
 # "<action> * deny" removes that tool from the worker's catalog entirely.
 schema: preset/v1
 name: default
-version: 0.1.0
+version: 0.3.0
 allowed_actions: [answer]
 node_kinds:
   worker:
@@ -11,11 +11,20 @@ node_kinds:
     permissions:
       - { action: "*", resource: "*", effect: allow }
       - { action: edit, resource: "*", effect: deny }
+      # Secrets: a leading "* * allow" overrides the agent's own ask-before-reading-.env rules, so deny them
+      # here. Deny (not ask): a rejected ask aborts the worker's whole step in OpenCode 2.0.16.
+      - { action: read, resource: "*.env", effect: deny }
+      - { action: read, resource: "*.env.*", effect: deny }
+      - { action: read, resource: "*.env.example", effect: allow }
       - { action: shell, resource: "*", effect: deny }
       - { action: shell, resource: "git log*", effect: allow }
       - { action: shell, resource: "git show*", effect: allow }
       - { action: shell, resource: "git grep*", effect: allow }
       - { action: shell, resource: "ls*", effect: allow }
+      - { action: shell, resource: "rg *", effect: allow }
+      - { action: shell, resource: "rg *--pre*", effect: deny }
+      - { action: shell, resource: "rg *--no-ignore*", effect: deny }
+      - { action: shell, resource: "rg * -u*", effect: deny }
       - { action: webfetch, resource: "*", effect: deny }
       - { action: external_directory, resource: "*", effect: deny }
       - { action: question, resource: "*", effect: deny }

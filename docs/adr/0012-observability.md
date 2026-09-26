@@ -29,7 +29,11 @@ gateway already maps to its trace session.
   orchestrator's own Langfuse project. Node spans set `langfuse.session.id` = OpenCode session ID.
 - Gateway join, in the run log (Langfuse sessions don't span projects): the orchestrator's gateway key is
   dedicated to it, so each OpenCode assistant message joins to one spend-log row on (key, model, prompt tokens,
-  completion tokens, start time ± 10 s). Node spans link to the gateway's rows by that join.
+  completion tokens, gateway start time inside the message's created → completed span ± 5 s). The gateway logs its
+  start 2–30 s after OpenCode creates the message (masking-proxy scan in between), so a window around the creation
+  time alone misses. v0 benchmark: 8 of 8 calls matched; own-table cost equalled the spend log to the digit.
+- `chargehand reconcile <run>` performs the join from exported spend rows (JSONL on stdin); exporting them is the
+  environment's job, since the orchestrator never calls the gateway.
 - Preferred upgrade, outside this repository: the gateway's trace hook also reads `x-session-id` — only if the
   masking proxy forwards that header (UNKNOWN). Then the join key becomes exact.
 - OpenCode's own exporter stays off.
