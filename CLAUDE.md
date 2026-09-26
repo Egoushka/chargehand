@@ -1,0 +1,35 @@
+# CLAUDE.md — chargehand
+
+.NET 10 orchestrator that drives OpenCode sessions over HTTP. Public repository.
+
+## Commands
+
+```bash
+dotnet build                          # whole solution (Chargehand.slnx)
+dotnet test                           # schema tests, contract test against docs/opencode-openapi.json
+dotnet format --verify-no-changes     # lint / format check (CI runs this)
+scripts/gen-opencode-api.py <url>     # regenerate docs/opencode-api.md + spec (needs OPENCODE_SERVER_PASSWORD)
+gitleaks git --redact -v              # secret scan over history
+```
+
+Hooks: `git config core.hooksPath .githooks` (denylist + gitleaks on pre-commit, Conventional
+Commits on commit-msg). Never `--no-verify`.
+
+## Public vs private — the rule for every file
+
+The repo is public. Never commit: IP addresses, hostnames, key aliases, employer or project
+names, budgets, absolute home paths, session or message ids, API keys, prompts from real runs.
+
+- Code is environment-agnostic: an OpenCode server URL and `provider/model` ids from config.
+- Personal setup lives in gitignored `profiles/local.*`; `profiles/example.*` uses placeholders.
+  Secrets are referenced by secret-store item name, never stored in a profile.
+- Treat every OpenCode `/api/model*`, `/api/provider*`, `/api/config*` body as secret: never log,
+  record or commit it; redact `apiKey` before writing any fixture.
+- Fixtures recorded from a real server get ids, paths and prompts scrubbed before commit.
+
+## Conventions
+
+- Decisions: `docs/adr/NNNN-title.md` from `docs/adr/template.md`.
+- Schemas: `schemas/<name>/v<major>/`; `$id` carries the major.
+- One version source: `Directory.Build.props`. Contract package versions by schema major.
+- Commits: Conventional Commits.

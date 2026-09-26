@@ -1,0 +1,3 @@
+#!/bin/sh
+# Conventional Commits: type(scope)!: subject. CI runs the same check (scripts/check-commits.sh).
+exec "$(git rev-parse --show-toplevel)/scripts/check-commit-msg.sh" "$1"

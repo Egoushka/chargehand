@@ -1,0 +1,20 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+.idea/
+TestResults/
+
+# OS / editors
+.DS_Store
+*.tmp
+
+# Private: never commit (CLAUDE.md, "Public vs private")
+profiles/local.*
+.env*
+.private-terms
+runs/
+
+# graft local graph cache (regenerable)
+/graft/
