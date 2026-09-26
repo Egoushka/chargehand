@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
+    <ProjectReference Include="..\Chargehand.OpenCode\Chargehand.OpenCode.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Chargehand.Cli/Chargehand.Cli.csproj" />
+    <Project Path="src/Chargehand.Contracts/Chargehand.Contracts.csproj" />
+    <Project Path="src/Chargehand.OpenCode/Chargehand.OpenCode.csproj" />
+    <Project Path="src/Chargehand/Chargehand.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Chargehand.Tests/Chargehand.Tests.csproj" />
+  </Folder>
+</Solution>
