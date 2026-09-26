@@ -1,6 +1,7 @@
 using Chargehand.Budget;
 using Chargehand.Contracts;
 using Chargehand.Nodes;
+using Chargehand.Prompts;
 using Chargehand.Runtime;
 using Chargehand.Verification;
 
@@ -19,6 +20,12 @@ public class WorkerNodeTests
         public Queue<PermissionRequest> Pending { get; } = new();
         public bool HangOnce { get; set; }
         public int Interrupts { get; private set; }
+        public int Compactions { get; private set; }
+        public List<string> Forked { get; } = [];
+        private TaskCompletionSource _interrupted = new();
+
+        /// <summary>Messages already in the session (newest first), e.g. to drive the watcher while a turn hangs.</summary>
+        public List<WorkerMessage> Log => _messages;
 
         public Task<WorkerSession> CreateAsync(NodeSpec spec, CancellationToken ct) => Task.FromResult(new WorkerSession("ses_1", spec.Directory));
 
@@ -33,6 +40,7 @@ public class WorkerNodeTests
         public Task SubmitAsync(string sessionId, string text, CancellationToken ct)
         {
             Prompts.Add(text);
+            _messages.Insert(0, new WorkerMessage($"usr_{Prompts.Count}", WorkerMessageKind.User, DateTimeOffset.UtcNow, text, null));
             return Task.CompletedTask;
         }
 
@@ -41,7 +49,8 @@ public class WorkerNodeTests
             if (HangOnce)
             {
                 HangOnce = false;
-                await Task.Delay(Timeout.Infinite, ct);
+                await _interrupted.Task.WaitAsync(ct);
+                return IdleOutcome.Interrupted;
             }
             var now = DateTimeOffset.UtcNow.AddSeconds(_messages.Count);
             _messages.Insert(0, new WorkerMessage($"msg_{_messages.Count}", WorkerMessageKind.Assistant, now, _replies.Dequeue(),
@@ -52,6 +61,7 @@ public class WorkerNodeTests
         public Task InterruptAsync(string sessionId, CancellationToken ct)
         {
             Interrupts++;
+            _interrupted.TrySetResult();
             return Task.CompletedTask;
         }
 
@@ -66,8 +76,17 @@ public class WorkerNodeTests
             return Task.CompletedTask;
         }
 
-        public Task<WorkerSession> ForkAsync(string sessionId, string? beforeMessageId, CancellationToken ct) => throw new NotSupportedException();
-        public Task CompactAsync(string sessionId, CancellationToken ct) => throw new NotSupportedException();
+        public Task<WorkerSession> ForkAsync(string sessionId, string? beforeMessageId, CancellationToken ct)
+        {
+            Forked.Add($"{sessionId}@{beforeMessageId}");
+            return Task.FromResult(new WorkerSession("ses_fork", "/w/repo"));
+        }
+
+        public Task CompactAsync(string sessionId, CancellationToken ct)
+        {
+            Compactions++;
+            return Task.CompletedTask;
+        }
         public Task<IReadOnlyList<FileDiff>> DiffAsync(string sessionId, CancellationToken ct) => Task.FromResult<IReadOnlyList<FileDiff>>([]);
         public Task<string> GenerateAsync(ModelRef model, string prompt, CancellationToken ct) => throw new NotSupportedException();
     }
@@ -89,10 +108,15 @@ public class WorkerNodeTests
         ```
         """;
 
+    private static readonly (string, string)[] Entries = [("chargehand-core", "core"), ("chargehand-preset", "preset")];
+
+    private static WorkerMessage BigCall() =>
+        new("msg_big", WorkerMessageKind.Assistant, DateTimeOffset.UtcNow, "", new TokenCounts(3, 10, 0, 5000, 200), DateTimeOffset.UtcNow, "p/m");
+
     private static NodeRequest Request(TimeSpan? deadline = null) => new(
         "run-1", "worker", new string('0', 32),
         new NodeSpec("/w/repo", "build", new ModelRef("p", "m"), [], new Dictionary<string, string>()),
-        [("chargehand-core", "core"), ("chargehand-preset", "preset")],
+        Entries,
         "Task text",
         new PromptChain([], new AsSent("2.0.16", "build", "p/m", "2026-09-26")),
         "/w/repo", "abc1234", [], "", 1.00m, deadline ?? TimeSpan.FromMinutes(1));
@@ -161,5 +185,56 @@ public class WorkerNodeTests
         rt.Pending.Enqueue(new PermissionRequest("per_1", "edit", ["README.md"]));
         await Node(rt).RunAsync(Request(TimeSpan.FromMilliseconds(200)), CancellationToken.None);
         Assert.Equal([("per_1", PermissionDecision.Reject)], rt.Answers);
+    }
+
+    [Fact]
+    public async Task Input_token_budget_interrupts_the_node()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true };
+        rt.Log.Add(BigCall());
+        var r = await Node(rt).RunAsync(Request(TimeSpan.FromSeconds(30)) with { MaxInputTokens = 1000 }, CancellationToken.None);
+        Assert.Equal(1, rt.Interrupts);
+        Assert.Equal(IdleOutcome.Interrupted, r.Outcome);
+        Assert.Equal(ResultStatus.Failed, r.Contract.Status);
+    }
+
+    [Fact]
+    public async Task Context_above_the_trigger_compacts_once_per_call()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true };
+        rt.Log.Add(BigCall());
+        await Node(rt).RunAsync(Request(TimeSpan.FromMilliseconds(300)) with { CompactAtTokens = 1000 }, CancellationToken.None);
+        Assert.Equal(1, rt.Compactions);
+    }
+
+    [Fact]
+    public async Task First_node_offers_a_fork_point_before_its_first_message()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5"));
+        var primed = new TaskCompletionSource<ForkPoint?>();
+        await Node(rt).RunAsync(Request(), CancellationToken.None, primed);
+        var point = await primed.Task;
+        Assert.Equal(new ForkPoint("ses_1", "usr_1", PromptChains.InstructionsSha256(Entries)), point);
+    }
+
+    [Fact]
+    public async Task Node_with_the_same_instructions_forks_and_sets_none()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5"));
+        var fork = new ForkPoint("ses_base", "usr_base", PromptChains.InstructionsSha256(Entries));
+        var r = await Node(rt).RunAsync(Request() with { Fork = fork }, CancellationToken.None);
+        Assert.Equal(["ses_base@usr_base"], rt.Forked);
+        Assert.Empty(rt.Instructions);
+        Assert.Equal("ses_base", r.ForkedFrom);
+    }
+
+    [Fact]
+    public async Task Node_with_other_instructions_gets_a_fresh_session()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5"));
+        var r = await Node(rt).RunAsync(Request() with { Fork = new ForkPoint("ses_base", "usr_base", new string('a', 64)) }, CancellationToken.None);
+        Assert.Empty(rt.Forked);
+        Assert.Equal(2, rt.Instructions.Count);
+        Assert.Null(r.ForkedFrom);
     }
 }

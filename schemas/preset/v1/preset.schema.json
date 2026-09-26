@@ -66,18 +66,19 @@
           "additionalProperties": false,
           "required": ["max_input_tokens", "max_usd"],
           "properties": {
-            "max_input_tokens": { "type": "integer", "minimum": 1 },
+            "max_input_tokens": { "type": "integer", "minimum": 1, "description": "Prompt tokens summed over the node's calls; the node is interrupted above it." },
             "max_usd": { "type": "number", "exclusiveMinimum": 0 }
           }
         },
         "compaction": {
           "type": "object",
           "additionalProperties": false,
-          "description": "OpenCode V2 compaction keys.",
+          "description": "OpenCode V2 compaction keys (server-wide) plus the orchestrator's own trigger.",
           "properties": {
             "auto": { "type": "boolean" },
             "keep_tokens": { "type": "integer", "minimum": 0, "description": "maps to compaction.keep.tokens" },
-            "buffer": { "type": "integer", "minimum": 0 }
+            "buffer": { "type": "integer", "minimum": 0 },
+            "trigger_tokens": { "type": "integer", "minimum": 1, "description": "The orchestrator compacts the session once a call's context exceeds this (OpenCode 2.0.16 takes no compaction settings per session; the other keys describe the server config)." }
           }
         }
       }

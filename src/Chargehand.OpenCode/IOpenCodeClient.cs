@@ -27,6 +27,7 @@ public interface IOpenCodeClient
 
     Task<SessionInfo> ForkAsync(string sessionId, string? beforeMessageId, CancellationToken ct);
 
+    /// <summary>Steered: runs after the current step, even mid-turn; the turn then continues (spike, 2.0.16).</summary>
     Task CompactAsync(string sessionId, CancellationToken ct);
 
     Task<IReadOnlyList<JsonElement>> PermissionsAsync(string sessionId, CancellationToken ct);

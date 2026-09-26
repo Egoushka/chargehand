@@ -29,7 +29,13 @@ plus the permission ruleset passed at session creation, with budgets enforced by
 
 ## Decision
 
-- `preset/v1` (`schemas/preset/v1`); files in `presets/<name>.yaml`; v0 ships `default` only.
+- `preset/v1` (`schemas/preset/v1`); files in `presets/<name>.yaml`. v0 shipped `default`; phase 4 adds `cheap`,
+  `thorough` and `strict`, all read-only until worktrees exist (ADR 0015). Their critic has no writing node to
+  review yet.
+- Compaction: session create takes no compaction settings (phase 4 spike), so `auto`, `keep_tokens` and `buffer`
+  describe the server config; the orchestrator enforces `trigger_tokens` and `max_input_tokens` itself (ADR 0010).
+- `approval` stops a run with `needs_input` above its risk or estimate threshold unless the request sets
+  `context.approved`.
 - Rulesets are ordered, last match wins; write the broad rule first, then exceptions.
 - Every preset denies reading `*.env` and `*.env.*` (allowing `*.env.example`), and any shell allowlist entry that
   could bypass `.gitignore` (`rg --no-ignore`, `rg -u`). Shell tools that read files are a residual path around

@@ -9,6 +9,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- v1 (roadmap phase 4): `split` runs 2–4 read-only subtasks as a task graph (`SplitPlan`, `GraphRunner`): at most
+  2 nodes at once, upstream contracts passed to dependents, a failed node stops its dependents only. Later nodes
+  fork the first node's session before its first message and read its system prefix from cache (ADR 0017). Node
+  contracts merge deterministically, evidence ids prefixed with the node id.
+- Actions `deny` (status `denied`, reason, unblock condition), `ask` (`needs_input` with questions) and `improve`
+  (`needs_input`, improved request plus an inline diff artifact). An action the preset does not allow runs as
+  `answer`; the run log records intake's action and the executed one.
+- Presets `cheap` 0.1.0, `thorough` 0.1.0 and `strict` 0.1.0 (read-only; `strict` asks for approval above risk
+  `low` or an estimate above $0.50) with prompt blocks `preset/cheap`, `preset/thorough`, `preset/strict` 0.1.0.
+- Per-node budgets: the watcher interrupts a node above `budget.max_input_tokens` and compacts (steered, mid-turn)
+  above the new optional `compaction.trigger_tokens` in `preset/v1`.
+- `request/v1`: optional `context.approved` to run past a preset's approval thresholds.
+- Intake prompt 0.2.0 says when to split.
+
 - v0: one request, one worker, traced (roadmap phase 3). `chargehand run` reads `request/v1`, runs intake
   (Task Spec via OpenCode's stateless generate; only `answer` executes, the chosen action is logged), runs one
   worker session on the orchestrator's own OpenCode server and returns `result/v1`.

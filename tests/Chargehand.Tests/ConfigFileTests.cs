@@ -21,6 +21,20 @@ public class ConfigFileTests
         Assert.DoesNotContain("\"always\"", json.GetRawText(), StringComparison.Ordinal);
     }
 
+    /// <summary>ADR 0006: every preset denies secret files and shell reads that bypass .gitignore, after its broad allow.</summary>
+    [Theory]
+    [MemberData(nameof(Presets))]
+    public void Shipped_presets_deny_secrets(string file)
+    {
+        var preset = Chargehand.Config.Preset.Load(Repo.Path("presets"), file[..^5]);
+        foreach (var kind in preset.NodeKinds.Values)
+        {
+            var rules = kind.Permissions.Select(p => $"{p.Action} {p.Resource} {p.Effect}").ToList();
+            foreach (var required in new[] { "read *.env deny", "read *.env.* deny", "shell rg *--no-ignore* deny", "shell rg * -u* deny" })
+                Assert.True(rules.LastIndexOf(required) > rules.IndexOf("* * allow"), $"{file}: '{required}' missing or before the broad allow");
+        }
+    }
+
     [Fact]
     public void Example_profile_validates()
     {

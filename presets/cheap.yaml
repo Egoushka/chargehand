@@ -1,0 +1,36 @@
+# cheap (ADR 0006): small-model workers, no critic.
+# Read-only in v1: nodes that write need their own worktree (ADR 0015), which is not built yet. Last matching
+# permission rule wins; a trailing "<action> * deny" removes that tool from the worker's catalog entirely.
+schema: preset/v1
+name: cheap
+version: 0.1.0
+allowed_actions: [answer, split, improve, ask, deny]
+node_kinds:
+  worker:
+    model: provider/small-model
+    opencode_agent: build
+    permissions:
+      - { action: "*", resource: "*", effect: allow }
+      - { action: edit, resource: "*", effect: deny }
+      # Secrets: a leading "* * allow" overrides the agent's own ask-before-reading-.env rules, so deny them
+      # here. Deny (not ask): a rejected ask aborts the worker's whole step in OpenCode 2.0.16.
+      - { action: read, resource: "*.env", effect: deny }
+      - { action: read, resource: "*.env.*", effect: deny }
+      - { action: read, resource: "*.env.example", effect: allow }
+      - { action: shell, resource: "*", effect: deny }
+      - { action: shell, resource: "git log*", effect: allow }
+      - { action: shell, resource: "git show*", effect: allow }
+      - { action: shell, resource: "git grep*", effect: allow }
+      - { action: shell, resource: "ls*", effect: allow }
+      - { action: shell, resource: "rg *", effect: allow }
+      - { action: shell, resource: "rg *--pre*", effect: deny }
+      - { action: shell, resource: "rg *--no-ignore*", effect: deny }
+      - { action: shell, resource: "rg * -u*", effect: deny }
+      - { action: webfetch, resource: "*", effect: deny }
+      - { action: external_directory, resource: "*", effect: deny }
+      - { action: question, resource: "*", effect: deny }
+      - { action: subagent, resource: "*", effect: deny }
+    budget: { max_input_tokens: 400000, max_usd: 0.25 }
+    compaction: { auto: true, keep_tokens: 15000, buffer: 120000, trigger_tokens: 60000 }
+critic: { enabled: false }
+approval: { ask_above_usd: 0.25 }

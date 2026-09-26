@@ -15,6 +15,8 @@ public interface IRunLog
 
 /// <param name="Tokens">Null for calls whose usage OpenCode does not report (intake via generate).</param>
 /// <param name="Usd">Priced with the profile's table; null when tokens are unknown.</param>
+/// <param name="ForkedFrom">The session this call's session was forked from, if any (cache report).</param>
+/// <param name="Instructions">The node's instruction entries by key, hashed, in the order they were set (cache report).</param>
 public sealed record CallRecord(
     string RunId,
     string NodeId,
@@ -26,13 +28,18 @@ public sealed record CallRecord(
     double LatencyMs,
     TokenCounts? Tokens,
     decimal? Usd,
-    PromptChain PromptChain)
+    PromptChain PromptChain,
+    string? ForkedFrom = null,
+    IReadOnlyList<InstructionRef>? Instructions = null)
 {
     public long? PromptTokens => Tokens is null ? null : Tokens.Input + Tokens.CacheRead + Tokens.CacheWrite;
 
     public double? CacheRate => Tokens is null || PromptTokens == 0 ? null : (double)Tokens.CacheRead / PromptTokens!.Value;
 }
 
+public sealed record InstructionRef(string Key, string Sha256);
+
+/// <param name="ExecutedAction">What ran: intake's action, or "answer" when the preset or the split plan did not allow it.</param>
 public sealed record RunRecord(
     string RunId,
     DateTimeOffset Started,
@@ -40,4 +47,5 @@ public sealed record RunRecord(
     string Preset,
     string? IntakeAction,
     TaskSpec? Spec,
-    ResultContract Result);
+    ResultContract Result,
+    string? ExecutedAction = null);
