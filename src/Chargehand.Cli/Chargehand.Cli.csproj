@@ -7,6 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
     <ProjectReference Include="..\Chargehand.OpenCode\Chargehand.OpenCode.csproj" />
+    <ProjectReference Include="..\Chargehand.Server\Chargehand.Server.csproj" />
   </ItemGroup>
 
   <ItemGroup>

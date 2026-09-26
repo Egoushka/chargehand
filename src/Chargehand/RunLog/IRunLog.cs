@@ -1,16 +1,46 @@
+using System.Diagnostics;
 using Chargehand.Contracts;
 using Chargehand.Runtime;
 
 namespace Chargehand.RunLog;
 
-/// <summary>Append-only record of runs and model calls; joined to gateway spend afterwards (ADR 0011, ADR 0012).</summary>
+/// <summary>
+/// Append-only record of runs and model calls; joined to gateway spend afterwards (ADR 0011, ADR 0012). It is also
+/// the run store the CLI and the HTTP interface share (ADR 0018): a start record without a run record is a run that
+/// has not finished.
+/// </summary>
 public interface IRunLog
 {
+    Task AppendAsync(StartRecord record, CancellationToken ct);
+
     Task AppendAsync(CallRecord record, CancellationToken ct);
 
     Task AppendAsync(RunRecord record, CancellationToken ct);
 
-    Task<(RunRecord? Run, IReadOnlyList<CallRecord> Calls)> ReadAsync(string runId, CancellationToken ct);
+    Task<RunEntry> ReadAsync(string runId, CancellationToken ct);
+}
+
+/// <summary>Everything the log holds for one run.</summary>
+public sealed record RunEntry(StartRecord? Start, RunRecord? Run, IReadOnlyList<CallRecord> Calls);
+
+/// <summary>Written when a run starts: the request as received and the process that runs it.</summary>
+/// <param name="ParentRunId">The run this one resends with answers (MCP input_required), if any.</param>
+public sealed record StartRecord(string RunId, DateTimeOffset Started, string TraceId, RunRequest Request, int Pid, string? ParentRunId = null)
+{
+    /// <summary>Whether the process that runs it still exists; without a run record, a dead owner means a lost run.</summary>
+    public bool OwnerAlive()
+    {
+        // ponytail: a reused pid reads as alive; record a process start time too if that ever matters.
+        try
+        {
+            using var p = Process.GetProcessById(Pid);
+            return !p.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
 }
 
 /// <param name="Tokens">Null for calls whose usage OpenCode does not report (intake via generate).</param>
@@ -49,3 +79,6 @@ public sealed record RunRecord(
     TaskSpec? Spec,
     ResultContract Result,
     string? ExecutedAction = null);
+
+/// <summary>A score for a run, 0 to 1: from an eval (source "eval:&lt;name&gt;") or by hand (source "hand").</summary>
+public sealed record ScoreRecord(string RunId, string Name, double Value, DateTimeOffset At, string Source);

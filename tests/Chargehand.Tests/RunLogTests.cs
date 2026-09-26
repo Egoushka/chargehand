@@ -1,0 +1,54 @@
+using Chargehand.Contracts;
+using Chargehand.RunLog;
+
+namespace Chargehand.Tests;
+
+/// <summary>The run log as the run store the CLI and the server share (ADR 0018).</summary>
+public class RunLogTests
+{
+    private static StartRecord Start(string id, int pid) =>
+        new(id, DateTimeOffset.UtcNow, new string('0', 32), new RunRequest("request/v1", "t", new RequestContext(false, "cheap")), pid);
+
+    [Fact]
+    public async Task A_start_without_a_run_record_is_unfinished_and_names_its_process()
+    {
+        using var dir = new TempDir();
+        var log = new JsonlRunLog(System.IO.Path.Combine(dir.Path, "log.jsonl"));
+        await log.AppendAsync(Start("run-a", Environment.ProcessId), CancellationToken.None);
+        await log.AppendAsync(Start("run-b", int.MaxValue), CancellationToken.None);
+
+        var a = await log.ReadAsync("run-a", CancellationToken.None);
+        Assert.Null(a.Run);
+        Assert.Equal("t", a.Start!.Request.Text);
+        Assert.True(a.Start.OwnerAlive());
+        Assert.False((await log.ReadAsync("run-b", CancellationToken.None)).Start!.OwnerAlive());
+    }
+
+    [Fact]
+    public async Task A_line_still_being_written_is_skipped()
+    {
+        using var dir = new TempDir();
+        var path = System.IO.Path.Combine(dir.Path, "log.jsonl");
+        var log = new JsonlRunLog(path);
+        await log.AppendAsync(Start("run-a", Environment.ProcessId), CancellationToken.None);
+        await File.AppendAllTextAsync(path, """{"run_id":"run-a","type":"ru""");
+
+        Assert.NotNull((await log.ReadAsync("run-a", CancellationToken.None)).Start);
+    }
+
+    [Fact]
+    public async Task Writers_on_one_file_keep_every_line_whole()
+    {
+        using var dir = new TempDir();
+        var path = System.IO.Path.Combine(dir.Path, "log.jsonl");
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(w => Task.Run(async () =>
+        {
+            var log = new JsonlRunLog(path);
+            for (var i = 0; i < 25; i++)
+                await log.AppendAsync(new ScoreRecord($"run-{w}-{i}", "quality", 0.5, DateTimeOffset.UtcNow, "test"), CancellationToken.None);
+        })));
+
+        var all = await new JsonlRunLog(path).ReadAllAsync(CancellationToken.None);
+        Assert.Equal(200, all.Scores.Select(s => s.RunId).Distinct().Count());
+    }
+}

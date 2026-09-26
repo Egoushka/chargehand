@@ -18,6 +18,10 @@
     "public_key_secret": "chargehand-langfuse-public-key",
     "secret_key_secret": "chargehand-langfuse-secret-key"
   },
+  "http": {
+    "port": 4300,
+    "api_key_secret": "chargehand-api-key"
+  },
   "memory": {
     "backend": "hindsight",
     "url": "http://memory.example.internal:8888",

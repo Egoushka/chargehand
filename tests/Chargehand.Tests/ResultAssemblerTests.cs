@@ -100,4 +100,32 @@ public class ResultAssemblerTests
         Assert.Equal(["e1"], moved.Claims[0].Evidence);
         Assert.Single(moved.Evidence);
     }
+
+    [Fact]
+    public void Inline_artifacts_carry_the_orchestrators_hash_of_their_content()
+    {
+        var block = $$"""
+            ```json
+            {"status":"completed","summary":"s","claims":[],"evidence":[],
+             "artifacts":[{"kind":"draft","media_type":"text/markdown","sha256":"{{Hash}}","content":"Hi."}],"open_questions":[],"confidence":0.5}
+            ```
+            """;
+        var artifact = Assert.Single(ResultAssembler.Assemble(block, Envelope()).Contract!.Artifacts);
+        Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData("Hi."u8)), artifact.Sha256);
+    }
+
+    [Fact]
+    public void Inline_content_is_bounded_in_bytes_not_characters()
+    {
+        var content = new string('\u00e9', 40_000); // 40,000 characters, 80,000 UTF-8 bytes
+        var block = $$"""
+            ```json
+            {"status":"completed","summary":"s","claims":[],"evidence":[],
+             "artifacts":[{"kind":"draft","media_type":"text/markdown","content":"{{content}}"}],"open_questions":[],"confidence":0.5}
+            ```
+            """;
+        var outcome = ResultAssembler.Assemble(block, Envelope());
+        Assert.Null(outcome.Contract);
+        Assert.Contains("80000 bytes", Assert.Single(outcome.Errors), StringComparison.Ordinal);
+    }
 }

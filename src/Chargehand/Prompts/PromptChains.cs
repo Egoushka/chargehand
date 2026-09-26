@@ -14,7 +14,7 @@ public static class PromptChains
 
     /// <summary>A caller's block must hash to what it claims, or the recorded chain would lie.</summary>
     public static PromptBlock VerifyCallerBlock(PromptBlock block) =>
-        PromptText.Sha256(block.Text) == block.Sha256
+        PromptBlock.Hash(block.Text) == block.Sha256
             ? block
             : throw new InvalidDataException($"caller block '{block.Name}': sha256 does not match its text.");
 

@@ -9,9 +9,9 @@ public class PromptChainTests
     [Fact]
     public void Hash_ignores_line_endings_and_trailing_whitespace()
     {
-        Assert.Equal(PromptText.Sha256("a  \nb\n"), PromptText.Sha256("a\r\nb   \r\n"));
-        Assert.NotEqual(PromptText.Sha256("a\nb"), PromptText.Sha256("a\nc"));
-        Assert.Matches("^[0-9a-f]{64}$", PromptText.Sha256("x"));
+        Assert.Equal(PromptBlock.Hash("a  \nb\n"), PromptBlock.Hash("a\r\nb   \r\n"));
+        Assert.NotEqual(PromptBlock.Hash("a\nb"), PromptBlock.Hash("a\nc"));
+        Assert.Matches("^[0-9a-f]{64}$", PromptBlock.Hash("x"));
     }
 
     [Fact]
@@ -22,7 +22,7 @@ public class PromptChainTests
         var block = new PromptRegistry(dir.Path).Get("core/worker");
         Assert.Equal("1.2.0", block.Version);
         Assert.Equal("Be brief.\n", block.Text);
-        Assert.Equal(PromptText.Sha256("Be brief.\n"), block.Sha256);
+        Assert.Equal(PromptBlock.Hash("Be brief.\n"), block.Sha256);
     }
 
     [Fact]
@@ -37,9 +37,9 @@ public class PromptChainTests
     public void Caller_blocks_are_verified_and_recorded_as_caller()
     {
         var text = "Write in first person.";
-        var caller = new PromptBlock("generator/update", "1.0.0", PromptText.Sha256(text), text);
+        var caller = new PromptBlock("generator/update", "1.0.0", PromptBlock.Hash(text), text);
         var chain = PromptChains.Build(
-            [(new PromptBlock("core/worker", "0.1.0", PromptText.Sha256("c"), "c"), BlockSource.Registry), (caller, BlockSource.Caller)],
+            [(new PromptBlock("core/worker", "0.1.0", PromptBlock.Hash("c"), "c"), BlockSource.Registry), (caller, BlockSource.Caller)],
             new AsSent("2.0.16", "build", "p/m", "2026-09-26"));
         Assert.Equal(["core/worker", "generator/update"], chain.Blocks.Select(b => b.Name));
         Assert.Equal(BlockSource.Caller, chain.Blocks[1].Source);

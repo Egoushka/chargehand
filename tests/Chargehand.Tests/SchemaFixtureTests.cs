@@ -32,6 +32,7 @@ public class SchemaFixtureTests
     [InlineData("task-spec/v1", "urn:chargehand:schema:task-spec:v1")]
     [InlineData("result/v1", "urn:chargehand:schema:result:v1")]
     [InlineData("preset/v1", "urn:chargehand:schema:preset:v1")]
+    [InlineData("run-status/v1", "urn:chargehand:schema:run-status:v1")]
     public void Embedded_schema_carries_its_major_in_the_id(string name, string id)
     {
         using var doc = JsonDocument.Parse(ContractSchemas.Text(name));

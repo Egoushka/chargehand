@@ -10,6 +10,7 @@ public class ContractTypeTests
     [InlineData("result/v1", typeof(ResultContract))]
     [InlineData("request/v1", typeof(RunRequest))]
     [InlineData("task-spec/v1", typeof(TaskSpec))]
+    [InlineData("run-status/v1", typeof(RunStatus))]
     public void Valid_fixtures_round_trip_through_the_types(string schema, Type type)
     {
         var parts = schema.Split('/');
