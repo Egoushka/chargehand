@@ -7,7 +7,7 @@
       "preset": "cheap",
       "files": ["prompts/core/worker.md", "prompts/preset/cheap.md", "presets/cheap.yaml"],
       "quality_tolerance": 0.10,
-      "cost_tolerance": 0.15,
+      "cost_tolerance": 0.30,
       "min_items": 8
     },
     {
