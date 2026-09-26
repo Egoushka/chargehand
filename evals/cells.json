@@ -1,0 +1,34 @@
+{
+  "cells": [
+    {
+      "name": "cheap/worker",
+      "dataset": "chargehand-cheap-worker",
+      "kind": "worker",
+      "preset": "cheap",
+      "files": ["prompts/core/worker.md", "prompts/preset/cheap.md", "presets/cheap.yaml"],
+      "quality_tolerance": 0.10,
+      "cost_tolerance": 0.15,
+      "min_items": 8
+    },
+    {
+      "name": "draft/draft",
+      "dataset": "chargehand-draft-draft",
+      "kind": "draft",
+      "preset": "draft",
+      "files": ["prompts/core/draft.md", "prompts/preset/draft.md", "presets/draft.yaml"],
+      "quality_tolerance": 0.10,
+      "cost_tolerance": 0.15,
+      "min_items": 8
+    },
+    {
+      "name": "intake",
+      "dataset": "chargehand-intake",
+      "kind": "intake",
+      "preset": null,
+      "files": ["prompts/intake/task-spec.md"],
+      "quality_tolerance": 0.10,
+      "cost_tolerance": 0.15,
+      "min_items": 8
+    }
+  ]
+}

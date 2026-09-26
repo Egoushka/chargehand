@@ -1,0 +1,35 @@
+name: prompt-ci
+
+# Prompt CI runs on the owner's machine (ADR 0019): evals need the loopback OpenCode server and private eval items, and
+# no model, gateway or Langfuse key lives in GitHub. This job only settles the required "prompt-ci" status for pull
+# requests that change no prompt or preset. On a fork's pull request the token is read-only, so the status post fails
+# and the owner's local run (scripts/prompt-ci.sh) decides.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  no-prompt-change:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Mark prompt-ci passed when no prompt or preset changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if git diff --name-only "$BASE...$HEAD" | grep -qE '^(prompts|presets)/'; then
+            echo "Prompts or presets changed: the owner runs scripts/prompt-ci.sh $PR locally."
+            exit 0
+          fi
+          gh api -X POST "repos/$REPO/statuses/$HEAD" -f state=success -f context=prompt-ci \
+            -f description="no prompt or preset change" \
+            || echo "Read-only token (a fork's pull request): the owner's local run posts prompt-ci."
