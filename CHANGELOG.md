@@ -26,6 +26,10 @@ All notable changes to this project are documented here. The format follows
   entry, prompt block or as-sent field that differs where a prefix should have been shared (the previous call, or
   the node it forked or could have forked); a checklist for breakers outside the prompt chain. Call records now
   carry the fork parent and the hashed instruction entries.
+- Memory provider `IMemoryProvider` (recall, retain, invalidate; scope = backend + namespace) with one adapter for a
+  self-hosted Hindsight service (HTTP API 0.10.0). Optional profile `memory`: an executed run recalls facts for the
+  request once and appends them to each node's prompt text as unverified context (chain block `memory/recall`,
+  source `runtime`); a failed recall leaves the run without them. `retain` (off by default) stores completed runs.
 
 - v0: one request, one worker, traced (roadmap phase 3). `chargehand run` reads `request/v1`, runs intake
   (Task Spec via OpenCode's stateless generate; only `answer` executes, the chosen action is logged), runs one

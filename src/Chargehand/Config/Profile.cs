@@ -17,7 +17,8 @@ public sealed record Profile(
     decimal RunCapUsd = 1.00m,
     string RunLog = "runs/run-log.jsonl",
     TelemetrySettings? Telemetry = null,
-    IReadOnlyDictionary<string, string>? Models = null)
+    IReadOnlyDictionary<string, string>? Models = null,
+    MemorySettings? Memory = null)
 {
     public static readonly JsonSerializerOptions Json = new()
     {
@@ -50,5 +51,7 @@ public sealed record Profile(
 }
 
 public sealed record OpenCodeSettings(string Url, string PasswordSecret, string Version, string? Binary = null);
+
+public sealed record MemorySettings(string Backend, string Url, string Namespace, string? ApiKeySecret = null, int MaxTokens = 1024, bool Retain = false);
 
 public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecret, string SecretKeySecret);

@@ -18,6 +18,12 @@
     "public_key_secret": "chargehand-langfuse-public-key",
     "secret_key_secret": "chargehand-langfuse-secret-key"
   },
+  "memory": {
+    "backend": "hindsight",
+    "url": "http://memory.example.internal:8888",
+    "namespace": "chargehand",
+    "retain": false
+  },
   "prices": {
     "provider/small-model": {
       "input": 0.1,
@@ -33,6 +39,8 @@
     }
   },
   "models": {
-    "provider/worker-model": "provider/large-model"
+    "provider/worker-model": "provider/large-model",
+    "provider/small-model": "provider/small-model",
+    "provider/critic-model": "provider/large-model"
   }
 }
