@@ -17,6 +17,7 @@ const string Usage = """
       run                          reads request/v1 on stdin, writes result/v1 on stdout
       show <run-id>                prints a run and its calls from the run log
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
+      cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
       prompts sync                 pushes prompt blocks to Langfuse prompt management
     Paths (prompts/, presets/, the run log) are relative to the current directory.
     """;
@@ -30,7 +31,7 @@ if (argv.Count >= 2 && argv[0] == "--profile")
     profilePath = argv[1];
     argv.RemoveRange(0, 2);
 }
-if (argv.Count == 0 || argv[0] is not ("run" or "show" or "reconcile" or "prompts"))
+if (argv.Count == 0 || argv[0] is not ("run" or "show" or "reconcile" or "cache" or "prompts"))
 {
     Console.Error.WriteLine(Usage);
     return 2;
@@ -51,6 +52,10 @@ switch (argv)
         return await Show(id);
     case ["reconcile", var id]:
         return await Reconcile(id);
+    case ["cache", var id]:
+        var (_, calls) = await runLog.ReadAsync(id, ct);
+        Console.Write(CacheReport.Build(calls));
+        return calls.Count == 0 ? 1 : 0;
     case ["prompts", "sync"]:
         return await SyncPrompts();
     default:
