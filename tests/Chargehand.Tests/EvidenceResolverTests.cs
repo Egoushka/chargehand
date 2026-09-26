@@ -83,5 +83,7 @@ public sealed class EvidenceResolverTests : IDisposable
             new Evidence("u", EvidenceKind.Url, "https://example.com/never-seen"),
             new Evidence("d", EvidenceKind.Diff, "src/other.py"));
         Assert.Equal(["c", "m", "i", "u", "d"], failures.Select(f => f.EvidenceId));
+        // The repair turn names the ids that do exist, so a worker can correct a mangled locator.
+        Assert.Contains("(input ids: fact-1)", failures.Single(f => f.EvidenceId == "i").Reason, StringComparison.Ordinal);
     }
 }

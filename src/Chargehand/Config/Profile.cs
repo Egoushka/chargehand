@@ -18,7 +18,8 @@ public sealed record Profile(
     string RunLog = "runs/run-log.jsonl",
     TelemetrySettings? Telemetry = null,
     IReadOnlyDictionary<string, string>? Models = null,
-    MemorySettings? Memory = null)
+    MemorySettings? Memory = null,
+    HttpSettings? Http = null)
 {
     public static readonly JsonSerializerOptions Json = new()
     {
@@ -55,3 +56,6 @@ public sealed record OpenCodeSettings(string Url, string PasswordSecret, string 
 public sealed record MemorySettings(string Backend, string Url, string Namespace, string? ApiKeySecret = null, int MaxTokens = 1024, bool Retain = false);
 
 public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecret, string SecretKeySecret);
+
+/// <summary>chargehand serve (ADR 0018): a loopback port, and the secret-store item holding the API key callers send.</summary>
+public sealed record HttpSettings(string ApiKeySecret, int Port = 4300);

@@ -1,0 +1,19 @@
+# draft (ADR 0018): a program caller's draft built from its own inputs, e.g. the content engine's generator. No
+# repository and no tools: the node runs in an empty directory under worker_root, and a single "* * deny" removes
+# every tool from the worker's catalog. Claims cite the caller's inputs (evidence kind input); the draft is an inline
+# artifact whose sha256 the orchestrator computes.
+schema: preset/v1
+name: draft
+version: 0.1.0
+allowed_actions: [answer, deny]
+node_kinds:
+  draft:
+    model: provider/small-model
+    opencode_agent: build
+    checkout: false
+    permissions:
+      - { action: "*", resource: "*", effect: deny }
+    budget: { max_input_tokens: 60000, max_usd: 0.05 }
+critic: { enabled: false }
+# No approval thresholds: intake estimates are uncalibrated and gate nothing yet (ADR 0005).
+approval: {}

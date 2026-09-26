@@ -30,6 +30,12 @@ public class ConfigFileTests
         foreach (var kind in preset.NodeKinds.Values)
         {
             var rules = kind.Permissions.Select(p => $"{p.Action} {p.Resource} {p.Effect}").ToList();
+            // A preset without a broad allow (draft: every tool denied) must allow nothing at all.
+            if (!rules.Contains("* * allow"))
+            {
+                Assert.DoesNotContain(kind.Permissions, p => p.Effect == "allow");
+                continue;
+            }
             foreach (var required in new[] { "read *.env deny", "read *.env.* deny", "shell rg *--no-ignore* deny", "shell rg * -u* deny" })
                 Assert.True(rules.LastIndexOf(required) > rules.IndexOf("* * allow"), $"{file}: '{required}' missing or before the broad allow");
         }

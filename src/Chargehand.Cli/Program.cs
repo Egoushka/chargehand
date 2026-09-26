@@ -8,6 +8,8 @@ using Chargehand.Memory;
 using Chargehand.OpenCode;
 using Chargehand.Prompts;
 using Chargehand.RunLog;
+using Chargehand.Server;
+using Microsoft.Extensions.Hosting;
 using OpenTelemetry;
 using OpenTelemetry.Exporter;
 using OpenTelemetry.Resources;
@@ -16,6 +18,7 @@ using OpenTelemetry.Trace;
 const string Usage = """
     usage: chargehand [--profile profiles/local.json] <command>
       run                          reads request/v1 on stdin, writes result/v1 on stdout
+      serve                        HTTP /v1/runs and MCP /v1/mcp on 127.0.0.1 (profile http)
       show <run-id>                prints a run and its calls from the run log
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
       cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
@@ -32,7 +35,7 @@ if (argv.Count >= 2 && argv[0] == "--profile")
     profilePath = argv[1];
     argv.RemoveRange(0, 2);
 }
-if (argv.Count == 0 || argv[0] is not ("run" or "show" or "reconcile" or "cache" or "prompts"))
+if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "show" or "reconcile" or "cache" or "prompts"))
 {
     Console.Error.WriteLine(Usage);
     return 2;
@@ -49,12 +52,14 @@ switch (argv)
 {
     case ["run"]:
         return await Run();
+    case ["serve"]:
+        return await Serve();
     case ["show", var id]:
         return await Show(id);
     case ["reconcile", var id]:
         return await Reconcile(id);
     case ["cache", var id]:
-        var (_, calls) = await runLog.ReadAsync(id, ct);
+        var calls = (await runLog.ReadAsync(id, ct)).Calls;
         Console.Write(CacheReport.Build(calls));
         return calls.Count == 0 ? 1 : 0;
     case ["prompts", "sync"]:
@@ -77,12 +82,8 @@ async Task<int> Run()
     var request = doc.RootElement.Deserialize<RunRequest>(ContractJson.Options)!;
 
     using var tracing = Tracing();
-    var client = new OpenCodeClient(new HttpClient { BaseAddress = new Uri(profile.Opencode.Url) }, profile.Secret(profile.Opencode.PasswordSecret));
-    var runtime = await OpenCodeWorkerRuntime.ConnectAsync(client, profile.Opencode.Version, ct);
-    var memory = profile.Memory is { } m
-        ? new HindsightMemory(new HttpClient { BaseAddress = new Uri(m.Url), Timeout = TimeSpan.FromSeconds(30) }, m.ApiKeySecret is null ? null : profile.Secret(m.ApiKeySecret), m.MaxTokens)
-        : null;
-    var orchestrator = new Orchestrator(profile, runtime, runtime.Version, root, runLog, await PromptVersions(), memory);
+    var runtime = await Connect();
+    var orchestrator = new Orchestrator(profile, runtime, runtime.Version, root, runLog, await PromptVersions(), Memory());
     var result = await orchestrator.RunAsync(request, ct);
     tracing?.ForceFlush(10_000);
 
@@ -90,14 +91,43 @@ async Task<int> Run()
     return result.Status switch { ResultStatus.Completed => 0, ResultStatus.NeedsInput => 3, _ => 1 };
 }
 
+async Task<int> Serve()
+{
+    if (profile.Http is not { } http)
+    {
+        Console.Error.WriteLine("profile has no http settings (ADR 0018)");
+        return 2;
+    }
+    using var tracing = Tracing();
+    var runtime = await Connect();
+    var orchestrator = new Orchestrator(profile, runtime, runtime.Version, root, runLog, await PromptVersions(), Memory());
+    var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets")), orchestrator, runLog);
+    await app.StartAsync(ct);
+    Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp)");
+    await app.WaitForShutdownAsync(ct);
+    return 0;
+}
+
+async Task<OpenCodeWorkerRuntime> Connect()
+{
+    var client = new OpenCodeClient(new HttpClient { BaseAddress = new Uri(profile.Opencode.Url) }, profile.Secret(profile.Opencode.PasswordSecret));
+    return await OpenCodeWorkerRuntime.ConnectAsync(client, profile.Opencode.Version, ct);
+}
+
+IMemoryProvider? Memory() => profile.Memory is { } m
+    ? new HindsightMemory(new HttpClient { BaseAddress = new Uri(m.Url), Timeout = TimeSpan.FromSeconds(30) }, m.ApiKeySecret is null ? null : profile.Secret(m.ApiKeySecret), m.MaxTokens)
+    : null;
+
 async Task<int> Show(string runId)
 {
-    var (run, calls) = await runLog.ReadAsync(runId, ct);
-    if (run is null && calls.Count == 0)
+    var (start, run, calls) = await runLog.ReadAsync(runId, ct);
+    if (start is null && run is null && calls.Count == 0)
     {
         Console.Error.WriteLine($"no run {runId} in {profile.RunLog}");
         return 1;
     }
+    if (run is null && start is not null)
+        Console.WriteLine($"{start.RunId}  preset={start.Request.Context.Preset}  status={(start.OwnerAlive() ? "running" : "lost")}  started={start.Started:u}  pid={start.Pid}");
     if (run is not null)
         Console.WriteLine($"{run.RunId}  preset={run.Preset}  intake={run.IntakeAction ?? "needs_input"}  status={run.Result.Status}  " +
                           $"{(run.Finished - run.Started).TotalSeconds:0.0}s  usd={run.Result.Usage.Usd}  claims={run.Result.Claims.Count}  open={run.Result.OpenQuestions.Count}");
@@ -109,7 +139,7 @@ async Task<int> Show(string runId)
 
 async Task<int> Reconcile(string runId)
 {
-    var (_, calls) = await runLog.ReadAsync(runId, ct);
+    var calls = (await runLog.ReadAsync(runId, ct)).Calls;
     var rows = new List<SpendRow>();
     while (await Console.In.ReadLineAsync(ct) is { } line)
         if (line.Trim().Length > 0)
@@ -123,7 +153,7 @@ async Task<int> Reconcile(string runId)
 
 async Task<int> SyncPrompts()
 {
-    var lf = Langfuse() ?? throw new InvalidOperationException("profile has no telemetry settings");
+    var lf = LangfuseKeys() is { } k ? new LangfusePrompts(k.BaseUrl, k.PublicKey, k.SecretKey) : throw new InvalidOperationException("profile has no telemetry settings");
     var registry = new PromptRegistry(Path.Combine(root, "prompts"));
     foreach (var file in Directory.GetFiles(Path.Combine(root, "prompts"), "*.md", SearchOption.AllDirectories).Order())
     {
@@ -136,10 +166,10 @@ async Task<int> SyncPrompts()
 
 async Task<IReadOnlyDictionary<string, int>> PromptVersions()
 {
-    var lf = Langfuse();
     var versions = new Dictionary<string, int>();
-    if (lf is null)
+    if (LangfuseKeys() is not { } k)
         return versions;
+    var lf = new LangfusePrompts(k.BaseUrl, k.PublicKey, k.SecretKey);
     var registry = new PromptRegistry(Path.Combine(root, "prompts"));
     foreach (var name in new[] { "intake/task-spec", $"core/{Orchestrator.NodeKindName}" })
     {
@@ -157,13 +187,11 @@ async Task<IReadOnlyDictionary<string, int>> PromptVersions()
     return versions;
 }
 
-LangfusePrompts? Langfuse()
-{
-    if (profile.Telemetry is not { } t)
-        return null;
-    var baseUrl = new Uri(t.OtlpEndpoint[..t.OtlpEndpoint.IndexOf("/api/public/otel", StringComparison.Ordinal)] + "/");
-    return new LangfusePrompts(baseUrl, profile.Secret(t.PublicKeySecret), profile.Secret(t.SecretKeySecret));
-}
+/// <summary>The orchestrator's Langfuse project (from the tracing endpoint) and its key pair, or null without telemetry.</summary>
+(Uri BaseUrl, string PublicKey, string SecretKey)? LangfuseKeys() =>
+    profile.Telemetry is { } t
+        ? (new Uri(t.OtlpEndpoint[..t.OtlpEndpoint.IndexOf("/api/public/otel", StringComparison.Ordinal)] + "/"), profile.Secret(t.PublicKeySecret), profile.Secret(t.SecretKeySecret))
+        : null;
 
 TracerProvider? Tracing()
 {

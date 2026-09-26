@@ -76,9 +76,25 @@ public sealed class OpenCodeClient : IOpenCodeClient
     public Task MoveAsync(string sessionId, string directory, CancellationToken ct) =>
         Send<JsonElement>(HttpMethod.Post, $"/api/session/{sessionId}/move", new { directory }, ct);
 
-    public async Task<string> GenerateAsync(string providerId, string modelId, string prompt, CancellationToken ct) =>
-        (await Data<JsonElement>(HttpMethod.Post, "/api/experimental/generate", new { prompt, model = new ModelBody(providerId, modelId) }, ct))
-        .GetProperty("text").GetString()!;
+    /// <summary>
+    /// Stateless, so safe to repeat: one retry when OpenCode relays a 503 (the masking proxy's or a dropped gateway
+    /// connection, ADR 0011). Session prompts are not repeated this way; a second submit would run the turn twice.
+    /// </summary>
+    public async Task<string> GenerateAsync(string providerId, string modelId, string prompt, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+            try
+            {
+                return (await Data<JsonElement>(HttpMethod.Post, "/api/experimental/generate", new { prompt, model = new ModelBody(providerId, modelId) }, ct))
+                    .GetProperty("text").GetString()!;
+            }
+            catch (OpenCodeException e) when (attempt == 1 && e.Status == HttpStatusCode.ServiceUnavailable)
+            {
+                await Task.Delay(GenerateRetryDelay, ct);
+            }
+    }
+
+    internal static TimeSpan GenerateRetryDelay { get; set; } = TimeSpan.FromSeconds(1);
 
     public async IAsyncEnumerable<JsonElement> EventsAsync([EnumeratorCancellation] CancellationToken ct)
     {

@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -27,6 +29,9 @@ public static partial class ResultBlocks
 /// <summary>Turns a worker's final message into a result/v1 contract (ADR 0009).</summary>
 public static class ResultAssembler
 {
+    /// <summary>result/v1: inline artifact content is at most 64 KiB (ADR 0009).</summary>
+    public const int MaxInlineBytes = 65536;
+
     private static readonly string[] WorkerKeys = ["status", "summary", "claims", "evidence", "artifacts", "open_questions", "confidence"];
 
     public static AssembleOutcome Assemble(string finalMessage, ResultEnvelope envelope)
@@ -56,6 +61,19 @@ public static class ResultAssembler
         foreach (var key in WorkerKeys)
             if (worker[key] is { } value)
                 contract[key] = value.DeepClone();
+
+        // Inline artifacts (a draft): the orchestrator hashes the content itself and bounds it in bytes, not characters.
+        var oversize = new List<string>();
+        foreach (var artifact in (contract["artifacts"] as JsonArray ?? []).OfType<JsonObject>())
+            if (artifact["content"] is JsonValue content && content.TryGetValue<string>(out var text))
+            {
+                var bytes = Encoding.UTF8.GetBytes(text);
+                artifact["sha256"] = Convert.ToHexStringLower(SHA256.HashData(bytes));
+                if (bytes.Length > MaxInlineBytes)
+                    oversize.Add($"artifact {artifact["kind"]} content is {bytes.Length} bytes; inline content is at most {MaxInlineBytes}");
+            }
+        if (oversize.Count > 0)
+            return new(null, oversize);
 
         var element = JsonSerializer.SerializeToElement(contract);
         var errors = ContractSchemas.Validate(ContractSchemas.Result, element);

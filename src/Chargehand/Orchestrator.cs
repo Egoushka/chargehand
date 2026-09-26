@@ -31,115 +31,150 @@ public sealed class Orchestrator(
 {
     public const string NodeKindName = "worker";
 
-    public async Task<ResultContract> RunAsync(RunRequest request, CancellationToken ct)
+    public static string NewRunId() => $"run-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..6]}";
+
+    /// <param name="runId">The id to run under (the HTTP interface hands it out before the run starts); a new one if null.</param>
+    /// <param name="progress">Receives run-status/v1 events: started, intake, node started and finished, run finished.</param>
+    /// <param name="parentRunId">The run this one resends with answers, if any; recorded in the start record.</param>
+    public async Task<ResultContract> RunAsync(RunRequest request, CancellationToken ct, string? runId = null, Action<RunStatus>? progress = null,
+        string? parentRunId = null)
     {
         var started = DateTimeOffset.UtcNow;
-        var runId = $"run-{started:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..6]}";
+        runId ??= NewRunId();
         using var run = Telemetry.Source.StartActivity("chargehand.run");
         var traceId = run?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
         run?.SetTag("langfuse.trace.name", "chargehand.run");
         run?.SetTag("chargehand.run_id", runId);
+        await runLog.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId, parentRunId), ct);
+        progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Started));
 
         var registry = new PromptRegistry(Path.Combine(rootDirectory, "prompts"));
         var presetName = request.Context.Preset;
-        var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
-        var kind = preset.NodeKinds[NodeKindName];
-        var workerModel = profile.ResolveModel(kind.Model);
-        var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
         var date = started.ToString("yyyy-MM-dd");
-
-        // Intake.
         var intakeBlock = registry.Get("intake/task-spec");
         var intakeChain = PromptChains.Build([(intakeBlock, BlockSource.Registry)], new AsSent(opencodeVersion, "generate", profile.IntakeModel, date));
-        IntakeOutcome intake;
-        using (var span = Telemetry.Source.StartActivity("chargehand.intake"))
-        {
-            TagChain(span, intakeChain);
-            span?.SetTag("gen_ai.request.model", profile.IntakeModel);
-            intake = await new GenerateIntake(runtime, ParseModel(profile.IntakeModel), intakeBlock, runId).RunAsync(request, ct);
-            span?.SetTag("chargehand.intake.action", intake.Spec?.Action.ToString().ToLowerInvariant() ?? "needs_input");
-            foreach (var c in intake.Calls)
-                await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, profile.IntakeModel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
-        }
-
-        var blocks = new List<(PromptBlock, BlockSource)> { (registry.Get($"core/{NodeKindName}"), BlockSource.Registry), (registry.Get($"preset/{presetName}"), BlockSource.Registry) };
-        blocks.AddRange(callerBlocks.Select(b => (b, BlockSource.Caller)));
-        var instructions = new List<(string Key, string Value)> { ("chargehand-core", blocks[0].Item1.Text), ("chargehand-preset", blocks[1].Item1.Text) };
-        var chain = PromptChains.Build(blocks, new AsSent(opencodeVersion, kind.OpencodeAgent, workerModel, date,
-            BasePromptVariant: kind.OpencodeAgent,
-            InstructionFilesSha256: PromptChains.InstructionsSha256(instructions),
-            ToolsSha256: PromptChains.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules)));
 
         ResultContract Stop(ResultStatus status, string summary, IReadOnlyList<string> questions, IReadOnlyList<Artifact>? artifacts = null) =>
             new("result/v1", runId, "intake", traceId, intakeChain, status, summary, [], [], artifacts ?? [], questions, 0, new Usage(0, 0, 0, 0, 0));
 
         ResultContract result;
+        IntakeOutcome? intake = null;
         TaskAction? executed = null;
-        if (intake.Spec is not { } spec)
-            result = Stop(ResultStatus.NeedsInput, intake.NeedsInput!, [intake.NeedsInput!]);
-        else
+        try
         {
-            // An action the preset does not allow, or a split that fails validation, runs as one answer node.
-            executed = preset.AllowedActions.Contains(Name(spec.Action)) ? spec.Action : TaskAction.Answer;
-            IReadOnlyList<PlanNode> plan = [new PlanNode(NodeKindName, null, [])];
-            if (executed == TaskAction.Split)
+            var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
+            var (kindName, kind) = AnswerKind(preset);
+            var workerModel = profile.ResolveModel(kind.Model);
+            var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
+
+            // Intake.
+            using (var span = Telemetry.Source.StartActivity("chargehand.intake"))
             {
-                var (nodes, reason) = SplitPlan.From(spec);
-                plan = nodes ?? plan;
-                executed = nodes is null ? TaskAction.Answer : TaskAction.Split;
-                run?.SetTag("chargehand.split.rejected", reason);
+                TagChain(span, intakeChain);
+                span?.SetTag("gen_ai.request.model", profile.IntakeModel);
+                intake = await new GenerateIntake(runtime, ParseModel(profile.IntakeModel), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
+                span?.SetTag("chargehand.intake.action", intake.Spec?.Action.ToString().ToLowerInvariant() ?? "needs_input");
+                foreach (var c in intake.Calls)
+                    await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, profile.IntakeModel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
             }
-            var detail = spec.ActionDetail ?? default;
-            result = executed switch
+
+            var blocks = new List<(PromptBlock, BlockSource)> { (registry.Get($"core/{kindName}"), BlockSource.Registry), (registry.Get($"preset/{presetName}"), BlockSource.Registry) };
+            blocks.AddRange(callerBlocks.Select(b => (b, BlockSource.Caller)));
+            var instructions = new List<(string Key, string Value)> { ("chargehand-core", blocks[0].Item1.Text), ("chargehand-preset", blocks[1].Item1.Text) };
+            var chain = PromptChains.Build(blocks, new AsSent(opencodeVersion, kind.OpencodeAgent, workerModel, date,
+                BasePromptVariant: kind.OpencodeAgent,
+                InstructionFilesSha256: PromptChains.InstructionsSha256(instructions),
+                ToolsSha256: PromptChains.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules)));
+
+            if (intake.Spec is not { } spec)
             {
-                TaskAction.Deny => Stop(ResultStatus.Denied, detail.GetProperty("reason").GetString()!, [$"Unblock: {detail.GetProperty("unblock_condition").GetString()}"]),
-                TaskAction.Ask => Stop(ResultStatus.NeedsInput, "Answer these questions and resend the request.", [.. detail.GetProperty("questions").EnumerateArray().Select(q => q.GetString()!)]),
-                TaskAction.Improve => Stop(ResultStatus.NeedsInput, detail.GetProperty("improved_request").GetString()!,
-                    ["Intake proposes the improved request in summary (diff in artifacts). Resend it, or resend the original."],
-                    [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
-                _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
-                    $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
-                _ => await Execute(request, spec, plan, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, ct),
-            };
+                progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Intake));
+                result = Stop(ResultStatus.NeedsInput, intake.NeedsInput!, [intake.NeedsInput!]);
+            }
+            else
+            {
+                // An action the preset does not allow, or a split that fails validation, runs as one answer node.
+                executed = preset.AllowedActions.Contains(Name(spec.Action)) ? spec.Action : TaskAction.Answer;
+                IReadOnlyList<PlanNode> plan = [new PlanNode(kindName, null, [])];
+                if (executed == TaskAction.Split)
+                {
+                    var (nodes, reason) = SplitPlan.From(spec);
+                    plan = nodes ?? plan;
+                    executed = nodes is null ? TaskAction.Answer : TaskAction.Split;
+                    run?.SetTag("chargehand.split.rejected", reason);
+                }
+                var stops = executed is TaskAction.Deny or TaskAction.Ask or TaskAction.Improve;
+                progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Intake) with
+                {
+                    Action = Name(spec.Action),
+                    ExecutedAction = Name(executed.Value),
+                    Nodes = stops ? 0 : plan.Count,
+                });
+                var detail = spec.ActionDetail ?? default;
+                result = executed switch
+                {
+                    TaskAction.Deny => Stop(ResultStatus.Denied, detail.GetProperty("reason").GetString()!, [$"Unblock: {detail.GetProperty("unblock_condition").GetString()}"]),
+                    TaskAction.Ask => Stop(ResultStatus.NeedsInput, "Answer these questions and resend the request.", [.. detail.GetProperty("questions").EnumerateArray().Select(q => q.GetString()!)]),
+                    TaskAction.Improve => Stop(ResultStatus.NeedsInput, detail.GetProperty("improved_request").GetString()!,
+                        ["Intake proposes the improved request in summary (diff in artifacts). Resend it, or resend the original."],
+                        [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
+                    _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
+                        $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
+                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, progress, ct),
+                };
+            }
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // A run that throws (a bad checkout, an unknown preset, no valid Task Spec) still ends with a result and a run record.
+            result = new ResultContract("result/v1", runId, "run", traceId, intakeChain, ResultStatus.Failed, e.Message, [], [], [], [e.Message], 0, new Usage(0, 0, 0, 0, 0));
         }
 
         run?.SetTag("chargehand.contract.status", result.Status.ToString().ToLowerInvariant());
-        run?.SetTag("chargehand.intake.action", intake.Spec is null ? null : Name(intake.Spec.Action));
+        run?.SetTag("chargehand.intake.action", intake?.Spec is null ? null : Name(intake.Spec.Action));
         run?.SetTag("chargehand.action", executed is null ? null : Name(executed.Value));
-        await runLog.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, presetName, intake.Spec is null ? null : Name(intake.Spec.Action), intake.Spec, result,
+        await runLog.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, presetName, intake?.Spec is null ? null : Name(intake.Spec.Action), intake?.Spec, result,
             executed is null ? null : Name(executed.Value)), ct);
+        progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
     }
 
+    /// <summary>The node kind that answers: "worker", or a preset's only kind (draft).</summary>
+    internal static (string Name, NodeKind Kind) AnswerKind(Preset preset) =>
+        preset.NodeKinds.TryGetValue(NodeKindName, out var worker) ? (NodeKindName, worker) : (preset.NodeKinds.Keys.Single(), preset.NodeKinds.Values.Single());
+
     /// <summary>Runs the plan's nodes (one for answer) and returns the node's contract, or the merged one for a split.</summary>
-    private async Task<ResultContract> Execute(RunRequest request, TaskSpec spec, IReadOnlyList<PlanNode> plan, NodeKind kind, string workerModel,
+    private async Task<ResultContract> Execute(RunRequest request, TaskSpec spec, IReadOnlyList<PlanNode> plan, string kindName, NodeKind kind, string workerModel,
         IReadOnlyList<(string Key, string Value)> instructions, PromptChain chain, IReadOnlyList<PromptBlock> callerBlocks, string runId, string traceId,
-        Activity? run, CancellationToken ct)
+        Activity? run, Action<RunStatus>? progress, CancellationToken ct)
     {
-        var repo = request.Context.Repository!;
-        var commit = await CheckRepository(repo, ct);
+        var (directory, commit) = kind.Checkout
+            ? (Path.GetFullPath(request.Context.Repository!.Path), await CheckRepository(request.Context.Repository!, ct))
+            : (EmptyDirectory(), "");
         // ponytail: the run cap is split evenly across nodes up front; share the remainder dynamically if nodes vary a lot.
         var cap = new[] { profile.RunCapUsd / plan.Count, kind.Budget.MaxUsd, (request.Context.BudgetUsd ?? decimal.MaxValue) / plan.Count }.Min();
-        var inputText = string.Join("\n", (request.Inputs ?? []).Select(i => $"[{i.Id}] ({i.Kind}) {i.Text}{(i.SourceUrl is null ? "" : $" <{i.SourceUrl}>")}"));
+        // The id is quoted: rendered as "[id]", a model cited "[id]" as the locator, which no input id matches.
+        var inputText = string.Join("\n", (request.Inputs ?? []).Select(i => $"- id \"{i.Id}\" ({i.Kind}): {i.Text}{(i.SourceUrl is null ? "" : $" <{i.SourceUrl}>")}"));
         var prices = new PriceTable(profile.Prices);
         // Recalled facts go in the prompt text, after the task (ADR 0007 order; ADR 0010 keeps instructions fixed, so
         // siblings still fork). The chain records them as a runtime block.
         var facts = await Recall(request.Text, run, ct);
         if (facts.Length > 0)
-            chain = chain with { Blocks = [.. chain.Blocks, new ChainBlock("memory/recall", "1", PromptText.Sha256(facts), BlockSource.Runtime)] };
+            chain = chain with { Blocks = [.. chain.Blocks, new ChainBlock("memory/recall", "1", PromptBlock.Hash(facts), BlockSource.Runtime)] };
 
         async Task<NodeResult> RunNode(PlanNode node, IReadOnlyList<ResultContract> upstream, ForkPoint? fork, TaskCompletionSource<ForkPoint?>? primed, CancellationToken token)
         {
             var nodeRequest = new NodeRequest(runId, node.Id, traceId,
-                new NodeSpec(Path.GetFullPath(repo.Path), kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { ["chargehand.run"] = runId, ["chargehand.node"] = node.Id }),
-                instructions, TaskText(request, spec, commit, inputText, callerBlocks, node, plan.Count, upstream) + facts, chain, repo.Path, commit,
+                new NodeSpec(directory, kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { ["chargehand.run"] = runId, ["chargehand.node"] = node.Id }),
+                instructions, TaskText(request, spec, commit, inputText, callerBlocks, node, plan.Count, upstream) + facts, chain, directory, commit,
                 (request.Inputs ?? []).Select(i => i.Id).ToHashSet(), inputText, cap, TimeSpan.FromMinutes(15),
                 kind.Budget.MaxInputTokens, kind.Compaction?.TriggerTokens, fork);
 
-            var instructionRefs = nodeRequest.Instructions.Select(i => new InstructionRef(i.Key, PromptText.Sha256(i.Value))).ToList();
+            var instructionRefs = nodeRequest.Instructions.Select(i => new InstructionRef(i.Key, PromptBlock.Hash(i.Value))).ToList();
             using var span = Telemetry.Source.StartActivity("chargehand.node");
             TagChain(span, chain);
             span?.SetTag("chargehand.node", node.Id);
+            progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.NodeStarted) with { NodeId = node.Id });
             var nodeResult = await new WorkerNode(runtime, prices, new GitEvidenceResolver()).RunAsync(nodeRequest, token, primed);
             span?.SetTag("langfuse.session.id", nodeResult.SessionId);
             run?.SetTag("langfuse.session.id", nodeResult.SessionId);
@@ -150,7 +185,7 @@ public sealed class Orchestrator(
             {
                 var usd = prices.PriceUsd(m.Model ?? workerModel, m.Tokens!);
                 var latency = ((m.Completed ?? m.Created) - m.Created).TotalMilliseconds;
-                await runLog.AppendAsync(new CallRecord(runId, node.Id, "worker", nodeResult.SessionId, m.Id, m.Model ?? workerModel, m.Created, latency, m.Tokens, usd, chain,
+                await runLog.AppendAsync(new CallRecord(runId, node.Id, kindName, nodeResult.SessionId, m.Id, m.Model ?? workerModel, m.Created, latency, m.Tokens, usd, chain,
                     nodeResult.ForkedFrom, instructionRefs), token);
                 using var call = Telemetry.Source.StartActivity("chargehand.call", ActivityKind.Client, span?.Context ?? default, startTime: m.Created);
                 TagChain(call, chain);
@@ -159,6 +194,12 @@ public sealed class Orchestrator(
                 call?.SetTag("gen_ai.request.model", m.Model ?? workerModel);
                 call?.SetEndTime((m.Completed ?? m.Created).UtcDateTime);
             }
+            progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.NodeFinished) with
+            {
+                NodeId = node.Id,
+                NodeStatus = nodeResult.Contract.Status,
+                Usd = nodeResult.Contract.Usage.Usd,
+            });
             return nodeResult;
         }
 
@@ -168,8 +209,16 @@ public sealed class Orchestrator(
         var outcomes = await new GraphRunner().RunAsync(plan, RunNode, Failed, ct);
         var result = plan.Count == 1 ? outcomes[0].Contract : ResultMerger.Merge(runId, traceId, chain, outcomes);
         if (memory is not null && profile.Memory!.Retain && result.Status == ResultStatus.Completed)
-            await memory.RetainAsync(new MemoryItem($"{request.Text}\n{result.Summary}\n{string.Join("\n", result.Claims.Select(c => $"- {c.Text}"))}",
-                "chargehand run result", DateTimeOffset.UtcNow, runId, ["chargehand"]), MemoryScopeOf(profile.Memory), ct);
+            try
+            {
+                await memory.RetainAsync(new MemoryItem($"{request.Text}\n{result.Summary}\n{string.Join("\n", result.Claims.Select(c => $"- {c.Text}"))}",
+                    "chargehand run result", DateTimeOffset.UtcNow, runId, ["chargehand"]), MemoryScopeOf(profile.Memory), ct);
+            }
+            catch (HttpRequestException e)
+            {
+                // Memory fails open (ADR 0008): a failed retain never fails a completed run.
+                run?.SetTag("chargehand.memory.error", e.Message);
+            }
         return result;
     }
 
@@ -206,9 +255,7 @@ public sealed class Orchestrator(
         var root = Path.GetFullPath(profile.WorkerRoot) + Path.DirectorySeparatorChar;
         if (!full.StartsWith(root, StringComparison.Ordinal))
             throw new InvalidOperationException($"repository {repo.Path} is not under worker_root {profile.WorkerRoot}");
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + Path.DirectorySeparatorChar;
-        if (full.StartsWith(home, StringComparison.Ordinal))
-            throw new InvalidOperationException("worker checkouts must live outside the home directory (ADR 0003)");
+        OutsideHome(full);
         var psi = new ProcessStartInfo("git", ["-C", repo.Path, "rev-parse", "HEAD"]) { RedirectStandardOutput = true };
         using var p = Process.Start(psi)!;
         var head = (await p.StandardOutput.ReadToEndAsync(ct)).Trim();
@@ -218,12 +265,28 @@ public sealed class Orchestrator(
             : throw new InvalidOperationException($"checkout is at {head[..Math.Min(12, head.Length)]}, request pins {repo.Commit}");
     }
 
+    /// <summary>Where a node without a checkout runs: an empty directory under worker_root, outside the home (ADR 0003).</summary>
+    private string EmptyDirectory()
+    {
+        var dir = Path.Combine(Path.GetFullPath(profile.WorkerRoot), ".chargehand-empty");
+        OutsideHome(dir + Path.DirectorySeparatorChar);
+        return Directory.CreateDirectory(dir).FullName;
+    }
+
+    /// <summary>OpenCode discovers skills by walking up from a session's directory, so none may sit under the home (ADR 0003).</summary>
+    private static void OutsideHome(string fullPath)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + Path.DirectorySeparatorChar;
+        if (fullPath.StartsWith(home, StringComparison.Ordinal))
+            throw new InvalidOperationException("worker checkouts must live outside the home directory (ADR 0003)");
+    }
+
     /// <summary>Volatile content goes in the prompt text, after the fixed instruction entries (ADR 0010).</summary>
     private static string TaskText(RunRequest request, TaskSpec spec, string commit, string inputText, IReadOnlyList<PromptBlock> callerBlocks,
         PlanNode node, int nodes, IReadOnlyList<ResultContract> upstream)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"Task (repository commit {commit}):").AppendLine(request.Text).AppendLine();
+        sb.AppendLine(commit.Length > 0 ? $"Task (repository commit {commit}):" : "Task:").AppendLine(request.Text).AppendLine();
         if (node.Goal is not null)
             sb.AppendLine($"Your part ({node.Id}, one of {nodes} parts, each answered by a separate worker): {node.Goal}")
               .AppendLine("Answer only your part; do not research the other parts.").AppendLine();
@@ -236,7 +299,7 @@ public sealed class Orchestrator(
             sb.AppendLine($"Result of part {u.NodeId} (you may rely on it; cite files yourself):")
               .AppendLine(JsonSerializer.Serialize(new { u.Summary, u.Claims, u.Evidence }, ContractJson.Options)).AppendLine();
         if (inputText.Length > 0)
-            sb.AppendLine("Inputs (cite with kind \"input\" and the id):").AppendLine(inputText).AppendLine();
+            sb.AppendLine("Inputs (cite each with kind \"input\" and its id, without the quotes, as the locator):").AppendLine(inputText).AppendLine();
         foreach (var b in callerBlocks)
             sb.AppendLine($"Caller instructions ({b.Name} {b.Version}):").AppendLine(b.Text).AppendLine();
         return sb.ToString();

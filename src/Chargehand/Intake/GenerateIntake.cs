@@ -16,7 +16,8 @@ public sealed record IntakeCall(DateTimeOffset Started, double LatencyMs, bool V
 /// Deterministic checks, then one stateless generate call through OpenCode (ADR 0005), schema-validated with one
 /// retry. Only "answer" executes in v0; the caller logs the action intake chose.
 /// </summary>
-public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef model, PromptBlock block, string runId) : IIntake
+/// <param name="needsRepository">False for node kinds that run without a checkout (the draft preset).</param>
+public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef model, PromptBlock block, string runId, bool needsRepository = true) : IIntake
 {
     public PromptBlock Block => block;
 
@@ -27,11 +28,13 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef model, Promp
     {
         if (string.IsNullOrWhiteSpace(request.Text))
             return new(null, "The request text is empty.", []);
-        if (request.Context.Repository is null)
+        if (needsRepository && request.Context.Repository is null)
             return new(null, "The request names no repository checkout and commit (context.repository).", []);
 
         var calls = new List<IntakeCall>();
-        var prompt = $"{block.Text}\nJSON Schema:\n{ContractSchemas.Text(ContractSchemas.TaskSpec)}\n\nUse id \"{runId}\".\nRequest:\n{request.Text}\n";
+        // Intake sees which inputs a program caller sent (ids and kinds, not their text): without them it asks for facts it has.
+        var inputs = request.Inputs is { Count: > 0 } i ? $"\nThe caller supplies these inputs to use: {string.Join(", ", i.Select(x => $"{x.Id} ({x.Kind})"))}.\n" : "";
+        var prompt = $"{block.Text}\nJSON Schema:\n{ContractSchemas.Text(ContractSchemas.TaskSpec)}\n\nUse id \"{runId}\".\nRequest:\n{request.Text}\n{inputs}";
         string? errors = null;
         for (var attempt = 0; attempt < 2; attempt++)
         {

@@ -33,13 +33,14 @@ public class OrchestratorActionTests
     private sealed class MemoryLog : IRunLog
     {
         public List<RunRecord> Runs { get; } = [];
+        public Task AppendAsync(StartRecord record, CancellationToken ct) => Task.CompletedTask;
         public Task AppendAsync(CallRecord record, CancellationToken ct) => Task.CompletedTask;
         public Task AppendAsync(RunRecord record, CancellationToken ct)
         {
             Runs.Add(record);
             return Task.CompletedTask;
         }
-        public Task<(RunRecord? Run, IReadOnlyList<CallRecord> Calls)> ReadAsync(string runId, CancellationToken ct) => throw new NotSupportedException();
+        public Task<RunEntry> ReadAsync(string runId, CancellationToken ct) => throw new NotSupportedException();
     }
 
     private static async Task<(ResultContract Result, RunRecord Run)> Run(IWorkerRuntime runtime, string preset, bool? approved = null)
@@ -95,15 +96,19 @@ public class OrchestratorActionTests
     [Fact]
     public async Task Approved_request_goes_past_the_gate()
     {
-        // Past the gate the orchestrator checks the checkout, which this fake repository fails.
-        var e = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(new IntakeOnly("null", "answer", "medium"), "strict", approved: true));
-        Assert.Contains("worker_root", e.Message, StringComparison.Ordinal);
+        // Past the gate the orchestrator checks the checkout, which this fake repository fails; the run still ends with a result.
+        var (r, run) = await Run(new IntakeOnly("null", "answer", "medium"), "strict", approved: true);
+        Assert.Equal(ResultStatus.Failed, r.Status);
+        Assert.Contains("worker_root", r.Summary, StringComparison.Ordinal);
+        Assert.Equal("answer", run.ExecutedAction);
     }
 
     [Fact]
     public async Task An_action_the_preset_does_not_allow_runs_as_answer()
     {
-        var e = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(new IntakeOnly("""{"questions":["Which?"]}""", "ask"), "default"));
-        Assert.Contains("worker_root", e.Message, StringComparison.Ordinal);
+        var (r, run) = await Run(new IntakeOnly("""{"questions":["Which?"]}""", "ask"), "default");
+        Assert.Contains("worker_root", r.Summary, StringComparison.Ordinal);
+        Assert.Equal("ask", run.IntakeAction);
+        Assert.Equal("answer", run.ExecutedAction);
     }
 }

@@ -21,7 +21,7 @@ public class OpenCodeClientTests
         }
     }
 
-    static OpenCodeClientTests() => OpenCodeClient.ModelBootDelay = TimeSpan.FromMilliseconds(1);
+    static OpenCodeClientTests() => (OpenCodeClient.ModelBootDelay, OpenCodeClient.GenerateRetryDelay) = (TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(1));
 
     private static (OpenCodeClient Client, FakeHandler Handler) Make(Func<HttpRequestMessage, string?, (HttpStatusCode, string)> respond)
     {
@@ -119,5 +119,20 @@ public class OpenCodeClientTests
 
         var system = OpenCodeWorkerRuntime.Map(JsonDocument.Parse("""{"id":"msg_s","time":{"created":1},"type":"system","text":"Instructions updated"}""").RootElement);
         Assert.Equal(WorkerMessageKind.Other, system.Kind);
+    }
+
+    [Fact]
+    public async Task Generate_retries_one_503_and_no_more()
+    {
+        const string Unavailable = """{"name":"ServiceUnavailableError","message":"ECONNRESET: The socket connection was closed unexpectedly."}""";
+        var calls = 0;
+        var (c, _) = Make((_, _) => ++calls == 1 ? (HttpStatusCode.ServiceUnavailable, Unavailable) : (HttpStatusCode.OK, """{"data":{"text":"ok"}}"""));
+        Assert.Equal("ok", await c.GenerateAsync("p", "m", "hi", CancellationToken.None));
+        Assert.Equal(2, calls);
+
+        var (failing, h) = Make((_, _) => (HttpStatusCode.ServiceUnavailable, Unavailable));
+        var e = await Assert.ThrowsAsync<OpenCodeException>(() => failing.GenerateAsync("p", "m", "hi", CancellationToken.None));
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, e.Status);
+        Assert.Equal(2, h.Seen.Count);
     }
 }

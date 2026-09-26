@@ -18,7 +18,7 @@ public sealed partial class GitEvidenceResolver : IEvidenceResolver
                 EvidenceKind.File => await CheckFile(e, scope, ct),
                 EvidenceKind.Commit => await Git(scope.RepositoryPath, ct, "cat-file", "-e", $"{e.Locator}^{{commit}}") is null ? $"commit {e.Locator} not found" : null,
                 EvidenceKind.SessionMessage => scope.MessageIds.Contains(e.Locator) ? null : $"message {e.Locator} not in the node's session",
-                EvidenceKind.Input => scope.InputIds.Contains(e.Locator) ? null : $"input {e.Locator} was not supplied by the caller",
+                EvidenceKind.Input => scope.InputIds.Contains(e.Locator) ? null : $"input {e.Locator} was not supplied by the caller (input ids: {string.Join(", ", scope.InputIds)})",
                 EvidenceKind.Url => scope.SeenText.Contains(e.Locator, StringComparison.Ordinal) ? null : "URL not seen in the node's inputs or tool output",
                 EvidenceKind.Diff => CheckDiff(e.Locator, scope.Diff),
                 _ => $"unknown kind {e.Kind}",

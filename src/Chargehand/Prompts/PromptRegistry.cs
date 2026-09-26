@@ -14,7 +14,7 @@ public sealed partial class PromptRegistry(string directory) : IPromptRegistry
         if (!m.Success)
             throw new InvalidDataException($"{path}: expected front matter with 'version: X.Y.Z'.");
         var text = raw[m.Length..];
-        return new PromptBlock(name, m.Groups["v"].Value, PromptText.Sha256(text), text);
+        return new PromptBlock(name, m.Groups["v"].Value, PromptBlock.Hash(text), text);
     }
 
     public IReadOnlyList<PromptBlock> ForNode(string preset, string nodeKind) => [Get($"core/{nodeKind}"), Get($"preset/{preset}")];

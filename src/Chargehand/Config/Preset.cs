@@ -25,7 +25,10 @@ public sealed record Preset(
     }
 }
 
-public sealed record NodeKind(string Model, string OpencodeAgent, IReadOnlyList<RuleEntry> Permissions, NodeBudget Budget, CompactionSettings? Compaction = null)
+/// <param name="Checkout">False: the node needs no repository; it runs in an empty directory under worker_root and intake
+/// does not ask for context.repository (the draft preset, ADR 0018).</param>
+public sealed record NodeKind(string Model, string OpencodeAgent, IReadOnlyList<RuleEntry> Permissions, NodeBudget Budget, CompactionSettings? Compaction = null,
+    bool Checkout = true)
 {
     public IReadOnlyList<PermissionRule> Rules =>
         Permissions.Select(p => new PermissionRule(p.Action, p.Resource, Enum.Parse<PermissionEffect>(p.Effect, ignoreCase: true))).ToList();

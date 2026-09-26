@@ -47,6 +47,7 @@
       "properties": {
         "model": { "$ref": "#/$defs/model" },
         "opencode_agent": { "type": "string", "minLength": 1 },
+        "checkout": { "type": "boolean", "description": "false: the node needs no repository; it runs in an empty directory under worker_root and intake does not ask for context.repository. Default true." },
         "permissions": {
           "type": "array",
           "description": "OpenCode V2 permission ruleset, passed at session creation. Last matching rule wins (see ADR 0006).",
