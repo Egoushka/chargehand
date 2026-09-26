@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Evals;
+using Chargehand.RunLog;
 
 namespace Chargehand.Tests;
 
@@ -140,5 +141,25 @@ public class GateTests
         Assert.Equal(1, Scoring.Intake(spec, "ask")["quality"]);
         Assert.Equal(0, Scoring.Intake(spec, "answer")["quality"]);
         Assert.Equal(1, Scoring.Intake(null, "needs_input")["quality"]);
+    }
+
+    [Fact]
+    public async Task An_intake_item_whose_preset_is_new_in_the_change_runs_under_the_change_alone()
+    {
+        using var dir = new TempDir();
+        // The base predates the draft preset: intake's prompt and cheap only.
+        dir.Write("base/prompts/intake/task-spec.md", File.ReadAllText(Repo.Path("prompts", "intake", "task-spec.md")));
+        dir.Write("base/presets/cheap.yaml", File.ReadAllText(Repo.Path("presets", "cheap.yaml")));
+        var runtime = new ScriptedRuntime(Runs.WorkerReply);
+        var runner = new EvalRunner(_ => throw new InvalidOperationException("intake items run no orchestrator"), runtime, "p/small",
+            new JsonlRunLog(System.IO.Path.Combine(dir.Path, "log.jsonl")), null, () => { }, TextWriter.Null);
+        EvalItem Item(string id, RequestContext context) => new(id, new RunRequest("request/v1", "Do it.", context), new EvalExpected(Action: "answer"));
+        var intake = new EvalCell("intake", "d", "intake", null, ["prompts/intake/task-spec.md"], 0.10, 0.15, MinItems: 1);
+
+        var v = await runner.RunAsync(intake, [Item("cheap", new RequestContext(false, "cheap", Repository: new RepositoryRef("/r", "c"))), Item("draft", new RequestContext(false, "draft"))],
+            System.IO.Path.Combine(dir.Path, "base"), Repo.Root, "t", null, CancellationToken.None);
+
+        Assert.Equal((1, false), (v.Items, v.Blocked));
+        Assert.Equal(3, runtime.IntakePrompts.Count); // cheap under both arms, draft under the change only
     }
 }

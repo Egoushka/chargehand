@@ -54,16 +54,19 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
 
     public async Task<Verdict> RunAsync(EvalCell cell, IReadOnlyList<EvalItem> items, string baseRoot, string changeRoot, string name, Trade? trade, CancellationToken ct)
     {
-        // A cell new in this change has nothing to compare against: the change's runs become its first baseline.
-        var hasBase = cell.Preset is null || File.Exists(Path.Combine(baseRoot, "presets", cell.Preset + ".yaml"));
+        // A preset new in this change has nothing to compare against: the change's runs become its first baseline. That
+        // holds for a whole cell and for an intake item, which keeps its own preset.
+        bool InBase(string preset) => File.Exists(Path.Combine(baseRoot, "presets", preset + ".yaml"));
+        var hasBase = cell.Preset is null || InBase(cell.Preset);
         var pairs = new List<Pair>();
         foreach (var (item, i) in items.Select((item, i) => (item, i)))
         {
-            string[] arms = !hasBase ? ["change"] : i % 2 == 0 ? ["base", "change"] : ["change", "base"];
+            var paired = hasBase && InBase(cell.Preset ?? item.Request.Context.Preset);
+            string[] arms = !paired ? ["change"] : i % 2 == 0 ? ["base", "change"] : ["change", "base"];
             var scored = new Dictionary<string, (double Quality, decimal Usd)>();
             foreach (var arm in arms)
                 scored[arm] = await RunArm(cell, item, arm == "base" ? baseRoot : changeRoot, $"{name}-{arm}", ct);
-            if (hasBase)
+            if (paired)
                 pairs.Add(new Pair(item.Id, scored["base"].Quality, scored["change"].Quality, scored["base"].Usd, scored["change"].Usd));
         }
         return hasBase
