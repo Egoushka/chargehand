@@ -2,7 +2,7 @@
 # "<action> * deny" removes that tool from the worker's catalog entirely.
 schema: preset/v1
 name: default
-version: 0.3.0
+version: 0.4.0
 allowed_actions: [answer]
 node_kinds:
   worker:
@@ -32,4 +32,5 @@ node_kinds:
     budget: { max_input_tokens: 400000, max_usd: 1.00 }
     compaction: { auto: true, keep_tokens: 15000, buffer: 120000 }
 critic: { enabled: false }
-approval: { ask_above_usd: 1.00 }
+# No approval thresholds: intake estimates are uncalibrated and gate nothing yet (ADR 0005).
+approval: {}

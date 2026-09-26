@@ -3,7 +3,7 @@
 # permission rule wins; a trailing "<action> * deny" removes that tool from the worker's catalog entirely.
 schema: preset/v1
 name: thorough
-version: 0.1.0
+version: 0.2.0
 allowed_actions: [answer, split, improve, ask, deny]
 node_kinds:
   worker:
@@ -34,4 +34,5 @@ node_kinds:
     compaction: { auto: true, keep_tokens: 15000, buffer: 120000, trigger_tokens: 100000 }
 # The critic reviews writing nodes only (ADR 0006); v1 runs none, so it has nothing to review yet.
 critic: { enabled: true, model: provider/critic-model }
-approval: { ask_above_usd: 1.00 }
+# No approval thresholds: intake estimates are uncalibrated and gate nothing yet (ADR 0005).
+approval: {}
