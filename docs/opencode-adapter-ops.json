@@ -1,0 +1,22 @@
+{
+  "comment": "Operations the OpenCode adapter depends on. The contract test fails if any disappears from docs/opencode-openapi.json or loses a listed request property. mode/errors_seen are observations from the phase 2 spike against OpenCode 2.0.16; scripts/gen-opencode-api.py renders them into docs/opencode-api.md.",
+  "opencode_version": "2.0.16",
+  "operations": [
+    { "op": "GET /api/info", "port": "health", "mode": "blocking", "errors_seen": [401] },
+    { "op": "POST /api/session", "port": "CreateSession", "body": ["agent", "model", "location", "permissions", "metadata"], "mode": "blocking (~0.2-0.5 s)", "errors_seen": [400, 401] },
+    { "op": "GET /api/session/{sessionID}", "port": "GetSession (totals)", "mode": "blocking", "errors_seen": [404] },
+    { "op": "POST /api/session/{sessionID}/prompt", "port": "Submit", "body": ["text", "delivery"], "mode": "asynchronous: returns an inbox item", "errors_seen": [400, 404, 409] },
+    { "op": "POST /api/experimental/session/{sessionID}/wait", "port": "AwaitIdle", "mode": "long-poll until idle, 204; no timeout parameter", "errors_seen": [] },
+    { "op": "GET /api/session/{sessionID}/message", "port": "ReadMessages / usage", "mode": "blocking; newest first; filter ?type=", "errors_seen": [] },
+    { "op": "POST /api/session/{sessionID}/interrupt", "port": "Interrupt", "mode": "blocking (~40 ms)", "errors_seen": [] },
+    { "op": "POST /api/session/{sessionID}/fork", "port": "Fork", "body": ["before"], "mode": "blocking (~15 ms)", "errors_seen": [] },
+    { "op": "POST /api/session/{sessionID}/compact", "port": "Compact", "body": ["delivery"], "mode": "asynchronous: inbox item, then wait", "errors_seen": [] },
+    { "op": "GET /api/session/{sessionID}/permission", "port": "PendingPermissions", "mode": "blocking", "errors_seen": [] },
+    { "op": "POST /api/session/{sessionID}/permission/{requestID}/reply", "port": "AnswerPermission", "body": ["decision", "message"], "mode": "blocking, 204", "errors_seen": [] },
+    { "op": "GET /api/session/{sessionID}/diff", "port": "Diff", "mode": "blocking", "errors_seen": [] },
+    { "op": "PUT /api/experimental/session/{sessionID}/instructions/entries/{key}", "port": "SetInstruction", "body": ["value"], "mode": "blocking, 204; max 262144 bytes", "errors_seen": [413] },
+    { "op": "POST /api/session/{sessionID}/move", "port": "Move", "body": ["directory"], "mode": "blocking, 204", "errors_seen": [400] },
+    { "op": "POST /api/experimental/generate", "port": "Generate (intake)", "body": ["prompt", "model"], "mode": "blocking; no usage in response", "errors_seen": [400] },
+    { "op": "GET /api/event", "port": "Events", "mode": "SSE, data-only JSON lines with a type field; no replay", "errors_seen": [] }
+  ]
+}
