@@ -47,6 +47,28 @@ All notable changes to this project are documented here. The format follows
 - OTLP traces (run → intake → node → call) carrying `chargehand.prompt_chain` and the OpenCode session id.
 - `scripts/opencode-serve.sh` launcher and `profiles/opencode.example.json`.
 
+### Benchmark (phase 4 exit, cost half)
+
+Three breadth-first read-only questions (each spans 3 independent areas) on a private repository at a pinned
+commit; v1 (`cheap` preset, intake chose `split` in 6 of 6 runs, 3 nodes each) against a plain single OpenCode
+session with the same model, build agent and read-only ruleset; 2 repetitions, alternating order, same day and
+OpenCode build. Small model for both arms. Cost priced from OpenCode's token counts with the profile's table; intake
+(stateless generate, no usage reported) is excluded from v1.
+
+| | v1 split | plain session |
+|---|---|---|
+| cost per run (mean of 6) | $0.00754 | $0.00492 |
+| cost ratio per task (t1, t2, t3) | 1.62×, 1.51×, 1.63× | 1× |
+| wall time (mean) | 123 s | 73 s |
+| cited file:line that resolve | 99/99 | 112/112 |
+
+Forked siblings read the first node's prefix from cache (4,878 of ~5.2k tokens on their first call), so the extra
+cost is the nodes' own exploration, not the session base. On cost alone a split needs about 1.5× the plain
+answer's quality to win on quality per dollar; the owner's blind scores decide it.
+
+Cache report check: with the subtask brief moved into a per-node instruction entry (a local, uncommitted change),
+siblings could not fork and wrote their prefix again (0 read); `chargehand cache` named the entry.
+
 ### Benchmark (phase 3 exit, cost half)
 
 Reference read-only question on a private repository at a pinned commit; v0 against a plain single OpenCode
