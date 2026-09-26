@@ -57,7 +57,7 @@ public sealed class OpenCodeClient : IOpenCodeClient
         Data<SessionInfo>(HttpMethod.Post, $"/api/session/{sessionId}/fork", new { before = beforeMessageId }, ct);
 
     public Task CompactAsync(string sessionId, CancellationToken ct) =>
-        Send<JsonElement>(HttpMethod.Post, $"/api/session/{sessionId}/compact", new { }, ct);
+        Send<JsonElement>(HttpMethod.Post, $"/api/session/{sessionId}/compact", new { delivery = "steer" }, ct);
 
     public async Task<IReadOnlyList<JsonElement>> PermissionsAsync(string sessionId, CancellationToken ct) =>
         [.. (await Data<JsonElement>(HttpMethod.Get, $"/api/session/{sessionId}/permission", null, ct)).EnumerateArray()];

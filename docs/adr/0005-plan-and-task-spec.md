@@ -26,9 +26,14 @@ a blocking `ask` or `improve`. Programs send caller inputs and their own prompt 
   `answer` and typed per action otherwise (split needs ≥2 subtasks with `read_only`).
 - Intake: deterministic checks, then one `generate` call on a pinned small model, schema-validated, one retry
   on invalid output, cost booked to the run. The estimate gates nothing until the run log calibrates it.
-- Plan graph (v1, not built in v0): nodes carry `agent, model, brief, context budget, token budget,
+- Actions (phase 4): `deny` returns `denied` with the reason and `Unblock: <condition>` as an open question;
+  `ask` returns `needs_input` with the questions; `improve` returns `needs_input` with the improved request as the
+  summary and the diff as an inline `text/x-diff` artifact. Interactive callers get the same result and resend. An
+  action the preset does not allow runs as `answer`; the run log keeps intake's action and the executed one.
+- Plan graph (v1): nodes carry `agent, model, brief, context budget, token budget,
   depends_on, tool scope, result contract`; validation rejects cycles, writing nodes sharing a worktree, and
-  `split` subtasks that are neither read-only nor in separate worktrees.
+  `split` subtasks that are neither read-only nor in separate worktrees. Phase 4 builds the read-only case:
+  `SplitPlan` (2–4 subtasks, ids unique, dependencies known, no cycle, all read-only) and ADR 0017.
 
 ## Reopen if
 

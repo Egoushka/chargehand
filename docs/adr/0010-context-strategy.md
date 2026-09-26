@@ -18,6 +18,7 @@ out of the default path.
 | 2 Compaction | Manual compaction 2.5 s; the system prefix stays cached after it (5,580 of 5,772 read). |
 | 3 Isolated sub-contexts | Node B fed only A's contract: 5,790 prompt tokens, 0 cached. Fork of A with the same question: 6,396, of which 5,969 cached — cheaper. Contracts pay only when upstream history is large relative to the ~5.6k-token session base. |
 | 4 Retrieval | Not measurable before memory exists (phase 4). |
+| Fork before first message (phase 4) | A fork of a session that has made one call, taken before its first message, has no history and reads the full prefix from cache (4,479 of ~4.5k); a fresh session reads 0 (ADR 0017). |
 | Per-session base | ~5.6k tokens (small model) / ~7.1k (Claude) written to cache on the first call of every session (1.25× on GPT-5.6+-style pricing). |
 
 ## Decision
@@ -28,7 +29,11 @@ out of the default path.
 3. One fresh session per node, but **prefer continuing or forking a session over a fresh node when the upstream
    history is smaller than the session base** (~6k tokens); pass contracts, not transcripts, beyond that.
 4. Compaction: preset settings plus a hard stop at the node budget; short-lived nodes.
-5. Siblings do not gain from a shared prefix (cross-session reuse is zero), so they need not be staggered.
+5. Fresh siblings do not gain from a shared prefix (cross-session reuse is zero). Split siblings fork the first
+   node's session before its first message instead, and read its prefix from cache (ADR 0017).
+6. Per-node context budget (phase 4): the orchestrator compacts with a steered `compact` once a call's context
+   exceeds the preset's `compaction.trigger_tokens`, and interrupts the node once its prompt tokens summed over
+   calls exceed `budget.max_input_tokens`. OpenCode 2.0.16 takes no compaction settings per session.
 
 ## Consequences
 
