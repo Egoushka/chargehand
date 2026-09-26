@@ -1,0 +1,3 @@
+{ "contract_version": "result/v1", "task_id": "t-1", "node_id": "n-1", "trace_id": "0af7651916cd43dd8448eb211c80319c", "prompt_chain": { "blocks": [ { "name": "core/worker", "version": "0.1.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "source": "registry" } ], "as_sent": { "opencode_version": "2.0.16", "agent": "build", "model": "provider/model-name", "date": "2026-09-26" } },
+  "status": "completed", "summary": "s", "claims": [ { "text": "unsupported", "evidence": [], "confidence": 0.9 } ],
+  "evidence": [], "artifacts": [], "open_questions": [], "confidence": 0.9, "usage": { "input": 3, "output": 120, "cache_read": 5600, "cache_write": 90, "usd": 0.0002 } }

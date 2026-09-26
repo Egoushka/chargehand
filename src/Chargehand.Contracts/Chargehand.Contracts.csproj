@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Versioned by schema major, independently of the orchestrator (ADR 0009). -->
+    <Version>1.0.0-alpha</Version>
+    <PackageId>Chargehand.Contracts</PackageId>
+    <Description>JSON Schemas request/v1, task-spec/v1, result/v1 and preset/v1 for chargehand, with C# types and a validator.</Description>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\schemas\*\v1\*.schema.json" LogicalName="v1/%(Filename)%(Extension)" />
+    <None Include="..\..\schemas\*\v1\*.schema.json" Pack="true" PackagePath="schemas\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" Version="9.4.0" />
+  </ItemGroup>
+
+</Project>

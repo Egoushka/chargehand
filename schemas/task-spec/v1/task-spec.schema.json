@@ -1,0 +1,285 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:chargehand:schema:task-spec:v1",
+  "title": "chargehand Task Spec, v1",
+  "description": "Intake's output: one action per spec.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "id",
+    "goal",
+    "constraints",
+    "acceptance_criteria",
+    "risk",
+    "estimate",
+    "action",
+    "action_detail"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "task-spec/v1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 1
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "estimate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens_low",
+        "tokens_high",
+        "usd_low",
+        "usd_high",
+        "basis"
+      ],
+      "properties": {
+        "tokens_low": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tokens_high": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "usd_low": {
+          "type": "number",
+          "minimum": 0
+        },
+        "usd_high": {
+          "type": "number",
+          "minimum": 0
+        },
+        "basis": {
+          "type": "string",
+          "description": "How the range was built (model cache minimum, multipliers, prior runs)."
+        }
+      }
+    },
+    "action": {
+      "enum": [
+        "answer",
+        "split",
+        "improve",
+        "ask",
+        "deny"
+      ]
+    },
+    "action_detail": {
+      "description": "Shape depends on action.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "subtasks"
+          ],
+          "properties": {
+            "subtasks": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "goal",
+                  "read_only"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "goal": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "read_only": {
+                    "type": "boolean"
+                  },
+                  "depends_on": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "improved_request",
+            "diff"
+          ],
+          "properties": {
+            "improved_request": {
+              "type": "string"
+            },
+            "diff": {
+              "type": "string",
+              "description": "Unified diff against the original request text."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "questions"
+          ],
+          "properties": {
+            "questions": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reason",
+            "unblock_condition"
+          ],
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "unblock_condition": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "answer"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "action_detail": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "split"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "action_detail": {
+            "type": "object",
+            "required": [
+              "subtasks"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "improve"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "action_detail": {
+            "type": "object",
+            "required": [
+              "improved_request"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "ask"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "action_detail": {
+            "type": "object",
+            "required": [
+              "questions"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "deny"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "action_detail": {
+            "type": "object",
+            "required": [
+              "reason"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

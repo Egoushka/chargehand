@@ -1,0 +1,2 @@
+{ "contract_version": "request/v1", "text": "x", "context": { "interactive": false, "preset": "default" },
+  "caller_blocks": [ { "name": "g", "version": "1.0.0", "sha256": "not-a-hash", "text": "t" } ] }

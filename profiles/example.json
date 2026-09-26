@@ -1,0 +1,24 @@
+{
+  "$schema": "./profile.schema.json",
+  "schema": "profile/v1",
+  "secret_store": "keychain",
+  "opencode": {
+    "url": "http://127.0.0.1:4096",
+    "password_secret": "chargehand-opencode-password",
+    "binary": "/opt/chargehand/bin/opencode",
+    "version": "2.0.16"
+  },
+  "worker_root": "/srv/chargehand/work",
+  "default_preset": "default",
+  "intake_model": "provider/model-name",
+  "run_cap_usd": 1.0,
+  "run_log": "runs/run-log.sqlite",
+  "telemetry": {
+    "otlp_endpoint": "https://langfuse.example.com/api/public/otel/v1/traces",
+    "public_key_secret": "chargehand-langfuse-public-key",
+    "secret_key_secret": "chargehand-langfuse-secret-key"
+  },
+  "prices": {
+    "provider/model-name": { "input": 0.10, "output": 0.50, "cache_read": 0.01, "cache_write": 0.125 }
+  }
+}

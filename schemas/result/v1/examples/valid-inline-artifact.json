@@ -1,0 +1,6 @@
+{ "contract_version": "result/v1", "task_id": "t-9", "node_id": "n-1", "trace_id": "0af7651916cd43dd8448eb211c80319c", "prompt_chain": { "blocks": [ { "name": "core/worker", "version": "0.1.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "source": "registry" } ], "as_sent": { "opencode_version": "2.0.16", "agent": "build", "model": "provider/model-name", "date": "2026-09-26" } },
+  "status": "completed", "summary": "One draft.",
+  "claims": [ { "text": "The project released 0.1.0-alpha.", "evidence": ["i1"], "confidence": 0.9 } ],
+  "evidence": [ { "id": "i1", "kind": "input", "locator": "signal-7" } ],
+  "artifacts": [ { "kind": "draft", "media_type": "text/markdown", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "content": "Released 0.1.0-alpha this week." } ],
+  "open_questions": [], "confidence": 0.8, "usage": { "input": 3, "output": 120, "cache_read": 5600, "cache_write": 90, "usd": 0.0002 } }

@@ -1,0 +1,3 @@
+{ "contract_version": "result/v1", "task_id": "t-5", "node_id": "intake", "trace_id": "0af7651916cd43dd8448eb211c80319c", "prompt_chain": { "blocks": [ { "name": "core/worker", "version": "0.1.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "source": "registry" } ], "as_sent": { "opencode_version": "2.0.16", "agent": "build", "model": "provider/model-name", "date": "2026-09-26" } },
+  "status": "needs_input", "summary": "The request names no repository.", "claims": [], "evidence": [], "artifacts": [],
+  "open_questions": ["Which repository and commit?"], "confidence": 0.5, "usage": { "input": 3, "output": 120, "cache_read": 5600, "cache_write": 90, "usd": 0.0002 } }

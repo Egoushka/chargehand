@@ -1,0 +1,6 @@
+{ "contract_version": "task-spec/v1", "id": "t-2", "goal": "Audit two independent services.", "constraints": ["read-only"],
+  "acceptance_criteria": ["one contract per service"], "risk": "low",
+  "estimate": { "tokens_low": 20000, "tokens_high": 80000, "usd_low": 0.05, "usd_high": 0.4, "basis": "two nodes" },
+  "action": "split", "action_detail": { "subtasks": [
+    { "id": "s1", "goal": "Audit service A.", "read_only": true },
+    { "id": "s2", "goal": "Audit service B.", "read_only": true } ] } }

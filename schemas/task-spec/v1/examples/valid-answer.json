@@ -1,0 +1,4 @@
+{ "contract_version": "task-spec/v1", "id": "t-1", "goal": "Explain divide() for b == 0 with file:line evidence.",
+  "constraints": ["read-only"], "acceptance_criteria": ["cites file:line"], "risk": "low",
+  "estimate": { "tokens_low": 6000, "tokens_high": 20000, "usd_low": 0.001, "usd_high": 0.01, "basis": "one node, cached prefix after call 1" },
+  "action": "answer", "action_detail": null }

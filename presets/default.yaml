@@ -1,0 +1,26 @@
+# v0 preset (ADR 0006): read-only worker. Last matching permission rule wins; a trailing
+# "<action> * deny" removes that tool from the worker's catalog entirely.
+schema: preset/v1
+name: default
+version: 0.1.0
+allowed_actions: [answer]
+node_kinds:
+  worker:
+    model: provider/worker-model
+    opencode_agent: build
+    permissions:
+      - { action: "*", resource: "*", effect: allow }
+      - { action: edit, resource: "*", effect: deny }
+      - { action: shell, resource: "*", effect: deny }
+      - { action: shell, resource: "git log*", effect: allow }
+      - { action: shell, resource: "git show*", effect: allow }
+      - { action: shell, resource: "git grep*", effect: allow }
+      - { action: shell, resource: "ls*", effect: allow }
+      - { action: webfetch, resource: "*", effect: deny }
+      - { action: external_directory, resource: "*", effect: deny }
+      - { action: question, resource: "*", effect: deny }
+      - { action: subagent, resource: "*", effect: deny }
+    budget: { max_input_tokens: 400000, max_usd: 1.00 }
+    compaction: { auto: true, keep_tokens: 15000, buffer: 120000 }
+critic: { enabled: false }
+approval: { ask_above_usd: 1.00 }

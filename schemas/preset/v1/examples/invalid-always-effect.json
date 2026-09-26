@@ -1,0 +1,3 @@
+{ "schema": "preset/v1", "name": "bad", "version": "0.1.0", "allowed_actions": ["answer"],
+  "node_kinds": { "worker": { "model": "p/m", "opencode_agent": "build", "permissions": [ { "action": "edit", "resource": "*", "effect": "always" } ],
+  "budget": { "max_input_tokens": 1, "max_usd": 1 } } }, "approval": {} }

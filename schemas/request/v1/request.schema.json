@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:chargehand:schema:request:v1",
+  "title": "chargehand run request, v1",
+  "description": "What a caller sends to start a run. Intake turns it into a task-spec/v1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "text", "context"],
+  "properties": {
+    "contract_version": { "const": "request/v1" },
+    "text": { "type": "string", "minLength": 1, "description": "The request in natural language." },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interactive", "preset"],
+      "properties": {
+        "interactive": { "type": "boolean", "description": "false: never block on a question; return status needs_input instead." },
+        "preset": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "budget_usd": { "type": "number", "exclusiveMinimum": 0 },
+        "repository": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "commit"],
+          "properties": {
+            "path": { "type": "string", "description": "Local checkout the worker runs in." },
+            "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" }
+          }
+        }
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "description": "Caller-supplied facts. Claims cite them with evidence kind 'input' and locator = id.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "text"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "kind": { "type": "string", "minLength": 1 },
+          "text": { "type": "string" },
+          "source_url": { "type": "string", "format": "uri" }
+        }
+      }
+    },
+    "caller_blocks": {
+      "type": "array",
+      "description": "Caller-owned prompt blocks. Placed in the task block and recorded in prompt_chain.",
+      "items": { "$ref": "#/$defs/prompt_block" }
+    }
+  },
+  "$defs": {
+    "prompt_block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "sha256", "text"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]*$" },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the block's normalised UTF-8 bytes (LF line endings, no trailing whitespace)." },
+        "text": { "type": "string" }
+      }
+    }
+  }
+}

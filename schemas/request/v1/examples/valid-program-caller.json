@@ -1,0 +1,10 @@
+{
+  "contract_version": "request/v1",
+  "text": "Draft a short project update from the inputs.",
+  "context": { "interactive": false, "preset": "default", "budget_usd": 0.5 },
+  "inputs": [
+    { "id": "fact-1", "kind": "identity", "text": "Maintains an open-source orchestrator." },
+    { "id": "signal-7", "kind": "signal", "text": "Released 0.1.0-alpha.", "source_url": "https://example.com/releases/0.1.0" }
+  ],
+  "caller_blocks": [ { "name": "generator/update", "version": "1.2.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "text": "Write in first person." } ]
+}

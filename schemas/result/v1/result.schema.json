@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:chargehand:schema:result:v1",
+  "title": "chargehand result contract, v1",
+  "description": "What a node returns and what a run returns to its caller. Every evidence reference resolves before the contract leaves its node.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "task_id", "node_id", "trace_id", "prompt_chain", "status", "summary", "claims", "evidence", "artifacts", "open_questions", "confidence", "usage"],
+  "properties": {
+    "contract_version": { "const": "result/v1" },
+    "task_id": { "type": "string", "minLength": 1 },
+    "node_id": { "type": "string", "minLength": 1 },
+    "trace_id": { "type": "string", "pattern": "^[0-9a-f]{32}$", "description": "W3C trace id of the run." },
+    "prompt_chain": { "$ref": "#/$defs/prompt_chain" },
+    "status": { "enum": ["completed", "needs_input", "failed", "denied"] },
+    "summary": { "type": "string", "description": "Short; the preset caps its length in tokens." },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "evidence", "confidence"],
+        "properties": {
+          "text": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "ids from the top-level evidence array" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "locator"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["file", "diff", "url", "session_message", "commit", "input"] },
+          "locator": { "type": "string", "minLength": 1, "description": "file: path:line or path:start-end; diff: path:start-end in the node's session diff; url: the URL; session_message: message id; commit: sha; input: the caller's input id." },
+          "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "media_type", "sha256"],
+        "anyOf": [{ "required": ["uri"] }, { "required": ["content"] }],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "uri": { "type": "string", "format": "uri-reference" },
+          "content": { "type": "string", "maxLength": 65536, "description": "Inline UTF-8, at most 64 KiB (the validator checks bytes; the schema bounds characters)." },
+          "media_type": { "type": "string", "pattern": "^[a-z]+/[a-zA-Z0-9.+-]+" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "open_questions": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "output", "cache_read", "cache_write", "usd"],
+      "properties": {
+        "input": { "type": "integer", "minimum": 0 },
+        "output": { "type": "integer", "minimum": 0 },
+        "cache_read": { "type": "integer", "minimum": 0 },
+        "cache_write": { "type": "integer", "minimum": 0 },
+        "usd": { "type": "number", "minimum": 0, "description": "Priced by the orchestrator's own table, cache-write surcharge included." }
+      }
+    }
+  },
+  "$defs": {
+    "prompt_chain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocks", "as_sent"],
+      "properties": {
+        "blocks": {
+          "type": "array",
+          "description": "In placement order: core system, preset, project context, task (incl. caller blocks), retrieved facts.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "version", "sha256", "source"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "version": { "type": "string" },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "source": { "enum": ["registry", "caller", "runtime"] }
+            }
+          }
+        },
+        "as_sent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["opencode_version", "agent", "model", "date"],
+          "properties": {
+            "opencode_version": { "type": "string" },
+            "agent": { "type": "string" },
+            "model": { "type": "string", "description": "provider/model[#variant]" },
+            "base_prompt_variant": { "type": "string" },
+            "instruction_files_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "tools_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "date": { "type": "string", "format": "date" }
+          }
+        }
+      }
+    }
+  }
+}
