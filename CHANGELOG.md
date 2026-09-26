@@ -9,6 +9,35 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- v2 (roadmap phase 5), callable interface (ADR 0018): `chargehand serve` hosts HTTP and MCP on 127.0.0.1, every route
+  behind a bearer key from the secret store (profile `http`), a loopback Host header, bodies up to 1 MB.
+  `POST /v1/runs` takes `request/v1` and answers `result/v1` if the run finishes within `Prefer: wait=N` (default
+  10 s, at most 60), else `202` with `run-status/v1`; `GET /v1/runs/{id}` (202, 200, 410 when the owning process
+  died, 404); `GET /v1/runs/{id}/events` streams `accepted`, `started`, `intake`, `node_started`, `node_finished`,
+  `run_finished`. Runs outlive the request and execute one at a time; at most 10 unfinished, then 429.
+- MCP at `/v1/mcp` (Streamable HTTP, MCP 2026-07-28 with hybrid sessions, C# SDK 2.2.0): tool `orchestrate` with
+  `inputSchema` `request/v1` and `outputSchema` `result/v1`; long runs as tasks (tasks extension); an interactive
+  `ask` becomes `input_required` (elicitation inside a task, an input-required result outside one), and the answers
+  resend the request as a child run.
+- Run store: the run log's new `start` record (request, trace id, owning pid, parent run) makes it the store the CLI
+  and the server share; `show` prints a run that is still running or was lost. Appends from several processes hold
+  a lock file; readers skip a half-written last line.
+- `Chargehand.Contracts` 1.1.0-alpha: schema `run-status/v1` and `RunStatus`; `PromptBlock.Create` hashes a caller
+  block by request/v1's rule.
+- Preset `draft` 0.1.0 (node kind `draft`, prompt blocks `core/draft` 0.1.0 and `preset/draft` 0.1.0): a program
+  caller's draft from its own inputs, with no repository and no tools; the draft returns as an inline artifact. New
+  optional `preset/v1` field `checkout: false`.
+- `samples/ContentEngineCall`: the content engine's call (ADR 0014) built from `Chargehand.Contracts` alone, standing in
+  until the content engine exists.
+- Prompt CI (ADR 0019): `chargehand eval seed|push|gate`, cells in `evals/cells.json` (`cheap/worker`, `draft/draft`,
+  `intake`) with items in Langfuse datasets, deterministic scores, paired runs of base and change, a gate with
+  tolerances T (0.10) and C (+15%; +30% for `cheap/worker`) and a declared-trade override, results as Langfuse
+  dataset runs and scores.
+  `scripts/prompt-ci.sh <pr>` runs it on the owner's machine and posts the commit status `prompt-ci`;
+  `.github/workflows/prompt-ci.yml` marks pull requests that change no prompt or preset.
+- `chargehand routes`: routing report per preset, node kind and model (runs, score, tokens, cache rate, cost,
+  latency), suggestions only. `chargehand score` records a hand score for a run.
+
 - v1 (roadmap phase 4): `split` runs 2–4 read-only subtasks as a task graph (`SplitPlan`, `GraphRunner`): at most
   2 nodes at once, upstream contracts passed to dependents, a failed node stops its dependents only. Later nodes
   fork the first node's session before its first message and read its system prefix from cache (ADR 0017). Node
@@ -47,6 +76,24 @@ All notable changes to this project are documented here. The format follows
 - OTLP traces (run → intake → node → call) carrying `chargehand.prompt_chain` and the OpenCode session id.
 - `scripts/opencode-serve.sh` launcher and `profiles/opencode.example.json`.
 
+### Prompt CI calibration (phase 5)
+
+A/A runs: the same prompts and presets as base and change, small model, 2026-09-27, each item under both arms back
+to back with the order alternating. Quality is 0 to 1; intake calls report no usage, so its cost is not compared.
+
+| cell | items | quality change (t) | cost change (t) | items that differ | verdict |
+|---|---|---|---|---|---|
+| `cheap/worker`, C +15% | 13 | -0.033 (-1.45) | +15% (1.99) | 2, by 0.25 and 0.18 | block, on cost |
+| `cheap/worker`, C +30% | 13 | -0.076 (-1.08) | -15% (-1.17) | 3, by 0.92, 0.12 and 0.05 | pass |
+| `intake` | 19 | +0.000 (0.00) | not priced | 2 flip; 2 fail in both | pass |
+| `draft/draft` | 8 | +0.000 (0.00) | +2% (0.41) | none | pass |
+
+A worker's exploration varies from run to run: `cheap/worker`'s per-item cost ratios ran from 0.73 to 1.56 (log
+ratio SD 0.24), so identical prompts exceeded C = +15% by chance and blocked. Its C is now +30%. In the rerun, the
+phase 3 reference question stopped at `cheap`'s 400k-token node budget in one arm (0.92 against 0.00) and carries most
+of the quality change. Cost per run: `cheap/worker` $0.0010–0.0213 (mean $0.0054, about $0.14 per A/A), `draft/draft`
+$0.0004–0.0007.
+
 ### Benchmark (phase 4 exit, cost half)
 
 Three breadth-first read-only questions (each spans 3 independent areas) on a private repository at a pinned
@@ -84,6 +131,13 @@ Answer quality is judged blind by the owner (pending at the time of this entry).
 
 ### Changed
 
+- A run that throws (a bad checkout, an unknown preset, no valid Task Spec) now ends with a failed `result/v1` and a
+  run record instead of an exception.
+- The task text lists caller inputs as `- id "<id>" (<kind>): <text>`: listed as `[id]`, a worker cited `[id]`, which
+  matched no input. A failed `input` reference names the ids that exist, and intake sees each input's id and kind.
+- The orchestrator computes an inline artifact's sha256 itself and bounds its content at 64 KiB in bytes.
+- OpenCode's stateless generate (intake) retries one 503, as ADR 0011 prescribes for the masking proxy.
+
 - Presets `default` 0.4.0, `cheap` 0.2.0 and `thorough` 0.2.0 set no approval thresholds. Intake's estimate is
   uncalibrated (ADR 0005): in the phase 4 benchmark it estimated up to $0.35 for runs that cost about $0.01 and
   stopped one with `needs_input`. Only `strict`, whose definition is to ask, keeps them.
@@ -92,6 +146,14 @@ Answer quality is judged blind by the owner (pending at the time of this entry).
   block only.
 
 ### Security
+
+- `chargehand serve` requires its bearer key on loopback too (any local process can reach the port), accepts only a
+  loopback Host header (DNS rebinding from a browser) and sends no CORS headers.
+- Prompt CI never builds or runs a pull request's code: the runner is the trusted checkout's build and the pull
+  request contributes only `prompts/` and `presets/`. Those still steer a worker whose allowed commands can run
+  programs (`git grep -O`), so a fork's pull request or any preset change runs only after the owner has read the
+  diff (`--reviewed`), and a symbolic link among them stops the run. GitHub holds no model, gateway, tracing or
+  tailnet key; evals use their own OpenCode server and a spend-capped gateway key limited to the small model.
 
 - Preset `default` 0.3.0 denies reading `*.env` / `*.env.*` and `rg --no-ignore` / `rg -u`. The session ruleset's
   leading allow had overridden the OpenCode agent's own ask-before-reading-`.env` rules, so a worker could read

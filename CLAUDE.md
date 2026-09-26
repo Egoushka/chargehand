@@ -11,7 +11,8 @@ dotnet format --verify-no-changes     # lint / format check (CI runs this)
 scripts/gen-opencode-api.py <url>     # regenerate docs/opencode-api.md + spec (needs OPENCODE_SERVER_PASSWORD)
 gitleaks git --redact -v              # secret scan over history
 scripts/opencode-serve.sh <bin> <cfg> [port]   # start the orchestrator's own OpenCode server
-dotnet run --project src/Chargehand.Cli -- run|show|cache|reconcile|prompts sync   # CLI (profiles/local.json)
+dotnet run --project src/Chargehand.Cli -- run|serve|show|cache|reconcile|routes|score|eval|prompts sync   # CLI (profiles/local.json)
+scripts/prompt-ci.sh <pr>             # Prompt CI on the owner's machine (profiles/local.eval.json, eval OpenCode server)
 ```
 
 Hooks: `git config core.hooksPath .githooks` (denylist + gitleaks on pre-commit, Conventional
@@ -28,6 +29,8 @@ names, budgets, absolute home paths, session or message ids, API keys, prompts f
 - Treat every OpenCode `/api/model*`, `/api/provider*`, `/api/config*` body as secret: never log,
   record or commit it; redact `apiKey` before writing any fixture.
 - Fixtures recorded from a real server get ids, paths and prompts scrubbed before commit.
+- Eval items are real tasks: they live in the orchestrator's Langfuse datasets and the gitignored `runs/`. `evals/`
+  holds only the cell definitions and synthetic examples against this repository.
 
 ## Conventions
 

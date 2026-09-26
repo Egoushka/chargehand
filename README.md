@@ -5,10 +5,12 @@ An orchestrator that turns a request into a typed **Task Spec**, runs it on one 
 directory), and returns a **result contract** with evidence for every claim — to people through a
 CLI and to programs through HTTP and MCP.
 
-**Status: pre-alpha (v1).** Intake → an action: stop with `deny`, `ask`, `improve` or an approval request, or run
+**Status: pre-alpha (v2).** Intake → an action: stop with `deny`, `ask`, `improve` or an approval request, or run
 one OpenCode session (`answer`) or a graph of 2–4 read-only sessions (`split`) → `result/v1` with resolved
-evidence. Presets `default`, `cheap`, `thorough`, `strict`; optional long-term memory; a cache report per run.
-Writing nodes in worktrees, HTTP and MCP come later.
+evidence. Callable over a CLI, HTTP (`/v1/runs`, with server-sent events) and MCP (tool `orchestrate`, with tasks).
+Presets `default`, `cheap`, `thorough`, `strict`, and `draft` for program callers that bring their own facts; optional
+long-term memory; a cache report per run; Prompt CI that gates prompt changes on paired evals; a routing report.
+Writing nodes in worktrees come later.
 
 ## Why
 
@@ -31,7 +33,10 @@ Non-goals: its own agent loop, direct calls to model providers, parallelism for 
 | `src/Chargehand.Contracts` | the contract package: schemas, C# types, validator (versioned by schema major) |
 | `src/Chargehand` | orchestrator: intake, task graph, worker node, evidence resolver, prompt registry, memory, run log |
 | `src/Chargehand.OpenCode` | OpenCode V2 client and worker-runtime adapter |
+| `src/Chargehand.Server` | HTTP interface and MCP server (`chargehand serve`) |
 | `src/Chargehand.Cli` | CLI entry point |
+| `evals/` | Prompt CI cells (`cells.json`) and an example item file; real items live in Langfuse datasets |
+| `samples/ContentEngineCall` | a program caller built from `Chargehand.Contracts` only |
 | `profiles/` | profile schema and `example.json`; your own goes in the gitignored `profiles/local.json` |
 
 Requires an OpenCode V2 server of the pinned version (2.0.16) that the orchestrator starts itself; see
@@ -53,7 +58,25 @@ dotnet run --project src/Chargehand.Cli -- show <run-id>           # calls, toke
 dotnet run --project src/Chargehand.Cli -- cache <run-id>          # cache reads/writes per call, first changed block
 dotnet run --project src/Chargehand.Cli -- reconcile <run-id> < spend-rows.jsonl
 dotnet run --project src/Chargehand.Cli -- prompts sync            # mirror prompt blocks to Langfuse
+dotnet run --project src/Chargehand.Cli -- serve                   # HTTP and MCP on 127.0.0.1 (profile "http")
+dotnet run --project src/Chargehand.Cli -- routes                  # routing report per preset, node kind and model
+scripts/prompt-ci.sh <pr-number>                                   # Prompt CI: paired evals, then the commit status
 ```
+
+### HTTP and MCP
+
+`chargehand serve` binds 127.0.0.1 and requires `Authorization: Bearer <key>` on every route; the key comes from the
+secret-store item the profile's `http.api_key_secret` names ([ADR 0018](docs/adr/0018-callable-interface-http-mcp-run-store.md)).
+
+- `POST /v1/runs` takes `request/v1`. With `Prefer: wait=N` (default 10 s, at most 60) it answers `200` and `result/v1`
+  if the run finishes in time, else `202` and `run-status/v1` with a `Location`.
+- `GET /v1/runs/{id}`: `202` while queued or running, `200` and `result/v1` once finished, `410` if the process that ran
+  it ended first.
+- `GET /v1/runs/{id}/events`: server-sent events `accepted`, `started`, `intake`, `node_started`, `node_finished`,
+  `run_finished`.
+- MCP (Streamable HTTP) at `/v1/mcp`: tool `orchestrate`, `inputSchema` `request/v1`, `outputSchema` `result/v1`. Clients
+  that opt in to the tasks extension get long runs as tasks; an interactive request that intake answers with questions
+  comes back as `input_required`.
 
 ## Build
 
