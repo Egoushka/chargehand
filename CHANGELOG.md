@@ -62,6 +62,10 @@ Answer quality is judged blind by the owner (pending at the time of this entry).
 
 ### Changed
 
+- Presets `default` 0.4.0, `cheap` 0.2.0 and `thorough` 0.2.0 set no approval thresholds. Intake's estimate is
+  uncalibrated (ADR 0005): in the phase 4 benchmark it estimated up to $0.35 for runs that cost about $0.01 and
+  stopped one with `needs_input`. Only `strict`, whose definition is to ask, keeps them.
+
 - Preset `default` 0.2.0 allows `rg` (with `--pre` denied); worker prompt 0.2.0 makes the final message the JSON
   block only.
 

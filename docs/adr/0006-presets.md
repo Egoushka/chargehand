@@ -35,7 +35,8 @@ plus the permission ruleset passed at session creation, with budgets enforced by
 - Compaction: session create takes no compaction settings (phase 4 spike), so `auto`, `keep_tokens` and `buffer`
   describe the server config; the orchestrator enforces `trigger_tokens` and `max_input_tokens` itself (ADR 0010).
 - `approval` stops a run with `needs_input` above its risk or estimate threshold unless the request sets
-  `context.approved`.
+  `context.approved`. Only `strict` sets thresholds: intake's estimate is uncalibrated (ADR 0005; phase 4 saw
+  $0.35 estimated for a ~$0.01 run), so elsewhere it would stop runs at random.
 - Rulesets are ordered, last match wins; write the broad rule first, then exceptions.
 - Every preset denies reading `*.env` and `*.env.*` (allowing `*.env.example`), and any shell allowlist entry that
   could bypass `.gitignore` (`rg --no-ignore`, `rg -u`). Shell tools that read files are a residual path around

@@ -3,7 +3,7 @@
 # permission rule wins; a trailing "<action> * deny" removes that tool from the worker's catalog entirely.
 schema: preset/v1
 name: cheap
-version: 0.1.0
+version: 0.2.0
 allowed_actions: [answer, split, improve, ask, deny]
 node_kinds:
   worker:
@@ -33,4 +33,5 @@ node_kinds:
     budget: { max_input_tokens: 400000, max_usd: 0.25 }
     compaction: { auto: true, keep_tokens: 15000, buffer: 120000, trigger_tokens: 60000 }
 critic: { enabled: false }
-approval: { ask_above_usd: 0.25 }
+# No approval thresholds: intake estimates are uncalibrated and gate nothing yet (ADR 0005).
+approval: {}
