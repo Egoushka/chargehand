@@ -6,6 +6,7 @@ using Chargehand.Budget;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Intake;
+using Chargehand.Memory;
 using Chargehand.Nodes;
 using Chargehand.Plans;
 using Chargehand.Prompts;
@@ -18,13 +19,15 @@ namespace Chargehand;
 
 /// <summary>Request → intake → action: stop (ask, improve, deny, approval) or run one node (answer) or a task graph (split) → result/v1.</summary>
 /// <param name="promptVersions">Langfuse prompt versions by block sha256, for linking spans; may be empty.</param>
+/// <param name="memory">Long-term memory from the profile, or null (ADR 0008).</param>
 public sealed class Orchestrator(
     Profile profile,
     IWorkerRuntime runtime,
     string opencodeVersion,
     string rootDirectory,
     IRunLog runLog,
-    IReadOnlyDictionary<string, int> promptVersions)
+    IReadOnlyDictionary<string, int> promptVersions,
+    IMemoryProvider? memory = null)
 {
     public const string NodeKindName = "worker";
 
@@ -119,13 +122,18 @@ public sealed class Orchestrator(
         var cap = new[] { profile.RunCapUsd / plan.Count, kind.Budget.MaxUsd, (request.Context.BudgetUsd ?? decimal.MaxValue) / plan.Count }.Min();
         var inputText = string.Join("\n", (request.Inputs ?? []).Select(i => $"[{i.Id}] ({i.Kind}) {i.Text}{(i.SourceUrl is null ? "" : $" <{i.SourceUrl}>")}"));
         var prices = new PriceTable(profile.Prices);
+        // Recalled facts go in the prompt text, after the task (ADR 0007 order; ADR 0010 keeps instructions fixed, so
+        // siblings still fork). The chain records them as a runtime block.
+        var facts = await Recall(request.Text, run, ct);
+        if (facts.Length > 0)
+            chain = chain with { Blocks = [.. chain.Blocks, new ChainBlock("memory/recall", "1", PromptText.Sha256(facts), BlockSource.Runtime)] };
         var instructionRefs = instructions.Select(i => new InstructionRef(i.Key, PromptText.Sha256(i.Value))).ToList();
 
         async Task<NodeResult> RunNode(PlanNode node, IReadOnlyList<ResultContract> upstream, ForkPoint? fork, TaskCompletionSource<ForkPoint?>? primed, CancellationToken token)
         {
             var nodeRequest = new NodeRequest(runId, node.Id, traceId,
                 new NodeSpec(Path.GetFullPath(repo.Path), kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { ["chargehand.run"] = runId, ["chargehand.node"] = node.Id }),
-                instructions, TaskText(request, spec, commit, inputText, callerBlocks, node, plan.Count, upstream), chain, repo.Path, commit,
+                instructions, TaskText(request, spec, commit, inputText, callerBlocks, node, plan.Count, upstream) + facts, chain, repo.Path, commit,
                 (request.Inputs ?? []).Select(i => i.Id).ToHashSet(), inputText, cap, TimeSpan.FromMinutes(15),
                 kind.Budget.MaxInputTokens, kind.Compaction?.TriggerTokens, fork);
 
@@ -158,7 +166,32 @@ public sealed class Orchestrator(
             new("result/v1", runId, node.Id, traceId, chain, ResultStatus.Failed, reason, [], [], [], [reason], 0, new Usage(0, 0, 0, 0, 0));
 
         var outcomes = await new GraphRunner().RunAsync(plan, RunNode, Failed, ct);
-        return plan.Count == 1 ? outcomes[0].Contract : ResultMerger.Merge(runId, traceId, chain, outcomes);
+        var result = plan.Count == 1 ? outcomes[0].Contract : ResultMerger.Merge(runId, traceId, chain, outcomes);
+        if (memory is not null && profile.Memory!.Retain && result.Status == ResultStatus.Completed)
+            await memory.RetainAsync(new MemoryItem($"{request.Text}\n{result.Summary}\n{string.Join("\n", result.Claims.Select(c => $"- {c.Text}"))}",
+                "chargehand run result", DateTimeOffset.UtcNow, runId, ["chargehand"]), MemoryScopeOf(profile.Memory), ct);
+        return result;
+    }
+
+    private static MemoryScope MemoryScopeOf(MemorySettings m) => new(m.Backend, m.Namespace);
+
+    /// <summary>Memory is optional context: a failed recall leaves the run without it rather than failing it.</summary>
+    private async Task<string> Recall(string query, Activity? run, CancellationToken ct)
+    {
+        if (memory is null)
+            return "";
+        try
+        {
+            var items = await memory.RecallAsync(query, MemoryScopeOf(profile.Memory!), ct);
+            run?.SetTag("chargehand.memory.recalled", items.Count);
+            return items.Count == 0 ? "" : "\nFacts from long-term memory (unverified; check them in the repository and cite files, never these):\n"
+                + string.Join("\n", items.Select(i => $"- {i.Text}")) + "\n";
+        }
+        catch (HttpRequestException e)
+        {
+            run?.SetTag("chargehand.memory.error", e.Message);
+            return "";
+        }
     }
 
     private static string Name<T>(T value) where T : struct, Enum => value.ToString().ToLowerInvariant();

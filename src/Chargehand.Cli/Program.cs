@@ -4,6 +4,7 @@ using System.Text.Json;
 using Chargehand;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Memory;
 using Chargehand.OpenCode;
 using Chargehand.Prompts;
 using Chargehand.RunLog;
@@ -78,7 +79,10 @@ async Task<int> Run()
     using var tracing = Tracing();
     var client = new OpenCodeClient(new HttpClient { BaseAddress = new Uri(profile.Opencode.Url) }, profile.Secret(profile.Opencode.PasswordSecret));
     var runtime = await OpenCodeWorkerRuntime.ConnectAsync(client, profile.Opencode.Version, ct);
-    var orchestrator = new Orchestrator(profile, runtime, runtime.Version, root, runLog, await PromptVersions());
+    var memory = profile.Memory is { } m
+        ? new HindsightMemory(new HttpClient { BaseAddress = new Uri(m.Url), Timeout = TimeSpan.FromSeconds(30) }, m.ApiKeySecret is null ? null : profile.Secret(m.ApiKeySecret), m.MaxTokens)
+        : null;
+    var orchestrator = new Orchestrator(profile, runtime, runtime.Version, root, runLog, await PromptVersions(), memory);
     var result = await orchestrator.RunAsync(request, ct);
     tracing?.ForceFlush(10_000);
 

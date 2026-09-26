@@ -131,6 +131,45 @@
         "type": "string",
         "pattern": "^[^/\\s]+/[^\\s#]+(#[a-z]+)?$"
       }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "url",
+        "namespace"
+      ],
+      "description": "Optional long-term memory (ADR 0008). When set, each executed run recalls facts for the request once and gives them to its nodes as unverified context.",
+      "properties": {
+        "backend": {
+          "enum": [
+            "hindsight"
+          ]
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The backend's namespace (a Hindsight bank)."
+        },
+        "api_key_secret": {
+          "type": "string",
+          "description": "Secret-store item holding the API key, if the backend needs one."
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Recall budget in tokens (default 1024)."
+        },
+        "retain": {
+          "type": "boolean",
+          "description": "Retain each completed run's summary and claims (default false)."
+        }
+      }
     }
   }
 }
