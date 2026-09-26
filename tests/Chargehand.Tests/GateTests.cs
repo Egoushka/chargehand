@@ -1,0 +1,144 @@
+using System.Text.Json;
+using Chargehand.Contracts;
+using Chargehand.Evals;
+
+namespace Chargehand.Tests;
+
+/// <summary>Prompt CI's scoring and gate (ADR 0019).</summary>
+public class GateTests
+{
+    private static readonly EvalCell Cell = new("cheap/worker", "d", "worker", "cheap", ["prompts/core/worker.md"], 0.10, 0.15);
+
+    /// <summary>Paired items: base quality, the change's offset per item, and each arm's cost.</summary>
+    private static List<Pair> Pairs(double[] offsets, double baseQuality = 0.8, decimal baseUsd = 0.01m, decimal changeUsd = 0.01m) =>
+        [.. offsets.Select((o, i) => new Pair($"i{i}", baseQuality, Math.Clamp(baseQuality + o, 0, 1), baseUsd, changeUsd))];
+
+    [Fact]
+    public void Noise_around_no_change_passes()
+    {
+        var v = Gate.Decide(Cell, Pairs([0.05, -0.05, 0.1, -0.1, 0, 0.05, -0.05, 0]), null);
+        Assert.False(v.Blocked, v.Reason);
+    }
+
+    [Fact]
+    public void A_clear_quality_drop_blocks()
+    {
+        var v = Gate.Decide(Cell, Pairs([-0.3, -0.25, -0.35, -0.3, -0.2, -0.4, -0.3, -0.25]), null);
+        Assert.True(v.Blocked);
+        Assert.StartsWith("quality -0.294", v.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_drop_that_noise_explains_passes()
+    {
+        // Mean -0.14, beyond T, but the items disagree too much for the drop to be more than chance.
+        var v = Gate.Decide(Cell, Pairs([-0.6, 0.3, -0.6, 0.3, -0.6, 0.3, -0.3, 0.1], baseQuality: 0.6), null);
+        Assert.True(v.QualityDelta < -Cell.QualityTolerance);
+        Assert.False(v.Blocked, v.Reason);
+    }
+
+    [Fact]
+    public void A_drop_inside_the_tolerance_passes()
+    {
+        var v = Gate.Decide(Cell, Pairs([-0.05, -0.05, -0.05, -0.05, -0.05, -0.05, -0.05, -0.05]), null);
+        Assert.False(v.Blocked, v.Reason);
+    }
+
+    [Fact]
+    public void A_cost_rise_beyond_the_tolerance_blocks()
+    {
+        var pairs = Pairs(new double[8]).Select((p, i) => p with { ChangeUsd = 0.015m + i * 0.0001m }).ToList();
+        var v = Gate.Decide(Cell, pairs, null);
+        Assert.True(v.Blocked);
+        Assert.StartsWith("cost +", v.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_declared_trade_passes_only_when_it_is_delivered()
+    {
+        var cheaper = Pairs([-0.12, -0.1, -0.14, -0.12, -0.1, -0.12, -0.14, -0.12], changeUsd: 0.006m);
+        var trade = new Trade(-0.15, -0.25);
+        Assert.True(Gate.Decide(Cell, cheaper, null).Blocked);
+        Assert.False(Gate.Decide(Cell, cheaper, trade).Blocked);
+        var notCheaper = cheaper.Select(p => p with { ChangeUsd = 0.009m }).ToList();
+        Assert.StartsWith("trade not delivered: cost", Gate.Decide(Cell, notCheaper, trade).Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Fewer_items_than_the_cell_needs_block()
+    {
+        Assert.True(Gate.Decide(Cell, Pairs([0, 0, 0, 0, 0]), null).Blocked);
+    }
+
+    [Theory]
+    [InlineData("Faster.\n\nprompt-ci: trade quality>=-0.15 cost<=-25%\n", -0.15, -0.25)]
+    [InlineData("PROMPT-CI: trade quality >= -0.05 cost <= -10%", -0.05, -0.10)]
+    public void The_trade_line_is_read_from_the_pull_request_body(string body, double quality, double cost)
+    {
+        var trade = Gate.ParseTrade(body)!;
+        Assert.Equal(quality, trade.Quality, 6);
+        Assert.Equal(cost, trade.Cost, 6);
+    }
+
+    [Fact]
+    public void A_body_without_a_trade_line_declares_none() => Assert.Null(Gate.ParseTrade("Fixes a typo."));
+
+    [Fact]
+    public void Changed_files_map_to_cells_and_the_rest_is_uncovered()
+    {
+        var cells = EvalCell.Load(Repo.Path("evals", "cells.json"));
+        var (affected, uncovered) = EvalRunner.Affected(cells, ["prompts/preset/cheap.md", "prompts/preset/default.md", "src/Chargehand/Orchestrator.cs"]);
+        Assert.Equal(["cheap/worker"], affected.Select(c => c.Name));
+        Assert.Equal(["prompts/preset/default.md"], uncovered);
+    }
+
+    [Fact]
+    public void Shipped_cells_and_example_items_load()
+    {
+        var cells = EvalCell.Load(Repo.Path("evals", "cells.json"));
+        Assert.Equal(["cheap/worker", "draft/draft", "intake"], cells.Select(c => c.Name));
+        foreach (var file in cells.SelectMany(c => c.Files))
+            Assert.True(File.Exists(Repo.Path(file)), file);
+        foreach (var line in File.ReadAllLines(Repo.Path("evals", "example.jsonl")))
+        {
+            var item = JsonSerializer.Deserialize<EvalItem>(line, ContractJson.Options)!;
+            Assert.Empty(ContractSchemas.Validate(ContractSchemas.Request, JsonSerializer.SerializeToElement(item.Request, ContractJson.Options)));
+            Assert.All(item.Request.CallerBlocks ?? [], b => Assert.Equal(PromptBlock.Hash(b.Text), b.Sha256));
+        }
+    }
+
+    private static ResultContract Result(IReadOnlyList<Claim> claims, IReadOnlyList<Evidence> evidence, IReadOnlyList<string> questions, IReadOnlyList<Artifact>? artifacts = null) =>
+        new("result/v1", "t", "n", new string('0', 32), new PromptChain([], new AsSent("2.0.16", "build", "p/m", "2026-09-26")), ResultStatus.Completed, "s",
+            claims, evidence, artifacts ?? [], questions, 0.8, new Usage(0, 0, 0, 0, 0.01m));
+
+    [Fact]
+    public void A_worker_scores_half_on_resolved_claims_and_half_on_reference_recall()
+    {
+        var r = Result([new Claim("a", ["e1"], 0.9), new Claim("b", ["e1"], 0.9)], [new Evidence("e1", EvidenceKind.File, "src/a.cs:1-3")],
+            ["[s1] Unverified: c (e2: gone)"]);
+        var scores = Scoring.Worker(r, ["src/a.cs", "src/b.cs"]);
+        Assert.Equal(2.0 / 3, scores["evidence_resolved"], 6);
+        Assert.Equal(0.5, scores["reference_recall"], 6);
+        Assert.Equal((2.0 / 3 + 0.5) / 2, scores["quality"], 6);
+        Assert.Equal(0, Scoring.Worker(r with { Status = ResultStatus.Failed }, ["src/a.cs"])["quality"]);
+    }
+
+    [Fact]
+    public void A_draft_scores_bounds_evidence_required_inputs_and_banned_phrases()
+    {
+        var r = Result([new Claim("v1 is out", ["e1"], 0.9)], [new Evidence("e1", EvidenceKind.Input, "rel-v1")], [],
+            [new Artifact("draft", "text/markdown", new string('a', 64), Content: "A revolutionary release.")]);
+        var scores = Scoring.Draft(r, new DraftExpectation(400, ["rel-v1", "bench"], ["revolutionary"]));
+        Assert.Equal((1 + 1 + 0.5 + 0) / 4.0, scores["quality"], 6);
+        Assert.Equal(0, Scoring.Draft(r with { Artifacts = [] }, new DraftExpectation(400))["quality"]);
+    }
+
+    [Fact]
+    public void Intake_scores_the_action_it_chose()
+    {
+        var spec = JsonSerializer.Deserialize<TaskSpec>(ScriptedRuntime.Spec("ask", """{"questions":["Which?"]}"""), ContractJson.Options)!;
+        Assert.Equal(1, Scoring.Intake(spec, "ask")["quality"]);
+        Assert.Equal(0, Scoring.Intake(spec, "answer")["quality"]);
+        Assert.Equal(1, Scoring.Intake(null, "needs_input")["quality"]);
+    }
+}
