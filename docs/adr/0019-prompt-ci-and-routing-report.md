@@ -111,7 +111,9 @@ fork code on the owner's machine.
   preset is new runs under the change alone and is not paired. An arm that fails on a gateway or provider rate limit
   runs again after 15, 30 and 60 s; one still limited after that stops the gate (status `error`), because a 0 for a
   run that never reached the model would move the verdict (PR #9's run lost one item to the gateway's
-  parallel-request limit).
+  parallel-request limit). A worker or draft arm that fails with no usage at all (no tokens, $0) was refused before
+  any model call and stops the gate the same way: on 2026-09-27 an A/A of `cheap/worker` refused every arm on the
+  checkout, scored 0 against 0 and passed.
 - **Where:** `scripts/prompt-ci.sh <pr>` on the owner's machine. The runner is the trusted checkout's build; the pull
   request contributes only `prompts/` and `presets/`, taken with `git archive`, and a symbolic link among them stops
   the run. A fork's pull request, or any change under `presets/` (permissions, agent, model, budget), runs only after
