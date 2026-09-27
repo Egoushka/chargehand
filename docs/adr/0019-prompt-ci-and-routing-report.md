@@ -59,6 +59,10 @@ fork code on the owner's machine.
   again (1.00 against 0.00), -0.077 on the mean by itself; an item whose reference is 3 claims moves by 0.33 per
   claim. Scored by grounding alone, the same A/A runs give -0.072 (t -0.93). An earlier A/A, cut off after 8 items:
   -0.027 (t -0.32).
+- Set (2026-09-27). The phase 3 reference question failed in 4 of its 8 runs under the base prompts, and one flip
+  moved an A/A's mean by up to 0.08 on its own, so it left `cheap/worker`. The same runs without it, 12 items: #5's
+  rerun -0.187 (t -2.47), block; the A/A +0.038 (t 1.16), cost -16% (t -1.03), pass. The replay without it blocks #5
+  in 86% of reruns and A/A pairs in 1.5%.
 
 ## Options
 
@@ -78,12 +82,12 @@ fork code on the owner's machine.
   minimum of 8 items. Items live only in the orchestrator's Langfuse datasets; `evals/example.jsonl` shows their format
   against this repository. `eval seed` proposes items from runs in the log (one per request, one per split subtask);
   the owner reviews them; `eval push` uploads them.
-- **Cells now.** `cheap/worker`, 13 items: the 3 phase 4 questions, their 9 subtasks, the phase 3 reference question.
-  `intake`, 19: those requests labelled with the action intake should choose, 5 synthetic stop cases, the content
-  engine's draft. `draft/draft`, 8: the content engine's call and 7 variants built from this repository's public
-  changelog, one of them baiting a fact the inputs lack. `core/worker.md` is evaluated on `cheap` only; the
-  `default`, `thorough` and `strict` blocks have no cell, and a change to them fails unless the owner passes
-  `--allow-uncovered`.
+- **Cells now.** `cheap/worker`, 12 items: the 3 phase 4 questions and their 9 subtasks; the phase 3 reference question
+  left it on 2026-09-27 and stays archived in the dataset (Evidence). `intake`, 19: those requests labelled with the
+  action intake should choose, 5 synthetic stop cases, the content engine's draft. `draft/draft`, 8: the content
+  engine's call and 7 variants built from this repository's public changelog, one of them baiting a fact the inputs
+  lack. `core/worker.md` is evaluated on `cheap` only; the `default`, `thorough` and `strict` blocks have no cell, and a
+  change to them fails unless the owner passes `--allow-uncovered`.
 - **Scores**, 0 to 1, no model call. Worker: grounding, the mean of the share of claims whose evidence resolved and
   the recall of reference files (files cited by at least 3 of the 4 benchmark answers), times completeness, the
   claims kept over the item's `reference_claims` (the median over its runs under the base prompts; `eval seed`
@@ -118,17 +122,17 @@ fork code on the owner's machine.
 ## Consequences
 
 Each gated pull request costs one local eval (about $0.14 for `cheap/worker`, $0.02 for the others) and needs the
-owner's machine; a fork's pull request always waits for it. 13 items catch large regressions only, and `cheap/worker`
+owner's machine; a fork's pull request always waits for it. 12 items catch large regressions only, and `cheap/worker`
 lets a cost rise below +30% through; start records keep every request since ADR 0018, so the sets grow from real runs
-toward 20, and C can tighten with them. The phase 3 reference question flips between about 0.9 and 0 at `cheap`'s node
-budget and dominates `cheap/worker`'s quality noise until its budget or its place in the set changes.
+toward 20, and C can tighten with them. The phase 3 reference question, which flipped between about 0.9 and 0 at
+`cheap`'s node budget and dominated `cheap/worker`'s quality noise, can return to the set when its budget changes.
 
 The exit test (2026-09-27, changelog: phase 5 exit) showed the score's blind spot: two deliberate `preset/cheap`
 regressions passed, because the score measured grounding, which the worker node already enforces at run time. Recall of
 the reference answers' line ranges, the planned fix, would have passed #5 too: its thinner answers cite the same code in
 fewer, wider ranges. Scaled by the claim count, the score blocked #5 on its rerun; by the replay it catches a thinning
-of that size in at most about 4 of 5 reruns at 13 items, not every time, while the phase 3 reference question's flips
-stay in the set. It does not see #6, which kept its claim count. A prompt that merges facts into fewer claims on purpose
+of that size in at most about 86% of reruns at the 12 items, not every time. It does not see #6, which kept its claim
+count. A prompt that merges facts into fewer claims on purpose
 reads as a thinner answer and declares a trade.
 
 ## Reopen if

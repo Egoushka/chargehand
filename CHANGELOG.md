@@ -114,6 +114,7 @@ to back with the order alternating. Quality is 0 to 1; intake calls report no us
 | `cheap/worker`, C +15% | 13 | -0.033 (-1.45) | +15% (1.99) | 2, by 0.25 and 0.18 | block, on cost |
 | `cheap/worker`, C +30% | 13 | -0.076 (-1.08) | -15% (-1.17) | 3, by 0.92, 0.12 and 0.05 | pass |
 | `cheap/worker`, completeness score | 13 | -0.042 (-0.50) | -23% (-1.43) | 5, by 1.00, 0.33, 0.17, 0.11 and 0.06 | pass |
+| the same runs without the phase 3 reference question | 12 | +0.038 (1.16) | -16% (-1.03) | 4, by 0.33, 0.17, 0.11 and 0.06 | pass |
 | `intake` | 19 | +0.000 (0.00) | not priced | 2 flip; 2 fail in both | pass |
 | `draft/draft` | 8 | +0.000 (0.00) | +2% (0.41) | none | pass |
 
@@ -122,7 +123,8 @@ ratio SD 0.24), so identical prompts exceeded C = +15% by chance and blocked. It
 phase 3 reference question stopped at `cheap`'s 400k-token node budget in one arm (0.92 against 0.00) and carries most
 of the quality change. Cost per run: `cheap/worker` $0.0010–0.0213 (mean $0.0054, about $0.14 per A/A), `draft/draft`
 $0.0004–0.0007. Under the completeness score (ADR 0019) the phase 3 reference question failed in one arm again (1.00
-against 0.00, -0.077 on the mean by itself), and an item whose reference is 3 claims moves by 0.33 per claim.
+against 0.00, -0.077 on the mean by itself), and an item whose reference is 3 claims moves by 0.33 per claim. The
+phase 3 reference question has since left `cheap/worker`.
 
 ### Benchmark (phase 4 exit, cost half)
 
@@ -161,6 +163,9 @@ Answer quality is judged blind by the owner (pending at the time of this entry).
 
 ### Changed
 
+- `cheap/worker` drops the phase 3 reference question (12 items; the item stays archived in the dataset): at `cheap`'s
+  400k-token node budget it failed in about half its runs, and one flip moved an A/A's mean by up to 0.08. On the same
+  runs without it, #5's rerun still blocks (-0.187, t -2.47) and the A/A passes (+0.038, t 1.16).
 - Prompt CI's worker score is grounding times completeness: the claims kept over the item's `reference_claims` (new
   optional field of an eval item's `expected`, the median over its runs under the base prompts), at most 1; `eval
   seed` proposes the seeding run's count. Grounding alone passed #5, whose answers cited the same code in fewer, wider
