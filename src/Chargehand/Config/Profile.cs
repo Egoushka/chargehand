@@ -8,7 +8,7 @@ namespace Chargehand.Config;
 /// <summary>profile/v1 (profiles/profile.schema.json): environment-specific settings; secrets by item name only.</summary>
 public sealed record Profile(
     string Schema,
-    OpenCodeSettings Opencode,
+    OpenCodeSettings? Opencode,
     string WorkerRoot,
     string DefaultPreset,
     string IntakeModel,
@@ -19,7 +19,8 @@ public sealed record Profile(
     TelemetrySettings? Telemetry = null,
     IReadOnlyDictionary<string, string>? Models = null,
     MemorySettings? Memory = null,
-    HttpSettings? Http = null)
+    HttpSettings? Http = null,
+    ClaudeCodeSettings? ClaudeCode = null)
 {
     public static readonly JsonSerializerOptions Json = new()
     {
@@ -52,6 +53,9 @@ public sealed record Profile(
 }
 
 public sealed record OpenCodeSettings(string Url, string PasswordSecret, string Version, string? Binary = null);
+
+/// <summary>Claude Code CLI as the worker runtime (ADR 0020); used instead of OpenCode when set.</summary>
+public sealed record ClaudeCodeSettings(string Version, string ApiKeySecret, string Binary = "claude");
 
 public sealed record MemorySettings(string Backend, string Url, string Namespace, string? ApiKeySecret = null, int MaxTokens = 1024, bool Retain = false);
 

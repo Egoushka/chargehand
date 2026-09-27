@@ -9,6 +9,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Claude Code runtime adapter (ADR 0020, `Chargehand.ClaudeCode`): `IWorkerRuntime` over `claude -p` stream-json, one
+  process per turn, `--bare` and `dontAsk`, preset rules translated to `--tools`/`--allowedTools`/`--disallowedTools`.
+  Profile `claude_code` (`version`, `api_key_secret`, `binary`) selects it instead of `opencode`, which is now optional.
 - v2 (roadmap phase 5), callable interface (ADR 0018): `chargehand serve` hosts HTTP and MCP on 127.0.0.1, every route
   behind a bearer key from the secret store (profile `http`), a loopback Host header, bodies up to 1 MB.
   `POST /v1/runs` takes `request/v1` and answers `result/v1` if the run finishes within `Prefer: wait=N` (default

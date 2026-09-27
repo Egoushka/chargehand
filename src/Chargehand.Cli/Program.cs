@@ -2,6 +2,7 @@
 using System.Text;
 using System.Text.Json;
 using Chargehand;
+using Chargehand.ClaudeCode;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Evals;
@@ -9,6 +10,7 @@ using Chargehand.Memory;
 using Chargehand.OpenCode;
 using Chargehand.Prompts;
 using Chargehand.RunLog;
+using Chargehand.Runtime;
 using Chargehand.Server;
 using Microsoft.Extensions.Hosting;
 using OpenTelemetry;
@@ -112,8 +114,8 @@ async Task<int> Run()
     var request = doc.RootElement.Deserialize<RunRequest>(ContractJson.Options)!;
 
     using var tracing = Tracing();
-    var runtime = await Connect();
-    var orchestrator = new Orchestrator(profile, runtime, runtime.Version, root, runLog, await PromptVersions(), Memory());
+    var (runtime, runtimeVersion) = await Connect();
+    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory());
     var result = await orchestrator.RunAsync(request, ct);
     tracing?.ForceFlush(10_000);
 
@@ -129,8 +131,8 @@ async Task<int> Serve()
         return 2;
     }
     using var tracing = Tracing();
-    var runtime = await Connect();
-    var orchestrator = new Orchestrator(profile, runtime, runtime.Version, root, runLog, await PromptVersions(), Memory());
+    var (runtime, runtimeVersion) = await Connect();
+    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory());
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets")), orchestrator, runLog);
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp)");
@@ -154,10 +156,10 @@ async Task<int> EvalGate(string baseRoot, string changeRoot, IReadOnlyList<strin
     var name = Option("--name") ?? $"eval-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
 
     using var tracing = Tracing();
-    var runtime = await Connect();
+    var (runtime, runtimeVersion) = await Connect();
     var langfuse = Evals();
     // Evals never use memory (ADR 0008), and each arm reads prompts/ and presets/ from its own root.
-    var runner = new EvalRunner(r => new Orchestrator(profile, runtime, runtime.Version, r, runLog, new Dictionary<string, int>()), runtime, profile.IntakeModel,
+    var runner = new EvalRunner(r => new Orchestrator(profile, runtime, runtimeVersion, r, runLog, new Dictionary<string, int>()), runtime, profile.IntakeModel,
         runLog, langfuse, () => tracing?.ForceFlush(10_000), Console.Out);
     var verdicts = new List<Verdict>();
     foreach (var cell in cells)
@@ -183,10 +185,17 @@ async Task<int> EvalGate(string baseRoot, string changeRoot, IReadOnlyList<strin
 EvalCell Cell(string name) =>
     EvalCell.Load(Path.Combine(root, "evals", "cells.json")).FirstOrDefault(c => c.Name == name) ?? throw new ArgumentException($"no eval cell {name} in evals/cells.json");
 
-async Task<OpenCodeWorkerRuntime> Connect()
+async Task<(IWorkerRuntime Runtime, string Version)> Connect()
 {
-    var client = new OpenCodeClient(new HttpClient { BaseAddress = new Uri(profile.Opencode.Url) }, profile.Secret(profile.Opencode.PasswordSecret));
-    return await OpenCodeWorkerRuntime.ConnectAsync(client, profile.Opencode.Version, ct);
+    if (profile.ClaudeCode is { } cc)
+    {
+        var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, profile.Secret(cc.ApiKeySecret), ct);
+        return (claude, claude.Version);
+    }
+    var oc = profile.Opencode ?? throw new InvalidOperationException("profile sets neither opencode nor claude_code");
+    var client = new OpenCodeClient(new HttpClient { BaseAddress = new Uri(oc.Url) }, profile.Secret(oc.PasswordSecret));
+    var runtime = await OpenCodeWorkerRuntime.ConnectAsync(client, oc.Version, ct);
+    return (runtime, runtime.Version);
 }
 
 IMemoryProvider? Memory() => profile.Memory is { } m

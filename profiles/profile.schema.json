@@ -7,7 +7,6 @@
   "additionalProperties": false,
   "required": [
     "schema",
-    "opencode",
     "worker_root",
     "default_preset",
     "intake_model",
@@ -52,6 +51,30 @@
         "version": {
           "type": "string",
           "description": "Expected /api/info version; the adapter refuses to run on a mismatch."
+        }
+      }
+    },
+    "claude_code": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "api_key_secret"
+      ],
+      "description": "Claude Code CLI as the worker runtime (ADR 0020). When set, it is used instead of opencode.",
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "Expected `claude --version`; the adapter refuses to run on a mismatch."
+        },
+        "api_key_secret": {
+          "type": "string",
+          "description": "Secret item holding ANTHROPIC_API_KEY. Workers run with --bare, which reads no OAuth login or keychain."
+        },
+        "binary": {
+          "type": "string",
+          "default": "claude",
+          "description": "Pinned Claude Code binary."
         }
       }
     },
@@ -191,5 +214,17 @@
         }
       }
     }
-  }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "opencode"
+      ]
+    },
+    {
+      "required": [
+        "claude_code"
+      ]
+    }
+  ]
 }

@@ -17,6 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Chargehand.Contracts\Chargehand.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Chargehand\Chargehand.csproj" />
+    <ProjectReference Include="..\..\src\Chargehand.ClaudeCode\Chargehand.ClaudeCode.csproj" />
     <ProjectReference Include="..\..\src\Chargehand.OpenCode\Chargehand.OpenCode.csproj" />
     <ProjectReference Include="..\..\src\Chargehand.Server\Chargehand.Server.csproj" />
   </ItemGroup>
