@@ -54,8 +54,9 @@ public sealed record Profile(
 
 public sealed record OpenCodeSettings(string Url, string PasswordSecret, string Version, string? Binary = null);
 
-/// <summary>Claude Code CLI as the worker runtime (ADR 0020); used instead of OpenCode when set.</summary>
-public sealed record ClaudeCodeSettings(string Version, string ApiKeySecret, string Binary = "claude");
+/// <summary>Claude Code CLI as the worker runtime (ADR 0020); used instead of OpenCode when set. Exactly one
+/// credential: an API key (per-token billing) or a subscription OAuth token from <c>claude setup-token</c>.</summary>
+public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = null, string? OauthTokenSecret = null, string Binary = "claude");
 
 public sealed record MemorySettings(string Backend, string Url, string Namespace, string? ApiKeySecret = null, int MaxTokens = 1024, bool Retain = false);
 

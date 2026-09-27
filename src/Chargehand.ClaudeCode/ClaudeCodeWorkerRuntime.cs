@@ -10,30 +10,33 @@ namespace Chargehand.ClaudeCode;
 /// IWorkerRuntime over the Claude Code CLI in print mode (ADR 0020): one <c>claude -p</c> process per turn, the first
 /// with <c>--session-id</c>, later ones with <c>--resume</c>. Sessions live in this process; the CLI persists the
 /// transcript. Create with <see cref="ConnectAsync"/>, which pins the version.
+/// Two credentials: an API key (billed per token, <c>--bare</c>) or a subscription OAuth token from
+/// <c>claude setup-token</c> (the owner's plan limits, no per-token bill). <c>--bare</c> ignores OAuth, so the
+/// subscription mode isolates with <c>--setting-sources ""</c> instead.
 /// </summary>
 public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
 {
     private readonly string _binary;
-    private readonly string _apiKey;
+    private readonly ClaudeCodeCredential _credential;
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
 
-    internal ClaudeCodeWorkerRuntime(string binary, string apiKey, string version)
+    internal ClaudeCodeWorkerRuntime(string binary, ClaudeCodeCredential credential, string version)
     {
-        (_binary, _apiKey) = (binary, apiKey);
+        (_binary, _credential) = (binary, credential);
         Version = $"claude-code/{version}";
     }
 
     public string Version { get; }
 
     /// <summary>Refuses a CLI whose version differs from the pinned one. <c>claude --version</c> prints "2.1.195 (Claude Code)".</summary>
-    public static async Task<ClaudeCodeWorkerRuntime> ConnectAsync(string binary, string pinnedVersion, string apiKey, CancellationToken ct)
+    public static async Task<ClaudeCodeWorkerRuntime> ConnectAsync(string binary, string pinnedVersion, ClaudeCodeCredential credential, CancellationToken ct)
     {
         var (exit, stdout, stderr) = await Exec(binary, Path.GetTempPath(), ["--version"], null, ct);
         var version = stdout.Split(' ', 2)[0].Trim();
         if (exit != 0)
             throw new InvalidOperationException($"{binary} --version exited {exit}: {stderr.Trim()}");
         return version == pinnedVersion
-            ? new ClaudeCodeWorkerRuntime(binary, apiKey, version)
+            ? new ClaudeCodeWorkerRuntime(binary, credential, version)
             : throw new InvalidOperationException($"Claude Code CLI is {version}; this adapter is pinned to {pinnedVersion}.");
     }
 
@@ -166,15 +169,19 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
     private Session Get(string sessionId) =>
         _sessions.TryGetValue(sessionId, out var s) ? s : throw new KeyNotFoundException($"no Claude Code session {sessionId} in this process");
 
-    private IReadOnlyDictionary<string, string> Env => new Dictionary<string, string> { ["ANTHROPIC_API_KEY"] = _apiKey };
+    /// <summary>An inherited API key would outrank the OAuth token, so the subscription mode removes it.</summary>
+    private IReadOnlyDictionary<string, string?> Env => _credential.Subscription
+        ? new Dictionary<string, string?> { ["CLAUDE_CODE_OAUTH_TOKEN"] = _credential.Secret, ["ANTHROPIC_API_KEY"] = null }
+        : new Dictionary<string, string?> { ["ANTHROPIC_API_KEY"] = _credential.Secret, ["CLAUDE_CODE_OAUTH_TOKEN"] = null };
 
     /// <summary>
     /// <c>--bare</c> keeps the owner's hooks, plugins, CLAUDE.md, auto-memory and keychain out of the worker (the
-    /// ADR 0003 isolation); the prompt goes on stdin because the tool flags are variadic.
+    /// ADR 0003 isolation); with a subscription, no setting sources keeps the owner's hooks and plugins out. The
+    /// prompt goes on stdin because the tool flags are variadic.
     /// </summary>
-    private static List<string> CommonArgs(ModelRef model)
+    private List<string> CommonArgs(ModelRef model)
     {
-        List<string> args = ["-p", "--bare", "--strict-mcp-config", "--model", model.ModelId];
+        List<string> args = ["-p", .. _credential.Subscription ? ["--setting-sources", ""] : new[] { "--bare" }, "--strict-mcp-config", "--model", model.ModelId];
         if (model.Variant is { } effort)
             args.AddRange(["--effort", effort]);
         return args;
@@ -396,7 +403,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
         return files;
     }
 
-    private static ProcessStartInfo Psi(string file, string directory, IEnumerable<string> args, IReadOnlyDictionary<string, string>? env)
+    private static ProcessStartInfo Psi(string file, string directory, IEnumerable<string> args, IReadOnlyDictionary<string, string?>? env)
     {
         var psi = new ProcessStartInfo(file)
         {
@@ -408,13 +415,16 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
         };
         foreach (var a in args)
             psi.ArgumentList.Add(a);
-        foreach (var (k, v) in env ?? new Dictionary<string, string>())
-            psi.Environment[k] = v;
+        foreach (var (k, v) in env ?? new Dictionary<string, string?>())
+            if (v is null)
+                psi.Environment.Remove(k);
+            else
+                psi.Environment[k] = v;
         return psi;
     }
 
     private static async Task<(int Exit, string Stdout, string Stderr)> Exec(string file, string directory, IEnumerable<string> args, string? stdin, CancellationToken ct,
-        IReadOnlyDictionary<string, string>? env = null)
+        IReadOnlyDictionary<string, string?>? env = null)
     {
         using var p = Process.Start(Psi(file, directory, args, env))!;
         await p.StandardInput.WriteAsync(stdin);
@@ -448,4 +458,10 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
         public Task? Turn { get; set; }
         public Process? Process { get; set; }
     }
+}
+
+/// <param name="Subscription">True: <paramref name="Secret"/> is a <c>claude setup-token</c> OAuth token; false: an API key.</param>
+public sealed record ClaudeCodeCredential(string Secret, bool Subscription)
+{
+    public override string ToString() => $"ClaudeCodeCredential {{ Subscription = {Subscription} }}";
 }

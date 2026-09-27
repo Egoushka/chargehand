@@ -189,7 +189,13 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
 {
     if (profile.ClaudeCode is { } cc)
     {
-        var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, profile.Secret(cc.ApiKeySecret), ct);
+        var credential = (cc.ApiKeySecret, cc.OauthTokenSecret) switch
+        {
+            ({ } key, null) => new ClaudeCodeCredential(profile.Secret(key), Subscription: false),
+            (null, { } token) => new ClaudeCodeCredential(profile.Secret(token), Subscription: true),
+            _ => throw new InvalidOperationException("claude_code needs exactly one of api_key_secret and oauth_token_secret"),
+        };
+        var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct);
         return (claude, claude.Version);
     }
     var oc = profile.Opencode ?? throw new InvalidOperationException("profile sets neither opencode nor claude_code");
