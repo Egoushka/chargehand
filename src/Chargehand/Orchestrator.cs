@@ -192,6 +192,18 @@ public sealed class Orchestrator(
                 call?.SetTag("langfuse.session.id", nodeResult.SessionId);
                 call?.SetTag("chargehand.message_id", m.Id);
                 call?.SetTag("gen_ai.request.model", m.Model ?? workerModel);
+                if (profile.Telemetry?.UsageOnSpans == true)
+                {
+                    // ADR 0021: no gateway records these calls, so the span is the generation's only usage and cost.
+                    call?.SetTag("langfuse.observation.usage_details", JsonSerializer.Serialize(new Dictionary<string, long>
+                    {
+                        ["input"] = m.Tokens!.Input,
+                        ["output"] = m.Tokens.Output + m.Tokens.Reasoning,
+                        ["cache_read_input_tokens"] = m.Tokens.CacheRead,
+                        ["cache_creation_input_tokens"] = m.Tokens.CacheWrite,
+                    }));
+                    call?.SetTag("langfuse.observation.cost_details", JsonSerializer.Serialize(new Dictionary<string, decimal> { ["total"] = usd }));
+                }
                 call?.SetEndTime((m.Completed ?? m.Created).UtcDateTime);
             }
             progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.NodeFinished) with

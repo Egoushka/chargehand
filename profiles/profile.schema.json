@@ -132,6 +132,11 @@
         },
         "secret_key_secret": {
           "type": "string"
+        },
+        "usage_on_spans": {
+          "type": "boolean",
+          "default": false,
+          "description": "Put tokens and cost on call spans (ADR 0021). Only for calls no gateway records, e.g. Claude Code on a subscription; with a LiteLLM gateway leave false (ADR 0012)."
         }
       }
     },

@@ -62,7 +62,9 @@ public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = n
 
 public sealed record MemorySettings(string Backend, string Url, string Namespace, string? ApiKeySecret = null, int MaxTokens = 1024, bool Retain = false);
 
-public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecret, string SecretKeySecret);
+/// <param name="UsageOnSpans">Call spans carry tokens and cost (ADR 0021). Only for calls no gateway records, e.g. Claude
+/// Code on a subscription; with a LiteLLM gateway, usage stays on its generations (ADR 0012).</param>
+public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecret, string SecretKeySecret, bool UsageOnSpans = false);
 
 /// <summary>chargehand serve (ADR 0018): a loopback port, and the secret-store item holding the API key callers send.</summary>
 public sealed record HttpSettings(string ApiKeySecret, int Port = 4300);

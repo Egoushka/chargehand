@@ -14,6 +14,8 @@ All notable changes to this project are documented here. The format follows
   Profile `claude_code` (`version`, `binary`, and exactly one of `api_key_secret` for per-token API billing or
   `oauth_token_secret` for a `claude setup-token` subscription token) selects it instead of `opencode`, which is now
   optional. Optional `base_url` routes workers through an Anthropic-compatible gateway.
+- `telemetry.usage_on_spans` (ADR 0021): call spans carry Langfuse usage and cost details for calls no gateway
+  records, such as Claude Code on a subscription. Off by default; ADR 0012 still holds with a LiteLLM gateway.
 - v2 (roadmap phase 5), callable interface (ADR 0018): `chargehand serve` hosts HTTP and MCP on 127.0.0.1, every route
   behind a bearer key from the secret store (profile `http`), a loopback Host header, bodies up to 1 MB.
   `POST /v1/runs` takes `request/v1` and answers `result/v1` if the run finishes within `Prefer: wait=N` (default
