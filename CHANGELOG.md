@@ -82,21 +82,27 @@ All notable changes to this project are documented here. The format follows
    `Chargehand.Contracts` alone and standing in for the content engine (which has no repository yet), sent one draft
    request to `chargehand serve` (`POST /v1/runs`, 2026-09-26). The run completed for $0.0006: 4 claims, each citing
    an input the caller sent, the draft's sha256 verified, and the caller's generator block in `prompt_chain`.
-2. **Not met: Prompt CI blocking a real prompt regression.** The mechanics hold: with a ruleset requiring `prompt-ci`
-   on `main`, a pull request that changes a prompt stays blocked until the owner's run posts the status. But both
-   deliberate regressions passed the gate:
+2. **Met on a rerun: Prompt CI blocking a real prompt regression.** The mechanics hold: with a ruleset requiring
+   `prompt-ci` on `main`, a pull request that changes a prompt stays blocked until the owner's run posts the status.
+   Both deliberate regressions first passed the gate; #5 blocks on a rerun with a worker score that also measures
+   completeness:
 
 | pull request | change | cell (items) | mean quality, base → change | quality change (t) | cost change (t) | T | C | verdict |
 |---|---|---|---|---|---|---|---|---|
 | #5 | `preset/cheap` 0.2.0: stop at the first file that answers, at most 3 claims | `cheap/worker` (13) | 0.87 → 0.97 | +0.097 (1.51) | -27% (-2.87) | 0.10 | +30% | pass |
+| #5, rerun | the same, scored with completeness (ADR 0019) | `cheap/worker` (13) | 0.88 → 0.68 | -0.199 (-2.81) | -14% (-1.51) | 0.10 | +30% | block |
 | #6 | `preset/cheap` 0.2.0: answer from what the worker knows, open at most one file | `cheap/worker` (13) | 0.91 → 0.85 | -0.064 (-1.42) | -2% (-0.59) | 0.10 | +30% | pass |
 | #4 | intake prompt 0.2.0 → 0.3.0 (the v2 pull request itself) | `intake` (18) | 0.89 → 0.89 | +0.000 (0.00) | not priced | 0.10 | +15% | pass |
 
-The score measures grounding: the share of claims whose evidence resolves, and file-level recall of reference files.
+The score measured grounding: the share of claims whose evidence resolves, and file-level recall of reference files.
 The worker node already enforces grounding at run time (the resolver and an evidence repair turn), so the worker kept
 reading and citing files under both regressions, and under two local probes that told it to cite paths without lines
 or to answer from memory (4 of 4 runs at quality 1.00). What #5 changed, fewer claims (13 to 9, 5 to 3), file-level
-recall cannot see. Next: score recall of the reference answers' line ranges, then rerun #5's change.
+recall cannot see. Recall of the reference answers' line ranges, the planned next step, cannot either: replayed on the
+logged runs, #5's answers cite the same code in fewer, wider ranges. The worker score now multiplies grounding by
+completeness, the claims kept over the item's reference claim count (ADR 0019). The rerun's runs, scored both ways:
+grounding alone -0.028 (t -1.38), with completeness -0.199 (t -2.81). #6 kept its claim count, and the new score does
+not see it either.
 
 ### Prompt CI calibration (phase 5)
 
@@ -107,6 +113,7 @@ to back with the order alternating. Quality is 0 to 1; intake calls report no us
 |---|---|---|---|---|---|
 | `cheap/worker`, C +15% | 13 | -0.033 (-1.45) | +15% (1.99) | 2, by 0.25 and 0.18 | block, on cost |
 | `cheap/worker`, C +30% | 13 | -0.076 (-1.08) | -15% (-1.17) | 3, by 0.92, 0.12 and 0.05 | pass |
+| `cheap/worker`, completeness score | 13 | -0.042 (-0.50) | -23% (-1.43) | 5, by 1.00, 0.33, 0.17, 0.11 and 0.06 | pass |
 | `intake` | 19 | +0.000 (0.00) | not priced | 2 flip; 2 fail in both | pass |
 | `draft/draft` | 8 | +0.000 (0.00) | +2% (0.41) | none | pass |
 
@@ -114,7 +121,8 @@ A worker's exploration varies from run to run: `cheap/worker`'s per-item cost ra
 ratio SD 0.24), so identical prompts exceeded C = +15% by chance and blocked. Its C is now +30%. In the rerun, the
 phase 3 reference question stopped at `cheap`'s 400k-token node budget in one arm (0.92 against 0.00) and carries most
 of the quality change. Cost per run: `cheap/worker` $0.0010–0.0213 (mean $0.0054, about $0.14 per A/A), `draft/draft`
-$0.0004–0.0007.
+$0.0004–0.0007. Under the completeness score (ADR 0019) the phase 3 reference question failed in one arm again (1.00
+against 0.00, -0.077 on the mean by itself), and an item whose reference is 3 claims moves by 0.33 per claim.
 
 ### Benchmark (phase 4 exit, cost half)
 
