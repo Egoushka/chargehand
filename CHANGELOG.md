@@ -7,6 +7,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-27
+
 ### Added
 
 - Claude Code runtime adapter (ADR 0020, `Chargehand.ClaudeCode`): `IWorkerRuntime` over `claude -p` stream-json, one
@@ -173,6 +175,8 @@ Answer quality is judged blind by the owner (pending at the time of this entry).
 
 ### Changed
 
+- Prompt CI stops the gate (status `error`) when a worker or draft arm fails with zero usage, a refusal before any
+  model call: such arms scored 0 on both sides and passed as no change. Intake arms report no usage and are exempt.
 - `cheap/worker` drops the phase 3 reference question (12 items; the item stays archived in the dataset): at `cheap`'s
   400k-token node budget it failed in about half its runs, and one flip moved an A/A's mean by up to 0.08. On the same
   runs without it, #5's rerun still blocks (-0.187, t -2.47) and the A/A passes (+0.038, t 1.16).
@@ -221,7 +225,7 @@ Answer quality is judged blind by the owner (pending at the time of this entry).
   leading allow had overridden the OpenCode agent's own ask-before-reading-`.env` rules, so a worker could read
   secret files without asking.
 
-## [0.1.0-alpha] - unreleased
+## [0.1.0-alpha] - 2026-09-26 (not tagged)
 
 ### Added
 
