@@ -38,6 +38,20 @@ fork code on the owner's machine.
   budget and was interrupted in one arm (0.92 against 0.00); an earlier, unfinished rerun lost its other arm to the
   gateway's token-rate limit. That noise is above T/2, the reopen condition below. `intake`, 19 items: +0.000
   (t 0.00); 2 items flip between arms and 2 fail in both. `draft/draft`, 8 items: +0.000 (t 0.00), cost +2% (t 0.41).
+- Completeness (replayed 2026-09-27 on the logged `cheap/worker` runs: per item up to 8 runs under the base prompts,
+  from both arms of the A/A runs and the base arms of #5 and #6, and one run under each regression). Under #5 the worker
+  kept citing the same code: 1.53 ranges per claim against 1.48, 38% wider on average (19.6 lines against 14.2), while
+  it made 26% fewer claims (4.4 against 5.9 per item, the phase 3 reference question left out); on 5 of 12 items it made
+  fewer claims than any run under the base prompts. Against the mean of those runs, with the phase 3 reference question
+  left out, recall of the reference answers' line ranges (lines cited by more than half of them; a range counts when a
+  cited range overlaps it) moved +0.001, the same recall with one claim per range -0.086, and the claims kept over their
+  median claim count -0.179. Resampling each item's base arm from its logged runs, with the change arm fixed at its one
+  run (so the rates below are upper estimates for #5 and #6), the gate blocks #5 in 0% of reruns with range recall as a
+  third part of the score, in 1% with the claim ratio as a third part (the mean falls by a third of the part's drop,
+  below T), and in 78% with grounding times the claim ratio; A/A pairs block by chance in 0.3%, 0.1% and 2.2%. Under
+  that last score the logged #5 pairing itself still passes (-0.039, t -0.57): its base arm lost the phase 3 reference
+  question, which fails in 4 of its 8 runs under the base prompts. #6 kept its claim count (5.75 against 5.94) and
+  blocks in at most 7% under any of these scores.
 
 ## Options
 
@@ -47,6 +61,8 @@ fork code on the owner's machine.
    need the gateway, the tailnet and the private items as secrets), a self-hosted runner (runs untrusted code on the
    owner's machine; the brief forbids it), or a local run that posts a commit status.
 3. Score: an LLM judge (reliability on these tasks not researched), or deterministic checks.
+4. A worker's completeness: recall of the reference answers' line ranges (any overlap, or one claim per range), or
+   the claim count against theirs, as a third part of the score or scaling grounding.
 
 ## Decision
 
@@ -61,8 +77,12 @@ fork code on the owner's machine.
   changelog, one of them baiting a fact the inputs lack. `core/worker.md` is evaluated on `cheap` only; the
   `default`, `thorough` and `strict` blocks have no cell, and a change to them fails unless the owner passes
   `--allow-uncovered`.
-- **Scores**, 0 to 1, no model call. Worker: the mean of the share of claims whose evidence resolved and the recall of
-  reference files (files cited by at least 3 of the 4 benchmark answers). Draft: the mean of a draft within bounds,
+- **Scores**, 0 to 1, no model call. Worker: grounding, the mean of the share of claims whose evidence resolved and
+  the recall of reference files (files cited by at least 3 of the 4 benchmark answers), times completeness, the
+  claims kept over the item's `reference_claims` (the median over its runs under the base prompts; `eval seed`
+  proposes the seeding run's count), at most 1; an item without `reference_claims` scores grounding alone. Grounding
+  saturates, because the worker node enforces it at run time, and neither it nor the ranges an answer cites show a
+  thinner answer (Evidence). Draft: the mean of a draft within bounds,
   resolved claims, required inputs cited, and no banned phrase. Intake: the expected action. Cost: `result/v1` usage
   (intake reports none).
 - **Gate** per cell: each item runs under base and change back to back, the order alternating. A change is blocked
@@ -97,10 +117,12 @@ toward 20, and C can tighten with them. The phase 3 reference question flips bet
 budget and dominates `cheap/worker`'s quality noise until its budget or its place in the set changes.
 
 The exit test (2026-09-27, changelog: phase 5 exit) showed the score's blind spot: two deliberate `preset/cheap`
-regressions passed, because the score measures grounding, which the worker node already enforces at run time, and
-file-level recall does not see an answer with fewer claims. Until the worker score measures completeness (recall of
-the reference answers' line ranges is the next step), Prompt CI catches regressions that break grounding or cost, not
-thinner answers.
+regressions passed, because the score measured grounding, which the worker node already enforces at run time. Recall of
+the reference answers' line ranges, the planned fix, would have passed #5 too: its thinner answers cite the same code in
+fewer, wider ranges. Scaled by the claim count, the score catches a thinning of #5's size in at most about 4 of 5 reruns
+at 13 items, not every time, while the phase 3 reference question's flips stay in the set; it does not see #6, which
+kept its claim count. A prompt that merges facts into fewer claims on purpose reads as a thinner answer and declares a
+trade.
 
 ## Reopen if
 

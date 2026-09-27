@@ -41,14 +41,19 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
                 "intake" => new EvalExpected(Action: run.IntakeAction ?? "needs_input"),
                 "draft" => new EvalExpected(Draft: new DraftExpectation(Math.Max(1200, run.Result.Artifacts.FirstOrDefault(a => a.Kind == "draft")?.Content?.Length ?? 0),
                     [.. run.Result.Evidence.Where(e => e.Kind == EvidenceKind.Input).Select(e => e.Locator).Distinct()])),
-                _ => new EvalExpected(ReferenceFiles: Files(run.Result.Evidence)),
+                _ => new EvalExpected(ReferenceFiles: Files(run.Result.Evidence), ReferenceClaims: run.Result.Claims.Count),
             };
             yield return new EvalItem(run.RunId, request, expected, meta);
             if (cell.Kind is "worker" or "intake" && run.Spec is { Action: TaskAction.Split } spec && SplitPlan.From(spec).Nodes is { } nodes)
                 foreach (var node in nodes)
+                {
+                    // The merge prefixes a node's evidence ids with the node id (ResultMerger).
+                    bool Mine(string id) => id.StartsWith(node.Id + ".", StringComparison.Ordinal);
                     yield return new EvalItem($"{run.RunId}.{node.Id}", request with { Text = node.Goal! },
-                        cell.Kind == "intake" ? new EvalExpected(Action: "answer") : new EvalExpected(ReferenceFiles: Files(run.Result.Evidence.Where(e => e.Id.StartsWith(node.Id + ".", StringComparison.Ordinal)))),
+                        cell.Kind == "intake" ? new EvalExpected(Action: "answer")
+                            : new EvalExpected(ReferenceFiles: Files(run.Result.Evidence.Where(e => Mine(e.Id))), ReferenceClaims: run.Result.Claims.Count(c => c.Evidence.Any(Mine))),
                         new Dictionary<string, string>(meta) { ["subtask"] = node.Id });
+                }
         }
     }
 
@@ -85,7 +90,7 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
         {
             var result = await orchestratorFor(root).RunAsync(item.Request with { Context = item.Request.Context with { Preset = cell.Preset! } }, ct);
             (runId, traceId, usd) = (result.TaskId, result.TraceId, result.Usage.Usd);
-            scores = cell.Kind == "draft" ? Scoring.Draft(result, item.Expected.Draft!) : Scoring.Worker(result, item.Expected.ReferenceFiles ?? []);
+            scores = cell.Kind == "draft" ? Scoring.Draft(result, item.Expected.Draft!) : Scoring.Worker(result, item.Expected.ReferenceFiles ?? [], item.Expected.ReferenceClaims);
         }
         foreach (var (key, value) in scores)
             await log.AppendAsync(new ScoreRecord(runId, key, value, DateTimeOffset.UtcNow, $"eval:{runName}"), ct);

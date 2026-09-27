@@ -153,6 +153,10 @@ Answer quality is judged blind by the owner (pending at the time of this entry).
 
 ### Changed
 
+- Prompt CI's worker score is grounding times completeness: the claims kept over the item's `reference_claims` (new
+  optional field of an eval item's `expected`, the median over its runs under the base prompts), at most 1; `eval
+  seed` proposes the seeding run's count. Grounding alone passed #5, whose answers cited the same code in fewer, wider
+  claims, and recall of the reference answers' line ranges would have passed it too (ADR 0019).
 - Intake prompt 0.3.0: `ask` only when a required fact is missing and the caller's inputs do not supply it. 0.2.0
   asked a program caller for facts it had sent as inputs (the content engine's draft request, in 1 of 2 A/A runs).
 - A run that throws (a bad checkout, an unknown preset, no valid Task Spec) now ends with a failed `result/v1` and a

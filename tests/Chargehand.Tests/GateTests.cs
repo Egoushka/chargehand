@@ -125,6 +125,36 @@ public class GateTests
     }
 
     [Fact]
+    public void A_worker_answer_thinner_than_the_reference_scales_its_grounding_down()
+    {
+        // Two kept claims; the one moved to open questions as unverified does not count.
+        var r = Result([new Claim("a", ["e1"], 0.9), new Claim("b", ["e1"], 0.9)], [new Evidence("e1", EvidenceKind.File, "src/a.cs:1-3")],
+            ["[s1] Unverified: c (e2: gone)"]);
+        var scores = Scoring.Worker(r, ["src/a.cs"], referenceClaims: 4);
+        Assert.Equal(0.5, scores["completeness"], 6);
+        Assert.Equal((2.0 / 3 + 1) / 2 * 0.5, scores["quality"], 6);
+        Assert.Equal(1, Scoring.Worker(r, ["src/a.cs"], referenceClaims: 2)["completeness"], 6);
+        Assert.Equal(1, Scoring.Worker(r, ["src/a.cs"], referenceClaims: 1)["completeness"], 6); // no bonus above the reference
+        Assert.Equal(1, Scoring.Worker(r, ["src/a.cs"])["completeness"], 6); // no reference: grounding alone
+    }
+
+    [Fact]
+    public void Seeded_worker_items_take_the_run_claim_count_and_each_subtask_its_own()
+    {
+        var spec = JsonSerializer.Deserialize<TaskSpec>(ScriptedRuntime.Spec("split",
+            """{"subtasks":[{"id":"a","goal":"A","read_only":true},{"id":"b","goal":"B","read_only":true}]}"""), ContractJson.Options)!;
+        var result = Result([new Claim("x", ["a.e1"], 0.9), new Claim("y", ["a.e1"], 0.9), new Claim("z", ["b.e1"], 0.9)],
+            [new Evidence("a.e1", EvidenceKind.File, "src/a.cs:1"), new Evidence("b.e1", EvidenceKind.File, "src/b.cs:2")], []);
+        var run = new RunRecord("run-1", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, "cheap", "split", spec, result);
+
+        var items = EvalRunner.Seed(Cell, [new RunEntry(null, run, [])]).ToList();
+
+        Assert.Equal(["run-1", "run-1.a", "run-1.b"], items.Select(i => i.Id));
+        Assert.Equal(new int?[] { 3, 2, 1 }, items.Select(i => i.Expected.ReferenceClaims));
+        Assert.Equal(["src/a.cs"], items[1].Expected.ReferenceFiles!);
+    }
+
+    [Fact]
     public void A_draft_scores_bounds_evidence_required_inputs_and_banned_phrases()
     {
         var r = Result([new Claim("v1 is out", ["e1"], 0.9)], [new Evidence("e1", EvidenceKind.Input, "rel-v1")], [],
