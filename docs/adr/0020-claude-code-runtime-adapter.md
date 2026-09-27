@@ -62,8 +62,7 @@ child environment, because an inherited API key outranks the OAuth token. Price 
 - Subscription runs share the owner's plan limits with interactive use. Whether `--setting-sources ""` also
   keeps the user's CLAUDE.md out is not verified; the first live run shows it.
 - A gateway that forwards to Anthropic directly (a masking proxy's `/anthropic` route) records no generations in
-  LiteLLM or Langfuse; ADR 0012 keeps usage off orchestrator spans, so such runs show structure without cost there.
-  The run log still prices every call. LiteLLM cannot relay a subscription token on `/v1/messages` yet
+  LiteLLM; `telemetry.usage_on_spans` (ADR 0021) puts their usage and cost on the orchestrator's call spans. LiteLLM cannot relay a subscription token on `/v1/messages` yet
   (BerriAI/litellm#42170).
 - Sessions do not survive the orchestrator process (the CLI keeps the transcript, the adapter keeps the mapping).
 - `as_sent.opencode_version` carries `claude-code/<version>`, so cache reports tell the runtimes apart.
