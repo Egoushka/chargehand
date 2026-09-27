@@ -96,6 +96,12 @@ lets a cost rise below +30% through; start records keep every request since ADR 
 toward 20, and C can tighten with them. The phase 3 reference question flips between about 0.9 and 0 at `cheap`'s node
 budget and dominates `cheap/worker`'s quality noise until its budget or its place in the set changes.
 
+The exit test (2026-09-27, changelog: phase 5 exit) showed the score's blind spot: two deliberate `preset/cheap`
+regressions passed, because the score measures grounding, which the worker node already enforces at run time, and
+file-level recall does not see an answer with fewer claims. Until the worker score measures completeness (recall of
+the reference answers' line ranges is the next step), Prompt CI catches regressions that break grounding or cost, not
+thinner answers.
+
 ## Reopen if
 
 A cell reaches 20 items (revisit T and the minimum); an A/A run's noise exceeds T/2; an LLM judge proves reliable on

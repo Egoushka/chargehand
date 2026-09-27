@@ -76,6 +76,28 @@ All notable changes to this project are documented here. The format follows
 - OTLP traces (run → intake → node → call) carrying `chargehand.prompt_chain` and the OpenCode session id.
 - `scripts/opencode-serve.sh` launcher and `profiles/opencode.example.json`.
 
+### Phase 5 exit
+
+1. **Met: the content engine's call through the interface.** `samples/ContentEngineCall`, built on
+   `Chargehand.Contracts` alone and standing in for the content engine (which has no repository yet), sent one draft
+   request to `chargehand serve` (`POST /v1/runs`, 2026-09-26). The run completed for $0.0006: 4 claims, each citing
+   an input the caller sent, the draft's sha256 verified, and the caller's generator block in `prompt_chain`.
+2. **Not met: Prompt CI blocking a real prompt regression.** The mechanics hold: with a ruleset requiring `prompt-ci`
+   on `main`, a pull request that changes a prompt stays blocked until the owner's run posts the status. But both
+   deliberate regressions passed the gate:
+
+| pull request | change | cell (items) | mean quality, base → change | quality change (t) | cost change (t) | T | C | verdict |
+|---|---|---|---|---|---|---|---|---|
+| #5 | `preset/cheap` 0.2.0: stop at the first file that answers, at most 3 claims | `cheap/worker` (13) | 0.87 → 0.97 | +0.097 (1.51) | -27% (-2.87) | 0.10 | +30% | pass |
+| #6 | `preset/cheap` 0.2.0: answer from what the worker knows, open at most one file | `cheap/worker` (13) | 0.91 → 0.85 | -0.064 (-1.42) | -2% (-0.59) | 0.10 | +30% | pass |
+| #4 | intake prompt 0.2.0 → 0.3.0 (the v2 pull request itself) | `intake` (18) | 0.89 → 0.89 | +0.000 (0.00) | not priced | 0.10 | +15% | pass |
+
+The score measures grounding: the share of claims whose evidence resolves, and file-level recall of reference files.
+The worker node already enforces grounding at run time (the resolver and an evidence repair turn), so the worker kept
+reading and citing files under both regressions, and under two local probes that told it to cite paths without lines
+or to answer from memory (4 of 4 runs at quality 1.00). What #5 changed, fewer claims (13 to 9, 5 to 3), file-level
+recall cannot see. Next: score recall of the reference answers' line ranges, then rerun #5's change.
+
 ### Prompt CI calibration (phase 5)
 
 A/A runs: the same prompts and presets as base and change, small model, 2026-09-27, each item under both arms back
