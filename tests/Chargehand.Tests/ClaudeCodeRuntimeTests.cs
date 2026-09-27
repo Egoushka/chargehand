@@ -49,7 +49,7 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         Apply(s, """{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}],"usage":{"input_tokens":3,"output_tokens":9,"cache_read_input_tokens":100,"cache_creation_input_tokens":50}}}""");
         Apply(s, """{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"a.txt"}]}}""");
         Apply(s, """{"type":"assistant","message":{"id":"msg_2","content":[{"type":"text","text":"DONE"}],"usage":{"input_tokens":1,"output_tokens":2,"cache_read_input_tokens":160,"cache_creation_input_tokens":0}}}""");
-        Assert.True(Apply(s, """{"type":"result","subtype":"success","is_error":false,"result":"DONE"}"""));
+        Assert.True(Apply(s, """{"type":"result","subtype":"success","is_error":false,"result":"DONE","usage":{"input_tokens":4,"output_tokens":211,"cache_read_input_tokens":260,"cache_creation_input_tokens":50}}"""));
 
         var (first, second, idle) = (s.Messages[0], s.Messages[1], s.Messages[2]);
         Assert.Equal(("msg_1", "Looking. ", 9L, 100L, 50L), (first.Id, first.Text, first.Tokens!.Output, first.Tokens.CacheRead, first.Tokens.CacheWrite));
@@ -58,6 +58,8 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         Assert.NotNull(first.Completed);
         Assert.Equal("anthropic/claude-sonnet-5", second.Model);
         Assert.NotNull(second.Completed);
+        // Assistant events carry the message_start stub; the result's total output lands on the turn's last call.
+        Assert.Equal(211 - 9, second.Tokens!.Output);
         Assert.Equal((WorkerMessageKind.Idle, IdleOutcome.Succeeded), (idle.Kind, idle.Outcome));
     }
 

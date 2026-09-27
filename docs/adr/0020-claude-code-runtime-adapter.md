@@ -9,8 +9,14 @@
 runtime with Anthropic models, prompt caching and built-in tools, but no server: its scriptable surface is the CLI in
 print mode (`claude -p`), which streams events as JSON lines and resumes a session by id. Verified against 2.1.195's
 `--help` and its stream shape (`system`/`init`, `assistant` with `message.id`, `model`, `usage`, `content`, `user`
-with `tool_result`, `result` with `is_error`). A live turn was not run while writing this ADR (no API key in the
-sandbox); the fake-CLI test covers the process handling, not the model.
+with `tool_result`, `result` with `is_error`). Live check (2.1.195, subscription mode, 2026-09-27): a direct
+two-turn session on a small model, and one `chargehand run` on the default preset against this repository with a
+large model as worker. The run completed with 6 claims, all 6 file evidence references resolved, and a cache read
+rate of 81–99% on every call after the first. Edit and unlisted shell commands were denied without prompting. The
+API-key mode was not run live.
+
+Found live: assistant events carry the `message_start` usage, so their output count is a 1–3 token stub; only the
+`result` event totals a turn's output. The adapter adds the shortfall to the turn's last call.
 
 ## Options
 
