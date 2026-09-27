@@ -13,7 +13,8 @@ public class TelemetryTests
         var spans = new List<Activity>();
         using var listener = new ActivityListener
         {
-            ShouldListenTo = s => s == Telemetry.Source,
+            // By name: reading Telemetry.Source here would create the source while this listener registers, and miss it.
+            ShouldListenTo = s => s.Name == "Chargehand",
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
             ActivityStopped = a => { lock (spans) spans.Add(a); },
         };
