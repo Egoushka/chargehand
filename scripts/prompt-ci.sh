@@ -27,6 +27,12 @@ for a in "$@"; do
     *) echo "unknown option $a" >&2; exit 2 ;;
   esac
 done
+# Checked before any status is posted: the profile is gitignored, so another checkout or worktree has none.
+profile=${CHARGEHAND_PROFILE:-profiles/local.eval.json}
+if [ ! -f "$profile" ]; then
+  echo "prompt-ci: no eval profile at $profile; run from the main checkout or set CHARGEHAND_PROFILE" >&2
+  exit 2
+fi
 
 repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 head=$(gh pr view "$pr" --json headRefOid -q .headRefOid)
@@ -80,7 +86,7 @@ dotnet build -v q -c Release "$src/src/Chargehand.Cli" >&2
 gh pr view "$pr" --json body -q .body > "$work/body"
 
 set +e
-dotnet "$src/src/Chargehand.Cli/bin/Release/net10.0/Chargehand.Cli.dll" --profile "${CHARGEHAND_PROFILE:-profiles/local.eval.json}" \
+dotnet "$src/src/Chargehand.Cli/bin/Release/net10.0/Chargehand.Cli.dll" --profile "$profile" \
   eval gate "$work/base" "$work/change" --changed-files "$work/changed" --pr-body "$work/body" --cells-file "$src/evals/cells.json" \
   --name "pr-$pr-$(echo "$head" | cut -c1-7)" $uncovered | tee "$work/out"
 set -e
