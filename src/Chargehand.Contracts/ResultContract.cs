@@ -14,9 +14,31 @@ public sealed record ResultContract(
     IReadOnlyList<Artifact> Artifacts,
     IReadOnlyList<string> OpenQuestions,
     double Confidence,
-    Usage Usage);
+    Usage Usage,
+    ResultError? Error = null);
 
 public enum ResultStatus { Completed, NeedsInput, Failed, Denied }
+
+/// <summary>Why a run failed, as a code a client can branch on (ADR 0022). Only on a failed result.</summary>
+/// <param name="Action">What the user or client should do about it, e.g. the command that starts the runtime.</param>
+public sealed record ResultError(ErrorCode Code, string Message, bool Retryable, string? Action = null);
+
+public enum ErrorCode
+{
+    RuntimeUnavailable,
+    RuntimeVersionMismatch,
+    ProviderUnavailable,
+    RateLimited,
+    RepositoryNotAllowed,
+    CheckoutInvalid,
+    CheckoutHasSecrets,
+    CostCapReached,
+    DeadlineExceeded,
+    InvalidResult,
+    IntakeFailed,
+    InvalidRequest,
+    Internal,
+}
 
 public sealed record Claim(string Text, IReadOnlyList<string> Evidence, double Confidence);
 

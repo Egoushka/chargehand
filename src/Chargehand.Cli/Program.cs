@@ -1,4 +1,5 @@
 // chargehand CLI. Exit codes: 0 completed, 1 failed or denied, 2 usage error, 3 needs input.
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Chargehand;
@@ -114,9 +115,20 @@ async Task<int> Run()
     var request = doc.RootElement.Deserialize<RunRequest>(ContractJson.Options)!;
 
     using var tracing = Tracing();
-    var (runtime, runtimeVersion) = await Connect();
-    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory());
-    var result = await orchestrator.RunAsync(request, ct);
+    ResultContract result;
+    try
+    {
+        var (runtime, runtimeVersion) = await Connect();
+        var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory());
+        result = await orchestrator.RunAsync(request, ct);
+    }
+    catch (ChargehandException e)
+    {
+        // The runtime refused before a run started (not running, another version): no prompt was sent, so the chain is empty.
+        result = new ResultContract("result/v1", Orchestrator.NewRunId(), "run", ActivityTraceId.CreateRandom().ToHexString(),
+            new PromptChain([], new AsSent("", "", "", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd"))), ResultStatus.Failed, e.Message, [], [], [], [e.Message], 0,
+            new Usage(0, 0, 0, 0, 0), e.Error);
+    }
     tracing?.ForceFlush(10_000);
 
     Console.WriteLine(JsonSerializer.Serialize(result, new JsonSerializerOptions(ContractJson.Options) { WriteIndented = true }));

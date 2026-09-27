@@ -21,6 +21,18 @@ All notable changes to this project are documented here. The format follows
   allows any). The worker reads a clone of it at the pinned commit under `worker_root`, reused per source and commit,
   so the source's uncommitted and ignored files never reach it and the worker stays outside the home. A short commit
   hash is enough. A checkout that tracks a file the preset denies reading is still refused (ADR 0023).
+### Added
+
+- `result/v1` has an optional `error` on failed results (ADR 0022): a fixed `code`, the `message`, `retryable`, and
+  an `action` when there is something to do, such as the command that starts the OpenCode server. Clients branch on
+  the code instead of parsing `summary`. The schema stays v1; `Chargehand.Contracts` is 1.2.0-alpha with the
+  `ResultError` record and the `ErrorCode` enum.
+
+### Changed
+
+- `chargehand run` prints a failed `result/v1` with `error` when it cannot connect to the runtime (server not
+  running, binary missing, another version), instead of ending with an unhandled exception.
+- The eval gate retries an arm whose result has code `rate_limited`, instead of matching "rate limit" in its summary.
 
 ### Prompt CI calibration
 

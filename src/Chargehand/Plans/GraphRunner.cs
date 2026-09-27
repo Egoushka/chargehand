@@ -33,7 +33,7 @@ public sealed class GraphRunner(int maxConcurrent = 2)
         {
             var upstream = await Task.WhenAll(node.DependsOn.Select(d => tasks[d]));
             if (upstream.FirstOrDefault(u => u.Contract.Status != ResultStatus.Completed) is { } stopped)
-                return new(node, failed(node, $"skipped: {stopped.Node.Id} did not complete"), null);
+                return new(node, failed(node, $"skipped: {stopped.Node.Id} did not complete") with { Error = stopped.Contract.Error }, null);
             var fork = first ? null : await primed.Task.WaitAsync(ct);
             await gate.WaitAsync(ct);
             try
@@ -43,7 +43,7 @@ public sealed class GraphRunner(int maxConcurrent = 2)
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
-                return new(node, failed(node, $"node failed: {e.Message}"), null);
+                return new(node, failed(node, $"node failed: {e.Message}") with { Error = ChargehandException.ErrorOf(e) }, null);
             }
             finally
             {

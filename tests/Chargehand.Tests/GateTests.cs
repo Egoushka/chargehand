@@ -199,7 +199,7 @@ public class GateTests
     [InlineData("OpenCode 400 : Model unavailable", false)]
     [InlineData("checkout is at 1a2b3c, request pins 4290abc", false)]
     public void Rate_limits_are_told_apart_from_other_failures(string message, bool limited) =>
-        Assert.Equal(limited, EvalRunner.RateLimited(message));
+        Assert.Equal(limited, ChargehandException.ErrorOf(new InvalidOperationException(message)).Code == ErrorCode.RateLimited);
 
     [Fact]
     public async Task A_rate_limited_arm_runs_again_and_is_scored_on_the_retry()

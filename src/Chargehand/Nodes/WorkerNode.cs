@@ -106,9 +106,12 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
             contract = contract with { OpenQuestions = [.. contract.OpenQuestions, BudgetNote] };
         var messages = await runtime.ReadMessagesAsync(session.Id, ct);
         var usage = Usage(messages);
+        var error = contract is null || outcome != IdleOutcome.Succeeded
+            ? new ChargehandException(ErrorOf(outcome, messages, r), outcome == IdleOutcome.Succeeded ? $"no valid result contract: {string.Join("; ", errors.Take(3))}" : $"worker ended {outcome.ToString().ToLowerInvariant()}").Error
+            : null;
         contract = contract is null
-            ? Failed(r, outcome == IdleOutcome.Succeeded ? $"no valid result contract: {string.Join("; ", errors.Take(3))}" : $"worker ended {outcome.ToString().ToLowerInvariant()}", usage)
-            : contract with { Usage = usage, Status = outcome == IdleOutcome.Succeeded ? contract.Status : ResultStatus.Failed };
+            ? Failed(r, error!.Message, usage) with { Error = error }
+            : contract with { Usage = usage, Status = outcome == IdleOutcome.Succeeded ? contract.Status : ResultStatus.Failed, Error = error };
         return new NodeResult(contract, session.Id, Calls(messages), outcome, fork?.SessionId);
     }
 
@@ -228,6 +231,20 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
 
     private static IReadOnlyList<WorkerMessage> Calls(IReadOnlyList<WorkerMessage> messages) =>
         messages.Where(m => m.Kind == WorkerMessageKind.Assistant && m.Tokens is not null).OrderBy(m => m.Created).ToList();
+
+    /// <summary>
+    /// Why a node failed, from what the watcher and the deadline leave behind: an interrupt over the USD cap or the token
+    /// budget is the cap, any other interrupt the deadline; a turn that ended without a valid contract is invalid_result.
+    /// </summary>
+    private ErrorCode ErrorOf(IdleOutcome outcome, IReadOnlyList<WorkerMessage> messages, NodeRequest r) => outcome switch
+    {
+        IdleOutcome.Succeeded => ErrorCode.InvalidResult,
+        // A deadline reached while the provider kept rate limiting the node is the rate limit's doing.
+        _ when ChargehandException.RateLimited(messages.FirstOrDefault(m => m.Error is not null)?.Error) => ErrorCode.RateLimited,
+        IdleOutcome.Interrupted when Usage(messages).Usd > r.CapUsd || Calls(messages).Sum(m => Context(m.Tokens!)) > r.MaxInputTokens => ErrorCode.CostCapReached,
+        IdleOutcome.Interrupted => ErrorCode.DeadlineExceeded,
+        _ => ErrorCode.Internal,
+    };
 
     public static ResultContract Failed(NodeRequest r, string reason, Usage usage) => new(
         "result/v1", r.RunId, r.NodeId, r.TraceId, r.PromptChain, ResultStatus.Failed, reason, [], [], [], [reason], 0, usage);
