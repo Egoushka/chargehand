@@ -16,6 +16,10 @@ when someone with write access adds it. The manual run still works. See ADR 0024
 
 ### Changed
 
+- Prompt CI scores a worker item with a fact checklist (new optional `facts` and `wrong` in an eval item's
+  `expected`) by the share of its reference facts the answer states, less 0.25 per known false statement it
+  repeats, instead of by its claim count. A fact judge, one generate call on the intake model with its prompt in the
+  trusted build, reads the answer and names the facts it states (ADR 0019).
 - Worker prompt 0.3.0 asks for the whole task, one claim per item and a citation for every file relied on, and
   no longer caps the summary at 120 words. Preset blocks `default` 0.4.0, `cheap`, `thorough` and `strict` 0.3.0
   say "read every file the task needs" instead of "prefer the smallest set of files". The phase 3 blind verdict

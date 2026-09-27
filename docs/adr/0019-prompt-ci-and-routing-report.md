@@ -104,10 +104,12 @@ fork code on the owner's machine.
   variants built from this repository's public changelog, one of them baiting a fact the inputs lack. `core/worker.md`
   is evaluated on `cheap` only; the `default`, `thorough` and `strict` blocks have no cell, and a change to them fails
   unless the owner passes `--allow-uncovered`.
-- **Scores**, 0 to 1, no model call. Worker: grounding, the mean of the share of claims whose evidence resolved and
-  the recall of reference files (files cited by at least 3 of the 4 benchmark answers), times completeness, the
-  claims kept over the item's `reference_claims` (the median over its runs under the base prompts; `eval seed`
-  proposes the seeding run's count), at most 1; an item without `reference_claims` scores grounding alone. Grounding
+- **Scores**, 0 to 1. Worker: grounding, the mean of the share of claims whose evidence resolved and
+  the recall of reference files (files cited by at least 3 of the 4 benchmark answers), times completeness. An item
+  with a fact checklist (`facts`, `wrong`; 2026-09-28) takes completeness from the fact judge: the share of its
+  reference facts the answer states, less 0.25 per known wrong statement it repeats, floored at 0. Otherwise
+  completeness is the claims kept over the item's `reference_claims` (the median over its runs under the base prompts;
+  `eval seed` proposes the seeding run's count), at most 1; an item with neither scores grounding alone. Grounding
   saturates, because the worker node enforces it at run time, and neither it nor the ranges an answer cites show a
   thinner answer (Evidence). Draft: the mean of a draft within bounds,
   resolved claims, required inputs cited, and no banned phrase. Intake: the expected action. Cost: `result/v1` usage
@@ -156,8 +158,19 @@ of that size in at most about 86% of reruns at the 12 items, not every time. It 
 count. A prompt that merges facts into fewer claims on purpose
 reads as a thinner answer and declares a trade.
 
+Fact checklists (2026-09-28). The claim count missed #6, saturated at 1 so it could not see an answer getting more
+complete (#19 moved `cheap/worker` by +0.001 on one run and +0.078 on the next), and rose or fell when a prompt merged
+or split claims. A checklist lists the facts a complete answer to the item states, each confirmed against the
+repository at the item's commit, and the false statements earlier answers made. They were drafted from the 22–28
+logged answers per item plus the repository, and reviewed by the owner. The fact judge, one stateless generate call on
+the intake model per scored run, reads the answer's summary and claims and returns which facts it states and which
+false statements it repeats. Its prompt sits in the trusted build, so a pull request cannot change how its own
+answers are judged; it does not check truth, which the evidence resolver and the list of false statements cover. It
+uses the same small model family as the `cheap` worker, and its agreement with the owner is not yet measured.
+
 ## Reopen if
 
-A cell reaches 20 items (revisit T and the minimum); an A/A run's noise exceeds T/2; an LLM judge proves reliable on
-these tasks; evals move to a server, where a protected environment with a required reviewer can hold the key; worker
+A cell reaches 20 items (revisit T and the minimum); an A/A run's noise exceeds T/2; the fact judge disagrees with
+the owner on more than 1 in 10 spot-checked facts, or a judge from another model family scores the same answers
+differently; evals move to a server, where a protected environment with a required reviewer can hold the key; worker
 presets stop allowing commands that run programs or write files, so a fork's prompt-only change could run unreviewed.

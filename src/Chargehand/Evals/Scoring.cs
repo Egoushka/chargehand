@@ -4,31 +4,43 @@ using Chargehand.Plans;
 namespace Chargehand.Evals;
 
 /// <summary>
-/// Deterministic scores, 0 to 1, no model call (ADR 0019). "quality" is what the gate compares; the other names are
-/// its parts, recorded for review.
+/// Scores, 0 to 1 (ADR 0019). "quality" is what the gate compares; the other names are its parts, recorded for review.
+/// Only a worker item with a fact checklist uses a model call, the fact judge's, made before scoring.
 /// </summary>
 public static class Scoring
 {
+    /// <summary>A repeated wrong statement costs this much quality.</summary>
+    /// <remarks>ponytail: a flat penalty per statement; weigh statements when a checklist lists harmless and harmful ones.</remarks>
+    public const double WrongPenalty = 0.25;
+
     /// <summary>
     /// Grounding (half the share of claims whose evidence resolved, half the recall of the reference files) times
-    /// completeness (claims kept over the reference claim count, at most 1). The worker node enforces grounding at run
-    /// time, so a thinner answer shows in its claim count, not in what it cites.
+    /// completeness, less <see cref="WrongPenalty"/> per known wrong statement repeated. Completeness is the share of
+    /// the item's reference facts the answer states when it has a checklist, else the claims kept over the reference
+    /// claim count (at most 1). The worker node enforces grounding at run time, so a thinner answer shows in what it
+    /// states, not in what it cites.
     /// </summary>
-    public static IReadOnlyDictionary<string, double> Worker(ResultContract result, IReadOnlyList<string> referenceFiles, int? referenceClaims = null)
+    public static IReadOnlyDictionary<string, double> Worker(ResultContract result, IReadOnlyList<string> referenceFiles, int? referenceClaims = null,
+        FactCheck? facts = null)
     {
         if (result.Status != ResultStatus.Completed)
             return new Dictionary<string, double> { ["quality"] = 0 };
         var resolved = Resolved(result);
         var cited = result.Evidence.Where(e => e.Kind == EvidenceKind.File).Select(e => e.Locator.Split(':')[0]).ToHashSet();
         var recall = referenceFiles.Count == 0 ? 1 : referenceFiles.Count(cited.Contains) / (double)referenceFiles.Count;
-        var complete = referenceClaims is > 0 ? Math.Min(1, result.Claims.Count / (double)referenceClaims) : 1;
-        return new Dictionary<string, double>
+        var complete = facts is { Facts: > 0 } f ? f.Stated / (double)f.Facts
+            : referenceClaims is > 0 ? Math.Min(1, result.Claims.Count / (double)referenceClaims) : 1;
+        var penalty = WrongPenalty * (facts?.Repeated ?? 0);
+        var scores = new Dictionary<string, double>
         {
-            ["quality"] = (resolved + recall) / 2 * complete,
+            ["quality"] = Math.Max(0, (resolved + recall) / 2 * complete - penalty),
             ["evidence_resolved"] = resolved,
             ["reference_recall"] = recall,
             ["completeness"] = complete,
         };
+        if (facts is not null)
+            scores["wrong_repeated"] = facts.Repeated;
+        return scores;
     }
 
     /// <summary>Mean of: a draft within bounds, claims whose evidence resolved, required inputs cited, no banned phrase.</summary>
