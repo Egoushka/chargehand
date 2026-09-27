@@ -16,6 +16,10 @@ when someone with write access adds it. The manual run still works. See ADR 0022
 
 ### Changed
 
+- Preset blocks `default` 0.5.0, `cheap`, `thorough` and `strict` 0.4.0 say "read the files that answer the task"
+  instead of "read every file the task needs". Worker prompt 0.3.0 keeps the completeness rules. In the phase 3
+  benchmark the old wording cost 28% more than a plain session through extra reading; the new one costs the same
+  and stays more complete (docs/benchmarks.md).
 - Worker prompt 0.3.0 asks for the whole task, one claim per item and a citation for every file relied on, and
   no longer caps the summary at 120 words. Preset blocks `default` 0.4.0, `cheap`, `thorough` and `strict` 0.3.0
   say "read every file the task needs" instead of "prefer the smallest set of files". The phase 3 blind verdict
