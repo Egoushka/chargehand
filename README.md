@@ -1,89 +1,121 @@
 # chargehand
 
-An orchestrator that turns a request into a typed **Task Spec**, runs it on one or more real
-[OpenCode](https://opencode.ai) sessions (each with its own agent, model, permissions and working
-directory), and returns a **result contract** with evidence for every claim — to people through a
-CLI and to programs through HTTP and MCP.
+chargehand turns a request into a typed **Task Spec**, runs it on one or more coding-agent sessions
+([OpenCode](https://opencode.ai) or Claude Code), and returns a **result contract** with evidence for every claim.
+People call it from a CLI; programs call it over HTTP or MCP.
 
-**Status: pre-alpha (v2).** Intake → an action: stop with `deny`, `ask`, `improve` or an approval request, or run
-one OpenCode session (`answer`) or a graph of 2–4 read-only sessions (`split`) → `result/v1` with resolved
-evidence. Callable over a CLI, HTTP (`/v1/runs`, with server-sent events) and MCP (tool `orchestrate`, with tasks).
-Presets `default`, `cheap`, `thorough`, `strict`, and `draft` for program callers that bring their own facts; optional
-long-term memory; a cache report per run; Prompt CI that gates prompt changes on paired evals; a routing report.
-Writing nodes in worktrees come later.
+**Status: 0.1.0.** Workers are read-only for now; writing nodes in worktrees come later. See the
+[changelog](CHANGELOG.md) for what shipped and [benchmarks](docs/benchmarks.md) for how it performs.
 
 ## Why
 
-Coding agents answer in prose. Programs that call them need something they can check: claims tied
-to files at a commit, diffs, session messages or caller-supplied inputs, plus a confidence and the
-exact prompt chain behind the answer. chargehand keeps control flow — task graph, budgets,
-retries, parallelism — in code rather than in a prompt, and keeps every worker's context small,
-cached and disposable.
+Coding agents answer in prose. A program that calls one needs something it can check: claims tied to files at a
+commit, diffs, session messages or caller inputs, plus a confidence and the exact prompt chain behind the answer.
+
+chargehand keeps control flow (task graph, budgets, retries, parallelism) in code, not in a prompt. Each worker's
+context stays small, cached and disposable.
 
 Non-goals: its own agent loop, direct calls to model providers, parallelism for its own sake.
 
-## Layout
+## How a run works
 
-| path | what |
-|---|---|
-| `schemas/` | JSON Schemas `request/v1`, `task-spec/v1`, `result/v1`, `preset/v1`, with valid/invalid examples |
-| `presets/` | shipped presets: `default`, `cheap`, `thorough`, `strict` (all read-only for now) |
-| `docs/adr/` | architecture decision records |
-| `docs/opencode-api.md` | the OpenCode V2 HTTP API surface this project depends on, generated from the live spec |
-| `src/Chargehand.Contracts` | the contract package: schemas, C# types, validator (versioned by schema major) |
-| `src/Chargehand` | orchestrator: intake, task graph, worker node, evidence resolver, prompt registry, memory, run log |
-| `src/Chargehand.OpenCode` | OpenCode V2 client and worker-runtime adapter |
-| `src/Chargehand.Server` | HTTP interface and MCP server (`chargehand serve`) |
-| `src/Chargehand.Cli` | CLI entry point |
-| `evals/` | Prompt CI cells (`cells.json`) and an example item file; real items live in Langfuse datasets |
-| `samples/ContentEngineCall` | a program caller built from `Chargehand.Contracts` only |
-| `profiles/` | profile schema and `example.json`; your own goes in the gitignored `profiles/local.json` |
+1. **Intake** reads `request/v1` and writes a Task Spec with one action.
+2. The action decides what happens next:
+   - `answer` runs one worker session.
+   - `split` runs 2–4 read-only subtasks as a task graph; later nodes fork the first node's cached prefix.
+   - `deny`, `ask` and `improve` stop and return a reason, questions or an improved request.
+   - A preset can require approval above a risk or cost estimate.
+3. The **evidence resolver** checks every claim. Claims that do not resolve move to `open_questions`.
+4. You get `result/v1`. The run log records tokens, cache hits, cost and the prompt chain of every call.
 
-Requires an OpenCode V2 server of the pinned version (2.0.16) that the orchestrator starts itself; see
-[ADR 0004](docs/adr/0004-opencode-major-and-runtime-adapter.md). Worker checkouts must live outside the
-OpenCode user's home directory ([ADR 0003](docs/adr/0003-where-it-runs.md)).
+**Presets** set tools, budgets and allowed actions: `default`, `cheap`, `thorough`, `strict`, and `draft` for program
+callers that bring their own facts. Optional long-term **memory**, a **cache report** per run, **Prompt CI** that gates
+prompt changes on paired evals, and a **routing report** round it out.
 
-## Running
+## Quick start
 
-1. Copy `profiles/example.json` to `profiles/local.json` and `profiles/opencode.example.json` to
-   `profiles/local.opencode.json`; fill in your gateway, models, prices and secret-store item names.
-2. Start the orchestrator's own OpenCode server (pinned version, own state directory, loopback only):
-   `scripts/opencode-serve.sh <opencode-binary> profiles/local.opencode.json 4296`
-3. Put a checkout at the commit you want answered under `worker_root` (outside your home directory).
+You need the .NET 10 SDK and one worker runtime.
+
+1. Copy `profiles/example.json` to `profiles/local.json` and fill in your gateway, models, prices and secret-store
+   item names. Profiles reference secrets by item name and never hold them.
+2. Pick a runtime:
+   - **OpenCode**: copy `profiles/opencode.example.json` to `profiles/local.opencode.json`, then start the
+     orchestrator's own server (pinned 2.0.16, own state directory, loopback only):
+     `scripts/opencode-serve.sh <opencode-binary> profiles/local.opencode.json 4296`.
+     See [ADR 0004](docs/adr/0004-opencode-major-and-runtime-adapter.md).
+   - **Claude Code**: set the profile's `claude_code` block (`version`, `binary`, and one of `api_key_secret` or
+     `oauth_token_secret`). See [ADR 0020](docs/adr/0020-claude-code-runtime-adapter.md).
+3. Put a checkout at the commit you want answered under `worker_root`, outside the OpenCode user's home directory
+   ([ADR 0003](docs/adr/0003-where-it-runs.md)).
 4. Run a request:
 
 ```bash
-dotnet run --project src/Chargehand.Cli -- run < request.json      # request/v1 in, result/v1 out
-dotnet run --project src/Chargehand.Cli -- show <run-id>           # calls, tokens, cache %, cost
-dotnet run --project src/Chargehand.Cli -- cache <run-id>          # cache reads/writes per call, first changed block
-dotnet run --project src/Chargehand.Cli -- reconcile <run-id> < spend-rows.jsonl
-dotnet run --project src/Chargehand.Cli -- prompts sync            # mirror prompt blocks to Langfuse
-dotnet run --project src/Chargehand.Cli -- serve                   # HTTP and MCP on 127.0.0.1 (profile "http")
-dotnet run --project src/Chargehand.Cli -- routes                  # routing report per preset, node kind and model
-scripts/prompt-ci.sh <pr-number>                                   # Prompt CI: paired evals, then the commit status
+dotnet run --project src/Chargehand.Cli -- run < request.json
 ```
 
-### HTTP and MCP
+## Commands
 
-`chargehand serve` binds 127.0.0.1 and requires `Authorization: Bearer <key>` on every route; the key comes from the
-secret-store item the profile's `http.api_key_secret` names ([ADR 0018](docs/adr/0018-callable-interface-http-mcp-run-store.md)).
+All commands run as `dotnet run --project src/Chargehand.Cli -- <command>` and read `profiles/local.json`.
 
-- `POST /v1/runs` takes `request/v1`. With `Prefer: wait=N` (default 10 s, at most 60) it answers `200` and `result/v1`
-  if the run finishes in time, else `202` and `run-status/v1` with a `Location`.
-- `GET /v1/runs/{id}`: `202` while queued or running, `200` and `result/v1` once finished, `410` if the process that ran
-  it ended first.
-- `GET /v1/runs/{id}/events`: server-sent events `accepted`, `started`, `intake`, `node_started`, `node_finished`,
-  `run_finished`.
-- MCP (Streamable HTTP) at `/v1/mcp`: tool `orchestrate`, `inputSchema` `request/v1`, `outputSchema` `result/v1`. Clients
-  that opt in to the tasks extension get long runs as tasks; an interactive request that intake answers with questions
-  comes back as `input_required`.
+| command | what it does |
+|---|---|
+| `run < request.json` | `request/v1` in, `result/v1` out |
+| `show <run-id>` | calls, tokens, cache %, cost |
+| `cache <run-id>` | cache reads and writes per call, and the first block that broke a shared prefix |
+| `reconcile <run-id> < spend-rows.jsonl` | joins calls to exported gateway spend rows |
+| `serve` | HTTP and MCP on 127.0.0.1 (profile `http`) |
+| `routes` | routing report per preset, node kind and model |
+| `score <run-id> <0-1> [name]` | records a hand score for a run |
+| `eval seed\|push\|gate` | Prompt CI: propose items, push them to Langfuse, gate a change |
+| `prompts sync` | mirrors prompt blocks to Langfuse |
 
-## Build
+`scripts/prompt-ci.sh <pr-number>` runs Prompt CI for a pull request and posts the commit status
+([ADR 0019](docs/adr/0019-prompt-ci-and-routing-report.md)).
+
+## HTTP and MCP
+
+`chargehand serve` binds 127.0.0.1 and requires `Authorization: Bearer <key>` on every route. The key comes from the
+secret-store item named by the profile's `http.api_key_secret`
+([ADR 0018](docs/adr/0018-callable-interface-http-mcp-run-store.md)).
+
+| route | behaviour |
+|---|---|
+| `POST /v1/runs` | takes `request/v1`. With `Prefer: wait=N` (default 10 s, at most 60): `200` and `result/v1` if the run finishes in time, else `202`, `run-status/v1` and a `Location` |
+| `GET /v1/runs/{id}` | `202` while queued or running, `200` and `result/v1` once finished, `410` if the process that ran it ended first |
+| `GET /v1/runs/{id}/events` | server-sent events `accepted`, `started`, `intake`, `node_started`, `node_finished`, `run_finished` |
+| `/v1/mcp` | MCP over Streamable HTTP: tool `orchestrate`, `inputSchema` `request/v1`, `outputSchema` `result/v1` |
+
+MCP clients that opt in to the tasks extension get long runs as tasks. When intake answers with questions, the call
+comes back as `input_required`.
+
+## Repository layout
+
+| path | contents |
+|---|---|
+| `src/Chargehand` | orchestrator: intake, task graph, worker node, evidence resolver, prompt registry, memory, run log |
+| `src/Chargehand.Contracts` | contract package: schemas, C# types, validator (versioned by schema major) |
+| `src/Chargehand.OpenCode` | OpenCode V2 client and worker-runtime adapter |
+| `src/Chargehand.ClaudeCode` | Claude Code worker-runtime adapter |
+| `src/Chargehand.Server` | HTTP interface and MCP server |
+| `src/Chargehand.Cli` | CLI entry point |
+| `schemas/` | JSON Schemas `request`, `task-spec`, `result`, `run-status`, `preset`, with valid and invalid examples |
+| `presets/` | shipped presets |
+| `prompts/` | versioned prompt blocks (core, intake, preset) |
+| `evals/` | Prompt CI cells and a synthetic example; real items live in Langfuse datasets |
+| `profiles/` | profile schema and examples; your own goes in the gitignored `profiles/local.*` |
+| `samples/ContentEngineCall` | a program caller built from `Chargehand.Contracts` only |
+| `docs/adr/` | architecture decision records |
+| `docs/opencode-api.md` | the OpenCode V2 HTTP API surface this project uses, generated from the live spec |
+
+## Build and test
 
 ```bash
 dotnet build
 dotnet test
+dotnet format --verify-no-changes
 ```
+
+Contributions: see [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: see [SECURITY.md](SECURITY.md).
 
 ## License
 
