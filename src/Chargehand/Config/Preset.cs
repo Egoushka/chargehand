@@ -15,8 +15,11 @@ public sealed record Preset(
 {
     public static Preset Load(string directory, string name)
     {
+        var path = Path.Combine(directory, name + ".yaml");
+        if (!File.Exists(path))
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"unknown preset '{name}'");
         var yaml = new DeserializerBuilder().WithAttemptingUnquotedStringTypeDeserialization().Build()
-            .Deserialize(new StringReader(File.ReadAllText(Path.Combine(directory, name + ".yaml"))));
+            .Deserialize(new StringReader(File.ReadAllText(path)));
         var json = JsonSerializer.SerializeToElement(yaml);
         var errors = ContractSchemas.Validate(ContractSchemas.Preset, json);
         if (errors.Count > 0)

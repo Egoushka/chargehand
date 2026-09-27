@@ -182,6 +182,16 @@ public class WorkerNodeTests
     }
 
     [Fact]
+    public async Task A_deadline_reached_under_rate_limits_reports_the_rate_limit()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true };
+        rt.Log.Add(BigCall() with { Error = "Rate limit exceeded, retrying" });
+        var r = await Node(rt).RunAsync(Request(TimeSpan.FromMilliseconds(100)), CancellationToken.None);
+        Assert.Equal(IdleOutcome.Interrupted, r.Outcome);
+        Assert.Equal(ErrorCode.RateLimited, r.Contract.Error?.Code);
+    }
+
+    [Fact]
     public async Task Pending_permissions_are_rejected_never_approved()
     {
         var rt = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true };
@@ -262,5 +272,40 @@ public class WorkerNodeTests
         Assert.Empty(rt.Forked);
         Assert.Equal(2, rt.Instructions.Count);
         Assert.Null(r.ForkedFrom);
+    }
+
+    [Fact]
+    public async Task A_node_stopped_at_the_usd_cap_fails_with_cost_cap_reached()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true };
+        rt.Log.Add(BigCall());
+        var r = await Node(rt).RunAsync(Request(TimeSpan.FromSeconds(30)) with { CapUsd = 0.0001m }, CancellationToken.None);
+        Assert.Equal(ResultStatus.Failed, r.Contract.Status);
+        Assert.Equal(new ResultError(ErrorCode.CostCapReached, "worker ended interrupted", false), r.Contract.Error);
+    }
+
+    [Fact]
+    public async Task A_node_past_its_deadline_fails_with_deadline_exceeded()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true };
+        var r = await Node(rt).RunAsync(Request(TimeSpan.FromMilliseconds(100)), CancellationToken.None);
+        Assert.Equal(ErrorCode.DeadlineExceeded, r.Contract.Error?.Code);
+        Assert.True(r.Contract.Error!.Retryable);
+    }
+
+    [Fact]
+    public async Task A_node_without_a_valid_contract_after_repair_fails_with_invalid_result()
+    {
+        var r = await Node(new FakeRuntime("no block", "still no block")).RunAsync(Request(), CancellationToken.None);
+        Assert.Equal(ErrorCode.InvalidResult, r.Contract.Error?.Code);
+        Assert.StartsWith("no valid result contract", r.Contract.Error!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_completed_node_carries_no_error()
+    {
+        var r = await Node(new FakeRuntime(Block("src/calc.py:5-6"))).RunAsync(Request(), CancellationToken.None);
+        Assert.Equal(ResultStatus.Completed, r.Contract.Status);
+        Assert.Null(r.Contract.Error);
     }
 }

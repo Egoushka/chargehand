@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Chargehand.Contracts;
 using Chargehand.Runtime;
 
 namespace Chargehand.ClaudeCode;
@@ -33,13 +35,21 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
     public static async Task<ClaudeCodeWorkerRuntime> ConnectAsync(string binary, string pinnedVersion, ClaudeCodeCredential credential, CancellationToken ct,
         Uri? baseUrl = null)
     {
-        var (exit, stdout, stderr) = await Exec(binary, Path.GetTempPath(), ["--version"], null, ct);
-        var version = stdout.Split(' ', 2)[0].Trim();
-        if (exit != 0)
-            throw new InvalidOperationException($"{binary} --version exited {exit}: {stderr.Trim()}");
+        (int Exit, string Stdout, string Stderr) run;
+        try
+        {
+            run = await Exec(binary, Path.GetTempPath(), ["--version"], null, ct);
+        }
+        catch (Win32Exception e)
+        {
+            throw new ChargehandException(ErrorCode.RuntimeUnavailable, $"cannot start {binary}: {e.Message}", "Install Claude Code, or set claude_code.binary in the profile.");
+        }
+        var version = run.Stdout.Split(' ', 2)[0].Trim();
+        if (run.Exit != 0)
+            throw new ChargehandException(ErrorCode.RuntimeUnavailable, $"{binary} --version exited {run.Exit}: {run.Stderr.Trim()}");
         return version == pinnedVersion
             ? new ClaudeCodeWorkerRuntime(binary, credential, version, baseUrl)
-            : throw new InvalidOperationException($"Claude Code CLI is {version}; this adapter is pinned to {pinnedVersion}.");
+            : throw new ChargehandException(ErrorCode.RuntimeVersionMismatch, $"Claude Code CLI is {version}; this adapter is pinned to {pinnedVersion}.");
     }
 
     public async Task<WorkerSession> CreateAsync(NodeSpec spec, CancellationToken ct)

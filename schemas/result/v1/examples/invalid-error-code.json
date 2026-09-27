@@ -1,0 +1,3 @@
+{ "contract_version": "result/v1", "task_id": "t-1", "node_id": "n-1", "trace_id": "0af7651916cd43dd8448eb211c80319c", "prompt_chain": { "blocks": [ { "name": "core/worker", "version": "0.1.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "source": "registry" } ], "as_sent": { "opencode_version": "2.0.16", "agent": "build", "model": "provider/model-name", "date": "2026-09-26" } },
+  "status": "failed", "summary": "s", "claims": [], "evidence": [], "artifacts": [], "open_questions": ["s"], "confidence": 0,
+  "usage": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "usd": 0 }, "error": { "code": "timeout", "message": "s", "retryable": true } }

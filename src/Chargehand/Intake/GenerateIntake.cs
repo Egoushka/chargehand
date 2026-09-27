@@ -47,7 +47,7 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef model, Promp
                 return new(spec with { Id = runId }, null, calls);
             errors = string.Join("; ", problems);
         }
-        throw new InvalidOperationException($"intake returned no valid task-spec/v1 after one retry: {errors}");
+        throw new ChargehandException(ErrorCode.IntakeFailed, $"intake returned no valid task-spec/v1 after one retry: {errors}");
     }
 
     internal static (TaskSpec? Spec, IReadOnlyList<string> Errors) Parse(string text)

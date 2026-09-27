@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Chargehand.Contracts;
 using Chargehand.Runtime;
 
 namespace Chargehand.OpenCode;
@@ -23,7 +24,7 @@ public sealed class OpenCodeWorkerRuntime : IWorkerRuntime
         var version = await oc.VersionAsync(ct);
         return version == pinnedVersion
             ? new OpenCodeWorkerRuntime(oc, version)
-            : throw new InvalidOperationException($"OpenCode server runs {version}; this adapter is pinned to {pinnedVersion}.");
+            : throw new ChargehandException(ErrorCode.RuntimeVersionMismatch, $"OpenCode server runs {version}; this adapter is pinned to {pinnedVersion}.");
     }
 
     public async Task<WorkerSession> CreateAsync(NodeSpec spec, CancellationToken ct)

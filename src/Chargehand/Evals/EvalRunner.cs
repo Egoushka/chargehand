@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.RegularExpressions;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Intake;
@@ -17,7 +16,7 @@ namespace Chargehand.Evals;
 /// </summary>
 /// <param name="orchestratorFor">An orchestrator reading prompts/ and presets/ from the given root.</param>
 /// <param name="flush">Exports pending spans, so a trace exists before a dataset run item links it.</param>
-public sealed partial class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWorkerRuntime runtime, string intakeModel, JsonlRunLog log,
+public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWorkerRuntime runtime, string intakeModel, JsonlRunLog log,
     LangfuseEvals? langfuse, Action flush, TextWriter output)
 {
     /// <summary>The cells a change touches, and the changed prompt or preset files no cell covers.</summary>
@@ -97,7 +96,7 @@ public sealed partial class EvalRunner(Func<string, Orchestrator> orchestratorFo
                 var result = await orchestratorFor(root).RunAsync(item.Request with { Context = item.Request.Context with { Preset = cell.Preset! } }, ct);
                 (runId, traceId, usd) = (result.TaskId, result.TraceId, result.Usage.Usd);
                 scores = cell.Kind == "draft" ? Scoring.Draft(result, item.Expected.Draft!) : Scoring.Worker(result, item.Expected.ReferenceFiles ?? [], item.Expected.ReferenceClaims);
-                limited = result.Status == ResultStatus.Failed && RateLimited(result.Summary) ? result.Summary : null;
+                limited = result.Error?.Code == ErrorCode.RateLimited ? result.Summary : null;
                 // A run refused before any model call (a checkout the preset refuses, a bad pin) scores 0 on both arms
                 // and passes as no change: stop the gate rather than score a cell without evidence.
                 if (limited is null && result.Status == ResultStatus.Failed && result.Usage is { Input: 0, Output: 0, Usd: 0 })
@@ -136,11 +135,11 @@ public sealed partial class EvalRunner(Func<string, Orchestrator> orchestratorFo
             var outcome = await new GenerateIntake(runtime, Orchestrator.ParseModel(intakeModel), block, runId, kind.Checkout).RunAsync(item.Request, ct);
             return (runId, traceId, Scoring.Intake(outcome.Spec, item.Expected.Action!), null);
         }
-        catch (Exception e) when (RateLimited(e.Message))
+        catch (Exception e) when (ChargehandException.ErrorOf(e).Code == ErrorCode.RateLimited)
         {
             return (runId, traceId, new Dictionary<string, double> { ["quality"] = 0 }, e.Message);
         }
-        catch (InvalidOperationException)
+        catch (ChargehandException e) when (e.Code == ErrorCode.IntakeFailed)
         {
             return (runId, traceId, new Dictionary<string, double> { ["quality"] = 0 }, null); // no valid Task Spec after the retry
         }
@@ -148,12 +147,6 @@ public sealed partial class EvalRunner(Func<string, Orchestrator> orchestratorFo
 
     /// <summary>Waits before each retry of a rate-limited arm; the gateway's parallel-request limit clears within seconds.</summary>
     internal static TimeSpan[] RateLimitRetries { get; set; } = [TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60)];
-
-    /// <summary>A gateway or provider rate limit, as relayed by OpenCode ("Rate limit exceeded") or Claude Code (rate_limit_error, 429).</summary>
-    internal static bool RateLimited(string? message) => message is not null && RateLimitText().IsMatch(message);
-
-    [GeneratedRegex(@"rate[ _]limit|\b429\b", RegexOptions.IgnoreCase)]
-    private static partial Regex RateLimitText();
 
     private static IReadOnlyList<string> Files(IEnumerable<Evidence> evidence) =>
         [.. evidence.Where(e => e.Kind == EvidenceKind.File).Select(e => e.Locator.Split(':')[0]).Distinct().Order(StringComparer.Ordinal)];

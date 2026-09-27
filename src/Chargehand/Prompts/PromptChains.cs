@@ -16,7 +16,7 @@ public static class PromptChains
     public static PromptBlock VerifyCallerBlock(PromptBlock block) =>
         PromptBlock.Hash(block.Text) == block.Sha256
             ? block
-            : throw new InvalidDataException($"caller block '{block.Name}': sha256 does not match its text.");
+            : throw new ChargehandException(ErrorCode.InvalidRequest, $"caller block '{block.Name}': sha256 does not match its text.");
 
     /// <summary>Proxy for OpenCode's tool catalog, which is a function of its version, the agent and the ruleset.</summary>
     public static string ToolsSha256(string opencodeVersion, string agent, IReadOnlyList<PermissionRule> rules) =>

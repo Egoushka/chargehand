@@ -6,6 +6,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["contract_version", "task_id", "node_id", "trace_id", "prompt_chain", "status", "summary", "claims", "evidence", "artifacts", "open_questions", "confidence", "usage"],
+  "dependentSchemas": { "error": { "properties": { "status": { "const": "failed" } } } },
   "properties": {
     "contract_version": { "const": "result/v1" },
     "task_id": { "type": "string", "minLength": 1 },
@@ -70,6 +71,18 @@
         "cache_read": { "type": "integer", "minimum": 0 },
         "cache_write": { "type": "integer", "minimum": 0 },
         "usd": { "type": "number", "minimum": 0, "description": "Priced by the orchestrator's own table, cache-write surcharge included." }
+      }
+    },
+    "error": {
+      "type": "object",
+      "description": "Why the run failed (ADR 0022); present only when status is failed. Branch on code, not on summary text.",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "enum": ["runtime_unavailable", "runtime_version_mismatch", "provider_unavailable", "rate_limited", "repository_not_allowed", "checkout_invalid", "checkout_has_secrets", "cost_cap_reached", "deadline_exceeded", "invalid_result", "intake_failed", "invalid_request", "internal"] },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean", "description": "True when the same request may succeed later unchanged: runtime_unavailable, provider_unavailable, rate_limited, deadline_exceeded." },
+        "action": { "type": "string", "description": "What the user or client should do, e.g. the command that starts the runtime." }
       }
     }
   },

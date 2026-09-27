@@ -128,7 +128,8 @@ public sealed class Orchestrator(
         catch (Exception e) when (e is not OperationCanceledException)
         {
             // A run that throws (a bad checkout, an unknown preset, no valid Task Spec) still ends with a result and a run record.
-            result = new ResultContract("result/v1", runId, "run", traceId, intakeChain, ResultStatus.Failed, e.Message, [], [], [], [e.Message], 0, new Usage(0, 0, 0, 0, 0));
+            result = new ResultContract("result/v1", runId, "run", traceId, intakeChain, ResultStatus.Failed, e.Message, [], [], [], [e.Message], 0, new Usage(0, 0, 0, 0, 0),
+                ChargehandException.ErrorOf(e));
         }
 
         run?.SetTag("chargehand.contract.status", result.Status.ToString().ToLowerInvariant());
@@ -273,11 +274,11 @@ public sealed class Orchestrator(
     {
         // git prints the top level with symbolic links resolved, so a link under a root cannot point the worker elsewhere.
         var source = await Git(Path.GetFullPath(repo.Path), ct, "rev-parse", "--show-toplevel")
-            ?? throw new InvalidOperationException($"{repo.Path} is not a git checkout");
+            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{repo.Path} is not a git checkout");
         if (!profile.Roots.Any(root => Under(source, RealPath(root))))
-            throw new InvalidOperationException($"repository {source} is not under repository_roots ({string.Join(", ", profile.Roots)})");
+            throw new ChargehandException(ErrorCode.RepositoryNotAllowed, $"repository {source} is not under repository_roots ({string.Join(", ", profile.Roots)})");
         var commit = await Git(source, ct, "rev-parse", "--verify", "--end-of-options", repo.Commit + "^{commit}")
-            ?? throw new InvalidOperationException($"commit {repo.Commit} is not in {source}");
+            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"commit {repo.Commit} is not in {source}");
         var id = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(source)))[..8];
         var dir = Path.Combine(Path.GetFullPath(profile.WorkerRoot), ".checkouts", $"{Path.GetFileName(source)}-{id}", commit[..12]);
         OutsideHome(dir + Path.DirectorySeparatorChar);
@@ -289,7 +290,7 @@ public sealed class Orchestrator(
             Directory.CreateDirectory(Path.GetDirectoryName(dir)!);
             if (await Git(Path.GetDirectoryName(dir)!, ct, "clone", "-q", "--local", "--no-checkout", "--", source, temp) is null
                 || await Git(temp, ct, "checkout", "-q", "--detach", commit) is null)
-                throw new InvalidOperationException($"could not clone {source} at {commit[..12]} into {Path.GetDirectoryName(dir)}");
+                throw new ChargehandException(ErrorCode.CheckoutInvalid, $"could not clone {source} at {commit[..12]} into {Path.GetDirectoryName(dir)}");
             try
             {
                 Directory.Move(temp, dir);
@@ -304,7 +305,7 @@ public sealed class Orchestrator(
         var denied = await DeniedFiles(dir, kind.Permissions, ct);
         return denied.Count == 0
             ? (dir, commit)
-            : throw new InvalidOperationException($"the repository tracks files the preset denies reading, which grep would still reach: " +
+            : throw new ChargehandException(ErrorCode.CheckoutHasSecrets, $"the repository tracks files the preset denies reading, which grep would still reach: " +
                 $"{string.Join(", ", denied.Take(5))}{(denied.Count > 5 ? ", ..." : "")}. Pin a commit without them.");
     }
 
@@ -345,7 +346,7 @@ public sealed class Orchestrator(
         var files = (await p.StandardOutput.ReadToEndAsync(ct)).Split('\0', StringSplitOptions.RemoveEmptyEntries);
         await p.WaitForExitAsync(ct);
         if (p.ExitCode != 0)
-            throw new InvalidOperationException($"git ls-files failed in {repo}");
+            throw new ChargehandException(ErrorCode.CheckoutInvalid, $"git ls-files failed in {repo}");
         return files.Where(f => read.LastOrDefault(r => Wildcard(f, r.Resource))?.Effect == "deny").ToList();
     }
 
@@ -366,7 +367,7 @@ public sealed class Orchestrator(
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + Path.DirectorySeparatorChar;
         if (fullPath.StartsWith(home, StringComparison.Ordinal))
-            throw new InvalidOperationException("worker checkouts must live outside the home directory (ADR 0003)");
+            throw new ChargehandException(ErrorCode.RepositoryNotAllowed, "worker checkouts must live outside the home directory (ADR 0003)");
     }
 
     /// <summary>Volatile content goes in the prompt text, after the fixed instruction entries (ADR 0010).</summary>

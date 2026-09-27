@@ -3,15 +3,22 @@ using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using Chargehand.Contracts;
 
 namespace Chargehand.OpenCode;
 
 /// <summary>An OpenCode error response: HTTP status plus the tagged error body (e.g. InstructionEntryValueTooLargeError).</summary>
 public sealed class OpenCodeException(HttpStatusCode status, string? tag, string message)
-    : Exception($"OpenCode {(int)status} {tag}: {message}")
+    : ChargehandException(CodeOf(status, message), $"OpenCode {(int)status} {tag}: {message}")
 {
     public HttpStatusCode Status { get; } = status;
     public string? Tag { get; } = tag;
+
+    /// <summary>OpenCode relays a gateway's rate limit, and a provider it cannot reach, as a 503 ServiceUnavailableError.</summary>
+    private static ErrorCode CodeOf(HttpStatusCode status, string message) =>
+        status == HttpStatusCode.TooManyRequests || RateLimited(message) ? ErrorCode.RateLimited
+        : status is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout ? ErrorCode.ProviderUnavailable
+        : ErrorCode.Internal;
 }
 
 /// <summary>Hand-written client for the adapter's operations (docs/opencode-adapter-ops.json).</summary>
@@ -99,7 +106,7 @@ public sealed class OpenCodeClient : IOpenCodeClient
     public async IAsyncEnumerable<JsonElement> EventsAsync([EnumeratorCancellation] CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, "/api/event");
-        using var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var res = await SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
         await EnsureOk(res, ct);
         using var reader = new StreamReader(await res.Content.ReadAsStreamAsync(ct));
         while (await reader.ReadLineAsync(ct) is { } line)
@@ -121,7 +128,7 @@ public sealed class OpenCodeClient : IOpenCodeClient
             using var req = new HttpRequestMessage(method, path);
             if (body is not null)
                 req.Content = JsonContent.Create(body, options: Json);
-            using var res = await _http.SendAsync(req, ct);
+            using var res = await SendAsync(req, HttpCompletionOption.ResponseContentRead, ct);
             try
             {
                 await EnsureOk(res, ct);
@@ -134,6 +141,20 @@ public sealed class OpenCodeClient : IOpenCodeClient
             if (res.StatusCode == HttpStatusCode.NoContent || res.Content.Headers.ContentLength == 0)
                 return default!;
             return (await res.Content.ReadFromJsonAsync<T>(Json, ct))!;
+        }
+    }
+
+    /// <summary>A refused connection means no OpenCode server listens at the URL: the action says how to start one.</summary>
+    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, HttpCompletionOption completion, CancellationToken ct)
+    {
+        try
+        {
+            return await _http.SendAsync(req, completion, ct);
+        }
+        catch (HttpRequestException e) when (e.HttpRequestError == HttpRequestError.ConnectionError)
+        {
+            throw new ChargehandException(ErrorCode.RuntimeUnavailable, $"the OpenCode server at {_http.BaseAddress} is not reachable: {e.Message}",
+                $"Start it: scripts/opencode-serve.sh <binary> <config> {_http.BaseAddress?.Port}");
         }
     }
 

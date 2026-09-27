@@ -85,6 +85,10 @@ public class SplitTests
         Assert.Equal(["a", "b"], ran.Order());
         Assert.Equal([ResultStatus.Completed, ResultStatus.Failed, ResultStatus.Failed], outcomes.Select(o => o.Contract.Status));
         Assert.Contains("skipped: b", outcomes[2].Contract.Summary, StringComparison.Ordinal);
+        // The skipped node carries the cause of the node it waited on; the merge, with a part completed, carries none.
+        Assert.Equal([null, ErrorCode.Internal, ErrorCode.Internal], outcomes.Select(o => o.Contract.Error?.Code));
+        Assert.Null(ResultMerger.Merge("run-1", new string('0', 32), outcomes[0].Contract.PromptChain, outcomes).Error);
+        Assert.Equal(ErrorCode.Internal, ResultMerger.Merge("run-1", new string('0', 32), outcomes[0].Contract.PromptChain, outcomes.Skip(1).ToList()).Error?.Code);
     }
 
     [Fact]

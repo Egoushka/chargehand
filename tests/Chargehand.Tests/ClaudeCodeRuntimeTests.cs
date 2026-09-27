@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Chargehand.ClaudeCode;
 using Chargehand.Config;
+using Chargehand.Contracts;
 using Chargehand.Runtime;
 
 namespace Chargehand.Tests;
@@ -166,7 +167,16 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
     public async Task A_version_other_than_the_pin_is_refused()
     {
         var claude = FakeClaude("");
-        await Assert.ThrowsAsync<InvalidOperationException>(() => ClaudeCodeWorkerRuntime.ConnectAsync(claude, "9.9.9", new ClaudeCodeCredential("k", false), CancellationToken.None));
+        var e = await Assert.ThrowsAsync<ChargehandException>(() => ClaudeCodeWorkerRuntime.ConnectAsync(claude, "9.9.9", new ClaudeCodeCredential("k", false), CancellationToken.None));
+        Assert.Equal(ErrorCode.RuntimeVersionMismatch, e.Code);
+    }
+
+    [Fact]
+    public async Task A_missing_binary_is_runtime_unavailable()
+    {
+        var e = await Assert.ThrowsAsync<ChargehandException>(() => ClaudeCodeWorkerRuntime.ConnectAsync(Path.Combine(_dir.Path, "no-claude"), "2.1.195", new ClaudeCodeCredential("k", false), CancellationToken.None));
+        Assert.Equal(ErrorCode.RuntimeUnavailable, e.Code);
+        Assert.NotNull(e.Action);
     }
 
     private static bool Apply(ClaudeCodeWorkerRuntime.Session s, string json, bool compact = false) =>

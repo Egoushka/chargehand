@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Chargehand.Contracts;
 using Chargehand.OpenCode;
 using Chargehand.Runtime;
 
@@ -94,8 +95,34 @@ public class OpenCodeClientTests
     public async Task Version_pin_is_enforced()
     {
         var (c, _) = Make((_, _) => (HttpStatusCode.OK, """{"version":"2.0.17","pid":1}"""));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => OpenCodeWorkerRuntime.ConnectAsync(c, "2.0.16", CancellationToken.None));
+        var e = await Assert.ThrowsAsync<ChargehandException>(() => OpenCodeWorkerRuntime.ConnectAsync(c, "2.0.16", CancellationToken.None));
+        Assert.Equal(ErrorCode.RuntimeVersionMismatch, e.Code);
     }
+
+    [Fact]
+    public async Task A_server_that_is_not_running_is_runtime_unavailable_with_the_start_command()
+    {
+        // A port nothing listens on: bind one, then release it.
+        var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        var c = new OpenCodeClient(new HttpClient { BaseAddress = new Uri($"http://localhost:{port}") }, "pw");
+
+        var e = await Assert.ThrowsAsync<ChargehandException>(() => OpenCodeWorkerRuntime.ConnectAsync(c, "2.0.16", CancellationToken.None));
+
+        Assert.Equal(ErrorCode.RuntimeUnavailable, e.Code);
+        Assert.True(e.Error.Retryable);
+        Assert.Equal($"Start it: scripts/opencode-serve.sh <binary> <config> {port}", e.Action);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "Rate limit exceeded for api_key: k. Limit type: max_parallel_requests.", ErrorCode.RateLimited)]
+    [InlineData(HttpStatusCode.TooManyRequests, "slow down", ErrorCode.RateLimited)]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "ConnectionRefused", ErrorCode.ProviderUnavailable)]
+    [InlineData(HttpStatusCode.BadRequest, "Model unavailable", ErrorCode.Internal)]
+    public void OpenCode_errors_map_to_codes_by_status_and_text(HttpStatusCode status, string message, ErrorCode code) =>
+        Assert.Equal(code, new OpenCodeException(status, "ServiceUnavailableError", message).Code);
 
     [Fact]
     public void Messages_are_dispatched_on_type()

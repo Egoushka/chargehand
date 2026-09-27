@@ -25,6 +25,7 @@ public class CheckoutTests
             .RunAsync(Runs.CheapRequest(repo), CancellationToken.None);
 
         Assert.Equal(ResultStatus.Failed, r.Status);
+        Assert.Equal(ErrorCode.CheckoutHasSecrets, r.Error?.Code);
         Assert.Contains("sub/.env", r.Summary, StringComparison.Ordinal);
         Assert.Contains("x.env.local", r.Summary, StringComparison.Ordinal);
         Assert.DoesNotContain(".env.example", r.Summary, StringComparison.Ordinal);
@@ -96,5 +97,31 @@ public class CheckoutTests
 
         Assert.NotEqual(ResultStatus.Failed, r.Status);
         Assert.StartsWith(Path.Combine(root.Path, ".checkouts"), Assert.Single(runtime.Created).Directory, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_checkout_outside_the_worker_root_is_not_allowed()
+    {
+        using var dir = new TempDir();
+        var repo = Runs.GitRepo(dir.Path);
+        var runtime = new ScriptedRuntime(Runs.WorkerReply);
+
+        var r = await Runs.Orchestrator(runtime, Path.Combine(dir.Path, "root"), new JsonlRunLog(Path.Combine(dir.Path, "log.jsonl")))
+            .RunAsync(Runs.CheapRequest(repo), CancellationToken.None);
+
+        Assert.Equal(new ResultError(ErrorCode.RepositoryNotAllowed, r.Summary, false), r.Error);
+        Assert.Empty(runtime.Created);
+    }
+
+    [Fact]
+    public async Task A_checkout_at_another_commit_is_invalid()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+
+        var r = await Runs.Orchestrator(new ScriptedRuntime(Runs.WorkerReply), root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
+            .RunAsync(Runs.CheapRequest(repo with { Commit = "0000000" }), CancellationToken.None);
+
+        Assert.Equal(ErrorCode.CheckoutInvalid, r.Error?.Code);
     }
 }

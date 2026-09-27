@@ -49,7 +49,7 @@ public class PromptChainTests
     public void Caller_block_with_a_wrong_hash_is_rejected()
     {
         var bad = new PromptBlock("g", "1.0.0", new string('0', 64), "text");
-        Assert.Throws<InvalidDataException>(() => PromptChains.VerifyCallerBlock(bad));
+        Assert.Equal(ErrorCode.InvalidRequest, Assert.Throws<ChargehandException>(() => PromptChains.VerifyCallerBlock(bad)).Code);
     }
 
     [Fact]
