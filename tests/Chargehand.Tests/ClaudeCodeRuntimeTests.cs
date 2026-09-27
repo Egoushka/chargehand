@@ -150,6 +150,20 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
     }
 
     [Fact]
+    public async Task Generate_runs_without_thinking_tools_or_the_agent_system_prompt()
+    {
+        var claude = FakeClaude("""{"type":"result","subtype":"success","is_error":false,"result":"{\"ok\":true}"}""");
+        var rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", new ClaudeCodeCredential("k", false), CancellationToken.None);
+
+        Assert.Equal("""{"ok":true}""", await rt.GenerateAsync(new ModelRef("anthropic", "claude-haiku-4-5"), "spec please", CancellationToken.None));
+        var args = File.ReadAllLines(Path.Combine(_dir.Path, "args.txt"));
+        Assert.Equal("", args[Array.IndexOf(args, "--tools") + 1]);
+        Assert.Contains("--system-prompt", args);
+        Assert.Contains("--no-session-persistence", args);
+        Assert.Equal("0", File.ReadAllText(Path.Combine(_dir.Path, "thinking.txt")).Trim());
+    }
+
+    [Fact]
     public async Task A_version_other_than_the_pin_is_refused()
     {
         var claude = FakeClaude("");
@@ -169,6 +183,7 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
             printf '%s\n' "$@" > "{_dir.Path}/args.txt"
             cat > "{_dir.Path}/stdin.txt"
             echo "api=$ANTHROPIC_API_KEY oauth=$CLAUDE_CODE_OAUTH_TOKEN base=$ANTHROPIC_BASE_URL" > "{_dir.Path}/key.txt"
+            echo "$MAX_THINKING_TOKENS" > "{_dir.Path}/thinking.txt"
             cat "{_dir.Path}/events.jsonl"
             """);
         if (!OperatingSystem.IsWindows())
