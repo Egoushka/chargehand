@@ -7,6 +7,7 @@ public class FactJudgeTests
     [Theory]
     [InlineData("""{"stated": [1, 3, 3], "repeated": [2]}""", 2, 1)]
     [InlineData("Here it is: {\"stated\": [], \"repeated\": []} done", 0, 0)]
+    [InlineData("""{"stated": ["F1", "2"], "repeated": ["W1"]}""", 2, 1)]
     public void A_verdict_counts_distinct_facts_and_statements(string text, int stated, int repeated)
     {
         Assert.True(FactJudge.Parse(text, facts: 3, wrong: 2, out var check, out _));
@@ -18,6 +19,7 @@ public class FactJudgeTests
     [InlineData("""{"stated": [4], "repeated": []}""")] // there are only 3 facts
     [InlineData("""{"stated": [1]}""")]
     [InlineData("""{"stated": ["one"], "repeated": []}""")]
+    [InlineData("""{"stated": ["F9"], "repeated": []}""")]
     public void A_malformed_verdict_is_refused(string text) =>
         Assert.False(FactJudge.Parse(text, facts: 3, wrong: 2, out _, out _));
 

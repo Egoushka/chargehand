@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
@@ -43,7 +44,7 @@ public static class FactJudge
             sb.AppendLine($"W{i + 1}. {wrong[i]}");
         return sb.AppendLine()
             .AppendLine("A fact is stated when the answer says it, or something that plainly implies it, in any wording. A fact with several parts is stated only when every part is. A false statement is repeated when the answer asserts it.")
-            .AppendLine("""Reply with one JSON object only: {"stated": [numbers of the facts stated], "repeated": [numbers of the false statements repeated]}""")
+            .AppendLine("""Reply with one JSON object only, listing numbers without their letter, for example {"stated": [1, 3], "repeated": [2]}; use [] when none.""")
             .ToString();
     }
 
@@ -69,9 +70,12 @@ public static class FactJudge
         }
     }
 
+    /// <summary>Numbers as 3, "3" or "F3": small models do not keep to the requested form.</summary>
     private static int Numbers(JsonElement root, string name, int max)
     {
-        var numbers = root.GetProperty(name).EnumerateArray().Select(n => n.GetInt32()).Distinct().ToList();
+        var numbers = root.GetProperty(name).EnumerateArray()
+            .Select(n => n.ValueKind == JsonValueKind.String ? int.Parse(n.GetString()!.TrimStart('F', 'W', 'f', 'w'), CultureInfo.InvariantCulture) : n.GetInt32())
+            .Distinct().ToList();
         return numbers.All(n => n >= 1 && n <= max) ? numbers.Count : throw new FormatException($"{name} holds a number outside 1..{max}");
     }
 
