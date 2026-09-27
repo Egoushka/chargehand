@@ -135,3 +135,26 @@ decided each pair, v0 missing stacks in one and the plain session in two. The qu
 a bar of 2 of 3), and the cost half fails: v0 costs 28% more because it reads more (pair 1: 351k cached input tokens
 against 222k), with no repair turns. Quality per dollar is about even (0.556 / $0.257 against 0.444 / $0.201). The
 phase 3 exit still does not hold.
+
+### Ablation: the preset's read scope (2026-09-27)
+
+#19 changed two things: the worker prompt's completeness rules (one claim per item, cite every file relied on) and
+the preset's read scope ("read every file the task needs"). The completeness failure was about files read and then
+left out, so the rules alone should fix it; the read scope looked like the source of the extra cost. Here the preset
+says "read the files that answer the task" and the worker prompt is unchanged. Same question, commit, model and
+procedure, with a fresh plain arm.
+
+| | v0 (preset "read the files that answer the task") | plain session |
+|---|---|---|
+| cost per run (mean of 3) | $0.223 | $0.222 |
+| cost ratio per pair | 1.19×, 0.85×, 1.02× | 1× |
+| worker calls per run | 8, 7, 10 | 7, 8, 7 |
+| claims per run | 17, 21, 17 | |
+| blind A/B: correct, complete, cites resolve (3 pairs) | tie 3, won 3, tie 2 lost 1 | tie 3, lost 3, tie 2 won 1 |
+| blind score (win 1, tie 0.5, loss 0; mean of 3) | 0.611 | 0.389 |
+| blind 1–5, correct / complete (mean of 3) | 5.0 / 4.3 | 5.0 / 3.3 |
+
+No false claim on either side; v0 listed more of the direct callers in every pair, and the plain session had the
+tighter citation in one. The quality half passes (3 of 3). Cost is the plain session's within noise: the mean is
+0.6% higher ($0.0013), and the plain arm alone ranged from $0.189 to $0.254 across the three pairs. Against the
+exit's letter ("costs no more") that is a miss by $0.0013 on 3 pairs.
