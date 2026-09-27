@@ -98,6 +98,10 @@ public sealed partial class EvalRunner(Func<string, Orchestrator> orchestratorFo
                 (runId, traceId, usd) = (result.TaskId, result.TraceId, result.Usage.Usd);
                 scores = cell.Kind == "draft" ? Scoring.Draft(result, item.Expected.Draft!) : Scoring.Worker(result, item.Expected.ReferenceFiles ?? [], item.Expected.ReferenceClaims);
                 limited = result.Status == ResultStatus.Failed && RateLimited(result.Summary) ? result.Summary : null;
+                // A run refused before any model call (a checkout the preset refuses, a bad pin) scores 0 on both arms
+                // and passes as no change: stop the gate rather than score a cell without evidence.
+                if (limited is null && result.Status == ResultStatus.Failed && result.Usage is { Input: 0, Output: 0, Usd: 0 })
+                    throw new InvalidOperationException($"{cell.Name} {item.Id} ({runName}): failed before any model call: {result.Summary}");
             }
             if (limited is null)
                 break;
