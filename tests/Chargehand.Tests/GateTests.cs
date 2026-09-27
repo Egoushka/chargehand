@@ -162,6 +162,39 @@ public class GateTests
     }
 
     [Fact]
+    public void A_fact_checklist_replaces_the_claim_count_and_wrong_statements_cost_score()
+    {
+        var r = Result([new Claim("a", ["e1"], 0.9), new Claim("b", ["e1"], 0.9)], [new Evidence("e1", EvidenceKind.File, "src/a.cs:1-3")], []);
+        var scores = Scoring.Worker(r, ["src/a.cs"], referenceClaims: 2, facts: new FactCheck(Stated: 3, Facts: 4, Repeated: 0));
+        Assert.Equal(0.75, scores["completeness"], 6); // two claims meet the claim count, but they state 3 of 4 facts
+        Assert.Equal(0.75, scores["quality"], 6);
+        Assert.Equal(0.75 - Scoring.WrongPenalty, Scoring.Worker(r, ["src/a.cs"], facts: new FactCheck(3, 4, 1))["quality"], 6);
+        Assert.Equal(0, Scoring.Worker(r, ["src/a.cs"], facts: new FactCheck(1, 4, 2))["quality"]); // never below 0
+    }
+
+    [Fact]
+    public async Task A_worker_item_with_facts_is_judged_on_what_its_answer_states()
+    {
+        using var dir = new TempDir();
+        const string verdict = """{"stated": [1], "repeated": []}""";
+        var runtime = new ScriptedRuntime(Runs.WorkerReply, ScriptedRuntime.Spec(), verdict, ScriptedRuntime.Spec(), verdict);
+        var log = new JsonlRunLog(System.IO.Path.Combine(dir.Path, "log.jsonl"));
+        var runner = new EvalRunner(_ => Runs.Orchestrator(runtime, dir.Path, log), runtime, "p/small", log, null, () => { }, TextWriter.Null);
+        var item = new EvalItem("readme", Runs.CheapRequest(Runs.GitRepo(dir.Path)),
+            new EvalExpected(ReferenceFiles: ["README.md"], Facts: ["The README says hello.", "The README is in Spanish."], Wrong: ["The README is empty."]));
+
+        var v = await runner.RunAsync(Cell with { MinItems = 1 }, [item], Repo.Root, Repo.Root, "t", null, CancellationToken.None);
+
+        Assert.Equal(1, v.Items);
+        var judged = runtime.IntakePrompts.Where(p => p.Contains("F2. The README is in Spanish.", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, judged.Count); // one judge call per arm
+        Assert.Contains("- The README says hello.", judged[0], StringComparison.Ordinal);
+        Assert.Contains("W1. The README is empty.", judged[0], StringComparison.Ordinal);
+        var completeness = (await log.ReadAllAsync(CancellationToken.None)).Scores.Where(s => s.Name == "completeness").Select(s => s.Value);
+        Assert.All(completeness, c => Assert.Equal(0.5, c, 6));
+    }
+
+    [Fact]
     public void A_worker_answer_thinner_than_the_reference_scales_its_grounding_down()
     {
         // Two kept claims; the one moved to open questions as unverified does not count.

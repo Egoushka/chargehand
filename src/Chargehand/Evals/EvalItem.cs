@@ -26,8 +26,12 @@ public sealed record EvalItem(string Id, RunRequest Request, EvalExpected Expect
 /// <param name="ReferenceFiles">worker: repository files a good answer cites.</param>
 /// <param name="Action">intake: the action intake should choose.</param>
 /// <param name="Draft">draft: what the draft must keep to.</param>
-/// <param name="ReferenceClaims">worker: how many claims a good answer makes (the reference answers' median).</param>
-public sealed record EvalExpected(IReadOnlyList<string>? ReferenceFiles = null, string? Action = null, DraftExpectation? Draft = null, int? ReferenceClaims = null);
+/// <param name="ReferenceClaims">worker: how many claims a good answer makes (the reference answers' median). Unused when
+/// <paramref name="Facts"/> is set.</param>
+/// <param name="Facts">worker: the facts a complete answer states, each checked against the repository at the item's commit.</param>
+/// <param name="Wrong">worker: false statements earlier answers made; an answer that repeats one loses score.</param>
+public sealed record EvalExpected(IReadOnlyList<string>? ReferenceFiles = null, string? Action = null, DraftExpectation? Draft = null, int? ReferenceClaims = null,
+    IReadOnlyList<string>? Facts = null, IReadOnlyList<string>? Wrong = null);
 
 /// <param name="RequiredInputs">Input ids the draft's claims must cite.</param>
 /// <param name="Banned">Phrases the draft must not contain (case-insensitive).</param>

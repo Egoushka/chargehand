@@ -107,7 +107,10 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
             {
                 var result = await orchestratorFor(root).RunAsync(item.Request with { Context = item.Request.Context with { Preset = cell.Preset! } }, ct);
                 (runId, traceId, usd) = (result.TaskId, result.TraceId, result.Usage.Usd);
-                scores = cell.Kind == "draft" ? Scoring.Draft(result, item.Expected.Draft!) : Scoring.Worker(result, item.Expected.ReferenceFiles ?? [], item.Expected.ReferenceClaims);
+                var facts = cell.Kind == "worker" && result.Status == ResultStatus.Completed && item.Expected.Facts is { Count: > 0 } checklist
+                    ? await FactJudge.JudgeAsync(runtime, Orchestrator.ParseModel(intakeModel), result, checklist, item.Expected.Wrong ?? [], ct)
+                    : null;
+                scores = cell.Kind == "draft" ? Scoring.Draft(result, item.Expected.Draft!) : Scoring.Worker(result, item.Expected.ReferenceFiles ?? [], item.Expected.ReferenceClaims, facts);
                 limited = result.Error?.Code == ErrorCode.RateLimited ? result.Summary : null;
                 // A run refused before any model call (a checkout the preset refuses, a bad pin) scores 0 on both arms
                 // and passes as no change: stop the gate rather than score a cell without evidence.

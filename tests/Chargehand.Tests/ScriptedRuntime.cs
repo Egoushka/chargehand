@@ -148,6 +148,12 @@ internal static class Runs
     public static RunRequest CheapRequest(RepositoryRef repo, bool interactive = false) =>
         new("request/v1", "What does the README say?", new RequestContext(interactive, "cheap", Repository: repo));
 
+    /// <summary>A completed result with one claim, as a worker returns it.</summary>
+    public static ResultContract Completed() =>
+        new("result/v1", "t", "n", new string('0', 32), new PromptChain([], new AsSent("2.0.16", "build", "p/m", "2026-09-26")), ResultStatus.Completed,
+            "The README greets.", [new Claim("The README says hello.", ["e1"], 0.9)], [new Evidence("e1", EvidenceKind.File, "README.md:1")], [], [], 0.9,
+            new Usage(0, 0, 0, 0, 0.01m));
+
     /// <summary>A checkout under the worker root with one committed README.</summary>
     public static RepositoryRef GitRepo(string workerRoot)
     {
