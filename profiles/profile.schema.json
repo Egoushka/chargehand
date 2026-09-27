@@ -78,6 +78,11 @@
           "type": "string",
           "default": "claude",
           "description": "Pinned Claude Code binary."
+        },
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Anthropic-compatible gateway the workers call (ANTHROPIC_BASE_URL). Unset: Anthropic directly; an inherited ANTHROPIC_BASE_URL is ignored."
         }
       },
       "oneOf": [

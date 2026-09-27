@@ -18,25 +18,27 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
 {
     private readonly string _binary;
     private readonly ClaudeCodeCredential _credential;
+    private readonly Uri? _baseUrl;
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
 
-    internal ClaudeCodeWorkerRuntime(string binary, ClaudeCodeCredential credential, string version)
+    internal ClaudeCodeWorkerRuntime(string binary, ClaudeCodeCredential credential, string version, Uri? baseUrl = null)
     {
-        (_binary, _credential) = (binary, credential);
+        (_binary, _credential, _baseUrl) = (binary, credential, baseUrl);
         Version = $"claude-code/{version}";
     }
 
     public string Version { get; }
 
     /// <summary>Refuses a CLI whose version differs from the pinned one. <c>claude --version</c> prints "2.1.195 (Claude Code)".</summary>
-    public static async Task<ClaudeCodeWorkerRuntime> ConnectAsync(string binary, string pinnedVersion, ClaudeCodeCredential credential, CancellationToken ct)
+    public static async Task<ClaudeCodeWorkerRuntime> ConnectAsync(string binary, string pinnedVersion, ClaudeCodeCredential credential, CancellationToken ct,
+        Uri? baseUrl = null)
     {
         var (exit, stdout, stderr) = await Exec(binary, Path.GetTempPath(), ["--version"], null, ct);
         var version = stdout.Split(' ', 2)[0].Trim();
         if (exit != 0)
             throw new InvalidOperationException($"{binary} --version exited {exit}: {stderr.Trim()}");
         return version == pinnedVersion
-            ? new ClaudeCodeWorkerRuntime(binary, credential, version)
+            ? new ClaudeCodeWorkerRuntime(binary, credential, version, baseUrl)
             : throw new InvalidOperationException($"Claude Code CLI is {version}; this adapter is pinned to {pinnedVersion}.");
     }
 
@@ -169,10 +171,17 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
     private Session Get(string sessionId) =>
         _sessions.TryGetValue(sessionId, out var s) ? s : throw new KeyNotFoundException($"no Claude Code session {sessionId} in this process");
 
-    /// <summary>An inherited API key would outrank the OAuth token, so the subscription mode removes it.</summary>
-    private IReadOnlyDictionary<string, string?> Env => _credential.Subscription
-        ? new Dictionary<string, string?> { ["CLAUDE_CODE_OAUTH_TOKEN"] = _credential.Secret, ["ANTHROPIC_API_KEY"] = null }
-        : new Dictionary<string, string?> { ["ANTHROPIC_API_KEY"] = _credential.Secret, ["CLAUDE_CODE_OAUTH_TOKEN"] = null };
+    /// <summary>
+    /// Only the profile decides credential and endpoint: an inherited API key would outrank the OAuth token, and an
+    /// inherited base URL or auth token would reroute the worker, so the variables this runtime does not set are removed.
+    /// </summary>
+    private IReadOnlyDictionary<string, string?> Env => new Dictionary<string, string?>
+    {
+        ["ANTHROPIC_API_KEY"] = _credential.Subscription ? null : _credential.Secret,
+        ["CLAUDE_CODE_OAUTH_TOKEN"] = _credential.Subscription ? _credential.Secret : null,
+        ["ANTHROPIC_AUTH_TOKEN"] = null,
+        ["ANTHROPIC_BASE_URL"] = _baseUrl?.ToString().TrimEnd('/'),
+    };
 
     /// <summary>
     /// <c>--bare</c> keeps the owner's hooks, plugins, CLAUDE.md, auto-memory and keychain out of the worker (the

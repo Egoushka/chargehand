@@ -105,7 +105,7 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         Assert.Contains("--bare", args);
         Assert.DoesNotContain("Edit", args[Array.IndexOf(args, "--tools") + 1].Split(','));
         Assert.Equal("Say DONE", File.ReadAllText(Path.Combine(_dir.Path, "stdin.txt")));
-        Assert.Equal("api=sk-test oauth=", File.ReadAllText(Path.Combine(_dir.Path, "key.txt")).Trim());
+        Assert.Equal("api=sk-test oauth= base=", File.ReadAllText(Path.Combine(_dir.Path, "key.txt")).Trim());
         await Assert.ThrowsAsync<InvalidOperationException>(() => rt.SetInstructionAsync(session.Id, "core", "late", CancellationToken.None));
 
         await rt.SubmitAsync(session.Id, "again", CancellationToken.None);
@@ -129,9 +129,11 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
     {
         var claude = FakeClaude("""{"type":"result","subtype":"success","is_error":false,"result":"hi"}""");
         Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", "inherited");
+        Environment.SetEnvironmentVariable("ANTHROPIC_BASE_URL", "https://inherited.invalid");
         try
         {
-            IWorkerRuntime rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", new ClaudeCodeCredential("oauth-test", true), CancellationToken.None);
+            IWorkerRuntime rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", new ClaudeCodeCredential("oauth-test", true), CancellationToken.None,
+                new Uri("https://gateway.example.com/anthropic/"));
             var session = await rt.CreateAsync(Spec with { Directory = _dir.Path }, CancellationToken.None);
             await rt.SubmitAsync(session.Id, "hi", CancellationToken.None);
             Assert.Equal(IdleOutcome.Succeeded, await rt.AwaitIdleAsync(session.Id, CancellationToken.None));
@@ -139,11 +141,12 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         finally
         {
             Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", null);
+            Environment.SetEnvironmentVariable("ANTHROPIC_BASE_URL", null);
         }
         var args = File.ReadAllLines(Path.Combine(_dir.Path, "args.txt"));
         Assert.DoesNotContain("--bare", args);
         Assert.Equal("", args[Array.IndexOf(args, "--setting-sources") + 1]);
-        Assert.Equal("api= oauth=oauth-test", File.ReadAllText(Path.Combine(_dir.Path, "key.txt")).Trim());
+        Assert.Equal("api= oauth=oauth-test base=https://gateway.example.com/anthropic", File.ReadAllText(Path.Combine(_dir.Path, "key.txt")).Trim());
     }
 
     [Fact]
@@ -165,7 +168,7 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
             if [ "$1" = "--version" ]; then echo "2.1.195 (Claude Code)"; exit 0; fi
             printf '%s\n' "$@" > "{_dir.Path}/args.txt"
             cat > "{_dir.Path}/stdin.txt"
-            echo "api=$ANTHROPIC_API_KEY oauth=$CLAUDE_CODE_OAUTH_TOKEN" > "{_dir.Path}/key.txt"
+            echo "api=$ANTHROPIC_API_KEY oauth=$CLAUDE_CODE_OAUTH_TOKEN base=$ANTHROPIC_BASE_URL" > "{_dir.Path}/key.txt"
             cat "{_dir.Path}/events.jsonl"
             """);
         if (!OperatingSystem.IsWindows())
