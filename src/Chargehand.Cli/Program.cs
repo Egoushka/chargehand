@@ -22,7 +22,7 @@ using OpenTelemetry.Trace;
 const string Usage = """
     usage: chargehand [--profile profiles/local.json] <command>
       run                          reads request/v1 on stdin, writes result/v1 on stdout
-      serve                        HTTP /v1/runs and MCP /v1/mcp on 127.0.0.1 (profile http)
+      serve                        HTTP /v1/runs and MCP /v1/mcp (profile http; 127.0.0.1 by default)
       show <run-id>                prints a run and its calls from the run log
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
       cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
@@ -145,7 +145,8 @@ async Task<int> Serve()
     using var tracing = Tracing();
     var (runtime, runtimeVersion) = await Connect();
     var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory());
-    var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets")), orchestrator, runLog);
+    var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
+        http.Listen, http.AllowedHosts), orchestrator, runLog);
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp)");
     await app.WaitForShutdownAsync(ct);

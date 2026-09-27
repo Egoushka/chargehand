@@ -34,11 +34,12 @@ internal sealed class TestServer : IAsyncDisposable
 
     public string WorkerRoot => _root.Path;
 
-    public static async Task<TestServer> StartAsync(ScriptedRuntime runtime)
+    public static async Task<TestServer> StartAsync(ScriptedRuntime runtime, IReadOnlyList<string>? allowedHosts = null)
     {
         var root = new TempDir();
         var log = new JsonlRunLog(System.IO.Path.Combine(root.Path, "log.jsonl"));
-        var app = ChargehandServer.Create(new ServerSettings(0, Key, Repo.Path("presets")), Runs.Orchestrator(runtime, root.Path, log), log);
+        var app = ChargehandServer.Create(new ServerSettings(0, Key, Repo.Path("presets"), AllowedHosts: allowedHosts),
+            Runs.Orchestrator(runtime, root.Path, log), log);
         await app.StartAsync();
         return new TestServer(root, runtime, log, app, new Uri(app.Urls.First()));
     }
@@ -84,6 +85,25 @@ public class ServerTests
         var get = new HttpRequestMessage(HttpMethod.Get, "/v1/runs/x");
         get.Headers.Host = "attacker.example";
         Assert.Equal(HttpStatusCode.BadRequest, (await s.Http.SendAsync(get)).StatusCode);
+    }
+
+    [Fact]
+    public async Task An_allowed_host_is_served_and_others_are_still_refused()
+    {
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), ["chargehand.internal"]);
+        HttpRequestMessage Get(string host) => new(HttpMethod.Get, "/v1/runs/x") { Headers = { Host = host } };
+        Assert.Equal(HttpStatusCode.NotFound, (await s.Http.SendAsync(Get("chargehand.internal"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await s.Http.SendAsync(Get("attacker.example"))).StatusCode);
+    }
+
+    [Fact]
+    public void Listening_beyond_loopback_needs_allowed_hosts()
+    {
+        using var root = new TempDir();
+        var log = new JsonlRunLog(System.IO.Path.Combine(root.Path, "log.jsonl"));
+        var e = Assert.Throws<InvalidOperationException>(() => ChargehandServer.Create(
+            new ServerSettings(0, TestServer.Key, Repo.Path("presets"), Listen: "0.0.0.0"), Runs.Orchestrator(new ScriptedRuntime(Runs.DraftReply), root.Path, log), log));
+        Assert.Contains("allowed_hosts", e.Message, StringComparison.Ordinal);
     }
 
     [Theory]

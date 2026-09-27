@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+.git/
+.github/
+graft/
+runs/
+profiles/local.*
+.env*
+docs/
+tests/
