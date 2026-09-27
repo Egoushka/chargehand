@@ -7,5 +7,6 @@
 - [ ] ADR added or updated for an architectural change
 - [ ] No hostnames, keys, session ids or personal paths in code, fixtures or docs
 - [ ] `CHANGELOG.md` updated under `[Unreleased]`
-- [ ] Prompt or preset change: version bumped; Prompt CI (`prompt-ci` status) run by the owner. A deliberate
-      quality-for-cost trade is declared as `prompt-ci: trade quality>=<lowest change> cost<=<highest change>%`
+- [ ] Prompt or preset change: version bumped; `prompt-ci` status green (it runs on its own; a fork or a preset
+      change waits for an approval). A deliberate quality-for-cost trade is declared as
+      `prompt-ci: trade quality>=<lowest change> cost<=<highest change>%`

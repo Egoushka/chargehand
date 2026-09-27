@@ -1,35 +1,120 @@
 name: prompt-ci
 
-# Prompt CI runs on the owner's machine (ADR 0019): evals need the loopback OpenCode server and private eval items, and
-# no model, gateway or Langfuse key lives in GitHub. This job only settles the required "prompt-ci" status for pull
-# requests that change no prompt or preset. On a fork's pull request the token is read-only, so the status post fails
-# and the owner's local run (scripts/prompt-ci.sh) decides.
+# Prompt CI (ADR 0019, ADR 0022). pull_request_target runs this file as it is on main, never a pull request's copy, and
+# its token can post the "prompt-ci" status on a fork's pull request too. The evals run on the self-hosted runner
+# labelled chargehand-eval; no model, gateway or tracing key lives in GitHub. The runner builds main; the pull request
+# contributes only prompts/ and presets/ (scripts/prompt-ci.sh).
+# A fork's pull request or a preset change waits for an approval in the prompt-ci-review environment. The runner holds
+# one eval profile per runtime (PROMPT_CI_PROFILE_<RUNTIME>) and a default (PROMPT_CI_RUNTIME); a label
+# prompt-ci:<runtime> picks another.
 on:
-  pull_request:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
 
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
   statuses: write
 
+# A push, a body edit or the runtime label cancels the running gate; any other edit or label gets its own group and
+# cancels nothing.
+concurrency:
+  group: >-
+    prompt-ci-${{ github.event.pull_request.number }}${{
+    ((github.event.action == 'edited' && !github.event.changes.body) ||
+    (github.event.label && !startsWith(github.event.label.name, 'prompt-ci:'))) && format('-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
 jobs:
-  no-prompt-change:
+  classify:
+    # An edit reruns only when the body changed: it may declare a trade (ADR 0019). A label reruns only when it is
+    # the runtime label.
+    if: >-
+      (github.event.action != 'edited' || github.event.changes.body) &&
+      (!github.event.label || startsWith(github.event.label.name, 'prompt-ci:'))
     runs-on: ubuntu-latest
+    outputs:
+      gate: ${{ steps.classify.outputs.gate }}
+      review: ${{ steps.classify.outputs.review }}
     steps:
+      # File names come from the API; nothing from the pull request is checked out here.
+      - id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" -q '.[] | .filename, (.previous_filename // empty)')
+          if ! echo "$files" | grep -qE '^(prompts|presets)/'; then
+            gh api -X POST "repos/$REPO/statuses/$HEAD" -f state=success -f context=prompt-ci \
+              -f description="no prompt or preset change" >/dev/null
+            echo "gate=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          review=false
+          if [ "$FORK" = true ] || echo "$files" | grep -q '^presets/'; then
+            review=true
+            gh api -X POST "repos/$REPO/statuses/$HEAD" -f state=pending -f context=prompt-ci \
+              -f description="owner review needed: fork or preset change" >/dev/null
+          fi
+          echo "gate=true" >> "$GITHUB_OUTPUT"
+          echo "review=$review" >> "$GITHUB_OUTPUT"
+
+  review:
+    # The owner reads the prompts/ and presets/ diff, then approves this deployment (scripts/prompt-ci.sh --reviewed).
+    needs: classify
+    if: needs.classify.outputs.review == 'true'
+    runs-on: ubuntu-latest
+    environment: prompt-ci-review
+    steps:
+      - run: echo "prompts/ and presets/ diff approved"
+
+  gate:
+    needs: [classify, review]
+    if: >-
+      always() && needs.classify.outputs.gate == 'true' &&
+      (needs.review.result == 'success' || needs.review.result == 'skipped')
+    runs-on: [self-hosted, chargehand-eval]
+    timeout-minutes: 120
+    steps:
+      # The base branch (main), with history for the merge base; the script fetches the pull request's head itself.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Mark prompt-ci passed when no prompt or preset changed
-        env:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - env:
           GH_TOKEN: ${{ github.token }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-          REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          REVIEWED: ${{ needs.review.result == 'success' && '--reviewed' || '' }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          REPO: ${{ github.repository }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          if git diff --name-only "$BASE...$HEAD" | grep -qE '^(prompts|presets)/'; then
-            echo "Prompts or presets changed: the owner runs scripts/prompt-ci.sh $PR locally."
-            exit 0
+          runtime=$(echo "$LABELS" | jq -r '[.[] | select(startswith("prompt-ci:")) | ltrimstr("prompt-ci:")][0] // empty')
+          case $runtime in *[!a-z0-9-]*) echo "prompt-ci: bad runtime label '$runtime'" >&2; exit 2 ;; esac
+          # A runtime label picks what the gate spends, so it counts only when someone with write access added it.
+          if [ -n "$runtime" ]; then
+            actor=$(gh api --paginate "repos/$REPO/issues/$PR/events" \
+              -q ".[] | select(.event == \"labeled\" and .label.name == \"prompt-ci:$runtime\") | .actor.login" | tail -1)
+            permission=$(gh api "repos/$REPO/collaborators/$actor/permission" -q .permission 2>/dev/null || echo none)
+            case $permission in
+              admin | write) ;;
+              *)
+                gh api -X POST "repos/$REPO/statuses/$HEAD" -f state=failure -f context=prompt-ci \
+                  -f description="runtime label added without write access" >/dev/null
+                echo "prompt-ci: prompt-ci:$runtime was added by '$actor' ($permission), not someone with write access" >&2
+                exit 1 ;;
+            esac
           fi
-          gh api -X POST "repos/$REPO/statuses/$HEAD" -f state=success -f context=prompt-ci \
-            -f description="no prompt or preset change" \
-            || echo "Read-only token (a fork's pull request): the owner's local run posts prompt-ci."
+          runtime=${runtime:-${PROMPT_CI_RUNTIME:?the runner sets no default runtime}}
+          var=PROMPT_CI_PROFILE_$(echo "$runtime" | tr 'a-z-' 'A-Z_')
+          CHARGEHAND_PROFILE=$(printenv "$var") || { echo "prompt-ci: this runner has no $var" >&2; exit 2; }
+          export CHARGEHAND_PROFILE
+          echo "prompt-ci: runtime $runtime"
+          scripts/prompt-ci.sh "$PR" $REVIEWED
