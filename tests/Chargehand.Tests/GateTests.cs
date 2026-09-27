@@ -176,4 +176,43 @@ public class GateTests
         Assert.Equal((1, false), (v.Items, v.Blocked));
         Assert.Equal(3, runtime.IntakePrompts.Count); // cheap under both arms, draft under the change only
     }
+
+    [Theory]
+    [InlineData("OpenCode 503 ServiceUnavailableError: Rate limit exceeded for api_key: k. Limit type: max_parallel_requests.", true)]
+    [InlineData("API Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\"}}", true)]
+    [InlineData("OpenCode 400 : Model unavailable", false)]
+    [InlineData("checkout is at 1a2b3c, request pins 4290abc", false)]
+    public void Rate_limits_are_told_apart_from_other_failures(string message, bool limited) =>
+        Assert.Equal(limited, EvalRunner.RateLimited(message));
+
+    [Fact]
+    public async Task A_rate_limited_arm_runs_again_and_is_scored_on_the_retry()
+    {
+        using var dir = new TempDir();
+        var runtime = new ScriptedRuntime(Runs.DraftReply);
+        runtime.GenerateFailures.Enqueue(new InvalidOperationException("OpenCode 503 ServiceUnavailableError: Rate limit exceeded"));
+        var log = new JsonlRunLog(System.IO.Path.Combine(dir.Path, "log.jsonl"));
+        var runner = new EvalRunner(_ => Runs.Orchestrator(runtime, dir.Path, log), runtime, "p/small", log, null, () => { }, TextWriter.Null);
+        var draft = new EvalCell("draft/draft", "d", "draft", "draft", ["prompts/preset/draft.md"], 0.10, 0.15, MinItems: 1);
+        var item = new EvalItem("note", Runs.DraftRequest(), new EvalExpected(Draft: new DraftExpectation(1200, ["rel-v1"])));
+        var retries = EvalRunner.RateLimitRetries;
+        EvalRunner.RateLimitRetries = [TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero];
+        try
+        {
+            var v = await runner.RunAsync(draft, [item], Repo.Root, Repo.Root, "t", null, CancellationToken.None);
+
+            Assert.Equal(1, v.Items);
+            Assert.Equal(0, v.QualityDelta); // both arms scored on a real draft, not the failed attempt
+            Assert.Equal(2, runtime.Created.Count);
+
+            for (var i = 0; i < 4; i++)
+                runtime.GenerateFailures.Enqueue(new InvalidOperationException("OpenCode 503 ServiceUnavailableError: Rate limit exceeded"));
+            var e = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(draft, [item], Repo.Root, Repo.Root, "t", null, CancellationToken.None));
+            Assert.Contains("still rate limited after 4 attempts", e.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            EvalRunner.RateLimitRetries = retries;
+        }
+    }
 }

@@ -29,7 +29,8 @@ fork code on the owner's machine.
 - Trust boundary (checked 2026-09-27, git 2.54). `git grep -O<cmd>` runs `<cmd>`, and
   `git log --format=tformat:<text> --output=<path>` writes `<text>` to `<path>`; `cheap` allows `git grep*` and
   `git log*`. A prompt from a pull request is therefore an instruction to a worker that can run programs. A grep for
-  permission lines misses a rule written with quoted YAML keys, which YamlDotNet reads like any other.
+  permission lines misses a rule written with quoted YAML keys, which YamlDotNet reads like any other. Since then
+  no preset gives workers a shell (ADR 0006), but a preset change can restore one, so `--reviewed` stays.
 - Calibration (A/A: the same prompts and presets as base and change, small model, 2026-09-27). `cheap/worker`, 13
   items: quality change -0.033 (t -1.45; 2 items differ, by 0.25 and 0.18), cost change +15% (t 1.99), so with
   C = +15% identical prompts blocked on cost. Its per-item cost ratios run from 0.73 to 1.56 (log ratio SD 0.24): a
@@ -71,7 +72,10 @@ fork code on the owner's machine.
   A/A cost noise alone reached +15% (Evidence). A line
   `prompt-ci: trade quality>=-0.15 cost<=-25%` in the pull request body replaces T and C with its bounds, which the
   measured means must meet. A cell new in the change records its first baseline and passes; an intake item whose
-  preset is new runs under the change alone and is not paired.
+  preset is new runs under the change alone and is not paired. An arm that fails on a gateway or provider rate limit
+  runs again after 15, 30 and 60 s; one still limited after that stops the gate (status `error`), because a 0 for a
+  run that never reached the model would move the verdict (PR #9's run lost one item to the gateway's
+  parallel-request limit).
 - **Where:** `scripts/prompt-ci.sh <pr>` on the owner's machine. The runner is the trusted checkout's build; the pull
   request contributes only `prompts/` and `presets/`, taken with `git archive`, and a symbolic link among them stops
   the run. A fork's pull request, or any change under `presets/` (permissions, agent, model, budget), runs only after

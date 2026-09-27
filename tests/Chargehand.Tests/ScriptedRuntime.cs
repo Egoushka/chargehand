@@ -24,6 +24,9 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
 
     public ConcurrentQueue<string> IntakePrompts { get; } = new();
 
+    /// <summary>Thrown, one per call, by the next generate calls (e.g. a gateway rate limit).</summary>
+    public ConcurrentQueue<Exception> GenerateFailures { get; } = new();
+
     public TaskCompletionSource Hold { get; set; } = Released();
 
     public static TaskCompletionSource Released()
@@ -41,6 +44,8 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
     public Task<string> GenerateAsync(ModelRef model, string prompt, CancellationToken ct)
     {
         IntakePrompts.Enqueue(prompt);
+        if (GenerateFailures.TryDequeue(out var failure))
+            return Task.FromException<string>(failure);
         lock (_specs)
             return Task.FromResult(_specs.Count > 1 ? _specs.Dequeue() : _specs.Peek());
     }

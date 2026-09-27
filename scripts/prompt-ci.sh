@@ -2,8 +2,8 @@
 # Prompt CI (ADR 0019), run by the owner on the laptop: paired evals of a pull request's prompts/ and presets/
 # against its merge base, then the verdict as the commit status "prompt-ci". The runner is this checkout's build;
 # the pull request contributes only prompts/ and presets/ (git archive), never code it builds or runs. Those files
-# still steer a worker that has a shell, so a fork's pull request or a preset change waits for --reviewed. Run it
-# from the main checkout, where the gitignored eval profile and run log live.
+# still steer a worker, and a preset can give it tools, so a fork's pull request or a preset change waits for
+# --reviewed. Run it from the main checkout, where the gitignored eval profile and run log live.
 #
 # usage: scripts/prompt-ci.sh <pr-number> [--trusted-build] [--reviewed] [--allow-uncovered] [--no-status]
 #   --trusted-build    build the runner (and read evals/cells.json) from the pull request itself; this runs its
@@ -27,6 +27,12 @@ for a in "$@"; do
     *) echo "unknown option $a" >&2; exit 2 ;;
   esac
 done
+# Checked before any status is posted: the profile is gitignored, so another checkout or worktree has none.
+profile=${CHARGEHAND_PROFILE:-profiles/local.eval.json}
+if [ ! -f "$profile" ]; then
+  echo "prompt-ci: no eval profile at $profile; run from the main checkout or set CHARGEHAND_PROFILE" >&2
+  exit 2
+fi
 
 repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 head=$(gh pr view "$pr" --json headRefOid -q .headRefOid)
@@ -50,9 +56,8 @@ if ! grep -qE '^(prompts|presets)/' "$work/changed"; then
   exit 0
 fi
 
-# A prompt instructs a worker whose allowed commands can still run programs (git grep -O) or write files (git log
-# --output); a preset sets its permissions, agent, model and budget. Any preset change counts: a grep for permission
-# lines misses quoted YAML keys.
+# A prompt instructs a worker; a preset sets its permissions (a shell allow can run programs, ADR 0006), agent, model
+# and budget. Any preset change counts: a grep for permission lines misses quoted YAML keys.
 if [ -z "$reviewed" ] && { grep -q '^presets/' "$work/changed" ||
   [ "$(gh pr view "$pr" --json isCrossRepository -q .isCrossRepository)" = true ]; }; then
   status failure "owner review needed: fork or preset change (--reviewed)"
@@ -81,7 +86,7 @@ dotnet build -v q -c Release "$src/src/Chargehand.Cli" >&2
 gh pr view "$pr" --json body -q .body > "$work/body"
 
 set +e
-dotnet "$src/src/Chargehand.Cli/bin/Release/net10.0/Chargehand.Cli.dll" --profile "${CHARGEHAND_PROFILE:-profiles/local.eval.json}" \
+dotnet "$src/src/Chargehand.Cli/bin/Release/net10.0/Chargehand.Cli.dll" --profile "$profile" \
   eval gate "$work/base" "$work/change" --changed-files "$work/changed" --pr-body "$work/body" --cells-file "$src/evals/cells.json" \
   --name "pr-$pr-$(echo "$head" | cut -c1-7)" $uncovered | tee "$work/out"
 set -e
