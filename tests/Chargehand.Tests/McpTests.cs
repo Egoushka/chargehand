@@ -46,6 +46,7 @@ public class McpTests
         await using var client = await Connect(s);
         var tool = Assert.Single(await client.ListToolsAsync());
         Assert.Equal(OrchestrateTool.Name, tool.Name);
+        Assert.Equal(ChargehandServer.Instructions, client.ServerInstructions);
         Assert.True(JsonNode.DeepEquals(JsonNode.Parse(ContractSchemas.Text(ContractSchemas.Request)), JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText())));
         Assert.True(JsonNode.DeepEquals(JsonNode.Parse(ContractSchemas.Text(ContractSchemas.Result)), JsonNode.Parse(tool.ProtocolTool.OutputSchema!.Value.GetRawText())));
 

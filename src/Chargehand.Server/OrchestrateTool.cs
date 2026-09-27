@@ -26,7 +26,7 @@ public static class OrchestrateTool
         var tool = McpServerTool.Create(CallAsync, new McpServerToolCreateOptions
         {
             Name = Name,
-            Description = "Run a request through chargehand: intake turns it into a Task Spec, OpenCode workers answer it, and the result "
+            Description = "Run a request through chargehand: intake turns it into a Task Spec, coding-agent workers (OpenCode or Claude Code) answer it, and the result "
                         + "comes back as result/v1 with evidence for every claim. Arguments are a request/v1 document.",
             UseStructuredContent = true,
             OutputSchema = Schema(ContractSchemas.Result),
