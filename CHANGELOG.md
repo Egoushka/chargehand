@@ -135,7 +135,7 @@ $0.0004–0.0007. Under the completeness score (ADR 0019) the phase 3 reference 
 against 0.00, -0.077 on the mean by itself), and an item whose reference is 3 claims moves by 0.33 per claim. The
 phase 3 reference question has since left `cheap/worker`.
 
-### Benchmark (phase 4 exit, cost half)
+### Benchmark (phase 4 exit)
 
 Three breadth-first read-only questions (each spans 3 independent areas) on a private repository at a pinned
 commit; v1 (`cheap` preset, intake chose `split` in 6 of 6 runs, 3 nodes each) against a plain single OpenCode
@@ -149,15 +149,19 @@ OpenCode build. Small model for both arms. Cost priced from OpenCode's token cou
 | cost ratio per task (t1, t2, t3) | 1.62×, 1.51×, 1.63× | 1× |
 | wall time (mean) | 123 s | 73 s |
 | cited file:line that resolve | 99/99 | 112/112 |
+| blind score, (correct + complete) / 10 (mean of 6) | 0.967 | 0.950 |
+| blind score per task (t1, t2, t3) | 1.00, 0.90, 1.00 | 1.00, 0.95, 0.90 |
+| quality per dollar (score / cost) | 128 | 193 |
 
 Forked siblings read the first node's prefix from cache (4,878 of ~5.2k tokens on their first call), so the extra
 cost is the nodes' own exploration, not the session base. On cost alone a split needs about 1.5× the plain
-answer's quality to win on quality per dollar; the owner's blind scores decide it.
+answer's quality to win on quality per dollar. Blind scores (1–5 on correct and complete per answer, arms unseen
+until every pair was scored) give it 1.02×: the split does not pay on these questions (ADR 0017).
 
 Cache report check: with the subtask brief moved into a per-node instruction entry (a local, uncommitted change),
 siblings could not fork and wrote their prefix again (0 read); `chargehand cache` named the entry.
 
-### Benchmark (phase 3 exit, cost half)
+### Benchmark (phase 3 exit)
 
 Reference read-only question on a private repository at a pinned commit; v0 against a plain single OpenCode
 session, same day, model, OpenCode build and commit; 3 pairs, alternating order. Cost from the gateway's spend log.
@@ -167,8 +171,11 @@ session, same day, model, OpenCode build and commit; 3 pairs, alternating order.
 | cost per run (mean of 3) | $0.199 (+ ~$0.0004 intake) | $0.205 |
 | wall time (mean) | 155 s | 122 s |
 | cited file:line that resolve | 50/50 | 75/75 |
+| blind A/B: correct, complete, cites resolve (3 pairs) | tie 3, lost 3, tie 3 | tie 3, won 3, tie 3 |
+| blind score (win 1, tie 0.5, loss 0; mean of 3) | 0.333 | 0.667 |
 
-Answer quality is judged blind by the owner (pending at the time of this entry).
+Blind A/B, arms unseen until every pair was scored. The quality half fails: v0 won or tied on both correct and
+complete in 0 of 3 pairs (bar: 2 of 3).
 
 ### Changed
 
