@@ -71,7 +71,10 @@ fork code on the owner's machine.
   A/A cost noise alone reached +15% (Evidence). A line
   `prompt-ci: trade quality>=-0.15 cost<=-25%` in the pull request body replaces T and C with its bounds, which the
   measured means must meet. A cell new in the change records its first baseline and passes; an intake item whose
-  preset is new runs under the change alone and is not paired.
+  preset is new runs under the change alone and is not paired. An arm that fails on a gateway or provider rate limit
+  runs again after 15, 30 and 60 s; one still limited after that stops the gate (status `error`), because a 0 for a
+  run that never reached the model would move the verdict (PR #9's run lost one item to the gateway's
+  parallel-request limit).
 - **Where:** `scripts/prompt-ci.sh <pr>` on the owner's machine. The runner is the trusted checkout's build; the pull
   request contributes only `prompts/` and `presets/`, taken with `git archive`, and a symbolic link among them stops
   the run. A fork's pull request, or any change under `presets/` (permissions, agent, model, budget), runs only after
