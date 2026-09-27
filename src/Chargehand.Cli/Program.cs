@@ -195,7 +195,7 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
             (null, { } token) => new ClaudeCodeCredential(profile.Secret(token), Subscription: true),
             _ => throw new InvalidOperationException("claude_code needs exactly one of api_key_secret and oauth_token_secret"),
         };
-        var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct);
+        var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct, cc.BaseUrl is null ? null : new Uri(cc.BaseUrl));
         return (claude, claude.Version);
     }
     var oc = profile.Opencode ?? throw new InvalidOperationException("profile sets neither opencode nor claude_code");

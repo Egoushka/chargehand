@@ -47,7 +47,9 @@ Two credential modes, exactly one per profile:
 | API client | `api_key_secret` | `ANTHROPIC_API_KEY` | `--bare`: no hooks, plugins, CLAUDE.md discovery, auto-memory or keychain | per token |
 | subscription | `oauth_token_secret` | `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` | `--setting-sources ""`: no user, project or local settings, so no hooks or plugins | the owner's plan limits |
 
-`--bare` never reads OAuth, so the subscription mode cannot use it. Each mode removes the other's variable from the
+`claude_code.base_url` routes either mode through an Anthropic-compatible gateway (`ANTHROPIC_BASE_URL`); unset,
+workers call Anthropic directly. The child environment gets only what the profile sets: an inherited base URL or
+auth token is removed. `--bare` never reads OAuth, so the subscription mode cannot use it. Each mode removes the other's variable from the
 child environment, because an inherited API key outranks the OAuth token. Price a subscription model at zero in
 `prices` (give it its own provider prefix); `max_input_tokens` still bounds a node.
 
@@ -59,6 +61,10 @@ child environment, because an inherited API key outranks the OAuth token. Price 
 - Steered compaction runs between turns only; Claude Code's own auto-compaction covers the mid-turn case.
 - Subscription runs share the owner's plan limits with interactive use. Whether `--setting-sources ""` also
   keeps the user's CLAUDE.md out is not verified; the first live run shows it.
+- A gateway that forwards to Anthropic directly (a masking proxy's `/anthropic` route) records no generations in
+  LiteLLM or Langfuse; ADR 0012 keeps usage off orchestrator spans, so such runs show structure without cost there.
+  The run log still prices every call. LiteLLM cannot relay a subscription token on `/v1/messages` yet
+  (BerriAI/litellm#42170).
 - Sessions do not survive the orchestrator process (the CLI keeps the transcript, the adapter keeps the mapping).
 - `as_sent.opencode_version` carries `claude-code/<version>`, so cache reports tell the runtimes apart.
 
