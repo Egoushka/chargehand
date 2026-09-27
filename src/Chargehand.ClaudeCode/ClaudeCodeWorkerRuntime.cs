@@ -157,11 +157,18 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
         return ParseDiff(patches.ToString());
     }
 
-    /// <summary>One-shot, no tools, not persisted, in the temp directory.</summary>
+    /// <summary>
+    /// One-shot, no tools, not persisted, in the temp directory. Measured on intake (2.1.195, a small model): the CLI
+    /// thinks by default, 80% of the output and 15-19 s of API time per call, and its agent system prompt is a 5.4k-token
+    /// cache write that the next call does not read. Without thinking and with a one-line system prompt the call takes
+    /// ~4 s at 30% of the cost.
+    /// </summary>
     public async Task<string> GenerateAsync(ModelRef model, string prompt, CancellationToken ct)
     {
+        var env = new Dictionary<string, string?>(Env) { ["MAX_THINKING_TOKENS"] = "0" };
         var (exit, stdout, stderr) = await Exec(_binary, Path.GetTempPath(),
-            [.. CommonArgs(model), "--output-format", "json", "--no-session-persistence", "--tools", ""], prompt, ct, Env);
+            [.. CommonArgs(model), "--output-format", "json", "--no-session-persistence", "--tools", "",
+                "--system-prompt", "Follow the instructions in the user message exactly."], prompt, ct, env);
         var result = exit == 0 && stdout.Length > 0 ? JsonDocument.Parse(stdout).RootElement : default;
         if (result.ValueKind != JsonValueKind.Object || result.GetProperty("is_error").GetBoolean())
             throw new InvalidOperationException($"claude -p exited {exit}: {(result.ValueKind == JsonValueKind.Object ? result.GetProperty("result").GetString() : stderr.Trim())}");
