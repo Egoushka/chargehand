@@ -4,7 +4,7 @@ chargehand turns a request into a typed **Task Spec**, runs it on one or more co
 ([OpenCode](https://opencode.ai) or Claude Code), and returns a **result contract** with evidence for every claim.
 People call it from a CLI; programs call it over HTTP or MCP.
 
-**Status: 0.1.0.** Workers are read-only for now; writing nodes in worktrees come later. See the
+**Status: 0.2.0.** Workers are read-only for now; writing nodes in worktrees come later. See the
 [changelog](CHANGELOG.md) for what shipped and [benchmarks](docs/benchmarks.md) for how it performs.
 
 ## Why
