@@ -19,6 +19,8 @@ public class WorkerNodeTests
         public List<(string Id, PermissionDecision Decision)> Answers { get; } = [];
         public Queue<PermissionRequest> Pending { get; } = new();
         public bool HangOnce { get; set; }
+        /// <summary>InterruptAsync returns only when cancelled, as a runtime that waits for its process to exit.</summary>
+        public bool SlowInterrupt { get; set; }
         public int Interrupts { get; private set; }
         public int Compactions { get; private set; }
         public List<string> Forked { get; } = [];
@@ -58,11 +60,12 @@ public class WorkerNodeTests
             return IdleOutcome.Succeeded;
         }
 
-        public Task InterruptAsync(string sessionId, CancellationToken ct)
+        public async Task InterruptAsync(string sessionId, CancellationToken ct)
         {
             Interrupts++;
             _interrupted.TrySetResult();
-            return Task.CompletedTask;
+            if (SlowInterrupt)
+                await Task.Delay(Timeout.Infinite, ct);
         }
 
         public Task<IReadOnlyList<WorkerMessage>> ReadMessagesAsync(string sessionId, CancellationToken ct) => Task.FromResult<IReadOnlyList<WorkerMessage>>(_messages.ToList());
@@ -188,13 +191,36 @@ public class WorkerNodeTests
     }
 
     [Fact]
-    public async Task Input_token_budget_interrupts_the_node()
+    public async Task Input_token_budget_interrupts_the_node_and_asks_for_an_answer()
     {
         var rt = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true };
         rt.Log.Add(BigCall());
         var r = await Node(rt).RunAsync(Request(TimeSpan.FromSeconds(30)) with { MaxInputTokens = 1000 }, CancellationToken.None);
         Assert.Equal(1, rt.Interrupts);
-        Assert.Equal(IdleOutcome.Interrupted, r.Outcome);
+        Assert.Equal(WorkerNode.BudgetAnswer, rt.Prompts[^1]);
+        Assert.Equal(IdleOutcome.Succeeded, r.Outcome);
+        Assert.Equal(ResultStatus.Completed, r.Contract.Status);
+        Assert.Equal([WorkerNode.BudgetNote], r.Contract.OpenQuestions);
+    }
+
+    [Fact]
+    public async Task Answer_turn_follows_a_budget_interrupt_that_is_still_running_when_the_turn_ends()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true, SlowInterrupt = true };
+        rt.Log.Add(BigCall());
+        var r = await Node(rt).RunAsync(Request(TimeSpan.FromSeconds(30)) with { MaxInputTokens = 1000 }, CancellationToken.None);
+        Assert.Equal(WorkerNode.BudgetAnswer, rt.Prompts[^1]);
+        Assert.Equal(ResultStatus.Completed, r.Contract.Status);
+    }
+
+    [Fact]
+    public async Task Usd_cap_interrupts_the_node_without_an_answer_turn()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true };
+        rt.Log.Add(BigCall());
+        var r = await Node(rt).RunAsync(Request(TimeSpan.FromSeconds(30)) with { CapUsd = 0.0001m }, CancellationToken.None);
+        Assert.Equal(1, rt.Interrupts);
+        Assert.Single(rt.Prompts);
         Assert.Equal(ResultStatus.Failed, r.Contract.Status);
     }
 

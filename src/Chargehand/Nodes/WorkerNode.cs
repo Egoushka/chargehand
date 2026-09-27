@@ -70,14 +70,23 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
                 await runtime.SetInstructionAsync(session.Id, key, value, ct);
         }
 
-        var outcome = await Turn(session.Id, r.TaskText, r, ct, primed is null ? null : (primed, instructionsSha256));
+        var (outcome, overBudget) = await Turn(session.Id, r.TaskText, r, ct, primed is null ? null : (primed, instructionsSha256));
+        // A node stopped at its token budget answers from what it has read instead of returning nothing. The answer
+        // turn and its repairs each re-read the whole context, so they get room for three calls at the last call's
+        // context on top of what is spent (the watcher polls, so that already overshoots); the USD cap stays hard.
+        if (overBudget)
+        {
+            var spent = Calls(await runtime.ReadMessagesAsync(session.Id, ct));
+            r = r with { MaxInputTokens = spent.Sum(m => Context(m.Tokens!)) + 3 * Context(spent[^1].Tokens!) };
+            (outcome, _) = await Turn(session.Id, BudgetAnswer, r, ct);
+        }
         // A first turn shorter than the watcher's poll still leaves a cached prefix to fork.
         if (primed is not null && ForkPointOf(session.Id, await runtime.ReadMessagesAsync(session.Id, ct), instructionsSha256) is { } point)
             primed.TrySetResult(point);
         var (contract, errors) = await Assemble(session.Id, r, ct);
         if (contract is null && outcome == IdleOutcome.Succeeded)
         {
-            outcome = await Turn(session.Id, $"Your result block failed validation: {string.Join("; ", errors.Take(5))}. Reply again ending with only the corrected ```json block.", r, ct);
+            (outcome, _) = await Turn(session.Id, $"Your result block failed validation: {string.Join("; ", errors.Take(5))}. Reply again ending with only the corrected ```json block.", r, ct);
             (contract, errors) = await Assemble(session.Id, r, ct);
         }
 
@@ -86,13 +95,15 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
             var failures = await resolver.ResolveAsync(contract, await Scope(session.Id, r, ct), ct);
             if (failures.Count > 0)
             {
-                outcome = await Turn(session.Id, $"These evidence references did not resolve: {string.Join("; ", failures.Select(f => $"{f.EvidenceId}: {f.Reason}"))}. Fix or drop them and reply ending with only the corrected ```json block.", r, ct);
+                (outcome, _) = await Turn(session.Id, $"These evidence references did not resolve: {string.Join("; ", failures.Select(f => $"{f.EvidenceId}: {f.Reason}"))}. Fix or drop them and reply ending with only the corrected ```json block.", r, ct);
                 var (repaired, _) = await Assemble(session.Id, r, ct);
                 contract = repaired ?? contract;
                 contract = ResultAssembler.MoveUnresolved(contract, await resolver.ResolveAsync(contract, await Scope(session.Id, r, ct), ct));
             }
         }
 
+        if (overBudget && contract is not null)
+            contract = contract with { OpenQuestions = [.. contract.OpenQuestions, BudgetNote] };
         var messages = await runtime.ReadMessagesAsync(session.Id, ct);
         var usage = Usage(messages);
         contract = contract is null
@@ -101,33 +112,46 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         return new NodeResult(contract, session.Id, Calls(messages), outcome, fork?.SessionId);
     }
 
-    /// <summary>Submits one prompt and waits for idle. A watcher rejects permission requests and enforces budgets and deadline.</summary>
-    private async Task<IdleOutcome> Turn(string sessionId, string text, NodeRequest r, CancellationToken ct, (TaskCompletionSource<ForkPoint?> Source, string InstructionsSha256)? primed = null)
+    internal const string BudgetAnswer = "You reached this node's token budget. Stop using tools and reply now with only the ```json result block, " +
+        "built from what you have already read; put what you did not get to in open_questions.";
+
+    internal const string BudgetNote = "The node reached its token budget before it finished exploring; the answer covers what it had read.";
+
+    /// <summary>Submits one prompt and waits for idle. A watcher rejects permission requests and enforces budgets and
+    /// deadline; OverBudget is true when it interrupted the turn for the token budget alone.</summary>
+    private async Task<(IdleOutcome Outcome, bool OverBudget)> Turn(string sessionId, string text, NodeRequest r, CancellationToken ct, (TaskCompletionSource<ForkPoint?> Source, string InstructionsSha256)? primed = null)
     {
         await runtime.SubmitAsync(sessionId, text, ct);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(r.Deadline);
         using var stopWatcher = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var watcher = Watch(sessionId, r, primed, stopWatcher.Token);
+        IdleOutcome outcome;
+        var overBudget = false;
         try
         {
-            return await runtime.AwaitIdleAsync(sessionId, deadline.Token);
+            outcome = await runtime.AwaitIdleAsync(sessionId, deadline.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             await runtime.InterruptAsync(sessionId, ct);
-            return IdleOutcome.Interrupted;
+            outcome = IdleOutcome.Interrupted;
         }
         finally
         {
             await stopWatcher.CancelAsync();
-            await watcher;
+            overBudget = await watcher;
         }
+        return (outcome, overBudget && outcome == IdleOutcome.Interrupted);
     }
 
-    private async Task Watch(string sessionId, NodeRequest r, (TaskCompletionSource<ForkPoint?> Source, string InstructionsSha256)? primed, CancellationToken ct)
+    /// <returns>True when it interrupted the session for the token budget with the USD cap not reached.</returns>
+    private async Task<bool> Watch(string sessionId, NodeRequest r, (TaskCompletionSource<ForkPoint?> Source, string InstructionsSha256)? primed, CancellationToken ct)
     {
         string? compactedAfter = null;
+        // Set before interrupting: the turn ends when the session stops and cancels this watcher, which may still be
+        // inside InterruptAsync (Claude Code waits for the process to exit).
+        var overBudget = false;
         try
         {
             while (!ct.IsCancellationRequested)
@@ -139,10 +163,12 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
                 var calls = messages.Where(m => m.Kind == WorkerMessageKind.Assistant && m.Tokens is not null).ToList();
                 if (primed is not null && ForkPointOf(sessionId, messages, primed.Value.InstructionsSha256) is { } point)
                     primed.Value.Source.TrySetResult(point);
-                if (Usage(messages).Usd > r.CapUsd || calls.Sum(m => Context(m.Tokens!)) > r.MaxInputTokens)
+                var overUsd = Usage(messages).Usd > r.CapUsd;
+                if (overUsd || calls.Sum(m => Context(m.Tokens!)) > r.MaxInputTokens)
                 {
+                    overBudget = !overUsd;
                     await runtime.InterruptAsync(sessionId, ct);
-                    return;
+                    return overBudget;
                 }
                 // Steered compaction runs after the current step; the turn continues and the system prefix stays cached.
                 if (r.CompactAtTokens is { } at && calls.FirstOrDefault() is { } latest && Context(latest.Tokens!) > at
@@ -156,6 +182,7 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         catch (OperationCanceledException)
         {
         }
+        return overBudget;
     }
 
     private async Task<(ResultContract? Contract, IReadOnlyList<string> Errors)> Assemble(string sessionId, NodeRequest r, CancellationToken ct)
