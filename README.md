@@ -83,12 +83,12 @@ approval in the `prompt-ci-review` environment. The runner has one eval profile 
 secret-store item named by the profile's `http.api_key_secret`
 ([ADR 0018](docs/adr/0018-callable-interface-http-mcp-run-store.md)). On a private network, `http.listen` binds another
 address and `http.allowed_hosts` names the host clients use; a tag `v<Version>` publishes the server image
-`ghcr.io/egoushka/chargehand:<Version>` with the Claude Code runtime
+`ghcr.io/<owner>/chargehand:<Version>` with the Claude Code runtime
 ([ADR 0024](docs/adr/0024-server-on-a-private-network-and-release-images.md)):
 
 ```bash
 docker run -p <private-ip>:4300:4300 -v <dir-with-profile.json>:/config:ro -e CHARGEHAND_API_KEY=... \
-  ghcr.io/egoushka/chargehand:<Version>
+  ghcr.io/<owner>/chargehand:<Version>
 ```
 
 | route | behaviour |

@@ -5,23 +5,22 @@
 
 ## Context
 
-`chargehand serve` binds 127.0.0.1 and accepts only a loopback `Host` (ADR 0018): a page in the owner's browser could
-otherwise reach it through DNS rebinding. MCP clients on other machines (a desktop app, a phone, a cloud session)
-cannot reach a server that lives in a terminal on the owner's laptop. The Prompt CI runner already runs on a server
-(ADR 0022), and that server's deployments are pinned container images managed outside this repository.
+`chargehand serve` binds 127.0.0.1 and accepts only a loopback `Host` (ADR 0018): a page in a local browser could
+otherwise reach it through DNS rebinding. An MCP client on another machine cannot reach it, and the server is up only
+while the machine that started it is. Prompt CI already runs on a server (ADR 0022).
 
 ## Options
 
-1. Keep loopback; tunnel each client to the laptop. The server is up only while the laptop is.
+1. Keep loopback; tunnel each client to the machine that runs the server.
 2. Bind a private-network address, with the `Host` check naming the server, next to the bearer key. Always on.
-3. Put the server on the public internet behind the key. One leaked key and anyone runs workers on the owner's bill.
+3. Put the server on the public internet behind the key. One leaked key and anyone runs workers on the deployment's bill.
 
 ## Decision
 
 - **Bind:** option 2. `http.listen` sets the address (default `127.0.0.1`); `http.allowed_hosts` adds host names to
   `localhost` and `127.0.0.1`. The server refuses to start when `listen` is not loopback and `allowed_hosts` is
   empty: beyond loopback the `Host` check is the only guard against DNS rebinding, so it must name the server. The
-  bearer key stays on every route. The port is published on a private network (a tailnet address), never publicly.
+  bearer key stays on every route. The port is published on a private network only.
 - **Image:** a `Dockerfile` builds `chargehand serve` with the Claude Code CLI at a pinned version (build argument
   `CLAUDE_CODE_VERSION`, which must match `claude_code.version`), git for worker clones (ADR 0023), `prompts/` and
   `presets/`. It runs as a non-root user from `/app`; the profile mounts at `/config/profile.json` and uses
@@ -34,9 +33,9 @@ cannot reach a server that lives in a terminal on the owner's laptop. The Prompt
 
 ## Consequences
 
-- MCP clients reach one always-on server; the laptop no longer has to run it.
-- A request's `context.repository.path` is a path on the server. Code only on the laptop (uncommitted, unpushed)
-  is out of reach; a local `chargehand serve` on another port stays for that.
+- MCP clients on the private network reach one always-on server.
+- A request's `context.repository.path` is a path on the server. Code that exists only on a client machine
+  (uncommitted, unpushed) is out of reach; a local `chargehand serve` stays for that.
 - The server's repositories live under its `repository_roots`; keeping them fetched is the deployment's job.
 - The subscription or API credential for workers lives in the server's environment, as the runner's does.
 

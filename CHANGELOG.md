@@ -11,7 +11,7 @@ All notable changes to this project are documented here. The format follows
 
 `chargehand serve` can bind a private-network address: `http.listen` sets it and `http.allowed_hosts` names the host
 clients use; without allowed hosts it refuses to start beyond loopback. A `Dockerfile` builds the server with the
-Claude Code runtime, and a tag `v<Version>` publishes `ghcr.io/egoushka/chargehand:<Version>`. See ADR 0024.
+Claude Code runtime, and a tag `v<Version>` publishes `ghcr.io/<owner>/chargehand:<Version>`. See ADR 0024.
 
 ### Prompt CI runs on its own
 
