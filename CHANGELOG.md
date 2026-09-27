@@ -14,6 +14,9 @@ All notable changes to this project are documented here. The format follows
   say "read every file the task needs" instead of "prefer the smallest set of files". The phase 3 blind verdict
   failed on completeness in 3 of 3 pairs at equal exploration: the worker read files it then left out, and merged
   several services into one claim.
+- A worker interrupted at its token budget (`budget.max_input_tokens`) gets one turn to answer from what it has
+  read, with room for three calls at the last call's context on top of what it spent; the result lists the stop in
+  `open_questions`. It used to fail with nothing. The USD cap still ends a node without that turn (ADR 0010).
 
 ### Prompt CI calibration
 

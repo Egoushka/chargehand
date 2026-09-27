@@ -34,6 +34,10 @@ out of the default path.
 6. Per-node context budget (phase 4): the orchestrator compacts with a steered `compact` once a call's context
    exceeds the preset's `compaction.trigger_tokens`, and interrupts the node once its prompt tokens summed over
    calls exceed `budget.max_input_tokens`. OpenCode 2.0.16 takes no compaction settings per session.
+   An interrupt for that budget (not for the USD cap) is followed by one turn that asks for the result from what
+   the node has read, with room for three calls at the last call's context on top of what was spent, and the result says so in
+   `open_questions`. Without it a node stopped at the budget returned nothing: a Claude Code worker at ~50k
+   context per call crossed 400k at its 15th call and failed after $0.29 of reading (2026-09-27).
 
 ## Consequences
 
