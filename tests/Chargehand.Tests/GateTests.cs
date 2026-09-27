@@ -239,13 +239,13 @@ public class GateTests
         var runtime = new ScriptedRuntime(Runs.WorkerReply);
         var log = new JsonlRunLog(System.IO.Path.Combine(dir.Path, "log.jsonl"));
         var runner = new EvalRunner(_ => Runs.Orchestrator(runtime, dir.Path, log), runtime, "p/small", log, null, () => { }, TextWriter.Null);
-        // The request pins a commit the checkout is not at: the orchestrator refuses before a session starts.
+        // The request pins a commit the repository does not have: the orchestrator refuses before a session starts.
         var item = new EvalItem("readme", Runs.CheapRequest(Runs.GitRepo(dir.Path) with { Commit = new string('0', 40) }),
             new EvalExpected(ReferenceFiles: ["README.md"]));
 
         var e = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(Cell, [item], Repo.Root, Repo.Root, "t", null, CancellationToken.None));
 
-        Assert.Contains("readme (t-base): failed before any model call: checkout is at", e.Message, StringComparison.Ordinal);
+        Assert.Contains("readme (t-base): failed before any model call: commit 0000000000000000000000000000000000000000 is not in", e.Message, StringComparison.Ordinal);
         Assert.Empty(runtime.Created);
     }
 }

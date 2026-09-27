@@ -45,8 +45,10 @@ You need the .NET 10 SDK and one worker runtime.
      See [ADR 0004](docs/adr/0004-opencode-major-and-runtime-adapter.md).
    - **Claude Code**: set the profile's `claude_code` block (`version`, `binary`, and one of `api_key_secret` or
      `oauth_token_secret`). See [ADR 0020](docs/adr/0020-claude-code-runtime-adapter.md).
-3. Put a checkout at the commit you want answered under `worker_root`, outside the OpenCode user's home directory
-   ([ADR 0003](docs/adr/0003-where-it-runs.md)).
+3. List the directories your repositories live in as `repository_roots` (`/` allows any). A request names a
+   repository and a commit; the worker reads a clone of it at that commit under `worker_root`, which stays outside
+   the OpenCode user's home directory ([ADR 0023](docs/adr/0023-repository-roots-and-worker-clones.md),
+   [ADR 0003](docs/adr/0003-where-it-runs.md)).
 4. Run a request:
 
 ```bash

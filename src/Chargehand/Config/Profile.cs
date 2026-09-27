@@ -20,8 +20,12 @@ public sealed record Profile(
     IReadOnlyDictionary<string, string>? Models = null,
     MemorySettings? Memory = null,
     HttpSettings? Http = null,
-    ClaudeCodeSettings? ClaudeCode = null)
+    ClaudeCodeSettings? ClaudeCode = null,
+    IReadOnlyList<string>? RepositoryRoots = null)
 {
+    /// <summary>Where a request's repository may live (ADR 0023); worker_root alone when the profile names none.</summary>
+    public IReadOnlyList<string> Roots => RepositoryRoots ?? [WorkerRoot];
+
     public static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,

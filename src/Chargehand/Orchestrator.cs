@@ -150,7 +150,7 @@ public sealed class Orchestrator(
         Activity? run, Action<RunStatus>? progress, CancellationToken ct)
     {
         var (directory, commit) = kind.Checkout
-            ? (Path.GetFullPath(request.Context.Repository!.Path), await CheckRepository(request.Context.Repository!, kind, ct))
+            ? await Checkout(request.Context.Repository!, kind, ct)
             : (EmptyDirectory(), "");
         // ponytail: the run cap is split evenly across nodes up front; share the remainder dynamically if nodes vary a lot.
         var cap = new[] { profile.RunCapUsd / plan.Count, kind.Budget.MaxUsd, (request.Context.BudgetUsd ?? decimal.MaxValue) / plan.Count }.Min();
@@ -262,31 +262,78 @@ public sealed class Orchestrator(
         new(kind, mediaType, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content))), Content: content);
 
     /// <summary>
-    /// The checkout must sit under worker_root (outside the OpenCode user's home, ADR 0003) at the requested commit, and hold
-    /// no file the node kind may not read (ADR 0006): OpenCode's grep searches any path or include glob it is given, ignored
-    /// files too, and its permission resource is the search pattern, so a read deny cannot keep it out of a file.
+    /// The worker reads a clone of the caller's repository at the requested commit, made under worker_root (ADR 0023):
+    /// the source may sit anywhere under the profile's repository roots, the worker's directory stays outside the
+    /// OpenCode user's home (ADR 0003), and the source's uncommitted and ignored files never reach the worker. A clone
+    /// per source and commit is reused and never deleted (ADR 0015). The clone may hold no file the node kind may not
+    /// read (ADR 0006): OpenCode's grep searches any path or include glob it is given, and its permission resource is
+    /// the search pattern, so a read deny cannot keep it out of a file.
     /// </summary>
-    private async Task<string> CheckRepository(RepositoryRef repo, NodeKind kind, CancellationToken ct)
+    private async Task<(string Directory, string Commit)> Checkout(RepositoryRef repo, NodeKind kind, CancellationToken ct)
     {
-        var full = Path.GetFullPath(repo.Path) + Path.DirectorySeparatorChar;
-        var root = Path.GetFullPath(profile.WorkerRoot) + Path.DirectorySeparatorChar;
-        if (!full.StartsWith(root, StringComparison.Ordinal))
-            throw new InvalidOperationException($"repository {repo.Path} is not under worker_root {profile.WorkerRoot}");
-        OutsideHome(full);
-        var psi = new ProcessStartInfo("git", ["-C", repo.Path, "rev-parse", "HEAD"]) { RedirectStandardOutput = true };
-        using var p = Process.Start(psi)!;
-        var head = (await p.StandardOutput.ReadToEndAsync(ct)).Trim();
-        await p.WaitForExitAsync(ct);
-        if (!head.StartsWith(repo.Commit, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"checkout is at {head[..Math.Min(12, head.Length)]}, request pins {repo.Commit}");
-        var denied = await DeniedFiles(repo.Path, kind.Permissions, ct);
+        // git prints the top level with symbolic links resolved, so a link under a root cannot point the worker elsewhere.
+        var source = await Git(Path.GetFullPath(repo.Path), ct, "rev-parse", "--show-toplevel")
+            ?? throw new InvalidOperationException($"{repo.Path} is not a git checkout");
+        if (!profile.Roots.Any(root => Under(source, RealPath(root))))
+            throw new InvalidOperationException($"repository {source} is not under repository_roots ({string.Join(", ", profile.Roots)})");
+        var commit = await Git(source, ct, "rev-parse", "--verify", "--end-of-options", repo.Commit + "^{commit}")
+            ?? throw new InvalidOperationException($"commit {repo.Commit} is not in {source}");
+        var id = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(source)))[..8];
+        var dir = Path.Combine(Path.GetFullPath(profile.WorkerRoot), ".checkouts", $"{Path.GetFileName(source)}-{id}", commit[..12]);
+        OutsideHome(dir + Path.DirectorySeparatorChar);
+        if (!Directory.Exists(Path.Combine(dir, ".git")) || await Git(dir, ct, "rev-parse", "HEAD") != commit)
+        {
+            // Built beside the final path and moved into it, so an interrupted clone is never reused.
+            // ponytail: a failed clone leaves its temporary directory behind; sweep .checkouts by hand if that piles up.
+            var temp = $"{dir}.tmp-{Guid.NewGuid():N}";
+            Directory.CreateDirectory(Path.GetDirectoryName(dir)!);
+            if (await Git(Path.GetDirectoryName(dir)!, ct, "clone", "-q", "--local", "--no-checkout", "--", source, temp) is null
+                || await Git(temp, ct, "checkout", "-q", "--detach", commit) is null)
+                throw new InvalidOperationException($"could not clone {source} at {commit[..12]} into {Path.GetDirectoryName(dir)}");
+            try
+            {
+                Directory.Move(temp, dir);
+            }
+            catch (IOException)
+            {
+                // Another run made the same clone first; anything else at that path is not ours to replace.
+                if (await Git(dir, ct, "rev-parse", "HEAD") != commit)
+                    throw;
+            }
+        }
+        var denied = await DeniedFiles(dir, kind.Permissions, ct);
         return denied.Count == 0
-            ? head
-            : throw new InvalidOperationException($"checkout holds files the preset denies reading, which grep would still reach: " +
-                $"{string.Join(", ", denied.Take(5))}{(denied.Count > 5 ? ", ..." : "")}. Move them out of the checkout.");
+            ? (dir, commit)
+            : throw new InvalidOperationException($"the repository tracks files the preset denies reading, which grep would still reach: " +
+                $"{string.Join(", ", denied.Take(5))}{(denied.Count > 5 ? ", ..." : "")}. Pin a commit without them.");
     }
 
-    /// <summary>Tracked and untracked (ignored included) files whose last matching read rule is a deny.</summary>
+    private static bool Under(string path, string root) =>
+        path == root || path.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+
+    /// <summary>The path with every symbolic link in it resolved, as git prints a top level (macOS: /var is /private/var).</summary>
+    private static string RealPath(string path)
+    {
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        if (Path.GetDirectoryName(full) is not { } parent)
+            return full;
+        var here = Path.Combine(RealPath(parent), Path.GetFileName(full));
+        return Path.Exists(here) && File.ResolveLinkTarget(here, returnFinalTarget: true) is { } target ? RealPath(target.FullName) : here;
+    }
+
+    /// <summary>git's trimmed output, or null when it fails.</summary>
+    private static async Task<string?> Git(string directory, CancellationToken ct, params string[] args)
+    {
+        var psi = new ProcessStartInfo("git", ["-C", directory, .. args]) { RedirectStandardOutput = true, RedirectStandardError = true };
+        using var p = Process.Start(psi)!;
+        var output = await p.StandardOutput.ReadToEndAsync(ct);
+        await p.StandardError.ReadToEndAsync(ct);
+        await p.WaitForExitAsync(ct);
+        return p.ExitCode == 0 ? output.Trim() : null;
+    }
+
+    /// <summary>Tracked and untracked (ignored included) files whose last matching read rule is a deny. In a fresh clone only
+    /// tracked files exist.</summary>
     private static async Task<IReadOnlyList<string>> DeniedFiles(string repo, IReadOnlyList<RuleEntry> rules, CancellationToken ct)
     {
         var read = rules.Where(r => r.Action is "read" or "*").ToList();
