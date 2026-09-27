@@ -35,6 +35,17 @@ public static partial class ChargehandServer
 
     public const int MaxWaitSeconds = 60;
 
+    /// <summary>Sent to MCP clients on initialize so they know when to call chargehand without loading the tool first.</summary>
+    public const string Instructions =
+        "chargehand runs a request on coding-agent workers (OpenCode or Claude Code, whichever runtime this server's profile "
+        + "configures) and returns result/v1: an answer whose claims each carry evidence (file at a commit, diff, session "
+        + "message or caller input), a confidence, and open questions for claims that did not resolve. Workers are read-only. "
+        + "Call the orchestrate tool for questions about a codebase that need reading several files or a second agent's "
+        + "independent answer; pass request/v1 with text, and context.repository (path, commit) to pin the checkout. "
+        + "Set context.preset (default, cheap, thorough, strict, draft) or context.budget_usd to bound cost. "
+        + "Set context.interactive false to get status needs_input instead of questions. Runs can take minutes; clients "
+        + "that support MCP tasks get the run as a task to poll.";
+
     public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log)
     {
         var builder = WebApplication.CreateSlimBuilder();
@@ -48,7 +59,11 @@ public static partial class ChargehandServer
         builder.Services.AddHostFiltering(o => o.AllowedHosts = ["localhost", "127.0.0.1"]);
         builder.Services.AddSingleton(sp => new RunService(orchestrator, settings.PresetsDirectory,
             sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping));
-        builder.Services.AddMcpServer(o => o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" })
+        builder.Services.AddMcpServer(o =>
+            {
+                o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" };
+                o.ServerInstructions = Instructions;
+            })
             // Hybrid: 2026-07-28 clients run stateless (tasks, input_required results); initialize clients get a session.
             .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients)
             .WithTools([OrchestrateTool.Create()])
