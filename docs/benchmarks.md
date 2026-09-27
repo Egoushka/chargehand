@@ -83,8 +83,8 @@ table. Intake (stateless generate, no usage reported) is excluded from v1.
 
 Forked siblings read the first node's prefix from cache (4,878 of ~5.2k tokens on their first call). The extra cost
 comes from the nodes' own exploration, not the session base. On cost alone, a split needs about 1.5× the plain
-answer's quality to win on quality per dollar. The owner scored each answer 1–5 on correct and complete without
-seeing the arm until every pair was scored. The split came out at 1.02× the plain answer's quality, so it does not pay
+answer's quality to win on quality per dollar. At the owner's request a model judge scored each answer 1–5 on correct
+and complete, checking claims against the repository, and saw the arms only after every pair was scored. The split came out at 1.02× the plain answer's quality, so it does not pay
 on these questions (ADR 0017).
 
 **Cache report check.** A local, uncommitted change moved the subtask brief into a per-node instruction entry.
@@ -103,5 +103,35 @@ session: same day, model, OpenCode build and commit, 3 pairs in alternating orde
 | blind A/B: correct, complete, cites resolve (3 pairs) | tie 3, lost 3, tie 3 | tie 3, won 3, tie 3 |
 | blind score (win 1, tie 0.5, loss 0; mean of 3) | 0.333 | 0.667 |
 
-The owner compared answers blind, seeing the arms only after scoring every pair. The quality half fails: v0 won or
-tied on both correct and complete in 0 of 3 pairs, against a bar of 2 of 3.
+At the owner's request a model judge compared the answers blind, checking claims against the repository, and saw the
+arms only after every pair was scored. The quality half fails: v0 won or tied on both correct and complete in 0 of 3
+pairs, against a bar of 2 of 3.
+
+### Rerun on worker prompt 0.3.0 (2026-09-27)
+
+Diagnosis of the failure: both arms explored alike (calls, cache reads and output tokens within about 10%), intake
+kept the question whole, and v0's open questions were real unknowns. v0 read files it then left out of its answer and
+merged several stacks into one claim; its prompts capped the summary at 120 words and asked for "the smallest set of
+files that answers the task". Worker prompt 0.3.0 and the preset blocks (#19) ask for the whole task, one claim per
+item, and every file the task needs.
+
+The same question on the same repository at a commit that drops only its encrypted env files (workers now refuse a
+checkout that tracks them), same model, 3 pairs in alternating order. Cost from the profile's price table for both
+arms (the same prices); intake reports no usage.
+
+| | v0 (0.1.0 + #19) | plain session |
+|---|---|---|
+| cost per run (mean of 3) | $0.257 | $0.201 |
+| cost ratio per pair | 1.48×, 1.19×, 1.19× | 1× |
+| worker calls per run | 13, 11, 11 | 9, 10, 7 |
+| wall time (mean) | 150 s | 118 s |
+| claims per run | 16, 17, 17 (6–9 before) | |
+| blind A/B: correct, complete, cites resolve (3 pairs) | tie 3, won 2 lost 1, tie 3 | tie 3, won 1 lost 2, tie 3 |
+| blind score (win 1, tie 0.5, loss 0; mean of 3) | 0.556 | 0.444 |
+| blind 1–5, correct / complete (mean of 3) | 5.0 / 4.7 | 5.0 / 4.0 |
+
+Same model judge and procedure. No answer had a false claim and every sampled citation resolved; completeness
+decided each pair, v0 missing stacks in one and the plain session in two. The quality half now passes (2 of 3 against
+a bar of 2 of 3), and the cost half fails: v0 costs 28% more because it reads more (pair 1: 351k cached input tokens
+against 222k), with no repair turns. Quality per dollar is about even (0.556 / $0.257 against 0.444 / $0.201). The
+phase 3 exit still does not hold.
