@@ -7,6 +7,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-27
+
 ### Added
 
 - Claude Code runtime adapter (ADR 0020, `Chargehand.ClaudeCode`): `IWorkerRuntime` over `claude -p` stream-json, one
@@ -220,7 +222,7 @@ Answer quality is judged blind by the owner (pending at the time of this entry).
   leading allow had overridden the OpenCode agent's own ask-before-reading-`.env` rules, so a worker could read
   secret files without asking.
 
-## [0.1.0-alpha] - unreleased
+## [0.1.0-alpha] - 2026-09-26 (not tagged)
 
 ### Added
 
