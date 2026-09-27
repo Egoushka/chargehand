@@ -98,9 +98,14 @@ budget and dominates `cheap/worker`'s quality noise until its budget or its plac
 
 The exit test (2026-09-27, changelog: phase 5 exit) showed the score's blind spot: two deliberate `preset/cheap`
 regressions passed, because the score measures grounding, which the worker node already enforces at run time, and
-file-level recall does not see an answer with fewer claims. Until the worker score measures completeness (recall of
-the reference answers' line ranges is the next step), Prompt CI catches regressions that break grounding or cost, not
-thinner answers.
+file-level recall does not see an answer with fewer claims. Until the worker score measures completeness, Prompt CI catches
+regressions that break grounding or cost, not thinner answers.
+
+Amended 2026-09-27: an item may carry `reference_ranges`, the line ranges (`path:start-end`) its reference answer
+cites, and `eval seed` records them from the run's file evidence. For such an item the worker's quality is the mean of
+the resolved share and range recall: the share of reference ranges a cited range in the same file overlaps; file recall
+is still recorded. Items without ranges score as before. Any overlap counts, so one wide range covers every reference in
+its file. The score scale moves, so the cell needs a reseed, a push and an A/A calibration before it gates again.
 
 ## Reopen if
 

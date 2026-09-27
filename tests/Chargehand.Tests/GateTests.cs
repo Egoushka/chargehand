@@ -117,11 +117,25 @@ public class GateTests
     {
         var r = Result([new Claim("a", ["e1"], 0.9), new Claim("b", ["e1"], 0.9)], [new Evidence("e1", EvidenceKind.File, "src/a.cs:1-3")],
             ["[s1] Unverified: c (e2: gone)"]);
-        var scores = Scoring.Worker(r, ["src/a.cs", "src/b.cs"]);
+        var scores = Scoring.Worker(r, new EvalExpected(ReferenceFiles: ["src/a.cs", "src/b.cs"]));
         Assert.Equal(2.0 / 3, scores["evidence_resolved"], 6);
         Assert.Equal(0.5, scores["reference_recall"], 6);
         Assert.Equal((2.0 / 3 + 0.5) / 2, scores["quality"], 6);
-        Assert.Equal(0, Scoring.Worker(r with { Status = ResultStatus.Failed }, ["src/a.cs"])["quality"]);
+        Assert.False(scores.ContainsKey("range_recall"));
+        Assert.Equal(0, Scoring.Worker(r with { Status = ResultStatus.Failed }, new EvalExpected(ReferenceFiles: ["src/a.cs"]))["quality"]);
+    }
+
+    [Fact]
+    public void A_worker_with_reference_ranges_scores_on_the_ranges_its_citations_overlap()
+    {
+        var r = Result([new Claim("a", ["e1", "e2"], 0.9)],
+            [new Evidence("e1", EvidenceKind.File, "src/a.cs:10-20"), new Evidence("e2", EvidenceKind.File, "src/b.cs:5")], []);
+        // The file-level recall is 1 either way; only the ranges see the answer that skipped a.cs:40-50.
+        var scores = Scoring.Worker(r, new EvalExpected(ReferenceFiles: ["src/a.cs", "src/b.cs"],
+            ReferenceRanges: ["src/a.cs:15-25", "src/a.cs:40-50", "src/b.cs:1-5", "src/c.cs:1-2"]));
+        Assert.Equal(1, scores["reference_recall"], 6);
+        Assert.Equal(0.5, scores["range_recall"], 6);
+        Assert.Equal((1 + 0.5) / 2, scores["quality"], 6);
     }
 
     [Fact]

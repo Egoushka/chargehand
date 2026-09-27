@@ -6,6 +6,7 @@ using Chargehand.Plans;
 using Chargehand.Prompts;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
+using Chargehand.Verification;
 
 namespace Chargehand.Evals;
 
@@ -41,13 +42,13 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
                 "intake" => new EvalExpected(Action: run.IntakeAction ?? "needs_input"),
                 "draft" => new EvalExpected(Draft: new DraftExpectation(Math.Max(1200, run.Result.Artifacts.FirstOrDefault(a => a.Kind == "draft")?.Content?.Length ?? 0),
                     [.. run.Result.Evidence.Where(e => e.Kind == EvidenceKind.Input).Select(e => e.Locator).Distinct()])),
-                _ => new EvalExpected(ReferenceFiles: Files(run.Result.Evidence)),
+                _ => Reference(run.Result.Evidence),
             };
             yield return new EvalItem(run.RunId, request, expected, meta);
             if (cell.Kind is "worker" or "intake" && run.Spec is { Action: TaskAction.Split } spec && SplitPlan.From(spec).Nodes is { } nodes)
                 foreach (var node in nodes)
                     yield return new EvalItem($"{run.RunId}.{node.Id}", request with { Text = node.Goal! },
-                        cell.Kind == "intake" ? new EvalExpected(Action: "answer") : new EvalExpected(ReferenceFiles: Files(run.Result.Evidence.Where(e => e.Id.StartsWith(node.Id + ".", StringComparison.Ordinal)))),
+                        cell.Kind == "intake" ? new EvalExpected(Action: "answer") : Reference(run.Result.Evidence.Where(e => e.Id.StartsWith(node.Id + ".", StringComparison.Ordinal))),
                         new Dictionary<string, string>(meta) { ["subtask"] = node.Id });
         }
     }
@@ -85,7 +86,7 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
         {
             var result = await orchestratorFor(root).RunAsync(item.Request with { Context = item.Request.Context with { Preset = cell.Preset! } }, ct);
             (runId, traceId, usd) = (result.TaskId, result.TraceId, result.Usage.Usd);
-            scores = cell.Kind == "draft" ? Scoring.Draft(result, item.Expected.Draft!) : Scoring.Worker(result, item.Expected.ReferenceFiles ?? []);
+            scores = cell.Kind == "draft" ? Scoring.Draft(result, item.Expected.Draft!) : Scoring.Worker(result, item.Expected);
         }
         foreach (var (key, value) in scores)
             await log.AppendAsync(new ScoreRecord(runId, key, value, DateTimeOffset.UtcNow, $"eval:{runName}"), ct);
@@ -119,6 +120,10 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
         }
     }
 
-    private static IReadOnlyList<string> Files(IEnumerable<Evidence> evidence) =>
-        [.. evidence.Where(e => e.Kind == EvidenceKind.File).Select(e => e.Locator.Split(':')[0]).Distinct().Order(StringComparer.Ordinal)];
+    private static EvalExpected Reference(IEnumerable<Evidence> evidence)
+    {
+        var locators = evidence.Where(e => e.Kind == EvidenceKind.File).Select(e => e.Locator).ToList();
+        return new EvalExpected(ReferenceFiles: [.. locators.Select(l => l.Split(':')[0]).Distinct().Order(StringComparer.Ordinal)],
+            ReferenceRanges: [.. locators.Where(l => GitEvidenceResolver.TryParseRange(l, out _, out _, out _)).Distinct().Order(StringComparer.Ordinal)]);
+    }
 }

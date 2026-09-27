@@ -1,5 +1,6 @@
 using Chargehand.Contracts;
 using Chargehand.Plans;
+using Chargehand.Verification;
 
 namespace Chargehand.Evals;
 
@@ -9,15 +10,37 @@ namespace Chargehand.Evals;
 /// </summary>
 public static class Scoring
 {
-    /// <summary>Half the share of claims whose evidence resolved, half the recall of the reference files.</summary>
-    public static IReadOnlyDictionary<string, double> Worker(ResultContract result, IReadOnlyList<string> referenceFiles)
+    /// <summary>
+    /// Half the share of claims whose evidence resolved, half the recall of the reference line ranges: those a cited
+    /// range in the same file overlaps. An item without ranges falls back to the recall of the reference files.
+    /// </summary>
+    public static IReadOnlyDictionary<string, double> Worker(ResultContract result, EvalExpected expected)
     {
         if (result.Status != ResultStatus.Completed)
             return new Dictionary<string, double> { ["quality"] = 0 };
         var resolved = Resolved(result);
-        var cited = result.Evidence.Where(e => e.Kind == EvidenceKind.File).Select(e => e.Locator.Split(':')[0]).ToHashSet();
-        var recall = referenceFiles.Count == 0 ? 1 : referenceFiles.Count(cited.Contains) / (double)referenceFiles.Count;
-        return new Dictionary<string, double> { ["quality"] = (resolved + recall) / 2, ["evidence_resolved"] = resolved, ["reference_recall"] = recall };
+        var locators = result.Evidence.Where(e => e.Kind == EvidenceKind.File).Select(e => e.Locator).ToList();
+        var files = expected.ReferenceFiles ?? [];
+        var cited = locators.Select(l => l.Split(':')[0]).ToHashSet();
+        var recall = files.Count == 0 ? 1 : files.Count(cited.Contains) / (double)files.Count;
+        var scores = new Dictionary<string, double> { ["quality"] = (resolved + recall) / 2, ["evidence_resolved"] = resolved, ["reference_recall"] = recall };
+        if (expected.ReferenceRanges is not { Count: > 0 } ranges)
+            return scores;
+        // ponytail: any overlap counts, so one wide range covers every reference in its file; weigh by lines covered
+        // if answers start citing whole files.
+        var spans = Ranges(locators).ToList();
+        var reference = Ranges(ranges).ToList();
+        var rangeRecall = reference.Count(r => spans.Any(c => c.Path == r.Path && c.Start <= r.End && c.End >= r.Start)) / (double)reference.Count;
+        scores["range_recall"] = rangeRecall;
+        scores["quality"] = (resolved + rangeRecall) / 2;
+        return scores;
+    }
+
+    private static IEnumerable<(string Path, int Start, int End)> Ranges(IEnumerable<string> locators)
+    {
+        foreach (var l in locators)
+            if (GitEvidenceResolver.TryParseRange(l, out var path, out var start, out var end))
+                yield return (path, start, end);
     }
 
     /// <summary>Mean of: a draft within bounds, claims whose evidence resolved, required inputs cited, no banned phrase.</summary>

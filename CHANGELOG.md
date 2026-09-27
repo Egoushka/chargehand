@@ -14,6 +14,9 @@ All notable changes to this project are documented here. The format follows
   Profile `claude_code` (`version`, `binary`, and exactly one of `api_key_secret` for per-token API billing or
   `oauth_token_secret` for a `claude setup-token` subscription token) selects it instead of `opencode`, which is now
   optional. Optional `base_url` routes workers through an Anthropic-compatible gateway.
+- Worker eval score: range recall (ADR 0019, amended). Eval items may carry `reference_ranges`; `eval seed` records
+  them, and for such an item quality is the mean of the resolved share and the share of reference line ranges a cited
+  range overlaps, instead of file-level recall. Items without ranges score as before.
 - `telemetry.usage_on_spans` (ADR 0021): call spans carry Langfuse usage and cost details for calls no gateway
   records, such as Claude Code on a subscription. Off by default; ADR 0012 still holds with a LiteLLM gateway.
 - v2 (roadmap phase 5), callable interface (ADR 0018): `chargehand serve` hosts HTTP and MCP on 127.0.0.1, every route
