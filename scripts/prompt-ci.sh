@@ -1,9 +1,10 @@
 #!/bin/sh
-# Prompt CI (ADR 0019), run by the owner on the laptop: paired evals of a pull request's prompts/ and presets/
-# against its merge base, then the verdict as the commit status "prompt-ci". The runner is this checkout's build;
-# the pull request contributes only prompts/ and presets/ (git archive), never code it builds or runs. Those files
-# still steer a worker, and a preset can give it tools, so a fork's pull request or a preset change waits for
-# --reviewed. Run it from the main checkout, where the gitignored eval profile and run log live.
+# Prompt CI (ADR 0019, ADR 0022): paired evals of a pull request's prompts/ and presets/ against its merge base, then
+# the verdict as the commit status "prompt-ci". .github/workflows/prompt-ci.yml runs it on the eval runner; the owner
+# can still run it by hand from the main checkout, where the gitignored eval profile and run log live. The runner is
+# this checkout's build; the pull request contributes only prompts/ and presets/ (git archive), never code it builds
+# or runs. Those files still steer a worker, and a preset can give it tools, so a fork's pull request or a preset
+# change waits for --reviewed (in the workflow: an approval in the prompt-ci-review environment).
 #
 # usage: scripts/prompt-ci.sh <pr-number> [--trusted-build] [--reviewed] [--allow-uncovered] [--no-status]
 #   --trusted-build    build the runner (and read evals/cells.json) from the pull request itself; this runs its
@@ -75,7 +76,7 @@ if [ -n "$(find "$work/change" -type l)" ]; then
   exit 1
 fi
 
-status pending "evals running on the owner's machine"
+status pending "evals running"
 if [ -n "$trusted" ]; then
   git worktree add -q --detach "$work/runner" "$head"
   src="$work/runner"
