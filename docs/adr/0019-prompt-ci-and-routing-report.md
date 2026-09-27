@@ -53,6 +53,13 @@ fork code on the owner's machine.
   that last score the logged #5 pairing itself still passes (-0.039, t -0.57): its base arm lost the phase 3 reference
   question, which fails in 4 of its 8 runs under the base prompts. #6 kept its claim count (5.75 against 5.94) and
   blocks in at most 7% under any of these scores.
+- Rerun of #5 with grounding times the claim ratio (2026-09-27, 13 items): quality 0.88 → 0.68, -0.199 (t -2.81),
+  cost -14% (t -1.51): blocked. The 8 items whose answers fell below their reference claim count lost 0.20 to 0.55;
+  scored by grounding alone, the same runs give -0.028 (t -1.38). A/A under the same score, 13 items: -0.042
+  (t -0.50), cost -23% (t -1.43), pass, below T/2, so T stays 0.10. The phase 3 reference question failed in one arm
+  again (1.00 against 0.00), -0.077 on the mean by itself; an item whose reference is 3 claims moves by 0.33 per
+  claim. Scored by grounding alone, the same A/A runs give -0.072 (t -0.93). An earlier A/A, cut off after 8 items:
+  -0.027 (t -0.32).
 
 ## Options
 
@@ -123,10 +130,10 @@ budget and dominates `cheap/worker`'s quality noise until its budget or its plac
 The exit test (2026-09-27, changelog: phase 5 exit) showed the score's blind spot: two deliberate `preset/cheap`
 regressions passed, because the score measured grounding, which the worker node already enforces at run time. Recall of
 the reference answers' line ranges, the planned fix, would have passed #5 too: its thinner answers cite the same code in
-fewer, wider ranges. Scaled by the claim count, the score catches a thinning of #5's size in at most about 4 of 5 reruns
-at 13 items, not every time, while the phase 3 reference question's flips stay in the set; it does not see #6, which
-kept its claim count. A prompt that merges facts into fewer claims on purpose reads as a thinner answer and declares a
-trade.
+fewer, wider ranges. Scaled by the claim count, the score blocked #5 on its rerun; by the replay it catches a thinning
+of that size in at most about 4 of 5 reruns at 13 items, not every time, while the phase 3 reference question's flips
+stay in the set. It does not see #6, which kept its claim count. A prompt that merges facts into fewer claims on purpose
+reads as a thinner answer and declares a trade.
 
 ## Reopen if
 
