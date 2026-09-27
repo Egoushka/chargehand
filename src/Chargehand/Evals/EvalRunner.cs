@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Intake;
@@ -16,7 +17,7 @@ namespace Chargehand.Evals;
 /// </summary>
 /// <param name="orchestratorFor">An orchestrator reading prompts/ and presets/ from the given root.</param>
 /// <param name="flush">Exports pending spans, so a trace exists before a dataset run item links it.</param>
-public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWorkerRuntime runtime, string intakeModel, JsonlRunLog log,
+public sealed partial class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWorkerRuntime runtime, string intakeModel, JsonlRunLog log,
     LangfuseEvals? langfuse, Action flush, TextWriter output)
 {
     /// <summary>The cells a change touches, and the changed prompt or preset files no cell covers.</summary>
@@ -79,13 +80,26 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
         string runId, traceId;
         decimal usd = 0;
         IReadOnlyDictionary<string, double> scores;
-        if (cell.Kind == "intake")
-            (runId, traceId, scores) = await Intake(item, root, ct);
-        else
+        // A gateway rate limit says nothing about the prompts: run the arm again rather than score it 0, and stop the
+        // gate if the limit outlasts the retries, since a verdict over missing runs would mislead.
+        for (var attempt = 0; ; attempt++)
         {
-            var result = await orchestratorFor(root).RunAsync(item.Request with { Context = item.Request.Context with { Preset = cell.Preset! } }, ct);
-            (runId, traceId, usd) = (result.TaskId, result.TraceId, result.Usage.Usd);
-            scores = cell.Kind == "draft" ? Scoring.Draft(result, item.Expected.Draft!) : Scoring.Worker(result, item.Expected.ReferenceFiles ?? []);
+            string? limited;
+            if (cell.Kind == "intake")
+                (runId, traceId, scores, limited) = await Intake(item, root, ct);
+            else
+            {
+                var result = await orchestratorFor(root).RunAsync(item.Request with { Context = item.Request.Context with { Preset = cell.Preset! } }, ct);
+                (runId, traceId, usd) = (result.TaskId, result.TraceId, result.Usage.Usd);
+                scores = cell.Kind == "draft" ? Scoring.Draft(result, item.Expected.Draft!) : Scoring.Worker(result, item.Expected.ReferenceFiles ?? []);
+                limited = result.Status == ResultStatus.Failed && RateLimited(result.Summary) ? result.Summary : null;
+            }
+            if (limited is null)
+                break;
+            if (attempt == RateLimitRetries.Length)
+                throw new InvalidOperationException($"{cell.Name} {item.Id} ({runName}): still rate limited after {attempt + 1} attempts: {limited}");
+            output.WriteLine(FormattableString.Invariant($"{cell.Name}  {item.Id,-34} {runName,-32} rate limited, retrying in {RateLimitRetries[attempt].TotalSeconds:0} s  {runId}"));
+            await Task.Delay(RateLimitRetries[attempt], ct);
         }
         foreach (var (key, value) in scores)
             await log.AppendAsync(new ScoreRecord(runId, key, value, DateTimeOffset.UtcNow, $"eval:{runName}"), ct);
@@ -101,7 +115,7 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
     }
 
     /// <summary>Intake alone: one generate call under the arm's intake prompt, scored on the action it chooses.</summary>
-    private async Task<(string RunId, string TraceId, IReadOnlyDictionary<string, double> Scores)> Intake(EvalItem item, string root, CancellationToken ct)
+    private async Task<(string RunId, string TraceId, IReadOnlyDictionary<string, double> Scores, string? RateLimited)> Intake(EvalItem item, string root, CancellationToken ct)
     {
         var runId = Orchestrator.NewRunId();
         using var span = Telemetry.Source.StartActivity("chargehand.eval.intake");
@@ -111,13 +125,26 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
         try
         {
             var outcome = await new GenerateIntake(runtime, Orchestrator.ParseModel(intakeModel), block, runId, kind.Checkout).RunAsync(item.Request, ct);
-            return (runId, traceId, Scoring.Intake(outcome.Spec, item.Expected.Action!));
+            return (runId, traceId, Scoring.Intake(outcome.Spec, item.Expected.Action!), null);
+        }
+        catch (Exception e) when (RateLimited(e.Message))
+        {
+            return (runId, traceId, new Dictionary<string, double> { ["quality"] = 0 }, e.Message);
         }
         catch (InvalidOperationException)
         {
-            return (runId, traceId, new Dictionary<string, double> { ["quality"] = 0 }); // no valid Task Spec after the retry
+            return (runId, traceId, new Dictionary<string, double> { ["quality"] = 0 }, null); // no valid Task Spec after the retry
         }
     }
+
+    /// <summary>Waits before each retry of a rate-limited arm; the gateway's parallel-request limit clears within seconds.</summary>
+    internal static TimeSpan[] RateLimitRetries { get; set; } = [TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60)];
+
+    /// <summary>A gateway or provider rate limit, as relayed by OpenCode ("Rate limit exceeded") or Claude Code (rate_limit_error, 429).</summary>
+    internal static bool RateLimited(string? message) => message is not null && RateLimitText().IsMatch(message);
+
+    [GeneratedRegex(@"rate[ _]limit|\b429\b", RegexOptions.IgnoreCase)]
+    private static partial Regex RateLimitText();
 
     private static IReadOnlyList<string> Files(IEnumerable<Evidence> evidence) =>
         [.. evidence.Where(e => e.Kind == EvidenceKind.File).Select(e => e.Locator.Split(':')[0]).Distinct().Order(StringComparer.Ordinal)];
