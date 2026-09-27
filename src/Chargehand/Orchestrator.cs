@@ -287,8 +287,12 @@ public sealed class Orchestrator(
             // Built beside the final path and moved into it, so an interrupted clone is never reused.
             // ponytail: a failed clone leaves its temporary directory behind; sweep .checkouts by hand if that piles up.
             var temp = $"{dir}.tmp-{Guid.NewGuid():N}";
-            Directory.CreateDirectory(Path.GetDirectoryName(dir)!);
-            if (await Git(Path.GetDirectoryName(dir)!, ct, "clone", "-q", "--local", "--no-checkout", "--", source, temp) is null
+            var parent = Path.GetDirectoryName(dir)!;
+            Directory.CreateDirectory(parent);
+            // --local hard-links the objects, which fails across mount points (a container's repository mount and its
+            // work volume); git removes the failed clone, and the second attempt copies instead.
+            if ((await Git(parent, ct, "clone", "-q", "--local", "--no-checkout", "--", source, temp) is null
+                 && await Git(parent, ct, "clone", "-q", "--no-hardlinks", "--no-checkout", "--", source, temp) is null)
                 || await Git(temp, ct, "checkout", "-q", "--detach", commit) is null)
                 throw new ChargehandException(ErrorCode.CheckoutInvalid, $"could not clone {source} at {commit[..12]} into {Path.GetDirectoryName(dir)}");
             try
