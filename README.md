@@ -75,7 +75,7 @@ Prompt CI runs on its own for a pull request that changes `prompts/` or `presets
 hands it to a self-hosted runner, which posts the commit status. A fork's pull request or a preset change waits for an
 approval in the `prompt-ci-review` environment. The runner has one eval profile per runtime and a default; the label
 `prompt-ci:<runtime>` picks another. `scripts/prompt-ci.sh <pr-number>` runs it by hand
-([ADR 0019](docs/adr/0019-prompt-ci-and-routing-report.md), [ADR 0022](docs/adr/0022-prompt-ci-on-a-self-hosted-runner.md)).
+([ADR 0019](docs/adr/0019-prompt-ci-and-routing-report.md), [ADR 0024](docs/adr/0024-prompt-ci-on-a-self-hosted-runner.md)).
 
 ## HTTP and MCP
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Prompt CI (ADR 0019, ADR 0022): paired evals of a pull request's prompts/ and presets/ against its merge base, then
+# Prompt CI (ADR 0019, ADR 0024): paired evals of a pull request's prompts/ and presets/ against its merge base, then
 # the verdict as the commit status "prompt-ci". .github/workflows/prompt-ci.yml runs it on the eval runner; the owner
 # can still run it by hand from the main checkout, where the gitignored eval profile and run log live. The runner is
 # this checkout's build; the pull request contributes only prompts/ and presets/ (git archive), never code it builds

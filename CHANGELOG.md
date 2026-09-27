@@ -12,7 +12,7 @@ All notable changes to this project are documented here. The format follows
 A pull request that changes `prompts/` or `presets/` is gated on a self-hosted runner, not by a manual run of
 `scripts/prompt-ci.sh`. A fork's pull request or a preset change waits for an approval in the `prompt-ci-review`
 environment. The runner holds one eval profile per runtime and a default; a `prompt-ci:<runtime>` label picks another
-when someone with write access adds it. The manual run still works. See ADR 0022.
+when someone with write access adds it. The manual run still works. See ADR 0024.
 
 ### Changed
 
