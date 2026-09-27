@@ -191,6 +191,9 @@ Answer quality is judged blind by the owner (pending at the time of this entry).
   `git grep*`, `git log*` and `git show*` allows admitted program execution (`git grep -O`) and file writes
   (`--output`), and quoting or naming a file got past the `rg` denies. Prompt CI runs pull request prompts
   against these presets (ADR 0006).
+- A run fails before any worker session when its checkout holds a file the preset denies reading (`*.env`,
+  `*.env.*`), ignored files included. OpenCode's `grep` tool checks permission against its pattern, not the path it
+  searches, and reads ignored files named by path or `include` glob, so `read` rules alone did not keep it out.
 
 - Preset `default` 0.3.0 denies reading `*.env` / `*.env.*` and `rg --no-ignore` / `rg -u`. The session ruleset's
   leading allow had overridden the OpenCode agent's own ask-before-reading-`.env` rules, so a worker could read

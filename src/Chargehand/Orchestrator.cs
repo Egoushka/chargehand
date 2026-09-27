@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Chargehand.Budget;
 using Chargehand.Config;
 using Chargehand.Contracts;
@@ -149,7 +150,7 @@ public sealed class Orchestrator(
         Activity? run, Action<RunStatus>? progress, CancellationToken ct)
     {
         var (directory, commit) = kind.Checkout
-            ? (Path.GetFullPath(request.Context.Repository!.Path), await CheckRepository(request.Context.Repository!, ct))
+            ? (Path.GetFullPath(request.Context.Repository!.Path), await CheckRepository(request.Context.Repository!, kind, ct))
             : (EmptyDirectory(), "");
         // ponytail: the run cap is split evenly across nodes up front; share the remainder dynamically if nodes vary a lot.
         var cap = new[] { profile.RunCapUsd / plan.Count, kind.Budget.MaxUsd, (request.Context.BudgetUsd ?? decimal.MaxValue) / plan.Count }.Min();
@@ -260,8 +261,12 @@ public sealed class Orchestrator(
     private static Artifact Inline(string kind, string mediaType, string content) =>
         new(kind, mediaType, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content))), Content: content);
 
-    /// <summary>The checkout must sit under worker_root (outside the OpenCode user's home, ADR 0003) at the requested commit.</summary>
-    private async Task<string> CheckRepository(RepositoryRef repo, CancellationToken ct)
+    /// <summary>
+    /// The checkout must sit under worker_root (outside the OpenCode user's home, ADR 0003) at the requested commit, and hold
+    /// no file the node kind may not read (ADR 0006): OpenCode's grep searches any path or include glob it is given, ignored
+    /// files too, and its permission resource is the search pattern, so a read deny cannot keep it out of a file.
+    /// </summary>
+    private async Task<string> CheckRepository(RepositoryRef repo, NodeKind kind, CancellationToken ct)
     {
         var full = Path.GetFullPath(repo.Path) + Path.DirectorySeparatorChar;
         var root = Path.GetFullPath(profile.WorkerRoot) + Path.DirectorySeparatorChar;
@@ -272,10 +277,34 @@ public sealed class Orchestrator(
         using var p = Process.Start(psi)!;
         var head = (await p.StandardOutput.ReadToEndAsync(ct)).Trim();
         await p.WaitForExitAsync(ct);
-        return head.StartsWith(repo.Commit, StringComparison.OrdinalIgnoreCase)
+        if (!head.StartsWith(repo.Commit, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"checkout is at {head[..Math.Min(12, head.Length)]}, request pins {repo.Commit}");
+        var denied = await DeniedFiles(repo.Path, kind.Permissions, ct);
+        return denied.Count == 0
             ? head
-            : throw new InvalidOperationException($"checkout is at {head[..Math.Min(12, head.Length)]}, request pins {repo.Commit}");
+            : throw new InvalidOperationException($"checkout holds files the preset denies reading, which grep would still reach: " +
+                $"{string.Join(", ", denied.Take(5))}{(denied.Count > 5 ? ", ..." : "")}. Move them out of the checkout.");
     }
+
+    /// <summary>Tracked and untracked (ignored included) files whose last matching read rule is a deny.</summary>
+    private static async Task<IReadOnlyList<string>> DeniedFiles(string repo, IReadOnlyList<RuleEntry> rules, CancellationToken ct)
+    {
+        var read = rules.Where(r => r.Action is "read" or "*").ToList();
+        var patterns = read.Where(r => r.Effect == "deny" && r.Resource != "*").Select(r => r.Resource).ToList();
+        if (patterns.Count == 0)
+            return [];
+        var psi = new ProcessStartInfo("git", ["-C", repo, "ls-files", "-z", "--cached", "--others", "--", .. patterns]) { RedirectStandardOutput = true };
+        using var p = Process.Start(psi)!;
+        var files = (await p.StandardOutput.ReadToEndAsync(ct)).Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        await p.WaitForExitAsync(ct);
+        if (p.ExitCode != 0)
+            throw new InvalidOperationException($"git ls-files failed in {repo}");
+        return files.Where(f => read.LastOrDefault(r => Wildcard(f, r.Resource))?.Effect == "deny").ToList();
+    }
+
+    /// <summary>OpenCode's rule match: * is any run of characters, ? one character, the rest literal.</summary>
+    private static bool Wildcard(string text, string pattern) =>
+        Regex.IsMatch(text, "^" + Regex.Escape(pattern).Replace(@"\*", ".*").Replace(@"\?", ".") + "$", RegexOptions.Singleline);
 
     /// <summary>Where a node without a checkout runs: an empty directory under worker_root, outside the home (ADR 0003).</summary>
     private string EmptyDirectory()
