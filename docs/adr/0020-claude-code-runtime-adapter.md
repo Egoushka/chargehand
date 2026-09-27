@@ -1,6 +1,6 @@
 # 0020. Claude Code runtime adapter
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-27
 
 ## Context
