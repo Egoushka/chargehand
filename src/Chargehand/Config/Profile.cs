@@ -70,5 +70,6 @@ public sealed record MemorySettings(string Backend, string Url, string Namespace
 /// Code on a subscription; with a LiteLLM gateway, usage stays on its generations (ADR 0012).</param>
 public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecret, string SecretKeySecret, bool UsageOnSpans = false);
 
-/// <summary>chargehand serve (ADR 0018): a loopback port, and the secret-store item holding the API key callers send.</summary>
-public sealed record HttpSettings(string ApiKeySecret, int Port = 4300);
+/// <summary>chargehand serve (ADR 0018): a port, and the secret-store item holding the API key callers send. Listen and
+/// AllowedHosts open it beyond loopback, for a private network only (ADR 0024).</summary>
+public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null);

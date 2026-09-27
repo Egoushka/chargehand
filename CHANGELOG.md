@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### The server runs on a private network
+
+`chargehand serve` can bind a private-network address: `http.listen` sets it and `http.allowed_hosts` names the host
+clients use; without allowed hosts it refuses to start beyond loopback. A `Dockerfile` builds the server with the
+Claude Code runtime, and a tag `v<Version>` publishes `ghcr.io/egoushka/chargehand:<Version>`. See ADR 0024.
+
 ### Prompt CI runs on its own
 
 A pull request that changes `prompts/` or `presets/` is gated on a self-hosted runner, not by a manual run of

@@ -65,7 +65,7 @@ All commands run as `dotnet run --project src/Chargehand.Cli -- <command>` and r
 | `show <run-id>` | calls, tokens, cache %, cost |
 | `cache <run-id>` | cache reads and writes per call, and the first block that broke a shared prefix |
 | `reconcile <run-id> < spend-rows.jsonl` | joins calls to exported gateway spend rows |
-| `serve` | HTTP and MCP on 127.0.0.1 (profile `http`) |
+| `serve` | HTTP and MCP, on 127.0.0.1 unless the profile opens it (profile `http`) |
 | `routes` | routing report per preset, node kind and model |
 | `score <run-id> <0-1> [name]` | records a hand score for a run |
 | `eval seed\|push\|gate` | Prompt CI: propose items, push them to Langfuse, gate a change |
@@ -81,7 +81,15 @@ approval in the `prompt-ci-review` environment. The runner has one eval profile 
 
 `chargehand serve` binds 127.0.0.1 and requires `Authorization: Bearer <key>` on every route. The key comes from the
 secret-store item named by the profile's `http.api_key_secret`
-([ADR 0018](docs/adr/0018-callable-interface-http-mcp-run-store.md)).
+([ADR 0018](docs/adr/0018-callable-interface-http-mcp-run-store.md)). On a private network, `http.listen` binds another
+address and `http.allowed_hosts` names the host clients use; a tag `v<Version>` publishes the server image
+`ghcr.io/egoushka/chargehand:<Version>` with the Claude Code runtime
+([ADR 0024](docs/adr/0024-server-on-a-private-network-and-release-images.md)):
+
+```bash
+docker run -p <private-ip>:4300:4300 -v <dir-with-profile.json>:/config:ro -e CHARGEHAND_API_KEY=... \
+  ghcr.io/egoushka/chargehand:<Version>
+```
 
 | route | behaviour |
 |---|---|

@@ -18,13 +18,16 @@ using HttpResults = Microsoft.AspNetCore.Http.Results;
 
 namespace Chargehand.Server;
 
-/// <param name="Port">Loopback port; 0 picks a free one.</param>
+/// <param name="Port">0 picks a free one.</param>
 /// <param name="ApiKey">Required as a bearer token on every route, even on loopback: any local process can reach the port.</param>
 /// <param name="PresetsDirectory">Where presets live, to refuse an unknown preset before a run starts.</param>
-public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory);
+/// <param name="Listen">Address to bind; loopback unless the server runs on a private network (ADR 0024).</param>
+/// <param name="AllowedHosts">Host names accepted besides localhost and 127.0.0.1; required when Listen is not loopback.</param>
+public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
+    IReadOnlyList<string>? AllowedHosts = null);
 
 /// <summary>
-/// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018) on 127.0.0.1: POST /v1/runs, GET /v1/runs/{id},
+/// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
 /// GET /v1/runs/{id}/events (server-sent events), and the MCP tool "orchestrate" at /v1/mcp.
 /// </summary>
 public static partial class ChargehandServer
@@ -48,15 +51,20 @@ public static partial class ChargehandServer
 
     public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log)
     {
+        var address = IPAddress.Parse(settings.Listen);
+        IReadOnlyList<string> hosts = settings.AllowedHosts ?? [];
+        // Beyond loopback the Host check is the only guard against DNS rebinding, so it must name the server.
+        if (!IPAddress.IsLoopback(address) && hosts.Count == 0)
+            throw new InvalidOperationException($"http.listen {settings.Listen} is not loopback; set http.allowed_hosts (ADR 0024)");
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
         builder.WebHost.ConfigureKestrel(k =>
         {
-            k.Listen(IPAddress.Loopback, settings.Port);
+            k.Listen(address, settings.Port);
             k.Limits.MaxRequestBodySize = MaxRequestBytes;
         });
-        // A page in the owner's browser could reach the port through DNS rebinding; only a loopback Host is accepted.
-        builder.Services.AddHostFiltering(o => o.AllowedHosts = ["localhost", "127.0.0.1"]);
+        // A page in the owner's browser could reach the port through DNS rebinding; only a known Host is accepted.
+        builder.Services.AddHostFiltering(o => o.AllowedHosts = ["localhost", "127.0.0.1", .. hosts]);
         builder.Services.AddSingleton(sp => new RunService(orchestrator, settings.PresetsDirectory,
             sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping));
         builder.Services.AddMcpServer(o =>
