@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Prompt CI calibration
+
+`cheap/worker`'s items pinned a checkout that tracks encrypted env files the `cheap` preset denies reading, so since
+workers refuse such a checkout (0.1.0) every arm of its A/A failed at $0. The items now pin a commit of that checkout
+without those files; every reference file is unchanged. The A/A there, the first since workers lost the shell, 12
+items: quality -0.046 (t -0.63), cost +13% (t 1.82), pass, $0.11; 5 items differ, by 0.75, 0.27, 0.25, 0.20 and 0.02.
+Claims per item: 6.25 against 5.97 in the runs that seeded `reference_claims`, 20 of 24 arms within their range, so
+`reference_claims` stays.
+
 ## [0.1.0] - 2026-09-27
 
 First usable release. chargehand turns a request into a Task Spec, runs it on one or more coding-agent sessions, and
