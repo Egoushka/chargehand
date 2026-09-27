@@ -45,6 +45,9 @@ session ID sits early in that prefix (ADR 0010). The node contracts then have to
 
 The measured fixed cost of an extra node (ADR 0010) drops from a ~6k-token cache write to a ~6k-token cache read.
 Whether a split beats one session on quality per dollar is measured in the phase 4 run log, not assumed.
+Measured at the phase 4 exit: blind score 0.967 against 0.950 at 1.53× the cost, 128 against 193 per dollar, so
+intake should choose `split` only when one session cannot cover the parts, not merely because a question spans
+several areas.
 
 ## Reopen if
 
