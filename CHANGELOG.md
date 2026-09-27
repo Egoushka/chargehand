@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A worker clone of a repository on another mount (a container's repository mount and its work volume) failed with
+  `checkout_invalid`: `git clone --local` cannot hard-link across mount points. The clone now copies when linking
+  fails.
+
 ## [0.2.0] - 2026-09-28
 
 ### The server runs on a private network
