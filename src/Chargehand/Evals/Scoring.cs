@@ -9,15 +9,26 @@ namespace Chargehand.Evals;
 /// </summary>
 public static class Scoring
 {
-    /// <summary>Half the share of claims whose evidence resolved, half the recall of the reference files.</summary>
-    public static IReadOnlyDictionary<string, double> Worker(ResultContract result, IReadOnlyList<string> referenceFiles)
+    /// <summary>
+    /// Grounding (half the share of claims whose evidence resolved, half the recall of the reference files) times
+    /// completeness (claims kept over the reference claim count, at most 1). The worker node enforces grounding at run
+    /// time, so a thinner answer shows in its claim count, not in what it cites.
+    /// </summary>
+    public static IReadOnlyDictionary<string, double> Worker(ResultContract result, IReadOnlyList<string> referenceFiles, int? referenceClaims = null)
     {
         if (result.Status != ResultStatus.Completed)
             return new Dictionary<string, double> { ["quality"] = 0 };
         var resolved = Resolved(result);
         var cited = result.Evidence.Where(e => e.Kind == EvidenceKind.File).Select(e => e.Locator.Split(':')[0]).ToHashSet();
         var recall = referenceFiles.Count == 0 ? 1 : referenceFiles.Count(cited.Contains) / (double)referenceFiles.Count;
-        return new Dictionary<string, double> { ["quality"] = (resolved + recall) / 2, ["evidence_resolved"] = resolved, ["reference_recall"] = recall };
+        var complete = referenceClaims is > 0 ? Math.Min(1, result.Claims.Count / (double)referenceClaims) : 1;
+        return new Dictionary<string, double>
+        {
+            ["quality"] = (resolved + recall) / 2 * complete,
+            ["evidence_resolved"] = resolved,
+            ["reference_recall"] = recall,
+            ["completeness"] = complete,
+        };
     }
 
     /// <summary>Mean of: a draft within bounds, claims whose evidence resolved, required inputs cited, no banned phrase.</summary>
