@@ -274,6 +274,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
                 }
                 else
                 {
+                    ReconcileOutput(s, e);
                     var isError = e.GetProperty("is_error").GetBoolean();
                     s.Messages.Add(Idle(s.Interrupted ? IdleOutcome.Interrupted : isError ? IdleOutcome.Failed : IdleOutcome.Succeeded,
                         isError && e.TryGetProperty("result", out var r) ? r.GetString() : null));
@@ -282,6 +283,25 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
             default:
                 return false;
         }
+    }
+
+    /// <summary>
+    /// Assistant events carry the message_start usage, whose output count is a stub (1-3 tokens); only the result
+    /// event totals the turn's output. The shortfall goes to the turn's last assistant message, so node totals and
+    /// cost are right. ponytail: per-call output is lumped onto one call; read message_delta events via
+    /// --include-partial-messages if per-call output matters.
+    /// </summary>
+    private static void ReconcileOutput(Session s, JsonElement result)
+    {
+        if (!result.TryGetProperty("usage", out var u) || !u.TryGetProperty("output_tokens", out var total))
+            return;
+        var turnStart = s.Messages.FindLastIndex(x => x.Kind == WorkerMessageKind.User);
+        var last = s.Messages.FindLastIndex(x => x.Kind == WorkerMessageKind.Assistant && x.Tokens is not null);
+        if (last <= turnStart)
+            return;
+        var counted = s.Messages.Skip(turnStart + 1).Where(x => x.Kind == WorkerMessageKind.Assistant && x.Tokens is not null).Sum(x => x.Tokens!.Output);
+        if (total.GetInt64() > counted)
+            s.Messages[last] = s.Messages[last] with { Tokens = s.Messages[last].Tokens! with { Output = s.Messages[last].Tokens!.Output + total.GetInt64() - counted } };
     }
 
     private static WorkerMessage Idle(IdleOutcome outcome, string? error) =>
