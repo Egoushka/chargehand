@@ -69,6 +69,15 @@ fork code on the owner's machine.
   read or found with a search in its session (base runs: 100%, one #6 run 50%). It cited 17% fewer files, and file
   recall fell 0.074, below T even if file recall were the whole score. No deterministic part was added for it; a
   check that cited lines were seen in the session is the next step if a worker does answer from memory.
+- Re-pin (2026-09-27). Since workers must not run in a checkout holding files the preset denies reading (ADR 0006),
+  the A/A on the old pin failed all 24 arms at $0: the items' repository tracks encrypted env files in every stack, not
+  only under an archive directory, so no commit of it passes. The items now pin a local eval commit of that checkout
+  that deletes those files and nothing else; every reference file is byte-identical, so line ranges hold. The A/A
+  there, also the first without a worker shell, 12 items: quality -0.046 (t -0.63), cost +13% (t 1.82), pass, $0.11;
+  5 items differ, by 0.75, 0.27, 0.25, 0.20 and 0.02. Claims per item 6.25 against 5.97 in the runs that seeded
+  `reference_claims`; 20 of 24 arms fall within those runs' range, 3 above it and 1 below (a single claim with an open
+  question, the 0.75). `reference_claims` stays; the item with both arms above its range is re-seeded if the next A/A
+  repeats it.
 
 ## Options
 
@@ -88,12 +97,13 @@ fork code on the owner's machine.
   minimum of 8 items. Items live only in the orchestrator's Langfuse datasets; `evals/example.jsonl` shows their format
   against this repository. `eval seed` proposes items from runs in the log (one per request, one per split subtask);
   the owner reviews them; `eval push` uploads them.
-- **Cells now.** `cheap/worker`, 12 items: the 3 phase 4 questions and their 9 subtasks; the phase 3 reference question
-  left it on 2026-09-27 and stays archived in the dataset (Evidence). `intake`, 19: those requests labelled with the
-  action intake should choose, 5 synthetic stop cases, the content engine's draft. `draft/draft`, 8: the content
-  engine's call and 7 variants built from this repository's public changelog, one of them baiting a fact the inputs
-  lack. `core/worker.md` is evaluated on `cheap` only; the `default`, `thorough` and `strict` blocks have no cell, and a
-  change to them fails unless the owner passes `--allow-uncovered`.
+- **Cells now.** `cheap/worker`, 12 items: the 3 phase 4 questions and their 9 subtasks; the phase 3 reference
+  question left it on 2026-09-27 and stays archived in the dataset (Evidence). Its items pin a checkout without the
+  files the preset denies reading (Evidence). `intake`, 19: those requests labelled with the action intake should
+  choose, 5 synthetic stop cases, the content engine's draft. `draft/draft`, 8: the content engine's call and 7
+  variants built from this repository's public changelog, one of them baiting a fact the inputs lack. `core/worker.md`
+  is evaluated on `cheap` only; the `default`, `thorough` and `strict` blocks have no cell, and a change to them fails
+  unless the owner passes `--allow-uncovered`.
 - **Scores**, 0 to 1, no model call. Worker: grounding, the mean of the share of claims whose evidence resolved and
   the recall of reference files (files cited by at least 3 of the 4 benchmark answers), times completeness, the
   claims kept over the item's `reference_claims` (the median over its runs under the base prompts; `eval seed`

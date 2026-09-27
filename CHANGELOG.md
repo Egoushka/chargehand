@@ -122,16 +122,19 @@ to back with the order alternating. Quality is 0 to 1; intake calls report no us
 | `cheap/worker`, C +30% | 13 | -0.076 (-1.08) | -15% (-1.17) | 3, by 0.92, 0.12 and 0.05 | pass |
 | `cheap/worker`, completeness score | 13 | -0.042 (-0.50) | -23% (-1.43) | 5, by 1.00, 0.33, 0.17, 0.11 and 0.06 | pass |
 | the same runs without the phase 3 reference question | 12 | +0.038 (1.16) | -16% (-1.03) | 4, by 0.33, 0.17, 0.11 and 0.06 | pass |
+| `cheap/worker` re-pinned, workers without a shell | 12 | -0.046 (-0.63) | +13% (1.82) | 5, by 0.75, 0.27, 0.25, 0.20 and 0.02 | pass |
 | `intake` | 19 | +0.000 (0.00) | not priced | 2 flip; 2 fail in both | pass |
 | `draft/draft` | 8 | +0.000 (0.00) | +2% (0.41) | none | pass |
 
-A worker's exploration varies from run to run: `cheap/worker`'s per-item cost ratios ran from 0.73 to 1.56 (log
-ratio SD 0.24), so identical prompts exceeded C = +15% by chance and blocked. Its C is now +30%. In the rerun, the
-phase 3 reference question stopped at `cheap`'s 400k-token node budget in one arm (0.92 against 0.00) and carries most
-of the quality change. Cost per run: `cheap/worker` $0.0010–0.0213 (mean $0.0054, about $0.14 per A/A), `draft/draft`
+A worker's exploration varies from run to run: `cheap/worker`'s per-item cost ratios ran from 0.73 to 1.56 (log ratio SD
+0.24), so identical prompts exceeded C = +15% by chance and blocked. Its C is now +30%. In the rerun, the phase 3
+reference question stopped at `cheap`'s 400k-token node budget in one arm (0.92 against 0.00) and carries most of the
+quality change. Cost per run: `cheap/worker` $0.0010–0.0213 (mean $0.0054, about $0.14 per A/A), `draft/draft`
 $0.0004–0.0007. Under the completeness score (ADR 0019) the phase 3 reference question failed in one arm again (1.00
-against 0.00, -0.077 on the mean by itself), and an item whose reference is 3 claims moves by 0.33 per claim. The
-phase 3 reference question has since left `cheap/worker`.
+against 0.00, -0.077 on the mean by itself), and an item whose reference is 3 claims moves by 0.33 per claim. The phase
+3 reference question has since left `cheap/worker`. Its items now pin a checkout without the encrypted env files the
+preset denies reading (reference files unchanged); the A/A there, the first since workers lost the shell, cost $0.11 and
+kept 6.25 claims per item against 5.97 in the runs that seeded `reference_claims`, 20 of 24 arms within their range.
 
 ### Benchmark (phase 4 exit, cost half)
 
