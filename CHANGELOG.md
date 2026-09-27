@@ -7,6 +7,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-28
+
 ### Fixed
 
 - A worker clone of a repository on another mount (a container's repository mount and its work volume) failed with
@@ -228,6 +230,7 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Egoushka/chargehand/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Egoushka/chargehand/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Egoushka/chargehand/releases/tag/v0.1.0
