@@ -145,6 +145,14 @@ internal static class Runs
         return new RepositoryRef(path, Git(path, "rev-parse", "HEAD").Trim());
     }
 
+    /// <summary>Commits the named files; returns the repository at the new commit.</summary>
+    public static RepositoryRef Commit(RepositoryRef repo, params string[] files)
+    {
+        Git(repo.Path, ["add", "-f", "--", .. files]);
+        Git(repo.Path, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "add");
+        return repo with { Commit = Git(repo.Path, "rev-parse", "HEAD").Trim() };
+    }
+
     private static string Git(string dir, params string[] args)
     {
         var psi = new ProcessStartInfo("git") { WorkingDirectory = dir, RedirectStandardOutput = true };

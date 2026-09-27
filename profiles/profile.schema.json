@@ -100,7 +100,13 @@
     },
     "worker_root": {
       "type": "string",
-      "description": "Where worker checkouts and worktrees live. Must be outside the OpenCode user's home: OpenCode discovers skills by walking up from the session directory."
+      "description": "Where worker clones and worktrees live. Must be outside the OpenCode user's home: OpenCode discovers skills by walking up from the session directory."
+    },
+    "repository_roots": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "description": "Directories a request's repository may sit under; the worker reads a clone of it under worker_root (ADR 0023). \"/\" allows any repository. Default: worker_root alone."
     },
     "default_preset": {
       "type": "string"

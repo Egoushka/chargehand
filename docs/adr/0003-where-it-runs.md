@@ -27,6 +27,8 @@ home** (profile `worker_root`). Headless deployment stays on the roadmap's "late
 ## Consequences
 
 The launcher must verify that `worker_root` is not under `$HOME`. Runs compete with interactive work for CPU.
+Since ADR 0023 a request's repository may live anywhere under the profile's `repository_roots`; the worker reads a
+clone of it under `worker_root`.
 
 ## Reopen if
 

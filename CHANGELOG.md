@@ -17,6 +17,10 @@ All notable changes to this project are documented here. The format follows
 - A worker interrupted at its token budget (`budget.max_input_tokens`) gets one turn to answer from what it has
   read, with room for three calls at the last call's context on top of what it spent; the result lists the stop in
   `open_questions`. It used to fail with nothing. The USD cap still ends a node without that turn (ADR 0010).
+- A request's repository may sit anywhere under the profile's new `repository_roots` (default: `worker_root`; `/`
+  allows any). The worker reads a clone of it at the pinned commit under `worker_root`, reused per source and commit,
+  so the source's uncommitted and ignored files never reach it and the worker stays outside the home. A short commit
+  hash is enough. A checkout that tracks a file the preset denies reading is still refused (ADR 0023).
 
 ### Prompt CI calibration
 

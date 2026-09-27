@@ -99,7 +99,7 @@ public class OrchestratorActionTests
         // Past the gate the orchestrator checks the checkout, which this fake repository fails; the run still ends with a result.
         var (r, run) = await Run(new IntakeOnly("null", "answer", "medium"), "strict", approved: true);
         Assert.Equal(ResultStatus.Failed, r.Status);
-        Assert.Contains("worker_root", r.Summary, StringComparison.Ordinal);
+        Assert.Contains("is not a git checkout", r.Summary, StringComparison.Ordinal);
         Assert.Equal("answer", run.ExecutedAction);
     }
 
@@ -107,7 +107,7 @@ public class OrchestratorActionTests
     public async Task An_action_the_preset_does_not_allow_runs_as_answer()
     {
         var (r, run) = await Run(new IntakeOnly("""{"questions":["Which?"]}""", "ask"), "default");
-        Assert.Contains("worker_root", r.Summary, StringComparison.Ordinal);
+        Assert.Contains("is not a git checkout", r.Summary, StringComparison.Ordinal);
         Assert.Equal("ask", run.IntakeAction);
         Assert.Equal("answer", run.ExecutedAction);
     }
