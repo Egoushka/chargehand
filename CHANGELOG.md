@@ -131,6 +131,8 @@ Answer quality is judged blind by the owner (pending at the time of this entry).
 
 ### Changed
 
+- Prompt block `preset/cheap` 0.2.0: a `cheap` worker stops at the first file that answers the question and gives at
+  most 3 claims, to cut cost.
 - Intake prompt 0.3.0: `ask` only when a required fact is missing and the caller's inputs do not supply it. 0.2.0
   asked a program caller for facts it had sent as inputs (the content engine's draft request, in 1 of 2 A/A runs).
 - A run that throws (a bad checkout, an unknown preset, no valid Task Spec) now ends with a failed `result/v1` and a
