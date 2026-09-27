@@ -64,6 +64,11 @@ fork code on the owner's machine.
   moved an A/A's mean by up to 0.08 on its own, so it left `cheap/worker`. The same runs without it, 12 items: #5's
   rerun -0.187 (t -2.47), block; the A/A +0.038 (t 1.16), cost -16% (t -1.03), pass. The replay without it blocks #5
   in 86% of reruns and A/A pairs in 1.5%.
+- #6 (2026-09-27, its logged change runs against the 86 base-prompt runs, 12 items). The worker did not follow "open
+  at most one file": model calls +1%, prompt tokens +3%, claims unchanged. 96% of its cited ranges were lines it had
+  read or found with a search in its session (base runs: 100%, one #6 run 50%). It cited 17% fewer files, and file
+  recall fell 0.074, below T even if file recall were the whole score. No deterministic part was added for it; a
+  check that cited lines were seen in the session is the next step if a worker does answer from memory.
 
 ## Options
 
