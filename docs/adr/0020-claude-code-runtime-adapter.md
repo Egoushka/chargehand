@@ -34,9 +34,16 @@ sandbox); the fake-CLI test covers the process handling, not the model.
 | diff | `git diff` against the base commit plus untracked files |
 | generate | `claude -p --tools "" --no-session-persistence --output-format json` |
 
-Every process runs with `--bare`: no hooks, plugins, CLAUDE.md discovery, auto-memory or keychain, the isolation
-ADR 0003 gets from an own OpenCode server. Auth is therefore `ANTHROPIC_API_KEY` from the secret store
-(`claude_code.api_key_secret`).
+Two credential modes, exactly one per profile:
+
+| mode | profile | auth | isolation | cost |
+|---|---|---|---|---|
+| API client | `api_key_secret` | `ANTHROPIC_API_KEY` | `--bare`: no hooks, plugins, CLAUDE.md discovery, auto-memory or keychain | per token |
+| subscription | `oauth_token_secret` | `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` | `--setting-sources ""`: no user, project or local settings, so no hooks or plugins | the owner's plan limits |
+
+`--bare` never reads OAuth, so the subscription mode cannot use it. Each mode removes the other's variable from the
+child environment, because an inherited API key outranks the OAuth token. Price a subscription model at zero in
+`prices` (give it its own provider prefix); `max_input_tokens` still bounds a node.
 
 ## Consequences
 
@@ -44,6 +51,8 @@ ADR 0003 gets from an own OpenCode server. Auth is therefore `ANTHROPIC_API_KEY`
   (`read *.env.* deny`, then `*.env.example allow`) stays denied: the translation fails closed.
 - `ask` is a deny; `opencode_agent` and `external_directory` have no counterpart and are ignored.
 - Steered compaction runs between turns only; Claude Code's own auto-compaction covers the mid-turn case.
+- Subscription runs share the owner's plan limits with interactive use. Whether `--setting-sources ""` also
+  keeps the user's CLAUDE.md out is not verified; the first live run shows it.
 - Sessions do not survive the orchestrator process (the CLI keeps the transcript, the adapter keeps the mapping).
 - `as_sent.opencode_version` carries `claude-code/<version>`, so cache reports tell the runtimes apart.
 

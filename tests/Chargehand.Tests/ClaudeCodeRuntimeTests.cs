@@ -87,7 +87,7 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
             {"type":"result","subtype":"success","is_error":false,"result":"DONE"}
             """);
 
-        IWorkerRuntime rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", "sk-test", CancellationToken.None);
+        IWorkerRuntime rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", new ClaudeCodeCredential("sk-test", false), CancellationToken.None);
         var session = await rt.CreateAsync(new NodeSpec(repoDir, "build", new ModelRef("anthropic", "claude-sonnet-5"),
             [new PermissionRule("*", "*", PermissionEffect.Allow), new PermissionRule("edit", "*", PermissionEffect.Deny)], new Dictionary<string, string>()), CancellationToken.None);
         await rt.SetInstructionAsync(session.Id, "core", "Be terse.", CancellationToken.None);
@@ -103,7 +103,7 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         Assert.Contains("--bare", args);
         Assert.DoesNotContain("Edit", args[Array.IndexOf(args, "--tools") + 1].Split(','));
         Assert.Equal("Say DONE", File.ReadAllText(Path.Combine(_dir.Path, "stdin.txt")));
-        Assert.Equal("sk-test", File.ReadAllText(Path.Combine(_dir.Path, "key.txt")).Trim());
+        Assert.Equal("api=sk-test oauth=", File.ReadAllText(Path.Combine(_dir.Path, "key.txt")).Trim());
         await Assert.ThrowsAsync<InvalidOperationException>(() => rt.SetInstructionAsync(session.Id, "core", "late", CancellationToken.None));
 
         await rt.SubmitAsync(session.Id, "again", CancellationToken.None);
@@ -123,10 +123,32 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
     }
 
     [Fact]
+    public async Task A_subscription_uses_the_oauth_token_without_bare_and_drops_an_inherited_api_key()
+    {
+        var claude = FakeClaude("""{"type":"result","subtype":"success","is_error":false,"result":"hi"}""");
+        Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", "inherited");
+        try
+        {
+            IWorkerRuntime rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", new ClaudeCodeCredential("oauth-test", true), CancellationToken.None);
+            var session = await rt.CreateAsync(Spec with { Directory = _dir.Path }, CancellationToken.None);
+            await rt.SubmitAsync(session.Id, "hi", CancellationToken.None);
+            Assert.Equal(IdleOutcome.Succeeded, await rt.AwaitIdleAsync(session.Id, CancellationToken.None));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", null);
+        }
+        var args = File.ReadAllLines(Path.Combine(_dir.Path, "args.txt"));
+        Assert.DoesNotContain("--bare", args);
+        Assert.Equal("", args[Array.IndexOf(args, "--setting-sources") + 1]);
+        Assert.Equal("api= oauth=oauth-test", File.ReadAllText(Path.Combine(_dir.Path, "key.txt")).Trim());
+    }
+
+    [Fact]
     public async Task A_version_other_than_the_pin_is_refused()
     {
         var claude = FakeClaude("");
-        await Assert.ThrowsAsync<InvalidOperationException>(() => ClaudeCodeWorkerRuntime.ConnectAsync(claude, "9.9.9", "k", CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ClaudeCodeWorkerRuntime.ConnectAsync(claude, "9.9.9", new ClaudeCodeCredential("k", false), CancellationToken.None));
     }
 
     private static bool Apply(ClaudeCodeWorkerRuntime.Session s, string json, bool compact = false) =>
@@ -141,7 +163,7 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
             if [ "$1" = "--version" ]; then echo "2.1.195 (Claude Code)"; exit 0; fi
             printf '%s\n' "$@" > "{_dir.Path}/args.txt"
             cat > "{_dir.Path}/stdin.txt"
-            echo "$ANTHROPIC_API_KEY" > "{_dir.Path}/key.txt"
+            echo "api=$ANTHROPIC_API_KEY oauth=$CLAUDE_CODE_OAUTH_TOKEN" > "{_dir.Path}/key.txt"
             cat "{_dir.Path}/events.jsonl"
             """);
         if (!OperatingSystem.IsWindows())
