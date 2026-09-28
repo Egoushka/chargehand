@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-28
+
+Goal 0.3 ([roadmap](ROADMAP.md)): every change is tracked, released and checked. Its substance shipped across
+0.2.2's patches (the release pipeline, quality gates, repository hygiene); this bump closes the goal and moves the
+roadmap to 0.4.
+
 ## [0.2.2] - 2026-09-28
 
 ### Security

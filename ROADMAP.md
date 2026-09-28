@@ -11,9 +11,9 @@ image.
 
 ## Stage 2 — Easy to install, trust and follow · ▶ (0.3–0.4)
 
-- ▶ **0.3** Every change is tracked, released and checked: GitHub Releases with notes, `Chargehand.Contracts` on
+- ✅ **0.3** Every change is tracked, released and checked: GitHub Releases with notes, `Chargehand.Contracts` on
   nuget.org, OpenSSF Scorecard, CodeQL, dependency review, stricter analyzers.
-- · **0.4** It runs with nothing configured: no profile file needed, the runtime picked by name or found on the machine,
+- ▶ **0.4** It runs with nothing configured: no profile file needed, the runtime picked by name or found on the machine,
   secrets from environment variables, extensions by category, listed in the MCP Registry.
 
 ## Stage 3 — One prompt, whole result · (0.5–0.7)
