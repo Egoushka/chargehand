@@ -1,3 +1,7 @@
 #!/bin/sh
-# Conventional Commits: type(scope)!: subject. CI runs the same check (scripts/check-commits.sh).
-exec "$(git rev-parse --show-toplevel)/scripts/check-commit-msg.sh" "$1"
+# 1. Denylist: blocks the commit if its message matches a term in .private-terms (scripts/check-private-terms.sh).
+# 2. Conventional Commits: type(scope)!: subject. CI runs the same check (scripts/check-commits.sh).
+set -eu
+root=$(git rev-parse --show-toplevel)
+"$root/scripts/check-private-terms.sh" "$1"
+exec "$root/scripts/check-commit-msg.sh" "$1"

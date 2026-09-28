@@ -26,6 +26,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
+- The `.private-terms` denylist fails closed. A malformed pattern made `git grep` exit 128, which the `pre-commit`
+  hook read as "no match" and let the commit through; the commit is now blocked with the error. The `commit-msg` hook
+  checks the message against the same list, except your own `Signed-off-by` and the diff `commit -v` adds
+  (`scripts/check-private-terms.sh`).
 - `Scrub` no longer redacts ordinary words that merely contain a key-like substring (`task-spec`, `disk-cache`,
   a stray "user:") — the `sk-` pattern needed a left boundary. It now also catches shapes 0.2.2 missed: LiteLLM's
   "Key Hash (Token) =", compound identifiers (`team_member`, `user_id`, `organization`, `user_api_key_alias`),

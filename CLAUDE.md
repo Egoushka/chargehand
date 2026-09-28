@@ -16,8 +16,8 @@ dotnet run --project src/Chargehand.Cli -- run|serve|show|cache|reconcile|routes
 scripts/prompt-ci.sh <pr>             # Prompt CI on the owner's machine (profiles/local.eval.json, eval OpenCode server)
 ```
 
-Hooks: `git config core.hooksPath .githooks` (denylist + gitleaks on pre-commit, Conventional
-Commits on commit-msg). Never `--no-verify`.
+Hooks: `git config core.hooksPath .githooks` (denylist + gitleaks on pre-commit, denylist +
+Conventional Commits on commit-msg). Never `--no-verify`.
 
 ## Public vs private — the rule for every file
 
