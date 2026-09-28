@@ -23,6 +23,18 @@ jobs:
       - name: The current version has a changelog section
         run: scripts/release-notes.sh "$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)" > /dev/null
 
+  # ADR 0027: the dnx tool packs, carries the Directory.Build.props version in .mcp/server.json, starts from an empty
+  # directory and lists orchestrate over stdio. McpServerJsonTests (build job) checks server.json against the schema.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - run: dotnet pack src/Chargehand.Cli -c Release -o "$RUNNER_TEMP/package"
+      - run: scripts/mcp-smoke.py "$RUNNER_TEMP/package"
+
   secrets:
     runs-on: ubuntu-latest
     # On pull requests gitleaks-action lists the PR's commits through the API.

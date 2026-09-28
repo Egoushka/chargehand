@@ -1,5 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- The package id Chargehand belongs to the dnx tool (src/Chargehand.Cli); restore refuses two projects with one id. -->
+  <PropertyGroup>
+    <PackageId>Chargehand.Core</PackageId>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
   </ItemGroup>

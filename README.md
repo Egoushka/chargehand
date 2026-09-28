@@ -127,6 +127,55 @@ Claude Code, from a checkout:
 claude mcp add chargehand -- dotnet run --project <checkout>/src/Chargehand.Cli -- mcp
 ```
 
+### From the package (once published)
+
+> **Not on nuget.org yet.** The lines below work once the first release publishes the `Chargehand` package; until
+> then use the checkout line above.
+
+The package is a .NET tool that `dnx` (.NET 10 SDK) fetches and runs; no install step, no port, no key. Pin
+`<version>` to a release. Pass the Claude Code credential as one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`;
+`CHARGEHAND_RUNTIME` and `CHARGEHAND_PROFILE` are optional. If a desktop app does not see your shell's `PATH`, give
+the full path to `dnx`.
+
+Claude Code:
+
+```bash
+claude mcp add chargehand -e CLAUDE_CODE_OAUTH_TOKEN=<token> -- dnx Chargehand@<version> --yes -- mcp
+```
+
+VS Code, `.vscode/mcp.json`:
+
+```json
+{
+  "inputs": [{ "id": "claude-token", "type": "promptString", "description": "claude setup-token", "password": true }],
+  "servers": {
+    "chargehand": {
+      "type": "stdio",
+      "command": "dnx",
+      "args": ["Chargehand@<version>", "--yes", "--", "mcp"],
+      "env": { "CLAUDE_CODE_OAUTH_TOKEN": "${input:claude-token}" }
+    }
+  }
+}
+```
+
+Claude Desktop, `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "chargehand": {
+      "command": "dnx",
+      "args": ["Chargehand@<version>", "--yes", "--", "mcp"],
+      "env": { "CLAUDE_CODE_OAUTH_TOKEN": "<token>" }
+    }
+  }
+}
+```
+
+`scripts/mcp-smoke.py <dir>` runs a locally packed tool (`dotnet pack src/Chargehand.Cli -o <dir>`) the same way and
+lists its tools; CI runs it on every change.
+
 ## Repository layout
 
 | path | contents |
@@ -136,7 +185,8 @@ claude mcp add chargehand -- dotnet run --project <checkout>/src/Chargehand.Cli 
 | `src/Chargehand.OpenCode` | OpenCode V2 client and worker-runtime adapter |
 | `src/Chargehand.ClaudeCode` | Claude Code worker-runtime adapter |
 | `src/Chargehand.Server` | HTTP interface and MCP server |
-| `src/Chargehand.Cli` | CLI entry point |
+| `src/Chargehand.Cli` | CLI entry point, packed as the `Chargehand` dnx tool and MCP server |
+| `.mcp/server.json` | MCP Registry entry, packed into the tool; the pack stamps the version over `0.0.0` |
 | `schemas/` | JSON Schemas `request`, `task-spec`, `result`, `run-status`, `preset`, with valid and invalid examples |
 | `presets/` | shipped presets |
 | `prompts/` | versioned prompt blocks (core, intake, preset) |
@@ -144,6 +194,7 @@ claude mcp add chargehand -- dotnet run --project <checkout>/src/Chargehand.Cli 
 | `profiles/` | profile schema and examples; your own goes in the gitignored `profiles/local.*` |
 | `samples/ContentEngineCall` | a program caller built from `Chargehand.Contracts` only |
 | `docs/adr/` | architecture decision records |
+| `docs/mcp-server-2025-12-11.schema.json` | the MCP Registry `server.json` schema the entry is tested against |
 | `docs/opencode-api.md` | the OpenCode V2 HTTP API surface this project uses, generated from the live spec |
 
 ## Build and test
