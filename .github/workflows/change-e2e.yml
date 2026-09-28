@@ -1,0 +1,27 @@
+name: change-e2e
+
+# Goal 0.5: runs scripts/change-e2e.sh on the maintainer's self-hosted runner, which has a signed-in Claude Code.
+# Never runs on forks: workflow_dispatch, or the "change-e2e" label on a same-repository pull request.
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.label.name == 'change-e2e' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, chargehand-eval]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - run: scripts/change-e2e.sh

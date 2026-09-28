@@ -24,7 +24,9 @@ branch and goes to step 9, recording the step and the error with its action.
 
 ## 2. Research
 
-Call `orchestrate` with `request/v1`: `contract_version` = "request/v1", `text` = the goal, `context.preset` =
+Call `orchestrate` with `request/v1`: `contract_version` = "request/v1", `text` = "Answer without changing anything:
+which files, functions and tests does this change touch, and how do they work today? The change: " followed by the
+goal (the research preset is read-only; a goal sent as is reads as an edit request and fails), `context.preset` =
 "default", `context.repository` = { path: the repository root, commit: the base commit (hex sha) },
 `context.interactive` = true, and `context.budget_usd` when `--budget` was given.
 
