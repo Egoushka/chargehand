@@ -1,0 +1,10 @@
+{
+  "name": "chargehand",
+  "displayName": "chargehand",
+  "version": "0.3.0",
+  "description": "The change command: one prompt to a reviewed change on a local branch.",
+  "author": { "name": "Egoushka" },
+  "repository": "https://github.com/Egoushka/chargehand",
+  "license": "Apache-2.0",
+  "keywords": ["review", "citations", "mcp"]
+}

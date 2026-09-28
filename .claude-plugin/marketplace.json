@@ -1,0 +1,12 @@
+{
+  "name": "chargehand",
+  "owner": { "name": "Egoushka" },
+  "metadata": { "description": "chargehand: cited research and review for Claude Code." },
+  "plugins": [
+    {
+      "name": "chargehand",
+      "source": "./plugins/chargehand",
+      "description": "One prompt to a reviewed change: chargehand researches and reviews with citations checked against a pinned commit, Claude Code writes the code."
+    }
+  ]
+}
