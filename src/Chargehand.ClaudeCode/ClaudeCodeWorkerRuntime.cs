@@ -13,8 +13,9 @@ namespace Chargehand.ClaudeCode;
 /// with <c>--session-id</c>, later ones with <c>--resume</c>. Sessions live in this process; the CLI persists the
 /// transcript. Create with <see cref="ConnectAsync"/>, which pins the version.
 /// Two credentials: an API key (billed per token, <c>--bare</c>) or a subscription OAuth token from
-/// <c>claude setup-token</c> (the owner's plan limits, no per-token bill). <c>--bare</c> ignores OAuth, so the
-/// subscription mode isolates with <c>--setting-sources ""</c> instead.
+/// <c>claude setup-token</c> (the owner's plan limits, no per-token bill); with neither, the CLI's own login.
+/// <c>--bare</c> ignores OAuth and the keychain, so the subscription and login modes isolate with
+/// <c>--setting-sources ""</c> instead.
 /// </summary>
 public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
 {
@@ -48,10 +49,15 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
         if (run.Exit != 0)
             throw new ChargehandException(ErrorCode.RuntimeUnavailable, $"{binary} --version exited {run.Exit}: {run.Stderr.Trim()}",
                 $"Run {binary} --version by hand and fix what it reports.");
-        return version == pinnedVersion
-            ? new ClaudeCodeWorkerRuntime(binary, credential, version, baseUrl)
-            : throw new ChargehandException(ErrorCode.RuntimeVersionMismatch, $"Claude Code CLI is {version}; this adapter is pinned to {pinnedVersion}.",
+        if (version != pinnedVersion)
+            throw new ChargehandException(ErrorCode.RuntimeVersionMismatch, $"Claude Code CLI is {version}; this adapter is pinned to {pinnedVersion}.",
                 $"Install Claude Code {pinnedVersion}, or change claude_code.version in the profile.");
+        var runtime = new ClaudeCodeWorkerRuntime(binary, credential, version, baseUrl);
+        // The CLI login fails only on the first model call otherwise; `auth status` exits 1 when signed out, no call made.
+        if (credential.Secret is null && (await Exec(binary, Path.GetTempPath(), ["auth", "status"], null, ct, runtime.Env)).Exit != 0)
+            throw new ChargehandException(ErrorCode.RuntimeUnavailable, $"{binary} is not signed in and no Claude Code credential is set",
+                $"Run {binary} and sign in, or set CLAUDE_CODE_OAUTH_TOKEN (from claude setup-token) or ANTHROPIC_API_KEY.");
+        return runtime;
     }
 
     public async Task<WorkerSession> CreateAsync(NodeSpec spec, CancellationToken ct)
@@ -193,6 +199,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
     /// <summary>
     /// Only the profile decides credential and endpoint: an inherited API key would outrank the OAuth token, and an
     /// inherited base URL or auth token would reroute the worker, so the variables this runtime does not set are removed.
+    /// With the CLI login none is set, so an inherited one cannot switch the worker to another account.
     /// </summary>
     private IReadOnlyDictionary<string, string?> Env => new Dictionary<string, string?>
     {
@@ -514,7 +521,10 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
 }
 
 /// <param name="Subscription">True: <paramref name="Secret"/> is a <c>claude setup-token</c> OAuth token; false: an API key.</param>
-public sealed record ClaudeCodeCredential(string Secret, bool Subscription)
+public sealed record ClaudeCodeCredential(string? Secret, bool Subscription)
 {
+    /// <summary>No secret: the CLI's own signed-in login (what <c>/login</c> stored), in subscription mode.</summary>
+    public static readonly ClaudeCodeCredential CliLogin = new(null, Subscription: true);
+
     public override string ToString() => $"ClaudeCodeCredential {{ Subscription = {Subscription} }}";
 }

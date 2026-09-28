@@ -160,6 +160,43 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         Assert.Equal("api= oauth=oauth-test base=https://gateway.example.com/anthropic", File.ReadAllText(Path.Combine(_dir.Path, "key.txt")).Trim());
     }
 
+    /// <summary>No credential configured: the CLI's own login. Nothing is set, inherited credential variables are
+    /// removed so the CLI cannot pick another account, and --bare (which never reads the keychain) is not used.</summary>
+    [Fact]
+    public async Task A_cli_login_sets_no_credential_strips_inherited_ones_and_skips_bare()
+    {
+        var claude = FakeClaude("""{"type":"result","subtype":"success","is_error":false,"result":"hi"}""");
+        Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", "inherited");
+        Environment.SetEnvironmentVariable("CLAUDE_CODE_OAUTH_TOKEN", "inherited");
+        try
+        {
+            IWorkerRuntime rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", ClaudeCodeCredential.CliLogin, CancellationToken.None);
+            var session = await rt.CreateAsync(Spec with { Directory = _dir.Path }, CancellationToken.None);
+            await rt.SubmitAsync(session.Id, "hi", CancellationToken.None);
+            Assert.Equal(IdleOutcome.Succeeded, await rt.AwaitIdleAsync(session.Id, CancellationToken.None));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", null);
+            Environment.SetEnvironmentVariable("CLAUDE_CODE_OAUTH_TOKEN", null);
+        }
+        var args = File.ReadAllLines(Path.Combine(_dir.Path, "args.txt"));
+        Assert.DoesNotContain("--bare", args);
+        Assert.Equal("", args[Array.IndexOf(args, "--setting-sources") + 1]);
+        Assert.Equal("api= oauth= base=", File.ReadAllText(Path.Combine(_dir.Path, "key.txt")).Trim());
+    }
+
+    [Fact]
+    public async Task A_cli_that_is_not_signed_in_is_runtime_unavailable()
+    {
+        var claude = FakeClaude("", signedIn: false);
+        var e = await Assert.ThrowsAsync<ChargehandException>(() => ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", ClaudeCodeCredential.CliLogin, CancellationToken.None));
+        Assert.Equal(ErrorCode.RuntimeUnavailable, e.Code);
+        Assert.Contains("sign in", e.Action);
+        Assert.Contains("CLAUDE_CODE_OAUTH_TOKEN", e.Action);
+        Assert.Contains("ANTHROPIC_API_KEY", e.Action);
+    }
+
     [Fact]
     public async Task Generate_runs_without_thinking_tools_or_the_agent_system_prompt()
     {
@@ -194,13 +231,15 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
     private static bool Apply(ClaudeCodeWorkerRuntime.Session s, string json, bool compact = false) =>
         ClaudeCodeWorkerRuntime.Apply(s, JsonDocument.Parse(json).RootElement, compact);
 
-    /// <summary>A stand-in CLI: prints the pinned version, records its arguments, stdin and key, and replays events.</summary>
-    private string FakeClaude(string events)
+    /// <summary>A stand-in CLI: prints the pinned version, answers auth status, records its arguments, stdin and key,
+    /// and replays events.</summary>
+    private string FakeClaude(string events, bool signedIn = true)
     {
         _dir.Write("events.jsonl", events + "\n");
         var script = _dir.Write("claude", $"""
             #!/bin/sh
             if [ "$1" = "--version" ]; then echo "2.1.195 (Claude Code)"; exit 0; fi
+            if [ "$1" = "auth" ]; then exit {(signedIn ? 0 : 1)}; fi
             printf '%s\n' "$@" > "{_dir.Path}/args.txt"
             cat > "{_dir.Path}/stdin.txt"
             echo "api=$ANTHROPIC_API_KEY oauth=$CLAUDE_CODE_OAUTH_TOKEN base=$ANTHROPIC_BASE_URL" > "{_dir.Path}/key.txt"

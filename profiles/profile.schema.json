@@ -80,7 +80,7 @@
       "required": [
         "version"
       ],
-      "description": "Claude Code CLI as the worker runtime (ADR 0020). When set, it is used instead of opencode. Exactly one credential.",
+      "description": "Claude Code CLI as the worker runtime (ADR 0020). When set, it is used instead of opencode. At most one credential; with neither, the CLI's own signed-in login (--setting-sources \"\").",
       "properties": {
         "version": {
           "type": "string",
@@ -105,18 +105,12 @@
           "description": "Anthropic-compatible gateway the workers call (ANTHROPIC_BASE_URL). Unset: Anthropic directly; an inherited ANTHROPIC_BASE_URL is ignored."
         }
       },
-      "oneOf": [
-        {
-          "required": [
-            "api_key_secret"
-          ]
-        },
-        {
-          "required": [
-            "oauth_token_secret"
-          ]
-        }
-      ]
+      "not": {
+        "required": [
+          "api_key_secret",
+          "oauth_token_secret"
+        ]
+      }
     },
     "worker_root": {
       "type": "string",
