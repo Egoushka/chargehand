@@ -24,6 +24,9 @@ dotnet build "$here/src/Chargehand.Cli" -v q -nologo >/dev/null
 # claude -p runs in the sample repository, so the project path must be absolute.
 mcp=$(mktemp "${TMPDIR:-/tmp}/change-e2e.XXXXXX")
 sed "s|CHECKOUT|$here|" "$here/scripts/change-e2e.mcp.json" > "$mcp"
+# A copy of the plugin: --add-dir with acceptEdits would let the session write to whatever directory it names.
+plugin=$(mktemp -d "${TMPDIR:-/tmp}/change-e2e.XXXXXX")/chargehand
+cp -R "$here/plugins/chargehand" "$plugin"
 fail=0
 
 sample() {
@@ -39,10 +42,10 @@ sample() {
 # --strict-mcp-config keeps only the servers in the given file: the plugin's own .mcp.json server is not loaded, so
 # the tool is mcp__chargehand__orchestrate from the checkout's server. --setting-sources "" (as the worker runtime
 # does) keeps the user's own hooks and plugins out: a hook that writes into the sample repository fails preflight.
-# --add-dir lets the session read the skill's report template, which -p would otherwise deny.
+# --add-dir lets the session read the skill's report template (in the plugin copy), which -p would otherwise deny.
 run() { # dir, mcp-config, goal
   (cd "$1" && GIT_AUTHOR_NAME=e2e GIT_AUTHOR_EMAIL=e2e@example.com GIT_COMMITTER_NAME=e2e GIT_COMMITTER_EMAIL=e2e@example.com \
-    claude -p "/chargehand:change $3" --plugin-dir "$here/plugins/chargehand" --add-dir "$here/plugins/chargehand" \
+    claude -p "/chargehand:change $3" --plugin-dir "$plugin" --add-dir "$plugin" \
      --mcp-config "$2" --strict-mcp-config --setting-sources "" --permission-mode acceptEdits \
      --allowedTools "Bash(git:*),Bash(python3 -m unittest:*),mcp__chargehand__orchestrate" >"$1.log" 2>&1) || true
 }
@@ -51,21 +54,28 @@ check() { # case, dir, "pass" when the case held
   if [ "$3" = pass ]; then echo "ok   $1"; else echo "FAIL $1  (log: $2.log)"; fail=1; fi
 }
 changes() { git -C "$1" branch --list 'change/*' --format '%(refname:short)'; }
-reviewed() { # a change branch with the change and the report committed on it
-  local b; b=$(changes "$1" | head -1)
-  [ -n "$b" ] && [ "$(git -C "$1" rev-list --count main.."$b")" -ge 2 ] && git -C "$1" cat-file -e "$b:.chargehand/reports/${b#change/}.md"
+section() { awk -v h="## $1" '$0 == h { on = 1; next } /^## / { on = 0 } on'; } # report on stdin
+reviewed() { # a change branch with the change and the report on it, and at least one review that ran
+  local b report; b=$(changes "$1" | head -1)
+  { [ -n "$b" ] && [ "$(git -C "$1" rev-list --count main.."$b")" -ge 2 ]; } || return 1
+  report=$(git -C "$1" show "$b:.chargehand/reports/${b#change/}.md") || return 1
+  section "Review rounds" <<<"$report" | grep -qiE '^[-*# ]*review [0-9]' &&
+    ! section "Review rounds" <<<"$report" | grep -qiE 'failed|denied|needs_input|cost_cap' &&
+    section Runs <<<"$report" | grep -qiE 'review.*run-'
 }
 untouched() { [ -z "$(changes "$1")" ]; }
+refused() { grep -qiE "$2" "$1.log"; } # dir, key phrase of the skill's stop message
 has_branch() { [ -n "$(git -C "$1" branch --list "$2")" ]; }
 
 d=$(sample); run "$d" "$mcp" "make greet() capitalise the name"
 check happy "$d" "$(reviewed "$d" && echo pass)"
 
 d=$(sample); echo dirty >> "$d/greet.py"; run "$d" "$mcp" "make greet() capitalise the name"
-check dirty "$d" "$(untouched "$d" && echo pass)"
+check dirty "$d" "$(untouched "$d" && refused "$d" 'commit or stash' && [ "$(tail -1 "$d/greet.py")" = dirty ] &&
+  [ -z "$(git -C "$d" stash list)" ] && echo pass)"
 
 d=$(sample); echo '{"mcpServers":{}}' > "$d.none.json"; run "$d" "$d.none.json" "make greet() capitalise the name"
-check no-server "$d" "$(untouched "$d" && echo pass)"
+check no-server "$d" "$(untouched "$d" && refused "$d" "server (is not|isn't) running" && echo pass)"
 
 d=$(sample); git -C "$d" branch change/make-greet-capitalise-the-name; run "$d" "$mcp" "make greet capitalise the name"
 check branch-exists "$d" "$(has_branch "$d" change/make-greet-capitalise-the-name-2 && echo pass)"
