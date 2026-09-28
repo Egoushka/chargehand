@@ -66,6 +66,8 @@ public static partial class ChargehandServer
         });
         // A page in the owner's browser could reach the port through DNS rebinding; only a known Host is accepted.
         builder.Services.AddHostFiltering(o => o.AllowedHosts = ["localhost", "127.0.0.1", .. hosts]);
+        // OrchestrateTool reads the MCP call's Prefer header.
+        builder.Services.AddHttpContextAccessor();
         builder.Services.AddSingleton(sp => new RunService(orchestrator, settings.PresetsDirectory,
             sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping));
         builder.Services.AddMcpServer(o =>
