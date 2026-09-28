@@ -94,6 +94,7 @@ jobs:
           REVIEWED: ${{ needs.review.result == 'success' && '--reviewed' || '' }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           REPO: ${{ github.repository }}
+          # The commit this run was approved for; scripts/prompt-ci.sh evaluates it, not the head at job start.
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           runtime=$(echo "$LABELS" | jq -r '[.[] | select(startswith("prompt-ci:")) | ltrimstr("prompt-ci:")][0] // empty')
