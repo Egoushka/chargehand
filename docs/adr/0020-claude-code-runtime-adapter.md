@@ -75,3 +75,21 @@ child environment, because an inherited API key outranks the OAuth token. Price 
 
 A live run shows the stream shape differs from the one mapped here, or mid-turn compaction or cross-process resume
 becomes a requirement.
+
+## Addendum (2026-09-28): the CLI's own login
+
+With no credential configured (neither variable in the environment, neither `api_key_secret` nor
+`oauth_token_secret` in the profile), the adapter no longer fails with `runtime_unavailable`: it runs `claude` on
+the login `/login` stored (the macOS keychain, or the CLI's config directory). A third mode:
+
+| mode | profile | auth | isolation | cost |
+|---|---|---|---|---|
+| CLI login | neither secret | none set; the CLI reads its own stored login | `--setting-sources ""`, as the subscription mode | the signed-in account's plan |
+
+`--bare` is out: its help text says OAuth and the keychain are never read in bare mode. The child environment gets
+no credential variable, and inherited `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_AUTH_TOKEN` are
+removed, so a stray variable cannot switch the worker to another account. Both secrets set stays an error.
+Connecting runs `claude auth status`, which exits 1 when signed out and calls no model; that maps to
+`runtime_unavailable` with the action to sign in or set one of the two variables. Live check (2.1.283, 2026-09-28):
+`claude -p --setting-sources "" --strict-mcp-config --model claude-haiku-4-5 --output-format stream-json --verbose
+--tools Read` with both variables empty answered with `apiKeySource: none` in `init` and a successful `result`.

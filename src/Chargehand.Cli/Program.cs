@@ -230,7 +230,8 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
         {
             ({ } key, null) => new ClaudeCodeCredential(profile.Secret(key), Subscription: false),
             (null, { } token) => new ClaudeCodeCredential(profile.Secret(token), Subscription: true),
-            _ => throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code needs exactly one of api_key_secret and oauth_token_secret",
+            (null, null) => ClaudeCodeCredential.CliLogin,
+            _ => throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code takes at most one of api_key_secret and oauth_token_secret",
                 "Set one of claude_code.api_key_secret and claude_code.oauth_token_secret in the profile, not both."),
         };
         var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct, cc.BaseUrl is null ? null : new Uri(cc.BaseUrl));

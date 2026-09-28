@@ -54,9 +54,10 @@ You need the .NET 10 SDK and one worker runtime.
      `profiles/opencode.example.json`) and add the profile's `opencode` block (`url`, `password_secret`, `version`);
      then nothing is started. See [ADR 0030](docs/adr/0030-default-opencode-server.md) and
      [ADR 0004](docs/adr/0004-opencode-major-and-runtime-adapter.md).
-   - **Claude Code**: with `claude` on `PATH` (pinned 2.1.283), set exactly one of `ANTHROPIC_API_KEY` or
-     `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`); no profile block is needed. The profile's `claude_code`
-     block (`version`, `binary`, and one of `api_key_secret` or `oauth_token_secret`) overrides that.
+   - **Claude Code**: with `claude` on `PATH` (pinned 2.1.283) and signed in (run `claude` once and log in),
+     nothing else is needed: workers use the CLI's own login. To use another credential, set one of
+     `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`), not both. The profile's
+     `claude_code` block (`version`, `binary`, and at most one of `api_key_secret` or `oauth_token_secret`) overrides that.
      See [ADR 0020](docs/adr/0020-claude-code-runtime-adapter.md).
 3. List the directories your repositories live in as `repository_roots` (`/` allows any). A request names a
    repository and a commit; the worker reads a clone of it at that commit under `worker_root`, which stays outside
