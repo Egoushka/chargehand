@@ -18,7 +18,7 @@ image.
 
 ## Stage 3 — One prompt, whole result · (0.5–0.7)
 
-- · **0.5** `/ch <goal>` in Claude Code takes one prompt to a reviewed change.
+- · **0.5** `/chargehand:change <goal>` in Claude Code takes one prompt to a reviewed change.
 - · **0.6** Runs use your MCP services and memory: any MCP memory server, several at once.
 - · **0.7** Workers write branches that build and pass their tests in a sandbox.
 

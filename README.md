@@ -133,6 +133,21 @@ Claude Code, from a checkout:
 claude mcp add chargehand -- dotnet run --project <checkout>/src/Chargehand.Cli -- mcp
 ```
 
+## Claude Code plugin
+
+`/chargehand:change <goal>` takes one prompt to a reviewed change on a local branch `change/<slug>`: chargehand
+researches the goal with citations checked against the current commit, your session writes the change and runs the
+tests, chargehand reviews the diff with the `review` preset, the session fixes what holds (at most 2 fix rounds), and a
+report lands in `.chargehand/reports/<slug>.md` as its own commit. Nothing is pushed.
+
+    /plugin marketplace add Egoushka/chargehand
+    /plugin install chargehand@chargehand
+
+The plugin starts chargehand through `dnx`, so it needs the .NET 10 SDK and a published `Chargehand` package. From a
+checkout, point a `chargehand` MCP server at the CLI instead:
+
+    {"mcpServers": {"chargehand": {"command": "dotnet", "args": ["run", "--project", "<checkout>/src/Chargehand.Cli", "--", "mcp"]}}}
+
 ### From the package (once published)
 
 > **Not on nuget.org yet.** The lines below work once the first release publishes the `Chargehand` package; until
