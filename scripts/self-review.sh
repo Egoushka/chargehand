@@ -14,6 +14,7 @@
 # the runner's work directory (for example _work/chargehand/chargehand); a profile without repository_roots allows
 # worker_root and the directory the script runs in.
 set -euo pipefail
+export LC_ALL=C.UTF-8 # ${#diff} below counts characters, not bytes
 
 base=${1:?base commit}
 head=${2:?head commit}

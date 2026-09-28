@@ -54,19 +54,22 @@ jobs:
           jq -e '.contract_version == "result/v1"' "$result" > /dev/null
           # The comment: each finding with the locators of its evidence, or why there are none. Everything in it
           # comes from the result file or the environment, never from shell interpolation.
+          # Model text is neutralised first: an @ gets a zero-width space so a written @name pings no one (the
+          # repository is public), and line breaks become spaces so text cannot start a new block.
           jq -r --arg head "$HEAD" '
+            def q: gsub("@"; "@\u200b") | gsub("\r?\n|\r"; " ");
             (.evidence | map({(.id): .}) | add // {}) as $ev
             | "### chargehand review\n\n"
             + (if .status == "failed" then
-                 "The review failed (`\(.error.code // "unknown")`): \(.error.message // .summary)"
-                 + (if .error.action then "\n\nAction: \(.error.action)" else "" end)
+                 "The review failed (`\(.error.code // "unknown")`): \((.error.message // .summary) | q)"
+                 + (if .error.action then "\n\nAction: \(.error.action | q)" else "" end)
                elif .status == "needs_input" or .status == "denied" then
-                 "The review stopped with status `\(.status)`: \(.summary)"
+                 "The review stopped with status `\(.status)`: \(.summary | q)"
                elif (.claims | length) == 0 then
-                 .summary + "\n\nNo findings."
+                 (.summary | q) + "\n\nNo findings."
                else
-                 .summary + "\n\n"
-                 + ([.claims[] | "- " + .text + "\n  Evidence: "
+                 (.summary | q) + "\n\n"
+                 + ([.claims[] | "- " + (.text | q) + "\n  Evidence: "
                      + ([.evidence[] | ($ev[.] // {kind: "unresolved", locator: .}) | "`\(.kind) \(.locator)`"] | join(", "))]
                     | join("\n"))
                end)
