@@ -41,14 +41,10 @@ public static partial class ChargehandServer
 
     /// <summary>Sent to MCP clients on initialize so they know when to call chargehand without loading the tool first.</summary>
     public const string Instructions =
-        "chargehand runs a request on coding-agent workers (OpenCode or Claude Code, whichever runtime this server's profile "
-        + "configures) and returns result/v1: an answer whose claims each carry evidence (file at a commit, diff, session "
-        + "message or caller input), a confidence, and open questions for claims that did not resolve. Workers are read-only. "
-        + "Call the orchestrate tool for questions about a codebase that need reading several files or a second agent's "
-        + "independent answer; pass request/v1 with text, and context.repository (path, commit) to pin the checkout. "
-        + "Set context.preset (default, cheap, thorough, strict, draft) or context.budget_usd to bound cost. "
-        + "Set context.interactive false to get status needs_input instead of questions. Runs can take minutes; clients "
-        + "that support MCP tasks get the run as a task to poll.";
+        "chargehand answers codebase questions with read-only coding-agent workers and returns result/v1: claims with "
+        + "evidence, a confidence, and open questions. Call the orchestrate tool when a question needs several files read or "
+        + "a second agent's independent answer. Pin the checkout with context.repository (path, commit); bound cost with "
+        + "context.preset (default, cheap, thorough, strict, draft) or context.budget_usd. Runs can take minutes.";
 
     public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log)
     {
