@@ -1,0 +1,40 @@
+name: sonar
+
+# SonarQube Cloud (decision D9), through the CI scanner so .NET 10 and coverage work. Runs only when the SONAR_TOKEN
+# secret exists; pull requests from forks get no secrets and skip. Coverage: dotnet-coverage, Visual Studio XML.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - if: env.SONAR_TOKEN == ''
+        run: echo "SONAR_TOKEN is not set; SonarQube Cloud analysis skipped."
+      - if: env.SONAR_TOKEN != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - if: env.SONAR_TOKEN != ''
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - if: env.SONAR_TOKEN != ''
+        env:
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || 'Egoushka_chargehand' }}
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION || 'egoushka' }}
+        run: |
+          dotnet tool install --global dotnet-sonarscanner
+          dotnet tool install --global dotnet-coverage
+          dotnet sonarscanner begin /k:"$SONAR_PROJECT_KEY" /o:"$SONAR_ORGANIZATION" /d:sonar.token="$SONAR_TOKEN" \
+            /d:sonar.host.url=https://sonarcloud.io /d:sonar.cs.vscoveragexml.reportsPaths=coverage.xml
+          dotnet build --no-incremental -c Release
+          dotnet-coverage collect "dotnet test --no-build -c Release" -f xml -o coverage.xml
+          dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"

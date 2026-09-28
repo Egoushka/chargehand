@@ -17,6 +17,8 @@ All notable changes to this project are documented here. The format follows
 
 - `ROADMAP.md`; `scripts/check.sh`, the one check before a push; a Claude Code hook that asks before an edit to a
   published schema major.
+- OpenSSF Scorecard, dependency review on pull requests, CodeQL, and a SonarQube Cloud job that runs once the project
+  is connected; badges in the README.
 
 ### Changed
 
