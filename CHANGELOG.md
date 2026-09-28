@@ -26,6 +26,8 @@ All notable changes to this project are documented here. The format follows
   version bump that comes without one.
 - The Prompt CI runner ADR is now ADR 0025 (two ADRs had number 0022); ADRs 0024 and 0025 are accepted.
   `TRADEMARK.md` says how the name may be used, and contributions are signed off (DCO).
+- The build runs the .NET analyzers at `10.0-recommended`. Parsing and formatting no longer depend on the machine's
+  locale: a hand score such as `0.8` parses where the decimal separator is a comma.
 
 ## [0.2.1] - 2026-09-28
 

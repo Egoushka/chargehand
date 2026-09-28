@@ -10,13 +10,15 @@ namespace Chargehand.Server;
 /// uses both. A run outlives the HTTP or MCP call that started it. Start and run records live in the run log, which
 /// the CLI shares (ADR 0018); events live here only while the run is unfinished.
 /// </summary>
-public sealed class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping)
+public sealed class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping) : IDisposable
 {
     /// <summary>Unfinished runs held at most; beyond it a new run is refused (HTTP 429).</summary>
     public const int MaxUnfinished = 10;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ConcurrentDictionary<string, RunHandle> _runs = new();
+
+    public void Dispose() => _gate.Dispose();
 
     /// <summary>request/v1 schema, a known preset, and caller blocks whose sha256 matches their text.</summary>
     public (RunRequest? Request, IReadOnlyList<string> Errors) Validate(JsonElement json)

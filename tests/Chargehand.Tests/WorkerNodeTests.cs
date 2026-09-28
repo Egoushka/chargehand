@@ -1,3 +1,4 @@
+using System.Globalization;
 using Chargehand.Budget;
 using Chargehand.Contracts;
 using Chargehand.Nodes;
@@ -99,7 +100,7 @@ public class WorkerNodeTests
     {
         public Task<IReadOnlyList<EvidenceFailure>> ResolveAsync(ResultContract contract, EvidenceScope scope, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<EvidenceFailure>>(contract.Evidence
-                .Where(e => e.Kind != EvidenceKind.File || !e.Locator.StartsWith("src/calc.py:", StringComparison.Ordinal) || int.Parse(e.Locator.Split(':')[1].Split('-')[^1]) > 6)
+                .Where(e => e.Kind != EvidenceKind.File || !e.Locator.StartsWith("src/calc.py:", StringComparison.Ordinal) || int.Parse(e.Locator.Split(':')[1].Split('-')[^1], CultureInfo.InvariantCulture) > 6)
                 .Select(e => new EvidenceFailure(e.Id, "line beyond end of file")).ToList());
     }
 

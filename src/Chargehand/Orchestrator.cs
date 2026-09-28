@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -51,7 +52,7 @@ public sealed class Orchestrator(
 
         var registry = new PromptRegistry(Path.Combine(rootDirectory, "prompts"));
         var presetName = request.Context.Preset;
-        var date = started.ToString("yyyy-MM-dd");
+        var date = started.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var intakeBlock = registry.Get("intake/task-spec");
         var intakeChain = PromptChains.Build([(intakeBlock, BlockSource.Registry)], new AsSent(opencodeVersion, "generate", profile.IntakeModel, date));
 
@@ -382,7 +383,7 @@ public sealed class Orchestrator(
         var sb = new StringBuilder();
         sb.AppendLine(commit.Length > 0 ? $"Task (repository commit {commit}):" : "Task:").AppendLine(request.Text).AppendLine();
         if (node.Goal is not null)
-            sb.AppendLine($"Your part ({node.Id}, one of {nodes} parts, each answered by a separate worker): {node.Goal}")
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Your part ({node.Id}, one of {nodes} parts, each answered by a separate worker): {node.Goal}")
               .AppendLine("Answer only your part; do not research the other parts.").AppendLine();
         if (spec.Constraints.Count > 0)
             sb.AppendLine("Constraints:").AppendLine(string.Join("\n", spec.Constraints.Select(c => $"- {c}"))).AppendLine();
@@ -390,12 +391,12 @@ public sealed class Orchestrator(
         if (node.Goal is null && spec.AcceptanceCriteria.Count > 0)
             sb.AppendLine("A good answer:").AppendLine(string.Join("\n", spec.AcceptanceCriteria.Select(c => $"- {c}"))).AppendLine();
         foreach (var u in upstream)
-            sb.AppendLine($"Result of part {u.NodeId} (you may rely on it; cite files yourself):")
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Result of part {u.NodeId} (you may rely on it; cite files yourself):")
               .AppendLine(JsonSerializer.Serialize(new { u.Summary, u.Claims, u.Evidence }, ContractJson.Options)).AppendLine();
         if (inputText.Length > 0)
             sb.AppendLine("Inputs (cite each with kind \"input\" and its id, without the quotes, as the locator):").AppendLine(inputText).AppendLine();
         foreach (var b in callerBlocks)
-            sb.AppendLine($"Caller instructions ({b.Name} {b.Version}):").AppendLine(b.Text).AppendLine();
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Caller instructions ({b.Name} {b.Version}):").AppendLine(b.Text).AppendLine();
         return sb.ToString();
     }
 
@@ -404,7 +405,7 @@ public sealed class Orchestrator(
         if (span is null)
             return;
         span.SetTag("chargehand.prompt_chain", JsonSerializer.Serialize(chain, ContractJson.Options));
-        var first = chain.Blocks.FirstOrDefault();
+        var first = chain.Blocks.Count > 0 ? chain.Blocks[0] : null;
         if (first is not null && promptVersions.TryGetValue(first.Sha256, out var version))
         {
             span.SetTag("langfuse.observation.prompt.name", first.Name);

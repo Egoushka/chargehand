@@ -9,7 +9,7 @@ namespace Chargehand;
 /// Syncs registry blocks to Langfuse prompt management (ADR 0007): one version per content hash, labelled
 /// "sha-&lt;12 hex&gt;". Git stays the source of truth; Langfuse is a mirror for linking spans to prompts.
 /// </summary>
-public sealed class LangfusePrompts
+public sealed class LangfusePrompts : IDisposable
 {
     private readonly HttpClient _http;
 
@@ -18,6 +18,8 @@ public sealed class LangfusePrompts
         _http = new HttpClient { BaseAddress = baseUrl };
         _http.DefaultRequestHeaders.Authorization = new("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{publicKey}:{secretKey}")));
     }
+
+    public void Dispose() => _http.Dispose();
 
     public static string Label(string sha256) => $"sha-{sha256[..12]}";
 

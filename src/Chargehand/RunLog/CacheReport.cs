@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Chargehand.Contracts;
 
@@ -33,9 +34,9 @@ public static class CacheReport
         sb.AppendLine("node       call   prompt   cached  written  cache%");
         foreach (var node in nodes)
             foreach (var (c, i) in node.Select((c, i) => (c, i + 1)))
-                sb.AppendLine($"{c.NodeId,-10} {i,4} {c.PromptTokens,8} {c.Tokens!.CacheRead,8} {c.Tokens.CacheWrite,8} {c.CacheRate,7:P0}");
+                sb.AppendLine(CultureInfo.InvariantCulture, $"{c.NodeId,-10} {i,4} {c.PromptTokens,8} {c.Tokens!.CacheRead,8} {c.Tokens.CacheWrite,8} {c.CacheRate * 100,6:0}%");
         long prompt = worker.Sum(c => c.PromptTokens ?? 0), read = worker.Sum(c => c.Tokens!.CacheRead), write = worker.Sum(c => c.Tokens!.CacheWrite);
-        sb.AppendLine($"total      {worker.Count,4} {prompt,8} {read,8} {write,8} {(prompt == 0 ? 0 : (double)read / prompt),7:P0}").AppendLine();
+        sb.AppendLine(CultureInfo.InvariantCulture, $"total      {worker.Count,4} {prompt,8} {read,8} {write,8} {(prompt == 0 ? 0 : 100.0 * read / prompt),6:0}%").AppendLine();
 
         var first = nodes.FirstOrDefault()?.First();
         foreach (var node in nodes)
@@ -51,7 +52,7 @@ public static class CacheReport
                           (FirstChange(first!, head) is { } change
                               ? $"{change} differs from {first!.NodeId}, so it could not fork {first.NodeId}'s cached prefix"
                               : $"same blocks as {first!.NodeId}; its session had no completed call when this node started");
-            sb.AppendLine($"{node.Key}: {verdict}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"{node.Key}: {verdict}");
 
             foreach (var (prev, next) in node.Zip(node.Skip(1)))
                 if (next.Tokens!.CacheRead < prev.PromptTokens * DropRatio)
@@ -61,7 +62,7 @@ public static class CacheReport
 
         sb.AppendLine().AppendLine("Not visible to the orchestrator; check when a drop has no block to blame:");
         foreach (var item in Checklist)
-            sb.AppendLine($"- {item}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"- {item}");
         return sb.ToString();
     }
 

@@ -1,5 +1,6 @@
 // chargehand CLI. Exit codes: 0 completed, 1 failed or denied, 2 usage error, 3 needs input.
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Chargehand;
@@ -78,7 +79,7 @@ switch (argv)
             [.. data.SelectMany(d => d.Calls)], [.. data.SelectMany(d => d.Scores)])));
         return 0;
     case ["score", var id, var value, .. var name]:
-        await runLog.AppendAsync(new ScoreRecord(id, name.FirstOrDefault() ?? "quality", double.Parse(value), DateTimeOffset.UtcNow, "hand"), ct);
+        await runLog.AppendAsync(new ScoreRecord(id, name.FirstOrDefault() ?? "quality", double.Parse(value, CultureInfo.InvariantCulture), DateTimeOffset.UtcNow, "hand"), ct);
         return 0;
     case ["eval", "seed", var cellName, .. var runIds]:
         foreach (var item in EvalRunner.Seed(Cell(cellName), await Task.WhenAll(runIds.Select(r => runLog.ReadAsync(r, ct)))))
@@ -126,7 +127,7 @@ async Task<int> Run()
     {
         // The runtime refused before a run started (not running, another version): no prompt was sent, so the chain is empty.
         result = new ResultContract("result/v1", Orchestrator.NewRunId(), "run", ActivityTraceId.CreateRandom().ToHexString(),
-            new PromptChain([], new AsSent("", "", "", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd"))), ResultStatus.Failed, e.Message, [], [], [], [e.Message], 0,
+            new PromptChain([], new AsSent("", "", "", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))), ResultStatus.Failed, e.Message, [], [], [], [e.Message], 0,
             new Usage(0, 0, 0, 0, 0), e.Error);
     }
     tracing?.ForceFlush(10_000);
@@ -256,7 +257,7 @@ async Task<int> Reconcile(string runId)
 
 async Task<int> SyncPrompts()
 {
-    var lf = LangfuseKeys() is { } k ? new LangfusePrompts(k.BaseUrl, k.PublicKey, k.SecretKey) : throw new InvalidOperationException("profile has no telemetry settings");
+    using var lf = LangfuseKeys() is { } k ? new LangfusePrompts(k.BaseUrl, k.PublicKey, k.SecretKey) : throw new InvalidOperationException("profile has no telemetry settings");
     var registry = new PromptRegistry(Path.Combine(root, "prompts"));
     foreach (var file in Directory.GetFiles(Path.Combine(root, "prompts"), "*.md", SearchOption.AllDirectories).Order())
     {
@@ -272,7 +273,7 @@ async Task<IReadOnlyDictionary<string, int>> PromptVersions()
     var versions = new Dictionary<string, int>();
     if (LangfuseKeys() is not { } k)
         return versions;
-    var lf = new LangfusePrompts(k.BaseUrl, k.PublicKey, k.SecretKey);
+    using var lf = new LangfusePrompts(k.BaseUrl, k.PublicKey, k.SecretKey);
     var registry = new PromptRegistry(Path.Combine(root, "prompts"));
     foreach (var name in new[] { "intake/task-spec", $"core/{Orchestrator.NodeKindName}" })
     {
