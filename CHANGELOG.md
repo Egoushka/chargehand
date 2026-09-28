@@ -13,6 +13,13 @@ All notable changes to this project are documented here. The format follows
   spend figures are redacted before a message reaches `result/v1` or the run log. A refusal over a spend budget says
   what to do in `error.action`.
 
+### Changed
+
+- A tag `v<Version>` also creates the GitHub Release, with the version's section of this changelog as its notes, and
+  publishes `Chargehand.Contracts` to nuget.org when its version is new there. Publishing waits for an approval in the
+  `release` environment; a tag whose version has no section here fails before anything is published, and CI fails a
+  version bump that comes without one.
+
 ## [0.2.1] - 2026-09-28
 
 ### Fixed
