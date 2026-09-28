@@ -115,6 +115,12 @@ Unknowns: whether the tasks extension and elicitation behave over stdio as over 
 whether the registry treats the `io.github.<owner>` segment case-insensitively; how long nuget.org takes to serve a
 new version's README to the registry's check.
 
+Note, 2026-09-28: with SDK 2.2.0 both behave over stdio as over HTTP (`StdioMcpTests`, the SDK client on a pair of
+in-process pipes). The server advertises the tasks extension on `initialize`; a task-augmented call returns a task and
+polls to `result/v1`; intake's questions reach the client as an elicitation, inside a task through `input_required`
+and outside one as a plain `elicitation/create`, since stdio always has a session. The one difference: no HTTP
+request, so no `Prefer: wait=N` (ADR 0029); the tool reads the header only when an `IHttpContextAccessor` exists.
+
 ## Reopen if
 
 `dnx` ships with the runtime alone (then self-contained packages pay off); the registry leaves preview with a changed
