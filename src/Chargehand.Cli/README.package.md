@@ -7,7 +7,7 @@ An MCP server that runs coding-agent workers (Claude Code or OpenCode) on a ques
 Workers are read-only.
 
 You need the .NET 10 SDK and one agent CLI on `PATH`. For Claude Code, sign in with `claude` once, or set one of
-`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`). A profile (`CHARGEHAND_PROFILE`) is optional.
+`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`). A profile (`CHARGEHAND_PROFILE`) is optional, except while the presets name placeholder models: then its `models` map is required (tracked for 0.4).
 
 ```bash
 claude mcp add chargehand -- dnx Chargehand@<version> --yes -- mcp

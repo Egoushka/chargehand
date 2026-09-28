@@ -1,7 +1,7 @@
 ---
 name: change
 description: One prompt to a reviewed change. chargehand researches the goal with citations checked against the current commit, you write the change on a new local branch, chargehand reviews it, you fix what it finds (at most 2 fix rounds), and a report is committed. Use when the user runs /chargehand:change with a goal or a GitHub issue reference.
-argument-hint: <goal or #issue> [--budget <usd>]
+argument-hint: <goal or #issue> [--budget <usd per call>]
 ---
 
 Goal from the user: $ARGUMENTS
@@ -17,7 +17,7 @@ branch and goes to step 9, recording the step and the error with its action.
 - Find the `orchestrate` tool of an MCP server whose name contains `chargehand` (the plugin's own server comes first).
   If none is available, stop: "chargehand's MCP server is not running. It needs the .NET 10 SDK; check `/mcp` for its
   error." Create nothing.
-- Parse `--budget <usd>` out of the arguments if present; the rest is the goal. If the goal is a GitHub issue
+- Parse `--budget <usd>` out of the arguments if present (it applies to each chargehand call, not the whole run); the rest is the goal. If the goal is a GitHub issue
   reference (`#12`, or an issues URL) and `gh` or a GitHub MCP server is available, read the issue and use its title
   and body as the goal; otherwise use the text as given.
 - Record the base commit: `git rev-parse HEAD`.
@@ -92,4 +92,4 @@ If a result has `error.code` = `cost_cap_reached`, say which step and what is un
 ## 10. Hand back
 
 Tell the user: the branch name, one paragraph on what changed, the tests result, the open items, and that the report
-commit can be dropped before merging (`git reset --hard HEAD~1` while it is the last commit).
+commit can be dropped before merging (`git reset --keep HEAD~1` while it is the last commit).
