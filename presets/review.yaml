@@ -1,0 +1,26 @@
+# Goal 0.5 (spec docs/specs/2026-09-29-change-command-design.md): reviews a change the caller made. The caller sends
+# the goal, the diff and the test output as inputs; findings are claims citing the diff input or files at the commit.
+# Read-only like every preset (ADR 0006).
+schema: preset/v1
+name: review
+version: 0.1.0
+allowed_actions: [answer]
+node_kinds:
+  worker:
+    model: provider/worker-model
+    opencode_agent: build
+    permissions:
+      - { action: "*", resource: "*", effect: allow }
+      - { action: edit, resource: "*", effect: deny }
+      - { action: read, resource: "*.env", effect: deny }
+      - { action: read, resource: "*.env.*", effect: deny }
+      - { action: read, resource: "*.env.example", effect: allow }
+      - { action: shell, resource: "*", effect: deny }
+      - { action: webfetch, resource: "*", effect: deny }
+      - { action: external_directory, resource: "*", effect: deny }
+      - { action: question, resource: "*", effect: deny }
+      - { action: subagent, resource: "*", effect: deny }
+    budget: { max_input_tokens: 400000, max_usd: 1.00 }
+    compaction: { auto: true, keep_tokens: 15000, buffer: 120000 }
+critic: { enabled: false }
+approval: {}
