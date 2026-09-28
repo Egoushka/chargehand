@@ -14,6 +14,8 @@
 #   --allow-uncovered  pass although a changed prompt or preset file has no eval cell
 #   --no-status        print the verdict without posting the commit status
 # env: CHARGEHAND_PROFILE  profile for the eval runs (default profiles/local.eval.json)
+#      HEAD                the commit to evaluate (the workflow passes the one its run was approved for; default the
+#                          pull request's head now)
 set -eu
 
 pr=${1:?pull request number}
@@ -36,7 +38,8 @@ if [ ! -f "$profile" ]; then
 fi
 
 repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-head=$(gh pr view "$pr" --json headRefOid -q .headRefOid)
+# Not the head at job start: a push between the approval and this job would otherwise run unreviewed prompts.
+head=${HEAD:-$(gh pr view "$pr" --json headRefOid -q .headRefOid)}
 git fetch -q origin main "pull/$pr/head"
 base=$(git merge-base origin/main "$head")
 # Resolved path: macOS's temporary directory sits behind the /var -> /private/var link, and a clean build of the
