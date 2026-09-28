@@ -47,4 +47,5 @@ names, budgets, absolute home paths, session or message ids, API keys, prompts f
 - A mistake an agent makes twice becomes a line in this file.
 - A PR title may end with the maintainer's tracker key (`(CHARGEHAND-12)`); tracker URLs never appear in public text.
 - `.claude/settings.json` asks before edits under `schemas/<name>/v<N>/`: published majors take additive changes only.
+  `SchemaCompatTests` fails `scripts/check.sh` and CI on a breaking change since the latest `v*` tag.
 - Public text says "citations checked", not "claims verified", until the support check ships (ROADMAP.md, 0.8).

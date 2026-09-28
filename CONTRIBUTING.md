@@ -9,7 +9,8 @@ Thanks for looking. The project is pre-alpha; open an issue before a large chang
   A `commit-msg` hook and CI enforce it.
 - **Decisions** that change architecture get an ADR in `docs/adr/` (copy `template.md`).
 - **Schemas** are versioned by major in the path (`schemas/result/v1/`). A breaking change is a
-  new major directory, never an edit of a published one.
+  new major directory, never an edit of a published one. A test compares every schema with the latest `v*` tag and
+  fails on a removed property, a new required one, a narrowed type or enum, or a tighter constraint.
 - **No private configuration in the repository.** Code talks to an OpenCode server URL and uses
   `provider/model` ids from a profile. Your profile goes in `profiles/local.json` (gitignored);
   `profiles/example.json` holds placeholders only. Secrets are referenced by name, never stored.
