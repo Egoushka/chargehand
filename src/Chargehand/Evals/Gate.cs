@@ -3,8 +3,9 @@ using System.Text.RegularExpressions;
 
 namespace Chargehand.Evals;
 
-/// <summary>One item's paired runs: quality 0–1 and cost of base and change.</summary>
-public sealed record Pair(string ItemId, double BaseQuality, double ChangeQuality, decimal BaseUsd, decimal ChangeUsd);
+/// <summary>One item's paired runs: quality 0–1 and cost of base and change. Null cost (ADR 0026): the arm's model
+/// had no price entry; it carries no cost ratio and contributes nothing to the total (not zeroed-and-counted).</summary>
+public sealed record Pair(string ItemId, double BaseQuality, double ChangeQuality, decimal? BaseUsd, decimal? ChangeUsd);
 
 /// <summary>A trade declared in the pull request: quality may fall to <paramref name="Quality"/> if cost changes by at most <paramref name="Cost"/>.</summary>
 /// <param name="Quality">Lowest mean paired quality change accepted, e.g. -0.15.</param>
@@ -28,10 +29,11 @@ public static partial class Gate
         var d = pairs.Select(p => p.ChangeQuality - p.BaseQuality).ToList();
         var dq = d.Count == 0 ? 0 : d.Average();
         var tq = T(d);
-        var sumBase = pairs.Sum(p => p.BaseUsd);
-        var cost = sumBase == 0 ? 0 : (double)(pairs.Sum(p => p.ChangeUsd) / sumBase) - 1;
-        // Items where either arm cost nothing (a stop before any worker) carry no cost ratio.
-        var tc = T([.. pairs.Where(p => p.BaseUsd > 0 && p.ChangeUsd > 0).Select(p => Math.Log((double)(p.ChangeUsd / p.BaseUsd)))]);
+        // Sum() over a nullable sequence never returns null (unpriced pairs, ADR 0026, just contribute nothing).
+        var sumBase = pairs.Sum(p => p.BaseUsd).GetValueOrDefault();
+        var cost = sumBase == 0 ? 0 : (double)(pairs.Sum(p => p.ChangeUsd).GetValueOrDefault() / sumBase) - 1;
+        // Items where either arm cost nothing or unpriced carry no cost ratio.
+        var tc = T([.. pairs.Where(p => p.BaseUsd > 0 && p.ChangeUsd > 0).Select(p => Math.Log((double)(p.ChangeUsd!.Value / p.BaseUsd!.Value)))]);
         Verdict V(bool blocked, FormattableString reason) => new(cell.Name, pairs.Count, dq, tq, cost, tc, blocked, FormattableString.Invariant(reason));
 
         if (pairs.Count < cell.MinItems)

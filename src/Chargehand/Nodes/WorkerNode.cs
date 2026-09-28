@@ -204,10 +204,12 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         return new EvidenceScope(r.RepositoryPath, r.Commit, messages.Select(m => m.Id).ToHashSet(), r.InputIds, seen, await runtime.DiffAsync(sessionId, ct));
     }
 
+    /// <summary>Usd is null (unknown, not $0) once any priced call's model had no price entry (ADR 0026).</summary>
     private Usage Usage(IReadOnlyList<WorkerMessage> messages)
     {
         long input = 0, output = 0, read = 0, write = 0;
         decimal usd = 0;
+        var unknown = false;
         foreach (var m in messages.Where(m => m.Tokens is not null && m.Kind is WorkerMessageKind.Assistant or WorkerMessageKind.Compaction))
         {
             var t = m.Tokens!;
@@ -215,9 +217,14 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
             output += t.Output + t.Reasoning;
             read += t.CacheRead;
             write += t.CacheWrite;
-            usd += m.Model is null ? 0 : prices.PriceUsd(m.Model, t);
+            if (m.Model is null)
+                continue;
+            if (prices.PriceUsd(m.Model, t) is { } price)
+                usd += price;
+            else
+                unknown = true;
         }
-        return new Usage(input, output, read, write, decimal.Round(usd, 6));
+        return new Usage(input, output, read, write, unknown ? null : decimal.Round(usd, 6));
     }
 
     /// <summary>Forkable once a call has completed: the provider has cached the prefix by then.</summary>

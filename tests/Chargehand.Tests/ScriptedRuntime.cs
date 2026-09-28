@@ -44,7 +44,7 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
          "estimate":{"tokens_low":1,"tokens_high":2,"usd_low":0.01,"usd_high":0.02,"basis":"b"},"action":"{{action}}","action_detail":{{detail}}}
         """;
 
-    public Task<string> GenerateAsync(ModelRef model, string prompt, CancellationToken ct)
+    public Task<string> GenerateAsync(ModelRef? model, string prompt, CancellationToken ct)
     {
         IntakePrompts.Enqueue(prompt);
         if (GenerateFailures.TryDequeue(out var failure))

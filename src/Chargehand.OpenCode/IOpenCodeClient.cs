@@ -41,14 +41,16 @@ public interface IOpenCodeClient
 
     Task MoveAsync(string sessionId, string directory, CancellationToken ct);
 
-    Task<string> GenerateAsync(string providerId, string modelId, string prompt, CancellationToken ct);
+    /// <summary>Null provider/model: the server's base configuration default (ADR 0026).</summary>
+    Task<string> GenerateAsync(string? providerId, string? modelId, string prompt, CancellationToken ct);
 
     IAsyncEnumerable<JsonElement> EventsAsync(CancellationToken ct);
 }
 
+/// <param name="Model">Null: the server's base configuration default (ADR 0026).</param>
 public sealed record CreateSessionBody(
     string Agent,
-    ModelBody Model,
+    ModelBody? Model,
     LocationBody Location,
     IReadOnlyList<RuleBody> Permissions,
     IReadOnlyDictionary<string, string> Metadata);

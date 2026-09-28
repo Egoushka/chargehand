@@ -54,6 +54,21 @@ public class GateTests
         Assert.StartsWith("cost +", v.Reason, StringComparison.Ordinal);
     }
 
+    /// <summary>ADR 0026: an unpriced arm (its model has no price entry) still counts as an item, but contributes no
+    /// cost figure — it neither raises nor lowers the measured cost change over the priced items.</summary>
+    [Fact]
+    public void Unpriced_pairs_are_excluded_from_the_cost_change_not_zeroed()
+    {
+        var priced = Pairs(new double[8]);
+        var unpriced = priced.Select(p => p with { BaseUsd = null, ChangeUsd = null }).ToList();
+
+        var withOnlyPriced = Gate.Decide(Cell, priced, null);
+        var withUnpricedMixedIn = Gate.Decide(Cell, [.. priced, .. unpriced], null);
+
+        Assert.Equal(withOnlyPriced.CostChange, withUnpricedMixedIn.CostChange, 6);
+        Assert.Equal(16, withUnpricedMixedIn.Items);
+    }
+
     [Fact]
     public void A_declared_trade_passes_only_when_it_is_delivered()
     {

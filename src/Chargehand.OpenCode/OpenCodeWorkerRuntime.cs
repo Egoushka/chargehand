@@ -31,7 +31,7 @@ public sealed class OpenCodeWorkerRuntime : IWorkerRuntime
     {
         var s = await _oc.CreateSessionAsync(new CreateSessionBody(
             spec.Agent,
-            new ModelBody(spec.Model.ProviderId, spec.Model.ModelId, spec.Model.Variant),
+            spec.Model is { } m ? new ModelBody(m.ProviderId, m.ModelId, m.Variant) : null,
             new LocationBody(spec.Directory),
             spec.Permissions.Select(r => new RuleBody(r.Action, r.Resource, r.Effect.ToString().ToLowerInvariant())).ToList(),
             spec.Metadata), ct);
@@ -79,7 +79,7 @@ public sealed class OpenCodeWorkerRuntime : IWorkerRuntime
             d.TryGetProperty("deletions", out var del) ? del.GetInt32() : 0,
             d.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "")).ToList();
 
-    public Task<string> GenerateAsync(ModelRef model, string prompt, CancellationToken ct) => _oc.GenerateAsync(model.ProviderId, model.ModelId, prompt, ct);
+    public Task<string> GenerateAsync(ModelRef? model, string prompt, CancellationToken ct) => _oc.GenerateAsync(model?.ProviderId, model?.ModelId, prompt, ct);
 
     /// <summary>Messages are an untagged union dispatched on "type" (the spec declares no discriminator).</summary>
     internal static WorkerMessage Map(JsonElement m)

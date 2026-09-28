@@ -92,12 +92,13 @@ public sealed class OpenCodeClient : IOpenCodeClient
     /// Stateless, so safe to repeat: one retry when OpenCode relays a 503 (the masking proxy's or a dropped gateway
     /// connection, ADR 0011). Session prompts are not repeated this way; a second submit would run the turn twice.
     /// </summary>
-    public async Task<string> GenerateAsync(string providerId, string modelId, string prompt, CancellationToken ct)
+    public async Task<string> GenerateAsync(string? providerId, string? modelId, string prompt, CancellationToken ct)
     {
+        var model = providerId is null ? null : new ModelBody(providerId, modelId!);
         for (var attempt = 1; ; attempt++)
             try
             {
-                return (await Data<JsonElement>(HttpMethod.Post, "/api/experimental/generate", new { prompt, model = new ModelBody(providerId, modelId) }, ct))
+                return (await Data<JsonElement>(HttpMethod.Post, "/api/experimental/generate", new { prompt, model }, ct))
                     .GetProperty("text").GetString()!;
             }
             catch (OpenCodeException e) when (attempt == 1 && e.Status == HttpStatusCode.ServiceUnavailable)

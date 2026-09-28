@@ -2,15 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:chargehand:schema:profile:v1",
   "title": "chargehand local profile, v1",
-  "description": "Environment-specific settings. Your own lives in profiles/local.json (gitignored). Secrets are referenced by secret-store item name, never stored here.",
+  "description": "Environment-specific settings. Your own lives in profiles/local.json (gitignored), and every field is optional (ADR 0026) — chargehand runs with none at all. Secrets are referenced by item name, never stored here.",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema",
-    "worker_root",
-    "default_preset",
-    "intake_model",
-    "prices"
+    "schema"
   ],
   "properties": {
     "$schema": {
@@ -19,12 +15,36 @@
     "schema": {
       "const": "profile/v1"
     },
-    "secret_store": {
+    "runtime": {
       "enum": [
-        "keychain",
-        "env"
+        "opencode",
+        "claude_code"
       ],
-      "default": "keychain"
+      "description": "Names the runtime to drive (ADR 0026); wins over CHARGEHAND_RUNTIME. Unset: PATH is probed for a known agent CLI — none found or more than one found is an error."
+    },
+    "secrets": {
+      "type": "array",
+      "description": "Ordered secret lookup (ADR 0026): the first source that resolves an item wins. Default with no profile: env only. A profile still carrying \"secret_store\": \"keychain\" needs the one-line migration to an explicit command entry shown in example.json.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "oneOf": [
+          { "required": ["env"] },
+          { "required": ["command"] }
+        ],
+        "properties": {
+          "env": {
+            "const": true,
+            "description": "Look up the item as an environment variable (uppercased, - to _)."
+          },
+          "command": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "description": "Argv run directly via Process, no shell; \"{item}\" is substituted per array element."
+          }
+        }
+      }
     },
     "opencode": {
       "type": "object",
@@ -100,7 +120,7 @@
     },
     "worker_root": {
       "type": "string",
-      "description": "Where worker clones and worktrees live. Must be outside the OpenCode user's home: OpenCode discovers skills by walking up from the session directory."
+      "description": "Where worker clones and worktrees live. Must be outside the OpenCode user's home: OpenCode discovers skills by walking up from the session directory. Default (ADR 0026): a fixed directory outside $HOME, created on first use."
     },
     "repository_roots": {
       "type": "array",
@@ -109,11 +129,13 @@
       "description": "Directories a request's repository may sit under; the worker reads a clone of it under worker_root (ADR 0023). \"/\" allows any repository. Default: worker_root alone."
     },
     "default_preset": {
-      "type": "string"
+      "type": "string",
+      "description": "Default: cheap (ADR 0026)."
     },
     "intake_model": {
       "type": "string",
-      "pattern": "^[^/\\s]+/[^\\s#]+(#[a-z]+)?$"
+      "pattern": "^[^/\\s]+/[^\\s#]+(#[a-z]+)?$",
+      "description": "Default (ADR 0026): unset — intake runs on the runtime's own default model."
     },
     "run_cap_usd": {
       "type": "number",
@@ -148,7 +170,7 @@
     },
     "prices": {
       "type": "object",
-      "description": "USD per 1M tokens, keyed by provider/model. cache_write includes the provider's surcharge.",
+      "description": "USD per 1M tokens, keyed by provider/model. cache_write includes the provider's surcharge. Default (ADR 0026): empty — every PriceUsd lookup is unknown cost until a model is priced here.",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
@@ -255,17 +277,5 @@
         }
       }
     }
-  },
-  "anyOf": [
-    {
-      "required": [
-        "opencode"
-      ]
-    },
-    {
-      "required": [
-        "claude_code"
-      ]
-    }
-  ]
+  }
 }

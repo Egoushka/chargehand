@@ -1,7 +1,10 @@
 {
   "$schema": "./profile.schema.json",
   "schema": "profile/v1",
-  "secret_store": "keychain",
+  "secrets": [
+    { "env": true },
+    { "command": ["security", "find-generic-password", "-s", "{item}", "-w"] }
+  ],
   "opencode": {
     "url": "http://127.0.0.1:4096",
     "password_secret": "chargehand-opencode-password",

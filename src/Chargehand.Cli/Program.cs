@@ -201,18 +201,22 @@ EvalCell Cell(string name) =>
 
 async Task<(IWorkerRuntime Runtime, string Version)> Connect()
 {
-    if (profile.ClaudeCode is { } cc)
+    var kind = RuntimeSelector.Select(profile.Runtime, Environment.GetEnvironmentVariable("CHARGEHAND_RUNTIME"), RuntimeSelector.OnPath);
+    if (kind == RuntimeKind.ClaudeCode)
     {
+        var cc = profile.ClaudeCode
+            ?? throw new ChargehandException(ErrorCode.RuntimeUnavailable, "claude_code selected but the profile has no claude_code settings", "Add claude_code to the profile.");
         var credential = (cc.ApiKeySecret, cc.OauthTokenSecret) switch
         {
             ({ } key, null) => new ClaudeCodeCredential(profile.Secret(key), Subscription: false),
             (null, { } token) => new ClaudeCodeCredential(profile.Secret(token), Subscription: true),
-            _ => throw new InvalidOperationException("claude_code needs exactly one of api_key_secret and oauth_token_secret"),
+            _ => throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code needs exactly one of api_key_secret and oauth_token_secret"),
         };
         var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct, cc.BaseUrl is null ? null : new Uri(cc.BaseUrl));
         return (claude, claude.Version);
     }
-    var oc = profile.Opencode ?? throw new InvalidOperationException("profile sets neither opencode nor claude_code");
+    var oc = profile.Opencode
+        ?? throw new ChargehandException(ErrorCode.RuntimeUnavailable, "opencode selected but the profile has no opencode settings", "Add opencode to the profile.");
     var client = new OpenCodeClient(new HttpClient { BaseAddress = new Uri(oc.Url) }, profile.Secret(oc.PasswordSecret));
     var runtime = await OpenCodeWorkerRuntime.ConnectAsync(client, oc.Version, ct);
     return (runtime, runtime.Version);

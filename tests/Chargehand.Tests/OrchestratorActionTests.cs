@@ -12,7 +12,7 @@ public class OrchestratorActionTests
     /// <summary>Intake only: generate returns the scripted spec; any worker call fails the test.</summary>
     private sealed class IntakeOnly(string detail, string action, string risk = "low", decimal usdHigh = 0.1m) : IWorkerRuntime
     {
-        public Task<string> GenerateAsync(ModelRef model, string prompt, CancellationToken ct) => Task.FromResult($$"""
+        public Task<string> GenerateAsync(ModelRef? model, string prompt, CancellationToken ct) => Task.FromResult($$"""
             {"contract_version":"task-spec/v1","id":"x","goal":"g","constraints":[],"acceptance_criteria":[],"risk":"{{risk}}",
              "estimate":{"tokens_low":1,"tokens_high":2,"usd_low":0.01,"usd_high":{{usdHigh.ToString(System.Globalization.CultureInfo.InvariantCulture)}},"basis":"b"},"action":"{{action}}","action_detail":{{detail}}}
             """);

@@ -7,6 +7,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Profile is fully optional (ADR 0026): `Profile.Load` defaults an absent file rather than throwing; `worker_root`,
+  `default_preset`, `intake_model` and `prices` each have a default (a fixed directory outside `$HOME`, `cheap`,
+  unset, and empty). `secret_store` is replaced by an ordered `secrets` list (env, then command templates as argv
+  arrays, first success wins) — **a profile still carrying `"secret_store": "keychain"` needs a one-line migration**
+  to `"secrets": [{"env": true}, {"command": ["security", "find-generic-password", "-s", "{item}", "-w"]}]` (see
+  `profiles/example.json`).
+- The worker runtime is chosen by a `RuntimeSelector`: a profile's `runtime` field or `CHARGEHAND_RUNTIME` wins;
+  otherwise `PATH` is probed for a known agent CLI. No agent CLI found is `runtime_unavailable`; more than one found
+  is a new `runtime_ambiguous` error naming every CLI seen — no silent priority order.
+- `IPriceTable.PriceUsd` returns `decimal?`: an unpriced model's cost is unknown, not a silent `$0`. The run's USD
+  cap cannot fire on an unpriced model; the per-node-kind token budgets remain the real guardrail. `result/v1`'s
+  `usage.usd` may now be `null` for the same reason.
+- `ClaudeCodeWorkerRuntime` and `OpenCodeWorkerRuntime` accept an unset model (`NodeSpec.Model`, `GenerateAsync`) and
+  fall back to the runtime's own default instead of requiring one.
+
 ### Security
 
 - `Scrub` no longer redacts ordinary words that merely contain a key-like substring (`task-spec`, `disk-cache`,

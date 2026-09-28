@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Chargehand.Contracts;
 
 /// <summary>result/v1: what a node returns, and what a run returns to its caller.</summary>
@@ -27,6 +29,7 @@ public enum ErrorCode
 {
     RuntimeUnavailable,
     RuntimeVersionMismatch,
+    RuntimeAmbiguous,
     ProviderUnavailable,
     RateLimited,
     RepositoryNotAllowed,
@@ -48,7 +51,10 @@ public enum EvidenceKind { File, Diff, Url, SessionMessage, Commit, Input }
 
 public sealed record Artifact(string Kind, string MediaType, string Sha256, string? Uri = null, string? Content = null);
 
-public sealed record Usage(long Input, long Output, long CacheRead, long CacheWrite, decimal Usd);
+/// <param name="Usd">Priced by the orchestrator's own table; null when any priced call's model had no price entry
+/// (ADR 0026) — unknown cost, never a silent $0.</param>
+public sealed record Usage(long Input, long Output, long CacheRead, long CacheWrite,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] decimal? Usd);
 
 public sealed record PromptChain(IReadOnlyList<ChainBlock> Blocks, AsSent AsSent);
 
