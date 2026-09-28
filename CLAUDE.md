@@ -5,6 +5,7 @@
 ## Commands
 
 ```bash
+scripts/check.sh                      # the one check before a push: format, build (warnings as errors), tests
 dotnet build                          # whole solution (Chargehand.slnx)
 dotnet test                           # schema tests, contract test against docs/opencode-openapi.json
 dotnet format --verify-no-changes     # lint / format check (CI runs this)
@@ -38,3 +39,12 @@ names, budgets, absolute home paths, session or message ids, API keys, prompts f
 - Schemas: `schemas/<name>/v<major>/`; `$id` carries the major.
 - One version source: `Directory.Build.props`. Contract package versions by schema major.
 - Commits: Conventional Commits.
+
+## Working rules
+
+- Done means `scripts/check.sh` exits 0; its last test line reads `Passed!  - Failed:     0`. A bug fix starts with a
+  failing test.
+- A mistake an agent makes twice becomes a line in this file.
+- A PR title may end with the maintainer's tracker key (`(CHARGEHAND-12)`); tracker URLs never appear in public text.
+- `.claude/settings.json` asks before edits under `schemas/<name>/v<N>/`: published majors take additive changes only.
+- Public text says "citations checked", not "claims verified", until the support check ships (ROADMAP.md, 0.8).
