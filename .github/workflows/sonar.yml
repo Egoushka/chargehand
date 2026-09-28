@@ -1,11 +1,13 @@
 name: sonar
 
-# SonarQube Cloud (decision D9), through the CI scanner so .NET 10 and coverage work. Runs only when the SONAR_TOKEN
-# secret exists; pull requests from forks get no secrets and skip. Coverage: dotnet-coverage, Visual Studio XML.
+# SonarQube (decision D9) on the maintainer's self-hosted SonarQube Community Build, through the CI scanner so .NET 10 and
+# coverage work. The runner joins the maintainer's private network as a short-lived node that can reach only SonarQube.
+# Runs only when SONAR_TOKEN and HEADSCALE_AUTHKEY exist; forks get no secrets and skip. Community Build analyses one
+# branch per project, so only main is scanned. Coverage: dotnet-coverage, Visual Studio XML.
 on:
   push:
     branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,26 +17,37 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      HEADSCALE_AUTHKEY: ${{ secrets.HEADSCALE_AUTHKEY }}
     steps:
-      - if: env.SONAR_TOKEN == ''
-        run: echo "SONAR_TOKEN is not set; SonarQube Cloud analysis skipped."
-      - if: env.SONAR_TOKEN != ''
+      - if: env.SONAR_TOKEN == '' || env.HEADSCALE_AUTHKEY == ''
+        run: echo "SONAR_TOKEN or HEADSCALE_AUTHKEY is not set; SonarQube analysis skipped."
+      - if: env.SONAR_TOKEN != '' && env.HEADSCALE_AUTHKEY != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - if: env.SONAR_TOKEN != ''
+      - if: env.SONAR_TOKEN != '' && env.HEADSCALE_AUTHKEY != ''
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
-      - if: env.SONAR_TOKEN != ''
+      - if: env.SONAR_TOKEN != '' && env.HEADSCALE_AUTHKEY != ''
+        id: tailscale
+        continue-on-error: true
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4.2.0
+        with:
+          authkey: ${{ secrets.HEADSCALE_AUTHKEY }}
+          tags: tag:ci
+          args: --login-server=${{ secrets.HEADSCALE_LOGIN_SERVER }} --accept-dns=false
+          hostname: gh-ci-chargehand-${{ github.run_id }}
+      - if: steps.tailscale.outcome == 'success'
+        continue-on-error: true
         env:
-          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || 'Egoushka_chargehand' }}
-          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION || 'egoushka' }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || 'chargehand' }}
         run: |
           dotnet tool install --global dotnet-sonarscanner
           dotnet tool install --global dotnet-coverage
-          dotnet sonarscanner begin /k:"$SONAR_PROJECT_KEY" /o:"$SONAR_ORGANIZATION" /d:sonar.token="$SONAR_TOKEN" \
-            /d:sonar.host.url=https://sonarcloud.io /d:sonar.cs.vscoveragexml.reportsPaths=coverage.xml
+          dotnet sonarscanner begin /k:"$SONAR_PROJECT_KEY" /d:sonar.token="$SONAR_TOKEN" \
+            /d:sonar.host.url="$SONAR_HOST_URL" /d:sonar.cs.vscoveragexml.reportsPaths=coverage.xml
           dotnet build --no-incremental -c Release
           dotnet-coverage collect "dotnet test --no-build -c Release" -f xml -o coverage.xml
           dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
