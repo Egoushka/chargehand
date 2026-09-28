@@ -9,8 +9,11 @@ namespace Chargehand.OpenCode;
 
 /// <summary>An OpenCode error response: HTTP status plus the tagged error body (e.g. InstructionEntryValueTooLargeError).</summary>
 public sealed class OpenCodeException(HttpStatusCode status, string? tag, string message)
-    : ChargehandException(CodeOf(status, message), $"OpenCode {(int)status} {tag}: {message}")
+    : ChargehandException(CodeOf(status, message), $"OpenCode {(int)status} {tag}: {message}", ActionOf(message))
 {
+    /// <summary>What to do when the gateway refuses a call over a spend budget (LiteLLM: "Budget has been exceeded!").</summary>
+    public const string BudgetAction = "The model gateway refused the call over a spend budget: raise the gateway key's budget, or wait for its reset.";
+
     public HttpStatusCode Status { get; } = status;
     public string? Tag { get; } = tag;
 
@@ -19,6 +22,8 @@ public sealed class OpenCodeException(HttpStatusCode status, string? tag, string
         status == HttpStatusCode.TooManyRequests || RateLimited(message) ? ErrorCode.RateLimited
         : status is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout ? ErrorCode.ProviderUnavailable
         : ErrorCode.Internal;
+
+    private static string? ActionOf(string message) => message.Contains("budget", StringComparison.OrdinalIgnoreCase) ? BudgetAction : null;
 }
 
 /// <summary>Hand-written client for the adapter's operations (docs/opencode-adapter-ops.json).</summary>

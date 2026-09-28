@@ -128,8 +128,9 @@ public sealed class Orchestrator(
         catch (Exception e) when (e is not OperationCanceledException)
         {
             // A run that throws (a bad checkout, an unknown preset, no valid Task Spec) still ends with a result and a run record.
-            result = new ResultContract("result/v1", runId, "run", traceId, intakeChain, ResultStatus.Failed, e.Message, [], [], [], [e.Message], 0, new Usage(0, 0, 0, 0, 0),
-                ChargehandException.ErrorOf(e));
+            var error = ChargehandException.ErrorOf(e);
+            result = new ResultContract("result/v1", runId, "run", traceId, intakeChain, ResultStatus.Failed, error.Message, [], [], [], [error.Message], 0, new Usage(0, 0, 0, 0, 0),
+                error);
         }
 
         run?.SetTag("chargehand.contract.status", result.Status.ToString().ToLowerInvariant());

@@ -5,7 +5,7 @@ namespace Chargehand;
 
 /// <summary>A failure whose cause is known; a failed result carries its code in result/v1's error (ADR 0022).</summary>
 /// <param name="action">What the user or client should do about it, e.g. the command that starts the runtime.</param>
-public partial class ChargehandException(ErrorCode code, string message, string? action = null) : Exception(message)
+public partial class ChargehandException(ErrorCode code, string message, string? action = null) : Exception(Scrub(message))
 {
     public ErrorCode Code => code;
 
@@ -25,6 +25,30 @@ public partial class ChargehandException(ErrorCode code, string message, string?
     /// <summary>A gateway or provider rate limit, as relayed by OpenCode ("Rate limit exceeded") or Claude Code (rate_limit_error, 429).</summary>
     public static bool RateLimited(string? message) => message is not null && RateLimitText().IsMatch(message);
 
+    /// <summary>
+    /// Provider and gateway error text without what must not leave the machine: keys, key aliases, bearer tokens and
+    /// spend figures. Every exception message that can reach result/v1 or the run log passes through here.
+    /// </summary>
+    public static string Scrub(string text)
+    {
+        text = ApiKey().Replace(text, "sk-[redacted]");
+        text = Named().Replace(text, "${k}[redacted]");
+        text = Bearer().Replace(text, "Bearer [redacted]");
+        return Spend().Replace(text, "${k}[redacted]");
+    }
+
     [GeneratedRegex(@"rate[ _]limit|\b429\b", RegexOptions.IgnoreCase)]
     private static partial Regex RateLimitText();
+
+    [GeneratedRegex(@"sk-[^\s)""',]+")]
+    private static partial Regex ApiKey();
+
+    [GeneratedRegex(@"(?<k>\b(?:key|team|user|key_alias|api_key|token)\b""?\s*[=:]\s*""?)[^\s,)""]+", RegexOptions.IgnoreCase)]
+    private static partial Regex Named();
+
+    [GeneratedRegex(@"\bbearer\s+[A-Za-z0-9._~+/=-]+", RegexOptions.IgnoreCase)]
+    private static partial Regex Bearer();
+
+    [GeneratedRegex(@"(?<k>\b(?:current cost|max budget|spend|budget)\s*[=:]\s*)\$?[0-9]+(?:\.[0-9]+)?", RegexOptions.IgnoreCase)]
+    private static partial Regex Spend();
 }

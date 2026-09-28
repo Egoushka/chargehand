@@ -27,6 +27,9 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
     /// <summary>Thrown, one per call, by the next generate calls (e.g. a gateway rate limit).</summary>
     public ConcurrentQueue<Exception> GenerateFailures { get; } = new();
 
+    /// <summary>Thrown, one per call, by the next session creations (e.g. a runtime that cannot start a worker).</summary>
+    public ConcurrentQueue<Exception> CreateFailures { get; } = new();
+
     public TaskCompletionSource Hold { get; set; } = Released();
 
     public static TaskCompletionSource Released()
@@ -52,6 +55,8 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
 
     public Task<WorkerSession> CreateAsync(NodeSpec spec, CancellationToken ct)
     {
+        if (CreateFailures.TryDequeue(out var failure))
+            return Task.FromException<WorkerSession>(failure);
         Created.Enqueue(spec);
         var id = $"ses_{Interlocked.Increment(ref _ids)}";
         _sessions[id] = [];
