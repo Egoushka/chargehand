@@ -15,6 +15,10 @@ large model as worker. The run completed with 6 claims, all 6 file evidence refe
 rate of 81–99% on every call after the first. Edit and unlisted shell commands were denied without prompting. The
 API-key mode was not run live.
 
+Re-pinned to 2.1.283 (2026-09-28): every flag the adapter passes is in its `--help`, and a live two-turn session
+(subscription mode, a small model, the prompt on stdin, `--session-id` then `--resume`) streamed the same event shape.
+No tool call was made, so the `user`/`tool_result` event was not rechecked live.
+
 Found live: assistant events carry the `message_start` usage, so their output count is a 1–3 token stub; only the
 `result` event totals a turn's output. The adapter adds the shortfall to the turn's last call.
 

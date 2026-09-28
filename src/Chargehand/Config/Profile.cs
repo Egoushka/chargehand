@@ -89,7 +89,7 @@ public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = n
     string? BaseUrl = null)
 {
     /// <summary>The CLI version the adapter's event mapping was verified against (ADR 0020).</summary>
-    public const string PinnedVersion = "2.1.195";
+    public const string PinnedVersion = "2.1.283";
 
     /// <summary>
     /// No claude_code block (ADR 0026): claude from PATH at <see cref="PinnedVersion"/>, and the one credential the

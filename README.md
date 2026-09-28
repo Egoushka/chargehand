@@ -49,7 +49,7 @@ You need the .NET 10 SDK and one worker runtime.
      orchestrator's own server (pinned 2.0.16, own state directory, loopback only):
      `scripts/opencode-serve.sh <opencode-binary> profiles/local.opencode.json 4296`.
      See [ADR 0004](docs/adr/0004-opencode-major-and-runtime-adapter.md).
-   - **Claude Code**: with `claude` on `PATH` (pinned 2.1.195), set exactly one of `ANTHROPIC_API_KEY` or
+   - **Claude Code**: with `claude` on `PATH` (pinned 2.1.283), set exactly one of `ANTHROPIC_API_KEY` or
      `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`); no profile block is needed. The profile's `claude_code`
      block (`version`, `binary`, and one of `api_key_secret` or `oauth_token_secret`) overrides that.
      See [ADR 0020](docs/adr/0020-claude-code-runtime-adapter.md).

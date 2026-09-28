@@ -31,7 +31,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
 
     public string Version { get; }
 
-    /// <summary>Refuses a CLI whose version differs from the pinned one. <c>claude --version</c> prints "2.1.195 (Claude Code)".</summary>
+    /// <summary>Refuses a CLI whose version differs from the pinned one. <c>claude --version</c> prints "2.1.283 (Claude Code)".</summary>
     public static async Task<ClaudeCodeWorkerRuntime> ConnectAsync(string binary, string pinnedVersion, ClaudeCodeCredential credential, CancellationToken ct,
         Uri? baseUrl = null)
     {
