@@ -17,7 +17,8 @@ public sealed record Preset(
     {
         var path = Path.Combine(directory, name + ".yaml");
         if (!File.Exists(path))
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"unknown preset '{name}'");
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"unknown preset '{name}'",
+                $"Use one of {string.Join(", ", (Directory.Exists(directory) ? Directory.EnumerateFiles(directory, "*.yaml") : []).Select(Path.GetFileNameWithoutExtension).Order())}, or add {name}.yaml to the presets directory.");
         var yaml = new DeserializerBuilder().WithAttemptingUnquotedStringTypeDeserialization().Build()
             .Deserialize(new StringReader(File.ReadAllText(path)));
         var json = JsonSerializer.SerializeToElement(yaml);

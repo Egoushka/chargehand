@@ -47,7 +47,8 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, Prom
                 return new(spec with { Id = runId }, null, calls);
             errors = string.Join("; ", problems);
         }
-        throw new ChargehandException(ErrorCode.IntakeFailed, $"intake returned no valid task-spec/v1 after one retry: {errors}");
+        throw new ChargehandException(ErrorCode.IntakeFailed, $"intake returned no valid task-spec/v1 after one retry: {errors}",
+            "Retry, or set the profile's intake_model to a stronger model.");
     }
 
     internal static (TaskSpec? Spec, IReadOnlyList<string> Errors) Parse(string text)

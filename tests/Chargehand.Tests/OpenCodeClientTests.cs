@@ -118,6 +118,7 @@ public class OpenCodeClientTests
         var (c, _) = Make((_, _) => (HttpStatusCode.OK, """{"version":"2.0.17","pid":1}"""));
         var e = await Assert.ThrowsAsync<ChargehandException>(() => OpenCodeWorkerRuntime.ConnectAsync(c, "2.0.16", CancellationToken.None));
         Assert.Equal(ErrorCode.RuntimeVersionMismatch, e.Code);
+        Assert.NotNull(e.Action);
     }
 
     [Fact]

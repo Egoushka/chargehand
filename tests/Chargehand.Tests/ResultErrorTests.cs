@@ -57,6 +57,7 @@ public class ResultErrorTests
 
         Assert.Equal(ErrorCode.InvalidRequest, r.Error?.Code);
         Assert.False(r.Error!.Retryable);
+        Assert.NotNull(r.Error.Action);
     }
 
     [Fact]

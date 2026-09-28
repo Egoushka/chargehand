@@ -26,6 +26,7 @@ public class CheckoutTests
 
         Assert.Equal(ResultStatus.Failed, r.Status);
         Assert.Equal(ErrorCode.CheckoutHasSecrets, r.Error?.Code);
+        Assert.NotNull(r.Error!.Action);
         Assert.Contains("sub/.env", r.Summary, StringComparison.Ordinal);
         Assert.Contains("x.env.local", r.Summary, StringComparison.Ordinal);
         Assert.DoesNotContain(".env.example", r.Summary, StringComparison.Ordinal);
@@ -123,5 +124,6 @@ public class CheckoutTests
             .RunAsync(Runs.CheapRequest(repo with { Commit = "0000000" }), CancellationToken.None);
 
         Assert.Equal(ErrorCode.CheckoutInvalid, r.Error?.Code);
+        Assert.NotNull(r.Error!.Action);
     }
 }

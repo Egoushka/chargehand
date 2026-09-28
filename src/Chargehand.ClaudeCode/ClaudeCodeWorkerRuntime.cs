@@ -46,10 +46,12 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
         }
         var version = run.Stdout.Split(' ', 2)[0].Trim();
         if (run.Exit != 0)
-            throw new ChargehandException(ErrorCode.RuntimeUnavailable, $"{binary} --version exited {run.Exit}: {run.Stderr.Trim()}");
+            throw new ChargehandException(ErrorCode.RuntimeUnavailable, $"{binary} --version exited {run.Exit}: {run.Stderr.Trim()}",
+                $"Run {binary} --version by hand and fix what it reports.");
         return version == pinnedVersion
             ? new ClaudeCodeWorkerRuntime(binary, credential, version, baseUrl)
-            : throw new ChargehandException(ErrorCode.RuntimeVersionMismatch, $"Claude Code CLI is {version}; this adapter is pinned to {pinnedVersion}.");
+            : throw new ChargehandException(ErrorCode.RuntimeVersionMismatch, $"Claude Code CLI is {version}; this adapter is pinned to {pinnedVersion}.",
+                $"Install Claude Code {pinnedVersion}, or change claude_code.version in the profile.");
     }
 
     public async Task<WorkerSession> CreateAsync(NodeSpec spec, CancellationToken ct)

@@ -180,6 +180,7 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         var claude = FakeClaude("");
         var e = await Assert.ThrowsAsync<ChargehandException>(() => ClaudeCodeWorkerRuntime.ConnectAsync(claude, "9.9.9", new ClaudeCodeCredential("k", false), CancellationToken.None));
         Assert.Equal(ErrorCode.RuntimeVersionMismatch, e.Code);
+        Assert.NotNull(e.Action);
     }
 
     [Fact]
