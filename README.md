@@ -55,7 +55,8 @@ You need the .NET 10 SDK and one worker runtime.
      then nothing is started. See [ADR 0030](docs/adr/0030-default-opencode-server.md) and
      [ADR 0004](docs/adr/0004-opencode-major-and-runtime-adapter.md).
    - **Claude Code**: with `claude` on `PATH` (pinned 2.1.283) and signed in (run `claude` once and log in),
-     nothing else is needed: workers use the CLI's own login. To use another credential, set one of
+     no login setup is needed: workers use the CLI's own login. The presets name placeholder models, so a profile with
+     a `models` map is still required until 0.4 lands the fix. To use another credential, set one of
      `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`), not both. The profile's
      `claude_code` block (`version`, `binary`, and at most one of `api_key_secret` or `oauth_token_secret`) overrides that.
      See [ADR 0020](docs/adr/0020-claude-code-runtime-adapter.md).
@@ -194,12 +195,17 @@ report lands in `.chargehand/reports/<slug>.md` as its own commit. Nothing is pu
 /plugin install chargehand@chargehand
 ```
 
-The plugin starts chargehand through `dnx`, so it needs the .NET 10 SDK and a published `Chargehand` package. From a
-checkout, point a `chargehand` MCP server at the CLI instead:
+The plugin starts chargehand through `dnx`, so it needs the .NET 10 SDK and a published `Chargehand` package. That
+package is not on nuget.org yet: after `/plugin install`, the plugin's own server cannot start, so for now point a
+`chargehand` MCP server at a checkout instead:
 
 ```json
-{"mcpServers": {"chargehand": {"command": "dotnet", "args": ["run", "--project", "<checkout>/src/Chargehand.Cli", "--", "mcp"]}}}
+{"mcpServers": {"chargehand": {"command": "dotnet", "args": ["run", "--project", "<checkout>/src/Chargehand.Cli", "--", "mcp"], "env": {"CHARGEHAND_PROFILE": "<checkout>/profiles/local.json"}}}}
 ```
+
+The profile needs a `models` map from the presets' placeholder ids to real models; `scripts/change-e2e.sh` writes a
+minimal working one. `--budget` applies to each chargehand call, and a run makes up to four (one research, up to three
+reviews).
 
 ## Repository layout
 
