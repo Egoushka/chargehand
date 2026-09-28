@@ -1,0 +1,51 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.egoushka/chargehand",
+  "title": "chargehand",
+  "description": "Runs coding-agent workers on a codebase question; every claim in the answer carries evidence.",
+  "repository": {
+    "url": "https://github.com/Egoushka/chargehand",
+    "source": "github"
+  },
+  "version": "0.0.0",
+  "packages": [
+    {
+      "registryType": "nuget",
+      "registryBaseUrl": "https://api.nuget.org/v3/index.json",
+      "identifier": "Chargehand",
+      "version": "0.0.0",
+      "runtimeHint": "dnx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "CHARGEHAND_RUNTIME",
+          "description": "Worker runtime, when both or neither of claude and opencode are on PATH.",
+          "choices": ["claude_code", "opencode"]
+        },
+        {
+          "name": "CHARGEHAND_PROFILE",
+          "description": "A profile/v1 file for budgets, prices, memory or a pinned runtime version.",
+          "format": "filepath"
+        },
+        {
+          "name": "CLAUDE_CODE_OAUTH_TOKEN",
+          "description": "Claude Code subscription token from claude setup-token. Set this or ANTHROPIC_API_KEY.",
+          "isSecret": true
+        },
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "description": "Anthropic API key for Claude Code workers. Set this or CLAUDE_CODE_OAUTH_TOKEN.",
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

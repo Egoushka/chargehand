@@ -4,6 +4,33 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
 
+  <!-- The dnx tool and MCP server package (ADR 0027): framework-dependent, run by dnx with the argument mcp. -->
+  <PropertyGroup>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>chargehand</ToolCommandName>
+    <PackageId>Chargehand</PackageId>
+    <PackageType>McpServer</PackageType>
+    <Description>MCP server and CLI that runs coding-agent workers on a codebase question and returns an answer whose claims carry evidence.</Description>
+    <PackageTags>mcp;mcp-server;ai;agents;claude-code;opencode</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Egoushka/chargehand</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Egoushka/chargehand</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <McpServerJson>$(BaseIntermediateOutputPath)server.json</McpServerJson>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.package.md" Pack="true" PackagePath="README.md" />
+    <None Include="$(McpServerJson)" Pack="true" PackagePath=".mcp/server.json" Visible="false" />
+  </ItemGroup>
+
+  <!-- .mcp/server.json is committed with version 0.0.0; the packed copy carries $(Version), so Directory.Build.props
+       stays the one version source (ADR 0027). -->
+  <Target Name="StampMcpServerJson" BeforeTargets="GenerateNuspec">
+    <WriteLinesToFile File="$(McpServerJson)" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../../.mcp/server.json').Replace('&quot;0.0.0&quot;', '&quot;$(Version)&quot;'))" />
+  </Target>
+
   <ItemGroup>
     <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
     <ProjectReference Include="..\Chargehand.ClaudeCode\Chargehand.ClaudeCode.csproj" />
