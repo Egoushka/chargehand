@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- `Scrub` no longer redacts ordinary words that merely contain a key-like substring (`task-spec`, `disk-cache`,
+  a stray "user:") — the `sk-` pattern needed a left boundary. It now also catches shapes 0.2.2 missed: LiteLLM's
+  "Key Hash (Token) =", compound identifiers (`team_member`, `user_id`, `organization`, `user_api_key_alias`),
+  camelCase `apiKey`, `Authorization: Basic`, and spend figures in scientific notation. Fixes an ordering bug where
+  a `token: Bearer <secret>` message redacted the word "Bearer" instead of the secret.
+
 ## [0.3.0] - 2026-09-28
 
 Goal 0.3 ([roadmap](ROADMAP.md)): every change is tracked, released and checked. Its substance shipped across

@@ -78,6 +78,27 @@ public class ResultErrorTests
     public void Scrub_removes_keys_aliases_tokens_and_spend(string text, string expected) =>
         Assert.Equal(expected, ChargehandException.Scrub(text));
 
+    [Theory]
+    [InlineData("intake returned no valid task-spec/v1 after one retry: bad json")]
+    [InlineData("cannot read /repo/disk-cache/risk-model.json")]
+    [InlineData("The user: denied the request")]
+    public void Scrub_leaves_ordinary_words_that_merely_contain_a_key_shape_alone(string text) =>
+        Assert.Equal(text, ChargehandException.Scrub(text));
+
+    [Theory]
+    [InlineData("Received API Key = sk-abcd1234, Key Hash (Token) =7f3a9c2b1e8d4f6a",
+        "Received API Key = [redacted], Key Hash (Token) =[redacted]")]
+    [InlineData("TeamMember=platform-alice team_member=bob organization=acme-corp",
+        "TeamMember=[redacted] team_member=[redacted] organization=[redacted]")]
+    [InlineData("team_alias=finance user_id=42 user_api_key_alias=xyz789",
+        "team_alias=[redacted] user_id=[redacted] user_api_key_alias=[redacted]")]
+    [InlineData("{\"apiKey\": \"abc123secret\"}", "{\"apiKey\": \"[redacted]\"}")]
+    [InlineData("token: Bearer abc.def", "token: Bearer [redacted]")]
+    [InlineData("Authorization: Basic dXNlcjpwYXNz rejected", "Authorization: Basic [redacted] rejected")]
+    [InlineData("Current cost: 5e-05, Max budget: 5.0", "Current cost: [redacted], Max budget: [redacted]")]
+    public void Scrub_catches_real_gateway_leak_shapes(string text, string expected) =>
+        Assert.Equal(expected, ChargehandException.Scrub(text));
+
     [Fact]
     public void A_gateway_budget_refusal_keeps_its_reason_and_says_what_to_do()
     {
