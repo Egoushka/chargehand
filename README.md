@@ -1,5 +1,10 @@
 # chargehand
 
+[![ci](https://github.com/Egoushka/chargehand/actions/workflows/ci.yml/badge.svg)](https://github.com/Egoushka/chargehand/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Egoushka/chargehand/badge)](https://scorecard.dev/viewer/?uri=github.com/Egoushka/chargehand)
+[![release](https://img.shields.io/github/v/release/Egoushka/chargehand)](https://github.com/Egoushka/chargehand/releases)
+[![license](https://img.shields.io/github/license/Egoushka/chargehand)](LICENSE)
+
 chargehand turns a request into a typed **Task Spec**, runs it on one or more coding-agent sessions
 ([OpenCode](https://opencode.ai) or Claude Code), and returns a **result contract** with evidence for every claim.
 People call it from a CLI; programs call it over HTTP or MCP.
