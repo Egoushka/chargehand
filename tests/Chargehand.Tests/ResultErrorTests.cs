@@ -67,4 +67,55 @@ public class ResultErrorTests
         Assert.Equal(ResultStatus.Completed, r.Status);
         Assert.Null(r.Error);
     }
+
+    [Theory]
+    [InlineData("Budget has been exceeded! Key=team-key (sk-...abcd) Current cost: 5.01, Max budget: 5.0",
+        "Budget has been exceeded! Key=[redacted] (sk-[redacted]) Current cost: [redacted], Max budget: [redacted]")]
+    [InlineData("401 Authorization: Bearer abc.def-ghi rejected", "401 Authorization: Bearer [redacted] rejected")]
+    [InlineData("{\"api_key\": \"sk-short\", \"error\": \"invalid\"}", "{\"api_key\": \"[redacted]\", \"error\": \"invalid\"}")]
+    [InlineData("Received API Key = sk-short", "Received API Key = [redacted]")]
+    [InlineData("ConnectionRefused", "ConnectionRefused")]
+    public void Scrub_removes_keys_aliases_tokens_and_spend(string text, string expected) =>
+        Assert.Equal(expected, ChargehandException.Scrub(text));
+
+    [Fact]
+    public void A_gateway_budget_refusal_keeps_its_reason_and_says_what_to_do()
+    {
+        var e = new OpenCodeException(HttpStatusCode.ServiceUnavailable, "ServiceUnavailableError",
+            "Budget has been exceeded! Key=team-key (sk-...abcd) Current cost: 5.01, Max budget: 5.0");
+
+        Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
+        Assert.Equal("OpenCode 503 ServiceUnavailableError: Budget has been exceeded! Key=[redacted] (sk-[redacted]) Current cost: [redacted], Max budget: [redacted]", e.Message);
+        Assert.Equal(OpenCodeException.BudgetAction, e.Action);
+    }
+
+    [Fact]
+    public async Task A_run_that_fails_at_intake_keeps_keys_out_of_the_result_and_the_run_log()
+    {
+        using var dir = new TempDir();
+        var log = Path.Combine(dir.Path, "log.jsonl");
+        var runtime = new ScriptedRuntime(Runs.DraftReply);
+        runtime.GenerateFailures.Enqueue(new InvalidOperationException("claude -p exited 1: Received API Key = sk-short, Authorization: Bearer abc.def"));
+
+        var r = await Runs.Orchestrator(runtime, dir.Path, new JsonlRunLog(log)).RunAsync(Runs.DraftRequest(), CancellationToken.None);
+
+        var json = JsonSerializer.Serialize(r, ContractJson.Options) + await File.ReadAllTextAsync(log);
+        Assert.DoesNotContain("sk-short", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("abc.def", json, StringComparison.Ordinal);
+        Assert.Contains("[redacted]", r.Summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_node_that_throws_keeps_keys_out_of_the_result()
+    {
+        using var dir = new TempDir();
+        var runtime = new ScriptedRuntime(Runs.DraftReply);
+        runtime.CreateFailures.Enqueue(new InvalidOperationException("claude -p exited 1: Received API Key = sk-short"));
+
+        var r = await Runs.Orchestrator(runtime, dir.Path, new JsonlRunLog(Path.Combine(dir.Path, "log.jsonl"))).RunAsync(Runs.DraftRequest(), CancellationToken.None);
+
+        Assert.Equal(ResultStatus.Failed, r.Status);
+        Assert.DoesNotContain("sk-short", JsonSerializer.Serialize(r, ContractJson.Options), StringComparison.Ordinal);
+        Assert.Equal("node failed: claude -p exited 1: Received API Key = [redacted]", r.Summary);
+    }
 }

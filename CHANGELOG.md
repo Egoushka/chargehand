@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- A failed result no longer repeats the model gateway's error text verbatim: keys, key aliases, bearer tokens and
+  spend figures are redacted before a message reaches `result/v1` or the run log. A refusal over a spend budget says
+  what to do in `error.action`.
+
 ## [0.2.1] - 2026-09-28
 
 ### Fixed

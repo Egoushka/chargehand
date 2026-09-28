@@ -43,7 +43,8 @@ public sealed class GraphRunner(int maxConcurrent = 2)
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
-                return new(node, failed(node, $"node failed: {e.Message}") with { Error = ChargehandException.ErrorOf(e) }, null);
+                var error = ChargehandException.ErrorOf(e);
+                return new(node, failed(node, $"node failed: {error.Message}") with { Error = error }, null);
             }
             finally
             {
