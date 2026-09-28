@@ -57,11 +57,21 @@ public class ConfigFileTests
         }
     }
 
+    // JsonSchema.FromText registers the schema globally by its base URI; loading the same file twice throws.
+    private static readonly JsonSchema ProfileSchema = JsonSchema.FromText(File.ReadAllText(Repo.Path("profiles", "profile.schema.json")));
+
     [Fact]
     public void Example_profile_validates()
     {
-        var schema = JsonSchema.FromText(File.ReadAllText(Repo.Path("profiles", "profile.schema.json")));
         using var doc = JsonDocument.Parse(File.ReadAllText(Repo.Path("profiles", "example.json")));
-        Assert.True(schema.Evaluate(doc.RootElement).IsValid);
+        Assert.True(ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
+    /// <summary>ADR 0026: every field but "schema" is now optional.</summary>
+    [Fact]
+    public void A_minimal_profile_with_only_the_schema_field_validates()
+    {
+        using var doc = JsonDocument.Parse("""{"schema":"profile/v1"}""");
+        Assert.True(ProfileSchema.Evaluate(doc.RootElement).IsValid);
     }
 }

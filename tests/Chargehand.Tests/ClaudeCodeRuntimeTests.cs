@@ -63,6 +63,17 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         Assert.Equal((WorkerMessageKind.Idle, IdleOutcome.Succeeded), (idle.Kind, idle.Outcome));
     }
 
+    /// <summary>ADR 0026: an unset model (the session ran with the CLI's own default, no --model pinned) reports no
+    /// specific model on the message, rather than fabricating one.</summary>
+    [Fact]
+    public void An_unset_model_reports_no_model_on_the_message()
+    {
+        var unpinned = Spec with { Model = null };
+        var s = new ClaudeCodeWorkerRuntime.Session("s", unpinned, null);
+        Apply(s, """{"type":"assistant","message":{"id":"msg_1","content":[{"type":"text","text":"Hi"}],"usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}""");
+        Assert.Null(s.Messages[0].Model);
+    }
+
     [Fact]
     public void An_error_result_is_a_failed_idle_and_a_compact_run_records_its_usage()
     {

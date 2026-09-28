@@ -31,8 +31,8 @@ public interface IWorkerRuntime
 
     Task<IReadOnlyList<FileDiff>> DiffAsync(string sessionId, CancellationToken ct);
 
-    /// <summary>One-shot text generation without a session (intake, ADR 0005). Returns no usage.</summary>
-    Task<string> GenerateAsync(ModelRef model, string prompt, CancellationToken ct);
+    /// <summary>One-shot text generation without a session (intake, ADR 0005). Returns no usage. Null model: the runtime's own default (ADR 0026).</summary>
+    Task<string> GenerateAsync(ModelRef? model, string prompt, CancellationToken ct);
 }
 
 public sealed record ModelRef(string ProviderId, string ModelId, string? Variant = null)
@@ -47,10 +47,11 @@ public enum PermissionEffect { Allow, Deny, Ask }
 public enum PermissionDecision { Once, Reject }
 
 /// <summary>Everything fixed at node creation. Directory must lie outside the runtime user's home (ADR 0003).</summary>
+/// <param name="Model">Null: the runtime's own default model (ADR 0026).</param>
 public sealed record NodeSpec(
     string Directory,
     string Agent,
-    ModelRef Model,
+    ModelRef? Model,
     IReadOnlyList<PermissionRule> Permissions,
     IReadOnlyDictionary<string, string> Metadata);
 

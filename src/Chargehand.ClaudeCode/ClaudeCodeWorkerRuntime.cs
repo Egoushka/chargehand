@@ -173,7 +173,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
     /// cache write that the next call does not read. Without thinking and with a one-line system prompt the call takes
     /// ~4 s at 30% of the cost.
     /// </summary>
-    public async Task<string> GenerateAsync(ModelRef model, string prompt, CancellationToken ct)
+    public async Task<string> GenerateAsync(ModelRef? model, string prompt, CancellationToken ct)
     {
         var env = new Dictionary<string, string?>(Env) { ["MAX_THINKING_TOKENS"] = "0" };
         var (exit, stdout, stderr) = await Exec(_binary, Path.GetTempPath(),
@@ -203,13 +203,18 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
     /// <summary>
     /// <c>--bare</c> keeps the owner's hooks, plugins, CLAUDE.md, auto-memory and keychain out of the worker (the
     /// ADR 0003 isolation); with a subscription, no setting sources keeps the owner's hooks and plugins out. The
-    /// prompt goes on stdin because the tool flags are variadic.
+    /// prompt goes on stdin because the tool flags are variadic. A null model omits <c>--model</c>: the CLI's own
+    /// default (ADR 0026).
     /// </summary>
-    private List<string> CommonArgs(ModelRef model)
+    private List<string> CommonArgs(ModelRef? model)
     {
-        List<string> args = ["-p", .. _credential.Subscription ? ["--setting-sources", ""] : new[] { "--bare" }, "--strict-mcp-config", "--model", model.ModelId];
-        if (model.Variant is { } effort)
-            args.AddRange(["--effort", effort]);
+        List<string> args = ["-p", .. _credential.Subscription ? ["--setting-sources", ""] : new[] { "--bare" }, "--strict-mcp-config"];
+        if (model is not null)
+        {
+            args.AddRange(["--model", model.ModelId]);
+            if (model.Variant is { } effort)
+                args.AddRange(["--effort", effort]);
+        }
         return args;
     }
 
@@ -274,7 +279,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
                 {
                     Complete(s, now);
                     s.Messages.Add(new WorkerMessage(id, WorkerMessageKind.Assistant, now, text, Tokens(m), null,
-                        $"{s.Spec.Model.ProviderId}/{s.Spec.Model.ModelId}", tools, error));
+                        s.Spec.Model is { } sm ? $"{sm.ProviderId}/{sm.ModelId}" : null, tools, error));
                 }
                 return false;
             case "user":

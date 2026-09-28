@@ -16,7 +16,7 @@ namespace Chargehand.Evals;
 /// </summary>
 /// <param name="orchestratorFor">An orchestrator reading prompts/ and presets/ from the given root.</param>
 /// <param name="flush">Exports pending spans, so a trace exists before a dataset run item links it.</param>
-public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWorkerRuntime runtime, string intakeModel, JsonlRunLog log,
+public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWorkerRuntime runtime, string? intakeModel, JsonlRunLog log,
     LangfuseEvals? langfuse, Action flush, TextWriter output)
 {
     /// <summary>The cells a change touches, and the changed prompt or preset files no cell covers.</summary>
@@ -68,7 +68,7 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
         {
             var paired = hasBase && InBase(cell.Preset ?? item.Request.Context.Preset);
             string[] arms = !paired ? ["change"] : i % 2 == 0 ? ["base", "change"] : ["change", "base"];
-            var scored = new Dictionary<string, (double Quality, decimal Usd)>();
+            var scored = new Dictionary<string, (double Quality, decimal? Usd)>();
             foreach (var arm in arms)
                 scored[arm] = await RunArm(cell, item, arm == "base" ? baseRoot : changeRoot, $"{name}-{arm}", ct);
             if (paired)
@@ -79,10 +79,10 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
             : new Verdict(cell.Name, items.Count, 0, null, 0, null, false, "new cell: the change's runs are its first baseline");
     }
 
-    private async Task<(double Quality, decimal Usd)> RunArm(EvalCell cell, EvalItem item, string root, string runName, CancellationToken ct)
+    private async Task<(double Quality, decimal? Usd)> RunArm(EvalCell cell, EvalItem item, string root, string runName, CancellationToken ct)
     {
         string runId, traceId;
-        decimal usd = 0;
+        decimal? usd = 0;
         IReadOnlyDictionary<string, double> scores;
         // A gateway rate limit says nothing about the prompts: run the arm again rather than score it 0, and stop the
         // gate if the limit outlasts the retries, since a verdict over missing runs would mislead.

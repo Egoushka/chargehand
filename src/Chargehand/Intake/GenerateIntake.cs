@@ -17,7 +17,7 @@ public sealed record IntakeCall(DateTimeOffset Started, double LatencyMs, bool V
 /// retry. Only "answer" executes in v0; the caller logs the action intake chose.
 /// </summary>
 /// <param name="needsRepository">False for node kinds that run without a checkout (the draft preset).</param>
-public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef model, PromptBlock block, string runId, bool needsRepository = true) : IIntake
+public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, PromptBlock block, string runId, bool needsRepository = true) : IIntake
 {
     public PromptBlock Block => block;
 

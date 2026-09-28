@@ -22,10 +22,10 @@ public class PriceTableTests
     public void Matches_a_gateway_billed_call()
     {
         // Spike call: gateway billed 0.0007123 for 5,616 written + 3 input + 20 completion tokens.
-        Assert.Equal(0.0007123m, Table.PriceUsd("p/small", new TokenCounts(3, 20, 0, 0, 5616)), 7);
+        Assert.Equal(0.0007123m, Table.PriceUsd("p/small", new TokenCounts(3, 20, 0, 0, 5616))!.Value, 7);
     }
 
     [Fact]
-    public void Unknown_model_is_an_error_not_free() =>
-        Assert.Throws<KeyNotFoundException>(() => Table.PriceUsd("p/unknown", new TokenCounts(1, 1, 0, 0, 0)));
+    public void Unknown_model_is_unknown_not_free() =>
+        Assert.Null(Table.PriceUsd("p/unknown", new TokenCounts(1, 1, 0, 0, 0)));
 }

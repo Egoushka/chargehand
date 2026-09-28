@@ -10,7 +10,7 @@ public class RoutingReportTests
     private static readonly PromptChain Chain = new([], new AsSent("2.0.16", "build", "p/m", "2026-09-26"));
 
     /// <summary>Runs of one preset and node kind on one model, each with one call and an optional quality score.</summary>
-    private static RunLogData Runs(string model, int count, decimal usd, double? score, int offset = 0)
+    private static RunLogData Runs(string model, int count, decimal? usd, double? score, int offset = 0)
     {
         var start = new DateTimeOffset(2026, 9, 26, 12, 0, 0, TimeSpan.Zero);
         var ids = Enumerable.Range(offset, count).Select(i => $"run-{i}").ToList();
@@ -39,5 +39,14 @@ public class RoutingReportTests
         var report = RoutingReport.Build(Both(Runs("p/large", 25, 0.2m, 0.8), Runs("p/small", 20, 0.01m, 0.75, offset: 100)));
         Assert.Contains("| p/small | 20 | 20 | 20 | 0.75 |", report, StringComparison.Ordinal);
         Assert.Contains("candidate: score -0.05, cost -95%", report, StringComparison.Ordinal);
+    }
+
+    /// <summary>ADR 0026: an unpriced model's runs report unknown cost, not a $0 average that would read as measured.</summary>
+    [Fact]
+    public void Unknown_cost_runs_are_shown_as_unknown_and_never_suggested_on_price_alone()
+    {
+        var report = RoutingReport.Build(Both(Runs("p/large", 20, 0.2m, 0.8), Runs("p/small", 20, null, 0.8, offset: 100)));
+        Assert.Contains("| p/small | 20 | 20 | 20 | 0.80 | 5000 | 80% | — | — |", report, StringComparison.Ordinal);
+        Assert.DoesNotContain("candidate:", report, StringComparison.Ordinal);
     }
 }

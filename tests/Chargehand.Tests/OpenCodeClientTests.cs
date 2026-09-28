@@ -53,6 +53,27 @@ public class OpenCodeClientTests
         Assert.Equal("r1", b.GetProperty("metadata").GetProperty("run").GetString());
     }
 
+    /// <summary>ADR 0026: an unset model sends no "model" in the body, so the server's base configuration default applies.</summary>
+    [Fact]
+    public async Task Create_with_no_model_omits_it_from_the_body()
+    {
+        var (c, h) = Make((_, _) => (HttpStatusCode.OK, Session));
+        IWorkerRuntime rt = new OpenCodeWorkerRuntime(c, "2.0.16");
+        await rt.CreateAsync(new NodeSpec("/w/repo", "build", null, [], new Dictionary<string, string>()), CancellationToken.None);
+        var b = JsonDocument.Parse(h.Seen.Single().Body!).RootElement;
+        Assert.False(b.TryGetProperty("model", out _));
+    }
+
+    /// <summary>ADR 0026: an unset model sends no "model" in the generate body, so the server's base default applies.</summary>
+    [Fact]
+    public async Task Generate_with_no_model_omits_it_from_the_body()
+    {
+        var (c, h) = Make((_, _) => (HttpStatusCode.OK, """{"data":{"text":"OK"}}"""));
+        await c.GenerateAsync(null, null, "Say OK", CancellationToken.None);
+        var b = JsonDocument.Parse(h.Seen.Single().Body!).RootElement;
+        Assert.False(b.TryGetProperty("model", out _));
+    }
+
     [Fact]
     public async Task Tagged_error_bodies_become_OpenCodeException()
     {

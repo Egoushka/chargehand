@@ -54,7 +54,10 @@ public sealed class Orchestrator(
         var presetName = request.Context.Preset;
         var date = started.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var intakeBlock = registry.Get("intake/task-spec");
-        var intakeChain = PromptChains.Build([(intakeBlock, BlockSource.Registry)], new AsSent(opencodeVersion, "generate", profile.IntakeModel, date));
+        // Unset (ADR 0026): the runtime picks its own default; "auto" stands in for the chain metadata and run log,
+        // which need a concrete label even though no specific model was pinned.
+        var intakeModel = profile.IntakeModel ?? "auto";
+        var intakeChain = PromptChains.Build([(intakeBlock, BlockSource.Registry)], new AsSent(opencodeVersion, "generate", intakeModel, date));
 
         ResultContract Stop(ResultStatus status, string summary, IReadOnlyList<string> questions, IReadOnlyList<Artifact>? artifacts = null) =>
             new("result/v1", runId, "intake", traceId, intakeChain, status, summary, [], [], artifacts ?? [], questions, 0, new Usage(0, 0, 0, 0, 0));
@@ -73,11 +76,11 @@ public sealed class Orchestrator(
             using (var span = Telemetry.Source.StartActivity("chargehand.intake"))
             {
                 TagChain(span, intakeChain);
-                span?.SetTag("gen_ai.request.model", profile.IntakeModel);
+                span?.SetTag("gen_ai.request.model", intakeModel);
                 intake = await new GenerateIntake(runtime, ParseModel(profile.IntakeModel), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
                 span?.SetTag("chargehand.intake.action", intake.Spec?.Action.ToString().ToLowerInvariant() ?? "needs_input");
                 foreach (var c in intake.Calls)
-                    await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, profile.IntakeModel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
+                    await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, intakeModel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
             }
 
             var blocks = new List<(PromptBlock, BlockSource)> { (registry.Get($"core/{kindName}"), BlockSource.Registry), (registry.Get($"preset/{presetName}"), BlockSource.Registry) };
@@ -159,7 +162,7 @@ public sealed class Orchestrator(
         var cap = new[] { profile.RunCapUsd / plan.Count, kind.Budget.MaxUsd, (request.Context.BudgetUsd ?? decimal.MaxValue) / plan.Count }.Min();
         // The id is quoted: rendered as "[id]", a model cited "[id]" as the locator, which no input id matches.
         var inputText = string.Join("\n", (request.Inputs ?? []).Select(i => $"- id \"{i.Id}\" ({i.Kind}): {i.Text}{(i.SourceUrl is null ? "" : $" <{i.SourceUrl}>")}"));
-        var prices = new PriceTable(profile.Prices);
+        var prices = new PriceTable(profile.Prices ?? new Dictionary<string, ModelPrice>());
         // Recalled facts go in the prompt text, after the task (ADR 0007 order; ADR 0010 keeps instructions fixed, so
         // siblings still fork). The chain records them as a runtime block.
         var facts = await Recall(request.Text, run, ct);
@@ -206,7 +209,9 @@ public sealed class Orchestrator(
                         ["cache_read_input_tokens"] = m.Tokens.CacheRead,
                         ["cache_creation_input_tokens"] = m.Tokens.CacheWrite,
                     }));
-                    call?.SetTag("langfuse.observation.cost_details", JsonSerializer.Serialize(new Dictionary<string, decimal> { ["total"] = usd }));
+                    // Unknown cost (ADR 0026) reports no cost_details rather than a $0 that would read as measured.
+                    if (usd is { } known)
+                        call?.SetTag("langfuse.observation.cost_details", JsonSerializer.Serialize(new Dictionary<string, decimal> { ["total"] = known }));
                 }
                 call?.SetEndTime((m.Completed ?? m.Created).UtcDateTime);
             }
@@ -413,8 +418,11 @@ public sealed class Orchestrator(
         }
     }
 
-    public static ModelRef ParseModel(string model)
+    /// <summary>Null: unset, the runtime uses its own default model (ADR 0026).</summary>
+    public static ModelRef? ParseModel(string? model)
     {
+        if (model is null)
+            return null;
         var slash = model.IndexOf('/');
         var hash = model.IndexOf('#');
         return new ModelRef(model[..slash], hash < 0 ? model[(slash + 1)..] : model[(slash + 1)..hash], hash < 0 ? null : model[(hash + 1)..]);

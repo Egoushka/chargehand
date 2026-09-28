@@ -92,7 +92,7 @@ public class WorkerNodeTests
             return Task.CompletedTask;
         }
         public Task<IReadOnlyList<FileDiff>> DiffAsync(string sessionId, CancellationToken ct) => Task.FromResult<IReadOnlyList<FileDiff>>([]);
-        public Task<string> GenerateAsync(ModelRef model, string prompt, CancellationToken ct) => throw new NotSupportedException();
+        public Task<string> GenerateAsync(ModelRef? model, string prompt, CancellationToken ct) => throw new NotSupportedException();
     }
 
     /// <summary>Treats src/calc.py:1-6 as the only valid file evidence.</summary>
@@ -233,6 +233,20 @@ public class WorkerNodeTests
         Assert.Equal(1, rt.Interrupts);
         Assert.Single(rt.Prompts);
         Assert.Equal(ResultStatus.Failed, r.Contract.Status);
+    }
+
+    /// <summary>ADR 0026: an unpriced model's cost is unknown, not $0 — the USD cap cannot fire for it, and the token
+    /// budget (kind.Budget.MaxInputTokens) stays the real guardrail.</summary>
+    [Fact]
+    public async Task Usd_cap_is_inert_for_an_unpriced_model_the_token_budget_still_guards()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true };
+        rt.Log.Add(BigCall());
+        var unpriced = new WorkerNode(rt, new PriceTable(new Dictionary<string, ModelPrice>()), new FakeResolver(), TimeSpan.FromMilliseconds(10));
+        var r = await unpriced.RunAsync(Request(TimeSpan.FromSeconds(30)) with { CapUsd = 0.0001m, MaxInputTokens = 1000 }, CancellationToken.None);
+        Assert.Null(r.Contract.Usage.Usd);
+        Assert.Equal(WorkerNode.BudgetAnswer, rt.Prompts[^1]);
+        Assert.Equal(ResultStatus.Completed, r.Contract.Status);
     }
 
     [Fact]
