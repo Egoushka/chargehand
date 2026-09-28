@@ -14,6 +14,12 @@ Thanks for looking. The project is pre-alpha; open an issue before a large chang
   `provider/model` ids from a profile. Your profile goes in `profiles/local.json` (gitignored);
   `profiles/example.json` holds placeholders only. Secrets are referenced by name, never stored.
 
+## Sign-off
+
+Contributions come under the [Developer Certificate of Origin](https://developercertificate.org/). Sign off every
+commit with `git commit -s`; the `Signed-off-by` line certifies that you wrote the change or may submit it under the
+project's license.
+
 ## Setup
 
 ```bash

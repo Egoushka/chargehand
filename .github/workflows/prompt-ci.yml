@@ -1,6 +1,6 @@
 name: prompt-ci
 
-# Prompt CI (ADR 0019, ADR 0022). pull_request_target runs this file as it is on main, never a pull request's copy, and
+# Prompt CI (ADR 0019, ADR 0025). pull_request_target runs this file as it is on main, never a pull request's copy, and
 # its token can post the "prompt-ci" status on a fork's pull request too. The evals run on the self-hosted runner
 # labelled chargehand-eval; no model, gateway or tracing key lives in GitHub. The runner builds main; the pull request
 # contributes only prompts/ and presets/ (scripts/prompt-ci.sh).

@@ -1,13 +1,13 @@
 # 0024. chargehand serve on a private network, and release images
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-28
 
 ## Context
 
 `chargehand serve` binds 127.0.0.1 and accepts only a loopback `Host` (ADR 0018): a page in a local browser could
 otherwise reach it through DNS rebinding. An MCP client on another machine cannot reach it, and the server is up only
-while the machine that started it is. Prompt CI already runs on a server (ADR 0022).
+while the machine that started it is. Prompt CI already runs on a server (ADR 0025).
 
 ## Options
 
@@ -25,7 +25,7 @@ while the machine that started it is. Prompt CI already runs on a server (ADR 00
   `CLAUDE_CODE_VERSION`, which must match `claude_code.version`), git for worker clones (ADR 0023), `prompts/` and
   `presets/`. It runs as a non-root user from `/app`; the profile mounts at `/config/profile.json` and uses
   `secret_store: env`, since the Keychain is macOS only. OpenCode is not in the image: a Linux build of the pinned
-  2.0.16 is unverified (ADR 0022), and an OpenCode profile points `opencode.url` at a server run next to the
+  2.0.16 is unverified (ADR 0025), and an OpenCode profile points `opencode.url` at a server run next to the
   container.
 - **Versions:** a tag `v<Version>` builds and pushes `ghcr.io/<owner>/chargehand:<Version>`, and fails when the tag
   and `Directory.Build.props` disagree. No `latest` and no image per commit: a deployment pins an exact version, so
