@@ -1,4 +1,4 @@
-# 0030. Managed Agents as a worker runtime
+# 0031. Managed Agents as a worker runtime
 
 - Status: proposed
 - Date: 2026-09-28
