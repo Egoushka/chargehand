@@ -13,6 +13,13 @@ indent_size = 4
 csharp_style_namespace_declarations = file_scoped:warning
 csharp_style_var_for_built_in_types = true:suggestion
 dotnet_sort_system_directives_first = true
+# CA1716: names such as IPromptRegistry.Get clash only with Visual Basic keywords; this is a C# code base.
+dotnet_diagnostic.CA1716.severity = none
+
+[tests/**.cs]
+# Test names are sentences with underscores, and tests call ports through their interfaces on purpose.
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1859.severity = none
 
 [*.md]
 trim_trailing_whitespace = false

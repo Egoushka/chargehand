@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
@@ -99,7 +100,7 @@ public static class OrchestrateTool
     {
         var sb = new StringBuilder(request.Text).AppendLine().AppendLine().AppendLine("Answers to the orchestrator's questions:");
         for (var i = 0; i < questions.Count; i++)
-            sb.AppendLine($"- {questions[i]} {(answers.Content?.TryGetValue($"q{i + 1}", out var a) == true ? a.ToString() : "(no answer)")}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"- {questions[i]} {(answers.Content?.TryGetValue($"q{i + 1}", out var a) == true ? a.ToString() : "(no answer)")}");
         return request with { Text = sb.ToString().TrimEnd() };
     }
 

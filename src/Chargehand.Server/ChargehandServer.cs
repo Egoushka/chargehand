@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.ServerSentEvents;
 using System.Security.Cryptography;
@@ -159,7 +160,7 @@ public static partial class ChargehandServer
 
     /// <summary>RFC 7240 "Prefer: wait=N" in seconds, at most <see cref="MaxWaitSeconds"/>.</summary>
     internal static TimeSpan Wait(string? prefer) =>
-        PreferWait().Match(prefer ?? "") is { Success: true } m ? TimeSpan.FromSeconds(Math.Min(int.Parse(m.Groups[1].Value), MaxWaitSeconds)) : DefaultWait;
+        PreferWait().Match(prefer ?? "") is { Success: true } m ? TimeSpan.FromSeconds(Math.Min(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), MaxWaitSeconds)) : DefaultWait;
 
     private static IResult Json(object value, int status) => HttpResults.Json(value, ContractJson.Options, statusCode: status);
 

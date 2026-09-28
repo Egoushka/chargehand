@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
 using Chargehand.Runtime;
@@ -54,8 +55,8 @@ public sealed partial class GitEvidenceResolver : IEvidenceResolver
             return null;
         foreach (Match h in Hunk().Matches(file.Patch))
         {
-            var from = int.Parse(h.Groups["s"].Value);
-            var len = h.Groups["l"].Success ? int.Parse(h.Groups["l"].Value) : 1;
+            var from = int.Parse(h.Groups["s"].Value, CultureInfo.InvariantCulture);
+            var len = h.Groups["l"].Success ? int.Parse(h.Groups["l"].Value, CultureInfo.InvariantCulture) : 1;
             if (start <= from + len - 1 && end >= from)
                 return null;
         }
@@ -66,8 +67,8 @@ public sealed partial class GitEvidenceResolver : IEvidenceResolver
     {
         var m = Locator().Match(locator);
         path = m.Success ? m.Groups["p"].Value : locator;
-        start = m.Success ? int.Parse(m.Groups["a"].Value) : 0;
-        end = m.Success && m.Groups["b"].Success ? int.Parse(m.Groups["b"].Value) : start;
+        start = m.Success ? int.Parse(m.Groups["a"].Value, CultureInfo.InvariantCulture) : 0;
+        end = m.Success && m.Groups["b"].Success ? int.Parse(m.Groups["b"].Value, CultureInfo.InvariantCulture) : start;
         return m.Success && start >= 1 && end >= start;
     }
 

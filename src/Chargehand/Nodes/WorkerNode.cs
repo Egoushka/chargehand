@@ -229,7 +229,7 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
 
     private static long Context(TokenCounts t) => t.Input + t.CacheRead + t.CacheWrite;
 
-    private static IReadOnlyList<WorkerMessage> Calls(IReadOnlyList<WorkerMessage> messages) =>
+    private static List<WorkerMessage> Calls(IReadOnlyList<WorkerMessage> messages) =>
         messages.Where(m => m.Kind == WorkerMessageKind.Assistant && m.Tokens is not null).OrderBy(m => m.Created).ToList();
 
     /// <summary>
