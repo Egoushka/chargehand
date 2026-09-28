@@ -97,6 +97,18 @@ public class ProfileTests
     }
 
     [Fact]
+    public async Task Secret_command_gets_a_closed_stdin_not_the_parents()
+    {
+        // Under `chargehand mcp` the parent's stdin carries protocol bytes: a command that reads stdin must see EOF at once.
+        var profile = new Profile("profile/v1", Secrets: [new SecretSource(Command: ["sh", "-c", "cat >/dev/null; printf %s read-to-eof"])]);
+
+        var secret = Task.Run(() => profile.Secret("stdin-probe"));
+
+        Assert.Same(secret, await Task.WhenAny(secret, Task.Delay(TimeSpan.FromSeconds(10))));
+        Assert.Equal("read-to-eof", await secret);
+    }
+
+    [Fact]
     public void Secret_throws_when_every_source_fails()
     {
         var profile = new Profile("profile/v1", Secrets: [new SecretSource(Command: ["sh", "-c", "exit 1"])]);
