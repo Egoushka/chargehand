@@ -38,6 +38,7 @@ still reads a clone under `worker_root` (ADR 0023), outside the home (ADR 0003).
 - `run` reads `prompts/` and `presets/` from its current directory today, so until they ship with the tool
   (ADR 0027, pending) the launch directory is usually the chargehand checkout; the default pays off once a
   packaged launch starts in the user's own directory.
+  2026-09-28: lifted. Outside a checkout they come from the install, and the run log from a per-user directory.
 - A stdio MCP host (ADR 0027, pending) should apply the same default, or the client's declared roots.
 
 ## Reopen if

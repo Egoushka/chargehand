@@ -144,7 +144,7 @@
     },
     "run_log": {
       "type": "string",
-      "description": "Path of the JSONL run log. Default runs/run-log.jsonl (gitignored)."
+      "description": "Path of the JSONL run log. Default runs/run-log.jsonl (gitignored) in a checkout, else chargehand/run-log.jsonl under the per-user data directory."
     },
     "telemetry": {
       "type": "object",

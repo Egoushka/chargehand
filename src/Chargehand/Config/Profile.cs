@@ -19,7 +19,7 @@ public sealed record Profile(
     IReadOnlyDictionary<string, ModelPrice>? Prices = null,
     IReadOnlyList<SecretSource>? Secrets = null,
     decimal RunCapUsd = 1.00m,
-    string RunLog = "runs/run-log.jsonl",
+    string? RunLog = null,
     TelemetrySettings? Telemetry = null,
     IReadOnlyDictionary<string, string>? Models = null,
     MemorySettings? Memory = null,
