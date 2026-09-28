@@ -88,8 +88,9 @@ public sealed record SecretSource(bool? Env = null, IReadOnlyList<string>? Comma
 
 public sealed record OpenCodeSettings(string Url, string PasswordSecret, string Version, string? Binary = null);
 
-/// <summary>Claude Code CLI as the worker runtime (ADR 0020); used instead of OpenCode when set. Exactly one
-/// credential: an API key (per-token billing) or a subscription OAuth token from <c>claude setup-token</c>. BaseUrl
+/// <summary>Claude Code CLI as the worker runtime (ADR 0020); used instead of OpenCode when set. At most one
+/// credential: an API key (per-token billing) or a subscription OAuth token from <c>claude setup-token</c>; with
+/// neither, the CLI's own signed-in login. BaseUrl
 /// routes the workers through a gateway that speaks the Anthropic API; unset, they call Anthropic directly.</summary>
 public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = null, string? OauthTokenSecret = null, string Binary = "claude",
     string? BaseUrl = null)
@@ -100,7 +101,7 @@ public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = n
     /// <summary>
     /// No claude_code block (ADR 0026): claude from PATH at <see cref="PinnedVersion"/>, and the one credential the
     /// secrets chain resolves under the names the CLI itself reads (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN with the
-    /// default env source). Both or neither is an error: the adapter always passes exactly one (ADR 0020).
+    /// default env source). Both is an error; neither leaves the CLI on its own signed-in login (ADR 0020).
     /// </summary>
     public static ClaudeCodeSettings Detect(Func<string, bool> resolves) =>
         (resolves("anthropic-api-key"), resolves("claude-code-oauth-token")) switch
@@ -109,8 +110,7 @@ public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = n
             (false, true) => new(PinnedVersion, OauthTokenSecret: "claude-code-oauth-token"),
             (true, true) => throw new ChargehandException(ErrorCode.InvalidRequest, "both ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN are set",
                 "Unset one, or add claude_code to the profile naming one of api_key_secret and oauth_token_secret."),
-            _ => throw new ChargehandException(ErrorCode.RuntimeUnavailable, "claude_code has no credential",
-                "Set ANTHROPIC_API_KEY, or CLAUDE_CODE_OAUTH_TOKEN from claude setup-token, or add claude_code to the profile."),
+            _ => new(PinnedVersion),
         };
 }
 

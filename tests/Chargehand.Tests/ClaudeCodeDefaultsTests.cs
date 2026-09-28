@@ -31,11 +31,10 @@ public class ClaudeCodeDefaultsTests
     }
 
     [Fact]
-    public void No_credential_names_both_variables()
+    public void No_credential_selects_the_cli_login()
     {
-        var e = Assert.Throws<ChargehandException>(() => ClaudeCodeSettings.Detect(_ => false));
-        Assert.Equal(ErrorCode.RuntimeUnavailable, e.Code);
-        Assert.Contains("ANTHROPIC_API_KEY", e.Action);
-        Assert.Contains("CLAUDE_CODE_OAUTH_TOKEN", e.Action);
+        var cc = ClaudeCodeSettings.Detect(_ => false);
+
+        Assert.Equal(("claude", ClaudeCodeSettings.PinnedVersion, (string?)null, (string?)null), (cc.Binary, cc.Version, cc.ApiKeySecret, cc.OauthTokenSecret));
     }
 }
