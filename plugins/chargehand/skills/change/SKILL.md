@@ -6,7 +6,9 @@ argument-hint: <goal or #issue> [--budget <usd>]
 
 Goal from the user: $ARGUMENTS
 
-Follow these steps in order. Stop at the first step that fails, tell the user why and what fixes it.
+Follow these steps in order. In steps 1 and 2 a failure stops the run with nothing created: tell the user why and what
+fixes it. From step 3 on the branch exists: any failure (git, a commit hook, a write, a chargehand error) keeps the
+branch and goes to step 9, recording the step and the error with its action.
 
 ## 1. Preflight
 
@@ -50,7 +52,8 @@ Make the change the goal asks for, guided by the research claims. Keep it to wha
 Find the repository's test command: CLAUDE.md or AGENTS.md first, then the README, then a standard build file
 (`package.json` scripts.test, `*.sln`/`*.slnx` → `dotnet test`, `pyproject.toml` → `pytest`, `Cargo.toml` →
 `cargo test`, `go.mod` → `go test ./...`). Run it if found. Keep the exit code and the last 200 lines of output. If
-none is found, the test result is "no test command found".
+none is found, the test result is "no test command found". A failing test run is a result, not a failed step:
+continue.
 
 ## 6. Commit
 
@@ -67,14 +70,16 @@ goal.", `context.preset` = "review", so preset "review" runs, `context.repositor
 `[{ "id": "goal", "kind": "goal", "text": <goal> }, { "id": "diff", "kind": "diff", "text": <diff input> },
 { "id": "tests", "kind": "test-output", "text": <exit code and output> }]`.
 
-Each claim in the result is a finding. `failed` or `denied`: keep the branch, go to step 9 and record the step,
+Each claim in the result is a finding. `needs_input`: record the questions as open items, keep the branch, go to
+step 9. `failed` or `denied`: keep the branch, go to step 9 and record the step,
 `error.message` and `error.action`.
 
 ## 8. Fix loop
 
 If there are findings, fix the ones that hold (read the cited lines first; a finding you judge wrong goes to the report
 with your reason), rerun the tests, commit with `fix: address review`, and review again as in step 7. Do at most 2 fix
-rounds, 3 reviews in all. Findings left after the last review are open items.
+rounds, 3 reviews in all. Findings left after the last review are open items, and so are tests still failing after the last round (commit as
+is).
 
 ## 9. Report
 

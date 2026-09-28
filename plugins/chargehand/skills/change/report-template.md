@@ -24,7 +24,7 @@ Branch `change/<slug>` from `<base commit>`.
 
 ## Open items
 
-<findings still open, unverified claims that mattered, and any step that failed with its error and action>
+<findings still open, tests still failing, unverified claims that mattered, and any step that failed with its error and action>
 
 ## Runs
 
