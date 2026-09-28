@@ -1,6 +1,6 @@
 {
   "comment": "Operations the OpenCode adapter depends on. The contract test fails if any disappears from docs/opencode-openapi.json or loses a listed request property. mode/errors_seen are observations from the phase 2 spike against OpenCode 2.0.16; scripts/gen-opencode-api.py renders them into docs/opencode-api.md.",
-  "opencode_version": "2.0.16",
+  "opencode_version": "2.0.18",
   "operations": [
     { "op": "GET /api/info", "port": "health", "mode": "blocking", "errors_seen": [401] },
     { "op": "POST /api/session", "port": "CreateSession", "body": ["agent", "model", "location", "permissions", "metadata"], "mode": "blocking (~0.2-0.5 s); 400 \"Model unavailable\" while a location boots (retried)", "errors_seen": [400, 401] },

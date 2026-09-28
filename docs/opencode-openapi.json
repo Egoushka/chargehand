@@ -3776,6 +3776,34 @@
    "Money.USDPerMillionTokens": {
     "type": "number"
    },
+   "PairingCode": {
+    "additionalProperties": false,
+    "properties": {
+     "code": {
+      "type": "string"
+     },
+     "expires_in": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "code",
+     "expires_in"
+    ],
+    "type": "object"
+   },
+   "PairingSession": {
+    "additionalProperties": false,
+    "properties": {
+     "token": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "token"
+    ],
+    "type": "object"
+   },
    "Permission.Effect": {
     "enum": [
      "allow",
@@ -7371,6 +7399,9 @@
       "type": "integer"
      },
      "shell": {
+      "type": "string"
+     },
+     "signal": {
       "type": "string"
      },
      "status": {
@@ -13583,6 +13614,50 @@
     "summary": "Get default model",
     "tags": [
      "model"
+    ]
+   }
+  },
+  "/api/pair": {
+   "post": {
+    "description": "Create a short-lived, single-use code for a /auth/connect/:code pairing link.",
+    "operationId": "server.pair",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PairingCode"
+        }
+       }
+      },
+      "description": "PairingCode"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+        }
+       }
+      },
+      "description": "InvalidRequestError"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+        }
+       }
+      },
+      "description": "UnauthorizedError"
+     }
+    },
+    "security": [],
+    "summary": "Create pairing code",
+    "tags": [
+     "server"
     ]
    }
   },
@@ -21063,6 +21138,66 @@
     "summary": "Refresh worktrees",
     "tags": [
      "worktree"
+    ]
+   }
+  },
+  "/auth/connect/{code}": {
+   "get": {
+    "description": "Redeem a pairing code. Browsers receive a session cookie and a redirect to the web app; requests that accept JSON receive a session token to use as the password.",
+    "operationId": "server.connect",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "code",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PairingSession"
+        }
+       }
+      },
+      "description": "PairingSession"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+        }
+       }
+      },
+      "description": "InvalidRequestError"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "anyOf": [
+          {
+           "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+          },
+          {
+           "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+          }
+         ]
+        }
+       }
+      },
+      "description": "UnauthorizedError"
+     }
+    },
+    "security": [],
+    "summary": "Redeem pairing code",
+    "tags": [
+     "server"
     ]
    }
   }

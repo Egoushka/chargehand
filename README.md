@@ -45,7 +45,7 @@ You need the .NET 10 SDK and one worker runtime.
 1. Copy `profiles/example.json` to `profiles/local.json` and fill in your gateway, models, prices and secret-store
    item names. Profiles reference secrets by item name and never hold them.
 2. Pick a runtime:
-   - **OpenCode**: with `opencode` on `PATH` (pinned 2.0.16), no profile block is needed. `run`, `serve` and `mcp`
+   - **OpenCode**: with `opencode` on `PATH` (pinned 2.0.18), no profile block is needed. `run`, `serve` and `mcp`
      start their own `opencode serve` on 127.0.0.1 and a free port, with a random password and their own state
      under `chargehand/opencode` in the per-user data directory, and stop it on exit. Providers come from the
      environment variables OpenCode reads (e.g. `ANTHROPIC_API_KEY`); edit `xdg/config/opencode/opencode.json` in

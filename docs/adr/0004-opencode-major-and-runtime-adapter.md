@@ -54,6 +54,12 @@ Adapter rules learned in the spike:
 The v1 fallback was not exercised (optional check skipped: no blocker to hedge). The experimental status of V2
 is the main risk; the contract test and version pin contain it.
 
+## Re-pinned to 2.0.18 (2026-09-28)
+
+The spec regenerated from a live 2.0.18 server (own state directory, loopback) differs from 2.0.16's only by two
+added routes, `POST /api/pair` and `GET /auth/connect/{code}`; every operation in `docs/opencode-adapter-ops.json`
+is unchanged and the contract test passes. No worker session was run live on 2.0.18.
+
 ## Reopen if
 
 A V2 update breaks the adapter in two consecutive releases, or `wait` proves unreliable under load.

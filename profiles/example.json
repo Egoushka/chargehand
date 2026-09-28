@@ -9,7 +9,7 @@
     "url": "http://127.0.0.1:4096",
     "password_secret": "chargehand-opencode-password",
     "binary": "/opt/chargehand/bin/opencode",
-    "version": "2.0.16"
+    "version": "2.0.18"
   },
   "worker_root": "/srv/chargehand/work",
   "repository_roots": ["/srv/chargehand/work", "/path/to/your/repositories"],
