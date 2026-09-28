@@ -24,6 +24,7 @@ const string Usage = """
     usage: chargehand [--profile profiles/local.json] <command>
       run                          reads request/v1 on stdin, writes result/v1 on stdout
       serve                        HTTP /v1/runs and MCP /v1/mcp (profile http; 127.0.0.1 by default)
+      mcp                          the MCP tool over stdio, for a client that starts chargehand itself
       show <run-id>                prints a run and its calls from the run log
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
       cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
@@ -47,7 +48,7 @@ if (argv.Count >= 2 && argv[0] == "--profile")
     profilePath = argv[1];
     argv.RemoveRange(0, 2);
 }
-if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts"))
+if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts"))
 {
     Console.Error.WriteLine(Usage);
     return 2;
@@ -67,6 +68,8 @@ switch (argv)
         return await Run();
     case ["serve"]:
         return await Serve();
+    case ["mcp"]:
+        return await Mcp();
     case ["show", var id]:
         return await Show(id);
     case ["reconcile", var id]:
@@ -153,6 +156,18 @@ async Task<int> Serve()
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp)");
     await app.WaitForShutdownAsync(ct);
+    return 0;
+}
+
+/// <summary>The orchestrate tool over stdio (ADR 0027): stdout carries only MCP messages, so nothing here writes to it.</summary>
+async Task<int> Mcp()
+{
+    using var tracing = Tracing();
+    var (runtime, runtimeVersion) = await Connect();
+    var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory());
+    using var host = ChargehandServer.CreateStdio(Path.Combine(root, "presets"), orchestrator, Console.OpenStandardInput(), Console.OpenStandardOutput());
+    // The transport stops the host when the client closes stdin.
+    await host.RunAsync(ct);
     return 0;
 }
 

@@ -115,7 +115,8 @@ public static class OrchestrateTool
         if (context.Params?.ProgressToken is { } token)
             await context.Server.NotifyProgressAsync(token, new ProgressNotificationValue { Progress = 0, Message = Where(run, "started") }, cancellationToken: ct);
         // Unlike POST /v1/runs, no wait=N means waiting for the result: a client with a long timeout keeps getting it.
-        var prefer = context.Services!.GetRequiredService<IHttpContextAccessor>().HttpContext?.Request.Headers["Prefer"].ToString() ?? "";
+        // Over stdio there is no HTTP request and no accessor, so no header.
+        var prefer = context.Services!.GetService<IHttpContextAccessor>()?.HttpContext?.Request.Headers["Prefer"].ToString() ?? "";
         try
         {
             await run.Done.WaitAsync(prefer.Contains("wait=", StringComparison.Ordinal) ? ChargehandServer.Wait(prefer) : Timeout.InfiniteTimeSpan, ct);

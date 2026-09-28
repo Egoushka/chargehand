@@ -29,7 +29,7 @@ public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirec
 
 /// <summary>
 /// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
-/// GET /v1/runs/{id}/events (server-sent events), and the MCP tool "orchestrate" at /v1/mcp.
+/// GET /v1/runs/{id}/events (server-sent events), and the MCP tool "orchestrate" at /v1/mcp; the same tool over stdio (ADR 0027).
 /// </summary>
 public static partial class ChargehandServer
 {
@@ -68,17 +68,9 @@ public static partial class ChargehandServer
         builder.Services.AddHostFiltering(o => o.AllowedHosts = ["localhost", "127.0.0.1", .. hosts]);
         // OrchestrateTool reads the MCP call's Prefer header.
         builder.Services.AddHttpContextAccessor();
-        builder.Services.AddSingleton(sp => new RunService(orchestrator, settings.PresetsDirectory,
-            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping));
-        builder.Services.AddMcpServer(o =>
-            {
-                o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" };
-                o.ServerInstructions = Instructions;
-            })
+        AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory)
             // Hybrid: 2026-07-28 clients run stateless (tasks, input_required results); initialize clients get a session.
-            .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients)
-            .WithTools([OrchestrateTool.Create()])
-            .WithTasks(new InMemoryMcpTaskStore());
+            .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients);
 
         var app = builder.Build();
         app.UseHostFiltering();
@@ -139,6 +131,32 @@ public static partial class ChargehandServer
 
         app.MapMcp("/v1/mcp");
         return app;
+    }
+
+    /// <summary>
+    /// `chargehand mcp` (ADR 0027): the same tool over stdio, one session, no listener and so no key. Protocol traffic
+    /// owns <paramref name="output"/> (the process's stdout), so every log line goes to stderr.
+    /// </summary>
+    public static IHost CreateStdio(string presetsDirectory, Orchestrator orchestrator, Stream input, Stream output)
+    {
+        var builder = Host.CreateEmptyApplicationBuilder(new());
+        builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace).SetMinimumLevel(LogLevel.Warning);
+        AddOrchestrate(builder.Services, orchestrator, presetsDirectory).WithStreamServerTransport(input, output);
+        return builder.Build();
+    }
+
+    /// <summary>What both hosts share: the run service, the tool, the tasks store and the instructions.</summary>
+    private static IMcpServerBuilder AddOrchestrate(IServiceCollection services, Orchestrator orchestrator, string presetsDirectory)
+    {
+        services.AddSingleton(sp => new RunService(orchestrator, presetsDirectory,
+            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping));
+        return services.AddMcpServer(o =>
+            {
+                o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" };
+                o.ServerInstructions = Instructions;
+            })
+            .WithTools([OrchestrateTool.Create()])
+            .WithTasks(new InMemoryMcpTaskStore());
     }
 
     /// <summary>200 with result/v1 once finished; 202 with the latest run-status/v1 before; 410 if the run died.</summary>

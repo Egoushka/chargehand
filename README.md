@@ -56,8 +56,8 @@ You need the .NET 10 SDK and one worker runtime.
 3. List the directories your repositories live in as `repository_roots` (`/` allows any). A request names a
    repository and a commit; the worker reads a clone of it at that commit under `worker_root`, which stays outside
    the OpenCode user's home directory ([ADR 0023](docs/adr/0023-repository-roots-and-worker-clones.md),
-   [ADR 0003](docs/adr/0003-where-it-runs.md)). Without `repository_roots`, `run` also allows the directory it was
-   launched in; `serve` allows only `worker_root` ([ADR 0028](docs/adr/0028-default-repository-roots.md)).
+   [ADR 0003](docs/adr/0003-where-it-runs.md)). Without `repository_roots`, `run` and `mcp` also allow the directory
+   they were launched in; `serve` allows only `worker_root` ([ADR 0028](docs/adr/0028-default-repository-roots.md)).
 4. Run a request:
 
 ```bash
@@ -80,6 +80,7 @@ otherwise from the ones the build copies next to the binary. The run log is the 
 | `cache <run-id>` | cache reads and writes per call, and the first block that broke a shared prefix |
 | `reconcile <run-id> < spend-rows.jsonl` | joins calls to exported gateway spend rows |
 | `serve` | HTTP and MCP, on 127.0.0.1 unless the profile opens it (profile `http`) |
+| `mcp` | MCP over stdio, for a client that starts chargehand itself; no port, no key |
 | `routes` | routing report per preset, node kind and model |
 | `score <run-id> <0-1> [name]` | records a hand score for a run |
 | `eval seed\|push\|gate` | Prompt CI: propose items, push them to Langfuse, gate a change |
@@ -117,6 +118,14 @@ comes back as `input_required`. Outside a task, a call with a progress token get
 notification when the run starts, and a call whose HTTP request carries `Prefer: wait=N` (at most 60) returns after N
 seconds as a tool error holding the run id and its `run-status/v1`, while the run goes on
 ([ADR 0029](docs/adr/0029-mcp-run-id-before-a-client-timeout.md)).
+
+`chargehand mcp` serves the same tool, tasks and questions over stdio: the client starts the process, and stdout
+carries only MCP messages, logs go to stderr ([ADR 0027](docs/adr/0027-dnx-package-and-mcp-registry.md)). For
+Claude Code, from a checkout:
+
+```bash
+claude mcp add chargehand -- dotnet run --project <checkout>/src/Chargehand.Cli -- mcp
+```
 
 ## Repository layout
 
