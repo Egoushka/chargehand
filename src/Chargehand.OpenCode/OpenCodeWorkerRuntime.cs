@@ -19,7 +19,7 @@ public sealed class OpenCodeWorkerRuntime : IWorkerRuntime
     public string Version { get; }
 
     /// <summary>The server version the adapter was verified against (ADR 0004); the default server (ADR 0030) must run it.</summary>
-    public const string PinnedVersion = "2.0.16";
+    public const string PinnedVersion = "2.0.18";
 
     /// <summary>Refuses a server whose version differs from the pinned one.</summary>
     public static async Task<OpenCodeWorkerRuntime> ConnectAsync(IOpenCodeClient oc, string pinnedVersion, CancellationToken ct)

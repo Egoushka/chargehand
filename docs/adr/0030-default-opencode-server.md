@@ -46,7 +46,7 @@ When the runtime is OpenCode (profile, `CHARGEHAND_RUNTIME`, or `opencode` alone
   protocol streams (as for every child since #51). The last output line goes into the error when the server exits
   before answering.
 - Ready when `/api/info` answers, polled every 100 ms for up to 30 s. Then the usual version check against
-  `OpenCodeWorkerRuntime.PinnedVersion` (2.0.16, ADR 0004).
+  `OpenCodeWorkerRuntime.PinnedVersion` (2.0.18, ADR 0004).
 - Killed with its process tree when chargehand exits (`ProcessExit`, which also runs on SIGTERM and after Ctrl-C).
 
 An explicit `opencode` block always wins: chargehand connects to that URL and starts nothing.
