@@ -40,7 +40,8 @@ public static class RuntimeSelector
         null => null,
         "opencode" => RuntimeKind.Opencode,
         "claude_code" => RuntimeKind.ClaudeCode,
-        _ => throw new ChargehandException(ErrorCode.InvalidRequest, $"unknown runtime '{name}'; expected opencode or claude_code"),
+        _ => throw new ChargehandException(ErrorCode.InvalidRequest, $"unknown runtime '{name}'; expected opencode or claude_code",
+            "Set the profile's runtime field or CHARGEHAND_RUNTIME to opencode or claude_code."),
     };
 
     /// <summary>Whether <paramref name="binary"/> resolves on PATH. A plain existence check; never executes it.</summary>

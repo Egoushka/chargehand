@@ -281,11 +281,13 @@ public sealed class Orchestrator(
     {
         // git prints the top level with symbolic links resolved, so a link under a root cannot point the worker elsewhere.
         var source = await Git(Path.GetFullPath(repo.Path), ct, "rev-parse", "--show-toplevel")
-            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{repo.Path} is not a git checkout");
+            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{repo.Path} is not a git checkout",
+                "Point context.repository.path at a git working tree.");
         if (!profile.Roots.Any(root => Under(source, RealPath(root))))
             throw new ChargehandException(ErrorCode.RepositoryNotAllowed, $"repository {source} is not under repository_roots ({string.Join(", ", profile.Roots)})");
         var commit = await Git(source, ct, "rev-parse", "--verify", "--end-of-options", repo.Commit + "^{commit}")
-            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"commit {repo.Commit} is not in {source}");
+            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"commit {repo.Commit} is not in {source}",
+                "Fetch the commit into that checkout, or pin one it has.");
         var id = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(source)))[..8];
         var dir = Path.Combine(Path.GetFullPath(profile.WorkerRoot), ".checkouts", $"{Path.GetFileName(source)}-{id}", commit[..12]);
         OutsideHome(dir + Path.DirectorySeparatorChar);
@@ -301,7 +303,8 @@ public sealed class Orchestrator(
             if ((await Git(parent, ct, "clone", "-q", "--local", "--no-checkout", "--", source, temp) is null
                  && await Git(parent, ct, "clone", "-q", "--no-hardlinks", "--no-checkout", "--", source, temp) is null)
                 || await Git(temp, ct, "checkout", "-q", "--detach", commit) is null)
-                throw new ChargehandException(ErrorCode.CheckoutInvalid, $"could not clone {source} at {commit[..12]} into {Path.GetDirectoryName(dir)}");
+                throw new ChargehandException(ErrorCode.CheckoutInvalid, $"could not clone {source} at {commit[..12]} into {Path.GetDirectoryName(dir)}",
+                    "Check that worker_root is writable and has free space.");
             try
             {
                 Directory.Move(temp, dir);
@@ -317,7 +320,8 @@ public sealed class Orchestrator(
         return denied.Count == 0
             ? (dir, commit)
             : throw new ChargehandException(ErrorCode.CheckoutHasSecrets, $"the repository tracks files the preset denies reading, which grep would still reach: " +
-                $"{string.Join(", ", denied.Take(5))}{(denied.Count > 5 ? ", ..." : "")}. Pin a commit without them.");
+                $"{string.Join(", ", denied.Take(5))}{(denied.Count > 5 ? ", ..." : "")}",
+                "Pin a commit that does not track them, or remove them from the repository.");
     }
 
     private static bool Under(string path, string root) =>
@@ -357,7 +361,8 @@ public sealed class Orchestrator(
         var files = (await p.StandardOutput.ReadToEndAsync(ct)).Split('\0', StringSplitOptions.RemoveEmptyEntries);
         await p.WaitForExitAsync(ct);
         if (p.ExitCode != 0)
-            throw new ChargehandException(ErrorCode.CheckoutInvalid, $"git ls-files failed in {repo}");
+            throw new ChargehandException(ErrorCode.CheckoutInvalid, $"git ls-files failed in {repo}",
+                "Delete the checkout under worker_root/.checkouts and retry.");
         return files.Where(f => read.LastOrDefault(r => Wildcard(f, r.Resource))?.Effect == "deny").ToList();
     }
 

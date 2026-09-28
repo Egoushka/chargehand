@@ -21,6 +21,7 @@ public class RuntimeSelectorTests
     {
         var e = Assert.Throws<ChargehandException>(() => RuntimeSelector.Select("something-else", null, None));
         Assert.Equal(ErrorCode.InvalidRequest, e.Code);
+        Assert.NotNull(e.Action);
     }
 
     [Fact]
