@@ -110,7 +110,10 @@ public class CheckoutTests
         var r = await Runs.Orchestrator(runtime, Path.Combine(dir.Path, "root"), new JsonlRunLog(Path.Combine(dir.Path, "log.jsonl")))
             .RunAsync(Runs.CheapRequest(repo), CancellationToken.None);
 
-        Assert.Equal(new ResultError(ErrorCode.RepositoryNotAllowed, r.Summary, false), r.Error);
+        Assert.Equal(ErrorCode.RepositoryNotAllowed, r.Error?.Code);
+        Assert.False(r.Error!.Retryable);
+        Assert.Contains(Path.Combine(dir.Path, "root"), r.Summary, StringComparison.Ordinal);
+        Assert.Contains("repository_roots", r.Error.Action, StringComparison.Ordinal);
         Assert.Empty(runtime.Created);
     }
 

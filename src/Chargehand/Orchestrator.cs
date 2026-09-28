@@ -284,7 +284,9 @@ public sealed class Orchestrator(
             ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{repo.Path} is not a git checkout",
                 "Point context.repository.path at a git working tree.");
         if (!profile.Roots.Any(root => Under(source, RealPath(root))))
-            throw new ChargehandException(ErrorCode.RepositoryNotAllowed, $"repository {source} is not under repository_roots ({string.Join(", ", profile.Roots)})");
+            throw new ChargehandException(ErrorCode.RepositoryNotAllowed,
+                $"repository {source} is outside the profile's repository_roots ({string.Join(", ", profile.Roots)}); workers read only repositories under them",
+                $"Clone the repository under one of those roots, or add a directory that contains {source} to repository_roots (\"/\" allows any).");
         var commit = await Git(source, ct, "rev-parse", "--verify", "--end-of-options", repo.Commit + "^{commit}")
             ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"commit {repo.Commit} is not in {source}",
                 "Fetch the commit into that checkout, or pin one it has.");
@@ -383,7 +385,8 @@ public sealed class Orchestrator(
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + Path.DirectorySeparatorChar;
         if (fullPath.StartsWith(home, StringComparison.Ordinal))
-            throw new ChargehandException(ErrorCode.RepositoryNotAllowed, "worker checkouts must live outside the home directory (ADR 0003)");
+            throw new ChargehandException(ErrorCode.RepositoryNotAllowed, "worker checkouts must live outside the home directory (ADR 0003)",
+                "Set the profile's worker_root to a directory outside your home directory.");
     }
 
     /// <summary>Volatile content goes in the prompt text, after the fixed instruction entries (ADR 0010).</summary>
