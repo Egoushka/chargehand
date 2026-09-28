@@ -33,6 +33,11 @@ public sealed record Profile(
     /// <summary>Where a request's repository may live (ADR 0023); worker_root alone when the profile names none.</summary>
     public IReadOnlyList<string> Roots => RepositoryRoots ?? [WorkerRoot];
 
+    /// <summary>The CLI's default when the profile names no repository_roots (ADR 0028): worker_root and the directory
+    /// chargehand was launched in, the user's own choice at their shell. serve never calls this; explicit roots win.</summary>
+    public Profile WithLaunchDirectory(string directory) =>
+        RepositoryRoots is null ? this with { RepositoryRoots = [WorkerRoot, directory] } : this;
+
     public static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,

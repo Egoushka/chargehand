@@ -120,7 +120,7 @@ async Task<int> Run()
     try
     {
         var (runtime, runtimeVersion) = await Connect();
-        var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory());
+        var orchestrator = new Orchestrator(profile.WithLaunchDirectory(root), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory());
         result = await orchestrator.RunAsync(request, ct);
     }
     catch (ChargehandException e)

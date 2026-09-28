@@ -42,6 +42,22 @@ public class ProfileTests
     }
 
     [Fact]
+    public void With_no_repository_roots_the_cli_allows_its_launch_directory()
+    {
+        var profile = new Profile("profile/v1").WithLaunchDirectory("/launch/dir");
+
+        Assert.Equal([Profile.DefaultWorkerRoot, "/launch/dir"], profile.Roots);
+    }
+
+    [Fact]
+    public void Explicit_repository_roots_win_over_the_launch_directory()
+    {
+        var profile = new Profile("profile/v1", RepositoryRoots: ["/repos"]).WithLaunchDirectory("/launch/dir");
+
+        Assert.Equal(["/repos"], profile.Roots);
+    }
+
+    [Fact]
     public void With_no_secrets_configured_env_is_the_only_source()
     {
         var profile = new Profile("profile/v1");
