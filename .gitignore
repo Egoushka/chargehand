@@ -19,3 +19,6 @@ runs/
 # graft local graph cache (regenerable)
 /graft/
 .ignore
+
+.claude/worktrees/
+.claude/settings.local.json

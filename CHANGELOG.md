@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format follows
   spend figures are redacted before a message reaches `result/v1` or the run log. A refusal over a spend budget says
   what to do in `error.action`.
 
+### Added
+
+- `ROADMAP.md`; `scripts/check.sh`, the one check before a push; a Claude Code hook that asks before an edit to a
+  published schema major.
+
 ### Changed
 
 - A tag `v<Version>` also creates the GitHub Release, with the version's section of this changelog as its notes, and
