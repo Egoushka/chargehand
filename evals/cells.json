@@ -11,6 +11,16 @@
       "min_items": 8
     },
     {
+      "name": "review/worker",
+      "dataset": "chargehand-review-worker",
+      "kind": "worker",
+      "preset": "review",
+      "files": ["prompts/preset/review.md", "presets/review.yaml"],
+      "quality_tolerance": 0.10,
+      "cost_tolerance": 0.30,
+      "min_items": 8
+    },
+    {
       "name": "draft/draft",
       "dataset": "chargehand-draft-draft",
       "kind": "draft",
