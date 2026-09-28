@@ -34,7 +34,8 @@ const string Usage = """
       eval gate <base> <change> [--cells a,b] [--changed-files f] [--pr-body f] [--name n] [--cells-file f] [--allow-uncovered]
                                    paired runs of the base and change prompts/ and presets/; exit 1 when blocked
       prompts sync                 pushes prompt blocks to Langfuse prompt management
-    Paths (prompts/, presets/, evals/cells.json, the run log) are relative to the current directory.
+    prompts/ and presets/ come from the current directory when it has both (a checkout), else from the install; the
+    run log is the profile's run_log, else runs/run-log.jsonl in a checkout, else a per-user file (README).
     """;
 
 System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
@@ -53,8 +54,9 @@ if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "show" or "reconcile"
 }
 
 var profile = Profile.Load(profilePath);
-var root = Directory.GetCurrentDirectory();
-var runLog = new JsonlRunLog(profile.RunLog);
+var (root, runLogPath) = InstallPaths.Resolve(profile.RunLog, Directory.GetCurrentDirectory(), AppContext.BaseDirectory,
+    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify));
+var runLog = new JsonlRunLog(runLogPath);
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 var ct = cts.Token;
@@ -74,7 +76,7 @@ switch (argv)
         Console.Write(CacheReport.Build(calls));
         return calls.Count == 0 ? 1 : 0;
     case ["routes", .. var logs]:
-        var data = await Task.WhenAll((logs.Count == 0 ? [profile.RunLog] : logs).Select(l => new JsonlRunLog(l).ReadAllAsync(ct)));
+        var data = await Task.WhenAll((logs.Count == 0 ? [runLogPath] : logs).Select(l => new JsonlRunLog(l).ReadAllAsync(ct)));
         Console.Write(RoutingReport.Build(new RunLogData([.. data.SelectMany(d => d.Starts)], [.. data.SelectMany(d => d.Runs)],
             [.. data.SelectMany(d => d.Calls)], [.. data.SelectMany(d => d.Scores)])));
         return 0;
@@ -120,7 +122,7 @@ async Task<int> Run()
     try
     {
         var (runtime, runtimeVersion) = await Connect();
-        var orchestrator = new Orchestrator(profile.WithLaunchDirectory(root), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory());
+        var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory());
         result = await orchestrator.RunAsync(request, ct);
     }
     catch (ChargehandException e)
@@ -239,7 +241,7 @@ async Task<int> Show(string runId)
     var (start, run, calls) = await runLog.ReadAsync(runId, ct);
     if (start is null && run is null && calls.Count == 0)
     {
-        Console.Error.WriteLine($"no run {runId} in {profile.RunLog}");
+        Console.Error.WriteLine($"no run {runId} in {runLogPath}");
         return 1;
     }
     if (run is null && start is not null)

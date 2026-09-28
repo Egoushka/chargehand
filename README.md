@@ -68,6 +68,11 @@ dotnet run --project src/Chargehand.Cli -- run < request.json
 
 All commands run as `dotnet run --project src/Chargehand.Cli -- <command>` and read `profiles/local.json`.
 
+`prompts/` and `presets/` come from the current directory when it holds both (this checkout, or `/app` in the image),
+otherwise from the ones the build copies next to the binary. The run log is the profile's `run_log`; unset, it is
+`runs/run-log.jsonl` in a checkout and `chargehand/run-log.jsonl` under the per-user data directory
+(`~/.local/share` on Linux, `~/Library/Application Support` on macOS) anywhere else.
+
 | command | what it does |
 |---|---|
 | `run < request.json` | `request/v1` in, `result/v1` out |

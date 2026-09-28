@@ -11,6 +11,12 @@
     <ProjectReference Include="..\Chargehand.Server\Chargehand.Server.csproj" />
   </ItemGroup>
 
+  <!-- prompts/ and presets/ ship next to the binary (and in a packed tool), read when the working directory has none. -->
+  <ItemGroup>
+    <None Include="..\..\prompts\**" LinkBase="prompts" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Pack="false" />
+    <None Include="..\..\presets\**" LinkBase="presets" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Pack="false" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="OpenTelemetry" Version="1.19.1" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.19.1" />
