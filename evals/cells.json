@@ -15,7 +15,7 @@
       "dataset": "chargehand-review-worker",
       "kind": "worker",
       "preset": "review",
-      "files": ["prompts/core/worker.md", "prompts/preset/review.md", "presets/review.yaml"],
+      "files": ["prompts/preset/review.md", "presets/review.yaml"],
       "quality_tolerance": 0.10,
       "cost_tolerance": 0.30,
       "min_items": 8
