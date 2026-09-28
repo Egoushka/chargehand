@@ -1,6 +1,6 @@
 # 0019. Prompt CI and the routing report
 
-- Status: accepted; where it runs amended by 0022
+- Status: accepted; where it runs amended by 0025
 - Date: 2026-09-27
 
 ## Context

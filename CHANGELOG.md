@@ -19,6 +19,8 @@ All notable changes to this project are documented here. The format follows
   publishes `Chargehand.Contracts` to nuget.org when its version is new there. Publishing waits for an approval in the
   `release` environment; a tag whose version has no section here fails before anything is published, and CI fails a
   version bump that comes without one.
+- The Prompt CI runner ADR is now ADR 0025 (two ADRs had number 0022); ADRs 0024 and 0025 are accepted.
+  `TRADEMARK.md` says how the name may be used, and contributions are signed off (DCO).
 
 ## [0.2.1] - 2026-09-28
 
@@ -41,7 +43,14 @@ Claude Code runtime, and a tag `v<Version>` publishes `ghcr.io/<owner>/chargehan
 A pull request that changes `prompts/` or `presets/` is gated on a self-hosted runner, not by a manual run of
 `scripts/prompt-ci.sh`. A fork's pull request or a preset change waits for an approval in the `prompt-ci-review`
 environment. The runner holds one eval profile per runtime and a default; a `prompt-ci:<runtime>` label picks another
-when someone with write access adds it. The manual run still works. See ADR 0022.
+when someone with write access adds it. The manual run still works. See ADR 0025.
+
+### Added
+
+- `result/v1` has an optional `error` on failed results (ADR 0022): a fixed `code`, the `message`, `retryable`, and
+  an `action` when there is something to do, such as the command that starts the OpenCode server. Clients branch on
+  the code instead of parsing `summary`. The schema stays v1; `Chargehand.Contracts` is 1.2.0-alpha with the
+  `ResultError` record and the `ErrorCode` enum.
 
 ### Changed
 
@@ -61,15 +70,6 @@ when someone with write access adds it. The manual run still works. See ADR 0022
   allows any). The worker reads a clone of it at the pinned commit under `worker_root`, reused per source and commit,
   so the source's uncommitted and ignored files never reach it and the worker stays outside the home. A short commit
   hash is enough. A checkout that tracks a file the preset denies reading is still refused (ADR 0023).
-### Added
-
-- `result/v1` has an optional `error` on failed results (ADR 0022): a fixed `code`, the `message`, `retryable`, and
-  an `action` when there is something to do, such as the command that starts the OpenCode server. Clients branch on
-  the code instead of parsing `summary`. The schema stays v1; `Chargehand.Contracts` is 1.2.0-alpha with the
-  `ResultError` record and the `ErrorCode` enum.
-
-### Changed
-
 - `chargehand run` prints a failed `result/v1` with `error` when it cannot connect to the runtime (server not
   running, binary missing, another version), instead of ending with an unhandled exception.
 - The eval gate retries an arm whose result has code `rate_limited`, instead of matching "rate limit" in its summary.

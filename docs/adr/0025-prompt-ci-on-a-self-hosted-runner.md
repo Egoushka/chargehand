@@ -1,6 +1,6 @@
-# 0022. Prompt CI on a self-hosted runner, any runtime
+# 0025. Prompt CI on a self-hosted runner, any runtime
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-27
 
 ## Context
