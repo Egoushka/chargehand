@@ -9,9 +9,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [0.3.0] - 2026-09-28
 
-Goal 0.3 ([roadmap](ROADMAP.md)): every change is tracked, released and checked. Its substance shipped across
-0.2.2's patches (the release pipeline, quality gates, repository hygiene); this bump closes the goal and moves the
-roadmap to 0.4.
+Goal 0.3 ([roadmap](ROADMAP.md)) closed: every change to this repository is now tracked on a project board,
+released through an automated pipeline, and checked by CI before it merges. Delivered across 0.2.1–0.3.0: gateway
+error redaction (0.2.2), the CHANGELOG-to-GitHub-Release pipeline with dormant nuget.org publishing (0.2.2),
+`scripts/check.sh` and the schema-change guard hook (0.2.2), OpenSSF Scorecard, dependency review, CodeQL and a
+dormant SonarQube job (0.2.2), stricter analyzers (0.2.2), and this release's own repository hygiene (topics,
+stale-branch cleanup). This bump closes the goal and moves the roadmap to 0.4.
 
 ## [0.2.2] - 2026-09-28
 
