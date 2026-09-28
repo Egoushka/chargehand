@@ -92,6 +92,8 @@ itself (0.7); running without the Claude Code session (after 1.0).
 
 - Whether Claude Code also accepts plain `/change` when no other command has that name; if not, the documented command
   is `/chargehand:change`.
+  - 2026-09-29, Claude Code 2.1.283 with `--plugin-dir`: plain `/change` works (it ran the skill's preflight), though
+    the session's command list names only `chargehand:change`; the documented command stays `/chargehand:change`.
 - The first `dnx` install on macOS prints a notice on stdout before the first MCP message (ADR 0027); check that
   Claude Code tolerates it, or pre-install in preflight.
 - The `review` preset's intake prompt and its finding format need Prompt CI cells before they are relied on.

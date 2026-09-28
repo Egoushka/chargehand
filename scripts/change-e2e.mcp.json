@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "chargehand": {
+      "command": "dotnet",
+      "args": ["run", "--no-build", "--project", "CHECKOUT/src/Chargehand.Cli", "--", "mcp"]
+    }
+  }
+}
