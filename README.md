@@ -45,10 +45,15 @@ You need the .NET 10 SDK and one worker runtime.
 1. Copy `profiles/example.json` to `profiles/local.json` and fill in your gateway, models, prices and secret-store
    item names. Profiles reference secrets by item name and never hold them.
 2. Pick a runtime:
-   - **OpenCode**: copy `profiles/opencode.example.json` to `profiles/local.opencode.json`, then start the
-     orchestrator's own server (pinned 2.0.16, own state directory, loopback only):
-     `scripts/opencode-serve.sh <opencode-binary> profiles/local.opencode.json 4296`.
-     See [ADR 0004](docs/adr/0004-opencode-major-and-runtime-adapter.md).
+   - **OpenCode**: with `opencode` on `PATH` (pinned 2.0.16), no profile block is needed. `run`, `serve` and `mcp`
+     start their own `opencode serve` on 127.0.0.1 and a free port, with a random password and their own state
+     under `chargehand/opencode` in the per-user data directory, and stop it on exit. Providers come from the
+     environment variables OpenCode reads (e.g. `ANTHROPIC_API_KEY`); edit `xdg/config/opencode/opencode.json` in
+     that directory for more, chargehand never overwrites it. To use a server you run yourself, start it with
+     `scripts/opencode-serve.sh <opencode-binary> profiles/local.opencode.json 4296` (config from
+     `profiles/opencode.example.json`) and add the profile's `opencode` block (`url`, `password_secret`, `version`);
+     then nothing is started. See [ADR 0030](docs/adr/0030-default-opencode-server.md) and
+     [ADR 0004](docs/adr/0004-opencode-major-and-runtime-adapter.md).
    - **Claude Code**: with `claude` on `PATH` (pinned 2.1.283) and signed in (run `claude` once and log in),
      nothing else is needed: workers use the CLI's own login. To use another credential, set one of
      `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`), not both. The profile's

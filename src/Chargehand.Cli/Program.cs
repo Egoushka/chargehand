@@ -237,14 +237,18 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
         var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct, cc.BaseUrl is null ? null : new Uri(cc.BaseUrl));
         return (claude, claude.Version);
     }
-    var oc = profile.Opencode
-        // Not defaulted: chargehand connects to an OpenCode server, it does not start one, so a CLI on PATH says nothing
-        // about a server's URL, password or version.
-        ?? throw new ChargehandException(ErrorCode.RuntimeUnavailable, "opencode selected but the profile has no opencode settings",
-            "Start an OpenCode server (scripts/opencode-serve.sh) and add opencode with url, password_secret and version to the profile, " +
-            "or install Claude Code and set CHARGEHAND_RUNTIME=claude_code.");
-    var client = new OpenCodeClient(new HttpClient { BaseAddress = new Uri(oc.Url) }, profile.Secret(oc.PasswordSecret));
-    var runtime = await OpenCodeWorkerRuntime.ConnectAsync(client, oc.Version, ct);
+    IOpenCodeClient client;
+    if (profile.Opencode is { } oc)
+        client = new OpenCodeClient(new HttpClient { BaseAddress = new Uri(oc.Url) }, profile.Secret(oc.PasswordSecret));
+    else
+    {
+        // No opencode block (ADR 0030): chargehand starts its own server and stops it when this process exits.
+        var server = await OpenCodeServerProcess.StartAsync("opencode", OpenCodeServerProcess.DefaultState(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify)), ct);
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => server.Dispose();
+        client = server.Client();
+    }
+    var runtime = await OpenCodeWorkerRuntime.ConnectAsync(client, profile.Opencode?.Version ?? OpenCodeWorkerRuntime.PinnedVersion, ct);
     return (runtime, runtime.Version);
 }
 
