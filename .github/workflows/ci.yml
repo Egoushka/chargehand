@@ -20,6 +20,8 @@ jobs:
       - run: dotnet format --verify-no-changes --no-restore
       - run: dotnet build --no-restore -c Release -warnaserror
       - run: dotnet test --no-build -c Release
+      - name: The current version has a changelog section
+        run: scripts/release-notes.sh "$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)" > /dev/null
 
   secrets:
     runs-on: ubuntu-latest

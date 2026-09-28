@@ -1,27 +1,61 @@
 name: release
 
-# A tag v<Version> publishes the server image ghcr.io/<owner>/chargehand:<Version> (ADR 0024).
+# A tag v<Version> publishes the release (ADR 0024, decision D8): the GitHub Release with the version's CHANGELOG.md
+# section, the server image ghcr.io/<owner>/chargehand:<Version>, and Chargehand.Contracts on nuget.org when its version
+# is new there and the repository variable NUGET_USER names the nuget.org account whose trusted-publishing policy trusts
+# this workflow. The release environment waits for the owner's approval. A tag without a changelog section fails first.
 on:
   push:
     tags: ['v*']
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  image:
+  release:
     runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Check the tag against Directory.Build.props
+      - name: Check the tag against Directory.Build.props and the changelog
         run: |
           version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "tag $GITHUB_REF_NAME does not match Version $version" >&2
             exit 1
           fi
+          scripts/release-notes.sh "$version" > "$RUNNER_TEMP/notes.md"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}:$version" >> "$GITHUB_ENV"
       - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - run: docker build --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t "$IMAGE" .
       - run: docker push "$IMAGE"
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        if: vars.NUGET_USER != ''
+        with:
+          global-json-file: global.json
+      - name: Pack Chargehand.Contracts when its version is new on nuget.org
+        id: pack
+        if: vars.NUGET_USER != ''
+        run: |
+          v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/Chargehand.Contracts/Chargehand.Contracts.csproj)
+          lower=$(printf '%s' "$v" | tr 'A-Z' 'a-z')
+          code=$(curl -s -o /dev/null -w '%{http_code}' "https://api.nuget.org/v3-flatcontainer/chargehand.contracts/$lower/chargehand.contracts.$lower.nupkg")
+          if [ "$code" = 200 ]; then echo "Chargehand.Contracts $v is already on nuget.org"; exit 0; fi
+          dotnet pack src/Chargehand.Contracts -c Release -o "$RUNNER_TEMP/nupkg"
+          echo "new=true" >> "$GITHUB_OUTPUT"
+      - uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        id: nuget
+        if: steps.pack.outputs.new == 'true'
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - if: steps.pack.outputs.new == 'true'
+        run: dotnet nuget push "$RUNNER_TEMP"/nupkg/*.nupkg --api-key "${{ steps.nuget.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$VERSION" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
