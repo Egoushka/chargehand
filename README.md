@@ -54,7 +54,8 @@ You need the .NET 10 SDK and one worker runtime.
 3. List the directories your repositories live in as `repository_roots` (`/` allows any). A request names a
    repository and a commit; the worker reads a clone of it at that commit under `worker_root`, which stays outside
    the OpenCode user's home directory ([ADR 0023](docs/adr/0023-repository-roots-and-worker-clones.md),
-   [ADR 0003](docs/adr/0003-where-it-runs.md)).
+   [ADR 0003](docs/adr/0003-where-it-runs.md)). Without `repository_roots`, `run` also allows the directory it was
+   launched in; `serve` allows only `worker_root` ([ADR 0028](docs/adr/0028-default-repository-roots.md)).
 4. Run a request:
 
 ```bash

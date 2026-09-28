@@ -126,7 +126,7 @@
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
       "minItems": 1,
-      "description": "Directories a request's repository may sit under; the worker reads a clone of it under worker_root (ADR 0023). \"/\" allows any repository. Default: worker_root alone."
+      "description": "Directories a request's repository may sit under; the worker reads a clone of it under worker_root (ADR 0023). \"/\" allows any repository. Default: worker_root alone; the CLI's run also allows the directory it was launched in (ADR 0028)."
     },
     "default_preset": {
       "type": "string",
