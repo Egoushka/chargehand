@@ -1,0 +1,97 @@
+name: self-review
+
+# Goal 0.5: chargehand reviews this repository's pull requests with the review preset (scripts/self-review.sh) on the
+# maintainer's self-hosted runner and posts one comment per run. Same-repository pull requests only: a fork's code
+# never runs there. The review job builds and runs the pull request's own chargehand with a read-only token; only the
+# comment job, on a hosted runner, can write to the pull request. The runner's profile: SELF_REVIEW_PROFILE, else the
+# prompt-ci profile of its default runtime (PROMPT_CI_PROFILE_<PROMPT_CI_RUNTIME>). Off until the maintainer sets the
+# repository variable SELF_REVIEW=true, once a review run on the runner completes; Dependabot's pull requests never run.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]' && vars.SELF_REVIEW == 'true'
+    runs-on: [self-hosted, chargehand-eval]
+    timeout-minutes: 60
+    continue-on-error: true
+    outputs:
+      comment: ${{ steps.review.outputs.comment }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - id: review
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          profile=${SELF_REVIEW_PROFILE:-}
+          if [ -z "$profile" ] && [ -n "${PROMPT_CI_RUNTIME:-}" ]; then
+            profile=$(printenv "PROMPT_CI_PROFILE_$(echo "$PROMPT_CI_RUNTIME" | tr 'a-z-' 'A-Z_')" || true)
+          fi
+          if [ -z "$profile" ]; then
+            echo "self-review: this runner sets neither SELF_REVIEW_PROFILE nor a prompt-ci profile" >&2
+            exit 2
+          fi
+          result="$RUNNER_TEMP/result.json"
+          CHARGEHAND_PROFILE=$profile scripts/self-review.sh "$BASE" "$HEAD" > "$result" || echo "self-review: exit $?" >&2
+          jq -e '.contract_version == "result/v1"' "$result" > /dev/null
+          # The comment: each finding with the locators of its evidence, or why there are none. Everything in it
+          # comes from the result file or the environment, never from shell interpolation.
+          # Model text is neutralised first: an @ gets a zero-width space so a written @name pings no one (the
+          # repository is public), and line breaks become spaces so text cannot start a new block.
+          jq -r --arg head "$HEAD" '
+            def q: gsub("@"; "@\u200b") | gsub("\r?\n|\r"; " ");
+            (.evidence | map({(.id): .}) | add // {}) as $ev
+            | "### chargehand review\n\n"
+            + (if .status == "failed" then
+                 "The review failed (`\(.error.code // "unknown")`): \((.error.message // .summary) | q)"
+                 + (if .error.action then "\n\nAction: \(.error.action | q)" else "" end)
+               elif .status == "needs_input" or .status == "denied" then
+                 "The review stopped with status `\(.status)`: \(.summary | q)"
+               elif (.claims | length) == 0 then
+                 (.summary | q) + "\n\nNo findings."
+               else
+                 (.summary | q) + "\n\n"
+                 + ([.claims[] | "- " + (.text | q) + "\n  Evidence: "
+                     + ([.evidence[] | ($ev[.] // {kind: "unresolved", locator: .}) | "`\(.kind) \(.locator)`"] | join(", "))]
+                    | join("\n"))
+               end)
+            + "\n\nTask `\(.task_id)`"
+            + (if .usage.usd != null then ", $\(.usage.usd * 10000 | round / 10000)" else "" end)
+            + (if .status == "completed" then "; citations checked against \($head)." else "." end)' "$result" > "$RUNNER_TEMP/full.md"
+          # GitHub caps a comment at 65536 characters; a file, not a pipe, since the default shell sets pipefail.
+          head -c 60000 "$RUNNER_TEMP/full.md" > "$RUNNER_TEMP/comment.md"
+          echo "comment=$(base64 < "$RUNNER_TEMP/comment.md" | tr -d '\n')" >> "$GITHUB_OUTPUT"
+
+  comment:
+    needs: review
+    if: always() && needs.review.result != 'skipped' && needs.review.outputs.comment != ''
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          COMMENT: ${{ needs.review.outputs.comment }}
+        run: |
+          echo "$COMMENT" | base64 -d > "$RUNNER_TEMP/comment.md"
+          gh pr comment "$PR" --repo "$REPO" --body-file "$RUNNER_TEMP/comment.md"
