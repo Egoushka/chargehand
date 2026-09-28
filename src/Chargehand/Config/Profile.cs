@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Chargehand.Budget;
+using Chargehand.Contracts;
 
 namespace Chargehand.Config;
 
@@ -90,7 +91,27 @@ public sealed record OpenCodeSettings(string Url, string PasswordSecret, string 
 /// credential: an API key (per-token billing) or a subscription OAuth token from <c>claude setup-token</c>. BaseUrl
 /// routes the workers through a gateway that speaks the Anthropic API; unset, they call Anthropic directly.</summary>
 public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = null, string? OauthTokenSecret = null, string Binary = "claude",
-    string? BaseUrl = null);
+    string? BaseUrl = null)
+{
+    /// <summary>The CLI version the adapter's event mapping was verified against (ADR 0020).</summary>
+    public const string PinnedVersion = "2.1.283";
+
+    /// <summary>
+    /// No claude_code block (ADR 0026): claude from PATH at <see cref="PinnedVersion"/>, and the one credential the
+    /// secrets chain resolves under the names the CLI itself reads (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN with the
+    /// default env source). Both or neither is an error: the adapter always passes exactly one (ADR 0020).
+    /// </summary>
+    public static ClaudeCodeSettings Detect(Func<string, bool> resolves) =>
+        (resolves("anthropic-api-key"), resolves("claude-code-oauth-token")) switch
+        {
+            (true, false) => new(PinnedVersion, ApiKeySecret: "anthropic-api-key"),
+            (false, true) => new(PinnedVersion, OauthTokenSecret: "claude-code-oauth-token"),
+            (true, true) => throw new ChargehandException(ErrorCode.InvalidRequest, "both ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN are set",
+                "Unset one, or add claude_code to the profile naming one of api_key_secret and oauth_token_secret."),
+            _ => throw new ChargehandException(ErrorCode.RuntimeUnavailable, "claude_code has no credential",
+                "Set ANTHROPIC_API_KEY, or CLAUDE_CODE_OAUTH_TOKEN from claude setup-token, or add claude_code to the profile."),
+        };
+}
 
 public sealed record MemorySettings(string Backend, string Url, string Namespace, string? ApiKeySecret = null, int MaxTokens = 1024, bool Retain = false);
 

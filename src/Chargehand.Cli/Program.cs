@@ -204,8 +204,11 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
     var kind = RuntimeSelector.Select(profile.Runtime, Environment.GetEnvironmentVariable("CHARGEHAND_RUNTIME"), RuntimeSelector.OnPath);
     if (kind == RuntimeKind.ClaudeCode)
     {
-        var cc = profile.ClaudeCode
-            ?? throw new ChargehandException(ErrorCode.RuntimeUnavailable, "claude_code selected but the profile has no claude_code settings", "Add claude_code to the profile.");
+        var cc = profile.ClaudeCode ?? ClaudeCodeSettings.Detect(item =>
+        {
+            try { profile.Secret(item); return true; }
+            catch (InvalidOperationException) { return false; }
+        });
         var credential = (cc.ApiKeySecret, cc.OauthTokenSecret) switch
         {
             ({ } key, null) => new ClaudeCodeCredential(profile.Secret(key), Subscription: false),
@@ -217,7 +220,11 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
         return (claude, claude.Version);
     }
     var oc = profile.Opencode
-        ?? throw new ChargehandException(ErrorCode.RuntimeUnavailable, "opencode selected but the profile has no opencode settings", "Add opencode to the profile.");
+        // Not defaulted: chargehand connects to an OpenCode server, it does not start one, so a CLI on PATH says nothing
+        // about a server's URL, password or version.
+        ?? throw new ChargehandException(ErrorCode.RuntimeUnavailable, "opencode selected but the profile has no opencode settings",
+            "Start an OpenCode server (scripts/opencode-serve.sh) and add opencode with url, password_secret and version to the profile, " +
+            "or install Claude Code and set CHARGEHAND_RUNTIME=claude_code.");
     var client = new OpenCodeClient(new HttpClient { BaseAddress = new Uri(oc.Url) }, profile.Secret(oc.PasswordSecret));
     var runtime = await OpenCodeWorkerRuntime.ConnectAsync(client, oc.Version, ct);
     return (runtime, runtime.Version);
