@@ -75,10 +75,17 @@ public sealed partial class GitEvidenceResolver : IEvidenceResolver
     /// <summary>stdout, or null when git exits non-zero.</summary>
     private static async Task<string?> Git(string repo, CancellationToken ct, params string[] args)
     {
-        var psi = new ProcessStartInfo("git") { WorkingDirectory = repo, RedirectStandardOutput = true, RedirectStandardError = true };
+        var psi = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = repo,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
         foreach (var a in args)
             psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;
+        p.StandardInput.Close();
         var stdout = p.StandardOutput.ReadToEndAsync(ct);
         _ = p.StandardError.ReadToEndAsync(ct);
         await p.WaitForExitAsync(ct);

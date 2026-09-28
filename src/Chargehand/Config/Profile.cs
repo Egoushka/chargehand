@@ -72,10 +72,11 @@ public sealed record Profile(
     private static string? RunCommand(IReadOnlyList<string> template, string item)
     {
         var args = template.Select(a => a.Replace("{item}", item)).ToList();
-        var psi = new ProcessStartInfo(args[0]) { RedirectStandardOutput = true, RedirectStandardError = true };
+        var psi = new ProcessStartInfo(args[0]) { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var a in args.Skip(1))
             psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;
+        p.StandardInput.Close(); // under `chargehand mcp` the parent's stdin carries the protocol
         var value = p.StandardOutput.ReadToEnd().TrimEnd('\n');
         p.WaitForExit();
         return p.ExitCode == 0 && value.Length > 0 ? value : null;

@@ -342,8 +342,14 @@ public sealed class Orchestrator(
     /// <summary>git's trimmed output, or null when it fails.</summary>
     private static async Task<string?> Git(string directory, CancellationToken ct, params string[] args)
     {
-        var psi = new ProcessStartInfo("git", ["-C", directory, .. args]) { RedirectStandardOutput = true, RedirectStandardError = true };
+        var psi = new ProcessStartInfo("git", ["-C", directory, .. args])
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
         using var p = Process.Start(psi)!;
+        p.StandardInput.Close();
         var output = await p.StandardOutput.ReadToEndAsync(ct);
         await p.StandardError.ReadToEndAsync(ct);
         await p.WaitForExitAsync(ct);
@@ -358,8 +364,13 @@ public sealed class Orchestrator(
         var patterns = read.Where(r => r.Effect == "deny" && r.Resource != "*").Select(r => r.Resource).ToList();
         if (patterns.Count == 0)
             return [];
-        var psi = new ProcessStartInfo("git", ["-C", repo, "ls-files", "-z", "--cached", "--others", "--", .. patterns]) { RedirectStandardOutput = true };
+        var psi = new ProcessStartInfo("git", ["-C", repo, "ls-files", "-z", "--cached", "--others", "--", .. patterns])
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+        };
         using var p = Process.Start(psi)!;
+        p.StandardInput.Close();
         var files = (await p.StandardOutput.ReadToEndAsync(ct)).Split('\0', StringSplitOptions.RemoveEmptyEntries);
         await p.WaitForExitAsync(ct);
         if (p.ExitCode != 0)
