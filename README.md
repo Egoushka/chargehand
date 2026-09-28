@@ -108,7 +108,10 @@ docker run -p <private-ip>:4300:4300 -v <dir-with-profile.json>:/config:ro -e CH
 | `/v1/mcp` | MCP over Streamable HTTP: tool `orchestrate`, `inputSchema` `request/v1`, `outputSchema` `result/v1` |
 
 MCP clients that opt in to the tasks extension get long runs as tasks. When intake answers with questions, the call
-comes back as `input_required`.
+comes back as `input_required`. Outside a task, a call with a progress token gets the run id as a progress
+notification when the run starts, and a call whose HTTP request carries `Prefer: wait=N` (at most 60) returns after N
+seconds as a tool error holding the run id and its `run-status/v1`, while the run goes on
+([ADR 0029](docs/adr/0029-mcp-run-id-before-a-client-timeout.md)).
 
 ## Repository layout
 

@@ -1,7 +1,9 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Chargehand.Contracts;
 using Chargehand.Server;
+using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Extensions.Tasks;
 using ModelContextProtocol.Protocol;
@@ -13,12 +15,13 @@ public class McpTests
 {
     private const string AskSpecDetail = """{"questions":["Which tone?"]}""";
 
-    private static async Task<McpClient> Connect(TestServer s, Func<ElicitRequestParams?, CancellationToken, ValueTask<ElicitResult>>? elicit = null) =>
+    private static async Task<McpClient> Connect(TestServer s, Func<ElicitRequestParams?, CancellationToken, ValueTask<ElicitResult>>? elicit = null, string? prefer = null) =>
         await McpClient.CreateAsync(
             new HttpClientTransport(new HttpClientTransportOptions
             {
                 Endpoint = new Uri(s.BaseAddress, "/v1/mcp"),
-                AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {TestServer.Key}" },
+                AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {TestServer.Key}" }
+                    .Concat(prefer is null ? [] : [new("Prefer", prefer)]).ToDictionary(),
             }),
             new McpClientOptions { Handlers = new McpClientHandlers { ElicitationHandler = elicit } });
 
@@ -67,14 +70,55 @@ public class McpTests
     }
 
     [Fact]
+    public async Task A_progress_token_gets_the_run_id_before_the_run_finishes()
+    {
+        var runtime = new ScriptedRuntime(Runs.DraftReply) { Hold = new() };
+        await using var s = await TestServer.StartAsync(runtime);
+        await using var client = await Connect(s);
+        var messages = new ConcurrentQueue<string>();
+        var call = client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value),
+            new Progress<ProgressNotificationValue>(p => messages.Enqueue(p.Message!))).AsTask();
+
+        await ServerTests.WaitUntil(() => Task.FromResult(!messages.IsEmpty));
+        Assert.False(call.IsCompleted);
+        runtime.Hold.SetResult();
+        var result = Result(await call);
+        Assert.Contains($"/v1/runs/{result.TaskId}", messages.First(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Prefer_wait_returns_the_run_id_while_the_run_goes_on()
+    {
+        var runtime = new ScriptedRuntime(Runs.DraftReply) { Hold = new() };
+        await using var s = await TestServer.StartAsync(runtime);
+        await using var client = await Connect(s, prefer: "wait=0");
+        var call = await client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value))
+            .AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+
+        // Not result/v1 yet, so not structuredContent: a tool error whose last block is run-status/v1.
+        Assert.True(call.IsError);
+        var json = ((TextContentBlock)call.Content[^1]).Text;
+        Assert.Empty(ContractSchemas.Validate(ContractSchemas.RunStatus, JsonDocument.Parse(json).RootElement));
+        var status = JsonSerializer.Deserialize<RunStatus>(json, ContractJson.Options)!;
+        Assert.Contains($"/v1/runs/{status.RunId}", ((TextContentBlock)call.Content[0]).Text, StringComparison.Ordinal);
+        runtime.Hold.SetResult();
+        await ServerTests.WaitUntil(async () => (await s.Http.GetAsync($"/v1/runs/{status.RunId}")).StatusCode == System.Net.HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task A_task_runs_in_the_background_and_completes()
     {
-        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
-        await using var client = await Connect(s);
+        var runtime = new ScriptedRuntime(Runs.DraftReply) { Hold = new() };
+        await using var s = await TestServer.StartAsync(runtime);
+        // A task already gives the client an id to poll, so Prefer: wait does not cut it short.
+        await using var client = await Connect(s, prefer: "wait=0");
         var raw = await client.CallToolAsTaskAsync(new CallToolRequestParams { Name = OrchestrateTool.Name, Arguments = Args(Runs.DraftRequest()) });
         Assert.True(raw.IsTask);
 
-        var result = Result(await client.CallToolWithPollingAsync(new CallToolRequestParams { Name = OrchestrateTool.Name, Arguments = Args(Runs.DraftRequest()) }));
+        var polled = client.CallToolWithPollingAsync(new CallToolRequestParams { Name = OrchestrateTool.Name, Arguments = Args(Runs.DraftRequest()) });
+        await ServerTests.WaitUntil(async () => (await s.Log.ReadAllAsync(CancellationToken.None)).Starts.Count > 0);
+        runtime.Hold.SetResult();
+        var result = Result(await polled);
         Assert.Equal(ResultStatus.Completed, result.Status);
     }
 
