@@ -4,7 +4,8 @@ name: self-review
 # maintainer's self-hosted runner and posts one comment per run. Same-repository pull requests only: a fork's code
 # never runs there. The review job builds and runs the pull request's own chargehand with a read-only token; only the
 # comment job, on a hosted runner, can write to the pull request. The runner's profile: SELF_REVIEW_PROFILE, else the
-# prompt-ci profile of its default runtime (PROMPT_CI_PROFILE_<PROMPT_CI_RUNTIME>).
+# prompt-ci profile of its default runtime (PROMPT_CI_PROFILE_<PROMPT_CI_RUNTIME>). Off until the maintainer sets the
+# repository variable SELF_REVIEW=true, once a review run on the runner completes; Dependabot's pull requests never run.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -18,7 +19,9 @@ concurrency:
 
 jobs:
   review:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]' && vars.SELF_REVIEW == 'true'
     runs-on: [self-hosted, chargehand-eval]
     timeout-minutes: 60
     continue-on-error: true
@@ -76,7 +79,7 @@ jobs:
 
   comment:
     needs: review
-    if: always() && needs.review.outputs.comment != ''
+    if: always() && needs.review.result != 'skipped' && needs.review.outputs.comment != ''
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write

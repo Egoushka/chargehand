@@ -2,6 +2,8 @@
 # Reviews a change of this repository with the review preset and prints the result/v1 JSON; exits like
 # `chargehand run` (0 completed, 3 needs_input, 1 otherwise). .github/workflows/self-review.yml runs it on the
 # maintainer's self-hosted runner for same-repository pull requests; it builds and runs the checkout's own chargehand.
+# The workflow is off until the maintainer sets the repository variable SELF_REVIEW=true, once a run of this script
+# on the runner completes.
 #
 # usage: scripts/self-review.sh <base> <head>   (the diff is base...head: head's changes since the merge base)
 # env: CHARGEHAND_PROFILE  profile for the run (required: the presets' placeholder model ids need its models map)
