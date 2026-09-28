@@ -37,6 +37,14 @@ jobs:
       - run: dotnet pack src/Chargehand.Cli -c Release -o "$RUNNER_TEMP/package"
       - run: scripts/mcp-smoke.py "$RUNNER_TEMP/package"
 
+  # Goal 0.5: the Claude Code plugin and its marketplace entry pass the pinned Claude Code validator.
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: npx -y @anthropic-ai/claude-code@2.1.283 plugin validate --strict ./plugins/chargehand
+      - run: npx -y @anthropic-ai/claude-code@2.1.283 plugin validate --strict .
+
   secrets:
     runs-on: ubuntu-latest
     # On pull requests gitleaks-action lists the PR's commits through the API.
