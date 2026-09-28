@@ -123,7 +123,7 @@ request, so no `Prefer: wait=N` (ADR 0029); the tool reads the header only when 
 
 Note, 2026-09-28: the pack stamps the version itself. `Chargehand.Cli.csproj` writes `.mcp/server.json` with
 `$(Version)` over both `0.0.0` fields into `obj/` and packs that copy, so any `dotnet pack` agrees with
-`Directory.Build.props`; the release job still stamps the committed file for `mcp-publisher`. `dnx` from SDK 10.0.302
+`Directory.Build.props`; the release job still stamps the committed file for `mcp-publisher`. `dnx` from SDK 10.0.302 on macOS (not on the Linux CI runner)
 prints "Skipping NuGet package signature verification." to stdout on a first install, ahead of the server's first
 message; `scripts/mcp-smoke.py` skips non-JSON lines and reports them.
 

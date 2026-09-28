@@ -45,7 +45,7 @@ with tempfile.TemporaryDirectory() as tmp:
     def reply(id):
         for line in proc.stdout:
             # dnx itself prints "Skipping NuGet package signature verification." to stdout on a first install
-            # (SDK 10.0.302); clients that drop non-JSON lines cope, so the smoke test notes it and reads on.
+            # (SDK 10.0.302 on macOS); clients that drop non-JSON lines cope, so the smoke test notes it and reads on.
             if not line.startswith('{'):
                 print(f'non-JSON line on stdout: {line.rstrip()}', file=sys.stderr)
                 continue
