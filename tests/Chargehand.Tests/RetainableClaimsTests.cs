@@ -133,6 +133,25 @@ public class RetainableClaimsTests
     }
 
     [Fact]
+    public void The_item_carries_the_repository_the_short_commit_and_every_locator_once()
+    {
+        var selection = new RetainSelection(
+            [new RetainableClaim("One.", ["README.md:1", "a.cs:2"], 0.9), new RetainableClaim("Two.", ["a.cs:2", "commit 3f9c2ab"], 0.5)], []);
+
+        var item = RetainItems.Build(selection, "github.com/example/proj", "0123456789abcdef0123456789abcdef01234567", "run-1", DateTimeOffset.UnixEpoch);
+
+        Assert.Equal(new RetainProvenance("github.com/example/proj", "0123456789ab", ["README.md:1", "a.cs:2", "commit 3f9c2ab"]), item.Provenance, ProvenanceComparer.Instance);
+    }
+
+    private sealed class ProvenanceComparer : IEqualityComparer<RetainProvenance?>
+    {
+        public static readonly ProvenanceComparer Instance = new();
+        public bool Equals(RetainProvenance? x, RetainProvenance? y) =>
+            x is not null && y is not null && (x.Repository, x.Commit) == (y.Repository, y.Commit) && x.Locators.SequenceEqual(y.Locators);
+        public int GetHashCode(RetainProvenance? obj) => obj?.Commit.GetHashCode(StringComparison.Ordinal) ?? 0;
+    }
+
+    [Fact]
     public void Locators_are_joined_and_a_confidence_has_two_decimals_whatever_the_culture()
     {
         var selection = new RetainSelection([new RetainableClaim("Two places.", ["a.cs:1", "commit 3f9c2ab"], 0.5)], []);

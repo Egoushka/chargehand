@@ -14,9 +14,11 @@ public static class MemoryMapping
     public static readonly IReadOnlySet<string> RecallPlaceholders = new[] { "query", "namespace", "max_facts" }.ToFrozenSet();
 
     /// <summary>What a retain tool's arguments may use. <c>timestamp</c> is ISO 8601, <c>tags</c> an array, and a null
-    /// <c>context</c>, <c>document_id</c> or <c>timestamp</c> drops its argument.</summary>
+    /// <c>context</c>, <c>document_id</c> or <c>timestamp</c> drops its argument. <c>repository</c>, <c>commit</c> (12 hex) and
+    /// <c>locators</c> (joined with <c>"; "</c>) say where the item's citations were checked, for a memory that keeps
+    /// metadata beside the text; they are null, and drop their argument, for an item without provenance.</summary>
     public static readonly IReadOnlySet<string> RetainPlaceholders =
-        new[] { "namespace", "text", "context", "document_id", "timestamp", "tags" }.ToFrozenSet();
+        new[] { "namespace", "text", "context", "document_id", "timestamp", "tags", "repository", "commit", "locators" }.ToFrozenSet();
 
     /// <summary>What an invalidate tool's arguments may use.</summary>
     public static readonly IReadOnlySet<string> InvalidatePlaceholders = new[] { "namespace", "id", "reason" }.ToFrozenSet();

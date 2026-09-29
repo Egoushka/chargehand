@@ -87,10 +87,11 @@ public static partial class RecallResults
         return complete ? text : null;
     }
 
-    /// <summary>A property's text: a string with characters, or a number as JSON writes it. Null for anything else, absent included.</summary>
+    /// <summary>A property's text: a string with characters, or a number as JSON writes it. Null for anything else, absent included.
+    /// A name with dots that is no property of its own walks nested objects (<c>metadata.commit</c>).</summary>
     private static string? Field(JsonElement item, string name)
     {
-        if (!item.TryGetProperty(name, out var value))
+        if (!item.TryGetProperty(name, out var value) && !TryWalk(item, name, out value))
             return null;
         return value.ValueKind switch
         {
@@ -98,6 +99,15 @@ public static partial class RecallResults
             JsonValueKind.Number => value.GetRawText(),
             _ => null,
         };
+    }
+
+    private static bool TryWalk(JsonElement item, string path, out JsonElement value)
+    {
+        value = item;
+        foreach (var segment in path.Split('.'))
+            if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty(segment, out value))
+                return false;
+        return true;
     }
 
     private static string Hash(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..IdHashLength];

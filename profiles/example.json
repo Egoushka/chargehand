@@ -58,6 +58,7 @@
             "document_id": "{document_id}",
             "timestamp": "{timestamp}",
             "tags": "{tags}",
+            "metadata": { "repository": "{repository}", "commit": "{commit}", "locators": "{locators}" },
             "bank_id": "{namespace}"
           }
         },

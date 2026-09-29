@@ -152,6 +152,27 @@ public class MemoryConfigTests
     }
 
     [Fact]
+    public void The_provenance_placeholders_are_retain_only_and_an_unknown_one_is_still_refused()
+    {
+        Load(Entry("""
+            "recall":{"tool":"r","arguments":{}},
+            "retain":{"tool":"w","arguments":{"metadata":{"a":"{repository}","b":"{commit}","c":"{locators}"}}}
+            """));
+
+        var inRecall = Assert.Throws<ChargehandException>(() => Load(Entry("""
+            "recall":{"tool":"r","arguments":{"q":"{commit}"}}
+            """)));
+        var unknown = Assert.Throws<ChargehandException>(() => Load(Entry("""
+            "recall":{"tool":"r","arguments":{}},
+            "retain":{"tool":"w","arguments":{"metadata":{"a":"{branch}"}}}
+            """)));
+
+        Assert.Contains("{commit}", inRecall.Message, StringComparison.Ordinal);
+        Assert.Contains("{branch}", unknown.Message, StringComparison.Ordinal);
+        Assert.Contains("metadata.a", unknown.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Every_fault_is_listed_not_just_the_first()
     {
         var memory = """[{"name":"a","server":"nope","retain":true,"tools":{"recall":{"tool":"r","arguments":{"q":"{text}"},"results":{"format":"xml"}}}}]""";

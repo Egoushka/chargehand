@@ -241,4 +241,63 @@ public class McpMemoryProviderTests
         Assert.Equal(["chargehand", "x"], retain["tags"].EnumerateArray().Select(t => t.GetString()));
         Assert.Equal(("f1", "wrong"), (invalidate["memory_id"].GetString(), invalidate["reason"].GetString()));
     }
+
+    private const string HindsightWithProvenance = """
+        {"name":"hindsight","server":"gw","namespace":"chargehand","tools":{
+          "recall":{"tool":"recall","arguments":{"query":"{query}","bank_id":"{namespace}"},
+            "results":{"path":"results","text":["{text} [{metadata.repository}@{metadata.commit}]","{text}"]}},
+          "retain":{"tool":"retain","arguments":{"content":"{text}","bank_id":"{namespace}",
+            "metadata":{"repository":"{repository}","commit":"{commit}","locators":"{locators}"}}}},
+          "retain":true}
+        """;
+
+    private static readonly RetainProvenance Provenance = new("github.com/example/proj", "0123456789ab", ["README.md:1", "src/A.cs:4-9"]);
+
+    [Fact]
+    public async Task Retain_sends_the_provenance_as_string_metadata_where_the_mapping_asks()
+    {
+        await using var server = new FakeMcpServer(new FakeTool("retain", _ => FakeMcpServer.Text("queued")));
+        await using var pool = PoolFor(server);
+
+        await new McpMemoryProvider(Settings(HindsightWithProvenance), pool).RetainAsync(new MemoryItem("fact", Provenance: Provenance), Scope, CancellationToken.None);
+
+        var metadata = Assert.Single(server.Calls).Arguments["metadata"];
+        Assert.Equal(
+            [("repository", "github.com/example/proj"), ("commit", "0123456789ab"), ("locators", "README.md:1; src/A.cs:4-9")],
+            metadata.EnumerateObject().Select(p => (p.Name, p.Value.GetString()!)));
+    }
+
+    [Fact]
+    public async Task A_mapping_without_provenance_placeholders_sends_what_it_did_before()
+    {
+        await using var server = new FakeMcpServer(new FakeTool("retain", _ => FakeMcpServer.Text("queued")));
+        await using var pool = PoolFor(server);
+
+        await new McpMemoryProvider(Settings(Hindsight), pool).RetainAsync(new MemoryItem("fact", "ctx", null, "run-1", ["chargehand"], Provenance), Scope, CancellationToken.None);
+
+        Assert.Equal(["bank_id", "content", "context", "document_id", "tags"], Assert.Single(server.Calls).Arguments.Keys.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_item_without_provenance_leaves_the_metadata_members_out()
+    {
+        await using var server = new FakeMcpServer(new FakeTool("retain", _ => FakeMcpServer.Text("queued")));
+        await using var pool = PoolFor(server);
+
+        await new McpMemoryProvider(Settings(HindsightWithProvenance), pool).RetainAsync(new MemoryItem("fact"), Scope, CancellationToken.None);
+
+        Assert.Empty(Assert.Single(server.Calls).Arguments["metadata"].EnumerateObject());
+    }
+
+    [Fact]
+    public async Task Recall_renders_a_fact_with_its_provenance_when_the_answer_carries_it_and_plainly_when_not()
+    {
+        const string answer = """{"results":[{"id":"a","text":"With.","metadata":{"repository":"r","commit":"c1"}},{"id":"b","text":"Without.","metadata":{}}]}""";
+        await using var server = new FakeMcpServer(new FakeTool("recall", _ => FakeMcpServer.Text(answer)));
+        await using var pool = PoolFor(server);
+
+        var facts = await new McpMemoryProvider(Settings(HindsightWithProvenance), pool).RecallAsync("q", Scope, CancellationToken.None);
+
+        Assert.Equal([new RecalledMemory("a", "With. [r@c1]"), new RecalledMemory("b", "Without.")], facts);
+    }
 }
