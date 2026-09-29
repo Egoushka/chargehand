@@ -75,11 +75,12 @@ The choices marked above, and:
   fields, or an ordered list of these (the first whose fields are all present and non-empty wins); each fact is cut at `max_fact_chars` (600).
 - Delivery of services to OpenCode (observed in the task 1 spike, see Evidence): `PUT /api/experimental/mcp/{name}` at the
   run's location, then poll `GET /api/mcp` until `connected`, since the `PUT` returns before the connection. The gate is
-  the session's rules, on the permission action `<server>_<tool>` (resource `*`); the last matching rule wins, so the
-  adapter appends `<server>_* * deny` and then one `<server>_<tool> * allow` per granted tool. A preset's `* * allow`
-  reaches every MCP tool registered at the location, so the adapter also denies `<name>_*` for every other server
-  `GET /api/mcp` lists there, granted or not. `DELETE` takes effect at once in running sessions, so it runs only when
-  no other node holds the server at that location.
+  the session's rules, on the permission action `<server>_<tool>` (resource `*`); the last matching rule wins. A
+  preset's `* * allow` reaches every MCP tool registered at the location, so every OpenCode session's rules end with
+  `*_* * deny` (`OpenCodeWorkerRuntime.DenyMcpTools`, in force since the follow-up under Evidence), and the adapter
+  appends one `<server>_<tool> * allow` per granted tool after it. The deny is a pattern, not a rule per listed server.
+  `DELETE` takes effect at once in running sessions, so it runs only when no other node holds the server at that
+  location.
 
 ## Consequences
 
@@ -161,13 +162,49 @@ Two things the plan did not ask for turned up:
   chargehand starts registers a server (the default server of ADR 0030 has no `mcp` block, and chargehand never calls the
   `PUT`), so the exposure needs a server registered from outside: a user-supplied OpenCode server with an `mcp` block, a
   `PUT` by another client, or a checkout's own `opencode.json`. It is independent of `services`, so it needs its own fix
-  in the preset compile step (deny `<name>_*` for the servers listed at the location), not only task 10's grant rules.
-  Whether a rule can be added after the session exists (the spec lists `permissions` on `PATCH /api/session/{id}`) is
-  untested; a checkout's servers appear only once the session exists.
+  in the OpenCode adapter's session rules, not only task 10's grant rules.
+  A checkout's servers appear only once the session exists, so the fix cannot be a rule per listed server (see the
+  follow-up below).
 - Claude Code needs no such fix: `--strict-mcp-config` keeps other servers out and `dontAsk` refuses an MCP tool that
   `--allowedTools` does not name (C1, C2). For task 9: pass `--mcp-config` and one `--allowedTools` per granted tool,
   leave `--tools` alone, and add `--disallowedTools` for the tools of a granted server that the grant leaves out, or accept
   about 50 tokens per schema (C6). `--bare` takes the flag (C4, to the `init` event).
+
+### Follow-up: closing the exposure
+
+Measured on 2026-09-29 on OpenCode 2.0.19 and 2.0.16, throwaway servers and state, a stand-in model provider that records
+each request and asks for one code-execution call per turn. Sources are the OpenCode 2.0.18 tag unless said otherwise.
+
+- **A checkout can start a command.** `packages/cli/src/server-process.ts` (2.0.13 to 2.0.19) skips project
+  configuration when `OPENCODE_CONFIG_PROJECT_DISABLE ?? OPENCODE_DISABLE_PROJECT_CONFIG` is `1` or `true`; the first name
+  wins when set, even to `0`. `packages/core/src/config/discovery.ts` then finds no `opencode.json`, `.opencode`,
+  `.claude` or `.agents` in the checkout. The public config and CLI pages list neither name; the V2 instructions page
+  mentions the second. A checkout `opencode.json` declaring a local server whose command creates a file: created by
+  `POST /api/session` in 7 of 7 runs without the variables (the `.opencode/opencode.json` form in 5 of 7), in 0 of 6 with
+  them, and again with `OPENCODE_CONFIG_PROJECT_DISABLE=0` set beside `OPENCODE_DISABLE_PROJECT_CONFIG=1`, so both are set.
+  The same switch stops the checkout's `AGENTS.md` and `.claude` skills from reaching the model (checked in the request).
+- **A listing cannot gate it.** The first `GET /api/mcp` after `POST /api/session` at a fresh location listed no server in 8
+  of 8 tries; the four the checkout declared appeared 0.1 to 0.7 s later. A server's permission prefix is its name with
+  characters outside `[A-Za-z0-9_-]` replaced by `_` (`McpTool.namespace`), and OpenCode's own resource tools
+  (`opencode_list_mcp_resources`, `opencode_read_mcp_resource`) read every connected server under their own actions, which a
+  `<server>_*` deny does not cover. `PATCH /api/session/{id}` with `permissions` replaces the whole ruleset, and a fork
+  keeps its parent's.
+- **A pattern can.** Rules `[* * allow, edit * deny, external_directory * deny]` with and without a last rule
+  `*_* * deny`, given at session creation; a script calls the tool, the write-shaped tool, the resource list and read of
+  a configured server, and a tool of a server added by `PUT` after the session began. Without the rule, answered (on
+  2.0.16 the checkout server's own two tools were not reachable; the other calls were). With it, every call came back
+  as an unknown tool on both versions, and with `team-docs_echo_fact * allow` after it exactly that tool was answered.
+  Through the shipped code (a server chargehand started, a server in its global config, a checkout config that would
+  create a file): no file, all four calls refused; the same rules without the appended deny: all four answered.
+  Every shipped preset denies `external_directory` (`draft` denies everything), and none allows another action with an underscore.
+
+What shipped: chargehand's own server and `scripts/opencode-serve.sh` set both variables, and every OpenCode session's
+rules end with `*_* * deny`. Residual risk: a server the user runs another way (an `opencode` block in the profile) keeps
+its project configuration unless they set the variables, so a checkout can still start a command there, though its tools
+stay denied to workers; a server configured or added by an authenticated client is that client's own choice and starts;
+workers no longer get the checkout's `AGENTS.md` or skills; a later OpenCode action with an underscore is denied to
+workers until a grant or preset allows it after the deny; whether the built-in `browser` namespace is gated by rules is
+still unknown.
 
 ## Reopen if
 

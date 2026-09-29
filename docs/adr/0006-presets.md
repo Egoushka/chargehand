@@ -1,6 +1,6 @@
 # 0006. Presets
 
-- Status: accepted
+- Status: accepted; workers' MCP tools amended by 0034
 - Date: 2026-09-26
 
 ## Context
@@ -59,6 +59,9 @@ plus the permission ruleset passed at session creation, with budgets enforced by
   an `include` glob reaches files `.gitignore` excludes (checked with rg 15.2), so no rule keeps it out of a secret
   file. The orchestrator therefore refuses a checkout holding any file, tracked or untracked, whose last matching
   `read` rule denies it, before a worker session starts. Workers run on checkouts without local secrets.
+- Workers get no MCP tool. On OpenCode a leading `* * allow` reached the tools of any server registered at the location
+  (ADR 0034, follow-up), so every session's rules end with `*_* * deny`, and the server chargehand starts ignores a
+  checkout's own OpenCode configuration.
 - Prefer `deny` over `ask`: the orchestrator's watcher rejects any remaining ask, which may end the node.
 - The orchestrator answers pending permissions only with `once` or `reject`, never `always`.
 - Defaults: `cheap` = small-model workers, no critic. `thorough` = large-model workers plus a critic from

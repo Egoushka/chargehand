@@ -27,5 +27,8 @@ export HOME="$state/home"
 export XDG_CONFIG_HOME="$state/xdg/config" XDG_DATA_HOME="$state/xdg/data"
 export XDG_STATE_HOME="$state/xdg/state" XDG_CACHE_HOME="$state/xdg/cache"
 export OPENCODE_DISABLE_AUTOUPDATE=1
+# A checkout's opencode.json or .opencode can register an MCP server whose command a session then starts. OpenCode
+# reads the second name only when the first is unset, so set both.
+export OPENCODE_CONFIG_PROJECT_DISABLE=1 OPENCODE_DISABLE_PROJECT_CONFIG=1
 
 exec "$bin" serve --hostname 127.0.0.1 --port "$port"

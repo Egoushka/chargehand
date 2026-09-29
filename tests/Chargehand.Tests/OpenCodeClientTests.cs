@@ -53,6 +53,35 @@ public class OpenCodeClientTests
         Assert.Equal("r1", b.GetProperty("metadata").GetProperty("run").GetString());
     }
 
+    /// <summary>
+    /// An MCP tool's permission action is the server name, an underscore and the tool name, and a preset's "* * allow"
+    /// reaches it (ADR 0034, spike O4). Servers cannot be listed instead: a checkout's own config registers its servers after the session
+    /// exists, and any client can add one later. The last rule denies every action with an underscore, which covers
+    /// every MCP tool, the MCP resource tools and external_directory (denied by every preset already).
+    /// </summary>
+    [Fact]
+    public async Task Create_ends_the_rules_with_a_deny_for_every_mcp_tool()
+    {
+        var (c, h) = Make((_, _) => (HttpStatusCode.OK, Session));
+        IWorkerRuntime rt = new OpenCodeWorkerRuntime(c, "2.0.16");
+        await rt.CreateAsync(new NodeSpec("/w/repo", "build", null,
+            [new PermissionRule("*", "*", PermissionEffect.Allow), new PermissionRule("edit", "*", PermissionEffect.Deny)],
+            new Dictionary<string, string>()), CancellationToken.None);
+        var rules = JsonDocument.Parse(h.Seen.Single().Body!).RootElement.GetProperty("permissions").EnumerateArray()
+            .Select(r => $"{r.GetProperty("action").GetString()} {r.GetProperty("resource").GetString()} {r.GetProperty("effect").GetString()}");
+        Assert.Equal(["* * allow", "edit * deny", "*_* * deny"], rules);
+    }
+
+    [Fact]
+    public async Task Create_with_no_rules_still_denies_every_mcp_tool()
+    {
+        var (c, h) = Make((_, _) => (HttpStatusCode.OK, Session));
+        IWorkerRuntime rt = new OpenCodeWorkerRuntime(c, "2.0.16");
+        await rt.CreateAsync(new NodeSpec("/w/repo", "build", null, [], new Dictionary<string, string>()), CancellationToken.None);
+        var rules = JsonDocument.Parse(h.Seen.Single().Body!).RootElement.GetProperty("permissions");
+        Assert.Equal("*_*", rules.EnumerateArray().Single().GetProperty("action").GetString());
+    }
+
     /// <summary>ADR 0026: an unset model sends no "model" in the body, so the server's base configuration default applies.</summary>
     [Fact]
     public async Task Create_with_no_model_omits_it_from_the_body()
