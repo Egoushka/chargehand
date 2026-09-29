@@ -41,6 +41,10 @@ All notable changes to this project are documented here. The format follows
 - A worker that wrote `status: failed` in its own result block (a change request on a read-only preset, which runs as
   an answer when intake's action is not in the preset) returned a failed result with no `error`, against ADR 0022. It
   now carries `internal` with "the worker reported failed: <summary>" and an action.
+- Prompt CI blocked every pull request that adds a preset with its eval cell as uncovered: the gate reads cells from
+  main, which does not have the new cell yet. A file the base lacks now passes when a cell in the change's own
+  `evals/cells.json` names it (`--change-cells-file`); tolerances and existing files stay on main's cells. With
+  `--allow-uncovered`, the status said "no prompt or preset change"; it now names the files that passed without a cell.
 - Prompt CI crashed with an unhandled 404 when an eval cell's Langfuse dataset did not exist yet (a new cell, before
   its first `eval push`). A missing dataset now has no items, so the gate blocks with "0 items; the gate needs at
   least 8" instead.

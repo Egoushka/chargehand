@@ -109,6 +109,28 @@ public class GateTests
     }
 
     [Fact]
+    public void A_file_new_in_the_change_counts_as_covered_by_a_cell_the_change_adds()
+    {
+        var added = new EvalCell("added/worker", "chargehand-added-worker", "worker", "added", ["presets/added.yaml", "prompts/preset/added.md"], 0.1, 0.15);
+        var modifiedOnlyInChange = new EvalCell("default-copy/worker", "d", "worker", "default", ["prompts/preset/default.md"], 0.1, 0.15);
+        var (uncovered, fresh) = EvalRunner.NewInChange(
+            ["presets/added.yaml", "prompts/preset/added.md", "prompts/preset/orphan.md", "prompts/preset/default.md"],
+            [added, modifiedOnlyInChange],
+            existsInBase: f => f == "prompts/preset/default.md");
+        Assert.Equal(["presets/added.yaml", "prompts/preset/added.md"], fresh);
+        // A new file no cell names, and a file the base has, stay uncovered: the trusted cells decide for existing files.
+        Assert.Equal(["prompts/preset/orphan.md", "prompts/preset/default.md"], uncovered);
+    }
+
+    [Theory]
+    [InlineData(new string[0], new string[0], false, "no prompt or preset change")]
+    [InlineData(new[] { "prompts/preset/x.md" }, new string[0], false, "no eval cell gates prompts/preset/x.md")]
+    [InlineData(new[] { "prompts/preset/x.md" }, new string[0], true, "allowed without an eval cell: prompts/preset/x.md")]
+    [InlineData(new string[0], new[] { "presets/added.yaml" }, false, "new, gated from the next change by its cell: presets/added.yaml")]
+    public void The_status_names_what_ran_and_what_did_not(string[] uncovered, string[] fresh, bool allowUncovered, string expected) =>
+        Assert.Equal(expected, Gate.Describe([], uncovered, fresh, allowUncovered));
+
+    [Fact]
     public void Shipped_cells_and_example_items_load()
     {
         var cells = EvalCell.Load(Repo.Path("evals", "cells.json"));

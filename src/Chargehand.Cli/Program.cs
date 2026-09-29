@@ -32,7 +32,8 @@ const string Usage = """
       score <run-id> <0-1> [name]  records a hand score for a run (name defaults to quality)
       eval seed <cell> <run-id>... proposes eval items (JSONL on stdout) from runs in the log, for review
       eval push <cell>             pushes reviewed items (JSONL on stdin) to the cell's Langfuse dataset
-      eval gate <base> <change> [--cells a,b] [--changed-files f] [--pr-body f] [--name n] [--cells-file f] [--allow-uncovered]
+      eval gate <base> <change> [--cells a,b] [--changed-files f] [--pr-body f] [--name n] [--cells-file f]
+                                   [--change-cells-file f] [--allow-uncovered]
                                    paired runs of the base and change prompts/ and presets/; exit 1 when blocked
       prompts sync                 pushes prompt blocks to Langfuse prompt management
     prompts/ and presets/ come from the current directory when it has both (a checkout), else from the install; the
@@ -183,6 +184,10 @@ async Task<int> EvalGate(string baseRoot, string changeRoot, IReadOnlyList<strin
         cells = [.. names.Split(',').Select(n => all.FirstOrDefault(c => c.Name == n) ?? throw new ArgumentException($"no eval cell {n}"))];
     else
         (cells, uncovered) = EvalRunner.Affected(all, Option("--changed-files") is { } f ? File.ReadAllLines(f) : []);
+    IReadOnlyList<string> fresh = [];
+    // The change's own cells only recognise files new in the change (EvalRunner.NewInChange); they never set a tolerance.
+    if (Option("--change-cells-file") is { } changeCells && File.Exists(changeCells))
+        (uncovered, fresh) = EvalRunner.NewInChange(uncovered, EvalCell.Load(changeCells), f => File.Exists(Path.Combine(baseRoot, f)));
     var trade = Option("--pr-body") is { } body ? Gate.ParseTrade(File.ReadAllText(body)) : null;
     var name = Option("--name") ?? $"eval-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
 
@@ -201,13 +206,14 @@ async Task<int> EvalGate(string baseRoot, string changeRoot, IReadOnlyList<strin
     Console.WriteLine("|---|---|---|---|---|---|---|");
     foreach (var v in verdicts)
         Console.WriteLine($"| {v.Cell} | {v.Items} | {v.QualityDelta:+0.000;-0.000} | {v.QualityT:0.00} | {v.CostChange:+0%;-0%} | {v.CostT:0.00} | {(v.Blocked ? "BLOCK" : "pass")}: {v.Reason} |");
-    var blockedByUncovered = uncovered.Count > 0 && !options.Contains("--allow-uncovered");
+    var allowUncovered = options.Contains("--allow-uncovered");
+    var blockedByUncovered = uncovered.Count > 0 && !allowUncovered;
     foreach (var f in uncovered)
         Console.WriteLine($"uncovered: {f} (no eval cell gates it{(blockedByUncovered ? "" : "; allowed")})");
+    foreach (var f in fresh)
+        Console.WriteLine($"new: {f} (no base to compare; the change's eval cell gates it once merged)");
     var blocked = verdicts.Where(v => v.Blocked).ToList();
-    var description = blocked.Count > 0 ? string.Join("; ", blocked.Select(v => $"{v.Cell}: {v.Reason}"))
-        : blockedByUncovered ? $"no eval cell gates {string.Join(", ", uncovered)}"
-        : cells.Count == 0 ? "no prompt or preset change" : string.Join("; ", verdicts.Select(v => $"{v.Cell}: {v.Reason}"));
+    var description = Gate.Describe(verdicts, uncovered, fresh, allowUncovered);
     // Last line for scripts/prompt-ci.sh: the commit status (a status description holds at most 140 characters).
     Console.WriteLine($"prompt-ci: {(blocked.Count > 0 || blockedByUncovered ? "failure" : "success")}: {(description.Length > 140 ? description[..137] + "..." : description)}");
     return blocked.Count > 0 || blockedByUncovered ? 1 : 0;

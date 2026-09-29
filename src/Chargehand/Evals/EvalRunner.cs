@@ -26,6 +26,18 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
         return (cells.Where(c => c.Files.Any(gated.Contains)).ToList(), gated.Where(f => !cells.Any(c => c.Files.Contains(f))).ToList());
     }
 
+    /// <summary>
+    /// Splits the uncovered files: a file the base does not have and a cell in the change's own evals/cells.json names
+    /// is new, with nothing to regress from, and passes; its cell gates it from the next change on, once main has it.
+    /// The trusted cells still decide for every file the base has, so a change cannot loosen its own gate.
+    /// </summary>
+    public static (IReadOnlyList<string> Uncovered, IReadOnlyList<string> New) NewInChange(IReadOnlyList<string> uncovered, IReadOnlyList<EvalCell> changeCells,
+        Func<string, bool> existsInBase)
+    {
+        var fresh = uncovered.Where(f => !existsInBase(f) && changeCells.Any(c => c.Files.Contains(f))).ToList();
+        return (uncovered.Except(fresh).ToList(), fresh);
+    }
+
     /// <summary>Proposes items from runs in the log, for review before a push: one per run, and one per split subtask.</summary>
     public static IEnumerable<EvalItem> Seed(EvalCell cell, IEnumerable<RunEntry> runs)
     {
