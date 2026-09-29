@@ -183,7 +183,7 @@ public sealed class Orchestrator(
         {
             var nodeRequest = new NodeRequest(runId, node.Id, traceId,
                 new NodeSpec(directory, kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { [IRunCleanup.RunMetadataKey] = runId, ["chargehand.node"] = node.Id }, granted),
-                instructions, TaskText(request, spec, commit, inputText, callerBlocks, node, plan.Count, upstream) + facts, chain, directory, commit,
+                instructions, TaskText(request, spec, commit, inputText, callerBlocks, node, plan.Count, upstream) + facts + ServiceCitationNote(granted), chain, directory, commit,
                 (request.Inputs ?? []).Select(i => i.Id).ToHashSet(), inputText, cap, TimeSpan.FromMinutes(15),
                 kind.Budget.MaxInputTokens, kind.Compaction?.TriggerTokens, fork);
 
@@ -478,6 +478,14 @@ public sealed class Orchestrator(
     }
 
     /// <summary>Volatile content goes in the prompt text, after the fixed instruction entries (ADR 0010).</summary>
+    /// <summary>
+    /// Workers do not see message ids, so a service tool's reply is cited by quoting it (GitEvidenceResolver). Told in the task
+    /// text, only when services are granted: the shipped prompts and the tools hash stay as they are without them.
+    /// </summary>
+    internal static string ServiceCitationNote(IReadOnlyList<ServiceGrant> granted) => granted.Count == 0
+        ? ""
+        : $"\n\nTo cite what a service tool returned, add evidence of kind session_message whose locator quotes at least {GitEvidenceResolver.MinQuoteLength} characters of the tool's reply exactly as returned (copy it, do not paraphrase or summarize). Never use the reply text as a file or url locator.";
+
     private static string TaskText(RunRequest request, TaskSpec spec, string commit, string inputText, IReadOnlyList<PromptBlock> callerBlocks,
         PlanNode node, int nodes, IReadOnlyList<ResultContract> upstream)
     {

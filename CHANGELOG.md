@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A worker's citation of a service tool's reply now resolves. Workers cannot see message ids, so they cited the reply text as a `session_message` locator and the claim became an open question. A `session_message` locator that quotes at least 12 characters of a tool's reply in the session now resolves, and the task text says so when the run has services. Nothing changes without services; `result/v1` is unchanged apart from the locator's description.
+
 ## [0.6.0] - 2026-09-29
 
 Breaking: the single-object form of `memory` in the profile no longer loads. Memory is a list of MCP providers now, and a

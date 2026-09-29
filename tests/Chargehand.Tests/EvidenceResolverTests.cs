@@ -33,13 +33,17 @@ public sealed class EvidenceResolverTests : IDisposable
         return output;
     }
 
-    private async Task<IReadOnlyList<EvidenceFailure>> Resolve(params Evidence[] evidence)
+    private const string Reply = "echo_fact ok: spike fact 42";
+
+    private Task<IReadOnlyList<EvidenceFailure>> Resolve(params Evidence[] evidence) => ResolveWith([Reply], evidence);
+
+    private async Task<IReadOnlyList<EvidenceFailure>> ResolveWith(string[] toolResults, params Evidence[] evidence)
     {
         var contract = new ResultContract("result/v1", "t", "n", new string('0', 32),
             new PromptChain([], new AsSent("2.0.16", "build", "p/m", "2026-09-26")), ResultStatus.Completed, "s",
             [new Claim("c", evidence.Select(e => e.Id).ToList(), 1)], evidence, [], [], 1, new Usage(0, 0, 0, 0, 0));
         var scope = new EvidenceScope(_repo.Path, _head, ["msg_1"], ["fact-1"], "see https://example.com/a for details",
-            [new FileDiff("src/calc.py", "@@ -1,2 +1,3 @@\n", 1, 0, "modified")]);
+            [new FileDiff("src/calc.py", "@@ -1,2 +1,3 @@\n", 1, 0, "modified")], toolResults);
         return await new GitEvidenceResolver().ResolveAsync(contract, scope, CancellationToken.None);
     }
 
@@ -85,5 +89,21 @@ public sealed class EvidenceResolverTests : IDisposable
         Assert.Equal(["c", "m", "i", "u", "d"], failures.Select(f => f.EvidenceId));
         // The repair turn names the ids that do exist, so a worker can correct a mangled locator.
         Assert.Contains("(input ids: fact-1)", failures.Single(f => f.EvidenceId == "i").Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_tool_reply_quoted_as_the_locator_resolves_when_a_tool_returned_it()
+    {
+        Assert.Empty(await Resolve(new Evidence("m", EvidenceKind.SessionMessage, Reply)));
+        Assert.Empty(await Resolve(new Evidence("m", EvidenceKind.SessionMessage, "ok: spike fact 42")));
+    }
+
+    [Fact]
+    public async Task A_fabricated_or_too_short_quotation_does_not_resolve()
+    {
+        Assert.Single(await Resolve(new Evidence("m", EvidenceKind.SessionMessage, "echo_fact ok: another fact 7")));
+        Assert.Single(await Resolve(new Evidence("m", EvidenceKind.SessionMessage, "echo_fact")));
+        Assert.Single(await Resolve(new Evidence("m", EvidenceKind.SessionMessage, "            ")));
+        Assert.Single(await ResolveWith([], new Evidence("m", EvidenceKind.SessionMessage, Reply)));
     }
 }

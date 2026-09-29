@@ -52,6 +52,61 @@ public class ServiceRunTests
         Assert.NotEqual(PlainToolsHash(), result.PromptChain.AsSent.ToolsSha256);
     }
 
+    private const string CitedReply = """
+        ```json
+        {"status":"completed","summary":"The service answered.","claims":[{"text":"The service reported the fact.","evidence":["e1"],"confidence":0.9}],
+         "evidence":[{"id":"e1","kind":"session_message","locator":"echo_fact ok: spike fact 42"}],"artifacts":[],"open_questions":[],"confidence":0.9}
+        ```
+        """;
+
+    private static async Task<ResultContract> RunCited(TempDir root, ScriptedRuntime runtime, bool granted)
+    {
+        using var presets = new PresetRoot("docs", Docs);
+        var repo = Runs.GitRepo(root.Path);
+        var resolver = new FakeResolver(new ResolvedServices(granted ? [Grant] : [], []));
+        return await Make(root.Path, presets.Path, runtime, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")), resolver).RunAsync(Request(repo, "docs"), CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task A_service_reply_cited_as_a_session_message_resolves_and_the_claim_stays()
+    {
+        using var root = new TempDir();
+        var runtime = new ScriptedRuntime(CitedReply) { ToolResult = "echo_fact ok: spike fact 42" };
+
+        var result = await RunCited(root, runtime, granted: true);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Single(result.Claims);
+        Assert.Empty(result.OpenQuestions);
+    }
+
+    [Fact]
+    public async Task A_fabricated_service_reply_does_not_resolve_and_the_claim_becomes_an_open_question()
+    {
+        using var root = new TempDir();
+        var runtime = new ScriptedRuntime(CitedReply) { ToolResult = "echo_fact ok: a different fact" };
+
+        var result = await RunCited(root, runtime, granted: true);
+
+        Assert.Empty(result.Claims);
+        Assert.NotEmpty(result.OpenQuestions);
+    }
+
+    [Fact]
+    public async Task The_citation_note_is_in_the_task_text_only_when_services_are_granted()
+    {
+        using var root = new TempDir();
+        using var other = new TempDir();
+        var with = new ScriptedRuntime(Runs.WorkerReply);
+        await RunCited(root, with, granted: true);
+        var without = new ScriptedRuntime(Runs.WorkerReply);
+        var plain = await RunCited(other, without, granted: false);
+
+        Assert.Contains("session_message", with.Prompts.First(), StringComparison.Ordinal);
+        Assert.DoesNotContain("session_message", without.Prompts.First(), StringComparison.Ordinal);
+        Assert.Equal(PlainToolsHash(), plain.PromptChain.AsSent.ToolsSha256);
+    }
+
     [Fact]
     public async Task No_services_leave_the_tools_hash_alone()
     {

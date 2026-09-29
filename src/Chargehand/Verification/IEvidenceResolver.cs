@@ -13,12 +13,14 @@ public interface IEvidenceResolver
 }
 
 /// <param name="SeenText">Inputs and tool output of the node; a <c>url</c> reference must appear in it.</param>
+/// <param name="ToolResults">What the node's tools returned; a <c>session_message</c> locator that is not a message id may quote one.</param>
 public sealed record EvidenceScope(
     string RepositoryPath,
     string Commit,
     IReadOnlyCollection<string> MessageIds,
     IReadOnlyCollection<string> InputIds,
     string SeenText,
-    IReadOnlyList<FileDiff> Diff);
+    IReadOnlyList<FileDiff> Diff,
+    IReadOnlyList<string>? ToolResults = null);
 
 public sealed record EvidenceFailure(string EvidenceId, string Reason);

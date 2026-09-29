@@ -18,7 +18,7 @@ public sealed partial class GitEvidenceResolver : IEvidenceResolver
             {
                 EvidenceKind.File => await CheckFile(e, scope, ct),
                 EvidenceKind.Commit => await Git(scope.RepositoryPath, ct, "cat-file", "-e", $"{e.Locator}^{{commit}}") is null ? $"commit {e.Locator} not found" : null,
-                EvidenceKind.SessionMessage => scope.MessageIds.Contains(e.Locator) ? null : $"message {e.Locator} not in the node's session",
+                EvidenceKind.SessionMessage => CheckMessage(e.Locator, scope),
                 EvidenceKind.Input => scope.InputIds.Contains(e.Locator) ? null : $"input {e.Locator} was not supplied by the caller (input ids: {string.Join(", ", scope.InputIds)})",
                 EvidenceKind.Url => scope.SeenText.Contains(e.Locator, StringComparison.Ordinal) ? null : "URL not seen in the node's inputs or tool output",
                 EvidenceKind.Diff => CheckDiff(e.Locator, scope.Diff),
@@ -43,6 +43,24 @@ public sealed partial class GitEvidenceResolver : IEvidenceResolver
             return $"{path} does not exist at the node's commit";
         var lines = text.Length == 0 ? 0 : text.TrimEnd('\n').Split('\n').Length;
         return end > lines ? $"line {end} beyond end of file ({lines} lines)" : null;
+    }
+
+    /// <summary>Shortest quotation of a tool reply accepted as a locator; a shorter one would match almost any reply.</summary>
+    internal const int MinQuoteLength = 12;
+
+    /// <summary>
+    /// A message id of the node's session, or a quotation of what one of its tools returned. Workers do not see message ids, so
+    /// they cite a tool's reply by its text; the text must occur verbatim in a tool result of the session (never in the caller's
+    /// inputs or a call's arguments), so the worker cannot make one up.
+    /// </summary>
+    private static string? CheckMessage(string locator, EvidenceScope scope)
+    {
+        if (scope.MessageIds.Contains(locator))
+            return null;
+        var quote = locator.Trim();
+        if (quote.Length >= MinQuoteLength && (scope.ToolResults ?? []).Any(r => r.Contains(quote, StringComparison.Ordinal)))
+            return null;
+        return $"message {locator} not in the node's session (cite a message id, or quote at least {MinQuoteLength} characters of a tool's reply exactly)";
     }
 
     private static string? CheckDiff(string locator, IReadOnlyList<FileDiff> diff)
