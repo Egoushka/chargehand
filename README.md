@@ -11,7 +11,8 @@ People call it from a CLI; programs call it over HTTP or MCP.
 
 **Status: before 1.0** (the release badge shows the version). Workers are read-only for now; writing nodes in
 worktrees come later. See the [changelog](CHANGELOG.md) for what shipped, the [roadmap](ROADMAP.md) for what comes
-next, and [benchmarks](docs/benchmarks.md) for how it performs.
+next, and [benchmarks](docs/benchmarks.md) for how it performs. The [guide](docs/guide/index.md) walks through
+using it, and [what it does, and how we know](docs/guide/capabilities.md) gives each capability's status with its evidence.
 
 ## Why
 
