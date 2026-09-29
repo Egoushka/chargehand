@@ -42,7 +42,8 @@ Option 3.
 
 - A pull request that introduces a CodeQL finding is caught at the next weekly run or release tag, not before merge.
   Accepted: the scan never blocked a merge, and this repository takes no outside code without review.
-- A docs-only pull request finishes in seconds.
+- A docs-only pull request finishes in seconds: `changes` reports `code=false`, `build`, `package` and `plugin` are skipped,
+  `ci-gate` is green. (Observed on the pull request that added this line.)
 - Merging on green needs no session waiting on CI. Rules that say "merge manually" no longer apply.
 - Adding or renaming a job in `ci.yml` needs the `needs` list of `ci-gate` updated; the ruleset does not change.
 
