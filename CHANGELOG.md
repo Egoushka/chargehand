@@ -18,6 +18,9 @@ All notable changes to this project are documented here. The format follows
   generic action, and the reason was only in the server's log. The error now says the server ended the session before
   any model call, and its `action` points at the OpenCode server's log and names the model the run asked for, to check
   against the server's models and the profile's `models` map (or says no model was mapped).
+- A request with many `inputs` still grew intake's prompt without bound, up to the request size limit. Intake now reads
+  at most 8000 characters of input text in all, in request order; an input after that is listed with its id, kind and
+  size and a note that its text is left out here, and the worker still gets every input whole.
 
 ## [0.4.0] - 2026-09-29
 

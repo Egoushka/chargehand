@@ -78,6 +78,16 @@ CLI runs. A server restart leaves unfinished runs `lost`, and their callers rese
 exceed ADR 0011's two nodes per model. Every future run keeps its request, so eval sets can grow from real traffic
 (ADR 0019).
 
+## Addendum (2026-09-29): intake reads the inputs' text
+
+Intake sees each input's text, not only its id and kind (the last clause of the inputs bullet under Decision): told
+just that a diff exists, it asked the caller for the diff the request carried. The text is cut at
+`GenerateIntake.MaxInputChars` (2000) characters per input and at `GenerateIntake.MaxTotalInputChars` (8000) across all
+inputs, in request order, so a request with many inputs cannot grow the small model's prompt up to the server's
+request limit. A cut input says how far it was cut; an input after the budget is listed with its id, kind and size and
+a note that its text is left out here. Both notes say the worker gets all of it, and the worker's task text is
+unchanged.
+
 ## Reopen if
 
 Callers need runs to survive a restart (then durable execution, ADR 0002); a scan of the run log per request becomes
