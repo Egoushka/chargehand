@@ -1,9 +1,9 @@
 name: release
 
 # A tag v<Version> publishes the release (ADR 0024, decision D8): the GitHub Release with the version's CHANGELOG.md
-# section, the server image ghcr.io/<owner>/chargehand:<Version>, and Chargehand.Contracts on nuget.org when its version
-# is new there and the repository variable NUGET_USER names the nuget.org account whose trusted-publishing policy trusts
-# this workflow. The release environment waits for the owner's approval. A tag without a changelog section fails first.
+# section, the server image ghcr.io/<owner>/chargehand:<Version>, and on nuget.org the dnx tool Chargehand (ADR 0027) and
+# Chargehand.Contracts, each when its version is new there, when the repository variable NUGET_USER names the nuget.org
+# account whose trusted-publishing policy trusts this workflow. The release environment waits for the owner's approval. A tag without a changelog section fails first.
 on:
   push:
     tags: ['v*']
@@ -38,23 +38,34 @@ jobs:
         if: vars.NUGET_USER != ''
         with:
           global-json-file: global.json
-      - name: Pack Chargehand.Contracts when its version is new on nuget.org
+      - name: Pack what is new on nuget.org
         id: pack
         if: vars.NUGET_USER != ''
         run: |
-          v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/Chargehand.Contracts/Chargehand.Contracts.csproj)
-          lower=$(printf '%s' "$v" | tr 'A-Z' 'a-z')
-          code=$(curl -s -o /dev/null -w '%{http_code}' "https://api.nuget.org/v3-flatcontainer/chargehand.contracts/$lower/chargehand.contracts.$lower.nupkg")
-          if [ "$code" = 200 ]; then echo "Chargehand.Contracts $v is already on nuget.org"; exit 0; fi
-          dotnet pack src/Chargehand.Contracts -c Release -o "$RUNNER_TEMP/nupkg"
-          echo "new=true" >> "$GITHUB_OUTPUT"
+          on_nuget() { # <package id> <version>
+            id=$(printf '%s' "$1" | tr 'A-Z' 'a-z'); v=$(printf '%s' "$2" | tr 'A-Z' 'a-z')
+            [ "$(curl -s -o /dev/null -w '%{http_code}' "https://api.nuget.org/v3-flatcontainer/$id/$v/$id.$v.nupkg")" = 200 ]
+          }
+          contracts=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/Chargehand.Contracts/Chargehand.Contracts.csproj)
+          if on_nuget Chargehand.Contracts "$contracts"; then
+            echo "Chargehand.Contracts $contracts is already on nuget.org"
+          else
+            dotnet pack src/Chargehand.Contracts -c Release -o "$RUNNER_TEMP/nupkg"
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+          if on_nuget Chargehand "$VERSION"; then
+            echo "Chargehand $VERSION is already on nuget.org"
+          else
+            dotnet pack src/Chargehand.Cli -c Release -o "$RUNNER_TEMP/nupkg"
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
         id: nuget
         if: steps.pack.outputs.new == 'true'
         with:
           user: ${{ vars.NUGET_USER }}
       - if: steps.pack.outputs.new == 'true'
-        run: dotnet nuget push "$RUNNER_TEMP"/nupkg/*.nupkg --api-key "${{ steps.nuget.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json
+        run: dotnet nuget push "$RUNNER_TEMP"/nupkg/*.nupkg --api-key "${{ steps.nuget.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
       - name: GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
