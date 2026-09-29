@@ -39,6 +39,10 @@ All notable changes to this project are documented here. The format follows
 - The `.private-terms` hooks work in a linked worktree. The list is gitignored, so a worktree never had a copy and every
   commit there aborted with "`.private-terms` is missing"; the check now falls back to the main worktree's list. A
   worktree's own file still wins, and with no list in either place the commit is still blocked.
+- Memory failed open only on `HttpRequestException`. A provider timing out (`TaskCanceledException`, which `HttpClient`
+  raises when its own timeout elapses) ended the run with an exception and no result, and a `JsonException` or
+  `IOException` from a provider failed it. Recall and retain now skip the provider on any exception except the caller's
+  own cancellation, and the run goes on without it.
 
 ## [0.4.0] - 2026-09-29
 

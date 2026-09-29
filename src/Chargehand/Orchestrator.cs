@@ -238,7 +238,7 @@ public sealed class Orchestrator(
                 await memory.RetainAsync(new MemoryItem($"{request.Text}\n{result.Summary}\n{string.Join("\n", result.Claims.Select(c => $"- {c.Text}"))}",
                     "chargehand run result", DateTimeOffset.UtcNow, runId, ["chargehand"]), MemoryScopeOf(profile.Memory), ct);
             }
-            catch (HttpRequestException e)
+            catch (Exception e) when (MemoryFailedOpen(e, ct))
             {
                 // Memory fails open (ADR 0008): a failed retain never fails a completed run.
                 run?.SetTag("chargehand.memory.error", e.Message);
@@ -247,6 +247,13 @@ public sealed class Orchestrator(
     }
 
     private static MemoryScope MemoryScopeOf(MemorySettings m) => new(m.Backend, m.Namespace);
+
+    /// <summary>
+    /// Whatever a provider throws is a memory failure, not a run failure: an HTTP error, the client's own timeout
+    /// (a <see cref="TaskCanceledException"/> the caller's token did not raise), an unreadable body, a broken pipe.
+    /// Only the caller's own cancellation goes on to stop the run.
+    /// </summary>
+    private static bool MemoryFailedOpen(Exception e, CancellationToken ct) => !(e is OperationCanceledException && ct.IsCancellationRequested);
 
     /// <summary>Memory is optional context: a failed recall leaves the run without it rather than failing it.</summary>
     private async Task<string> Recall(string query, Activity? run, CancellationToken ct)
@@ -260,7 +267,7 @@ public sealed class Orchestrator(
             return items.Count == 0 ? "" : "\nFacts from long-term memory (unverified; check them in the repository and cite files, never these):\n"
                 + string.Join("\n", items.Select(i => $"- {i.Text}")) + "\n";
         }
-        catch (HttpRequestException e)
+        catch (Exception e) when (MemoryFailedOpen(e, ct))
         {
             run?.SetTag("chargehand.memory.error", e.Message);
             return "";
