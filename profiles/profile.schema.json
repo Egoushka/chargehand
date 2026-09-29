@@ -116,6 +116,15 @@
       "type": "string",
       "description": "Where worker clones and worktrees live. Must be outside the OpenCode user's home: OpenCode discovers skills by walking up from the session directory. Default (ADR 0026): a fixed directory outside $HOME, created on first use."
     },
+    "signing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Sign every result (ADR 0036). Chargehand never creates or stores a key. CHARGEHAND_SIGNING_KEY_FILE overrides key_file.",
+      "properties": {
+        "key_file": { "type": "string", "minLength": 1, "description": "A P-256 private key in PEM: openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out signing-key.pem" }
+      }
+    },
+    "support_check": { "type": "boolean", "description": "Default true (ADR 0036): after a node, one call on the intake model judges whether the text each claim cites supports it; unsupported claims move to open_questions and the rest carry support. false: no check, no extra call." },
     "sandbox": {
       "type": "object",
       "additionalProperties": false,

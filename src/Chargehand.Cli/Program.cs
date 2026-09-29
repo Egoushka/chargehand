@@ -26,6 +26,8 @@ const string Usage = """
       run                          reads request/v1 on stdin, writes result/v1 on stdout
       serve                        HTTP /v1/runs and MCP /v1/mcp (profile http; 127.0.0.1 by default)
       mcp                          the MCP tool over stdio, for a client that starts chargehand itself
+      verify <result.json> --public-key <key.pem>
+                                   checks a signed result offline; exit 0 valid, 1 invalid or unsigned, 2 usage
       show <run-id>                prints a run and its calls from the run log
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
       cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
@@ -53,6 +55,9 @@ if (argv.Count >= 2 && argv[0] == "--profile")
     profilePath = argv[1];
     argv.RemoveRange(0, 2);
 }
+// Offline and profile-free: a verifier holds a result and a public key, nothing else (ADR 0036).
+if (argv is ["verify", .. var verifyArgs])
+    return Chargehand.Signing.VerifyCli.Run(verifyArgs, Console.Out, Console.Error);
 if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions"))
 {
     Console.Error.WriteLine(Usage);

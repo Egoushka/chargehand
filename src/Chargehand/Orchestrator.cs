@@ -16,6 +16,7 @@ using Chargehand.Results;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Sandbox;
+using Chargehand.Signing;
 using Chargehand.Verification;
 using Chargehand.Workspace;
 
@@ -70,6 +71,7 @@ public sealed class Orchestrator(
             new("result/v1", runId, "intake", traceId, intakeChain, status, summary, [], [], artifacts ?? [], questions, 0, new Usage(0, 0, 0, 0, 0));
 
         ResultContract result;
+        System.Security.Cryptography.ECDsa? signingKey = null;
         IntakeOutcome? intake = null;
         TaskAction? executed = null;
         try
@@ -78,6 +80,8 @@ public sealed class Orchestrator(
             var (kindName, kind) = AnswerKind(preset);
             // A writing preset without a sandbox is refused before anything is spent (ADR 0035).
             var sandbox = kind.Writes ? (sandboxFor ?? SandboxSelector.Select)(profile.Sandbox) : null;
+            // A key that cannot be used stops the run before anything is spent (ADR 0036).
+            signingKey = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
             // Unset when the profile maps no real model to the preset's placeholder: the runtime uses its own default.
             var workerModel = profile.ResolveModel(kind.Model);
             var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
@@ -147,6 +151,11 @@ public sealed class Orchestrator(
                 error);
         }
 
+        if (signingKey is not null)
+        {
+            result = ResultSignature.Sign(result, signingKey);
+            signingKey.Dispose();
+        }
         run?.SetTag("chargehand.contract.status", result.Status.ToString().ToLowerInvariant());
         run?.SetTag("chargehand.intake.action", intake?.Spec is null ? null : Name(intake.Spec.Action));
         run?.SetTag("chargehand.action", executed is null ? null : Name(executed.Value));
@@ -220,7 +229,8 @@ public sealed class Orchestrator(
             TagChain(span, chain);
             span?.SetTag("chargehand.node", node.Id);
             progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.NodeStarted) with { NodeId = node.Id });
-            var nodeResult = await new WorkerNode(runtime, prices, new GitEvidenceResolver()).RunAsync(nodeRequest, token, primed);
+            var nodeResult = await new WorkerNode(runtime, prices, new GitEvidenceResolver(),
+                supportCheck: profile.SupportCheck ? (contract, scope, ct2) => SupportCheck.RunAsync(runtime, ParseModel(profile.IntakeModel), contract, scope, ct2) : null).RunAsync(nodeRequest, token, primed);
             if (workspace is not null && nodeResult.Contract.Status == ResultStatus.Completed)
             {
                 var branch = await workspace.CommitAsync(ChangeRun.CommitMessage(nodeResult.Contract.Summary), token);
