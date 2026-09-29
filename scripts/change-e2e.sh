@@ -4,7 +4,8 @@
 # The chargehand server is this checkout's build (scripts/change-e2e.mcp.json), not the published package.
 # env: CHARGEHAND_RUNTIME  worker runtime of that server (default claude_code: the signed-in claude, no profile needed)
 #      CHARGEHAND_PROFILE  profile for that server; unset, a throwaway one that only maps the presets' placeholder
-#                          models to Claude Code's sonnet and haiku (with no profile they reach the CLI unresolved)
+#                          models to Claude Code's sonnet and haiku (unmapped, a placeholder is unset and the CLI
+#                          runs its own default model)
 # Each case prints "ok   <case>" or "FAIL <case>  (log: <file>)"; exit 1 when any case fails.
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)

@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.egoushka/chargehand",
+  "name": "io.github.Egoushka/chargehand",
   "title": "chargehand",
   "description": "Runs coding-agent workers on a codebase question; every claim in the answer carries evidence.",
   "repository": {

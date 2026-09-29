@@ -29,7 +29,8 @@ on this repository (public, so hosted minutes are free), 2026-09-29:
 Option 3.
 
 - `ci.yml` ends in a `ci-gate` job that passes when every other job passed or was skipped (`prompt-ci.yml` already has a
-  job named `gate`, so the name is not reusable). `ci-gate` and `prompt-ci` are the required checks. A skipped job never blocks; a workflow skipped by a `paths` filter would, so the docs-only skip is
+  job named `gate`, so the name is not reusable). `ci-gate` and `prompt-ci` are the required checks.
+  A skipped job never blocks; a workflow skipped by a `paths` filter would, so the docs-only skip is
   inside the workflow (`changes`), not in its trigger.
 - Docs-only means every changed file is `README.md`, `ROADMAP.md`, `CONTRIBUTING.md` or `docs/**/*.md`. Anything else,
   including `CHANGELOG.md` (the build job checks the version's section), `prompts/`, `presets/` and `plugins/`, runs the

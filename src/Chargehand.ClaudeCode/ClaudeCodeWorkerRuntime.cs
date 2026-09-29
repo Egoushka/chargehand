@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
@@ -189,7 +190,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
                 "--system-prompt", "Follow the instructions in the user message exactly."], prompt, ct, env);
         var result = exit == 0 && stdout.Length > 0 ? JsonDocument.Parse(stdout).RootElement : default;
         if (result.ValueKind != JsonValueKind.Object || result.GetProperty("is_error").GetBoolean())
-            throw new InvalidOperationException($"claude -p exited {exit}: {(result.ValueKind == JsonValueKind.Object ? result.GetProperty("result").GetString() : stderr.Trim())}");
+            throw new InvalidOperationException($"claude -p exited {exit}: {(result.ValueKind == JsonValueKind.Object ? ErrorText(result) : stderr.Trim())}");
         return result.GetProperty("result").GetString() ?? "";
     }
 
@@ -317,12 +318,33 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
                     ReconcileOutput(s, e);
                     var isError = e.GetProperty("is_error").GetBoolean();
                     s.Messages.Add(Idle(s.Interrupted ? IdleOutcome.Interrupted : isError ? IdleOutcome.Failed : IdleOutcome.Succeeded,
-                        isError && e.TryGetProperty("result", out var r) ? r.GetString() : null));
+                        isError ? ErrorText(e) : null));
                 }
                 return true;
             default:
                 return false;
         }
+    }
+
+    /// <summary>
+    /// Why an error result failed: its <c>result</c> text, else what the event does carry. The <c>error_*</c> subtypes have no
+    /// <c>result</c> (the SDK reference lists <c>errors</c> for them; 2.1.283 emits it), and a <c>success</c> one flagged
+    /// <c>is_error</c> can carry it empty. Without this a failed turn with no assistant message reaches WorkerNode with no reason.
+    /// </summary>
+    internal static string ErrorText(JsonElement e)
+    {
+        if (e.TryGetProperty("result", out var result) && result.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(result.GetString()))
+            return result.GetString()!;
+        var subtype = e.TryGetProperty("subtype", out var st) && st.ValueKind == JsonValueKind.String ? st.GetString() : null;
+        var text = new StringBuilder("claude reported ").Append(subtype switch { null => "an error result", "success" => "success with is_error", _ => subtype });
+        if (e.TryGetProperty("num_turns", out var n) && n.ValueKind == JsonValueKind.Number && n.TryGetInt32(out var turns))
+            text.Append(CultureInfo.InvariantCulture, $" after {turns} turn{(turns == 1 ? "" : "s")}");
+        if (e.TryGetProperty("api_error_status", out var status) && status.ValueKind == JsonValueKind.Number)
+            text.Append(" (API status ").Append(status.GetRawText()).Append(')');
+        if (e.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Array
+            && errors.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(x.GetString())).Select(x => x.GetString()!).ToList() is { Count: > 0 } lines)
+            text.Append(": ").Append(string.Join("; ", lines));
+        return text.ToString();
     }
 
     /// <summary>

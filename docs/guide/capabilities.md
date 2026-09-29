@@ -5,7 +5,7 @@ order: 1
 section: "Project"
 ---
 
-Each row names the evidence for its status. `works` means a test in this repository or a recorded benchmark covers the capability. `partial` means part of it is missing, or nothing in the repository tests or measures it. `not yet` means it is planned and not built. Rows marked *on main, not yet released* are newer than v0.3.0.
+Each row names the evidence for its status. `works` means a test in this repository or a recorded benchmark covers the capability. `partial` means part of it is missing, or nothing in the repository tests or measures it. `not yet` means it is planned and not built.
 
 The tests call no model. They run the orchestrator on a scripted runtime ([ScriptedRuntime.cs](../../tests/Chargehand.Tests/ScriptedRuntime.cs)) or on stand-in `opencode` and `claude` binaries. The runs against real models are the ones in [docs/benchmarks.md](../benchmarks.md) and the live checks that ADRs record.
 
@@ -18,7 +18,7 @@ The tests call no model. They run the orchestrator on a scripted runtime ([Scrip
 | [Approval stops, and the stop actions `deny`, `improve` and `ask`](#approval-stops-and-the-stop-actions-deny-improve-and-ask) | works | [OrchestratorActionTests](../../tests/Chargehand.Tests/OrchestratorActionTests.cs) |
 | [OpenCode runtime, pinned to 2.0.18](#opencode-runtime-pinned-to-2018) | works | [OpenCodeClientTests](../../tests/Chargehand.Tests/OpenCodeClientTests.cs), [OpenCodeSpecContractTests](../../tests/Chargehand.Tests/OpenCodeSpecContractTests.cs) |
 | [Claude Code runtime, pinned to 2.1.283](#claude-code-runtime-pinned-to-21283) | works | [ClaudeCodeRuntimeTests](../../tests/Chargehand.Tests/ClaudeCodeRuntimeTests.cs), [ADR 0020](../adr/0020-claude-code-runtime-adapter.md) |
-| [Runtime selection (on main, not yet released)](#runtime-selection-on-main-not-yet-released) | works | [RuntimeSelectorTests](../../tests/Chargehand.Tests/RuntimeSelectorTests.cs), [ADR 0026](../adr/0026-extension-model.md) |
+| [Runtime selection](#runtime-selection) | works | [RuntimeSelectorTests](../../tests/Chargehand.Tests/RuntimeSelectorTests.cs), [ADR 0026](../adr/0026-extension-model.md) |
 | [Presets with per-node token and USD budgets](#presets-with-per-node-token-and-usd-budgets) | works | [ConfigFileTests](../../tests/Chargehand.Tests/ConfigFileTests.cs), [WorkerNodeTests](../../tests/Chargehand.Tests/WorkerNodeTests.cs) |
 | [Drafts for program callers (the `draft` preset)](#drafts-for-program-callers-the-draft-preset) | works | [DraftTests](../../tests/Chargehand.Tests/DraftTests.cs), [phase 5](../benchmarks.md#content-engines-call-through-the-interface-met) |
 | [Error codes on failed results](#error-codes-on-failed-results) | works | [ResultErrorTests](../../tests/Chargehand.Tests/ResultErrorTests.cs), [ADR 0022](../adr/0022-error-codes-in-result-v1.md) |
@@ -27,15 +27,15 @@ The tests call no model. They run the orchestrator on a scripted runtime ([Scrip
 | [Reports: `cache`, `reconcile`, `routes`](#reports-cache-reconcile-routes) | works | [CacheReportTests](../../tests/Chargehand.Tests/CacheReportTests.cs), [ReconcilerTests](../../tests/Chargehand.Tests/ReconcilerTests.cs), [RoutingReportTests](../../tests/Chargehand.Tests/RoutingReportTests.cs) |
 | [HTTP server with a bearer key](#http-server-with-a-bearer-key) | works | [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs), [phase 5](../benchmarks.md#content-engines-call-through-the-interface-met) |
 | [MCP over Streamable HTTP (`/v1/mcp`)](#mcp-over-streamable-http-v1mcp) | works | [McpTests](../../tests/Chargehand.Tests/McpTests.cs), [ADR 0018](../adr/0018-callable-interface-http-mcp-run-store.md) |
-| [MCP over stdio, `chargehand mcp` (on main, not yet released)](#mcp-over-stdio-chargehand-mcp-on-main-not-yet-released) | works | [StdioMcpTests](../../tests/Chargehand.Tests/StdioMcpTests.cs), [mcp-smoke.py](../../scripts/mcp-smoke.py) |
+| [MCP over stdio, `chargehand mcp`](#mcp-over-stdio-chargehand-mcp) | works | [StdioMcpTests](../../tests/Chargehand.Tests/StdioMcpTests.cs), [mcp-smoke.py](../../scripts/mcp-smoke.py) |
 | [MCP tasks, `input_required` questions, and the run id before a client timeout](#mcp-tasks-input_required-questions-and-the-run-id-before-a-client-timeout) | works | [McpTests](../../tests/Chargehand.Tests/McpTests.cs), [ADR 0029](../adr/0029-mcp-run-id-before-a-client-timeout.md) |
 | [Server container image](#server-container-image) | partial | [Dockerfile](../../Dockerfile), [release.yml](../../.github/workflows/release.yml) |
 | [Prompt CI on prompt and preset changes](#prompt-ci-on-prompt-and-preset-changes) | partial | [GateTests](../../tests/Chargehand.Tests/GateTests.cs), [PromptCiTests](../../tests/Chargehand.Tests/PromptCiTests.cs) |
 | [Optional long-term memory (Hindsight)](#optional-long-term-memory-hindsight) | partial | [HindsightMemoryTests](../../tests/Chargehand.Tests/HindsightMemoryTests.cs), [ADR 0008](../adr/0008-memory-provider-contract.md) |
-| [Running with no profile file (on main, not yet released)](#running-with-no-profile-file-on-main-not-yet-released) | partial | [ProfileTests](../../tests/Chargehand.Tests/ProfileTests.cs), [ROADMAP.md](../../ROADMAP.md) |
-| [Claude Code plugin, `/chargehand:change` (on main, not yet released)](#claude-code-plugin-chargehandchange-on-main-not-yet-released) | partial | [ChangeSkillTests](../../tests/Chargehand.Tests/ChangeSkillTests.cs), [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs) |
-| [`Chargehand` and `Chargehand.Contracts` on nuget.org](#chargehand-and-chargehandcontracts-on-nugetorg) | not yet | [README](../../README.md#from-the-package-once-published), [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) |
-| [Listing in the MCP Registry](#listing-in-the-mcp-registry) | not yet | [ROADMAP.md](../../ROADMAP.md), [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) |
+| [Running with no profile file](#running-with-no-profile-file) | partial | [ProfileTests](../../tests/Chargehand.Tests/ProfileTests.cs), [ROADMAP.md](../../ROADMAP.md) |
+| [Claude Code plugin, `/chargehand:change`](#claude-code-plugin-chargehandchange) | partial | [ChangeSkillTests](../../tests/Chargehand.Tests/ChangeSkillTests.cs), [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs) |
+| [`Chargehand` and `Chargehand.Contracts` on nuget.org](#chargehand-and-chargehandcontracts-on-nugetorg) | works | [mcp-smoke.py](../../scripts/mcp-smoke.py), [release.yml](../../.github/workflows/release.yml), [README](../../README.md#from-the-package) |
+| [Listing in the MCP Registry](#listing-in-the-mcp-registry) | partial | [McpServerJsonTests](../../tests/Chargehand.Tests/McpServerJsonTests.cs), [release.yml](../../.github/workflows/release.yml), [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) |
 | [Writing nodes in worktrees](#writing-nodes-in-worktrees) | not yet | [ROADMAP.md](../../ROADMAP.md), [ADR 0015](../adr/0015-merging-and-verification.md) |
 | [Checking that the cited text supports each claim](#checking-that-the-cited-text-supports-each-claim) | not yet | [ROADMAP.md](../../ROADMAP.md), [GitEvidenceResolver.cs](../../src/Chargehand/Verification/GitEvidenceResolver.cs) |
 
@@ -73,16 +73,15 @@ Limits: see [Limits of the rows that work](#limits-of-the-rows-that-work) (OpenC
 - [ClaudeCodeRuntimeTests](../../tests/Chargehand.Tests/ClaudeCodeRuntimeTests.cs) (stand-in CLI), [ClaudeCodeDefaultsTests](../../tests/Chargehand.Tests/ClaudeCodeDefaultsTests.cs).
 - [ADR 0020](../adr/0020-claude-code-runtime-adapter.md) records a live run on 2.1.195 whose 6 file references all resolved, and a live two-turn session on 2.1.283
 - the API-key mode never ran live.
-- Running on the CLI's own login is on main, not yet released.
 
 Limits: see [Limits of the rows that work](#limits-of-the-rows-that-work) (Claude Code API-key mode).
 
-### Runtime selection (on main, not yet released)
+### Runtime selection
 
 The profile's `runtime`, then `CHARGEHAND_RUNTIME`, then the one agent CLI on `PATH`.
 
 - [RuntimeSelectorTests](../../tests/Chargehand.Tests/RuntimeSelectorTests.cs)
-- [changelog, Unreleased](../../CHANGELOG.md#unreleased)
+- [changelog 0.4.0](../../CHANGELOG.md#040---2026-09-29)
 - [ADR 0026](../adr/0026-extension-model.md).
 
 ### Presets with per-node token and USD budgets
@@ -134,7 +133,7 @@ The `draft` preset takes no repository, and caller inputs are the evidence.
 - [McpTests](../../tests/Chargehand.Tests/McpTests.cs) (the SDK's own client lists `orchestrate` with both schemas and calls it)
 - [ADR 0018](../adr/0018-callable-interface-http-mcp-run-store.md) records a live check that ran a draft as a task.
 
-### MCP over stdio, chargehand mcp (on main, not yet released)
+### MCP over stdio, chargehand mcp
 
 - [StdioMcpTests](../../tests/Chargehand.Tests/StdioMcpTests.cs)
 - CI packs the tool and runs [mcp-smoke.py](../../scripts/mcp-smoke.py) against it with a stand-in `claude` ([ci.yml](../../.github/workflows/ci.yml)).
@@ -143,7 +142,6 @@ The `draft` preset takes no repository, and caller inputs are the evidence.
 
 - [McpTests](../../tests/Chargehand.Tests/McpTests.cs), [StdioMcpTests](../../tests/Chargehand.Tests/StdioMcpTests.cs)
 - [ADR 0018](../adr/0018-callable-interface-http-mcp-run-store.md), [ADR 0029](../adr/0029-mcp-run-id-before-a-client-timeout.md).
-- The run-id paths of ADR 0029 are on main, not yet released.
 
 ### Server container image
 
@@ -167,38 +165,36 @@ What is missing: [Prompt CI](#prompt-ci).
 
 What is missing: [Optional long-term memory](#optional-long-term-memory).
 
-### Running with no profile file (on main, not yet released)
+### Running with no profile file
 
-- [ProfileTests](../../tests/Chargehand.Tests/ProfileTests.cs) (defaults when the file is missing).
-- The presets still name placeholder models that need a profile's `models` map ([package README](../../src/Chargehand.Cli/README.package.md)).
-- Goal 0.4 in [ROADMAP.md](../../ROADMAP.md) is open.
+- [ProfileTests](../../tests/Chargehand.Tests/ProfileTests.cs) (defaults when the file is missing; a placeholder model that no `models` map names is unset, so the runtime uses its own default model).
+- [ROADMAP.md](../../ROADMAP.md) marks goal 0.4 done, and the [package README](../../src/Chargehand.Cli/README.package.md) says a profile is optional.
 
-What is missing: [Running with no profile file](#running-with-no-profile-file).
+What is missing: [Running with no profile file](#running-with-no-profile-file-1).
 
-### Claude Code plugin, /chargehand:change (on main, not yet released)
+### Claude Code plugin, /chargehand:change
 
 - [ChangeSkillTests](../../tests/Chargehand.Tests/ChangeSkillTests.cs), [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs), and `claude plugin validate --strict` in [ci.yml](../../.github/workflows/ci.yml).
 - [change-e2e.sh](../../scripts/change-e2e.sh) is an end-to-end check that [change-e2e.yml](../../.github/workflows/change-e2e.yml) runs on demand
 - the repository records no result of it.
-- The plugin's own server needs the unpublished package ([README](../../README.md#claude-code-plugin)).
+- The plugin's MCP entry runs the `Chargehand` package, which is now on nuget.org ([README](../../README.md#claude-code-plugin)).
 
 What is missing: [Claude Code plugin](#claude-code-plugin).
 
 ### Chargehand and Chargehand.Contracts on nuget.org
 
-- [README](../../README.md#from-the-package-once-published)
-- [changelog 0.3.0](../../CHANGELOG.md#030---2026-09-28) ("dormant nuget.org publishing")
-- [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) (no package on 2026-09-28)
-- [release.yml](../../.github/workflows/release.yml).
-
-What is missing: [Packages on nuget.org](#packages-on-nugetorg).
+- nuget.org's flat-container index lists `Chargehand` 0.4.0 and `Chargehand.Contracts` 1.2.0-alpha (checked on 2026-09-29); [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) found neither there on 2026-09-28.
+- [release.yml](../../.github/workflows/release.yml) packs and pushes each package whose version is new there, when the repository variable `NUGET_USER` is set.
+- [mcp-smoke.py](../../scripts/mcp-smoke.py) packs the tool and starts it from an empty directory in CI ([ci.yml](../../.github/workflows/ci.yml)).
+- [README](../../README.md#from-the-package) has the `dnx` lines.
 
 ### Listing in the MCP Registry
 
-- Goal 0.4 in [ROADMAP.md](../../ROADMAP.md)
-- [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md).
-- [McpServerJsonTests](../../tests/Chargehand.Tests/McpServerJsonTests.cs) validates `.mcp/server.json`
-- no workflow publishes it.
+- Goal 0.4 in [ROADMAP.md](../../ROADMAP.md) and [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md).
+- [McpServerJsonTests](../../tests/Chargehand.Tests/McpServerJsonTests.cs) validates `.mcp/server.json` against the pinned schema, and pins its name to the repository owner's spelling and to the package README's ownership line.
+- The `mcp-registry` job in [release.yml](../../.github/workflows/release.yml) publishes the entry after a release, when `NUGET_USER` is set. It has not run yet, and no test covers it.
+- The registry's server list has no entry named `io.github.Egoushka/chargehand` (checked on 2026-09-29).
+- The `Chargehand` 0.4.0 README has the ownership line in lower case, which the registry does not match to that name, so 0.4.0 cannot be listed.
 
 What is missing: [MCP Registry listing](#mcp-registry-listing).
 
@@ -222,7 +218,7 @@ What is missing: [Support checking](#support-checking).
 - **Split.** On the phase 4 questions a split scored 128 per dollar against 193 for a plain session. On cost alone it needs about 1.5× the plain answer's quality to win on quality per dollar, and it reached 1.02×. [ADR 0017](../adr/0017-split-runs-forked-siblings-and-merge.md) concludes that intake should choose `split` only when one session cannot cover the parts.
 - **OpenCode 2.0.18.** The contract test passes against the 2.0.18 spec, and [ADR 0030](../adr/0030-default-opencode-server.md) records a hand check that a 2.0.18 server starts and answers `/api/info`. No recorded worker session ran on 2.0.18.
 - **Claude Code API-key mode.** The tests cover it with a stand-in CLI; no live run is recorded ([ADR 0020](../adr/0020-claude-code-runtime-adapter.md)).
-- **USD caps need prices.** A model with no entry in the profile's `prices` has an unknown cost: `usage.usd` may be `null`, and its USD cap cannot fire. The per-node token budgets still apply. This change is on main, not yet released ([changelog, Unreleased](../../CHANGELOG.md#unreleased)).
+- **USD caps need prices.** A model with no entry in the profile's `prices` has an unknown cost: `usage.usd` may be `null`, and its USD cap cannot fire. The per-node token budgets still apply.
 
 ## What is missing
 
@@ -247,19 +243,15 @@ With the profile's `memory` block set, a run recalls facts once and adds them to
 
 ### Running with no profile file
 
-On main, `Profile.Load` returns defaults when the file is missing. The shipped presets still name placeholder models (`provider/worker-model`, `provider/small-model`, `provider/critic-model`), and with no `models` map those ids reach the runtime unresolved ([change-e2e.sh](../../scripts/change-e2e.sh)). The [README](../../README.md#quick-start) says a profile with a `models` map stays required for Claude Code until 0.4 lands the fix. Goal 0.4 ends when a clean machine with one signed-in agent CLI gets an answer with resolved evidence and no profile file ([ADR 0026](../adr/0026-extension-model.md)).
+`Profile.Load` returns defaults when the file is missing, and a placeholder model that the shipped presets name (`provider/worker-model`, `provider/small-model`, `provider/critic-model`) and no `models` map names is unset, so the runtime uses its own default model. Goal 0.4 ends when a clean machine with one signed-in agent CLI gets an answer with resolved evidence and no profile file ([ADR 0026](../adr/0026-extension-model.md)), and [ROADMAP.md](../../ROADMAP.md) marks it done. The tests call no model, so that end-to-end case has no test of its own.
 
 ### Claude Code plugin
 
-`/plugin install` works through the marketplace entry, but the plugin's MCP entry runs `dotnet dnx Chargehand@0.3.0 --yes -- mcp` ([.mcp.json](../../plugins/chargehand/.mcp.json)), which needs the package on nuget.org. Until then you point a `chargehand` MCP server at a checkout ([The change command](change.md)). The command is goal 0.5 in [ROADMAP.md](../../ROADMAP.md).
-
-### Packages on nuget.org
-
-[release.yml](../../.github/workflows/release.yml) publishes `Chargehand.Contracts` only, and only when the repository variable `NUGET_USER` is set; the 0.3.0 changelog calls that publishing dormant. No workflow step packs or pushes the `Chargehand` tool. [ROADMAP.md](../../ROADMAP.md) marks goal 0.3 done and lists `Chargehand.Contracts` on nuget.org under it, while [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) found neither package there on 2026-09-28 and the README says the `Chargehand` package is not there yet.
+`/plugin install` works through the marketplace entry, and the plugin's MCP entry runs `dotnet dnx Chargehand@<version> --yes -- mcp` ([.mcp.json](../../plugins/chargehand/.mcp.json)), where [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs) pins `<version>` to `Directory.Build.props`. That package is now on nuget.org ([The change command](change.md)). What remains is goal 0.5 in [ROADMAP.md](../../ROADMAP.md): the command is its first piece.
 
 ### MCP Registry listing
 
-`.mcp/server.json` describes the entry `io.github.egoushka/chargehand` for the `Chargehand` package. The registry needs the package on nuget.org before the entry ([ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md)), and no workflow publishes either.
+`.mcp/server.json` describes the entry `io.github.Egoushka/chargehand` for the `Chargehand` package. The registry needs the package on nuget.org before the entry ([ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md)); the package is there now. On main, not yet released: the `mcp-registry` job in the release workflow publishes the entry after each release. The registry matches the name and the README's ownership line case-sensitively and 0.4.0's line is in lower case, so the first entry comes with the next release.
 
 ### Writing nodes
 

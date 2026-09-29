@@ -31,7 +31,7 @@ The server prints its address on stderr. It connects to the worker runtime once 
 
 Every route, `/v1/mcp` included, requires `Authorization: Bearer <key>`. That holds on loopback too, because any local process can reach the port. A missing or wrong key gets `401`.
 
-The key is the secret item that `http.api_key_secret` names, resolved through the profile's `secrets` sources in order. With no `secrets` list, chargehand reads the item from the environment, upper-cased with `-` turned into `_`: `chargehand-api-key` reads `CHARGEHAND_API_KEY`. A `command` source runs an argv template instead, such as the macOS Keychain lookup in `profiles/example.json`. The `secrets` list is on main, not yet released; it replaces `secret_store` ([changelog, Unreleased](../../CHANGELOG.md#unreleased)).
+The key is the secret item that `http.api_key_secret` names, resolved through the profile's `secrets` sources in order. With no `secrets` list, chargehand reads the item from the environment, upper-cased with `-` turned into `_`: `chargehand-api-key` reads `CHARGEHAND_API_KEY`. A `command` source runs an argv template instead, such as the macOS Keychain lookup in `profiles/example.json`. The `secrets` list replaces `secret_store` ([changelog 0.4.0](../../CHANGELOG.md#040---2026-09-29)).
 
 ## Binding and allowed hosts
 

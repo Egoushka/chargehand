@@ -242,14 +242,12 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
     private static List<WorkerMessage> Calls(IReadOnlyList<WorkerMessage> messages) =>
         messages.Where(m => m.Kind == WorkerMessageKind.Assistant && m.Tokens is not null).OrderBy(m => m.Created).ToList();
 
-    /// <summary>
-    /// Why a node failed, from what the watcher and the deadline leave behind: an interrupt over the USD cap or the token
-    /// budget is the cap, any other interrupt the deadline; a turn that ended without a valid contract is invalid_result.
-    /// </summary>
     /// <summary>What the caller can branch on: the code, the provider's reason when a message carries one, and what to do.</summary>
     private ResultError Failure(IdleOutcome outcome, IReadOnlyList<WorkerMessage> messages, NodeRequest r, IReadOnlyList<string> errors)
     {
         var code = ErrorOf(outcome, messages, r);
+        if (outcome == IdleOutcome.Failed && Cause(messages).Length == 0 && !messages.Any(m => m.Kind == WorkerMessageKind.Assistant))
+            return new ChargehandException(code, $"worker ended failed: {NoModelCall}", NoModelCallAction(r)).Error;
         var message = outcome == IdleOutcome.Succeeded
             ? $"no valid result contract: {string.Join("; ", errors.Take(3))}"
             : $"worker ended {outcome.ToString().ToLowerInvariant()}{Cause(messages)}";
@@ -259,7 +257,8 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
     private const int MaxCause = 300;
 
     /// <summary>": " and the reason from the newest message that carries a provider error, else empty. OpenCode relays the error
-    /// object as JSON, Claude Code its result text or exit status. Scrubbed before it is cut, so a cut cannot leave half a key.</summary>
+    /// object as JSON, Claude Code its result text (else the result event's subtype and errors) or exit status. Scrubbed before
+    /// it is cut, so a cut cannot leave half a key.</summary>
     private static string Cause(IReadOnlyList<WorkerMessage> messages)
     {
         if (messages.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m.Error))?.Error is not { } raw)
@@ -296,6 +295,18 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
     private static string WorkerFailedAction(NodeRequest r) =>
         $"Read the summary: the worker could not do the task as asked. Ask for a change as a read-only question, or use a preset that allows it. `chargehand show {r.RunId}` prints the session.";
 
+    private const string NoModelCall = "the worker runtime ended the session before any model call and gave no reason";
+
+    /// <summary>A failed session with no assistant message and no error text: OpenCode ends it before it calls a model (a model
+    /// the server does not declare does this) and only the server's own log names the reason. The Claude Code adapter always
+    /// gives a failed turn a reason, so it does not reach this. The model is config, not a secret.</summary>
+    private static string NoModelCallAction(NodeRequest r) =>
+        "Read the worker runtime's log for the cause: for OpenCode, the server's log (a model the server does not declare ends a session this way). "
+        + (r.Spec.Model is { } model
+            ? $"This run asked for `{model.ProviderId}/{model.ModelId}`: check it against the runtime's declared models and the profile's `models` map. "
+            : "No model was mapped for this run, so the runtime used its own default: map the preset's model in the profile's `models`, or give the runtime a default. ")
+        + $"`chargehand show {r.RunId}` prints the session.";
+
     private static string ActionOf(ErrorCode code, NodeRequest r) => code switch
     {
         ErrorCode.RateLimited => "Retry once the provider's rate limit clears, or map the preset's model to one with a higher limit.",
@@ -305,6 +316,10 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         _ => $"Fix the cause named in the message (a model, credential or provider setting), then retry. `chargehand show {r.RunId}` prints the session.",
     };
 
+    /// <summary>
+    /// Why a node failed, from what the watcher and the deadline leave behind: an interrupt over the USD cap or the token
+    /// budget is the cap, any other interrupt the deadline; a turn that ended without a valid contract is invalid_result.
+    /// </summary>
     private ErrorCode ErrorOf(IdleOutcome outcome, IReadOnlyList<WorkerMessage> messages, NodeRequest r) => outcome switch
     {
         IdleOutcome.Succeeded => ErrorCode.InvalidResult,

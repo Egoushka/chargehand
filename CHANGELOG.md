@@ -7,6 +7,39 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The release workflow lists each new version in the MCP Registry (ADR 0027). A `mcp-registry` job runs after `release`
+  when `NUGET_USER` is set: it stamps a copy of `.mcp/server.json`, waits until nuget.org serves the package README with
+  the ownership line, and publishes with the registry's GitHub OIDC login. It holds no write token and needs no new secret.
+
+### Changed
+
+- The MCP Registry name is `io.github.Egoushka/chargehand`, with the owner spelled as GitHub spells it: the registry
+  matches the namespace and the README's `mcp-name` line case-sensitively. The `Chargehand` 0.4.0 package still has the
+  lower-case line, so the first listing comes with the next release.
+
+### Fixed
+
+- Intake saw a caller input's id and kind but not its text, so a run whose request carried its goal, diff and test
+  output as `inputs` could stop with `ask`, asking for the inputs it had been sent. Intake now reads each
+  input's id, kind, size and the first 2000 characters of its text, and the prompt says when an input was cut; the
+  worker still gets every input whole.
+- A worker session that ended `failed` with no assistant message and no error text (OpenCode drops the session before
+  any model call when the model is one its server does not declare) returned a bare "worker ended failed" with a
+  generic action, and the reason was only in the server's log. The error now says the worker runtime ended the session
+  before any model call, and its `action` points at the runtime's log (for OpenCode, the server's) and names the model
+  the run asked for, to check against the runtime's models and the profile's `models` map (or says no model was mapped).
+- A Claude Code turn that ended in an error result with no `result` text (`error_max_turns`, `error_during_execution` and
+  `error_max_budget_usd` carry `errors` instead) failed with no reason and was reported in OpenCode's terms, as a session
+  ended before any model call. The error now names the result's subtype, turn count and `errors`.
+- A request with many `inputs` still grew intake's prompt without bound, up to the request size limit. Intake now reads
+  at most 8000 characters of input text in all, in request order; an input after that is listed with its id, kind and
+  size and a note that its text is left out here, and the worker still gets every input whole.
+- The `.private-terms` hooks work in a linked worktree. The list is gitignored, so a worktree never had a copy and every
+  commit there aborted with "`.private-terms` is missing"; the check now falls back to the main worktree's list. A
+  worktree's own file still wins, and with no list in either place the commit is still blocked.
+
 ## [0.4.0] - 2026-09-29
 
 Goal 0.4 ([roadmap](ROADMAP.md)): chargehand runs with nothing configured. No profile file is needed, the worker

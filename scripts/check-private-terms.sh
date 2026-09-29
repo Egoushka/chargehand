@@ -1,12 +1,20 @@
 #!/bin/sh
 # Usage: check-private-terms.sh --cached | <file-with-message>. The .private-terms denylist over the whole index (the
 # pre-commit hook) or over a commit message (the commit-msg hook). .private-terms is gitignored: one extended regex per
-# line, case-insensitive, # for comments.
+# line, case-insensitive, # for comments. A linked worktree has no copy of it, so it uses the main worktree's.
 # git grep and grep exit 1 for no match and above 1 when they cannot search (a malformed pattern). That is not a pass:
 # it blocks the commit too.
 set -eu
 
 terms="$(git rev-parse --show-toplevel)/.private-terms"
+if [ ! -f "$terms" ]; then
+  # Gitignored, so a linked worktree never has its own: fall back to the main worktree, the parent of the common .git.
+  # Without the file in either place the check still fails closed.
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=
+  case $common in
+    */.git) terms="${common%/.git}/.private-terms" ;;
+  esac
+fi
 if [ ! -f "$terms" ]; then
   echo "private-terms: .private-terms is missing. Copy .private-terms.example and fill it in." >&2
   exit 1

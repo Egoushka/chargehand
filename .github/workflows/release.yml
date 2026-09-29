@@ -4,6 +4,7 @@ name: release
 # section, the server image ghcr.io/<owner>/chargehand:<Version>, and on nuget.org the dnx tool Chargehand (ADR 0027) and
 # Chargehand.Contracts, each when its version is new there, when the repository variable NUGET_USER names the nuget.org
 # account whose trusted-publishing policy trusts this workflow. The release environment waits for the owner's approval. A tag without a changelog section fails first.
+# When NUGET_USER is set, the mcp-registry job then lists the version in the MCP Registry (ADR 0027).
 on:
   push:
     tags: ['v*']
@@ -70,3 +71,84 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" --title "$VERSION" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
+
+  # ADR 0027: list the version in the MCP Registry once nuget.org serves its package. A job of its own, so that it holds
+  # no write token, a registry outage (the registry is in preview) leaves the image, the packages and the GitHub Release
+  # as they are, and "Re-run failed jobs" repeats this job alone. The registry's OIDC login covers every server under
+  # io.github.<owner>/*; needs keeps that behind the release job and so behind its environment's approval.
+  mcp-registry:
+    needs: release
+    if: vars.NUGET_USER != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Stamp .mcp/server.json with the version
+        run: |
+          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match Version $version" >&2
+            exit 1
+          fi
+          jq --arg v "$version" '.version = $v | .packages[].version = $v' .mcp/server.json > "$RUNNER_TEMP/server.json"
+          jq -e --arg v "$version" '.version == $v and all(.packages[]; .version == $v)' "$RUNNER_TEMP/server.json" > /dev/null
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Install mcp-publisher
+        env:
+          # The registry answers "invalid audience" to a publisher older than v1.7.6. To bump: the version from the
+          # registry's release page, and the digest of mcp-publisher_linux_amd64.tar.gz from that release's checksums file.
+          MCP_PUBLISHER_VERSION: 1.8.1
+          MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/mcp-publisher.tar.gz" "https://github.com/modelcontextprotocol/registry/releases/download/v$MCP_PUBLISHER_VERSION/mcp-publisher_linux_amd64.tar.gz"
+          echo "$MCP_PUBLISHER_SHA256  $RUNNER_TEMP/mcp-publisher.tar.gz" | sha256sum --check --strict -
+          mkdir "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/mcp-publisher.tar.gz" -C "$RUNNER_TEMP/bin" mcp-publisher
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # The registry reads the package README from nuget.org's flat container and looks for the ownership line; the
+      # push above can precede that by minutes. Wait for the same URL, for at most 20 minutes.
+      - name: Wait for the package README on nuget.org
+        run: |
+          name=$(jq -r .name "$RUNNER_TEMP/server.json")
+          id=$(jq -r '.packages[] | select(.registryType == "nuget") | .identifier | ascii_downcase' "$RUNNER_TEMP/server.json")
+          lower=$(printf '%s' "${VERSION%%+*}" | tr 'A-Z' 'a-z')
+          url="https://api.nuget.org/v3-flatcontainer/$id/$lower/readme"
+          for attempt in $(seq 1 40); do
+            readme=$(curl -fsS "$url" 2>/dev/null || true)
+            case "$readme" in
+              *"mcp-name: $name"*) echo "$id $VERSION serves a README with the ownership line for $name"; exit 0 ;;
+            esac
+            echo "attempt $attempt: $url does not serve the ownership line yet"
+            sleep 30
+          done
+          echo "nuget.org did not serve the ownership line for $name within 20 minutes; re-run this job once it does" >&2
+          exit 1
+      # A version is published once: the registry refuses a second publish of it, so a re-run first asks whether it is listed.
+      - name: Publish to the MCP Registry
+        run: |
+          name=$(jq -r .name "$RUNNER_TEMP/server.json")
+          encoded=$(jq -rn --arg n "$name" '$n | @uri')
+          listed() {
+            [ "$(curl -s -o /dev/null -w '%{http_code}' "https://registry.modelcontextprotocol.io/v0/servers/$encoded/versions/$VERSION")" = 200 ]
+          }
+          if listed; then
+            echo "$name $VERSION is already in the MCP Registry"
+            exit 0
+          fi
+          mcp-publisher login github-oidc
+          for attempt in 1 2 3; do
+            if mcp-publisher publish "$RUNNER_TEMP/server.json"; then
+              exit 0
+            fi
+            if listed; then
+              exit 0
+            fi
+            echo "attempt $attempt failed" >&2
+            sleep 30
+          done
+          exit 1
