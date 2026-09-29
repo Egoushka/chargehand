@@ -12,6 +12,7 @@ All notable changes to this project are documented here. The format follows
 - Groundwork for writing workers (goal 0.7, ADR 0035), all additive: a preset node kind may set `writes` and `verify` (`timeout_seconds`, `max_fix_rounds`), a request's `context` may carry `verify` (the test command as an argument vector), and `result/v1` error codes gain `sandbox_unavailable` and `verification_failed`. Nothing uses them yet.
 - A writing node's workspace (ADR 0035): a per-run clone under `<worker_root>/.runs/<run>/<node>` of the cached checkout, on branch `chargehand/<run>/<node>`. Chargehand commits for the worker with the repository's hooks off and signing off; the source repository and the shared checkout are never written. Nothing creates one yet.
 - The sandbox a writing run's tests will execute in (ADR 0035): `sandbox-exec` on macOS, `bwrap` on Linux, behind one interface; profile field `sandbox` (`kind`, `network`, `env`). A command may write only in its workspace and a private temp directory, may not read credential locations, has no network unless allowed and gets a cut environment. Nothing runs in it yet.
+- The verifier for a writing node (ADR 0035): the request's `context.verify` command, else the repository's own (`dotnet test`, `npm test` with a test script, `pytest` or `unittest`, `cargo test`, `go test ./...`), run in the sandbox with a timeout and an 8 KiB output tail. Nothing calls it yet.
 
 ## [0.6.1] - 2026-09-29
 
