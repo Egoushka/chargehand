@@ -13,6 +13,9 @@ All notable changes to this project are documented here. The format follows
   output as `inputs` could stop with `ask`, asking for the inputs it had been sent. Intake now reads each
   input's id, kind, size and the first 2000 characters of its text, and the prompt says when an input was cut; the
   worker still gets every input whole.
+- A request with many `inputs` still grew intake's prompt without bound, up to the request size limit. Intake now reads
+  at most 8000 characters of input text in all, in request order; an input after that is listed with its id, kind and
+  size and a note that its text is left out here, and the worker still gets every input whole.
 
 ## [0.4.0] - 2026-09-29
 

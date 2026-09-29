@@ -23,6 +23,10 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, Prom
     /// stands in for all of it; the worker gets the input whole (Orchestrator.Execute).</summary>
     public const int MaxInputChars = 2000;
 
+    /// <summary>Characters of all caller inputs together that intake reads, in request order. Without it a request with many inputs grows
+    /// the small model's prompt up to the server's request limit; once it is spent, later inputs are listed by id, kind and size only.</summary>
+    public const int MaxTotalInputChars = 8000;
+
     public PromptBlock Block => block;
 
     public async Task<TaskSpec> CreateSpecAsync(RunRequest request, CancellationToken ct) =>
@@ -53,19 +57,34 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, Prom
             "Retry, or set the profile's intake_model to a stronger model.");
     }
 
-    /// <summary>Each input's id, kind, size and text, so intake does not ask for facts the caller sent; the head only, and it says when it cut.</summary>
+    /// <summary>Each input's id, kind, size and text, so intake does not ask for facts the caller sent. The text is cut per input
+    /// (<see cref="MaxInputChars"/>) and across inputs in request order (<see cref="MaxTotalInputChars"/>); a cut or omitted text is
+    /// announced, never left to read as an empty input.</summary>
     private static string InputsText(IReadOnlyList<CallerInput>? inputs)
     {
         if (inputs is not { Count: > 0 })
             return "";
-        var lines = inputs.Select(i =>
+        var budget = MaxTotalInputChars;
+        var lines = new List<string>(inputs.Count);
+        foreach (var i in inputs)
         {
-            if (i.Text.Length <= MaxInputChars)
-                return $"- id \"{i.Id}\" ({i.Kind}, {i.Text.Length} characters): {i.Text}";
+            var room = Math.Min(MaxInputChars, budget);
+            if (i.Text.Length <= room)
+            {
+                lines.Add($"- id \"{i.Id}\" ({i.Kind}, {i.Text.Length} characters): {i.Text}");
+                budget -= i.Text.Length;
+                continue;
+            }
             // A cut inside a surrogate pair would leave half of it, which the request body cannot encode.
-            var head = i.Text[..(char.IsHighSurrogate(i.Text[MaxInputChars - 1]) ? MaxInputChars - 1 : MaxInputChars)];
-            return $"- id \"{i.Id}\" ({i.Kind}, {i.Text.Length} characters, cut to the first {head.Length} here; the worker gets all of it): {head}";
-        });
+            var shown = room > 0 && char.IsHighSurrogate(i.Text[room - 1]) ? room - 1 : room;
+            if (shown == 0)
+            {
+                lines.Add($"- id \"{i.Id}\" ({i.Kind}, {i.Text.Length} characters, text left out here; the worker gets all of it)");
+                continue;
+            }
+            lines.Add($"- id \"{i.Id}\" ({i.Kind}, {i.Text.Length} characters, cut to the first {shown} here; the worker gets all of it): {i.Text[..shown]}");
+            budget -= shown;
+        }
         return $"\nThe caller supplies these inputs to use:\n{string.Join("\n", lines)}\n";
     }
 
