@@ -24,6 +24,15 @@ All notable changes to this project are documented here. The format follows
 - `ClaudeCodeWorkerRuntime` and `OpenCodeWorkerRuntime` accept an unset model (`NodeSpec.Model`, `GenerateAsync`) and
   fall back to the runtime's own default instead of requiring one.
 
+### Fixed
+
+- With no profile, or a `models` map that does not name a preset's placeholder model (`provider/worker-model`,
+  `provider/small-model`), the placeholder reached the agent CLI and every run failed. An unmapped placeholder is now
+  unset, so the runtime uses its own default model, labelled `auto` in the prompt chain as for intake.
+  Real `provider/model` ids in a preset still pass through.
+- A call the runtime reports no model for (Claude Code's compactions; every call on the runtime's default model) cost
+  a silent `$0`. It is now priced at the node's model, and with no model on either its `usage.usd` is `null`.
+
 ### Security
 
 - The `.private-terms` denylist fails closed. A malformed pattern made `git grep` exit 128, which the `pre-commit`

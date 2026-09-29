@@ -196,7 +196,7 @@
     },
     "models": {
       "type": "object",
-      "description": "Maps the placeholder models presets name (e.g. provider/worker-model) to your OpenCode provider/model ids.",
+      "description": "Maps the placeholder models presets name (e.g. provider/worker-model) to your provider/model ids. An unmapped placeholder uses the runtime's default model.",
       "additionalProperties": {
         "type": "string",
         "pattern": "^[^/\\s]+/[^\\s#]+(#[a-z]+)?$"

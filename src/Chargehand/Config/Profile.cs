@@ -52,8 +52,13 @@ public sealed record Profile(
             ? JsonSerializer.Deserialize<Profile>(File.ReadAllText(path), Json) ?? throw new InvalidDataException($"{path}: empty profile")
             : new Profile("profile/v1");
 
-    /// <summary>Presets name placeholder models (e.g. provider/worker-model); the profile maps them to real ids.</summary>
-    public string ResolveModel(string model) => Models?.GetValueOrDefault(model) ?? model;
+    /// <summary>The provider segment of the placeholder models presets name (e.g. provider/worker-model).</summary>
+    public const string PlaceholderProvider = "provider/";
+
+    /// <summary>The profile maps placeholder models to real ids. An unmapped placeholder is unset, so the runtime uses
+    /// its own default model (ADR 0026); any other id passes through.</summary>
+    public string? ResolveModel(string model) =>
+        Models?.GetValueOrDefault(model) ?? (model.StartsWith(PlaceholderProvider, StringComparison.Ordinal) ? null : model);
 
     /// <summary>Tries each source in order; the first that resolves the item wins (ADR 0026). Default with no profile: env only.</summary>
     public string Secret(string item)

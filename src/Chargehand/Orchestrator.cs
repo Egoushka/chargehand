@@ -69,6 +69,7 @@ public sealed class Orchestrator(
         {
             var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
             var (kindName, kind) = AnswerKind(preset);
+            // Unset when the profile maps no real model to the preset's placeholder: the runtime uses its own default.
             var workerModel = profile.ResolveModel(kind.Model);
             var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
 
@@ -86,7 +87,7 @@ public sealed class Orchestrator(
             var blocks = new List<(PromptBlock, BlockSource)> { (registry.Get($"core/{kindName}"), BlockSource.Registry), (registry.Get($"preset/{presetName}"), BlockSource.Registry) };
             blocks.AddRange(callerBlocks.Select(b => (b, BlockSource.Caller)));
             var instructions = new List<(string Key, string Value)> { ("chargehand-core", blocks[0].Item1.Text), ("chargehand-preset", blocks[1].Item1.Text) };
-            var chain = PromptChains.Build(blocks, new AsSent(opencodeVersion, kind.OpencodeAgent, workerModel, date,
+            var chain = PromptChains.Build(blocks, new AsSent(opencodeVersion, kind.OpencodeAgent, workerModel ?? "auto", date,
                 BasePromptVariant: kind.OpencodeAgent,
                 InstructionFilesSha256: PromptChains.InstructionsSha256(instructions),
                 ToolsSha256: PromptChains.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules)));
@@ -151,7 +152,7 @@ public sealed class Orchestrator(
         preset.NodeKinds.TryGetValue(NodeKindName, out var worker) ? (NodeKindName, worker) : (preset.NodeKinds.Keys.Single(), preset.NodeKinds.Values.Single());
 
     /// <summary>Runs the plan's nodes (one for answer) and returns the node's contract, or the merged one for a split.</summary>
-    private async Task<ResultContract> Execute(RunRequest request, TaskSpec spec, IReadOnlyList<PlanNode> plan, string kindName, NodeKind kind, string workerModel,
+    private async Task<ResultContract> Execute(RunRequest request, TaskSpec spec, IReadOnlyList<PlanNode> plan, string kindName, NodeKind kind, string? workerModel,
         IReadOnlyList<(string Key, string Value)> instructions, PromptChain chain, IReadOnlyList<PromptBlock> callerBlocks, string runId, string traceId,
         Activity? run, Action<RunStatus>? progress, CancellationToken ct)
     {
@@ -163,6 +164,8 @@ public sealed class Orchestrator(
         // The id is quoted: rendered as "[id]", a model cited "[id]" as the locator, which no input id matches.
         var inputText = string.Join("\n", (request.Inputs ?? []).Select(i => $"- id \"{i.Id}\" ({i.Kind}): {i.Text}{(i.SourceUrl is null ? "" : $" <{i.SourceUrl}>")}"));
         var prices = new PriceTable(profile.Prices ?? new Dictionary<string, ModelPrice>());
+        // Unset (ADR 0026): labelled "auto" in the run log, as for intake, when the runtime reports no model for a call.
+        var modelLabel = workerModel ?? "auto";
         // Recalled facts go in the prompt text, after the task (ADR 0007 order; ADR 0010 keeps instructions fixed, so
         // siblings still fork). The chain records them as a runtime block.
         var facts = await Recall(request.Text, run, ct);
@@ -190,15 +193,15 @@ public sealed class Orchestrator(
 
             foreach (var m in nodeResult.Calls)
             {
-                var usd = prices.PriceUsd(m.Model ?? workerModel, m.Tokens!);
+                var usd = prices.PriceUsd(m.Model ?? modelLabel, m.Tokens!);
                 var latency = ((m.Completed ?? m.Created) - m.Created).TotalMilliseconds;
-                await runLog.AppendAsync(new CallRecord(runId, node.Id, kindName, nodeResult.SessionId, m.Id, m.Model ?? workerModel, m.Created, latency, m.Tokens, usd, chain,
+                await runLog.AppendAsync(new CallRecord(runId, node.Id, kindName, nodeResult.SessionId, m.Id, m.Model ?? modelLabel, m.Created, latency, m.Tokens, usd, chain,
                     nodeResult.ForkedFrom, instructionRefs), token);
                 using var call = Telemetry.Source.StartActivity("chargehand.call", ActivityKind.Client, span?.Context ?? default, startTime: m.Created);
                 TagChain(call, chain);
                 call?.SetTag("langfuse.session.id", nodeResult.SessionId);
                 call?.SetTag("chargehand.message_id", m.Id);
-                call?.SetTag("gen_ai.request.model", m.Model ?? workerModel);
+                call?.SetTag("gen_ai.request.model", m.Model ?? modelLabel);
                 if (profile.Telemetry?.UsageOnSpans == true)
                 {
                     // ADR 0021: no gateway records these calls, so the span is the generation's only usage and cost.

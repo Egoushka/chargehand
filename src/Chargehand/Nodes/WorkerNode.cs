@@ -105,7 +105,7 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         if (overBudget && contract is not null)
             contract = contract with { OpenQuestions = [.. contract.OpenQuestions, BudgetNote] };
         var messages = await runtime.ReadMessagesAsync(session.Id, ct);
-        var usage = Usage(messages);
+        var usage = Usage(messages, r.Spec.Model);
         var error = contract is null || outcome != IdleOutcome.Succeeded
             ? new ChargehandException(ErrorOf(outcome, messages, r), outcome == IdleOutcome.Succeeded ? $"no valid result contract: {string.Join("; ", errors.Take(3))}" : $"worker ended {outcome.ToString().ToLowerInvariant()}").Error
             : null;
@@ -166,7 +166,7 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
                 var calls = messages.Where(m => m.Kind == WorkerMessageKind.Assistant && m.Tokens is not null).ToList();
                 if (primed is not null && ForkPointOf(sessionId, messages, primed.Value.InstructionsSha256) is { } point)
                     primed.Value.Source.TrySetResult(point);
-                var overUsd = Usage(messages).Usd > r.CapUsd;
+                var overUsd = Usage(messages, r.Spec.Model).Usd > r.CapUsd;
                 if (overUsd || calls.Sum(m => Context(m.Tokens!)) > r.MaxInputTokens)
                 {
                     overBudget = !overUsd;
@@ -204,12 +204,14 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         return new EvidenceScope(r.RepositoryPath, r.Commit, messages.Select(m => m.Id).ToHashSet(), r.InputIds, seen, await runtime.DiffAsync(sessionId, ct));
     }
 
-    /// <summary>Usd is null (unknown, not $0) once any priced call's model had no price entry (ADR 0026).</summary>
-    private Usage Usage(IReadOnlyList<WorkerMessage> messages)
+    /// <summary>Usd is null (unknown, not $0) once any call's model had no price entry (ADR 0026). A call that names no
+    /// model ran on the node's; with no model on either (the runtime's default), its cost is unknown too.</summary>
+    private Usage Usage(IReadOnlyList<WorkerMessage> messages, ModelRef? nodeModel)
     {
         long input = 0, output = 0, read = 0, write = 0;
         decimal usd = 0;
         var unknown = false;
+        var fallback = nodeModel is null ? null : $"{nodeModel.ProviderId}/{nodeModel.ModelId}";
         foreach (var m in messages.Where(m => m.Tokens is not null && m.Kind is WorkerMessageKind.Assistant or WorkerMessageKind.Compaction))
         {
             var t = m.Tokens!;
@@ -217,9 +219,7 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
             output += t.Output + t.Reasoning;
             read += t.CacheRead;
             write += t.CacheWrite;
-            if (m.Model is null)
-                continue;
-            if (prices.PriceUsd(m.Model, t) is { } price)
+            if ((m.Model ?? fallback) is { } model && prices.PriceUsd(model, t) is { } price)
                 usd += price;
             else
                 unknown = true;
@@ -248,7 +248,7 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         IdleOutcome.Succeeded => ErrorCode.InvalidResult,
         // A deadline reached while the provider kept rate limiting the node is the rate limit's doing.
         _ when ChargehandException.RateLimited(messages.FirstOrDefault(m => m.Error is not null)?.Error) => ErrorCode.RateLimited,
-        IdleOutcome.Interrupted when Usage(messages).Usd > r.CapUsd || Calls(messages).Sum(m => Context(m.Tokens!)) > r.MaxInputTokens => ErrorCode.CostCapReached,
+        IdleOutcome.Interrupted when Usage(messages, r.Spec.Model).Usd > r.CapUsd || Calls(messages).Sum(m => Context(m.Tokens!)) > r.MaxInputTokens => ErrorCode.CostCapReached,
         IdleOutcome.Interrupted => ErrorCode.DeadlineExceeded,
         _ => ErrorCode.Internal,
     };
