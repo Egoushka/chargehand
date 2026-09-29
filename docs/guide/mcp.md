@@ -2,6 +2,7 @@
 title: "Use it from an MCP client"
 description: "The orchestrate tool over stdio or Streamable HTTP: setup from a checkout, tasks, intake's questions, and the run id before a client timeout."
 order: 3
+section: "Guides"
 ---
 
 chargehand serves one MCP tool, `orchestrate`, over two transports:

@@ -2,6 +2,7 @@
 title: "Quickstart"
 description: "Ask one read-only question about a commit from a chargehand checkout, then read the result/v1 that comes back and the run it left in the log."
 order: 2
+section: "Get started"
 ---
 
 You clone chargehand, write a small profile, and ask one question about a commit of a repository. The run prints `result/v1` on stdout and leaves a record in the run log.

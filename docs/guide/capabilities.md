@@ -2,6 +2,7 @@
 title: "What it does, and how we know"
 description: "Each capability with a status of works, partial or not yet, and the test, benchmark, ADR or roadmap entry behind that status."
 order: 1
+section: "Project"
 ---
 
 Each row names the evidence for its status. `works` means a test in this repository or a recorded benchmark covers the capability. `partial` means part of it is missing, or nothing in the repository tests or measures it. `not yet` means it is planned and not built. Rows marked *on main, not yet released* are newer than v0.3.0.

@@ -2,6 +2,7 @@
 title: "The change command"
 description: "/chargehand:change takes one goal to a reviewed change on a local branch: installing the plugin today, the steps it runs, and what --budget bounds."
 order: 5
+section: "Guides"
 ---
 
 `/chargehand:change <goal>` takes one prompt to a reviewed change on a local branch `change/<slug>`. chargehand researches the goal with citations checked against the current commit, your Claude Code session writes the change and runs the tests, chargehand reviews the diff with the `review` preset, the session fixes what holds (at most 2 fix rounds), and a report lands in `.chargehand/reports/<slug>.md` as its own commit. Nothing is pushed.

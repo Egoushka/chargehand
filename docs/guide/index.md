@@ -2,6 +2,7 @@
 title: "Overview"
 description: "What chargehand is, how a run works, what it leaves out, and where it stands before 1.0."
 order: 0
+section: "Get started"
 ---
 
 chargehand turns a request into a typed Task Spec, runs it on one or more coding-agent sessions (OpenCode or Claude Code), and returns a result contract with evidence for every claim. People call it from a CLI; programs call it over HTTP or MCP.
