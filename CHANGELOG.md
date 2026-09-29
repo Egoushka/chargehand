@@ -41,6 +41,9 @@ All notable changes to this project are documented here. The format follows
 - A worker that wrote `status: failed` in its own result block (a change request on a read-only preset, which runs as
   an answer when intake's action is not in the preset) returned a failed result with no `error`, against ADR 0022. It
   now carries `internal` with "the worker reported failed: <summary>" and an action.
+- The release workflow published only `Chargehand.Contracts` to nuget.org, so the `Chargehand` dnx tool package the README,
+  the plugin and the MCP Registry manifest name was never available. It now packs and pushes the tool too, each package
+  only when its version is new there.
 - Prompt CI blocked every pull request that adds a preset with its eval cell as uncovered: the gate reads cells from
   main, which does not have the new cell yet. A file the base lacks now passes when a cell in the change's own
   `evals/cells.json` names it (`--change-cells-file`); tolerances and existing files stay on main's cells. With
