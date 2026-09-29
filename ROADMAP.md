@@ -19,9 +19,10 @@ image.
 
 ## Stage 3 — One prompt, whole result · ▶ (0.5–0.7)
 
-- ▶ **0.5** `/chargehand:change <goal>` in Claude Code takes one prompt to a reviewed change.
+- ▶ **0.5** `/chargehand:change <goal>` in Claude Code takes one prompt to a reviewed change. Its code shipped in 0.4.0
+  and there is no 0.5.0; what is open is its usage bar, the maintainer's own use of the command on real tasks.
 - ✅ **0.6** Runs use your MCP services and memory: any MCP memory server, several at once, retaining only claims whose
-  citations resolved, and a preset can give workers read-only tools from an MCP service (on `main`, not yet released).
+  citations resolved, and a preset can give workers read-only tools from an MCP service (released in 0.6.0).
 - · **0.7** Workers write branches that build and pass their tests in a sandbox.
 
 ## Stage 4 — Answers you can prove · (0.8)
