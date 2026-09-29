@@ -37,6 +37,9 @@ const string Usage = """
                                    [--change-cells-file f] [--allow-uncovered]
                                    paired runs of the base and change prompts/ and presets/; exit 1 when blocked
       prompts sync                 pushes prompt blocks to Langfuse prompt management
+      extensions check [--preset <name>] [--probe <query>]
+                                   connects each mcp_servers entry, checks the memory mappings and the presets' services
+                                   against the tools it lists; one line per item, exit 1 on a problem; --probe also runs one recall
     prompts/ and presets/ come from the current directory when it has both (a checkout), else from the install; the
     run log is the profile's run_log, else runs/run-log.jsonl in a checkout, else a per-user file (README).
     """;
@@ -50,7 +53,7 @@ if (argv.Count >= 2 && argv[0] == "--profile")
     profilePath = argv[1];
     argv.RemoveRange(0, 2);
 }
-if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts"))
+if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions"))
 {
     Console.Error.WriteLine(Usage);
     return 2;
@@ -70,7 +73,7 @@ catch (ChargehandException e)
 var (root, runLogPath) = InstallPaths.Resolve(profile.RunLog, Directory.GetCurrentDirectory(), AppContext.BaseDirectory,
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify));
 var runLog = new JsonlRunLog(runLogPath);
-// Connections open on first use, so a command that lists no services never connects; disposed when the process ends.
+// One pool for memory and services (ADR 0034). Connections open on first use, so a command that uses neither never connects; disposed when the process ends.
 await using var mcpPool = new McpConnectionPool(profile.McpServers ?? new Dictionary<string, McpServerSettings>(), profile.Secret);
 var services = new ServiceResolver(mcpPool);
 using var cts = new CancellationTokenSource();
@@ -118,6 +121,8 @@ switch (argv)
         return await EvalGate(Path.GetFullPath(baseRoot), Path.GetFullPath(changeRoot), options);
     case ["prompts", "sync"]:
         return await SyncPrompts();
+    case ["extensions", "check", .. var options]:
+        return await CheckExtensions(options);
     default:
         Console.Error.WriteLine(Usage);
         return 2;
@@ -272,11 +277,56 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
     return (runtime, runtime.Version);
 }
 
-// Only the single-object form builds a stack until the MCP memory adapter wires the provider list (goal 0.6).
-MemoryStack? Memory() => profile.Memory?.ObjectForm is { } m
-    ? MemoryStack.ForObjectForm(m, new HindsightMemory(new HttpClient { BaseAddress = new Uri(m.Url), Timeout = TimeSpan.FromSeconds(30) },
-        m.ApiKeySecret is null ? null : profile.Secret(m.ApiKeySecret), m.MaxTokens))
-    : null;
+// The provider list runs over the shared MCP pool; the single-object form keeps its Hindsight client until ADR 0034 removes it.
+MemoryStack? Memory() => MemoryStacks.From(profile, mcpPool, m => new HindsightMemory(
+    new HttpClient { BaseAddress = new Uri(m.Url), Timeout = TimeSpan.FromSeconds(30) }, m.ApiKeySecret is null ? null : profile.Secret(m.ApiKeySecret), m.MaxTokens));
+
+/// <summary>Setup mistakes before a run: <c>--preset</c> narrows the services check to one preset, <c>--probe</c> adds one real recall per memory.</summary>
+async Task<int> CheckExtensions(IReadOnlyList<string> options)
+{
+    string? preset = null, probe = null;
+    for (var i = 0; i < options.Count; i += 2)
+    {
+        var value = i + 1 < options.Count ? options[i + 1] : null;
+        switch (options[i])
+        {
+            case "--preset" when value is not null:
+                preset = value;
+                break;
+            case "--probe" when value is not null:
+                probe = value;
+                break;
+            default:
+                Console.Error.WriteLine(Usage);
+                return 2;
+        }
+    }
+    IReadOnlyList<Preset> presets;
+    IReadOnlyList<string> presetProblems;
+    try
+    {
+        (presets, presetProblems) = ExtensionsCheck.LoadPresets(Path.Combine(root, "presets"), preset);
+    }
+    catch (ChargehandException e)
+    {
+        Console.Error.WriteLine(e.Message);
+        Console.Error.WriteLine(e.Action);
+        return 2;
+    }
+    ExtensionsCheckResult result;
+    try
+    {
+        result = await ExtensionsCheck.RunAsync(profile, presets, mcpPool, probe, ct);
+    }
+    catch (OperationCanceledException)
+    {
+        Console.Error.WriteLine("extensions check: cancelled");
+        return 1;
+    }
+    foreach (var line in result.Lines.Concat(presetProblems))
+        Console.WriteLine(line);
+    return result.Ok && presetProblems.Count == 0 ? 0 : 1;
+}
 
 async Task<int> Show(string runId)
 {

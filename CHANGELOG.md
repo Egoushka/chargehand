@@ -22,14 +22,13 @@ All notable changes to this project are documented here. The format follows
 
 - `mcp_servers` in the profile (ADR 0034): MCP servers by name, over Streamable HTTP, the older SSE transport
   (`"transport": "sse"`) or stdio, with `{secret:item}` in header and environment values. A preset's `services` read them
-  (below); goal 0.6's memory adapter will too.
+  and a `memory` list (below) read them.
 - `memory` in the profile may be a list of providers (ADR 0034). Each entry names an `mcp_servers` entry and maps recall,
   retain and invalidate onto that server's tools: argument templates with `{query}`, `{namespace}`, `{max_facts}`,
   `{text}` and the like, and a `results` mapping that says where the facts are in the answer (`path`, `id`, and `text` as a
   field, a template such as `{date}: {summary}`, or an ordered list of these). An entry without a retain tool is
   recall-only, and `namespace` defaults to the entry's name. A mapping that names an unknown server or placeholder, or
-  misses its recall tool, fails when the profile loads. The single-object form still loads and is deprecated. Nothing
-  reads the list yet; the MCP memory adapter will.
+  misses its recall tool, fails when the profile loads. The single-object form still loads and is deprecated.
 - `services` on a preset's node kind (`preset/v1`, an additive field; ADR 0034): a server from `mcp_servers` and the
   tool names workers may call, exact or with `*` globs, never a whole server. At the start of a run chargehand connects,
   lists the server's tools and grants the ones named. A server, secret or tool that does not resolve is dropped, not fatal:
@@ -41,9 +40,22 @@ All notable changes to this project are documented here. The format follows
   other tools are disallowed so they do not cost tokens. A granted server the CLI reports as not connected is an issue on
   the run (`not_connected: failed` in `chargehand show`), not a silent gap. The OpenCode runtime does not hand the grant to
   workers yet.
+- `chargehand extensions check [--preset <name>] [--probe <query>]` (ADR 0034): connects every `mcp_servers` entry and lists
+  its tools, then checks each memory mapping (the tool exists, every argument name is a property of its input schema,
+  every required argument is set) and each preset's `services` (every named tool or glob matches a listed tool). It prints
+  one line per item, `ok` or the problem with `; action:` and what to do, and reads every preset in `presets/` unless
+  `--preset` names one. `--probe` also runs one real recall per memory and prints how many facts came back, never the
+  facts. Exit 0 when nothing is wrong, 1 on a problem, 2 for a usage error or a profile that does not load. A line never
+  holds a URL, a credential or an argument value.
 
 ### Changed
 
+- A `memory` list in the profile is now read (ADR 0034); until now it loaded and did nothing. `run`, `serve` and `mcp` build
+  one memory stack from it: each entry becomes a source that calls its server's mapped tools over the same MCP
+  connections a preset's `services` use (one connection per server), in list order, with the entry's limits, `retain` and
+  `retain_tags`, and recall asks every source at once. The single-object form builds its one `hindsight` source as before
+  until its client is removed. A profile copied from `profiles/example.json` now tries its memory server when a run
+  recalls; a server or secret that does not resolve skips that memory, and `chargehand show` says why.
 - A command secret source that runs longer than 15 s is killed and the next source tried; the error says when one timed out.
 - Recalled facts now carry the name of the memory they came from, and the prompt header says so: `- [hindsight] Deploys
   go through GitOps.` The chain block for recalled text is named `memory/recall/hindsight` instead of `memory/recall`.
