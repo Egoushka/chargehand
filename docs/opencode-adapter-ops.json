@@ -17,6 +17,9 @@
     { "op": "PUT /api/experimental/session/{sessionID}/instructions/entries/{key}", "port": "SetInstruction", "body": ["value"], "mode": "blocking, 204; max 262144 bytes", "errors_seen": [413] },
     { "op": "POST /api/session/{sessionID}/move", "port": "Move", "body": ["directory"], "mode": "blocking, 204", "errors_seen": [400] },
     { "op": "POST /api/experimental/generate", "port": "Generate (intake)", "body": ["prompt", "model"], "mode": "blocking; no usage in response; 400 \"Model unavailable\" while a location boots (retried)", "errors_seen": [400] },
-    { "op": "GET /api/event", "port": "Events", "mode": "SSE, data-only JSON lines with a type field; no replay", "errors_seen": [] }
+    { "op": "GET /api/event", "port": "Events", "mode": "SSE, data-only JSON lines with a type field; no replay", "errors_seen": [] },
+    { "op": "PUT /api/experimental/mcp/{server}", "port": "AddService", "body": ["config"], "mode": "blocking, 204; adds the server to a location (query location[directory]) or replaces one of that name; connects after the reply, and its tools are callable about 0.2 s after the status reads connected (2.0.19)", "errors_seen": [] },
+    { "op": "DELETE /api/experimental/mcp/{server}", "port": "RemoveService", "mode": "blocking, 204; running sessions at the location lose the server at once", "errors_seen": [404] },
+    { "op": "GET /api/mcp", "port": "ServiceStatus", "mode": "blocking; every server of the location with its status (connected, pending, failed, needs_auth, disabled) and the error for failed and needs_auth", "errors_seen": [] }
   ]
 }

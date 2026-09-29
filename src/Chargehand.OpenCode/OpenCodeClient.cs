@@ -85,6 +85,25 @@ public sealed class OpenCodeClient : IOpenCodeClient
     public Task PutInstructionAsync(string sessionId, string key, string value, CancellationToken ct) =>
         Send<JsonElement>(HttpMethod.Put, $"/api/experimental/session/{sessionId}/instructions/entries/{Uri.EscapeDataString(key)}", new { value }, ct);
 
+    public Task PutMcpServerAsync(string name, string directory, McpConfigBody config, CancellationToken ct) =>
+        Send<JsonElement>(HttpMethod.Put, McpPath(name, directory), new { config }, ct);
+
+    public Task RemoveMcpServerAsync(string name, string directory, CancellationToken ct) =>
+        Send<JsonElement>(HttpMethod.Delete, McpPath(name, directory), null, ct);
+
+    public async Task<IReadOnlyList<McpServerStatus>> McpServersAsync(string directory, CancellationToken ct) =>
+        [.. (await Send<JsonElement>(HttpMethod.Get, $"/api/mcp?{Location(directory)}", null, ct)).GetProperty("data").EnumerateArray().Select(s =>
+        {
+            var status = s.GetProperty("status");
+            return new McpServerStatus(s.GetProperty("name").GetString()!, status.GetProperty("status").GetString()!,
+                status.TryGetProperty("error", out var e) ? e.GetString() : null);
+        })];
+
+    /// <summary>A location is a deepObject query parameter; the spike found it, and the header form, work for these routes (O2).</summary>
+    private static string Location(string directory) => $"location%5Bdirectory%5D={Uri.EscapeDataString(directory)}";
+
+    private static string McpPath(string name, string directory) => $"/api/experimental/mcp/{Uri.EscapeDataString(name)}?{Location(directory)}";
+
     public Task MoveAsync(string sessionId, string directory, CancellationToken ct) =>
         Send<JsonElement>(HttpMethod.Post, $"/api/session/{sessionId}/move", new { directory }, ct);
 

@@ -213,4 +213,57 @@ public class OpenCodeClientTests
         Assert.Equal(HttpStatusCode.ServiceUnavailable, e.Status);
         Assert.Equal(2, h.Seen.Count);
     }
+
+    [Fact]
+    public async Task An_mcp_server_is_added_at_a_location_with_its_config_in_the_body()
+    {
+        var (c, h) = Make((_, _) => (HttpStatusCode.NoContent, ""));
+
+        await c.PutMcpServerAsync("team-docs", "/w/re po", new McpConfigBody("remote", Url: "https://mcp.example.internal/docs",
+            Headers: new Dictionary<string, string> { ["Authorization"] = "Bearer s3cret" }), CancellationToken.None);
+
+        var (method, path, body, _) = h.Seen.Single();
+        Assert.Equal(HttpMethod.Put, method);
+        Assert.Equal("/api/experimental/mcp/team-docs?location%5Bdirectory%5D=%2Fw%2Fre%20po", path);
+        var config = JsonDocument.Parse(body!).RootElement.GetProperty("config");
+        Assert.Equal(("remote", "https://mcp.example.internal/docs", "Bearer s3cret"),
+            (config.GetProperty("type").GetString(), config.GetProperty("url").GetString(), config.GetProperty("headers").GetProperty("Authorization").GetString()));
+        Assert.False(config.TryGetProperty("command", out _));
+    }
+
+    [Fact]
+    public void A_config_body_never_prints_a_header_or_an_environment_value()
+    {
+        var remote = new McpConfigBody("remote", Url: "https://mcp.example.internal/docs", Headers: new Dictionary<string, string> { ["Authorization"] = "Bearer s3cret" });
+        var local = new McpConfigBody("local", Command: ["npx", "x"], Environment: new Dictionary<string, string> { ["TOKEN"] = "s3cret" });
+
+        Assert.DoesNotContain("s3cret", remote.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("s3cret", local.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_mcp_server_is_removed_from_a_location_and_a_missing_one_is_a_tagged_404()
+    {
+        var (c, h) = Make((_, _) => (HttpStatusCode.NotFound, """{"_tag":"McpServerNotFoundError","server":"team-docs","message":"no such server"}"""));
+
+        var e = await Assert.ThrowsAsync<OpenCodeException>(() => c.RemoveMcpServerAsync("team-docs", "/w/repo", CancellationToken.None));
+
+        Assert.Equal((HttpStatusCode.NotFound, "McpServerNotFoundError"), (e.Status, e.Tag));
+        var (method, path, _, _) = h.Seen.Single();
+        Assert.Equal((HttpMethod.Delete, "/api/experimental/mcp/team-docs?location%5Bdirectory%5D=%2Fw%2Frepo"), (method, path));
+    }
+
+    [Fact]
+    public async Task The_mcp_servers_of_a_location_are_listed_with_their_status_and_error()
+    {
+        var (c, h) = Make((_, _) => (HttpStatusCode.OK, """
+            {"data":[{"name":"a","status":{"status":"connected"}},{"name":"b","status":{"status":"failed","error":"connection refused"}},{"name":"c","status":{"status":"pending"}}],
+             "location":{"directory":"/w/repo"}}
+            """));
+
+        var servers = await c.McpServersAsync("/w/repo", CancellationToken.None);
+
+        Assert.Equal([new McpServerStatus("a", "connected"), new McpServerStatus("b", "failed", "connection refused"), new McpServerStatus("c", "pending")], servers);
+        Assert.Equal((HttpMethod.Get, "/api/mcp?location%5Bdirectory%5D=%2Fw%2Frepo"), (h.Seen.Single().Method, h.Seen.Single().Path));
+    }
 }

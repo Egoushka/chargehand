@@ -38,8 +38,16 @@ All notable changes to this project are documented here. The format follows
   in a fresh 0700 directory under the system temp directory, removed when the turn's process exits (also on failure or
   interrupt) and never on the command line or in a log; `--allowedTools` names exactly the granted tools, and the server's
   other tools are disallowed so they do not cost tokens. A granted server the CLI reports as not connected is an issue on
-  the run (`not_connected: failed` in `chargehand show`), not a silent gap. The OpenCode runtime does not hand the grant to
-  workers yet.
+  the run (`not_connected: failed` in `chargehand show`), not a silent gap.
+- OpenCode workers get the granted services (ADR 0034): before a run's first session at a location chargehand registers each
+  granted server there (`PUT /api/experimental/mcp/{name}`), waits until `GET /api/mcp` says `connected`, and ends the
+  session's rules with `*_* * deny` and one `<server>_<tool> * allow` per granted tool, so only those tools are callable
+  and a server's other tools stay refused. The registration is named for the server and a per-process keyed hash of its
+  config, so runs with other credentials do not change each other's server; it is shared by every run at the location
+  that uses the same config, held by count, and removed when the last run ends (completed, failed or cancelled). A
+  server that does not connect (`failed`, `needs_auth`, no answer in 30 s) is dropped, removed and reported on the run as
+  `not_connected: <status>`; the run goes on without it. Presets that deny `*` still cannot reach a service on OpenCode
+  (workers use its `execute` tool); no shipped preset lists services.
 - `chargehand extensions check [--preset <name>] [--probe <query>]` (ADR 0034): connects every `mcp_servers` entry and lists
   its tools, then checks each memory mapping (the tool exists, every argument name is a property of its input schema,
   every required argument is set) and each preset's `services` (every named tool or glob matches a listed tool). It prints

@@ -5,15 +5,21 @@ using Chargehand.Runtime;
 
 namespace Chargehand.OpenCode;
 
-/// <summary>IWorkerRuntime over OpenCode V2 (ADR 0004). Create with <see cref="ConnectAsync"/>, which pins the version.</summary>
-public sealed class OpenCodeWorkerRuntime : IWorkerRuntime
+/// <summary>
+/// IWorkerRuntime over OpenCode V2 (ADR 0004). Create with <see cref="ConnectAsync"/>, which pins the version. It hands a
+/// node's granted services to the worker by registering the servers at the run's location (<see cref="OpenCodeServices"/>,
+/// ADR 0034), so it also ends a run's registrations and says which servers never connected.
+/// </summary>
+public sealed class OpenCodeWorkerRuntime : IWorkerRuntime, IRunCleanup, IServiceHealth
 {
     private readonly IOpenCodeClient _oc;
+    private readonly OpenCodeServices _services;
 
-    internal OpenCodeWorkerRuntime(IOpenCodeClient oc, string version)
+    internal OpenCodeWorkerRuntime(IOpenCodeClient oc, string version, ServiceTimings? serviceTimings = null)
     {
         _oc = oc;
         Version = version;
+        _services = new OpenCodeServices(oc, serviceTimings ?? ServiceTimings.Default);
     }
 
     public string Version { get; }
@@ -36,20 +42,28 @@ public sealed class OpenCodeWorkerRuntime : IWorkerRuntime
     /// the server name, an underscore and the tool name, so this covers every server, and the MCP resource tools and
     /// external_directory (every preset denies it already). Servers cannot be listed instead: a checkout's own config
     /// registers them after the session exists, the listing lags that by up to a second, and any client can add one
-    /// later (ADR 0034). A granted tool is allowed by a rule after this one.
+    /// later (ADR 0034). A granted tool is allowed by a rule after this one (<see cref="OpenCodeServices"/>).
     /// </summary>
     internal static readonly PermissionRule DenyMcpTools = new("*_*", "*", PermissionEffect.Deny);
 
+    /// <summary>The servers of the node's grants are registered and connected before the session exists, and the session's
+    /// rules end with the deny and one exact allow per granted tool of a server that connected.</summary>
     public async Task<WorkerSession> CreateAsync(NodeSpec spec, CancellationToken ct)
     {
+        var granted = await _services.GrantAsync(spec, ct);
         var s = await _oc.CreateSessionAsync(new CreateSessionBody(
             spec.Agent,
             spec.Model is { } m ? new ModelBody(m.ProviderId, m.ModelId, m.Variant) : null,
             new LocationBody(spec.Directory),
-            spec.Permissions.Append(DenyMcpTools).Select(r => new RuleBody(r.Action, r.Resource, r.Effect.ToString().ToLowerInvariant())).ToList(),
+            spec.Permissions.Append(DenyMcpTools).Concat(granted.Rules).Select(r => new RuleBody(r.Action, r.Resource, r.Effect.ToString().ToLowerInvariant())).ToList(),
             spec.Metadata), ct);
+        _services.Bind(s.Id, granted);
         return new WorkerSession(s.Id, s.Location.Directory);
     }
+
+    public Task EndRunAsync(string runId, CancellationToken ct) => _services.EndRunAsync(runId, ct);
+
+    public IReadOnlyDictionary<string, string> UnavailableServices(string sessionId) => _services.Unavailable(sessionId);
 
     public Task SetInstructionAsync(string sessionId, string key, string value, CancellationToken ct) => _oc.PutInstructionAsync(sessionId, key, value, ct);
 
@@ -79,6 +93,7 @@ public sealed class OpenCodeWorkerRuntime : IWorkerRuntime
     public async Task<WorkerSession> ForkAsync(string sessionId, string? beforeMessageId, CancellationToken ct)
     {
         var s = await _oc.ForkAsync(sessionId, beforeMessageId, ct);
+        _services.Inherit(sessionId, s.Id);
         return new WorkerSession(s.Id, s.Location.Directory);
     }
 

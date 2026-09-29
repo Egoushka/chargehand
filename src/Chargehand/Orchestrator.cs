@@ -182,7 +182,7 @@ public sealed class Orchestrator(
         async Task<NodeResult> RunNode(PlanNode node, IReadOnlyList<ResultContract> upstream, ForkPoint? fork, TaskCompletionSource<ForkPoint?>? primed, CancellationToken token)
         {
             var nodeRequest = new NodeRequest(runId, node.Id, traceId,
-                new NodeSpec(directory, kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { ["chargehand.run"] = runId, ["chargehand.node"] = node.Id }, granted),
+                new NodeSpec(directory, kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { [IRunCleanup.RunMetadataKey] = runId, ["chargehand.node"] = node.Id }, granted),
                 instructions, TaskText(request, spec, commit, inputText, callerBlocks, node, plan.Count, upstream) + facts, chain, directory, commit,
                 (request.Inputs ?? []).Select(i => i.Id).ToHashSet(), inputText, cap, TimeSpan.FromMinutes(15),
                 kind.Budget.MaxInputTokens, kind.Compaction?.TriggerTokens, fork);
@@ -244,7 +244,16 @@ public sealed class Orchestrator(
         ResultContract Failed(PlanNode node, string reason) =>
             new("result/v1", runId, node.Id, traceId, chain, ResultStatus.Failed, reason, [], [], [], [reason], 0, new Usage(0, 0, 0, 0, 0));
 
-        var outcomes = await new GraphRunner().RunAsync(plan, RunNode, Failed, ct);
+        IReadOnlyList<NodeOutcome> outcomes;
+        try
+        {
+            outcomes = await new GraphRunner().RunAsync(plan, RunNode, Failed, ct);
+        }
+        finally
+        {
+            // Whatever became of the nodes, and even when the caller cancelled: a server registered for the run must not outlive it.
+            await EndRun(runId, granted.Count > 0, run);
+        }
         var result = plan.Count == 1 ? outcomes[0].Contract : ResultMerger.Merge(runId, traceId, chain, outcomes);
         await Retain(result, repository, commit, runId, run, extensions, ct);
         return result;
@@ -287,6 +296,22 @@ public sealed class Orchestrator(
             else
                 run?.SetTag($"chargehand.memory.{s.Source}.recalled", s.Items.Count);
         return outcome;
+    }
+
+    /// <summary>A runtime that keeps a run's services with a server other runs share (OpenCode) lets them go when the run's nodes are done.
+    /// Best effort: a failure here is a tag on the run, never a failed run, and the caller's cancellation does not cut it short.</summary>
+    private async Task EndRun(string runId, bool hasServices, Activity? run)
+    {
+        if (!hasServices || runtime is not IRunCleanup cleanup)
+            return;
+        try
+        {
+            await cleanup.EndRunAsync(runId, CancellationToken.None);
+        }
+        catch (Exception e)
+        {
+            run?.SetTag("chargehand.service.end_run_error", ChargehandException.Scrub(string.IsNullOrWhiteSpace(e.Message) ? e.GetType().Name : e.Message));
+        }
     }
 
     /// <summary>Services are optional tools: one that does not resolve leaves the workers without it, reported in the run log, and never fails the run.</summary>
