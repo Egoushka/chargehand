@@ -1,6 +1,6 @@
 # 0035. Sandboxed writing workers
 
-- Status: proposed
+- Status: proposed; implemented on `main` for goal 0.7, not yet reviewed by the maintainer
 - Date: 2026-09-30
 
 ## Context

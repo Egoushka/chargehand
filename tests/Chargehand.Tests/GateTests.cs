@@ -134,7 +134,7 @@ public class GateTests
     public void Shipped_cells_and_example_items_load()
     {
         var cells = EvalCell.Load(Repo.Path("evals", "cells.json"));
-        Assert.Equal(["cheap/worker", "review/worker", "draft/draft", "intake"], cells.Select(c => c.Name));
+        Assert.Equal(["cheap/worker", "review/worker", "code/writer", "draft/draft", "intake"], cells.Select(c => c.Name));
         foreach (var file in cells.SelectMany(c => c.Files))
             Assert.True(File.Exists(Repo.Path(file)), file);
         foreach (var line in File.ReadAllLines(Repo.Path("evals", "example.jsonl")))

@@ -3,6 +3,18 @@ using System.Text;
 
 namespace Chargehand.Workspace;
 
+/// <summary>A temporary copy of the workspace's content for one verification run; deleted when disposed.</summary>
+public sealed class ExportedTree(string directory) : IDisposable
+{
+    public string Directory => directory;
+
+    public void Dispose()
+    {
+        if (System.IO.Directory.Exists(directory))
+            System.IO.Directory.Delete(directory, recursive: true);
+    }
+}
+
 /// <param name="Repository">Where the branch lives: the run clone's path. A caller fetches from it; nothing is pushed (ADR 0035).</param>
 public sealed record BranchInfo(string Repository, string Branch, string Commit, string Base);
 
@@ -41,6 +53,25 @@ public sealed class RunWorkspace
         if (await Git(directory, ct, "checkout", "-q", "-b", branch, commit) is null)
             throw new InvalidOperationException($"could not check out {commit} on {branch}");
         return new RunWorkspace(directory, branch, commit);
+    }
+
+    /// <summary>
+    /// A copy of what a commit would hold (tracked files and the worker's new, non-ignored files), in a temporary directory beside
+    /// the workspace. The verification command runs there, so what it writes (caches, build output) never reaches the branch.
+    /// </summary>
+    public async Task<ExportedTree> ExportAsync(CancellationToken ct)
+    {
+        await Git(Directory, ct, "add", "-A");
+        var path = Path.Combine(Path.GetDirectoryName(Directory)!, $"{Path.GetFileName(Directory)}.verify-{Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(path);
+        var tree = new ExportedTree(path);
+        // checkout-index writes the index's files under the prefix and needs no working-tree state of its own.
+        if (await Git(Directory, ct, "checkout-index", "-a", "-f", $"--prefix={path}/") is null)
+        {
+            tree.Dispose();
+            throw new InvalidOperationException("git checkout-index failed in the run workspace");
+        }
+        return tree;
     }
 
     /// <summary>Commits everything the worker changed; null when the tree is unchanged.</summary>
