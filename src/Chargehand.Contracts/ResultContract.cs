@@ -17,7 +17,8 @@ public sealed record ResultContract(
     IReadOnlyList<string> OpenQuestions,
     double Confidence,
     Usage Usage,
-    ResultError? Error = null);
+    ResultError? Error = null,
+    SignatureBlock? Signature = null);
 
 public enum ResultStatus { Completed, NeedsInput, Failed, Denied }
 
@@ -45,7 +46,15 @@ public enum ErrorCode
     VerificationFailed,
 }
 
-public sealed record Claim(string Text, IReadOnlyList<string> Evidence, double Confidence);
+/// <param name="Support">Whether the text the claim cites supports it, as a model judged (ADR 0036); null when no check ran.</param>
+public sealed record Claim(string Text, IReadOnlyList<string> Evidence, double Confidence, ClaimSupport? Support = null);
+
+/// <summary>A claim the check found unsupported is not in <c>claims</c>: it moves to <c>open_questions</c>.</summary>
+public enum ClaimSupport { Supported, Partial, Unchecked }
+
+/// <summary>ES256 over the canonical result without this member (ADR 0036). <c>KeyId</c> is the first 16 hex characters of the
+/// SHA-256 of the public key's SubjectPublicKeyInfo; <c>Value</c> is base64url.</summary>
+public sealed record SignatureBlock(string Alg, string KeyId, string Value);
 
 public sealed record Evidence(string Id, EvidenceKind Kind, string Locator, string? Commit = null, string? Sha256 = null);
 
