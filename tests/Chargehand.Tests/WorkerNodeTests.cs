@@ -25,6 +25,8 @@ public class WorkerNodeTests
         public bool Fail { get; set; }
         /// <summary>The turn ends failed with only its user message and an idle one, as a server that drops the session before any model call.</summary>
         public bool NoModelCall { get; set; }
+        /// <summary>The error text on that idle message (null: none), as a runtime that gives the reason itself, without a model call.</summary>
+        public string? IdleError { get; set; }
         /// <summary>The model each reply reports; null as a runtime that names none for its calls.</summary>
         public string? ReplyModel { get; set; } = "p/m";
         /// <summary>InterruptAsync returns only when cancelled, as a runtime that waits for its process to exit.</summary>
@@ -65,7 +67,7 @@ public class WorkerNodeTests
             var now = DateTimeOffset.UtcNow.AddSeconds(_messages.Count);
             if (NoModelCall)
             {
-                _messages.Insert(0, new WorkerMessage($"idle_{_messages.Count}", WorkerMessageKind.Idle, now, null, null, Outcome: IdleOutcome.Failed));
+                _messages.Insert(0, new WorkerMessage($"idle_{_messages.Count}", WorkerMessageKind.Idle, now, null, null, Error: IdleError, Outcome: IdleOutcome.Failed));
                 return IdleOutcome.Failed;
             }
             if (Fail)
@@ -405,14 +407,15 @@ public class WorkerNodeTests
     }
 
     [Fact]
-    public async Task A_session_that_fails_before_any_model_call_says_so_and_points_at_the_server_log_and_the_model()
+    public async Task A_session_that_fails_before_any_model_call_says_so_and_points_at_the_runtime_log_and_the_model()
     {
         var rt = new FakeRuntime(Block("src/calc.py:5")) { NoModelCall = true };
         var r = await Node(rt).RunAsync(Request(), CancellationToken.None);
         var e = r.Contract.Error!;
         Assert.Equal(ErrorCode.Internal, e.Code);
-        Assert.Equal("worker ended failed: the server ended the session before any model call and gave no reason", e.Message);
-        Assert.Contains("OpenCode server's log", e.Action, StringComparison.Ordinal);
+        Assert.Equal("worker ended failed: the worker runtime ended the session before any model call and gave no reason", e.Message);
+        Assert.Contains("worker runtime's log", e.Action, StringComparison.Ordinal);
+        Assert.Contains("OpenCode", e.Action, StringComparison.Ordinal);
         Assert.Contains("`p/m`", e.Action, StringComparison.Ordinal);
         Assert.Contains("`models`", e.Action, StringComparison.Ordinal);
         Assert.Contains("chargehand show run-1", e.Action, StringComparison.Ordinal);
@@ -424,10 +427,21 @@ public class WorkerNodeTests
     {
         var unmapped = Request() with { Spec = Request().Spec with { Model = null } };
         var e = (await Node(new FakeRuntime(Block("src/calc.py:5")) { NoModelCall = true }).RunAsync(unmapped, CancellationToken.None)).Contract.Error!;
-        Assert.StartsWith("worker ended failed: the server ended the session before any model call", e.Message, StringComparison.Ordinal);
-        Assert.Contains("OpenCode server's log", e.Action, StringComparison.Ordinal);
+        Assert.StartsWith("worker ended failed: the worker runtime ended the session before any model call", e.Message, StringComparison.Ordinal);
+        Assert.Contains("worker runtime's log", e.Action, StringComparison.Ordinal);
         Assert.Contains("No model was mapped", e.Action, StringComparison.Ordinal);
         Assert.Contains("`models`", e.Action, StringComparison.Ordinal);
+    }
+
+    /// <summary>A runtime that ends a session before any model call but names the reason (Claude Code's error result) is not the "no reason" case.</summary>
+    [Fact]
+    public async Task A_session_that_fails_before_any_model_call_with_a_reason_reports_the_reason()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { NoModelCall = true, IdleError = "claude reported error_max_turns after 3 turns" };
+        var e = (await Node(rt).RunAsync(Request(), CancellationToken.None)).Contract.Error!;
+        Assert.Equal("worker ended failed: claude reported error_max_turns after 3 turns", e.Message);
+        Assert.DoesNotContain("model call", e.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("OpenCode", e.Action, StringComparison.Ordinal);
     }
 
     [Fact]

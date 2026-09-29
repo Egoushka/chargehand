@@ -15,9 +15,12 @@ All notable changes to this project are documented here. The format follows
   worker still gets every input whole.
 - A worker session that ended `failed` with no assistant message and no error text (OpenCode drops the session before
   any model call when the model is one its server does not declare) returned a bare "worker ended failed" with a
-  generic action, and the reason was only in the server's log. The error now says the server ended the session before
-  any model call, and its `action` points at the OpenCode server's log and names the model the run asked for, to check
-  against the server's models and the profile's `models` map (or says no model was mapped).
+  generic action, and the reason was only in the server's log. The error now says the worker runtime ended the session
+  before any model call, and its `action` points at the runtime's log (for OpenCode, the server's) and names the model
+  the run asked for, to check against the runtime's models and the profile's `models` map (or says no model was mapped).
+- A Claude Code turn that ended in an error result with no `result` text (`error_max_turns`, `error_during_execution` and
+  `error_max_budget_usd` carry `errors` instead) failed with no reason and was reported in OpenCode's terms, as a session
+  ended before any model call. The error now names the result's subtype, turn count and `errors`.
 - A request with many `inputs` still grew intake's prompt without bound, up to the request size limit. Intake now reads
   at most 8000 characters of input text in all, in request order; an input after that is listed with its id, kind and
   size and a note that its text is left out here, and the worker still gets every input whole.

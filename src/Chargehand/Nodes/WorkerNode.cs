@@ -257,7 +257,8 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
     private const int MaxCause = 300;
 
     /// <summary>": " and the reason from the newest message that carries a provider error, else empty. OpenCode relays the error
-    /// object as JSON, Claude Code its result text or exit status. Scrubbed before it is cut, so a cut cannot leave half a key.</summary>
+    /// object as JSON, Claude Code its result text (else the result event's subtype and errors) or exit status. Scrubbed before
+    /// it is cut, so a cut cannot leave half a key.</summary>
     private static string Cause(IReadOnlyList<WorkerMessage> messages)
     {
         if (messages.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m.Error))?.Error is not { } raw)
@@ -294,15 +295,16 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
     private static string WorkerFailedAction(NodeRequest r) =>
         $"Read the summary: the worker could not do the task as asked. Ask for a change as a read-only question, or use a preset that allows it. `chargehand show {r.RunId}` prints the session.";
 
-    private const string NoModelCall = "the server ended the session before any model call and gave no reason";
+    private const string NoModelCall = "the worker runtime ended the session before any model call and gave no reason";
 
-    /// <summary>A failed session with no assistant message and no error text: OpenCode ended it before it called a model (a model
-    /// the server does not declare does this) and only the server's own log names the reason. The model is config, not a secret.</summary>
+    /// <summary>A failed session with no assistant message and no error text: OpenCode ends it before it calls a model (a model
+    /// the server does not declare does this) and only the server's own log names the reason. The Claude Code adapter always
+    /// gives a failed turn a reason, so it does not reach this. The model is config, not a secret.</summary>
     private static string NoModelCallAction(NodeRequest r) =>
-        "Read the OpenCode server's log for the cause, for example a model the server does not declare. "
+        "Read the worker runtime's log for the cause: for OpenCode, the server's log (a model the server does not declare ends a session this way). "
         + (r.Spec.Model is { } model
-            ? $"This run asked for `{model.ProviderId}/{model.ModelId}`: check it against the server's declared models and the profile's `models` map. "
-            : "No model was mapped for this run, so the server used its own default: map the preset's model in the profile's `models`, or give the server a default. ")
+            ? $"This run asked for `{model.ProviderId}/{model.ModelId}`: check it against the runtime's declared models and the profile's `models` map. "
+            : "No model was mapped for this run, so the runtime used its own default: map the preset's model in the profile's `models`, or give the runtime a default. ")
         + $"`chargehand show {r.RunId}` prints the session.";
 
     private static string ActionOf(ErrorCode code, NodeRequest r) => code switch
