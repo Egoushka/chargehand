@@ -25,6 +25,16 @@ All notable changes to this project are documented here. The format follows
   optional `extensions` report in the run record. The span tags for memory are per source
   (`chargehand.memory.<name>.recalled` and `.error`) instead of `chargehand.memory.recalled` and
   `chargehand.memory.error`. `result/v1` is unchanged.
+- Retain keeps less, and what it keeps says where it was checked. With `memory.retain` on, a run used to store the
+  request text, the summary and every claim. It now stores only the claims that cite at least one `file` or `commit`
+  entry that resolved at the run's pinned commit, each with its locators, under a first line that names the repository
+  and the commit: `Repository: github.com/example/proj, commit 0123456789ab (citations checked at this commit)`, then
+  `- <claim> [src/Api/Startup.cs:41-58] (confidence 0.90)`. No longer retained: the request text, the summary, claims
+  that rest only on caller inputs, URLs or the session, claims whose citations did not resolve, claims whose text the
+  error-text scrubber would change, and everything from a run without a repository (a draft run has no commit, so it
+  retains nothing). The repository is the `origin` URL without scheme, user information, port and `.git`, or the
+  directory name when there is no `origin`. A run that retained nothing says why in `chargehand show`
+  (`no commit`, `no claim qualified`). There is no confidence floor.
 
 ## [0.4.1] - 2026-09-29
 

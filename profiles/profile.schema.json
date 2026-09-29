@@ -316,7 +316,7 @@
         },
         "retain": {
           "type": "boolean",
-          "description": "Retain each completed run's summary and claims (default false)."
+          "description": "Retain each completed run's claims whose file or commit citations resolved, with their locators, the repository and the commit; never the request or the summary (default false)."
         }
       }
     }
