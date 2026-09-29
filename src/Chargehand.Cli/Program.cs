@@ -8,6 +8,7 @@ using Chargehand.ClaudeCode;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Evals;
+using Chargehand.Mcp;
 using Chargehand.Memory;
 using Chargehand.OpenCode;
 using Chargehand.Prompts;
@@ -69,6 +70,9 @@ catch (ChargehandException e)
 var (root, runLogPath) = InstallPaths.Resolve(profile.RunLog, Directory.GetCurrentDirectory(), AppContext.BaseDirectory,
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify));
 var runLog = new JsonlRunLog(runLogPath);
+// Connections open on first use, so a command that lists no services never connects; disposed when the process ends.
+await using var mcpPool = new McpConnectionPool(profile.McpServers ?? new Dictionary<string, McpServerSettings>(), profile.Secret);
+var services = new ServiceResolver(mcpPool);
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 var ct = cts.Token;
@@ -136,7 +140,7 @@ async Task<int> Run()
     try
     {
         var (runtime, runtimeVersion) = await Connect();
-        var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory());
+        var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services);
         result = await orchestrator.RunAsync(request, ct);
     }
     catch (ChargehandException e)
@@ -161,7 +165,7 @@ async Task<int> Serve()
     }
     using var tracing = Tracing();
     var (runtime, runtimeVersion) = await Connect();
-    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory());
+    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services);
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts), orchestrator, runLog);
     await app.StartAsync(ct);
@@ -175,7 +179,7 @@ async Task<int> Mcp()
 {
     using var tracing = Tracing();
     var (runtime, runtimeVersion) = await Connect();
-    var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory());
+    var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services);
     using var host = ChargehandServer.CreateStdio(Path.Combine(root, "presets"), orchestrator, Console.OpenStandardInput(), Console.OpenStandardOutput());
     // The transport stops the host when the client closes stdin.
     await host.RunAsync(ct);

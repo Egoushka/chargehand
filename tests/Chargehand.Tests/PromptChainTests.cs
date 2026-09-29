@@ -67,6 +67,25 @@ public class PromptChainTests
     }
 
     [Fact]
+    public void Tool_set_hash_follows_the_granted_tools_and_is_unchanged_without_any()
+    {
+        PermissionRule[] rules = [new("*", "*", PermissionEffect.Allow)];
+        static ServiceGrant Grant(string server, string[] tools, string sha) => new(server, new StdioServiceTransport(["x"], new Dictionary<string, string>()), tools, sha);
+        var none = PromptChains.ToolsSha256("2.0.16", "build", rules);
+
+        // The hash of a run without services, as computed before grants existed.
+        Assert.Equal("759da0a2a43b2d34040cce77192cd27275471bf08c14f75a60a8e22985474283", none);
+        Assert.Equal(none, PromptChains.ToolsSha256("2.0.16", "build", rules, null));
+        Assert.Equal(none, PromptChains.ToolsSha256("2.0.16", "build", rules, []));
+        var docs = PromptChains.ToolsSha256("2.0.16", "build", rules, [Grant("docs", ["read_doc"], "aa")]);
+        Assert.NotEqual(none, docs);
+        Assert.Equal(docs, PromptChains.ToolsSha256("2.0.16", "build", rules, [Grant("docs", ["read_doc"], "aa")]));
+        Assert.NotEqual(docs, PromptChains.ToolsSha256("2.0.16", "build", rules, [Grant("docs", ["read_doc", "search_docs"], "aa")]));
+        Assert.NotEqual(docs, PromptChains.ToolsSha256("2.0.16", "build", rules, [Grant("docs", ["read_doc"], "bb")]));
+        Assert.NotEqual(docs, PromptChains.ToolsSha256("2.0.16", "build", rules, [Grant("wiki", ["read_doc"], "aa")]));
+    }
+
+    [Fact]
     public void Instruction_hash_depends_on_keys_values_and_order()
     {
         var h = PromptChains.InstructionsSha256([("core", "a"), ("preset", "b")]);

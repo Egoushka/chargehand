@@ -62,6 +62,22 @@
             }
           }
         },
+        "services": {
+          "type": "array",
+          "description": "MCP servers from the profile's mcp_servers whose tools the node's workers may call. Explicit tool names only: a glob is allowed, a bare * (the whole server) is not.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["server", "tools"],
+            "properties": {
+              "server": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+              "tools": {
+                "type": "array", "minItems": 1,
+                "items": { "type": "string", "pattern": "^(?!\\*+$).+$" }
+              }
+            }
+          }
+        },
         "budget": {
           "type": "object",
           "additionalProperties": false,

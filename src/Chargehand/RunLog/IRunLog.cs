@@ -84,10 +84,13 @@ public sealed record RunRecord(
 /// <summary>What the profile's extensions did in one run, for the run log and <c>chargehand show</c> (goal 0.6). Null on a record from before it existed.</summary>
 public sealed record ExtensionsReport(IReadOnlyList<MemoryReport> Memory, IReadOnlyList<ServiceReport> Services)
 {
-    /// <summary>One line per memory source: <c>memory notes: recalled 2, retained 1</c>; a skipped step says so and why in place of its count.</summary>
+    /// <summary>One line per memory source: <c>memory notes: recalled 2, retained 1</c>; a skipped step says so and why in place of its count.
+    /// Then one per service: <c>service docs: granted read_doc (tool_missing: x)</c>, or <c>dropped</c> when no tool was granted.</summary>
     public IReadOnlyList<string> Lines() =>
         [.. Memory.Select(m => $"memory {m.Source}: {(m.RecallSkipped is null ? $"recalled {m.Recalled}" : $"recall skipped ({m.RecallSkipped})")}, "
-            + (m.RetainSkipped is null ? $"retained {m.Retained}" : $"retain skipped ({m.RetainSkipped})"))];
+            + (m.RetainSkipped is null ? $"retained {m.Retained}" : $"retain skipped ({m.RetainSkipped})")),
+         .. Services.Select(s => $"service {s.Server}: {(s.Tools.Count > 0 ? $"granted {string.Join(", ", s.Tools)}" : "dropped")}"
+            + (s.Issues.Count > 0 ? $" ({string.Join("; ", s.Issues)})" : ""))];
 }
 
 /// <param name="RecallSkipped">Why the source recalled nothing (failed, timed out); null when it answered.</param>

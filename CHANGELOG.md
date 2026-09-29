@@ -12,6 +12,12 @@ All notable changes to this project are documented here. The format follows
 - `mcp_servers` in the profile (ADR 0034): MCP servers by name, over Streamable HTTP, the older SSE transport
   (`"transport": "sse"`) or stdio, with `{secret:item}` in header and environment values. Nothing reads them yet; goal
   0.6's memory and services will.
+- `services` on a preset's node kind (`preset/v1`, an additive field; ADR 0034): a server from `mcp_servers` and the
+  tool names workers may call, exact or with `*` globs, never a whole server. At the start of a run chargehand connects,
+  lists the server's tools and grants the ones named. A server, secret or tool that does not resolve is dropped, not fatal:
+  `chargehand show` prints one `service` line each, with the span tags `chargehand.service.<name>.granted` and `.issues`.
+  `as_sent.tools_sha256` covers the granted tools and is unchanged when there are none. The Claude Code and OpenCode
+  runtimes do not hand the grant to workers yet, and no shipped preset lists services.
 
 ### Changed
 

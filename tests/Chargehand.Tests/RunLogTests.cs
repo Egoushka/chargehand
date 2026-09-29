@@ -69,6 +69,18 @@ public class RunLogTests
     }
 
     [Fact]
+    public void An_extensions_report_prints_one_line_per_service_with_what_was_dropped()
+    {
+        var report = new ExtensionsReport([], [
+            new ServiceReport("team-docs", ["read_doc", "search_docs"], []),
+            new ServiceReport("wiki", ["get_page"], ["tool_missing: nope_*"]),
+            new ServiceReport("gone", [], ["unreachable: connection refused"])]);
+
+        Assert.Equal(["service team-docs: granted read_doc, search_docs", "service wiki: granted get_page (tool_missing: nope_*)", "service gone: dropped (unreachable: connection refused)"],
+            report.Lines());
+    }
+
+    [Fact]
     public async Task A_run_record_written_before_the_report_existed_still_reads()
     {
         using var dir = new TempDir();

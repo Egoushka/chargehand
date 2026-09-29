@@ -2,10 +2,11 @@ using Chargehand.Memory;
 
 namespace Chargehand.RunLog;
 
-/// <summary>Gathers what memory did while one run executed, for its <see cref="RunRecord"/>.</summary>
+/// <summary>Gathers what memory and services did while one run executed, for its <see cref="RunRecord"/>.</summary>
 internal sealed class ExtensionsCollector
 {
     private readonly List<MemoryReport> _memory = [];
+    private readonly List<ServiceReport> _services = [];
 
     public void Recalled(IEnumerable<SourceRecall> sources) =>
         _memory.AddRange(sources.Select(s => new MemoryReport(s.Source, s.Items.Count, s.SkippedReason, 0, null)));
@@ -17,6 +18,8 @@ internal sealed class ExtensionsCollector
                 _memory[i] = _memory[i] with { Retained = r.Claims, RetainSkipped = r.SkippedReason };
     }
 
+    public void Serviced(IEnumerable<ServiceReport> reports) => _services.AddRange(reports);
+
     /// <summary>Null when nothing was recorded, so a run without extensions writes the record it always did.</summary>
-    public ExtensionsReport? ToReport() => _memory.Count == 0 ? null : new ExtensionsReport([.. _memory], []);
+    public ExtensionsReport? ToReport() => _memory.Count + _services.Count == 0 ? null : new ExtensionsReport([.. _memory], [.. _services]);
 }

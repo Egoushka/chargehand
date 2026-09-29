@@ -260,7 +260,7 @@
           "transport": {
             "enum": ["auto", "streamable-http", "sse"],
             "default": "auto",
-            "description": "auto tries Streamable HTTP, then falls back to SSE if the server does not support it. Name sse for a server that only speaks the older SSE transport (skips the failed first attempt), or streamable-http to never fall back."
+            "description": "auto tries Streamable HTTP, then falls back to SSE if the server does not support it. Name sse for a server that only speaks the older SSE transport (skips the failed first attempt), or streamable-http to never fall back. A worker granted this server through a preset's services gets Streamable HTTP for auto, since its runtime cannot fall back: name sse for an SSE-only server."
           },
           "headers": {
             "type": "object",
