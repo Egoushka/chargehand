@@ -2,7 +2,7 @@
   "mcpServers": {
     "chargehand": {
       "command": "dotnet",
-      "args": ["dnx", "Chargehand@0.4.0", "--yes", "--", "mcp"]
+      "args": ["dnx", "Chargehand@0.4.1", "--yes", "--", "mcp"]
     }
   }
 }
