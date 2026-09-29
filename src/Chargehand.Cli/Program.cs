@@ -34,6 +34,7 @@ const string Usage = """
       routes [run-log.jsonl ...]   routing report per preset, node kind and model; suggestions only
       score <run-id> <0-1> [name]  records a hand score for a run (name defaults to quality)
       eval seed <cell> <run-id>... proposes eval items (JSONL on stdout) from runs in the log, for review
+      eval support <examples.jsonl> runs the support judge over labelled claims and prints agreement and every miss
       eval push <cell>             pushes reviewed items (JSONL on stdin) to the cell's Langfuse dataset
       eval gate <base> <change> [--cells a,b] [--changed-files f] [--pr-body f] [--name n] [--cells-file f]
                                    [--change-cells-file f] [--allow-uncovered]
@@ -122,6 +123,8 @@ switch (argv)
         await Evals().PushAsync(cell.Dataset, items, ct);
         Console.WriteLine($"{items.Count} items -> dataset {cell.Dataset}");
         return 0;
+    case ["eval", "support", var examplesFile]:
+        return await EvalSupport(examplesFile);
     case ["eval", "gate", var baseRoot, var changeRoot, .. var options]:
         return await EvalGate(Path.GetFullPath(baseRoot), Path.GetFullPath(changeRoot), options);
     case ["prompts", "sync"]:
@@ -164,6 +167,15 @@ async Task<int> Run()
 
     Console.WriteLine(JsonSerializer.Serialize(result, new JsonSerializerOptions(ContractJson.Options) { WriteIndented = true }));
     return result.Status switch { ResultStatus.Completed => 0, ResultStatus.NeedsInput => 3, _ => 1 };
+}
+
+async Task<int> EvalSupport(string examplesFile)
+{
+    var (runtime, _) = await Connect();
+    var outcomes = await SupportEval.RunAsync(runtime, Orchestrator.ParseModel(profile.IntakeModel), SupportEval.Load(examplesFile), ct);
+    Console.WriteLine($"judge model: {profile.IntakeModel ?? "the runtime's default"}");
+    Console.WriteLine(SupportEval.Report(outcomes));
+    return outcomes.All(o => o.Got is not null) ? 0 : 1;
 }
 
 async Task<int> Serve()
