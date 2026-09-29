@@ -31,7 +31,7 @@ The tests call no model. They run the orchestrator on a scripted runtime ([Scrip
 | [MCP tasks, `input_required` questions, and the run id before a client timeout](#mcp-tasks-input_required-questions-and-the-run-id-before-a-client-timeout) | works | [McpTests](../../tests/Chargehand.Tests/McpTests.cs), [ADR 0029](../adr/0029-mcp-run-id-before-a-client-timeout.md) |
 | [Server container image](#server-container-image) | partial | [Dockerfile](../../Dockerfile), [release.yml](../../.github/workflows/release.yml) |
 | [Prompt CI on prompt and preset changes](#prompt-ci-on-prompt-and-preset-changes) | partial | [GateTests](../../tests/Chargehand.Tests/GateTests.cs), [PromptCiTests](../../tests/Chargehand.Tests/PromptCiTests.cs) |
-| [Optional long-term memory (Hindsight)](#optional-long-term-memory-hindsight) | partial | [HindsightMemoryTests](../../tests/Chargehand.Tests/HindsightMemoryTests.cs), [ADR 0008](../adr/0008-memory-provider-contract.md) |
+| [Optional long-term memory (Hindsight)](#optional-long-term-memory-hindsight) | partial | [HindsightMemoryTests](../../tests/Chargehand.Tests/HindsightMemoryTests.cs), [MemoryStackTests](../../tests/Chargehand.Tests/MemoryStackTests.cs), [MemoryRunTests](../../tests/Chargehand.Tests/MemoryRunTests.cs), [ADR 0008](../adr/0008-memory-provider-contract.md) |
 | [Running with no profile file](#running-with-no-profile-file) | partial | [ProfileTests](../../tests/Chargehand.Tests/ProfileTests.cs), [ROADMAP.md](../../ROADMAP.md) |
 | [Claude Code plugin, `/chargehand:change`](#claude-code-plugin-chargehandchange) | partial | [ChangeSkillTests](../../tests/Chargehand.Tests/ChangeSkillTests.cs), [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs) |
 | [`Chargehand` and `Chargehand.Contracts` on nuget.org](#chargehand-and-chargehandcontracts-on-nugetorg) | works | [mcp-smoke.py](../../scripts/mcp-smoke.py), [release.yml](../../.github/workflows/release.yml), [README](../../README.md#from-the-package) |
@@ -161,7 +161,9 @@ What is missing: [Prompt CI](#prompt-ci).
 ### Optional long-term memory (Hindsight)
 
 - [HindsightMemoryTests](../../tests/Chargehand.Tests/HindsightMemoryTests.cs) checks the adapter's recall, retain and invalidate requests against a recording HTTP handler.
-- No test covers a run that recalls facts, and no benchmark measures one ([ADR 0008](../adr/0008-memory-provider-contract.md)).
+- [MemoryStackTests](../../tests/Chargehand.Tests/MemoryStackTests.cs) checks recall across several providers at once (labels by source, one line per fact, duplicates, limits, timeouts, every kind of provider failure).
+- [MemoryRunTests](../../tests/Chargehand.Tests/MemoryRunTests.cs) and [MemoryFailOpenTests](../../tests/Chargehand.Tests/MemoryFailOpenTests.cs) drive whole runs that recall, retain and survive a failing provider; the caller's own cancellation still stops the run.
+- No benchmark measures what recalled facts do to an answer ([ADR 0008](../adr/0008-memory-provider-contract.md)).
 
 What is missing: [Optional long-term memory](#optional-long-term-memory).
 
@@ -239,7 +241,7 @@ The gate runs and posts its status, and its coverage has holes:
 
 ### Optional long-term memory
 
-With the profile's `memory` block set, a run recalls facts once and adds them to each node's prompt as context the worker is told to check in the repository and never cite. A failed recall leaves the run without them, and retain stays off by default ([ADR 0008](../adr/0008-memory-provider-contract.md)). The only backend is a self-hosted Hindsight service (`memory.backend` accepts `hindsight`). Any MCP memory server, and several at once, belong to goal 0.6 in [ROADMAP.md](../../ROADMAP.md).
+With the profile's `memory` block set, a run recalls facts once and adds them to each node's prompt as context the worker is told to check in the repository and never cite. Each fact carries the name of the memory it came from (`hindsight` for the `memory` block), and `chargehand show` prints what each memory recalled and retained. A failed recall leaves the run without them, and retain stays off by default ([ADR 0008](../adr/0008-memory-provider-contract.md)). The only backend is a self-hosted Hindsight service (`memory.backend` accepts `hindsight`). Any MCP memory server, and several at once, belong to goal 0.6 in [ROADMAP.md](../../ROADMAP.md).
 
 ### Running with no profile file
 

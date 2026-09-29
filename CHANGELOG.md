@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Recalled facts now carry the name of the memory they came from, and the prompt header says so: `- [hindsight] Deploys
+  go through GitOps.` The chain block for recalled text is named `memory/recall/hindsight` instead of `memory/recall`.
+  A profile with the `memory` block behaves as before otherwise: one recall per run, retain off by default, the
+  30-second limit of the HTTP client. Recall now keeps at most 10 facts and 4000 characters, cuts a fact at 600
+  characters, and shows each fact as one line.
+- `chargehand show` prints one line per memory with what it recalled and retained, or why it was skipped, from a new
+  optional `extensions` report in the run record. The span tags for memory are per source
+  (`chargehand.memory.<name>.recalled` and `.error`) instead of `chargehand.memory.recalled` and
+  `chargehand.memory.error`. `result/v1` is unchanged.
+
 ## [0.4.1] - 2026-09-29
 
 Fixes found in use of 0.4.0 and the first pieces of goal 0.5, and the first version the MCP Registry can list, under
