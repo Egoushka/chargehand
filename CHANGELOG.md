@@ -7,8 +7,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-Goal 0.6: runs use your MCP services and memory. Memory and services are MCP servers you list in the profile; with none
-listed a run behaves as before. [Memory and services](docs/guide/memory-and-services.md) walks through the setup.
+## [0.6.0] - 2026-09-29
+
+Breaking: the single-object form of `memory` in the profile no longer loads. Memory is a list of MCP providers now, and a
+profile that still has the object fails with `memory is a list now` and a pointer to the guide. Move the memory
+service's MCP endpoint into `mcp_servers` and list the provider under `memory`; Removed below has the migration, and a
+profile without `memory` needs nothing.
+
+Goal 0.6 ([roadmap](ROADMAP.md)): runs use your MCP services and memory. Memory is an ordered list of MCP providers, each
+with a declarative mapping from recall, retain and invalidate onto the server's tools; recall asks all of them and
+stacks the facts with the name of the memory each came from. With `retain` on, a run stores only the claims whose
+citations resolved at its pinned commit. A preset can give its workers read-only tools from an MCP service, on Claude
+Code and on OpenCode, and `chargehand extensions check` tests the mappings and grants against the servers' real tool
+lists. With no server listed a run behaves as before. [Memory and services](docs/guide/memory-and-services.md) walks
+through the setup. The release also closes a hole in the OpenCode runtime: workers could start a checkout's own MCP
+servers and call any MCP tool. Project config is now disabled on the servers chargehand starts, and MCP tools are denied
+unless a preset grants them (Security; restart an OpenCode server you started earlier).
+
+There is no 0.5.0: goal 0.5's code shipped in 0.4.0, and what remains of its done-when is the maintainer's own use of
+`/chargehand:change` on real tasks, which is still open. The one schema change is additive: `preset/v1` gains the
+optional `services` field. `Chargehand.Contracts` has no code change and stays at 1.2.0-alpha, so this release does not
+publish it again; the published 1.2.0-alpha package predates `services`.
 
 ### Security
 
@@ -92,6 +111,9 @@ listed a run behaves as before. [Memory and services](docs/guide/memory-and-serv
   directory name when there is no `origin`. A run that retained nothing says why in `chargehand show`
   (`no commit`, `no claim qualified`). There is no confidence floor.
 - A command secret source that runs longer than 15 s is killed and the next source tried; the error says when one timed out.
+- The release workflow lets one run wait per tag. GitHub delivered the v0.4.1 tag push twice, so two runs waited at the
+  `release` environment's gate; a concurrency group per ref lets the later run cancel the earlier one, so one approval is
+  asked for. The `mcp-registry` job is unchanged.
 
 ### Removed
 
@@ -498,7 +520,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Egoushka/chargehand/compare/v0.4.1...v0.6.0
 [0.4.1]: https://github.com/Egoushka/chargehand/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Egoushka/chargehand/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Egoushka/chargehand/compare/v0.2.2...v0.3.0
