@@ -282,41 +282,169 @@
       }
     },
     "memory": {
+      "description": "Long-term memory (ADR 0034): an ordered list of providers, each an entry of mcp_servers plus a declarative mapping from chargehand's recall and retain to that server's tools. Each executed run asks every provider at once, each under its own timeout, and gives the merged facts to its nodes as unverified context labelled with the provider's name. The single-object form (Hindsight over HTTP) still loads, deprecated, until the Hindsight client is removed.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/memoryProvider" }
+        },
+        {
+          "type": "object",
+          "deprecated": true,
+          "additionalProperties": false,
+          "required": [
+            "backend",
+            "url",
+            "namespace"
+          ],
+          "description": "The single-object form (ADR 0008), replaced by the list above.",
+          "properties": {
+            "backend": {
+              "enum": [
+                "hindsight"
+              ]
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "namespace": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The backend's namespace (a Hindsight bank)."
+            },
+            "api_key_secret": {
+              "type": "string",
+              "description": "Secret-store item holding the API key, if the backend needs one."
+            },
+            "max_tokens": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Recall budget in tokens (default 1024)."
+            },
+            "retain": {
+              "type": "boolean",
+              "description": "Retain each completed run's claims whose file or commit citations resolved, with their locators, the repository and the commit; never the request or the summary (default false)."
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "memoryProvider": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "backend",
-        "url",
-        "namespace"
-      ],
-      "description": "Optional long-term memory (ADR 0008). When set, each executed run recalls facts for the request once and gives them to its nodes as unverified context.",
+      "required": ["name", "server", "tools"],
+      "description": "One memory provider. Its position in the list is its priority.",
       "properties": {
-        "backend": {
-          "enum": [
-            "hindsight"
-          ]
-        },
-        "url": {
+        "name": {
           "type": "string",
-          "format": "uri"
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Unique in the list. The label on the provider's facts in the prompt, and in the run log and traces."
+        },
+        "server": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "A key of mcp_servers."
         },
         "namespace": {
           "type": "string",
           "minLength": 1,
-          "description": "The backend's namespace (a Hindsight bank)."
+          "description": "The value of {namespace} in the tool arguments, e.g. a Hindsight bank. Default: name. Leave it out for a server with no banks."
         },
-        "api_key_secret": {
-          "type": "string",
-          "description": "Secret-store item holding the API key, if the backend needs one."
+        "tools": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["recall"],
+          "description": "The server's tools that give the provider its operations. recall is required; retain is required when retain is true; invalidate is optional and no run calls it.",
+          "properties": {
+            "recall": { "$ref": "#/$defs/memoryToolCall" },
+            "retain": { "$ref": "#/$defs/memoryToolCall" },
+            "invalidate": { "$ref": "#/$defs/memoryToolCall" }
+          }
         },
-        "max_tokens": {
+        "max_facts": {
           "type": "integer",
           "minimum": 1,
-          "description": "Recall budget in tokens (default 1024)."
+          "description": "Facts kept per recall (default 10). Also the value of {max_facts}."
+        },
+        "max_chars": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Characters kept per recall, all facts together (default 4000)."
+        },
+        "max_fact_chars": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Characters kept per fact; a longer one is cut with an ellipsis (default 600)."
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How long one recall or retain call may take before the provider is skipped (default 10)."
         },
         "retain": {
           "type": "boolean",
-          "description": "Retain each completed run's claims whose file or commit citations resolved, with their locators, the repository and the commit; never the request or the summary (default false)."
+          "default": false,
+          "description": "Write to this provider after a run: the claims whose file or commit citations resolved, with their locators, the repository and the commit; never the request or the summary. Needs tools.retain; a provider without one is recall-only."
+        },
+        "retain_tags": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Tags of a retained item (default [\"chargehand\"])."
+        }
+      },
+      "if": {
+        "required": ["retain"],
+        "properties": { "retain": { "const": true } }
+      },
+      "then": {
+        "properties": { "tools": { "required": ["retain"] } }
+      }
+    },
+    "memoryToolCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "arguments"],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The MCP tool to call."
+        },
+        "arguments": {
+          "type": "object",
+          "description": "The tool's arguments, as a template. A string that is exactly one placeholder is replaced by the value with its type ({tags} an array, {max_facts} an integer, {timestamp} an ISO 8601 string) and a null value drops the argument; a placeholder inside longer text is replaced as text; numbers and booleans are literal. Placeholders: recall {query} {namespace} {max_facts}; retain {namespace} {text} {context} {document_id} {timestamp} {tags}; invalidate {namespace} {id} {reason}. An unknown placeholder fails at load."
+        },
+        "results": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Recall only: how to read the answer. Without this block, the answer's results array is read and each element's id and text fields. A block that leaves out path reads the root.",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Dotted property names leading to the array of results in the answer (structuredContent, else the first text block parsed as JSON). Empty: the answer itself is the array."
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "default": "id",
+              "description": "The property of each element that holds its id. A missing id becomes a hash of the text."
+            },
+            "text": {
+              "description": "What makes a fact from an element (default \"text\"): a property name, a template over its properties (\"{date}: {summary}\"), or an ordered list of these. An entry is used only if every property it names is present and non-empty; the first that is used wins, and an element with none is skipped.",
+              "oneOf": [
+                { "type": "string", "minLength": 1 },
+                { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+              ]
+            },
+            "format": {
+              "enum": ["json", "text"],
+              "default": "json",
+              "description": "text takes the whole first text block of the answer as one fact and ignores path, id and text."
+            }
+          }
         }
       }
     }

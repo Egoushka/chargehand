@@ -268,7 +268,8 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
     return (runtime, runtime.Version);
 }
 
-MemoryStack? Memory() => profile.Memory is { } m
+// Only the single-object form builds a stack until the MCP memory adapter wires the provider list (goal 0.6).
+MemoryStack? Memory() => profile.Memory?.ObjectForm is { } m
     ? MemoryStack.ForObjectForm(m, new HindsightMemory(new HttpClient { BaseAddress = new Uri(m.Url), Timeout = TimeSpan.FromSeconds(30) },
         m.ApiKeySecret is null ? null : profile.Secret(m.ApiKeySecret), m.MaxTokens))
     : null;
