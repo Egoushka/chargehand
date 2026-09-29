@@ -7,6 +7,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-29
+
+Goal 0.4 ([roadmap](ROADMAP.md)): chargehand runs with nothing configured. No profile file is needed, the worker
+runtime is named or found on the machine, credentials come from environment variables or the CLI's own login, and the
+orchestrator ships as a `dnx` tool that speaks MCP over stdio. The release now publishes that tool, `Chargehand`, to
+nuget.org next to `Chargehand.Contracts`. The first pieces of goal 0.5 (the review preset, the Claude Code plugin and
+the change skill) are on main and in this tag; the plugin's server needs the published package.
+
+### Added
+
+- `chargehand mcp` serves the `orchestrate` tool over stdio, so an MCP client starts it itself; its child processes get
+  a closed stdin, and a caller receives the run id before its own timeout can fire.
+- The orchestrator packs as a `dnx` tool, `Chargehand`, with an MCP server manifest (`.mcp/server.json`, ADR 0027),
+  packed and started in CI by a smoke test. Prompts and presets are read from the install, and the run log goes to a
+  per-user default when no profile names one.
+- Runtime detection without a profile block: Claude Code connects on its own (and on the CLI's own login when no
+  credential variable is set), and an own OpenCode server is started when the profile has no `opencode` block. OpenCode
+  is pinned at 2.0.18.
+- CI fails on a breaking change to a published schema since the latest release tag (additive changes only).
+- The read-only `review` preset, the `chargehand` Claude Code plugin and its marketplace entry, and the change skill
+  (`/chargehand:change`, one prompt to a reviewed change), with an end-to-end check and a user guide under `docs/guide`.
+  A workflow that has chargehand review its own pull requests exists and stays off until `SELF_REVIEW=true`.
+- ADR 0033, the CI policy: one required `ci-gate` check, prose-only pull requests skip the build jobs, CodeQL and
+  Scorecard run weekly and on demand instead of on every pull request or push, and auto-merge is on.
+
 ### Changed
 
 - Profile is fully optional (ADR 0026): `Profile.Load` defaults an absent file rather than throwing; `worker_root`,
@@ -27,6 +52,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Every `result/v1` error now names a concrete `action`, and `repository_not_allowed` says how to fix it; a run with no
+  `repository_roots` allows the directory it was launched in.
 - With no profile, or a `models` map that does not name a preset's placeholder model (`provider/worker-model`,
   `provider/small-model`), the placeholder reached the agent CLI and every run failed. An unmapped placeholder is now
   unset, so the runtime uses its own default model, labelled `auto` in the prompt chain as for intake.
