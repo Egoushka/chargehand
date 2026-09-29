@@ -38,6 +38,9 @@ All notable changes to this project are documented here. The format follows
   with the selected model …`), scrubbed and cut at 300 characters, and every node failure — failed, rate limited,
   over budget, past its deadline, no valid result — carries an `action` saying what to change or where to look
   (`chargehand show <run id>`).
+- A worker that wrote `status: failed` in its own result block (a change request on a read-only preset, which runs as
+  an answer when intake's action is not in the preset) returned a failed result with no `error`, against ADR 0022. It
+  now carries `internal` with "the worker reported failed: <summary>" and an action.
 - Prompt CI crashed with an unhandled 404 when an eval cell's Langfuse dataset did not exist yet (a new cell, before
   its first `eval push`). A missing dataset now has no items, so the gate blocks with "0 items; the gate needs at
   least 8" instead.

@@ -109,7 +109,9 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         var usage = Usage(messages, r.Spec.Model);
         var error = contract is null || outcome != IdleOutcome.Succeeded
             ? Failure(outcome, messages, r, errors)
-            : null;
+            : contract.Status == ResultStatus.Failed
+                ? new ChargehandException(ErrorCode.Internal, $"the worker reported failed: {contract.Summary}", WorkerFailedAction(r)).Error
+                : null;
         contract = contract is null
             ? Failed(r, error!.Message, usage) with { Error = error }
             : contract with { Usage = usage, Status = outcome == IdleOutcome.Succeeded ? contract.Status : ResultStatus.Failed, Error = error };
@@ -288,6 +290,11 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         }
         return raw;
     }
+
+    /// <summary>A worker that writes status failed itself (ADR 0022 still wants an error): most often a change request
+    /// on a read-only preset, which runs as an answer when intake's action is not in the preset.</summary>
+    private static string WorkerFailedAction(NodeRequest r) =>
+        $"Read the summary: the worker could not do the task as asked. Ask for a change as a read-only question, or use a preset that allows it. `chargehand show {r.RunId}` prints the session.";
 
     private static string ActionOf(ErrorCode code, NodeRequest r) => code switch
     {
