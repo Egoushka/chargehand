@@ -242,10 +242,6 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
     private static List<WorkerMessage> Calls(IReadOnlyList<WorkerMessage> messages) =>
         messages.Where(m => m.Kind == WorkerMessageKind.Assistant && m.Tokens is not null).OrderBy(m => m.Created).ToList();
 
-    /// <summary>
-    /// Why a node failed, from what the watcher and the deadline leave behind: an interrupt over the USD cap or the token
-    /// budget is the cap, any other interrupt the deadline; a turn that ended without a valid contract is invalid_result.
-    /// </summary>
     /// <summary>What the caller can branch on: the code, the provider's reason when a message carries one, and what to do.</summary>
     private ResultError Failure(IdleOutcome outcome, IReadOnlyList<WorkerMessage> messages, NodeRequest r, IReadOnlyList<string> errors)
     {
@@ -318,6 +314,10 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         _ => $"Fix the cause named in the message (a model, credential or provider setting), then retry. `chargehand show {r.RunId}` prints the session.",
     };
 
+    /// <summary>
+    /// Why a node failed, from what the watcher and the deadline leave behind: an interrupt over the USD cap or the token
+    /// budget is the cap, any other interrupt the deadline; a turn that ended without a valid contract is invalid_result.
+    /// </summary>
     private ErrorCode ErrorOf(IdleOutcome outcome, IReadOnlyList<WorkerMessage> messages, NodeRequest r) => outcome switch
     {
         IdleOutcome.Succeeded => ErrorCode.InvalidResult,

@@ -6,7 +6,8 @@
 # on the runner completes.
 #
 # usage: scripts/self-review.sh <base> <head>   (the diff is base...head: head's changes since the merge base)
-# env: CHARGEHAND_PROFILE  profile for the run (required: the presets' placeholder model ids need its models map)
+# env: CHARGEHAND_PROFILE  profile for the run (this script requires one; its models map is optional, as an unmapped
+#                          placeholder model runs on the runtime's default model)
 #      CHARGEHAND_RUNTIME  optional, picks the worker runtime when the profile allows more than one
 #
 # The runner needs: the .NET SDK from global.json, jq, the worker runtime the profile names (a reachable OpenCode
