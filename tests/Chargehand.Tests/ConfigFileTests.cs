@@ -41,6 +41,15 @@ public class ConfigFileTests
         }
     }
 
+    /// <summary>Spec decision 2: naked by default. Services belong to a user's own preset; the guide shows one.</summary>
+    [Theory]
+    [MemberData(nameof(Presets))]
+    public void Shipped_presets_list_no_services(string file)
+    {
+        var preset = Chargehand.Config.Preset.Load(Repo.Path("presets"), file[..^5]);
+        Assert.All(preset.NodeKinds.Values, k => Assert.True(k.Services is null or { Count: 0 }));
+    }
+
     /// <summary>
     /// ADR 0006: no preset gives a worker the shell tool. OpenCode 2.0.16 drops a tool from the catalog when the last
     /// rule whose action matches it is "* deny"; any shell allow after that would match quoting-dependent source text.

@@ -48,12 +48,44 @@ public enum PermissionDecision { Once, Reject }
 
 /// <summary>Everything fixed at node creation. Directory must lie outside the runtime user's home (ADR 0003).</summary>
 /// <param name="Model">Null: the runtime's own default model (ADR 0026).</param>
+/// <param name="Services">The MCP services the preset granted this node (ADR 0034), resolved for the run; null or empty: none.
+/// A runtime hands each grant's server to the worker and lets it call the granted tools only.</param>
 public sealed record NodeSpec(
     string Directory,
     string Agent,
     ModelRef? Model,
     IReadOnlyList<PermissionRule> Permissions,
-    IReadOnlyDictionary<string, string> Metadata);
+    IReadOnlyDictionary<string, string> Metadata,
+    IReadOnlyList<ServiceGrant>? Services = null);
+
+/// <summary>An MCP server the worker may use and the tools of it that it may call (ADR 0034), as resolved for one run.</summary>
+/// <param name="Server">The profile's name for the server; the worker's runtime names the server that way.</param>
+/// <param name="Tools">The granted tool names, sorted; every other tool of the server stays refused.</param>
+/// <param name="Sha256">Hash of the granted tools' names, descriptions and input schemas; part of <c>as_sent.tools_sha256</c>.</param>
+public sealed record ServiceGrant(string Server, ServiceTransport Transport, IReadOnlyList<string> Tools, string Sha256);
+
+/// <summary>How a runtime reaches a granted server, with the profile's <c>{secret:item}</c> values already replaced.
+/// <c>ToString</c> of every case hides header and environment values, so a grant can be logged.</summary>
+public abstract record ServiceTransport;
+
+/// <summary>A server at a URL. <see cref="Protocol"/> is what a runtime whose config names the protocol writes (Claude Code:
+/// <c>http</c> or <c>sse</c>); OpenCode's <c>remote</c> entry needs no protocol.</summary>
+public sealed record HttpServiceTransport(Uri Url, IReadOnlyDictionary<string, string> Headers, HttpServiceProtocol Protocol = HttpServiceProtocol.StreamableHttp) : ServiceTransport
+{
+    public override string ToString() => $"{nameof(HttpServiceTransport)} {{ Protocol = {Protocol}, Headers = [{string.Join(", ", Headers.Keys)}] }}";
+}
+
+/// <summary>A server the runtime starts as a child process. <see cref="Env"/> is only what the profile declares: the runtime
+/// adds it to the environment it gives the child.</summary>
+public sealed record StdioServiceTransport(IReadOnlyList<string> Command, IReadOnlyDictionary<string, string> Env) : ServiceTransport
+{
+    public override string ToString() => $"{nameof(StdioServiceTransport)} {{ Command = {(Command.Count > 0 ? Command[0] : "")}, Env = [{string.Join(", ", Env.Keys)}] }}";
+}
+
+/// <summary>The wire protocol of an HTTP MCP server. A profile server whose <c>transport</c> is <c>auto</c> (or unset) is
+/// <see cref="StreamableHttp"/> for a worker: chargehand's own client falls back to SSE, a runtime's config cannot, so a
+/// legacy SSE server must say <c>sse</c> in the profile for workers to reach it.</summary>
+public enum HttpServiceProtocol { StreamableHttp, Sse }
 
 public sealed record WorkerSession(string Id, string Directory);
 

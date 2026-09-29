@@ -10,8 +10,8 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - `mcp_servers` in the profile (ADR 0034): MCP servers by name, over Streamable HTTP, the older SSE transport
-  (`"transport": "sse"`) or stdio, with `{secret:item}` in header and environment values. Nothing reads them yet; goal
-  0.6's memory and services will.
+  (`"transport": "sse"`) or stdio, with `{secret:item}` in header and environment values. A preset's `services` read them
+  (below); goal 0.6's memory adapter will too.
 - `memory` in the profile may be a list of providers (ADR 0034). Each entry names an `mcp_servers` entry and maps recall,
   retain and invalidate onto that server's tools: argument templates with `{query}`, `{namespace}`, `{max_facts}`,
   `{text}` and the like, and a `results` mapping that says where the facts are in the answer (`path`, `id`, and `text` as a
@@ -19,6 +19,12 @@ All notable changes to this project are documented here. The format follows
   recall-only, and `namespace` defaults to the entry's name. A mapping that names an unknown server or placeholder, or
   misses its recall tool, fails when the profile loads. The single-object form still loads and is deprecated. Nothing
   reads the list yet; the MCP memory adapter will.
+- `services` on a preset's node kind (`preset/v1`, an additive field; ADR 0034): a server from `mcp_servers` and the
+  tool names workers may call, exact or with `*` globs, never a whole server. At the start of a run chargehand connects,
+  lists the server's tools and grants the ones named. A server, secret or tool that does not resolve is dropped, not fatal:
+  `chargehand show` prints one `service` line each, with the span tags `chargehand.service.<name>.granted` and `.issues`.
+  `as_sent.tools_sha256` covers the granted tools and is unchanged when there are none. The Claude Code and OpenCode
+  runtimes do not hand the grant to workers yet, and no shipped preset lists services.
 
 ### Changed
 

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Chargehand.Config;
+using Chargehand.Runtime;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
@@ -59,6 +60,23 @@ public sealed class McpConnectionPool : IAsyncDisposable
         _clients.TryRemove(KeyValuePair.Create(server, entry));
         await client.DisposeAsync();
         return (await OpenOrShareAsync(server, ct)).Client;
+    }
+
+    /// <summary>
+    /// What a worker's runtime needs to reach a profile server itself (ADR 0034): the URL or command, with every
+    /// <c>{secret:item}</c> value replaced. Nothing connects. A <c>transport</c> of <c>auto</c> (or none) is Streamable HTTP
+    /// here; a runtime's config cannot fall back to SSE as this pool's client does. Blocks while a command secret source runs.
+    /// </summary>
+    /// <exception cref="McpUnavailableException">The server is not listed, or a secret it needs is unresolved.</exception>
+    public ServiceTransport Transport(string server)
+    {
+        if (!_servers.TryGetValue(server, out var settings))
+            throw new McpUnavailableException(McpUnavailableException.UnknownServer, server, "no such server in mcp_servers");
+        var secret = SecretReader(server);
+        return settings.Url is not null
+            ? new HttpServiceTransport(new Uri(settings.Url), Resolved(settings.Headers, secret),
+                settings.Transport == McpServerSettings.TransportSse ? HttpServiceProtocol.Sse : HttpServiceProtocol.StreamableHttp)
+            : new StdioServiceTransport(settings.Command!, Resolved(settings.Env, secret));
     }
 
     public async ValueTask DisposeAsync()
@@ -124,30 +142,16 @@ public sealed class McpConnectionPool : IAsyncDisposable
         IClientTransport? transport = null;
         try
         {
-            var read = new Dictionary<string, string>();
-            string Secret(string item)
-            {
-                if (read.TryGetValue(item, out var known))
-                    return known;
-                try
-                {
-                    return read[item] = _secret(item);
-                }
-                catch (Exception e) when (e is not OperationCanceledException)
-                {
-                    throw new McpUnavailableException(McpUnavailableException.SecretUnresolved, name,
-                        e is InvalidOperationException ? e.Message : $"secret '{item}' could not be read ({e.GetType().Name})");
-                }
-            }
+            var secret = SecretReader(name);
 
             // Every secret first, off the caller's thread (a command source can take its full time limit): none left means no connection.
             await Task.Run(() =>
             {
                 foreach (var template in (settings.Headers?.Values ?? []).Concat(settings.Env?.Values ?? []))
-                    SecretTemplate.Resolve(template, Secret);
+                    SecretTemplate.Resolve(template, secret);
             }, CancellationToken.None);
             transport = _transports is null
-                ? settings.Url is not null ? new HttpClientTransport(HttpOptions(name, settings, Secret)) : new StdioClientTransport(StdioOptions(name, settings, Secret))
+                ? settings.Url is not null ? new HttpClientTransport(HttpOptions(name, settings, secret)) : new StdioClientTransport(StdioOptions(name, settings, secret))
                 : await _transports(name, settings, attempt.Token);
             var client = await McpClient.CreateAsync(transport, ClientOptions, cancellationToken: attempt.Token);
             if (!_closing.IsCancellationRequested)
@@ -164,6 +168,29 @@ public sealed class McpConnectionPool : IAsyncDisposable
                 e is OperationCanceledException ? $"did not connect within {_connectTimeout.TotalSeconds:0.#} s" : e.Message);
         }
     }
+
+    /// <summary>The profile's secrets for one server: each item is read once, and a failure names the item, never a value.</summary>
+    private Func<string, string> SecretReader(string server)
+    {
+        var read = new Dictionary<string, string>();
+        return item =>
+        {
+            if (read.TryGetValue(item, out var known))
+                return known;
+            try
+            {
+                return read[item] = _secret(item);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                throw new McpUnavailableException(McpUnavailableException.SecretUnresolved, server,
+                    e is InvalidOperationException ? e.Message : $"secret '{item}' could not be read ({e.GetType().Name})");
+            }
+        };
+    }
+
+    private static Dictionary<string, string> Resolved(IReadOnlyDictionary<string, string>? values, Func<string, string> secret) =>
+        (values ?? new Dictionary<string, string>()).ToDictionary(v => v.Key, v => SecretTemplate.Resolve(v.Value, secret));
 
     private static async Task DisposeQuietlyAsync(IClientTransport? transport)
     {
