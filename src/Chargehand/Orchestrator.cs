@@ -21,7 +21,7 @@ namespace Chargehand;
 
 /// <summary>Request → intake → action: stop (ask, improve, deny, approval) or run one node (answer) or a task graph (split) → result/v1.</summary>
 /// <param name="promptVersions">Langfuse prompt versions by block sha256, for linking spans; may be empty.</param>
-/// <param name="memory">Long-term memory from the profile, or null (ADR 0008).</param>
+/// <param name="memory">Long-term memory from the profile, one source or several, or null (ADR 0008, ADR 0026).</param>
 public sealed class Orchestrator(
     Profile profile,
     IWorkerRuntime runtime,
@@ -29,7 +29,7 @@ public sealed class Orchestrator(
     string rootDirectory,
     IRunLog runLog,
     IReadOnlyDictionary<string, int> promptVersions,
-    IMemoryProvider? memory = null)
+    MemoryStack? memory = null)
 {
     public const string NodeKindName = "worker";
 
@@ -47,6 +47,7 @@ public sealed class Orchestrator(
         var traceId = run?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
         run?.SetTag("langfuse.trace.name", "chargehand.run");
         run?.SetTag("chargehand.run_id", runId);
+        var extensions = new ExtensionsCollector();
         await runLog.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId, parentRunId), ct);
         progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Started));
 
@@ -126,7 +127,7 @@ public sealed class Orchestrator(
                         [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
                     _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
                         $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
-                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, progress, ct),
+                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, ct),
                 };
             }
         }
@@ -142,7 +143,7 @@ public sealed class Orchestrator(
         run?.SetTag("chargehand.intake.action", intake?.Spec is null ? null : Name(intake.Spec.Action));
         run?.SetTag("chargehand.action", executed is null ? null : Name(executed.Value));
         await runLog.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, presetName, intake?.Spec is null ? null : Name(intake.Spec.Action), intake?.Spec, result,
-            executed is null ? null : Name(executed.Value)), ct);
+            executed is null ? null : Name(executed.Value), extensions.ToReport()), ct);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
     }
@@ -154,7 +155,7 @@ public sealed class Orchestrator(
     /// <summary>Runs the plan's nodes (one for answer) and returns the node's contract, or the merged one for a split.</summary>
     private async Task<ResultContract> Execute(RunRequest request, TaskSpec spec, IReadOnlyList<PlanNode> plan, string kindName, NodeKind kind, string? workerModel,
         IReadOnlyList<(string Key, string Value)> instructions, PromptChain chain, IReadOnlyList<PromptBlock> callerBlocks, string runId, string traceId,
-        Activity? run, Action<RunStatus>? progress, CancellationToken ct)
+        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, CancellationToken ct)
     {
         var (directory, commit) = kind.Checkout
             ? await Checkout(request.Context.Repository!, kind, ct)
@@ -167,10 +168,10 @@ public sealed class Orchestrator(
         // Unset (ADR 0026): labelled "auto" in the run log, as for intake, when the runtime reports no model for a call.
         var modelLabel = workerModel ?? "auto";
         // Recalled facts go in the prompt text, after the task (ADR 0007 order; ADR 0010 keeps instructions fixed, so
-        // siblings still fork). The chain records them as a runtime block.
-        var facts = await Recall(request.Text, run, ct);
-        if (facts.Length > 0)
-            chain = chain with { Blocks = [.. chain.Blocks, new ChainBlock("memory/recall", "1", PromptBlock.Hash(facts), BlockSource.Runtime)] };
+        // siblings still fork). The chain records them as one runtime block per source that contributed.
+        var recall = await Recall(request.Text, run, extensions, ct);
+        var facts = recall.Prompt;
+        chain = chain with { Blocks = [.. chain.Blocks, .. recall.Blocks] };
 
         async Task<NodeResult> RunNode(PlanNode node, IReadOnlyList<ResultContract> upstream, ForkPoint? fork, TaskCompletionSource<ForkPoint?>? primed, CancellationToken token)
         {
@@ -232,46 +233,31 @@ public sealed class Orchestrator(
 
         var outcomes = await new GraphRunner().RunAsync(plan, RunNode, Failed, ct);
         var result = plan.Count == 1 ? outcomes[0].Contract : ResultMerger.Merge(runId, traceId, chain, outcomes);
-        if (memory is not null && profile.Memory!.Retain && result.Status == ResultStatus.Completed)
-            try
-            {
-                await memory.RetainAsync(new MemoryItem($"{request.Text}\n{result.Summary}\n{string.Join("\n", result.Claims.Select(c => $"- {c.Text}"))}",
-                    "chargehand run result", DateTimeOffset.UtcNow, runId, ["chargehand"]), MemoryScopeOf(profile.Memory), ct);
-            }
-            catch (Exception e) when (MemoryFailedOpen(e, ct))
-            {
-                // Memory fails open (ADR 0008): a failed retain never fails a completed run.
-                run?.SetTag("chargehand.memory.error", e.Message);
-            }
+        if (memory is not null && result.Status == ResultStatus.Completed)
+        {
+            // Memory fails open (ADR 0008): the stack reports a failed retain instead of throwing it, so a completed run stays completed.
+            var reports = await memory.RetainAsync(new MemoryItem($"{request.Text}\n{result.Summary}\n{string.Join("\n", result.Claims.Select(c => $"- {c.Text}"))}",
+                "chargehand run result", DateTimeOffset.UtcNow, runId, ["chargehand"]), ct);
+            extensions.Retained(reports);
+            foreach (var r in reports.Where(r => r.SkippedReason is not null))
+                run?.SetTag($"chargehand.memory.{r.Source}.retain_error", r.SkippedReason);
+        }
         return result;
     }
 
-    private static MemoryScope MemoryScopeOf(MemorySettings m) => new(m.Backend, m.Namespace);
-
-    /// <summary>
-    /// Whatever a provider throws is a memory failure, not a run failure: an HTTP error, the client's own timeout
-    /// (a <see cref="TaskCanceledException"/> the caller's token did not raise), an unreadable body, a broken pipe.
-    /// Only the caller's own cancellation goes on to stop the run.
-    /// </summary>
-    private static bool MemoryFailedOpen(Exception e, CancellationToken ct) => !(e is OperationCanceledException && ct.IsCancellationRequested);
-
-    /// <summary>Memory is optional context: a failed recall leaves the run without it rather than failing it.</summary>
-    private async Task<string> Recall(string query, Activity? run, CancellationToken ct)
+    /// <summary>Memory is optional context: a source that fails leaves the run without its facts rather than failing it.</summary>
+    private async Task<RecallOutcome> Recall(string query, Activity? run, ExtensionsCollector extensions, CancellationToken ct)
     {
         if (memory is null)
-            return "";
-        try
-        {
-            var items = await memory.RecallAsync(query, MemoryScopeOf(profile.Memory!), ct);
-            run?.SetTag("chargehand.memory.recalled", items.Count);
-            return items.Count == 0 ? "" : "\nFacts from long-term memory (unverified; check them in the repository and cite files, never these):\n"
-                + string.Join("\n", items.Select(i => $"- {i.Text}")) + "\n";
-        }
-        catch (Exception e) when (MemoryFailedOpen(e, ct))
-        {
-            run?.SetTag("chargehand.memory.error", e.Message);
-            return "";
-        }
+            return new RecallOutcome([], "", []);
+        var outcome = await memory.RecallAsync(query, ct);
+        extensions.Recalled(outcome.Sources);
+        foreach (var s in outcome.Sources)
+            if (s.SkippedReason is { } reason)
+                run?.SetTag($"chargehand.memory.{s.Source}.error", reason);
+            else
+                run?.SetTag($"chargehand.memory.{s.Source}.recalled", s.Items.Count);
+        return outcome;
     }
 
     private static string Name<T>(T value) where T : struct, Enum => value.ToString().ToLowerInvariant();

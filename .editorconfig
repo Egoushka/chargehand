@@ -15,6 +15,8 @@ csharp_style_var_for_built_in_types = true:suggestion
 dotnet_sort_system_directives_first = true
 # CA1716: names such as IPromptRegistry.Get clash only with Visual Basic keywords; this is a C# code base.
 dotnet_diagnostic.CA1716.severity = none
+# CA1711: MemoryStack is a stack of memory sources (ADR 0026), not a collection type.
+dotnet_diagnostic.CA1711.severity = none
 
 [tests/**.cs]
 # Test names are sentences with underscores, and tests call ports through their interfaces on purpose.

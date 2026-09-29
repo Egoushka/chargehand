@@ -51,4 +51,33 @@ public class RunLogTests
         var all = await new JsonlRunLog(path).ReadAllAsync(CancellationToken.None);
         Assert.Equal(200, all.Scores.Select(s => s.RunId).Distinct().Count());
     }
+
+    [Fact]
+    public async Task An_extensions_report_round_trips_and_prints_one_line_per_source()
+    {
+        using var dir = new TempDir();
+        var log = new JsonlRunLog(System.IO.Path.Combine(dir.Path, "log.jsonl"));
+        var chain = new PromptChain([], new AsSent("v", "build", "m", "2026-09-29"));
+        var result = new ResultContract("result/v1", "run-x", "n1", new string('0', 32), chain, ResultStatus.Completed, "s", [], [], [], [], 0.5, new Usage(0, 0, 0, 0, 0));
+        var report = new ExtensionsReport([new MemoryReport("notes", 2, null, 1, null), new MemoryReport("broken", 0, "timed out after 10 s", 0, "not retained")], []);
+        await log.AppendAsync(new RunRecord("run-x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "cheap", "answer", null, result, "answer", report), CancellationToken.None);
+
+        var stored = (await log.ReadAsync("run-x", CancellationToken.None)).Run!.Extensions!;
+
+        Assert.Equal(2, stored.Memory[0].Recalled);
+        Assert.Equal(["memory notes: recalled 2, retained 1", "memory broken: recall skipped (timed out after 10 s), retain skipped (not retained)"], stored.Lines());
+    }
+
+    [Fact]
+    public async Task A_run_record_written_before_the_report_existed_still_reads()
+    {
+        using var dir = new TempDir();
+        var path = System.IO.Path.Combine(dir.Path, "log.jsonl");
+        var chain = new PromptChain([], new AsSent("v", "build", "m", "2026-09-29"));
+        var result = new ResultContract("result/v1", "run-y", "n1", new string('0', 32), chain, ResultStatus.Completed, "s", [], [], [], [], 0.5, new Usage(0, 0, 0, 0, 0));
+        var log = new JsonlRunLog(path);
+        await log.AppendAsync(new RunRecord("run-y", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "cheap", "answer", null, result), CancellationToken.None);
+
+        Assert.Null((await log.ReadAsync("run-y", CancellationToken.None)).Run!.Extensions);
+    }
 }
