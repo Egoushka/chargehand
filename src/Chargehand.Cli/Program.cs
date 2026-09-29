@@ -218,7 +218,7 @@ EvalCell Cell(string name) =>
 
 async Task<(IWorkerRuntime Runtime, string Version)> Connect()
 {
-    var kind = RuntimeSelector.Select(profile.Runtime, Environment.GetEnvironmentVariable("CHARGEHAND_RUNTIME"), RuntimeSelector.OnPath);
+    var kind = RuntimeSelector.Select(profile.Runtime, Environment.GetEnvironmentVariable("CHARGEHAND_RUNTIME"), RuntimeSelector.OnPath, profile.RuntimeBlocks);
     if (kind == RuntimeKind.ClaudeCode)
     {
         var cc = profile.ClaudeCode ?? ClaudeCodeSettings.Detect(item =>

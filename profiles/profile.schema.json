@@ -20,7 +20,7 @@
         "opencode",
         "claude_code"
       ],
-      "description": "Names the runtime to drive (ADR 0026); wins over CHARGEHAND_RUNTIME. Unset: PATH is probed for a known agent CLI — none found or more than one found is an error."
+      "description": "Names the runtime to drive (ADR 0026); wins over CHARGEHAND_RUNTIME. Unset: the profile's only runtime block (opencode or claude_code) names it (ADR 0032); with none or both, PATH is probed for a known agent CLI — none found or more than one found is an error."
     },
     "secrets": {
       "type": "array",

@@ -15,8 +15,9 @@ All notable changes to this project are documented here. The format follows
   arrays, first success wins) — **a profile still carrying `"secret_store": "keychain"` needs a one-line migration**
   to `"secrets": [{"env": true}, {"command": ["security", "find-generic-password", "-s", "{item}", "-w"]}]` (see
   `profiles/example.json`).
-- The worker runtime is chosen by a `RuntimeSelector`: a profile's `runtime` field or `CHARGEHAND_RUNTIME` wins;
-  otherwise `PATH` is probed for a known agent CLI. No agent CLI found is `runtime_unavailable`; more than one found
+- The worker runtime is chosen by a `RuntimeSelector`: a profile's `runtime` field or `CHARGEHAND_RUNTIME` wins,
+  then the profile's only runtime block (`opencode` or `claude_code`), so an existing profile keeps its runtime
+  (ADR 0032); otherwise `PATH` is probed for a known agent CLI. No agent CLI found is `runtime_unavailable`; more than one found
   is a new `runtime_ambiguous` error naming every CLI seen — no silent priority order.
 - `IPriceTable.PriceUsd` returns `decimal?`: an unpriced model's cost is unknown, not a silent `$0`. The run's USD
   cap cannot fire on an unpriced model; the per-node-kind token budgets remain the real guardrail. `result/v1`'s

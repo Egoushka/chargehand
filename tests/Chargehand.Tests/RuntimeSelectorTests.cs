@@ -3,7 +3,8 @@ using Chargehand.Runtime;
 
 namespace Chargehand.Tests;
 
-/// <summary>Which runtime to drive (ADR 0026): a profile field or environment variable names one; otherwise PATH is probed.</summary>
+/// <summary>Which runtime to drive (ADR 0026, ADR 0032): a profile field or environment variable names one, then a
+/// profile's only runtime block; otherwise PATH is probed.</summary>
 public class RuntimeSelectorTests
 {
     private static bool None(string binary) => false;
@@ -15,6 +16,18 @@ public class RuntimeSelectorTests
     [Fact]
     public void An_environment_variable_wins_when_the_profile_names_none() =>
         Assert.Equal(RuntimeKind.Opencode, RuntimeSelector.Select(null, "opencode", _ => throw new InvalidOperationException("PATH should not be probed")));
+
+    [Fact]
+    public void A_single_runtime_block_in_the_profile_names_that_runtime() =>
+        Assert.Equal(RuntimeKind.Opencode, RuntimeSelector.Select(null, null, _ => throw new InvalidOperationException("PATH should not be probed"), [RuntimeKind.Opencode]));
+
+    [Fact]
+    public void An_environment_variable_wins_over_a_runtime_block() =>
+        Assert.Equal(RuntimeKind.ClaudeCode, RuntimeSelector.Select(null, "claude_code", _ => throw new InvalidOperationException("PATH should not be probed"), [RuntimeKind.Opencode]));
+
+    [Fact]
+    public void Two_runtime_blocks_name_neither_so_path_decides() =>
+        Assert.Equal(RuntimeKind.ClaudeCode, RuntimeSelector.Select(null, null, binary => binary == "claude", [RuntimeKind.Opencode, RuntimeKind.ClaudeCode]));
 
     [Fact]
     public void Naming_an_unknown_runtime_is_an_invalid_request()
