@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A worker session that ended `failed` with no assistant message and no error text (OpenCode drops the session before
+  any model call when the model is one its server does not declare) returned a bare "worker ended failed" with a
+  generic action, and the reason was only in the server's log. The error now says the server ended the session before
+  any model call, and its `action` points at the OpenCode server's log and names the model the run asked for, to check
+  against the server's models and the profile's `models` map (or says no model was mapped).
+
 ## [0.4.0] - 2026-09-29
 
 Goal 0.4 ([roadmap](ROADMAP.md)): chargehand runs with nothing configured. No profile file is needed, the worker
