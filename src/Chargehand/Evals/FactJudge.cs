@@ -14,7 +14,7 @@ namespace Chargehand.Evals;
 /// </summary>
 public static class FactJudge
 {
-    public static async Task<FactCheck> JudgeAsync(IWorkerRuntime runtime, ModelRef model, ResultContract result, IReadOnlyList<string> facts,
+    public static async Task<FactCheck> JudgeAsync(IWorkerRuntime runtime, ModelRef? model, ResultContract result, IReadOnlyList<string> facts,
         IReadOnlyList<string> wrong, CancellationToken ct)
     {
         var prompt = Prompt(result, facts, wrong);
@@ -38,10 +38,10 @@ public static class FactJudge
             sb.Append("- ").AppendLine(claim.Text);
         sb.AppendLine().AppendLine("Facts:");
         for (var i = 0; i < facts.Count; i++)
-            sb.AppendLine($"F{i + 1}. {facts[i]}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"F{i + 1}. {facts[i]}");
         sb.AppendLine().AppendLine("Statements known to be false:");
         for (var i = 0; i < wrong.Count; i++)
-            sb.AppendLine($"W{i + 1}. {wrong[i]}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"W{i + 1}. {wrong[i]}");
         return sb.AppendLine()
             .AppendLine("A fact is stated when the answer says it, or something that plainly implies it, in any wording. A fact with several parts is stated only when every part is. A false statement is repeated when the answer asserts it.")
             .AppendLine("""Reply with one JSON object only, listing numbers without their letter, for example {"stated": [1, 3], "repeated": [2]}; use [] when none.""")
