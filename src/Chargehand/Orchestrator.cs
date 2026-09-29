@@ -203,11 +203,13 @@ public sealed class Orchestrator(
                 kind.Budget.MaxInputTokens, kind.Compaction?.TriggerTokens, fork,
                 workspace is null ? null : async (_, token) =>
                 {
-                    // Resolved on each check: the worker may have added the build file it needs.
-                    verifyPlan = VerifyCommand.Resolve(request.Context.Verify, workspace.Directory);
+                    // Run on a copy of what would be committed: what the tests write stays out of the branch. Resolved on each
+                    // check, since the worker may have added the build file it needs.
+                    using var tree = await workspace.ExportAsync(token);
+                    verifyPlan = VerifyCommand.Resolve(request.Context.Verify, tree.Directory);
                     if (verifyPlan is null)
                         return null;
-                    lastCheck = await verifier!.RunAsync(verifyPlan, workspace.Directory, TimeSpan.FromSeconds(verify.TimeoutSeconds), token);
+                    lastCheck = await verifier!.RunAsync(verifyPlan, tree.Directory, TimeSpan.FromSeconds(verify.TimeoutSeconds), token);
                     attempts++;
                     return lastCheck.Passed ? null : ChangeRun.Feedback(lastCheck, attempts, verifier.Network);
                 },

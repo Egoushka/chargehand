@@ -92,4 +92,29 @@ public class RunWorkspaceTests
         Assert.True(System.Text.Encoding.UTF8.GetByteCount(diff) <= 65536);
         Assert.EndsWith("[diff truncated at 65536 bytes]", diff, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task An_export_holds_what_a_commit_would_and_leaves_the_workspace_alone()
+    {
+        var (root, _, ws) = await Make();
+        using var _r = root;
+        File.WriteAllText(Path.Combine(ws.Directory, "new.txt"), "new\n");
+        File.WriteAllText(Path.Combine(ws.Directory, ".gitignore"), "ignored.txt\n");
+        File.WriteAllText(Path.Combine(ws.Directory, "ignored.txt"), "x\n");
+        string exported;
+        using (var tree = await ws.ExportAsync(default))
+        {
+            exported = tree.Directory;
+            Assert.Equal("new", File.ReadAllText(Path.Combine(exported, "new.txt")).Trim());
+            Assert.Equal("hello", File.ReadAllText(Path.Combine(exported, "README.md")).Trim());
+            Assert.False(File.Exists(Path.Combine(exported, "ignored.txt")));
+            Assert.False(Directory.Exists(Path.Combine(exported, ".git")));
+            File.WriteAllText(Path.Combine(exported, "build.out"), "output\n");
+        }
+        Assert.False(Directory.Exists(exported));
+        Assert.False(File.Exists(Path.Combine(ws.Directory, "build.out")));
+        var info = await ws.CommitAsync("feat: new", default);
+        Assert.NotNull(info);
+        Assert.DoesNotContain("build.out", string.Join(",", await ws.ChangedPathsAsync(default)), StringComparison.Ordinal);
+    }
 }

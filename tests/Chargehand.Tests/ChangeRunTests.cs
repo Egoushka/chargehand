@@ -120,6 +120,19 @@ public class ChangeRunTests
     }
 
     [Fact]
+    public async Task What_the_tests_write_stays_out_of_the_branch()
+    {
+        using var s = Make((dir, _) => File.WriteAllText(Path.Combine(dir, "feature.txt"), "x\n"));
+        var r = await s.Orchestrator.RunAsync(Request(s.Source, Sh("echo cache > build.out; test -f feature.txt")), CancellationToken.None);
+
+        Assert.Equal(ResultStatus.Completed, r.Status);
+        Assert.DoesNotContain("build.out", r.Artifacts.Single(a => a.Kind == "diff").Content, StringComparison.Ordinal);
+        var clone = Artifact(r, "branch").GetProperty("repository").GetString()!;
+        Assert.False(File.Exists(Path.Combine(clone, "build.out")));
+        Assert.Empty(Git(clone, "status", "--porcelain"));
+    }
+
+    [Fact]
     public async Task A_repository_with_no_test_command_completes_untested_with_low_confidence()
     {
         using var s = Make((dir, _) => File.WriteAllText(Path.Combine(dir, "feature.txt"), "x\n"));
