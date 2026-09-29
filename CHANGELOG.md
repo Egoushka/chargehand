@@ -23,8 +23,13 @@ All notable changes to this project are documented here. The format follows
   tool names workers may call, exact or with `*` globs, never a whole server. At the start of a run chargehand connects,
   lists the server's tools and grants the ones named. A server, secret or tool that does not resolve is dropped, not fatal:
   `chargehand show` prints one `service` line each, with the span tags `chargehand.service.<name>.granted` and `.issues`.
-  `as_sent.tools_sha256` covers the granted tools and is unchanged when there are none. The Claude Code and OpenCode
-  runtimes do not hand the grant to workers yet, and no shipped preset lists services.
+  `as_sent.tools_sha256` covers the granted tools and is unchanged when there are none. No shipped preset lists services.
+- Claude Code workers get the granted services (ADR 0020 addendum): the servers go in a private `--mcp-config` file, mode 0600
+  in a fresh 0700 directory under the system temp directory, removed when the turn's process exits (also on failure or
+  interrupt) and never on the command line or in a log; `--allowedTools` names exactly the granted tools, and the server's
+  other tools are disallowed so they do not cost tokens. A granted server the CLI reports as not connected is an issue on
+  the run (`not_connected: failed` in `chargehand show`), not a silent gap. The OpenCode runtime does not hand the grant to
+  workers yet.
 
 ### Changed
 

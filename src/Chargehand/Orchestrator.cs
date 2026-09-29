@@ -197,6 +197,13 @@ public sealed class Orchestrator(
             run?.SetTag("langfuse.session.id", nodeResult.SessionId);
             span?.SetTag("chargehand.contract.status", nodeResult.Contract.Status.ToString().ToLowerInvariant());
             span?.SetTag("chargehand.forked_from", nodeResult.ForkedFrom);
+            if (runtime is IServiceHealth health)
+                foreach (var (server, status) in health.UnavailableServices(nodeResult.SessionId))
+                {
+                    extensions.Unavailable(server, $"not_connected: {status}");
+                    span?.SetTag($"chargehand.service.{server}.not_connected", status);
+                    run?.SetTag($"chargehand.service.{server}.not_connected", status);
+                }
 
             foreach (var m in nodeResult.Calls)
             {

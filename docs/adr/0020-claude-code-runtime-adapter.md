@@ -93,3 +93,35 @@ Connecting runs `claude auth status`, which exits 1 when signed out and calls no
 `runtime_unavailable` with the action to sign in or set one of the two variables. Live check (2.1.283, 2026-09-28):
 `claude -p --setting-sources "" --strict-mcp-config --model claude-haiku-4-5 --output-format stream-json --verbose
 --tools Read` with both variables empty answered with `apiKeySource: none` in `init` and a successful `result`.
+
+## Addendum (2026-09-29): MCP servers for services
+
+A preset's `services` (ADR 0034) reach a Claude Code worker as MCP servers. What the goal 0.6 spike observed on 2.1.283
+(rows C1 to C6 of ADR 0034) decides the flags:
+
+- **A private `--mcp-config` file per turn.** It holds `{"mcpServers": {name: entry}}` with `{"type": "http" | "sse", "url",
+  "headers"}` for a URL server and `{"command", "args", "env"}` for a stdio one, secrets already resolved, so it is
+  written to a fresh directory under the system temp directory (mode 0700), the file mode 0600, never under the
+  checkout and never on the command line. The turn's process is the only reader; the directory is removed when the
+  process has exited, on failure, on interrupt, and if the process cannot start. A crash between writing and removing
+  leaves a directory that the next `ConnectAsync` sweeps once it is a day old. The content never enters a log, an error
+  or the run log; text the CLI prints on a failed turn has the grant's exact header and environment values replaced first.
+  With no grants there is no `--mcp-config`, and `--strict-mcp-config` stays, so no other server is loaded.
+- **`--allowedTools` names exactly the granted tools**, `mcp__<server>__<tool>` with the server name unchanged. `dontAsk`
+  refuses any MCP tool not named (C2). `--tools` is left alone: it does not filter MCP tools (C1). A character outside
+  letters, digits, `_` and `-` becomes `_` in both parts, as the CLI lists it (checked live: a server tool `echo.fact`
+  is `mcp__team-docs__echo_fact`); the CLI's list would not match the allow list otherwise.
+- **`--disallowedTools` names the server's other tools.** A connected server's ungranted tools are still listed and cost
+  about 50 tokens each on every call (C1, C6), and `--disallowedTools` removes them from the catalog (C3). The resolver
+  already lists the server's tools, so the grant carries the ones it left out (`ServiceGrant.Hidden`) and no call is added.
+  A tool the server gains between resolving and the run is listed but refused, not callable.
+- **A server that did not connect is reported.** The `init` event lists every configured server with a `status`
+  (`connected`, `failed`, ...; C5). A granted server that is anything else, or absent, is kept per session and read back
+  through `IServiceHealth`; the orchestrator records it as `not_connected: <status>` on that service in the run log (the line
+  of `chargehand show` and the span tag `chargehand.service.<name>.not_connected`). The run goes on without the service's tools.
+  Live check (2.1.283, 2026-09-29, a small model): a stdio server granted `echo_fact` with `write_note` hidden answered the
+  call and the model reported `write_note` missing; a second granted server with a missing command read `failed`; no config
+  directory was left behind.
+
+`--bare` takes `--mcp-config` (C4, to the `init` event); a bare-mode call that uses a granted tool was not run, since no API
+key exists on the runner.
