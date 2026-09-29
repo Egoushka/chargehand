@@ -46,6 +46,23 @@ public class ReviewPresetTests
     }
 
     [Fact]
+    public async Task Intake_is_given_the_goal_diff_and_test_output_the_request_carries()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        var runtime = new ScriptedRuntime(FindingReply);
+
+        await Runs.Orchestrator(runtime, root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
+            .RunAsync(Review(repo, "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-hello\n+hello world\n"), CancellationToken.None);
+
+        // Told only that the inputs exist, intake asked the caller for "the actual goal, diff and test output".
+        var prompt = runtime.IntakePrompts.Single();
+        Assert.Contains("Make the README greet.", prompt, StringComparison.Ordinal);
+        Assert.Contains("+hello world", prompt, StringComparison.Ordinal);
+        Assert.Contains("exit 0", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_truncated_diff_input_still_resolves()
     {
         using var root = new TempDir();

@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Intake saw a caller input's id and kind but not its text, so a run whose request carried its goal, diff and test
+  output as `inputs` could stop with `ask`, asking for the inputs it had been sent. Intake now reads each
+  input's id, kind, size and the first 2000 characters of its text, and the prompt says when an input was cut; the
+  worker still gets every input whole.
+
 ## [0.4.0] - 2026-09-29
 
 Goal 0.4 ([roadmap](ROADMAP.md)): chargehand runs with nothing configured. No profile file is needed, the worker
