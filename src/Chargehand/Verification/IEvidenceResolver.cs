@@ -13,6 +13,7 @@ public interface IEvidenceResolver
 }
 
 /// <param name="SeenText">Inputs and tool output of the node; a <c>url</c> reference must appear in it.</param>
+/// <param name="InputText">The caller's inputs as the node saw them (<c>- id "x" (kind): text</c> per input), for the support check (ADR 0036).</param>
 /// <param name="ToolResults">What the node's tools returned; a <c>session_message</c> locator that is not a message id may quote one.</param>
 public sealed record EvidenceScope(
     string RepositoryPath,
@@ -21,6 +22,7 @@ public sealed record EvidenceScope(
     IReadOnlyCollection<string> InputIds,
     string SeenText,
     IReadOnlyList<FileDiff> Diff,
-    IReadOnlyList<string>? ToolResults = null);
+    IReadOnlyList<string>? ToolResults = null,
+    string? InputText = null);
 
 public sealed record EvidenceFailure(string EvidenceId, string Reason);
