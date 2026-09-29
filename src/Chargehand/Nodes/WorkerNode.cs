@@ -221,7 +221,7 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         var messages = await runtime.ReadMessagesAsync(sessionId, ct);
         var seen = r.InputText + "\n" + string.Join("\n", messages.Select(m => m.ToolOutput).Where(t => t is not null));
         return new EvidenceScope(r.RepositoryPath, r.Commit, messages.Select(m => m.Id).ToHashSet(), r.InputIds, seen, await runtime.DiffAsync(sessionId, ct),
-            [.. messages.SelectMany(m => m.ToolResults ?? [])]);
+            [.. messages.SelectMany(m => m.ToolResults ?? [])], r.InputText);
     }
 
     /// <summary>Usd is null (unknown, not $0) once any call's model had no price entry (ADR 0026). A call that names no

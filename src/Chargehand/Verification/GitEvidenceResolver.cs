@@ -81,7 +81,7 @@ public sealed partial class GitEvidenceResolver : IEvidenceResolver
         return $"lines {start}-{end} are outside the changed hunks of {path}";
     }
 
-    private static bool TryParseRange(string locator, out string path, out int start, out int end)
+    internal static bool TryParseRange(string locator, out string path, out int start, out int end)
     {
         var m = Locator().Match(locator);
         path = m.Success ? m.Groups["p"].Value : locator;
@@ -91,7 +91,7 @@ public sealed partial class GitEvidenceResolver : IEvidenceResolver
     }
 
     /// <summary>stdout, or null when git exits non-zero.</summary>
-    private static async Task<string?> Git(string repo, CancellationToken ct, params string[] args)
+    internal static async Task<string?> Git(string repo, CancellationToken ct, params string[] args)
     {
         var psi = new ProcessStartInfo("git")
         {
@@ -114,5 +114,5 @@ public sealed partial class GitEvidenceResolver : IEvidenceResolver
     private static partial Regex Locator();
 
     [GeneratedRegex(@"^@@ -\d+(?:,\d+)? \+(?<s>\d+)(?:,(?<l>\d+))? @@", RegexOptions.Multiline)]
-    private static partial Regex Hunk();
+    internal static partial Regex Hunk();
 }
