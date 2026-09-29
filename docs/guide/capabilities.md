@@ -55,7 +55,7 @@ The tests call no model. They run the orchestrator on a scripted runtime ([Scrip
 
 Limits: see [Limits of the rows that work](#limits-of-the-rows-that-work) (Split).
 
-### Stop actions deny, ask and improve, and approval stops
+### Approval stops, and the stop actions deny, improve and ask
 
 - [OrchestratorActionTests](../../tests/Chargehand.Tests/OrchestratorActionTests.cs): each stop's status and open questions, the improved request's diff artifact, `strict`'s approval thresholds, `context.approved`, and the fall back to `answer` for an action the preset does not allow.
 
