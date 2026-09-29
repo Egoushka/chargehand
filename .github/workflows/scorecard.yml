@@ -1,12 +1,12 @@
 name: scorecard
 
-# OpenSSF Scorecard (decision D9): publishes the score behind the README badge. With publish_results the workflow has
+# OpenSSF Scorecard (decision D9): publishes the score behind the README badge. Weekly and on demand, not on every push
+# to main (ADR 0033). With publish_results the workflow has
 # no top-level write permissions and only approved steps.
 on:
-  push:
-    branches: [main]
   schedule:
     - cron: '23 5 * * 1'
+  workflow_dispatch:
 
 permissions: read-all
 
