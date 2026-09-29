@@ -53,6 +53,7 @@ Sources: [README](../../README.md#how-a-run-works), [ADR 0009](../adr/0009-resul
 - [Quickstart](quickstart.md): one question from a checkout, end to end.
 - [Use it from an MCP client](mcp.md): the `orchestrate` tool over stdio or HTTP.
 - [Run the HTTP server](server.md): `chargehand serve`, its routes and the container image.
+- [Support checking and signed results](support-and-signing.md): each claim checked against the text it cites, and results signed and verified offline.
 - [Memory and services](memory-and-services.md): recall from MCP memory servers, retain only claims whose citations resolved, and give a preset's workers read-only MCP tools.
 - [The change command](change.md): `/chargehand:change` in Claude Code.
 - [Prompt CI](prompt-ci.md): how prompt and preset changes get gated.

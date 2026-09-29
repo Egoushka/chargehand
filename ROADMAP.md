@@ -27,8 +27,8 @@ image.
 
 ## Stage 4 — Answers you can prove · (0.8)
 
-- · **0.8** Every claim is checked for support against its cited text, and results are signed so anyone can verify them
-  offline.
+- ▶ **0.8** Every claim is checked for support against its cited text, and results are signed so anyone can verify them
+  offline. On main: the support check and signing; not yet released.
 
 ## Stage 5 — People find it · (0.9–1.0)
 

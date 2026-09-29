@@ -275,4 +275,4 @@ Every shipped preset denies edits. [ADR 0015](../adr/0015-merging-and-verificati
 
 ### Support checking
 
-The resolver confirms that a citation points at something real: a path and line range at the commit, a commit, a diff hunk, a message id, a URL the node saw, an input id. It does not compare the cited text with the claim. Goal 0.8 adds that check and signed results that anyone can check offline.
+The resolver still only confirms that a citation points at something real. On main, and not yet released, a model then judges whether the cited text supports each claim ([Support checking and signed results](support-and-signing.md)); on 30 labelled claims two Claude models agreed with the labels 25 times, perfectly on clearly supported and clearly unsupported claims and not on partly supported ones. It is a model's opinion, not a proof, and it does not cover claims that cite only a URL, a commit or a session message.
