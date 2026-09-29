@@ -241,7 +241,7 @@ The gate runs and posts its status, and its coverage has holes:
 
 ### Optional long-term memory
 
-With the profile's `memory` block set, a run recalls facts once and adds them to each node's prompt as context the worker is told to check in the repository and never cite. Each fact carries the name of the memory it came from (`hindsight` for the `memory` block), and `chargehand show` prints what each memory recalled and retained. A failed recall leaves the run without them, and retain stays off by default ([ADR 0008](../adr/0008-memory-provider-contract.md)). The only backend is a self-hosted Hindsight service (`memory.backend` accepts `hindsight`). Any MCP memory server, and several at once, belong to goal 0.6 in [ROADMAP.md](../../ROADMAP.md).
+With the profile's `memory` block set, a run recalls facts once and adds them to each node's prompt as context the worker is told to check in the repository and never cite. Each fact carries the name of the memory it came from (`hindsight` for the `memory` block), and `chargehand show` prints what each memory recalled and retained. A failed recall leaves the run without them, and retain stays off by default ([ADR 0008](../adr/0008-memory-provider-contract.md)). With retain on, a run stores only the claims that cite a `file` or `commit` that resolved at the run's commit, each with its locators, the repository and the commit, and never the request text or the summary; a run without a repository retains nothing ([ADR 0034](../adr/0034-memory-and-services-over-mcp.md)). The only backend is a self-hosted Hindsight service (`memory.backend` accepts `hindsight`). Any MCP memory server, and several at once, belong to goal 0.6 in [ROADMAP.md](../../ROADMAP.md).
 
 ### Running with no profile file
 
