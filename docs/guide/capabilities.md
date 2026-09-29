@@ -10,33 +10,211 @@ The tests call no model. They run the orchestrator on a scripted runtime ([Scrip
 
 ## Status
 
-| Capability | Status | How we know |
+| Capability | Status | Evidence |
 |---|---|---|
-| Answer a read-only question with citations checked against the pinned commit | works | [EvidenceResolverTests](../../tests/Chargehand.Tests/EvidenceResolverTests.cs); [WorkerNodeTests](../../tests/Chargehand.Tests/WorkerNodeTests.cs) (one repair turn, then unresolved claims move to open questions); [CheckoutTests](../../tests/Chargehand.Tests/CheckoutTests.cs) (the worker reads a clone at the pinned commit). Cited lines that resolved: 50 of 50 at the [phase 3 exit](../benchmarks.md#phase-3-exit-one-worker-against-a-plain-session), 99 of 99 at the [phase 4 exit](../benchmarks.md#phase-4-exit-split-against-a-plain-session). |
-| Split a question into 2 to 4 parallel read-only subtasks | works | [SplitTests](../../tests/Chargehand.Tests/SplitTests.cs) (dependency order, fork of the first node, at most 2 at once, deterministic merge). [Phase 4 benchmark](../benchmarks.md#phase-4-exit-split-against-a-plain-session): intake split 6 of 6 runs and 99 of 99 citations resolved, but a split cost about 1.53× a plain session ($0.00754 against $0.00492 per run) for a blind score of 0.967 against 0.950. It did not pay on those questions ([ADR 0017](../adr/0017-split-runs-forked-siblings-and-merge.md)). |
-| Stop actions `deny`, `ask` and `improve`, and approval stops | works | [OrchestratorActionTests](../../tests/Chargehand.Tests/OrchestratorActionTests.cs): each stop's status and open questions, the improved request's diff artifact, `strict`'s approval thresholds, `context.approved`, and the fall back to `answer` for an action the preset does not allow. |
-| OpenCode runtime, pinned to 2.0.18 | works | [OpenCodeClientTests](../../tests/Chargehand.Tests/OpenCodeClientTests.cs), [OpenCodeSpecContractTests](../../tests/Chargehand.Tests/OpenCodeSpecContractTests.cs) (against the checked-in spec), [OpenCodeServerProcessTests](../../tests/Chargehand.Tests/OpenCodeServerProcessTests.cs) (stand-in binary). The phase 3 and 4 benchmarks ran on OpenCode before the pin moved from 2.0.16 to 2.0.18; the re-pin note records no live worker session on 2.0.18 ([ADR 0004](../adr/0004-opencode-major-and-runtime-adapter.md#re-pinned-to-2018-2026-09-28)). |
-| Claude Code runtime, pinned to 2.1.283 | works | [ClaudeCodeRuntimeTests](../../tests/Chargehand.Tests/ClaudeCodeRuntimeTests.cs) (stand-in CLI), [ClaudeCodeDefaultsTests](../../tests/Chargehand.Tests/ClaudeCodeDefaultsTests.cs). [ADR 0020](../adr/0020-claude-code-runtime-adapter.md) records a live run on 2.1.195 whose 6 file references all resolved, and a live two-turn session on 2.1.283; the API-key mode never ran live. Running on the CLI's own login is on main, not yet released. |
-| Runtime selection: the profile's `runtime`, then `CHARGEHAND_RUNTIME`, then the one agent CLI on `PATH` (on main, not yet released) | works | [RuntimeSelectorTests](../../tests/Chargehand.Tests/RuntimeSelectorTests.cs); [changelog, Unreleased](../../CHANGELOG.md#unreleased); [ADR 0026](../adr/0026-extension-model.md). |
-| Presets with per-node token and USD budgets | works | [ConfigFileTests](../../tests/Chargehand.Tests/ConfigFileTests.cs) (shipped presets validate, deny reading `*.env` files, remove the shell tool); [WorkerNodeTests](../../tests/Chargehand.Tests/WorkerNodeTests.cs) (token budget, USD cap, compaction trigger, deadline); [ReviewPresetTests](../../tests/Chargehand.Tests/ReviewPresetTests.cs). |
-| Drafts for program callers (`draft` preset: no repository, caller inputs as evidence) | works | [DraftTests](../../tests/Chargehand.Tests/DraftTests.cs). [Phase 5 exit](../benchmarks.md#content-engines-call-through-the-interface-met): one draft through `chargehand serve` completed for $0.0006 with 4 claims, each citing an input the caller sent. |
-| Error codes on failed results | works | [ResultErrorTests](../../tests/Chargehand.Tests/ResultErrorTests.cs), [WorkerNodeTests](../../tests/Chargehand.Tests/WorkerNodeTests.cs), [OpenCodeClientTests](../../tests/Chargehand.Tests/OpenCodeClientTests.cs); [ADR 0022](../adr/0022-error-codes-in-result-v1.md). |
-| Repository roots and worker clones at the pinned commit | works | [CheckoutTests](../../tests/Chargehand.Tests/CheckoutTests.cs) (roots, `/`, clone reuse, another commit, uncommitted and ignored files kept out, a tracked denied file refused); [ProfileTests](../../tests/Chargehand.Tests/ProfileTests.cs) (the launch-directory default); [ADR 0023](../adr/0023-repository-roots-and-worker-clones.md), [ADR 0028](../adr/0028-default-repository-roots.md). |
-| Run log and `show` | works | [RunLogTests](../../tests/Chargehand.Tests/RunLogTests.cs) (a start record without a run record, concurrent writers, a half-written last line); [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs) checks that a run whose process ended reads as `lost`. `show` prints those records; its output format has no test of its own. |
-| Reports: `cache`, `reconcile`, `routes` | works | [CacheReportTests](../../tests/Chargehand.Tests/CacheReportTests.cs), [ReconcilerTests](../../tests/Chargehand.Tests/ReconcilerTests.cs), [RoutingReportTests](../../tests/Chargehand.Tests/RoutingReportTests.cs). At the [phase 4 exit](../benchmarks.md#phase-4-exit-split-against-a-plain-session), `chargehand cache` named the instruction entry that stopped siblings from forking. [ADR 0012](../adr/0012-observability.md) records 8 of 8 calls joined to gateway spend rows in the v0 benchmark. |
-| HTTP server with a bearer key | works | [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs) (key on every route, Host check, refusal to listen beyond loopback without allowed hosts, status codes, events, the bound of 10 unfinished runs). [Phase 5 exit](../benchmarks.md#content-engines-call-through-the-interface-met): `samples/ContentEngineCall` sent its draft to `POST /v1/runs`. |
-| MCP over Streamable HTTP (`/v1/mcp`) | works | [McpTests](../../tests/Chargehand.Tests/McpTests.cs) (the SDK's own client lists `orchestrate` with both schemas and calls it); [ADR 0018](../adr/0018-callable-interface-http-mcp-run-store.md) records a live check that ran a draft as a task. |
-| MCP over stdio, `chargehand mcp` (on main, not yet released) | works | [StdioMcpTests](../../tests/Chargehand.Tests/StdioMcpTests.cs); CI packs the tool and runs [mcp-smoke.py](../../scripts/mcp-smoke.py) against it with a stand-in `claude` ([ci.yml](../../.github/workflows/ci.yml)). |
-| MCP tasks, `input_required` questions, and the run id before a client timeout | works | [McpTests](../../tests/Chargehand.Tests/McpTests.cs), [StdioMcpTests](../../tests/Chargehand.Tests/StdioMcpTests.cs); [ADR 0018](../adr/0018-callable-interface-http-mcp-run-store.md), [ADR 0029](../adr/0029-mcp-run-id-before-a-client-timeout.md). The run-id paths of ADR 0029 are on main, not yet released. |
-| Server container image | partial | [Dockerfile](../../Dockerfile), [release.yml](../../.github/workflows/release.yml). No test or benchmark in this repository runs the image. |
-| Prompt CI on prompt and preset changes | partial | [GateTests](../../tests/Chargehand.Tests/GateTests.cs), [PromptCiTests](../../tests/Chargehand.Tests/PromptCiTests.cs), [prompt-ci.yml](../../.github/workflows/prompt-ci.yml). [Phase 5 exit](../benchmarks.md#prompt-ci-blocks-a-real-prompt-regression-met-on-a-rerun): both planted regressions passed the first gate; with a completeness score one of them blocks and the other still passes. |
-| Optional long-term memory (Hindsight) | partial | [HindsightMemoryTests](../../tests/Chargehand.Tests/HindsightMemoryTests.cs) checks the adapter's recall, retain and invalidate requests against a recording HTTP handler. No test covers a run that recalls facts, and no benchmark measures one ([ADR 0008](../adr/0008-memory-provider-contract.md)). |
-| Running with no profile file (on main, not yet released) | partial | [ProfileTests](../../tests/Chargehand.Tests/ProfileTests.cs) (defaults when the file is missing). The presets still name placeholder models that need a profile's `models` map ([package README](../../src/Chargehand.Cli/README.package.md)). Goal 0.4 in [ROADMAP.md](../../ROADMAP.md) is open. |
-| Claude Code plugin, `/chargehand:change` (on main, not yet released) | partial | [ChangeSkillTests](../../tests/Chargehand.Tests/ChangeSkillTests.cs), [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs), and `claude plugin validate --strict` in [ci.yml](../../.github/workflows/ci.yml). [change-e2e.sh](../../scripts/change-e2e.sh) is an end-to-end check that [change-e2e.yml](../../.github/workflows/change-e2e.yml) runs on demand; the repository records no result of it. The plugin's own server needs the unpublished package ([README](../../README.md#claude-code-plugin)). |
-| `Chargehand` and `Chargehand.Contracts` on nuget.org | not yet | [README](../../README.md#from-the-package-once-published); [changelog 0.3.0](../../CHANGELOG.md#030---2026-09-28) ("dormant nuget.org publishing"); [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) (no package on 2026-09-28); [release.yml](../../.github/workflows/release.yml). |
-| Listing in the MCP Registry | not yet | Goal 0.4 in [ROADMAP.md](../../ROADMAP.md); [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md). [McpServerJsonTests](../../tests/Chargehand.Tests/McpServerJsonTests.cs) validates `.mcp/server.json`; no workflow publishes it. |
-| Writing nodes in worktrees | not yet | Goal 0.7 in [ROADMAP.md](../../ROADMAP.md); [ADR 0015](../adr/0015-merging-and-verification.md); [SplitTests](../../tests/Chargehand.Tests/SplitTests.cs) (a split with a writing subtask is rejected). |
-| Checking that the cited text supports each claim | not yet | Goal 0.8 in [ROADMAP.md](../../ROADMAP.md). [GitEvidenceResolver.cs](../../src/Chargehand/Verification/GitEvidenceResolver.cs) checks that a cited path and line range exist at the commit, not what the lines say. |
+| [Answer a read-only question with citations checked against the pinned commit](#answer-a-read-only-question-with-citations-checked-against-the-pinned-commit) | works | [EvidenceResolverTests](../../tests/Chargehand.Tests/EvidenceResolverTests.cs), [phase 3](../benchmarks.md#phase-3-exit-one-worker-against-a-plain-session) |
+| [Split a question into 2 to 4 parallel read-only subtasks](#split-a-question-into-2-to-4-parallel-read-only-subtasks) | works | [SplitTests](../../tests/Chargehand.Tests/SplitTests.cs), [phase 4](../benchmarks.md#phase-4-exit-split-against-a-plain-session), [ADR 0017](../adr/0017-split-runs-forked-siblings-and-merge.md) |
+| [Approval stops, and the stop actions `deny`, `improve` and `ask`](#approval-stops-and-the-stop-actions-deny-improve-and-ask) | works | [OrchestratorActionTests](../../tests/Chargehand.Tests/OrchestratorActionTests.cs) |
+| [OpenCode runtime, pinned to 2.0.18](#opencode-runtime-pinned-to-2018) | works | [OpenCodeClientTests](../../tests/Chargehand.Tests/OpenCodeClientTests.cs), [OpenCodeSpecContractTests](../../tests/Chargehand.Tests/OpenCodeSpecContractTests.cs) |
+| [Claude Code runtime, pinned to 2.1.283](#claude-code-runtime-pinned-to-21283) | works | [ClaudeCodeRuntimeTests](../../tests/Chargehand.Tests/ClaudeCodeRuntimeTests.cs), [ADR 0020](../adr/0020-claude-code-runtime-adapter.md) |
+| [Runtime selection (on main, not yet released)](#runtime-selection-on-main-not-yet-released) | works | [RuntimeSelectorTests](../../tests/Chargehand.Tests/RuntimeSelectorTests.cs), [ADR 0026](../adr/0026-extension-model.md) |
+| [Presets with per-node token and USD budgets](#presets-with-per-node-token-and-usd-budgets) | works | [ConfigFileTests](../../tests/Chargehand.Tests/ConfigFileTests.cs), [WorkerNodeTests](../../tests/Chargehand.Tests/WorkerNodeTests.cs) |
+| [Drafts for program callers (the `draft` preset)](#drafts-for-program-callers-the-draft-preset) | works | [DraftTests](../../tests/Chargehand.Tests/DraftTests.cs), [phase 5](../benchmarks.md#content-engines-call-through-the-interface-met) |
+| [Error codes on failed results](#error-codes-on-failed-results) | works | [ResultErrorTests](../../tests/Chargehand.Tests/ResultErrorTests.cs), [ADR 0022](../adr/0022-error-codes-in-result-v1.md) |
+| [Repository roots and worker clones at the pinned commit](#repository-roots-and-worker-clones-at-the-pinned-commit) | works | [CheckoutTests](../../tests/Chargehand.Tests/CheckoutTests.cs), [ADR 0023](../adr/0023-repository-roots-and-worker-clones.md) |
+| [Run log and `show`](#run-log-and-show) | works | [RunLogTests](../../tests/Chargehand.Tests/RunLogTests.cs), [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs) |
+| [Reports: `cache`, `reconcile`, `routes`](#reports-cache-reconcile-routes) | works | [CacheReportTests](../../tests/Chargehand.Tests/CacheReportTests.cs), [ReconcilerTests](../../tests/Chargehand.Tests/ReconcilerTests.cs), [RoutingReportTests](../../tests/Chargehand.Tests/RoutingReportTests.cs) |
+| [HTTP server with a bearer key](#http-server-with-a-bearer-key) | works | [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs), [phase 5](../benchmarks.md#content-engines-call-through-the-interface-met) |
+| [MCP over Streamable HTTP (`/v1/mcp`)](#mcp-over-streamable-http-v1mcp) | works | [McpTests](../../tests/Chargehand.Tests/McpTests.cs), [ADR 0018](../adr/0018-callable-interface-http-mcp-run-store.md) |
+| [MCP over stdio, `chargehand mcp` (on main, not yet released)](#mcp-over-stdio-chargehand-mcp-on-main-not-yet-released) | works | [StdioMcpTests](../../tests/Chargehand.Tests/StdioMcpTests.cs), [mcp-smoke.py](../../scripts/mcp-smoke.py) |
+| [MCP tasks, `input_required` questions, and the run id before a client timeout](#mcp-tasks-input_required-questions-and-the-run-id-before-a-client-timeout) | works | [McpTests](../../tests/Chargehand.Tests/McpTests.cs), [ADR 0029](../adr/0029-mcp-run-id-before-a-client-timeout.md) |
+| [Server container image](#server-container-image) | partial | [Dockerfile](../../Dockerfile), [release.yml](../../.github/workflows/release.yml) |
+| [Prompt CI on prompt and preset changes](#prompt-ci-on-prompt-and-preset-changes) | partial | [GateTests](../../tests/Chargehand.Tests/GateTests.cs), [PromptCiTests](../../tests/Chargehand.Tests/PromptCiTests.cs) |
+| [Optional long-term memory (Hindsight)](#optional-long-term-memory-hindsight) | partial | [HindsightMemoryTests](../../tests/Chargehand.Tests/HindsightMemoryTests.cs), [ADR 0008](../adr/0008-memory-provider-contract.md) |
+| [Running with no profile file (on main, not yet released)](#running-with-no-profile-file-on-main-not-yet-released) | partial | [ProfileTests](../../tests/Chargehand.Tests/ProfileTests.cs), [ROADMAP.md](../../ROADMAP.md) |
+| [Claude Code plugin, `/chargehand:change` (on main, not yet released)](#claude-code-plugin-chargehandchange-on-main-not-yet-released) | partial | [ChangeSkillTests](../../tests/Chargehand.Tests/ChangeSkillTests.cs), [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs) |
+| [`Chargehand` and `Chargehand.Contracts` on nuget.org](#chargehand-and-chargehandcontracts-on-nugetorg) | not yet | [README](../../README.md#from-the-package-once-published), [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) |
+| [Listing in the MCP Registry](#listing-in-the-mcp-registry) | not yet | [ROADMAP.md](../../ROADMAP.md), [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) |
+| [Writing nodes in worktrees](#writing-nodes-in-worktrees) | not yet | [ROADMAP.md](../../ROADMAP.md), [ADR 0015](../adr/0015-merging-and-verification.md) |
+| [Checking that the cited text supports each claim](#checking-that-the-cited-text-supports-each-claim) | not yet | [ROADMAP.md](../../ROADMAP.md), [GitEvidenceResolver.cs](../../src/Chargehand/Verification/GitEvidenceResolver.cs) |
+
+## The evidence in full
+
+### Answer a read-only question with citations checked against the pinned commit
+
+- [EvidenceResolverTests](../../tests/Chargehand.Tests/EvidenceResolverTests.cs)
+- [WorkerNodeTests](../../tests/Chargehand.Tests/WorkerNodeTests.cs) (one repair turn, then unresolved claims move to open questions)
+- [CheckoutTests](../../tests/Chargehand.Tests/CheckoutTests.cs) (the worker reads a clone at the pinned commit).
+- Cited lines that resolved: 50 of 50 at the [phase 3 exit](../benchmarks.md#phase-3-exit-one-worker-against-a-plain-session), 99 of 99 at the [phase 4 exit](../benchmarks.md#phase-4-exit-split-against-a-plain-session).
+
+### Split a question into 2 to 4 parallel read-only subtasks
+
+- [SplitTests](../../tests/Chargehand.Tests/SplitTests.cs) (dependency order, fork of the first node, at most 2 at once, deterministic merge).
+- [Phase 4 benchmark](../benchmarks.md#phase-4-exit-split-against-a-plain-session): intake split 6 of 6 runs and 99 of 99 citations resolved, but a split cost about 1.53× a plain session ($0.00754 against $0.00492 per run) for a blind score of 0.967 against 0.950.
+- It did not pay on those questions ([ADR 0017](../adr/0017-split-runs-forked-siblings-and-merge.md)).
+
+Limits: see [Limits of the rows that work](#limits-of-the-rows-that-work) (Split).
+
+### Stop actions deny, ask and improve, and approval stops
+
+- [OrchestratorActionTests](../../tests/Chargehand.Tests/OrchestratorActionTests.cs): each stop's status and open questions, the improved request's diff artifact, `strict`'s approval thresholds, `context.approved`, and the fall back to `answer` for an action the preset does not allow.
+
+### OpenCode runtime, pinned to 2.0.18
+
+- [OpenCodeClientTests](../../tests/Chargehand.Tests/OpenCodeClientTests.cs), [OpenCodeSpecContractTests](../../tests/Chargehand.Tests/OpenCodeSpecContractTests.cs) (against the checked-in spec), [OpenCodeServerProcessTests](../../tests/Chargehand.Tests/OpenCodeServerProcessTests.cs) (stand-in binary).
+- The phase 3 and 4 benchmarks ran on OpenCode before the pin moved from 2.0.16 to 2.0.18
+- the re-pin note records no live worker session on 2.0.18 ([ADR 0004](../adr/0004-opencode-major-and-runtime-adapter.md#re-pinned-to-2018-2026-09-28)).
+
+Limits: see [Limits of the rows that work](#limits-of-the-rows-that-work) (OpenCode 2.0.18).
+
+### Claude Code runtime, pinned to 2.1.283
+
+- [ClaudeCodeRuntimeTests](../../tests/Chargehand.Tests/ClaudeCodeRuntimeTests.cs) (stand-in CLI), [ClaudeCodeDefaultsTests](../../tests/Chargehand.Tests/ClaudeCodeDefaultsTests.cs).
+- [ADR 0020](../adr/0020-claude-code-runtime-adapter.md) records a live run on 2.1.195 whose 6 file references all resolved, and a live two-turn session on 2.1.283
+- the API-key mode never ran live.
+- Running on the CLI's own login is on main, not yet released.
+
+Limits: see [Limits of the rows that work](#limits-of-the-rows-that-work) (Claude Code API-key mode).
+
+### Runtime selection (on main, not yet released)
+
+The profile's `runtime`, then `CHARGEHAND_RUNTIME`, then the one agent CLI on `PATH`.
+
+- [RuntimeSelectorTests](../../tests/Chargehand.Tests/RuntimeSelectorTests.cs)
+- [changelog, Unreleased](../../CHANGELOG.md#unreleased)
+- [ADR 0026](../adr/0026-extension-model.md).
+
+### Presets with per-node token and USD budgets
+
+- [ConfigFileTests](../../tests/Chargehand.Tests/ConfigFileTests.cs) (shipped presets validate, deny reading `*.env` files, remove the shell tool)
+- [WorkerNodeTests](../../tests/Chargehand.Tests/WorkerNodeTests.cs) (token budget, USD cap, compaction trigger, deadline)
+- [ReviewPresetTests](../../tests/Chargehand.Tests/ReviewPresetTests.cs).
+
+Limits: see [Limits of the rows that work](#limits-of-the-rows-that-work) (USD caps need prices).
+
+### Drafts for program callers (the `draft` preset)
+
+The `draft` preset takes no repository, and caller inputs are the evidence.
+
+- [DraftTests](../../tests/Chargehand.Tests/DraftTests.cs).
+- [Phase 5 exit](../benchmarks.md#content-engines-call-through-the-interface-met): one draft through `chargehand serve` completed for $0.0006 with 4 claims, each citing an input the caller sent.
+
+### Error codes on failed results
+
+- [ResultErrorTests](../../tests/Chargehand.Tests/ResultErrorTests.cs), [WorkerNodeTests](../../tests/Chargehand.Tests/WorkerNodeTests.cs), [OpenCodeClientTests](../../tests/Chargehand.Tests/OpenCodeClientTests.cs)
+- [ADR 0022](../adr/0022-error-codes-in-result-v1.md).
+
+### Repository roots and worker clones at the pinned commit
+
+- [CheckoutTests](../../tests/Chargehand.Tests/CheckoutTests.cs) (roots, `/`, clone reuse, another commit, uncommitted and ignored files kept out, a tracked denied file refused)
+- [ProfileTests](../../tests/Chargehand.Tests/ProfileTests.cs) (the launch-directory default)
+- [ADR 0023](../adr/0023-repository-roots-and-worker-clones.md), [ADR 0028](../adr/0028-default-repository-roots.md).
+
+### Run log and show
+
+- [RunLogTests](../../tests/Chargehand.Tests/RunLogTests.cs) (a start record without a run record, concurrent writers, a half-written last line)
+- [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs) checks that a run whose process ended reads as `lost`.
+- `show` prints those records
+- its output format has no test of its own.
+
+### Reports: cache, reconcile, routes
+
+- [CacheReportTests](../../tests/Chargehand.Tests/CacheReportTests.cs), [ReconcilerTests](../../tests/Chargehand.Tests/ReconcilerTests.cs), [RoutingReportTests](../../tests/Chargehand.Tests/RoutingReportTests.cs).
+- At the [phase 4 exit](../benchmarks.md#phase-4-exit-split-against-a-plain-session), `chargehand cache` named the instruction entry that stopped siblings from forking.
+- [ADR 0012](../adr/0012-observability.md) records 8 of 8 calls joined to gateway spend rows in the v0 benchmark.
+
+### HTTP server with a bearer key
+
+- [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs) (key on every route, Host check, refusal to listen beyond loopback without allowed hosts, status codes, events, the bound of 10 unfinished runs).
+- [Phase 5 exit](../benchmarks.md#content-engines-call-through-the-interface-met): `samples/ContentEngineCall` sent its draft to `POST /v1/runs`.
+
+### MCP over Streamable HTTP (/v1/mcp)
+
+- [McpTests](../../tests/Chargehand.Tests/McpTests.cs) (the SDK's own client lists `orchestrate` with both schemas and calls it)
+- [ADR 0018](../adr/0018-callable-interface-http-mcp-run-store.md) records a live check that ran a draft as a task.
+
+### MCP over stdio, chargehand mcp (on main, not yet released)
+
+- [StdioMcpTests](../../tests/Chargehand.Tests/StdioMcpTests.cs)
+- CI packs the tool and runs [mcp-smoke.py](../../scripts/mcp-smoke.py) against it with a stand-in `claude` ([ci.yml](../../.github/workflows/ci.yml)).
+
+### MCP tasks, input_required questions, and the run id before a client timeout
+
+- [McpTests](../../tests/Chargehand.Tests/McpTests.cs), [StdioMcpTests](../../tests/Chargehand.Tests/StdioMcpTests.cs)
+- [ADR 0018](../adr/0018-callable-interface-http-mcp-run-store.md), [ADR 0029](../adr/0029-mcp-run-id-before-a-client-timeout.md).
+- The run-id paths of ADR 0029 are on main, not yet released.
+
+### Server container image
+
+- [Dockerfile](../../Dockerfile), [release.yml](../../.github/workflows/release.yml).
+- No test or benchmark in this repository runs the image.
+
+What is missing: [Server container image](#server-container-image-1).
+
+### Prompt CI on prompt and preset changes
+
+- [GateTests](../../tests/Chargehand.Tests/GateTests.cs), [PromptCiTests](../../tests/Chargehand.Tests/PromptCiTests.cs), [prompt-ci.yml](../../.github/workflows/prompt-ci.yml).
+- [Phase 5 exit](../benchmarks.md#prompt-ci-blocks-a-real-prompt-regression-met-on-a-rerun): both planted regressions passed the first gate
+- with a completeness score one of them blocks and the other still passes.
+
+What is missing: [Prompt CI](#prompt-ci).
+
+### Optional long-term memory (Hindsight)
+
+- [HindsightMemoryTests](../../tests/Chargehand.Tests/HindsightMemoryTests.cs) checks the adapter's recall, retain and invalidate requests against a recording HTTP handler.
+- No test covers a run that recalls facts, and no benchmark measures one ([ADR 0008](../adr/0008-memory-provider-contract.md)).
+
+What is missing: [Optional long-term memory](#optional-long-term-memory).
+
+### Running with no profile file (on main, not yet released)
+
+- [ProfileTests](../../tests/Chargehand.Tests/ProfileTests.cs) (defaults when the file is missing).
+- The presets still name placeholder models that need a profile's `models` map ([package README](../../src/Chargehand.Cli/README.package.md)).
+- Goal 0.4 in [ROADMAP.md](../../ROADMAP.md) is open.
+
+What is missing: [Running with no profile file](#running-with-no-profile-file).
+
+### Claude Code plugin, /chargehand:change (on main, not yet released)
+
+- [ChangeSkillTests](../../tests/Chargehand.Tests/ChangeSkillTests.cs), [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs), and `claude plugin validate --strict` in [ci.yml](../../.github/workflows/ci.yml).
+- [change-e2e.sh](../../scripts/change-e2e.sh) is an end-to-end check that [change-e2e.yml](../../.github/workflows/change-e2e.yml) runs on demand
+- the repository records no result of it.
+- The plugin's own server needs the unpublished package ([README](../../README.md#claude-code-plugin)).
+
+What is missing: [Claude Code plugin](#claude-code-plugin).
+
+### Chargehand and Chargehand.Contracts on nuget.org
+
+- [README](../../README.md#from-the-package-once-published)
+- [changelog 0.3.0](../../CHANGELOG.md#030---2026-09-28) ("dormant nuget.org publishing")
+- [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) (no package on 2026-09-28)
+- [release.yml](../../.github/workflows/release.yml).
+
+What is missing: [Packages on nuget.org](#packages-on-nugetorg).
+
+### Listing in the MCP Registry
+
+- Goal 0.4 in [ROADMAP.md](../../ROADMAP.md)
+- [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md).
+- [McpServerJsonTests](../../tests/Chargehand.Tests/McpServerJsonTests.cs) validates `.mcp/server.json`
+- no workflow publishes it.
+
+What is missing: [MCP Registry listing](#mcp-registry-listing).
+
+### Writing nodes in worktrees
+
+- Goal 0.7 in [ROADMAP.md](../../ROADMAP.md)
+- [ADR 0015](../adr/0015-merging-and-verification.md)
+- [SplitTests](../../tests/Chargehand.Tests/SplitTests.cs) (a split with a writing subtask is rejected).
+
+What is missing: [Writing nodes](#writing-nodes).
+
+### Checking that the cited text supports each claim
+
+- Goal 0.8 in [ROADMAP.md](../../ROADMAP.md).
+- [GitEvidenceResolver.cs](../../src/Chargehand/Verification/GitEvidenceResolver.cs) checks that a cited path and line range exist at the commit, not what the lines say.
+
+What is missing: [Support checking](#support-checking).
 
 ## Limits of the rows that work
 
