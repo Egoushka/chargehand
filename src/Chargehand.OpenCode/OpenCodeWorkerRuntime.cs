@@ -15,13 +15,11 @@ public sealed class OpenCodeWorkerRuntime : IWorkerRuntime, IRunCleanup, IServic
     private readonly IOpenCodeClient _oc;
     private readonly OpenCodeServices _services;
 
-    /// <param name="serviceConnectTimeout">How long a registered server may take to connect (default 30 s).</param>
-    /// <param name="servicePoll">How often its status is read meanwhile (default 250 ms; spike O1 saw it connect within about 0.5 s).</param>
-    internal OpenCodeWorkerRuntime(IOpenCodeClient oc, string version, TimeSpan? serviceConnectTimeout = null, TimeSpan? servicePoll = null)
+    internal OpenCodeWorkerRuntime(IOpenCodeClient oc, string version, ServiceTimings? serviceTimings = null)
     {
         _oc = oc;
         Version = version;
-        _services = new OpenCodeServices(oc, serviceConnectTimeout ?? TimeSpan.FromSeconds(30), servicePoll ?? TimeSpan.FromMilliseconds(250));
+        _services = new OpenCodeServices(oc, serviceTimings ?? ServiceTimings.Default);
     }
 
     public string Version { get; }

@@ -79,8 +79,8 @@ The choices marked above, and:
   preset's `* * allow` reaches every MCP tool registered at the location, so every OpenCode session's rules end with
   `*_* * deny` (`OpenCodeWorkerRuntime.DenyMcpTools`, in force since the follow-up under Evidence), and the adapter
   appends one `<server>_<tool> * allow` per granted tool after it. The deny is a pattern, not a rule per listed server.
-  `DELETE` takes effect at once in running sessions, so it runs only when no other node holds the server at that
-  location.
+  `DELETE` takes effect at once in running sessions, so it runs only when no run holds the server at that location
+  (the lifecycle is under Evidence, "Delivery to OpenCode").
 
 ## Consequences
 
@@ -205,6 +205,55 @@ stay denied to workers; a server configured or added by an authenticated client 
 workers no longer get the checkout's `AGENTS.md` or skills; a later OpenCode action with an underscore is denied to
 workers until a grant or preset allows it after the deny; whether the built-in `browser` namespace is gated by rules is
 still unknown.
+
+### Delivery to OpenCode: the registration lifecycle (task 10)
+
+The spike says what one registration is; it does not say who owns it. The registry belongs to a location, sessions
+there share it (O2), the checkout of a repository at a commit is one location that many runs reuse (ADR 0023), and
+`DELETE` takes a server from running sessions at once (O7). What the adapter does (`OpenCodeServices`):
+
+- **Rules gate tools; registrations only make servers exist.** A run's session gets `<server>_<tool> * allow` for its
+  granted tools after the `*_* * deny` (O5, O6), so runs with different grants of one server share one registration and
+  never see each other's tools. Tool names are written the way OpenCode writes an action (characters outside
+  `[A-Za-z0-9_-]` become `_`, which also keeps a `*` out of a rule); checked with a server whose tool is `echo.fact`.
+- **A registration is what its config is.** Its name is the profile's server name and eight hex digits of a keyed hash of
+  the config (`team-docs-3fa9c21b`), so a run whose secret has rotated gets a second server beside the first instead of
+  replacing it under a session that still uses the old one, and two chargehand processes on one OpenCode server never
+  meet in a name. The key is random per process, so the digits reveal nothing about a credential. The grant's own hash
+  (`Sha256`) covers tool names and schemas, not the transport, so it is not the name.
+- **It lives as long as the run, held by count.** The nodes of a split run share it, and a fork made after its parent
+  ended still finds it. The orchestrator ends the run when its nodes are done, completed, failed or cancelled
+  (`IRunCleanup`, in a `finally`, with its own 10 s bound per `DELETE`); the last run to let go removes the server. A
+  run that starts while the last holder's `DELETE` is in flight waits for it, so the `DELETE` cannot land after the
+  new `PUT`. A `DELETE` that fails leaves the server until OpenCode restarts and is noted on the run's span
+  (`chargehand.service.<server>.remove_failed`); a `404` is fine.
+- **A server that does not connect is dropped and said so.** The adapter polls `GET /api/mcp` until the status leaves
+  `pending` (30 s at most), keeps no allow rules for a server that is not `connected`, removes it (the next run tries it
+  afresh), and reports it through `IServiceHealth` for every session of the run
+  (`not_connected: failed: connection refused`, `needs_auth: …`, `pending: no connection within 30 s`,
+  `rejected: …` when the `PUT` itself failed). The run goes on without the service. Credentials are taken out of the
+  reason before it is kept.
+- **A moment after `connected`.** OpenCode reports `connected` before the server's tools can be called: with a stand-in
+  model, a session created at once saw the tool as unknown, and the first call succeeded 140 to 205 ms after the
+  status in three probes (2.0.19, a local stdio server). The adapter waits 500 ms after `connected` (once per
+  registration; runs joining it later do not).
+
+Live check on 2.0.19 (throwaway server and state, a stand-in OpenAI-compatible model that calls the tools its prompt
+names, `scripts/fake-mcp-server.py` over stdio and a small Streamable HTTP stand-in with a bearer key): a granted tool
+answered and an ungranted tool of the same server was "Unknown tool"; two runs at one location with different grants
+kept their own tools, the server stayed while one of them ended, and `GET /api/mcp` was empty after the second;
+a server that exits at start reported `failed: Connection closed` and was gone; a `remote` entry with the right key
+connected and answered, with a wrong key it reported `needs_auth`.
+
+Two limits found on the way, neither fixed here:
+
+- **Presets that deny `*` cannot use services.** Workers reach a server through OpenCode's code-execution tool
+  (`execute`), and `* * deny` (the `draft` preset) removes it; with the deny-all rules the catalog was empty and the
+  granted tool unreachable. With `"codemode": false` in the server's config the granted tool becomes a function
+  named `<server>_<tool>` and worked under `* * deny` too (the catalog held exactly that function). It is not used: model
+  providers cap a function name at 64 characters (not tried here), and this name carries the registration's suffix, so
+  a long server or tool name could fail the whole run. No shipped preset lists services; a preset that does must allow
+  `execute`.
 
 ## Reopen if
 

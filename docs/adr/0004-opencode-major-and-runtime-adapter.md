@@ -60,6 +60,15 @@ The spec regenerated from a live 2.0.18 server (own state directory, loopback) d
 added routes, `POST /api/pair` and `GET /auth/connect/{code}`; every operation in `docs/opencode-adapter-ops.json`
 is unchanged and the contract test passes. No worker session was run live on 2.0.18.
 
+## The MCP routes are used (2026-09-29, goal 0.6)
+
+The adapter now calls three routes it did not list at first: `PUT` and `DELETE /api/experimental/mcp/{server}` and
+`GET /api/mcp`, to give a run's workers the MCP services a preset grants (ADR 0034, `docs/opencode-adapter-ops.json`).
+The rule against `/api/config*` stands: none of the three reads configuration or provider keys. Their bodies are another
+matter, since the `PUT` body holds the header and environment values of a grant: the adapter never logs a body, its
+`McpConfigBody` prints no value, and what OpenCode says about a failure is stripped of the grant's values before it is
+kept. A location is given as the `location[directory]` query parameter, like the spike's O2.
+
 ## Reopen if
 
 A V2 update breaks the adapter in two consecutive releases, or `wait` proves unreliable under load.

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -7,6 +8,16 @@ using Chargehand.Contracts;
 using Chargehand.Runtime;
 
 namespace Chargehand.OpenCode;
+
+/// <param name="Connect">How long a registered server may take to connect.</param>
+/// <param name="Poll">How often its status is read meanwhile; the spike saw a stdio server connect within about 0.5 s (O1).</param>
+/// <param name="Settle">How long to wait once it reads connected. OpenCode reports the status before the server's tools can be
+/// called: a probe with a stand-in model saw the first call succeed 140 to 205 ms later (2.0.19, local stdio server). A worker
+/// asking for a tool in that gap is told it does not exist.</param>
+internal sealed record ServiceTimings(TimeSpan Connect, TimeSpan Poll, TimeSpan Settle)
+{
+    public static ServiceTimings Default { get; } = new(TimeSpan.FromSeconds(30), TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(500));
+}
 
 /// <summary>
 /// The MCP servers a run's grants name, registered with the OpenCode server at the run's location (ADR 0034). What the
@@ -27,7 +38,7 @@ namespace Chargehand.OpenCode;
 /// does not is dropped from the grant, removed, and reported through <see cref="IServiceHealth"/>.</item>
 /// </list>
 /// </summary>
-internal sealed class OpenCodeServices(IOpenCodeClient oc, TimeSpan connectTimeout, TimeSpan poll)
+internal sealed class OpenCodeServices(IOpenCodeClient oc, ServiceTimings timings)
 {
     private static readonly TimeSpan RemoveTimeout = TimeSpan.FromSeconds(10);
 
@@ -145,8 +156,9 @@ internal sealed class OpenCodeServices(IOpenCodeClient oc, TimeSpan connectTimeo
             {
                 leases.Add(await lazy.Value);
             }
-            catch (Exception e) when (e is not OperationCanceledException)
+            catch (Exception)
             {
+                // A lease that faulted (a transport OpenCode cannot take) registered nothing.
             }
         await Task.WhenAll(leases.Where(l => l.Registration is not null).Select(l => Release(l.Registration!, ct)));
     }
@@ -215,17 +227,19 @@ internal sealed class OpenCodeServices(IOpenCodeClient oc, TimeSpan connectTimeo
     private async Task Connect(Registration registration)
     {
         string? failure;
-        using var timeout = new CancellationTokenSource(connectTimeout);
+        using var timeout = new CancellationTokenSource(timings.Connect);
         var registered = false;
         try
         {
             await oc.PutMcpServerAsync(registration.Name, registration.Directory, registration.Config, timeout.Token);
             registered = true;
             failure = await Poll(registration, timeout.Token);
+            if (failure is null)
+                await Task.Delay(timings.Settle, CancellationToken.None);
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
-            var seconds = connectTimeout.TotalSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+            var seconds = timings.Connect.TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture);
             failure = registered ? $"{registration.Last}: no connection within {seconds} s" : $"rejected: no answer within {seconds} s";
         }
         catch (Exception e)
@@ -245,7 +259,7 @@ internal sealed class OpenCodeServices(IOpenCodeClient oc, TimeSpan connectTimeo
                 return null;
             if (listed is { Status: not "pending" })
                 return listed.Error is { Length: > 0 } error ? $"{listed.Status}: {error}" : listed.Status;
-            await Task.Delay(poll, ct);
+            await Task.Delay(timings.Poll, ct);
         }
     }
 

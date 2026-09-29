@@ -29,6 +29,9 @@ public partial class OpenCodeServicesTests
 
         public bool DeleteThrows { get; set; }
 
+        /// <summary>Every PUT waits for the caller to give up.</summary>
+        public bool PutHangs { get; set; }
+
         /// <summary>Every request so far, in the order they arrived.</summary>
         public List<(HttpMethod Method, string Path, string? Body)> All => Snapshot();
 
@@ -50,6 +53,8 @@ public partial class OpenCodeServicesTests
             var directory = HttpUtility.ParseQueryString(request.RequestUri!.Query)["location[directory]"] ?? "";
             lock (Seen)
                 Seen.Add((request.Method, request.RequestUri.PathAndQuery, body));
+            if (request.Method == HttpMethod.Put && PutHangs)
+                await Task.Delay(Timeout.Infinite, ct);
             if (request.Method == HttpMethod.Delete)
             {
                 DeleteArrived.TrySetResult();
@@ -104,11 +109,11 @@ public partial class OpenCodeServicesTests
         new HttpServiceTransport(new Uri("https://mcp.example.internal/docs"), new Dictionary<string, string> { ["Authorization"] = "Bearer s3cret" }),
         ["search_docs", "read_doc"], new string('a', 64));
 
-    private static (OpenCodeWorkerRuntime Runtime, FakeOpenCode Server) Make(Func<string, int, string>? status = null, TimeSpan? connectTimeout = null)
+    private static (OpenCodeWorkerRuntime Runtime, FakeOpenCode Server) Make(Func<string, int, string>? status = null, TimeSpan? connectTimeout = null, TimeSpan? settle = null)
     {
         var server = new FakeOpenCode(status);
         var client = new OpenCodeClient(new HttpClient(server) { BaseAddress = new Uri("http://127.0.0.1:4096") }, "pw");
-        return (new OpenCodeWorkerRuntime(client, "2.0.18", connectTimeout ?? TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(5)), server);
+        return (new OpenCodeWorkerRuntime(client, "2.0.18", new ServiceTimings(connectTimeout ?? TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(5), settle ?? TimeSpan.Zero)), server);
     }
 
     private static NodeSpec Spec(string run, params ServiceGrant[] grants) =>
@@ -158,6 +163,18 @@ public partial class OpenCodeServicesTests
         var order = string.Join(" ", server.Puts.Concat(server.Sessions).Select(s => s.Method.Method));
         Assert.Equal("PUT POST", order);
         Assert.Equal("/api/session", server.Sessions.Single().Path);
+    }
+
+    [Fact]
+    public async Task A_server_is_given_a_moment_after_it_reads_connected_before_the_session_is_created()
+    {
+        var (rt, server) = Make(settle: TimeSpan.FromMilliseconds(300));
+
+        var started = DateTime.UtcNow;
+        await Create(rt, "run-1", Docs);
+
+        Assert.True(DateTime.UtcNow - started >= TimeSpan.FromMilliseconds(280));
+        Assert.Single(server.Sessions);
     }
 
     [Fact]
@@ -292,6 +309,18 @@ public partial class OpenCodeServicesTests
         var session = await Create(rt, "run-1", Docs);
 
         Assert.StartsWith("rejected: OpenCode 400 InvalidRequestError:", Unavailable(rt, session.Id)["team-docs"], StringComparison.Ordinal);
+        Assert.Equal(["* * allow", "*_* * deny"], Rules(Assert.Single(server.Sessions)));
+    }
+
+    [Fact]
+    public async Task A_put_that_never_answers_is_bounded_by_the_connect_timeout()
+    {
+        var (rt, server) = Make(connectTimeout: TimeSpan.FromMilliseconds(150));
+        server.PutHangs = true;
+
+        var session = await Create(rt, "run-1", Docs);
+
+        Assert.StartsWith("rejected: no answer within", Unavailable(rt, session.Id)["team-docs"], StringComparison.Ordinal);
         Assert.Equal(["* * allow", "*_* * deny"], Rules(Assert.Single(server.Sessions)));
     }
 
