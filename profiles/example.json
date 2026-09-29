@@ -35,17 +35,51 @@
       "command": ["npx", "-y", "example-notes-mcp"],
       "env": { "NOTES_TOKEN": "{secret:team-notes-token}" }
     },
-    "archive": {
+    "chronicle": {
       "url": "http://localhost:8080/sse",
       "transport": "sse"
     }
   },
-  "memory": {
-    "backend": "hindsight",
-    "url": "http://memory.example.internal:8888",
-    "namespace": "chargehand",
-    "retain": false
-  },
+  "memory": [
+    {
+      "name": "hindsight",
+      "server": "memory-gateway",
+      "namespace": "chargehand",
+      "tools": {
+        "recall": {
+          "tool": "recall",
+          "arguments": { "query": "{query}", "bank_id": "{namespace}", "budget": "low", "max_tokens": 1024 }
+        },
+        "retain": {
+          "tool": "retain",
+          "arguments": {
+            "content": "{text}",
+            "context": "{context}",
+            "document_id": "{document_id}",
+            "timestamp": "{timestamp}",
+            "tags": "{tags}",
+            "bank_id": "{namespace}"
+          }
+        },
+        "invalidate": {
+          "tool": "invalidate_memory",
+          "arguments": { "memory_id": "{id}", "reason": "{reason}", "bank_id": "{namespace}" }
+        }
+      },
+      "retain": false
+    },
+    {
+      "name": "chronicle",
+      "server": "chronicle",
+      "tools": {
+        "recall": {
+          "tool": "recall",
+          "arguments": { "query": "{query}", "limit": "{max_facts}" },
+          "results": { "path": "results", "id": "segment_id", "text": ["{date}: {summary}", "{date}: {text}"] }
+        }
+      }
+    }
+  ],
   "prices": {
     "provider/small-model": {
       "input": 0.1,
