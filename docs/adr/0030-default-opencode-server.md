@@ -40,7 +40,9 @@ When the runtime is OpenCode (profile, `CHARGEHAND_RUNTIME`, or `opencode` alone
 
 - `opencode serve --hostname 127.0.0.1 --port <free>` from `PATH`, working directory and `HOME` in
   `chargehand/opencode/home` under the per-user data directory (next to the default run log, ADR 0027), XDG
-  directories in `chargehand/opencode/xdg`, `OPENCODE_DISABLE_AUTOUPDATE=1`.
+  directories in `chargehand/opencode/xdg`, `OPENCODE_DISABLE_AUTOUPDATE=1`, and project configuration off
+  (`OPENCODE_DISABLE_PROJECT_CONFIG=1` and `OPENCODE_CONFIG_PROJECT_DISABLE=1`, ADR 0034): a checkout's `opencode.json`
+  can start a command when a session is created there.
 - A random 32-byte password, hex, in `OPENCODE_SERVER_PASSWORD`; it lives only in the two processes.
 - Stdin closed at once and stdout and stderr read by chargehand, never passed through, so `chargehand mcp` keeps its
   protocol streams (as for every child since #51). The last output line goes into the error when the server exits
@@ -56,7 +58,9 @@ An explicit `opencode` block always wins: chargehand connects to that URL and st
 OpenCode now runs with no profile file, like Claude Code. A PATH `opencode` of another version fails the pin with
 `runtime_version_mismatch`; the fix is the pinned version or an `opencode` block. Parallel chargehand processes each
 start a server on the same state directory. A SIGKILLed chargehand leaves its server running. With no provider
-variables set, the server starts but the first model call fails with OpenCode's own error.
+variables set, the server starts but the first model call fails with OpenCode's own error. With project configuration
+off, workers no longer receive the checkout's `AGENTS.md`, `.claude` or `.agents` skills, agents or commands; global
+configuration in the state directory still applies.
 
 ## Reopen if
 
