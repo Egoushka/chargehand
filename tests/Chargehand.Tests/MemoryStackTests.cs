@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Memory;
 
@@ -72,6 +71,27 @@ public class MemoryStackTests
     }
 
     [Fact]
+    public async Task A_long_fact_is_cut_at_the_fact_cap_with_an_ellipsis()
+    {
+        var stack = new MemoryStack([Source("chronicle", new Fake(_ => [F("1", new string('x', 50))]), new MemoryLimits(MaxFactChars: 20))]);
+
+        var outcome = await stack.RecallAsync("q", CancellationToken.None);
+
+        Assert.Equal(new string('x', 19) + "…", Assert.Single(outcome.Sources[0].Items).Text);
+        Assert.Contains($"- [chronicle] {new string('x', 19)}…", outcome.Prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_cut_never_splits_a_surrogate_pair()
+    {
+        var stack = new MemoryStack([Source("chronicle", new Fake(_ => [F("1", "ab😀cd")]), new MemoryLimits(MaxFactChars: 4))]);
+
+        var outcome = await stack.RecallAsync("q", CancellationToken.None);
+
+        Assert.Equal("ab…", Assert.Single(outcome.Sources[0].Items).Text);
+    }
+
+    [Fact]
     public async Task Caps_apply_per_source()
     {
         var alpha = Enumerable.Range(1, 5).Select(i => F($"a{i}", $"alpha number {i}")).ToList();
@@ -86,16 +106,10 @@ public class MemoryStackTests
         Assert.Equal(2, outcome.Sources[1].Items.Count); // "beta number 1" and "beta number 2" are 26 characters; a third would pass 30
     }
 
-    public static TheoryData<string> ExceptionKinds() => new() { "http", "timeout", "json", "io", "invalid" };
+    // The failure kinds #94 pinned on the run-level catch: an HTTP error, HttpClient's own timeout, a provider's own timeout, a bad body, a broken pipe.
+    public static TheoryData<string> ExceptionKinds() => MemoryFailOpenTests.FailureKinds;
 
-    internal static Exception Kind(string kind) => kind switch
-    {
-        "http" => new HttpRequestException("down"),
-        "timeout" => new TaskCanceledException("HttpClient.Timeout elapsed", new TimeoutException()),
-        "json" => new JsonException("bad"),
-        "io" => new IOException("closed"),
-        _ => new InvalidOperationException("mapping error"),
-    };
+    internal static Exception Kind(string kind) => MemoryFailOpenTests.Failure(kind);
 
     [Theory]
     [MemberData(nameof(ExceptionKinds))]

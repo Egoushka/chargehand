@@ -6,10 +6,11 @@ using Chargehand.Contracts;
 namespace Chargehand.Memory;
 
 /// <summary>
-/// What one memory source may cost a run: facts and characters recalled (after whitespace is collapsed), and the time
-/// one recall or retain call may take. Defaults are starting values, not measurements (spec, decision 6).
+/// What one memory source may cost a run: facts, characters in all and characters per fact recalled (after whitespace is
+/// collapsed), and the time one recall or retain call may take. Defaults are starting values, not measurements
+/// (spec, decisions 6 and 17).
 /// </summary>
-public sealed record MemoryLimits(int MaxFacts = 10, int MaxChars = 4000, TimeSpan? Timeout = null)
+public sealed record MemoryLimits(int MaxFacts = 10, int MaxChars = 4000, TimeSpan? Timeout = null, int MaxFactChars = 600)
 {
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(10);
 }
@@ -18,7 +19,7 @@ public sealed record MemoryLimits(int MaxFacts = 10, int MaxChars = 4000, TimeSp
 /// <param name="RetainTags">Tags a retained item carries in this source; null keeps the item's own.</param>
 public sealed record MemorySource(string Name, IMemoryProvider Provider, MemoryScope Scope, MemoryLimits Limits, bool Retain = false, IReadOnlyList<string>? RetainTags = null);
 
-/// <param name="Items">What passed the source's limits, before facts another source already returned are dropped.</param>
+/// <param name="Items">What passed the source's limits, as one line each and cut at the fact cap, before facts another source already returned are dropped.</param>
 /// <param name="SkippedReason">Why the source contributed nothing (failed, timed out); null when it answered.</param>
 public sealed record SourceRecall(string Source, IReadOnlyList<RecalledMemory> Items, string? SkippedReason);
 
@@ -66,12 +67,12 @@ public sealed partial class MemoryStack(IReadOnlyList<MemorySource> sources)
             var chars = 0;
             foreach (var item in items)
             {
-                var text = OneLine(item.Text);
+                var text = Cut(OneLine(item.Text), limits.MaxFactChars);
                 if (text.Length == 0)
                     continue;
                 if (kept.Count >= limits.MaxFacts || chars + text.Length > limits.MaxChars)
                     break;
-                kept.Add(item);
+                kept.Add(item with { Text = text });
                 chars += text.Length;
                 if (!byText.TryGetValue(text, out var line))
                     lines.Add(byText[text] = line = new Line(text, i));
@@ -152,6 +153,17 @@ public sealed partial class MemoryStack(IReadOnlyList<MemorySource> sources)
     {
         var reason = OneLine(ChargehandException.Scrub(string.IsNullOrWhiteSpace(e.Message) ? e.GetType().Name : e.Message));
         return reason.Length <= MaxReasonLength ? reason : reason[..MaxReasonLength];
+    }
+
+    /// <summary>At most <paramref name="max"/> characters, the last of them an ellipsis when the text was longer; never through a surrogate pair.</summary>
+    private static string Cut(string text, int max)
+    {
+        if (text.Length <= max)
+            return text;
+        var keep = Math.Max(max - 1, 0);
+        if (keep > 0 && char.IsHighSurrogate(text[keep - 1]))
+            keep--;
+        return text[..keep] + "…";
     }
 
     /// <summary>A fact is one line, so no fact can start a labelled line of its own.</summary>

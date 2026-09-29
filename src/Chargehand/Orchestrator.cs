@@ -240,7 +240,7 @@ public sealed class Orchestrator(
                 "chargehand run result", DateTimeOffset.UtcNow, runId, ["chargehand"]), ct);
             extensions.Retained(reports);
             foreach (var r in reports.Where(r => r.SkippedReason is not null))
-                run?.SetTag($"chargehand.memory.{r.Source}.retain_error", r.SkippedReason);
+                run?.SetTag($"chargehand.memory.{r.Source}.error", r.SkippedReason);
         }
         return result;
     }
