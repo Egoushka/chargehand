@@ -21,8 +21,12 @@ public sealed class LangfuseEvals
         _http.DefaultRequestHeaders.Authorization = new("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{publicKey}:{secretKey}")));
     }
 
+    /// <summary>A dataset not created yet (a new cell's, before its first push) has no items, so the gate blocks on too
+    /// few items rather than crashing on Langfuse's 404.</summary>
     public async Task<IReadOnlyList<EvalItem>> ItemsAsync(string dataset, CancellationToken ct)
     {
+        if (!await ExistsAsync(dataset, ct))
+            return [];
         var items = new List<EvalItem>();
         for (var page = 1; ; page++)
         {
@@ -39,11 +43,8 @@ public sealed class LangfuseEvals
     /// <summary>Creates the dataset if it is missing, then upserts each item by id.</summary>
     public async Task PushAsync(string dataset, IReadOnlyList<EvalItem> items, CancellationToken ct)
     {
-        using (var found = await _http.GetAsync($"api/public/v2/datasets/{Uri.EscapeDataString(dataset)}", ct))
-            if (found.StatusCode == HttpStatusCode.NotFound)
-                await Post("api/public/v2/datasets", new { name = dataset, description = "chargehand eval items (ADR 0019)" }, ct);
-            else
-                found.EnsureSuccessStatusCode();
+        if (!await ExistsAsync(dataset, ct))
+            await Post("api/public/v2/datasets", new { name = dataset, description = "chargehand eval items (ADR 0019)" }, ct);
         foreach (var item in items)
             await Post("api/public/dataset-items", new
             {
@@ -61,6 +62,15 @@ public sealed class LangfuseEvals
 
     public Task ScoreAsync(string traceId, string name, double value, string comment, CancellationToken ct) =>
         Post("api/public/scores", new { traceId, name, value, dataType = "NUMERIC", comment }, ct);
+
+    private async Task<bool> ExistsAsync(string dataset, CancellationToken ct)
+    {
+        using var found = await _http.GetAsync($"api/public/v2/datasets/{Uri.EscapeDataString(dataset)}", ct);
+        if (found.StatusCode == HttpStatusCode.NotFound)
+            return false;
+        found.EnsureSuccessStatusCode();
+        return true;
+    }
 
     private async Task<JsonElement> Get(string path, CancellationToken ct)
     {

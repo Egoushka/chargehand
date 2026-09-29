@@ -32,6 +32,9 @@ All notable changes to this project are documented here. The format follows
   Real `provider/model` ids in a preset still pass through.
 - A call the runtime reports no model for (Claude Code's compactions; every call on the runtime's default model) cost
   a silent `$0`. It is now priced at the node's model, and with no model on either its `usage.usd` is `null`.
+- Prompt CI crashed with an unhandled 404 when an eval cell's Langfuse dataset did not exist yet (a new cell, before
+  its first `eval push`). A missing dataset now has no items, so the gate blocks with "0 items; the gate needs at
+  least 8" instead.
 
 ### Security
 
