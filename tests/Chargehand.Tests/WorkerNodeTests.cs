@@ -20,6 +20,9 @@ public class WorkerNodeTests
         public List<(string Id, PermissionDecision Decision)> Answers { get; } = [];
         public Queue<PermissionRequest> Pending { get; } = new();
         public bool HangOnce { get; set; }
+        /// <summary>The turn ends failed with this provider error on its message (null: no error text), as a provider that rejects the call.</summary>
+        public string? FailWith { get; set; }
+        public bool Fail { get; set; }
         /// <summary>The model each reply reports; null as a runtime that names none for its calls.</summary>
         public string? ReplyModel { get; set; } = "p/m";
         /// <summary>InterruptAsync returns only when cancelled, as a runtime that waits for its process to exit.</summary>
@@ -58,6 +61,11 @@ public class WorkerNodeTests
                 return IdleOutcome.Interrupted;
             }
             var now = DateTimeOffset.UtcNow.AddSeconds(_messages.Count);
+            if (Fail)
+            {
+                _messages.Insert(0, new WorkerMessage($"msg_{_messages.Count}", WorkerMessageKind.Assistant, now, "", null, now.AddSeconds(1), ReplyModel, Error: FailWith));
+                return IdleOutcome.Failed;
+            }
             _messages.Insert(0, new WorkerMessage($"msg_{_messages.Count}", WorkerMessageKind.Assistant, now, _replies.Dequeue(),
                 new TokenCounts(3, 100, 0, 5000, 200), now.AddSeconds(1), ReplyModel, ToolOutput: "read src/calc.py"));
             return IdleOutcome.Succeeded;
@@ -317,7 +325,9 @@ public class WorkerNodeTests
         rt.Log.Add(BigCall());
         var r = await Node(rt).RunAsync(Request(TimeSpan.FromSeconds(30)) with { CapUsd = 0.0001m }, CancellationToken.None);
         Assert.Equal(ResultStatus.Failed, r.Contract.Status);
-        Assert.Equal(new ResultError(ErrorCode.CostCapReached, "worker ended interrupted", false), r.Contract.Error);
+        Assert.Equal(ErrorCode.CostCapReached, r.Contract.Error?.Code);
+        Assert.Equal("worker ended interrupted", r.Contract.Error!.Message);
+        Assert.False(r.Contract.Error.Retryable);
     }
 
     [Fact]
@@ -335,6 +345,54 @@ public class WorkerNodeTests
         var r = await Node(new FakeRuntime("no block", "still no block")).RunAsync(Request(), CancellationToken.None);
         Assert.Equal(ErrorCode.InvalidResult, r.Contract.Error?.Code);
         Assert.StartsWith("no valid result contract", r.Contract.Error!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_worker_that_fails_reports_the_providers_reason_and_an_action()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { Fail = true, FailWith = """{"name":"APIError","data":{"message":"model not found: gpt-9","statusCode":404}}""" };
+        var r = await Node(rt).RunAsync(Request(), CancellationToken.None);
+        var e = r.Contract.Error!;
+        Assert.Equal(ErrorCode.Internal, e.Code);
+        Assert.Equal("worker ended failed: model not found: gpt-9", e.Message);
+        Assert.Contains("chargehand show run-1", e.Action, StringComparison.Ordinal);
+        Assert.Equal(e.Message, r.Contract.Summary);
+    }
+
+    [Fact]
+    public async Task A_provider_error_that_is_plain_text_is_kept_whole_and_scrubbed_and_cut()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { Fail = true, FailWith = "claude exited 1: 401 Authorization: Bearer abcdef0123456789abcdef " + new string('x', 600) };
+        var r = await Node(rt).RunAsync(Request(), CancellationToken.None);
+        var message = r.Contract.Error!.Message;
+        Assert.StartsWith("worker ended failed: claude exited 1: 401 Authorization: Bearer [redacted]", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("abcdef0123456789", message, StringComparison.Ordinal);
+        Assert.True(message.Length <= "worker ended failed: ".Length + 300 + 1, $"{message.Length} characters");
+    }
+
+    [Fact]
+    public async Task A_worker_that_fails_without_error_text_still_gets_an_action()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { Fail = true };
+        var e = (await Node(rt).RunAsync(Request(), CancellationToken.None)).Contract.Error!;
+        Assert.Equal("worker ended failed", e.Message);
+        Assert.NotNull(e.Action);
+    }
+
+    [Fact]
+    public async Task Every_failed_node_carries_an_action()
+    {
+        var capped = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true };
+        capped.Log.Add(BigCall());
+        var cap = await Node(capped).RunAsync(Request(TimeSpan.FromSeconds(30)) with { CapUsd = 0.0001m }, CancellationToken.None);
+        var late = await Node(new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true }).RunAsync(Request(TimeSpan.FromMilliseconds(100)), CancellationToken.None);
+        var invalid = await Node(new FakeRuntime("no block", "still no block")).RunAsync(Request(), CancellationToken.None);
+        var limited = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true };
+        limited.Log.Add(BigCall() with { Error = "Rate limit exceeded, retrying" });
+        var rate = await Node(limited).RunAsync(Request(TimeSpan.FromMilliseconds(100)), CancellationToken.None);
+
+        foreach (var result in new[] { cap, late, invalid, rate })
+            Assert.False(string.IsNullOrWhiteSpace(result.Contract.Error?.Action), result.Contract.Error?.Code.ToString());
     }
 
     [Fact]

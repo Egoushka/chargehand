@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Chargehand.Budget;
 using Chargehand.Contracts;
 using Chargehand.Prompts;
@@ -107,7 +108,7 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         var messages = await runtime.ReadMessagesAsync(session.Id, ct);
         var usage = Usage(messages, r.Spec.Model);
         var error = contract is null || outcome != IdleOutcome.Succeeded
-            ? new ChargehandException(ErrorOf(outcome, messages, r), outcome == IdleOutcome.Succeeded ? $"no valid result contract: {string.Join("; ", errors.Take(3))}" : $"worker ended {outcome.ToString().ToLowerInvariant()}").Error
+            ? Failure(outcome, messages, r, errors)
             : null;
         contract = contract is null
             ? Failed(r, error!.Message, usage) with { Error = error }
@@ -243,6 +244,60 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
     /// Why a node failed, from what the watcher and the deadline leave behind: an interrupt over the USD cap or the token
     /// budget is the cap, any other interrupt the deadline; a turn that ended without a valid contract is invalid_result.
     /// </summary>
+    /// <summary>What the caller can branch on: the code, the provider's reason when a message carries one, and what to do.</summary>
+    private ResultError Failure(IdleOutcome outcome, IReadOnlyList<WorkerMessage> messages, NodeRequest r, IReadOnlyList<string> errors)
+    {
+        var code = ErrorOf(outcome, messages, r);
+        var message = outcome == IdleOutcome.Succeeded
+            ? $"no valid result contract: {string.Join("; ", errors.Take(3))}"
+            : $"worker ended {outcome.ToString().ToLowerInvariant()}{Cause(messages)}";
+        return new ChargehandException(code, message, ActionOf(code, r)).Error;
+    }
+
+    private const int MaxCause = 300;
+
+    /// <summary>": " and the reason from the newest message that carries a provider error, else empty. OpenCode relays the error
+    /// object as JSON, Claude Code its result text or exit status. Scrubbed before it is cut, so a cut cannot leave half a key.</summary>
+    private static string Cause(IReadOnlyList<WorkerMessage> messages)
+    {
+        if (messages.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m.Error))?.Error is not { } raw)
+            return "";
+        var text = string.Join(' ', ChargehandException.Scrub(ReasonOf(raw)).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return text.Length == 0 ? "" : $": {(text.Length > MaxCause ? text[..MaxCause] + "…" : text)}";
+    }
+
+    /// <summary>The error object's message when the text is JSON that has one (<c>message</c>, <c>data.message</c> or <c>error.message</c>), else the text.</summary>
+    private static string ReasonOf(string raw)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                foreach (var path in new[] { new[] { "data", "message" }, new[] { "message" }, new[] { "error", "message" } })
+                {
+                    var node = doc.RootElement;
+                    foreach (var name in path)
+                        if (node.ValueKind != JsonValueKind.Object || !node.TryGetProperty(name, out node))
+                            break;
+                    if (node.ValueKind == JsonValueKind.String && node.GetString() is { Length: > 0 } reason)
+                        return reason;
+                }
+        }
+        catch (JsonException)
+        {
+        }
+        return raw;
+    }
+
+    private static string ActionOf(ErrorCode code, NodeRequest r) => code switch
+    {
+        ErrorCode.RateLimited => "Retry once the provider's rate limit clears, or map the preset's model to one with a higher limit.",
+        ErrorCode.CostCapReached => "Raise context.budget_usd, or ask a narrower question so the worker reads less.",
+        ErrorCode.DeadlineExceeded => $"Retry, or ask a narrower question: a node stops after {r.Deadline.TotalMinutes:0} minutes.",
+        ErrorCode.InvalidResult => $"Retry; if it repeats, read the worker's last message with `chargehand show {r.RunId}`.",
+        _ => $"Fix the cause named in the message (a model, credential or provider setting), then retry. `chargehand show {r.RunId}` prints the session.",
+    };
+
     private ErrorCode ErrorOf(IdleOutcome outcome, IReadOnlyList<WorkerMessage> messages, NodeRequest r) => outcome switch
     {
         IdleOutcome.Succeeded => ErrorCode.InvalidResult,

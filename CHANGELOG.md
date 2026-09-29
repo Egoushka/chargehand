@@ -33,6 +33,11 @@ All notable changes to this project are documented here. The format follows
   Real `provider/model` ids in a preset still pass through.
 - A call the runtime reports no model for (Claude Code's compactions; every call on the runtime's default model) cost
   a silent `$0`. It is now priced at the node's model, and with no model on either its `usage.usd` is `null`.
+- A worker that ended `failed` returned "worker ended failed" and nothing else: the provider's reason was in the
+  session messages and never reached the result. The message now carries it (`worker ended failed: There's an issue
+  with the selected model …`), scrubbed and cut at 300 characters, and every node failure — failed, rate limited,
+  over budget, past its deadline, no valid result — carries an `action` saying what to change or where to look
+  (`chargehand show <run id>`).
 - Prompt CI crashed with an unhandled 404 when an eval cell's Langfuse dataset did not exist yet (a new cell, before
   its first `eval push`). A missing dataset now has no items, so the gate blocks with "0 items; the gate needs at
   least 8" instead.
