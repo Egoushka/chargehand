@@ -260,6 +260,17 @@ The tests ([GoalSixTests](../../tests/Chargehand.Tests/GoalSixTests.cs), [Memory
 | A run with both providers in the list | 10 facts recalled from `hindsight` and 10 from `chronicle` |
 | Retain | nothing retained: a draft run has no commit |
 
+**Retain.** A real `chargehand run` (OpenCode 2.0.16, the `cheap` preset, a small model) on a scratch repository with one commit and no `origin`, asked what the first line of its README says. The memory was Hindsight through the gateway with `retain: true`, and `retain_tags` carried the bank's project and type tags in place of the default `chargehand`, because that bank's tag rules ask for one of each:
+
+| Check | Result |
+|---|---|
+| `chargehand run` | completed for about $0.001 with one claim citing `README.md:1`; `chargehand show` read `memory hindsight: recalled 10, retained 1` |
+| The stored document (its `document_id` is the run id) | the item as built: the `Repository:` line with the directory name and the 12-character commit, then the claim with `[README.md:1]` and `(confidence 1.00)`; its tags were exactly `retain_tags` |
+| Recall | a query on the run's subject returned two ids: the fact Hindsight extracted from the item, tied to that `document_id`, and an observation it consolidated from the fact |
+| Invalidate | `hindsight_invalidate_memory` on the fact set it to `invalidated` with the reason; the observation had no other source and was gone; a new recall returned neither. The document stays, with no facts left; nothing was deleted |
+
+Hindsight rewrites the item into facts of its own. The extracted fact kept the repository label and dropped the commit, the locators and the confidence: it was one sentence about the repository with a date. The full item is the document's text, so a recalled fact names the repository but not the commit, which is on the document.
+
 **Services.** A stdio test server on the real Claude Code runtime, and the shipped OpenCode runtime with a stand-in model:
 
 | Check | Result |
@@ -272,6 +283,5 @@ The tests ([GoalSixTests](../../tests/Chargehand.Tests/GoalSixTests.cs), [Memory
 
 Not yet run against real services, and covered in CI on fake servers only:
 
-1. A run on a real repository with `retain: true`; read the stored item in Hindsight. It should name the repository, the commit and locators, and hold no request text.
-2. A service call from OpenCode with a real model: `chargehand show` lists the granted tools, and a question that needs the service is answered with a claim citing a URL the service returned.
-3. One memory server stopped: the run still completes and `chargehand show` says it was skipped.
+1. A service call from OpenCode with a real model: `chargehand show` lists the granted tools, and a question that needs the service is answered with a claim citing a URL the service returned.
+2. One memory server stopped: the run still completes and `chargehand show` says it was skipped.
