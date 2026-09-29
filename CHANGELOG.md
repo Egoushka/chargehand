@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-29
+
+Two fixes found by the live checks of 0.6. A worker's citation of a service tool's reply now resolves, and a memory
+mapping can carry where a run's citations were checked into the retain call's metadata. The breaking change and the
+migration notes of 0.6.0 are unchanged. The one schema edit is the description of the `locator` field in `result/v1`, and
+`Chargehand.Contracts` 1.3.1-alpha is published with it, because the package embeds the schema text.
+
 ### Added
 
 - Retain placeholders `{repository}`, `{commit}` (12 hex characters) and `{locators}` (joined with `; `), so a memory mapping can
@@ -16,7 +23,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- A worker's citation of a service tool's reply now resolves. Workers cannot see message ids, so they cited the reply text as a `session_message` locator and the claim became an open question. A `session_message` locator that quotes at least 12 characters of a tool's reply in the session now resolves, and the task text says so when the run has services. Nothing changes without services; `result/v1` is unchanged apart from the locator's description.
+- A worker's citation of a service tool's reply now resolves. Workers cannot see message ids, so they cited the reply text as a `session_message` locator and the claim became an open question. A `session_message` locator that quotes at least 12 characters of a tool's reply in the session now resolves, and the task text says so when the run has services. Nothing changes without services; `result/v1` changes only in the locator's description.
 
 ## [0.6.0] - 2026-09-29
 
@@ -530,7 +537,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/Egoushka/chargehand/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Egoushka/chargehand/compare/v0.4.1...v0.6.0
 [0.4.1]: https://github.com/Egoushka/chargehand/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Egoushka/chargehand/compare/v0.3.0...v0.4.0
