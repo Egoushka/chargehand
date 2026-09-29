@@ -17,7 +17,8 @@ scripts/prompt-ci.sh <pr>             # Prompt CI on the owner's machine (profil
 ```
 
 Hooks: `git config core.hooksPath .githooks` (denylist + gitleaks on pre-commit, denylist +
-Conventional Commits on commit-msg). Never `--no-verify`.
+Conventional Commits on commit-msg). Never `--no-verify`. A linked worktree has no `.private-terms` of its own; the
+hooks read the main checkout's, so don't copy it in.
 
 ## Public vs private — the rule for every file
 

@@ -21,6 +21,9 @@ All notable changes to this project are documented here. The format follows
 - A request with many `inputs` still grew intake's prompt without bound, up to the request size limit. Intake now reads
   at most 8000 characters of input text in all, in request order; an input after that is listed with its id, kind and
   size and a note that its text is left out here, and the worker still gets every input whole.
+- The `.private-terms` hooks work in a linked worktree. The list is gitignored, so a worktree never had a copy and every
+  commit there aborted with "`.private-terms` is missing"; the check now falls back to the main worktree's list. A
+  worktree's own file still wins, and with no list in either place the commit is still blocked.
 
 ## [0.4.0] - 2026-09-29
 
