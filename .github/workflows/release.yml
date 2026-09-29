@@ -9,6 +9,11 @@ on:
   push:
     tags: ['v*']
 
+# One tag push can arrive twice (v0.3.0, v0.4.1): the later run cancels the earlier one waiting at the environment gate.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
