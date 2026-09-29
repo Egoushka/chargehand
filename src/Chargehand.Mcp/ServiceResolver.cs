@@ -79,6 +79,6 @@ public sealed class ServiceResolver(McpConnectionPool pool, TimeSpan? listTimeou
     }
 
     /// <summary>A tool name pattern: <c>*</c> is any run of characters, everything else is literal.</summary>
-    private static Regex Glob(string pattern) =>
+    internal static Regex Glob(string pattern) =>
         new("^" + Regex.Escape(pattern).Replace(@"\*", ".*", StringComparison.Ordinal) + "$", RegexOptions.Singleline | RegexOptions.CultureInvariant);
 }

@@ -1,5 +1,6 @@
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Mcp;
 using Chargehand.Memory;
 using Chargehand.RunLog;
 using static Chargehand.Tests.MemoryStackTests;
@@ -137,6 +138,36 @@ public class MemoryRunTests
         Assert.DoesNotContain("What does the README say?", item.Text, StringComparison.Ordinal);
         Assert.Equal(result.TaskId, item.DocumentId);
         Assert.Equal(["chargehand"], item.Tags);
+    }
+
+    [Fact]
+    public async Task A_profile_with_a_memory_list_recalls_from_and_retains_to_its_mcp_server()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        using var config = new TempDir();
+        var profile = Profile.Load(config.Write("p.json",
+            """{"schema":"profile/v1","mcp_servers":{"gw":{"url":"https://mcp.example.internal/mcp"}},"memory":[""" + MemoryConfigTests.Hindsight + "]}"));
+        await using var server = new FakeMcpServer(
+            new FakeTool("recall", _ => FakeMcpServer.Text("""{"results":[{"id":"f1","text":"Deploys go through GitOps."}]}""")),
+            new FakeTool("retain", _ => FakeMcpServer.Text("queued")),
+            new FakeTool("invalidate_memory", _ => FakeMcpServer.Text("ok")));
+        await using var pool = new McpConnectionPool(profile.McpServers!, _ => "", async (_, _, _) => await server.TransportAsync());
+        var runtime = new ScriptedRuntime(ThreeClaims);
+        var log = new JsonlRunLog(Path.Combine(root.Path, "log.jsonl"));
+        var request = Runs.CheapRequest(repo) with { Inputs = [new CallerInput("rel-v1", "signal", "Released v1.")] };
+
+        var result = await Make(root.Path, runtime, MemoryStacks.From(profile, pool, _ => throw new InvalidOperationException("no object form here")), log)
+            .RunAsync(request, CancellationToken.None);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Contains("- [hindsight] Deploys go through GitOps.", runtime.Prompts.First(), StringComparison.Ordinal);
+        Assert.Equal("chargehand", Assert.Single(server.Calls, c => c.Tool == "recall").Arguments["bank_id"].GetString());
+        var retain = Assert.Single(server.Calls, c => c.Tool == "retain").Arguments;
+        Assert.Contains("- The README says hello. [README.md:1]", retain["content"].GetString(), StringComparison.Ordinal);
+        Assert.Equal(result.TaskId, retain["document_id"].GetString());
+        Assert.Equal(["chargehand"], retain["tags"].EnumerateArray().Select(t => t.GetString()));
+        Assert.Equal(["memory hindsight: recalled 1, retained 1"], (await log.ReadAsync(result.TaskId, CancellationToken.None)).Run!.Extensions!.Lines());
     }
 
     [Fact]
