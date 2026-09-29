@@ -195,7 +195,7 @@ On OpenCode:
 - **MCP tools are denied unless a preset grants them.** Every OpenCode session's rules end with `*_* * deny`, with or without services, because a preset's leading `* * allow` would otherwise reach the tools of any server registered at the location.
 - **Presets that deny `*` cannot use services.** Workers reach a server through OpenCode's code-execution tool, `execute`, and `* * deny` (the `draft` preset) removes it. A preset that lists services must not deny it; the shipped presets start with `* * allow`, so a copy of one works. The Claude Code runtime has no such limit.
 
-A claim that rests on a service's output cites a URL the service returned (kind `url`, resolved as seen in the node's tool output); such a claim is not retained. Service output is not stored, and the support check comes with goal 0.8.
+A claim that rests on a service's output cites either a URL the service returned (kind `url`, resolved as seen in the node's tool output) or the reply itself: kind `session_message` with a locator that quotes at least 12 characters of the tool's reply exactly. Workers do not see message ids, so the quotation is what they can cite; it resolves only against what a tool of the session returned (not the caller's inputs, and not the arguments of a call). The task text tells the worker so, only when the run has services. Such a claim is not retained. Service output is not stored, and the support check comes with goal 0.8.
 
 ## Check your setup
 
@@ -297,4 +297,4 @@ Not yet run against real services, and covered in CI on fake servers only:
 1. A claim that cites a URL a service returned, on either runtime: the test server returns none, so the OpenCode run above could not exercise it.
 2. One memory server stopped: the run still completes and `chargehand show` says it was skipped.
 
-Known gap: a worker's citation of a service tool's reply does not resolve today. Workers cite it as a session message with the reply text as the locator, and session-message evidence resolves by message id, so the claim becomes an open question; only a URL the service returned resolves.
+Fixed after this check: a worker's citation of a service tool's reply resolves when its locator quotes the reply (see above). The runs above predate it and were not repeated on a real model.

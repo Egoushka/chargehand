@@ -441,7 +441,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
                 // The CLI emits one event per content block; blocks of one API message share its id.
                 var m = e.GetProperty("message");
                 var id = m.GetProperty("id").GetString()!;
-                var (text, tools) = Content(m);
+                var (text, tools, _) = Content(m);
                 var error = e.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.String ? err.GetString() : null;
                 if (last is { Kind: WorkerMessageKind.Assistant } && last.Id == id)
                     s.Messages[^1] = last with { Text = last.Text + text, ToolOutput = last.ToolOutput + tools, Tokens = Tokens(m) ?? last.Tokens, Error = error ?? last.Error };
@@ -455,7 +455,10 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
             case "user":
                 // Tool results belong to the assistant message that called the tools (evidence scope).
                 if (s.Messages.FindLastIndex(x => x.Kind == WorkerMessageKind.Assistant) is var i and >= 0)
-                    s.Messages[i] = s.Messages[i] with { ToolOutput = s.Messages[i].ToolOutput + Content(e.GetProperty("message")).Tools };
+                {
+                    var (_, called, returned) = Content(e.GetProperty("message"));
+                    s.Messages[i] = s.Messages[i] with { ToolOutput = s.Messages[i].ToolOutput + called, ToolResults = [.. s.Messages[i].ToolResults ?? [], .. returned] };
+                }
                 return false;
             case "system" when e.TryGetProperty("subtype", out var kind) && kind.GetString() == "init":
                 NoteServers(s, e);
@@ -558,10 +561,11 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
             s.Messages[i] = s.Messages[i] with { Completed = now };
     }
 
-    private static (string Text, string Tools) Content(JsonElement message)
+    private static (string Text, string Tools, IReadOnlyList<string> Results) Content(JsonElement message)
     {
         var text = new StringBuilder();
         var tools = new StringBuilder();
+        var results = new List<string>();
         if (message.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array)
             foreach (var block in content.EnumerateArray())
                 switch (block.GetProperty("type").GetString())
@@ -570,12 +574,26 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
                         text.Append(block.GetProperty("text").GetString());
                         break;
                     case "tool_use":
-                    case "tool_result":
                         tools.Append(block.GetRawText()).Append('\n');
                         break;
+                    case "tool_result":
+                        tools.Append(block.GetRawText()).Append('\n');
+                        if (block.TryGetProperty("content", out var body))
+                            results.Add(ResultText(body));
+                        break;
                 }
-        return (text.ToString(), tools.ToString());
+        return (text.ToString(), tools.ToString(), results);
     }
+
+    /// <summary>A tool result's content is a string, or blocks of which the text ones are the reply.</summary>
+    private static string ResultText(JsonElement body) => body.ValueKind switch
+    {
+        JsonValueKind.String => body.GetString()!,
+        JsonValueKind.Array => string.Concat(body.EnumerateArray()
+            .Where(b => b.ValueKind == JsonValueKind.Object && b.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String)
+            .Select(b => b.GetProperty("text").GetString())),
+        _ => body.GetRawText(),
+    };
 
     /// <summary>Anthropic usage; reasoning tokens are billed as output and not reported apart.</summary>
     private static TokenCounts? Tokens(JsonElement m)

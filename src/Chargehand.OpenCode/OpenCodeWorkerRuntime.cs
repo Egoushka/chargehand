@@ -121,6 +121,7 @@ public sealed class OpenCodeWorkerRuntime : IWorkerRuntime, IRunCleanup, IServic
             case "assistant":
                 var text = new StringBuilder();
                 var tools = new StringBuilder();
+                var results = new List<string>();
                 if (m.TryGetProperty("content", out var parts))
                     foreach (var p in parts.EnumerateArray())
                     {
@@ -128,13 +129,18 @@ public sealed class OpenCodeWorkerRuntime : IWorkerRuntime, IRunCleanup, IServic
                         if (pt == "text")
                             text.Append(p.GetProperty("text").GetString());
                         else if (pt == "tool" && p.TryGetProperty("state", out var state))
+                        {
                             tools.Append(state.GetRawText()).Append('\n');
+                            if (state.TryGetProperty("output", out var output) && output.ValueKind != JsonValueKind.Null)
+                                results.Add(output.ValueKind == JsonValueKind.String ? output.GetString()! : output.GetRawText());
+                        }
                     }
                 return new WorkerMessage(
                     m.GetProperty("id").GetString()!, WorkerMessageKind.Assistant, created, text.ToString(), Tokens(m), completed,
                     m.TryGetProperty("model", out var model) ? $"{model.GetProperty("providerID").GetString()}/{model.GetProperty("id").GetString()}" : null,
                     tools.ToString(),
-                    m.TryGetProperty("error", out var err) && err.ValueKind != JsonValueKind.Null ? err.GetRawText() : null);
+                    m.TryGetProperty("error", out var err) && err.ValueKind != JsonValueKind.Null ? err.GetRawText() : null,
+                    ToolResults: results);
             case "idle":
                 var outcome = m.TryGetProperty("outcome", out var o) ? o.GetString() : null;
                 return new WorkerMessage(m.GetProperty("id").GetString()!, WorkerMessageKind.Idle, created, null, null,

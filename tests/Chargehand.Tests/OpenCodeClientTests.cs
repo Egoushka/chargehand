@@ -190,6 +190,7 @@ public class OpenCodeClientTests
         Assert.Equal("p/gpt-x", m.Model);
         Assert.Equal(new TokenCounts(3, 195, 201, 5969, 424), m.Tokens);
         Assert.Contains("https://example.com/x", m.ToolOutput, StringComparison.Ordinal);
+        Assert.Equal(["see https://example.com/x"], m.ToolResults);
         Assert.Equal(TimeSpan.FromMilliseconds(7062), m.Completed - m.Created);
 
         var idle = OpenCodeWorkerRuntime.Map(JsonDocument.Parse("""{"id":"msg_i","time":{"created":1},"type":"idle","outcome":"interrupted"}""").RootElement);
