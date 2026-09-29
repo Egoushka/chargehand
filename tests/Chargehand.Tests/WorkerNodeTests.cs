@@ -348,6 +348,24 @@ public class WorkerNodeTests
     }
 
     [Fact]
+    public async Task A_worker_that_reports_failed_itself_gets_an_error_object()
+    {
+        // A read-only worker handed a change request (intake's action is not in the preset) answers status failed.
+        var rt = new FakeRuntime("""
+            ```json
+            {"status":"failed","summary":"This preset is read-only; I cannot edit files.","claims":[],"evidence":[],"artifacts":[],"open_questions":[],"confidence":0}
+            ```
+            """);
+        var r = await Node(rt).RunAsync(Request(), CancellationToken.None);
+        Assert.Equal(ResultStatus.Failed, r.Contract.Status);
+        var e = r.Contract.Error!;
+        Assert.Equal(ErrorCode.Internal, e.Code);
+        Assert.Equal("the worker reported failed: This preset is read-only; I cannot edit files.", e.Message);
+        Assert.Contains("chargehand show run-1", e.Action, StringComparison.Ordinal);
+        Assert.Equal("This preset is read-only; I cannot edit files.", r.Contract.Summary);
+    }
+
+    [Fact]
     public async Task A_worker_that_fails_reports_the_providers_reason_and_an_action()
     {
         var rt = new FakeRuntime(Block("src/calc.py:5")) { Fail = true, FailWith = """{"name":"APIError","data":{"message":"model not found: gpt-9","statusCode":404}}""" };
