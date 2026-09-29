@@ -271,7 +271,7 @@ The tests ([GoalSixTests](../../tests/Chargehand.Tests/GoalSixTests.cs), [Memory
 
 Hindsight rewrites the item into facts of its own. The extracted fact kept the repository label and dropped the commit, the locators and the confidence: it was one sentence about the repository with a date. The full item is the document's text, so a recalled fact names the repository but not the commit, which is on the document.
 
-**Services.** A stdio test server on the real Claude Code runtime, and the shipped OpenCode runtime with a stand-in model:
+**Services.** A stdio test server on the real Claude Code runtime, and on the shipped OpenCode runtime first with a stand-in model, then with a real one:
 
 | Check | Result |
 |---|---|
@@ -280,8 +280,16 @@ Hindsight rewrites the item into facts of its own. The extracted fact kept the r
 | OpenCode 2.0.19, a stand-in model | a granted tool answered and an ungranted one was unknown |
 | OpenCode, two runs with different grants at one location | each saw only its own tool |
 | OpenCode, a server that fails to start | it was reported and removed |
+| OpenCode 2.0.19, a small model, whole `chargehand run`s on a scratch repository, a copy of `cheap` that grants `echo_fact` of the stdio test server | `chargehand show` printed `service fake: granted echo_fact`; the worker called the tool through `execute` and got `echo_fact ok: spike fact`, and the run's answer quoted it (two runs) |
+| The same, asked to call `write_note` too | the worker's `search` for it found nothing and the call failed with `Unknown tool '<server>-<hash>.write_note'`; the session's rules ended with `*_* * deny` and one allow for `echo_fact` |
+| The same, the registration during and after a run | the server read `connected` at the run's location while the run was going, and `GET /api/mcp` listed no server there afterwards |
+| `chargehand extensions check --preset` on that copy | exit 0: `server fake: connected, 2 tools` and `preset <copy>: service fake: echo_fact ok` |
+
+The OpenCode server was a throwaway one started with `scripts/opencode-serve.sh`, and the three runs on the small model cost about $0.005 in all by the run log's prices. Two things the runs showed about citations, neither a fault of the service path. The worker cited the tool's reply as a session message with the reply text as the locator; session-message evidence resolves by message id, so that claim did not resolve and became an open question (the first run then completed with no claims; the run that also called `write_note` ended `needs_input` for the same reason). The test server returns no URL, and a URL is the only citation of service output the resolver accepts. The answer text itself carried the reply in every run.
 
 Not yet run against real services, and covered in CI on fake servers only:
 
-1. A service call from OpenCode with a real model: `chargehand show` lists the granted tools, and a question that needs the service is answered with a claim citing a URL the service returned.
+1. A claim that cites a URL a service returned, on either runtime: the test server returns none, so the OpenCode run above could not exercise it.
 2. One memory server stopped: the run still completes and `chargehand show` says it was skipped.
+
+Known gap: a worker's citation of a service tool's reply does not resolve today. Workers cite it as a session message with the reply text as the locator, and session-message evidence resolves by message id, so the claim becomes an open question; only a URL the service returned resolves.
