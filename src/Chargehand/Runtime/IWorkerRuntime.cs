@@ -62,7 +62,9 @@ public sealed record NodeSpec(
 /// <param name="Server">The profile's name for the server; the worker's runtime names the server that way.</param>
 /// <param name="Tools">The granted tool names, sorted; every other tool of the server stays refused.</param>
 /// <param name="Sha256">Hash of the granted tools' names, descriptions and input schemas; part of <c>as_sent.tools_sha256</c>.</param>
-public sealed record ServiceGrant(string Server, ServiceTransport Transport, IReadOnlyList<string> Tools, string Sha256);
+/// <param name="Hidden">The other tools the server listed when the grant was resolved, sorted. A runtime whose worker would still see
+/// them in its catalog (Claude Code lists a connected server's ungranted tools, at about 50 tokens each) removes them; null: not known.</param>
+public sealed record ServiceGrant(string Server, ServiceTransport Transport, IReadOnlyList<string> Tools, string Sha256, IReadOnlyList<string>? Hidden = null);
 
 /// <summary>How a runtime reaches a granted server, with the profile's <c>{secret:item}</c> values already replaced.
 /// <c>ToString</c> of every case hides header and environment values, so a grant can be logged.</summary>

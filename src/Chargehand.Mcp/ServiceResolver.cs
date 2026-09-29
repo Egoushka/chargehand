@@ -61,7 +61,8 @@ public sealed class ServiceResolver(McpConnectionPool pool, TimeSpan? listTimeou
                 return (null, issues);
             var digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
                 listed.Where(t => granted.Contains(t.Name)).OrderBy(t => t.Name, StringComparer.Ordinal).Select(t => new object?[] { t.Name, t.Description, t.InputSchema })))));
-            return (new ServiceGrant(server, transport, [.. granted], digest), issues);
+            var hidden = listed.Select(t => t.Name).Where(name => !granted.Contains(name)).Order(StringComparer.Ordinal).ToList();
+            return (new ServiceGrant(server, transport, [.. granted], digest, hidden), issues);
         }
         catch (McpUnavailableException e)
         {

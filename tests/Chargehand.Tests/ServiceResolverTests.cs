@@ -45,6 +45,19 @@ public class ServiceResolverTests
     }
 
     [Fact]
+    public async Task The_tools_a_grant_leaves_out_are_carried_so_a_runtime_can_hide_them()
+    {
+        await using var docs = Docs();
+        await using var pool = PoolFor(docs);
+
+        var resolved = await new ServiceResolver(pool).ResolveAsync([new ServiceUse("team-docs", ["search_*"])], CancellationToken.None);
+
+        var grant = Assert.Single(resolved.Grants);
+        Assert.Equal(["search_docs"], grant.Tools);
+        Assert.Equal(["read_doc", "write_note"], grant.Hidden);
+    }
+
+    [Fact]
     public async Task A_requested_tool_the_server_lacks_is_reported_and_the_rest_granted()
     {
         await using var docs = Docs();
