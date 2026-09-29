@@ -162,7 +162,7 @@ public class McpMemoryProviderTests
     }
 
     /// <summary>The body of Chronicle's /recall (chronicle/api.py, results built at lines 168-176).</summary>
-    private const string ChronicleReply = """
+    internal const string ChronicleReply = """
         {"intent":"open","routed_because":null,"window_from_query":null,"results":[
           {"segment_id":"seg-1","score":0.031,"date":"2024-05-03T10:12:00","thread":"chat-1","text":"raw conversation one","evidence":["ev-1","ev-2"],"summary":"Agreed to repaint the flat in June."},
           {"segment_id":"seg-2","score":0.020,"date":"2023-11-20T18:40:00","thread":"chat-2","text":"raw conversation two","evidence":["ev-3"],"summary":null},
@@ -172,7 +172,7 @@ public class McpMemoryProviderTests
     /// <summary>What Chronicle's MCP tool answers (chronicle/mcp_server.py: <c>recall(...) -> str</c> returns the API's text). The
     /// Python SDK puts that text in one text block and, because the return type is str, wraps it as <c>{"result": "…"}</c> in
     /// structuredContent as well.</summary>
-    private static CallToolResult ChronicleAnswer() => new()
+    internal static CallToolResult ChronicleAnswer() => new()
     {
         Content = [new TextContentBlock { Text = ChronicleReply }],
         StructuredContent = JsonSerializer.SerializeToElement(new { result = ChronicleReply }),

@@ -39,6 +39,12 @@ Non-goals: its own agent loop, direct calls to model providers, parallelism for 
 callers that bring their own facts. Optional long-term **memory**, a **cache report** per run, **Prompt CI** that gates
 prompt changes on paired evals, and a **routing report** round it out.
 
+**Memory and services** come from MCP servers you list in the profile's `mcp_servers`; with none listed, a run is
+unchanged. A run recalls from any number of memory servers at once, each fact labelled with its source, and with retain
+on it stores only claims whose citations resolved, with their locators, repository and commit. A preset can give
+workers read-only tools from a server. `chargehand extensions check` verifies the setup before a run does. See
+[Memory and services](docs/guide/memory-and-services.md) for the Hindsight and Chronicle setups.
+
 ## Quick start
 
 You need the .NET 10 SDK and one worker runtime.

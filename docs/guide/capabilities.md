@@ -31,7 +31,8 @@ The tests call no model. They run the orchestrator on a scripted runtime ([Scrip
 | [MCP tasks, `input_required` questions, and the run id before a client timeout](#mcp-tasks-input_required-questions-and-the-run-id-before-a-client-timeout) | works | [McpTests](../../tests/Chargehand.Tests/McpTests.cs), [ADR 0029](../adr/0029-mcp-run-id-before-a-client-timeout.md) |
 | [Server container image](#server-container-image) | partial | [Dockerfile](../../Dockerfile), [release.yml](../../.github/workflows/release.yml) |
 | [Prompt CI on prompt and preset changes](#prompt-ci-on-prompt-and-preset-changes) | partial | [GateTests](../../tests/Chargehand.Tests/GateTests.cs), [PromptCiTests](../../tests/Chargehand.Tests/PromptCiTests.cs) |
-| [Optional long-term memory (Hindsight)](#optional-long-term-memory-hindsight) | partial | [McpMemoryProviderTests](../../tests/Chargehand.Tests/McpMemoryProviderTests.cs), [MemoryStackTests](../../tests/Chargehand.Tests/MemoryStackTests.cs), [MemoryRunTests](../../tests/Chargehand.Tests/MemoryRunTests.cs), [ADR 0008](../adr/0008-memory-provider-contract.md) |
+| [Long-term memory from MCP servers, several at once](#long-term-memory-from-mcp-servers) | partial | [GoalSixTests](../../tests/Chargehand.Tests/GoalSixTests.cs), [MemoryStackTests](../../tests/Chargehand.Tests/MemoryStackTests.cs), [MemoryRunTests](../../tests/Chargehand.Tests/MemoryRunTests.cs), [McpMemoryProviderTests](../../tests/Chargehand.Tests/McpMemoryProviderTests.cs), [ADR 0034](../adr/0034-memory-and-services-over-mcp.md) |
+| [Services: MCP tools for a preset's workers](#services-mcp-tools-for-a-presets-workers) | partial | [GoalSixTests](../../tests/Chargehand.Tests/GoalSixTests.cs), [ServiceResolverTests](../../tests/Chargehand.Tests/ServiceResolverTests.cs), [ClaudeCodeServicesTests](../../tests/Chargehand.Tests/ClaudeCodeServicesTests.cs), [OpenCodeServicesTests](../../tests/Chargehand.Tests/OpenCodeServicesTests.cs), [ADR 0034](../adr/0034-memory-and-services-over-mcp.md) |
 | [Running with no profile file](#running-with-no-profile-file) | partial | [ProfileTests](../../tests/Chargehand.Tests/ProfileTests.cs), [ROADMAP.md](../../ROADMAP.md) |
 | [Claude Code plugin, `/chargehand:change`](#claude-code-plugin-chargehandchange) | partial | [ChangeSkillTests](../../tests/Chargehand.Tests/ChangeSkillTests.cs), [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs) |
 | [`Chargehand` and `Chargehand.Contracts` on nuget.org](#chargehand-and-chargehandcontracts-on-nugetorg) | works | [mcp-smoke.py](../../scripts/mcp-smoke.py), [release.yml](../../.github/workflows/release.yml), [README](../../README.md#from-the-package) |
@@ -158,14 +159,26 @@ What is missing: [Server container image](#server-container-image-1).
 
 What is missing: [Prompt CI](#prompt-ci).
 
-### Optional long-term memory (Hindsight)
+### Long-term memory from MCP servers
 
-- [McpMemoryProviderTests](../../tests/Chargehand.Tests/McpMemoryProviderTests.cs) checks the adapter's recall, retain and invalidate calls against a fake MCP server, including the fields the removed Hindsight HTTP client sent.
+- [GoalSixTests](../../tests/Chargehand.Tests/GoalSixTests.cs) is the goal 0.6 done bar in process: one run recalls from two stacked providers (Hindsight through a gateway, and a Chronicle-shaped one over the SSE transport that answers in both structured content and text, as the real server does), retains only the claim whose citation resolved, and the same run gives a worker a service. A second case stops one provider and checks that the run completes with the other. A third loads the profile example in the [guide page](memory-and-services.md).
+- [McpMemoryProviderTests](../../tests/Chargehand.Tests/McpMemoryProviderTests.cs) checks the mapping's recall, retain and invalidate calls against a fake MCP server, including the fields the removed Hindsight HTTP client sent, and a Chronicle-shaped recall; [MemoryConfigTests](../../tests/Chargehand.Tests/MemoryConfigTests.cs) checks that a bad mapping fails when the profile loads and that the old object form fails with the migration.
 - [MemoryStackTests](../../tests/Chargehand.Tests/MemoryStackTests.cs) checks recall across several providers at once (labels by source, one line per fact, duplicates, limits, timeouts, every kind of provider failure).
-- [MemoryRunTests](../../tests/Chargehand.Tests/MemoryRunTests.cs) and [MemoryFailOpenTests](../../tests/Chargehand.Tests/MemoryFailOpenTests.cs) drive whole runs that recall, retain and survive a failing provider; the caller's own cancellation still stops the run.
+- [MemoryRunTests](../../tests/Chargehand.Tests/MemoryRunTests.cs) and [MemoryFailOpenTests](../../tests/Chargehand.Tests/MemoryFailOpenTests.cs) drive whole runs that recall, retain and survive a failing provider; the caller's own cancellation still stops the run. [RetainableClaimsTests](../../tests/Chargehand.Tests/RetainableClaimsTests.cs) pins which claims are retained.
+- [McpConnectionPoolTests](../../tests/Chargehand.Tests/McpConnectionPoolTests.cs) and [SecretTemplateTests](../../tests/Chargehand.Tests/SecretTemplateTests.cs) cover Streamable HTTP, SSE and stdio servers and `{secret:item}`; [ExtensionsCheckTests](../../tests/Chargehand.Tests/ExtensionsCheckTests.cs) covers `chargehand extensions check`.
+- Live, on 2026-09-29 ([the guide](memory-and-services.md#checked-live)): `extensions check --probe` passed with Hindsight through a gateway and Chronicle over SSE; 20 of 20 recalled ids matched between Hindsight's HTTP API and the gateway's MCP recall; a run with the old object form and one with the list form produced the same chain block hash; the list-form run recalled 10 facts from each provider.
 - No benchmark measures what recalled facts do to an answer ([ADR 0008](../adr/0008-memory-provider-contract.md)).
 
-What is missing: [Optional long-term memory](#optional-long-term-memory).
+What is missing: [Long-term memory](#long-term-memory).
+
+### Services: MCP tools for a preset's workers
+
+- [PresetServicesTests](../../tests/Chargehand.Tests/PresetServicesTests.cs) and [ServiceResolverTests](../../tests/Chargehand.Tests/ServiceResolverTests.cs): a preset's `services` names resolve against the server's tool list, and a missing server, secret or tool drops that service and not the run.
+- [ServiceRunTests](../../tests/Chargehand.Tests/ServiceRunTests.cs): the grant reaches the node, the tools hash changes only when something is granted, and a dropped service is in the run log.
+- [ClaudeCodeServicesTests](../../tests/Chargehand.Tests/ClaudeCodeServicesTests.cs) (stand-in CLI): a private config file outside the checkout, exactly the granted tools allowed, the file removed when the turn ends. [OpenCodeServicesTests](../../tests/Chargehand.Tests/OpenCodeServicesTests.cs) (recording HTTP handler): the registration lifecycle and the deny-then-allow rules. [GoalSixTests](../../tests/Chargehand.Tests/GoalSixTests.cs) drives a whole run from a preset through a real service resolver into the Claude Code runtime's stand-in CLI.
+- [ADR 0034](../adr/0034-memory-and-services-over-mcp.md) records the spike behind the delivery to each runtime and a live check on OpenCode 2.0.19 with a stand-in model.
+
+What is missing: [Services](#services).
 
 ### Running with no profile file
 
@@ -237,9 +250,15 @@ The gate runs and posts its status, and its coverage has holes:
 
 [Prompt CI](prompt-ci.md) has the numbers.
 
-### Optional long-term memory
+### Long-term memory
 
-With the profile's `memory` block set, a run recalls facts once and adds them to each node's prompt as context the worker is told to check in the repository and never cite. Each fact carries the name of the memory it came from (its `name` in the `memory` list), and `chargehand show` prints what each memory recalled and retained. A failed recall leaves the run without them, and retain stays off by default ([ADR 0008](../adr/0008-memory-provider-contract.md)). With retain on, a run stores only the claims that cite a `file` or `commit` that resolved at the run's commit, each with its locators, the repository and the commit, and never the request text or the summary; a run without a repository retains nothing ([ADR 0034](../adr/0034-memory-and-services-over-mcp.md)). `memory` is a list of providers, each an MCP server from `mcp_servers` and a mapping onto its tools ([ADR 0034](../adr/0034-memory-and-services-over-mcp.md)); the Hindsight HTTP client and the single-object form are gone, and a profile that still has the object fails to load with a migration message. The tests use fake MCP servers.
+With the profile's `memory` list set, a run recalls facts once and adds them to each node's prompt as context the worker is told to check in the repository and never cite. Each fact carries the name of the memory it came from, and `chargehand show` prints what each memory recalled and retained. A failed recall leaves the run without that memory's facts, and retain stays off by default ([ADR 0008](../adr/0008-memory-provider-contract.md)). With retain on, a run stores only the claims that cite a `file` or `commit` that resolved at the run's commit, each with its locators, the repository and the commit, and never the request text or the summary; a run without a repository retains nothing ([ADR 0034](../adr/0034-memory-and-services-over-mcp.md)). The Hindsight HTTP client and the single-object form are gone; a profile that still has the object fails to load with a migration message.
+
+What no test or recorded run covers: a retain against a real memory service (the live run had no commit, so nothing was retained), and what recalled facts do to an answer. `chargehand extensions check` reports a mapping that does not fit a server's tools before a run does. The guide page lists the [live checks still to run](memory-and-services.md#checked-live).
+
+### Services
+
+A preset's `services` give workers read-only tools from MCP servers in the profile, on Claude Code and on OpenCode. No shipped preset lists any. What is missing: no recorded run uses a real service through a real runtime, so how the pinned Claude Code and OpenCode versions treat a granted tool is known from the spike and the stand-ins, not from a run through chargehand. On OpenCode, a preset that denies `*` (such as `draft`) cannot use services, because workers reach a server through OpenCode's `execute` tool; and a claim that rests on a service's output cites a URL it returned, which the resolver accepts as seen in tool output and does not check against the claim (goal 0.8).
 
 ### Running with no profile file
 

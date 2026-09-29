@@ -1,7 +1,7 @@
 ---
 title: "Prompt CI"
 description: "How prompt and preset changes are gated by paired evals: the cells, the eval commands, the verdict and its tolerances, and what the gate has missed."
-order: 6
+order: 7
 section: "Concepts"
 ---
 

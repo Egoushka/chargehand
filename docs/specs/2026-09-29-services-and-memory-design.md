@@ -1,6 +1,6 @@
 # Runs use your services and memory (goal 0.6)
 
-- Status: accepted by the owner, 2026-09-29 (the numbered decisions and the former open decisions)
+- Status: implemented on `main`, 2026-09-29 (accepted by the owner the same day: the numbered decisions and the former open decisions)
 - Date: 2026-09-29
 
 ## Goal

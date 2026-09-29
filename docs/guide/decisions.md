@@ -1,7 +1,7 @@
 ---
 title: "Architecture decisions"
 description: "Every architecture decision record in docs/adr, in number order, with its status and one line on what it decides."
-order: 8
+order: 9
 section: "Project"
 ---
 
@@ -17,7 +17,7 @@ Each decision lives in `docs/adr/` as a numbered file that states the options, t
 | [0005. Plan and Task Spec format](../adr/0005-plan-and-task-spec.md) | accepted | Defines `request/v1` and `task-spec/v1`. Intake is one schema-checked `generate` call that picks one action, and its estimate gates nothing until the run log calibrates it. |
 | [0006. Presets](../adr/0006-presets.md) | accepted | Presets are versioned `preset/v1` files with last-match-wins rules. Every preset denies secret files and the shell tool, and only `strict` sets approval thresholds. |
 | [0007. Prompt registry and Langfuse sync](../adr/0007-prompt-registry-and-langfuse-sync.md) | accepted | Git holds the prompts as SemVer blocks with a normalised sha256; each call records its prompt chain, and Langfuse prompt management is a sync target. |
-| [0008. Memory provider contract](../adr/0008-memory-provider-contract.md) | accepted | `recall`, `retain` and `invalidate` behind `IMemoryProvider`, with one Hindsight adapter. Memory is context that fails open, and retain is off by default. |
+| [0008. Memory provider contract](../adr/0008-memory-provider-contract.md) | accepted; the Hindsight adapter and the retain content amended by 0034 | `recall`, `retain` and `invalidate` behind `IMemoryProvider`; 0034 replaces the Hindsight adapter with an MCP one. Memory is context that fails open, and retain is off by default. |
 | [0009. Result contract, shared with the first consumer](../adr/0009-result-contract.md) | accepted | Defines `result/v1`: every claim carries evidence and a confidence, references resolve before a contract leaves its node, and claims that do not resolve move to open questions. |
 | [0010. Context strategy](../adr/0010-context-strategy.md) | accepted | Instruction entries stay fixed from a node's first prompt so the prefix stays cached; siblings fork before the first message; per-node token budgets and a compaction trigger bound a node's context. |
 | [0011. Concurrency, budgets and cost accounting](../adr/0011-concurrency-budgets-cost.md) | accepted | The gateway spend log is the billing truth and the orchestrator's own price table drives in-run budgets; at most 2 nodes run at once per model, with a 15-minute node deadline and a per-run cap. |
@@ -35,7 +35,7 @@ Each decision lives in `docs/adr/` as a numbered file that states the options, t
 | [0023. Repository roots and worker clones](../adr/0023-repository-roots-and-worker-clones.md) | accepted | A request's repository may sit under the profile's `repository_roots`; the worker reads a clone at the pinned commit under `worker_root`. |
 | [0024. chargehand serve on a private network, and release images](../adr/0024-server-on-a-private-network-and-release-images.md) | accepted | `http.listen` and `http.allowed_hosts` let the server bind a private address, and a tag `v<Version>` publishes a server image with the Claude Code runtime. |
 | [0025. Prompt CI on a self-hosted runner, any runtime](../adr/0025-prompt-ci-on-a-self-hosted-runner.md) | accepted | Prompt CI runs from a `pull_request_target` workflow on an ephemeral self-hosted runner; forks and preset changes wait for approval, and a label picks the runtime. |
-| [0026. The extension model](../adr/0026-extension-model.md) | accepted; runtime selection amended by 0032 | The profile becomes optional with defaults, the runtime is named or found on `PATH` with no silent priority, secrets come from an ordered list of sources, and prices are optional. |
+| [0026. The extension model](../adr/0026-extension-model.md) | accepted; runtime selection amended by 0032; the memory and services rows detailed by 0034 | The profile becomes optional with defaults, the runtime is named or found on `PATH` with no silent priority, secrets come from an ordered list of sources, and prices are optional. |
 | [0027. A dnx package and an MCP Registry listing](../adr/0027-dnx-package-and-mcp-registry.md) | accepted | `chargehand mcp` serves the tool over stdio, and the `Chargehand` tool package is published on nuget.org; its MCP Registry entry is listed from 0.4.1, and the release workflow publishes each new version. |
 | [0028. Default repository roots](../adr/0028-default-repository-roots.md) | accepted | Without `repository_roots`, the CLI also allows the directory it was launched in; `serve` keeps `worker_root` only. |
 | [0029. The MCP run id before a client timeout](../adr/0029-mcp-run-id-before-a-client-timeout.md) | accepted | Outside a task, a progress token gets the run id as a notification, and an MCP request's `Prefer: wait=N` returns the run id after N seconds as a tool error. |
@@ -43,3 +43,4 @@ Each decision lives in `docs/adr/` as a numbered file that states the options, t
 | [0031. Managed Agents as a worker runtime](../adr/0031-managed-agents-as-a-worker-runtime.md) | accepted | A desk study of Claude Managed Agents behind `IWorkerRuntime`. Its decision, worded as proposed, defers any adapter to 0.7 planning and a capped, paid live check. |
 | [0032. A profile's only runtime block names its runtime](../adr/0032-runtime-from-a-profile-block.md) | accepted | `RuntimeSelector` tries the `runtime` field, `CHARGEHAND_RUNTIME`, the profile's only runtime block and then a `PATH` probe, so a profile written before 0.4 keeps its runtime with no migration. With both blocks or none, the probe decides. |
 | [0033. CI policy: a required gate per pull request, heavy scans off the pull request path](../adr/0033-ci-policy.md) | accepted | `ci-gate` and `prompt-ci` are the required checks, pull requests that touch only prose skip the build jobs, CodeQL and Scorecard run weekly and on demand (CodeQL also on a release tag), and auto-merge is allowed. |
+| [0034. Memory and services over MCP](../adr/0034-memory-and-services-over-mcp.md) | accepted | One profile registry, `mcp_servers`, feeds a list of memory providers (a declarative tool mapping, recall from all of them at once labelled by source, retain only claims whose citations resolved) and a preset's `services`, which each runtime hands to workers as an explicit tool grant. [The guide](memory-and-services.md) shows both. |
