@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The release workflow lists each new version in the MCP Registry (ADR 0027). A `mcp-registry` job runs after `release`
+  when `NUGET_USER` is set: it stamps a copy of `.mcp/server.json`, waits until nuget.org serves the package README with
+  the ownership line, and publishes with the registry's GitHub OIDC login. It holds no write token and needs no new secret.
+
+### Changed
+
+- The MCP Registry name is `io.github.Egoushka/chargehand`, with the owner spelled as GitHub spells it: the registry
+  matches the namespace and the README's `mcp-name` line case-sensitively. The `Chargehand` 0.4.0 package still has the
+  lower-case line, so the first listing comes with the next release.
+
 ### Fixed
 
 - Intake saw a caller input's id and kind but not its text, so a run whose request carried its goal, diff and test

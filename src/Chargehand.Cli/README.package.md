@@ -1,6 +1,6 @@
 # chargehand
 
-<!-- mcp-name: io.github.egoushka/chargehand -->
+<!-- mcp-name: io.github.Egoushka/chargehand -->
 
 An MCP server that runs coding-agent workers (Claude Code or OpenCode) on a question about a codebase and returns
 `result/v1`: an answer whose claims each carry evidence, with a confidence and the questions that stayed open.

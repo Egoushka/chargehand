@@ -15,7 +15,7 @@ image.
   nuget.org, OpenSSF Scorecard, CodeQL, dependency review, stricter analyzers.
 - ✅ **0.4** It runs with nothing configured: no profile file needed, the runtime picked by name or found on the machine,
   secrets from environment variables, extensions by category, the `Chargehand` tool package on nuget.org. Not done: the
-  MCP Registry listing. The entry ships in the package; no workflow publishes it yet.
+  MCP Registry listing. The entry ships in the package; the release workflow on main lists it from the next release.
 
 ## Stage 3 — One prompt, whole result · ▶ (0.5–0.7)
 
