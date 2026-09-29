@@ -250,6 +250,8 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
     private ResultError Failure(IdleOutcome outcome, IReadOnlyList<WorkerMessage> messages, NodeRequest r, IReadOnlyList<string> errors)
     {
         var code = ErrorOf(outcome, messages, r);
+        if (outcome == IdleOutcome.Failed && Cause(messages).Length == 0 && !messages.Any(m => m.Kind == WorkerMessageKind.Assistant))
+            return new ChargehandException(code, $"worker ended failed: {NoModelCall}", NoModelCallAction(r)).Error;
         var message = outcome == IdleOutcome.Succeeded
             ? $"no valid result contract: {string.Join("; ", errors.Take(3))}"
             : $"worker ended {outcome.ToString().ToLowerInvariant()}{Cause(messages)}";
@@ -295,6 +297,17 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
     /// on a read-only preset, which runs as an answer when intake's action is not in the preset.</summary>
     private static string WorkerFailedAction(NodeRequest r) =>
         $"Read the summary: the worker could not do the task as asked. Ask for a change as a read-only question, or use a preset that allows it. `chargehand show {r.RunId}` prints the session.";
+
+    private const string NoModelCall = "the server ended the session before any model call and gave no reason";
+
+    /// <summary>A failed session with no assistant message and no error text: OpenCode ended it before it called a model (a model
+    /// the server does not declare does this) and only the server's own log names the reason. The model is config, not a secret.</summary>
+    private static string NoModelCallAction(NodeRequest r) =>
+        "Read the OpenCode server's log for the cause, for example a model the server does not declare. "
+        + (r.Spec.Model is { } model
+            ? $"This run asked for `{model.ProviderId}/{model.ModelId}`: check it against the server's declared models and the profile's `models` map. "
+            : "No model was mapped for this run, so the server used its own default: map the preset's model in the profile's `models`, or give the server a default. ")
+        + $"`chargehand show {r.RunId}` prints the session.";
 
     private static string ActionOf(ErrorCode code, NodeRequest r) => code switch
     {
