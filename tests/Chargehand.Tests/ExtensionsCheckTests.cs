@@ -230,20 +230,6 @@ public class ExtensionsCheckTests
     }
 
     [Fact]
-    public async Task The_object_form_is_noted_and_not_checked()
-    {
-        var profile = ProfileWith("""{"backend":"hindsight","url":"http://memory.example.internal:8888","namespace":"ns"}""", "{}");
-        await using var pool = new McpConnectionPool(new Dictionary<string, McpServerSettings>(), _ => "");
-
-        var result = await ExtensionsCheck.RunAsync(profile, [], pool, null, CancellationToken.None);
-
-        Assert.True(result.Ok);
-        var line = Assert.Single(result.Lines);
-        Assert.StartsWith("memory: the single-object form", line, StringComparison.Ordinal);
-        Assert.DoesNotContain("memory.example.internal", line, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task Nothing_to_check_is_said_and_is_ok()
     {
         await using var pool = new McpConnectionPool(new Dictionary<string, McpServerSettings>(), _ => "");
@@ -259,7 +245,7 @@ public class ExtensionsCheckTests
     {
         var entry = new MemoryProviderSettings("hs", "absent", new MemoryTools(new ToolCall("recall", new Dictionary<string, System.Text.Json.JsonElement>())));
         var profile = new Profile("profile/v1", McpServers: new Dictionary<string, McpServerSettings> { ["gw"] = new(Url: "https://mcp.example.internal/mcp") },
-            Memory: new MemoryBlock([entry]));
+            Memory: [entry]);
         await using var server = HindsightServer();
         await using var pool = PoolFor(profile, server);
 

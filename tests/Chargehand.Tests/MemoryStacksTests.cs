@@ -5,7 +5,7 @@ using static Chargehand.Tests.MemoryConfigTests;
 
 namespace Chargehand.Tests;
 
-/// <summary>Goal 0.6: the profile's memory becomes the stack a run recalls from, the list through MCP and the object form as before.</summary>
+/// <summary>Goal 0.6: the profile's memory list becomes the stack a run recalls from, through MCP.</summary>
 public class MemoryStacksTests
 {
     private static Profile ProfileWith(string memory, string servers = """{"gw":{"url":"https://mcp.example.internal/mcp"}}""")
@@ -17,8 +17,6 @@ public class MemoryStacksTests
     private static McpConnectionPool NeverConnects(Profile profile) =>
         new(profile.McpServers ?? new Dictionary<string, McpServerSettings>(), _ => "", (_, _, _) => throw new InvalidOperationException("not connected in this test"));
 
-    private static readonly Func<MemorySettings, IMemoryProvider> NoObjectForm = _ => throw new InvalidOperationException("the object form is not expected here");
-
     [Fact]
     public async Task The_list_becomes_one_source_per_entry_in_order_with_the_entrys_limits()
     {
@@ -26,7 +24,7 @@ public class MemoryStacksTests
         var profile = ProfileWith($"[{Hindsight},{notes}]");
         await using var pool = NeverConnects(profile);
 
-        var stack = MemoryStacks.From(profile, pool, NoObjectForm)!;
+        var stack = MemoryStacks.From(profile, pool)!;
 
         Assert.Equal(["hindsight", "notes"], stack.Sources.Select(s => s.Name));
         Assert.Equal([true, false], stack.Sources.Select(s => s.Retain));
@@ -43,7 +41,7 @@ public class MemoryStacksTests
         var profile = ProfileWith($"[{Chronicle}]", """{"chronicle":{"url":"http://localhost:8031/sse","transport":"sse"}}""");
         await using var pool = NeverConnects(profile);
 
-        var source = Assert.Single(MemoryStacks.From(profile, pool, NoObjectForm)!.Sources);
+        var source = Assert.Single(MemoryStacks.From(profile, pool)!.Sources);
 
         Assert.Equal(("chronicle", false), (source.Name, source.Retain));
         Assert.Equal(new MemoryScope("chronicle", "chronicle"), source.Scope);
@@ -54,27 +52,7 @@ public class MemoryStacksTests
     {
         await using var pool = new McpConnectionPool(new Dictionary<string, McpServerSettings>(), _ => "");
 
-        Assert.Null(MemoryStacks.From(new Profile("profile/v1"), pool, NoObjectForm));
-        Assert.Null(MemoryStacks.From(ProfileWith("[]"), pool, NoObjectForm));
-    }
-
-    [Fact]
-    public async Task The_object_form_still_builds_its_one_source_through_the_factory()
-    {
-        var profile = ProfileWith("""{"backend":"hindsight","url":"http://memory.example.internal:8888","namespace":"ns","retain":true}""");
-        await using var pool = NeverConnects(profile);
-        MemorySettings? given = null;
-        var provider = new MemoryStackTests.Fake();
-
-        var stack = MemoryStacks.From(profile, pool, settings =>
-        {
-            given = settings;
-            return provider;
-        })!;
-
-        Assert.Equal("ns", given!.Namespace);
-        var source = Assert.Single(stack.Sources);
-        Assert.Same(provider, source.Provider);
-        Assert.Equal(("hindsight", true, new MemoryScope("hindsight", "ns")), (source.Name, source.Retain, source.Scope));
+        Assert.Null(MemoryStacks.From(new Profile("profile/v1"), pool));
+        Assert.Null(MemoryStacks.From(ProfileWith("[]"), pool));
     }
 }

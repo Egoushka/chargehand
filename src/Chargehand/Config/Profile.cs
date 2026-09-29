@@ -25,7 +25,7 @@ public sealed record Profile(
     string? RunLog = null,
     TelemetrySettings? Telemetry = null,
     IReadOnlyDictionary<string, string>? Models = null,
-    MemoryBlock? Memory = null,
+    [property: JsonConverter(typeof(MemoryListConverter))] IReadOnlyList<MemoryProviderSettings>? Memory = null,
     HttpSettings? Http = null,
     ClaudeCodeSettings? ClaudeCode = null,
     IReadOnlyList<string>? RepositoryRoots = null,
@@ -67,7 +67,7 @@ public sealed record Profile(
         var servers = profile.McpServers ?? new Dictionary<string, McpServerSettings>();
         foreach (var (name, server) in servers)
             server.Validate(name);
-        if (profile.Memory is { Providers.Count: > 0 } memory && MemoryMapping.Validate(memory.Providers, servers) is { Count: > 0 } problems)
+        if (profile.Memory is { Count: > 0 } memory && MemoryMapping.Validate(memory, servers) is { Count: > 0 } problems)
             throw new ChargehandException(ErrorCode.InvalidRequest, string.Join("; ", problems),
                 "Fix memory in the profile; docs/guide/reference.md lists the fields.");
         return profile;
@@ -225,17 +225,6 @@ public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = n
         };
 }
 
-/// <summary>The old single-object form of <c>memory</c>: one Hindsight service over HTTP. Deprecated by ADR 0034 and read until the
-/// Hindsight client goes (then a profile carrying it fails at load with a migration message).</summary>
-public sealed record MemorySettings(string Backend, string Url, string Namespace, string? ApiKeySecret = null, int MaxTokens = 1024, bool Retain = false);
-
-/// <summary>
-/// The profile's <c>memory</c> (ADR 0034): a JSON array is <paramref name="Providers"/>, in priority order; the old single
-/// object is <paramref name="ObjectForm"/> and leaves <paramref name="Providers"/> empty. The two never both hold something.
-/// </summary>
-[JsonConverter(typeof(MemoryBlockConverter))]
-public sealed record MemoryBlock(IReadOnlyList<MemoryProviderSettings> Providers, MemorySettings? ObjectForm = null);
-
 /// <summary>
 /// One memory provider of the profile's <c>memory</c> list (ADR 0034, spec decisions 5, 6 and 17): an MCP server named in
 /// <c>mcp_servers</c>, the tools that give it recall (and retain, invalidate) and how their arguments and results map onto
@@ -341,30 +330,26 @@ public sealed record ResultMapping(
     private static readonly string[] DefaultText = ["text"];
 }
 
-/// <summary>Reads <c>memory</c> as a list of providers or, until the object form goes, as the old object; anything else is a JSON error.</summary>
-internal sealed class MemoryBlockConverter : JsonConverter<MemoryBlock>
+/// <summary>Reads <c>memory</c> as a list of providers. The object it used to be (ADR 0008) fails with the migration (ADR 0034); anything else is a JSON error.</summary>
+internal sealed class MemoryListConverter : JsonConverter<IReadOnlyList<MemoryProviderSettings>>
 {
-    public override MemoryBlock Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    public override IReadOnlyList<MemoryProviderSettings> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         switch (reader.TokenType)
         {
             case JsonTokenType.StartArray:
                 var providers = JsonSerializer.Deserialize<List<MemoryProviderSettings>>(ref reader, options) ?? [];
-                return providers.Contains(null!) ? throw new JsonException("memory: every entry must be an object") : new MemoryBlock(providers);
+                return providers.Contains(null!) ? throw new JsonException("memory: every entry must be an object") : providers;
             case JsonTokenType.StartObject:
-                return new MemoryBlock([], JsonSerializer.Deserialize<MemorySettings>(ref reader, options));
+                throw new ChargehandException(ErrorCode.InvalidRequest, "memory is a list now: the object form (backend, url, namespace) was removed",
+                    "Move url and api_key_secret into mcp_servers, and list the provider under memory with its tools mapping. docs/guide/memory-and-services.md has the Hindsight entry.");
             default:
-                throw new JsonException("memory must be a list of providers (or, until it is removed, the single-object form)");
+                throw new JsonException("memory must be a list of providers");
         }
     }
 
-    public override void Write(Utf8JsonWriter writer, MemoryBlock value, JsonSerializerOptions options)
-    {
-        if (value.ObjectForm is { } objectForm)
-            JsonSerializer.Serialize(writer, objectForm, options);
-        else
-            JsonSerializer.Serialize(writer, value.Providers, options);
-    }
+    public override void Write(Utf8JsonWriter writer, IReadOnlyList<MemoryProviderSettings> value, JsonSerializerOptions options) =>
+        JsonSerializer.Serialize(writer, (IEnumerable<MemoryProviderSettings>)value, options);
 }
 
 /// <summary>Reads a string as a list of one and an array of strings as is.</summary>
