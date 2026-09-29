@@ -37,6 +37,10 @@ off). Both models put such claims in the open questions instead of keeping them,
 check does not tell "half right" from "wrong" reliably. Thirty claims from one repository, labelled by one person, is a small
 sample: it shows the judge is not obviously broken and where it errs, not a rate to rely on.
 
+Each `file`, `diff` and `input` citation without a `sha256` gets one: the SHA-256 of the whole cited text (a file's cited lines joined
+by newlines with no line numbers, a diff's overlapping hunks, an input's text), so a signed result carries the digest of what it
+cited and anyone can recompute it from the repository at the pinned commit.
+
 ### What it does not do
 
 - It is a model's opinion about the cited text, not a proof that the claim is true. A claim can be `supported` by text that is itself wrong.

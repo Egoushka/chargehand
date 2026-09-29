@@ -61,6 +61,15 @@ public class SupportCheckTests
     }
 
     [Fact]
+    public void Hashes_fill_in_evidence_that_has_none_and_leave_a_given_one()
+    {
+        var contract = Contract(C("a", "e1")) with { Evidence = [new Evidence("e1", EvidenceKind.File, "a.cs:1"), new Evidence("e2", EvidenceKind.File, "b.cs:1", Sha256: new string('b', 64))] };
+        var cited = new[] { new CitedClaim(0, contract.Claims[0], "t", false, new Dictionary<string, string> { ["e1"] = new string('a', 64), ["e2"] = new string('c', 64) }) };
+        var result = SupportCheck.WithHashes(contract, cited);
+        Assert.Equal([new string('a', 64), new string('b', 64)], result.Evidence.Select(e => e.Sha256));
+    }
+
+    [Fact]
     public void A_partly_supported_claim_is_not_retained_and_a_supported_one_is()
     {
         var partial = new Claim("half", ["e1"], 0.4, ClaimSupport.Partial);
@@ -89,6 +98,8 @@ public class SupportCheckTests
         var (r, runtime) = await Run(Verdicts("supported"), check: true);
         Assert.Equal(ResultStatus.Completed, r.Status);
         Assert.Equal(ClaimSupport.Supported, Assert.Single(r.Claims).Support);
+        // README.md line 1 is "hello": the evidence carries the hash of exactly the cited line.
+        Assert.Equal("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824", Assert.Single(r.Evidence).Sha256);
         Assert.Equal(2, runtime.IntakePrompts.Count);
         Assert.Contains("The README says hello.", runtime.IntakePrompts.ToArray()[1], StringComparison.Ordinal);
         Assert.Contains("1: hello", runtime.IntakePrompts.ToArray()[1], StringComparison.Ordinal);

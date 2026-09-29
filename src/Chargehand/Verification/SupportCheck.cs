@@ -44,6 +44,13 @@ public static class SupportCheck
         return contract with { Claims = claims, Evidence = contract.Evidence.Where(e => cited.Contains(e.Id)).ToList(), OpenQuestions = questions };
     }
 
+    /// <summary>Records the hash of the cited text on each evidence entry that has none, so a reader can recompute it from the pinned commit.</summary>
+    internal static ResultContract WithHashes(ResultContract contract, IReadOnlyList<CitedClaim> cited)
+    {
+        var hashes = cited.SelectMany(c => c.Hashes ?? new Dictionary<string, string>()).GroupBy(h => h.Key).ToDictionary(g => g.Key, g => g.First().Value);
+        return contract with { Evidence = [.. contract.Evidence.Select(e => e.Sha256 is null && hashes.TryGetValue(e.Id, out var h) ? e with { Sha256 = h } : e)] };
+    }
+
     /// <summary>The check could not run: nothing is dropped, nothing is claimed about support.</summary>
     public static ResultContract Unavailable(ResultContract contract, string reason) => contract with
     {
@@ -61,7 +68,7 @@ public static class SupportCheck
             var cited = await CitedText.ForAsync(contract, scope, ct);
             if (cited.Count == 0)
                 return Apply(contract, []);
-            return Apply(contract, await SupportJudge.JudgeAsync(runtime, model, cited, ct));
+            return WithHashes(Apply(contract, await SupportJudge.JudgeAsync(runtime, model, cited, ct)), cited);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {

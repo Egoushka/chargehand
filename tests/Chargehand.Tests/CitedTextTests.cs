@@ -35,6 +35,8 @@ public class CitedTextTests
         Assert.Contains("3: three", c.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("four", c.Text, StringComparison.Ordinal);
         Assert.False(c.Truncated);
+        // The hash covers the cited lines as a reader recomputes them from the commit: joined by newlines, no numbers.
+        Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData("two\nthree"u8)), c.Hashes!["e1"]);
     }
 
     [Fact]
@@ -54,6 +56,8 @@ public class CitedTextTests
         var cited = await CitedText.ForAsync(Contract([new Claim("c", ["e1"], 0.9)], new Evidence("e1", EvidenceKind.File, "big.txt:1-5000")), Scope(repo), default);
         var c = Assert.Single(cited);
         Assert.True(c.Truncated);
+        // The hash covers the whole cited range, not the cut the judge saw.
+        Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", Enumerable.Range(1, 5000).Select(i => $"line {i}"))))), c.Hashes!["e1"]);
         Assert.Contains("200: line 200", c.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("201: line 201", c.Text, StringComparison.Ordinal);
     }

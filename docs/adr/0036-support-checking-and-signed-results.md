@@ -26,6 +26,28 @@ Option 2, one stateless call on the intake model per node, prompt in the trusted
 that a claim is true. Signing is (b): ES256 over the RFC 8785 canonical result minus its `signature`, with a key the user supplies;
 verification lives in `Chargehand.Contracts` and the CLI and needs no network. Chargehand creates no key.
 
+### The calibration bar
+
+The plan of record leaves the agreement bar to this ADR. Proposed: on the labelled set (`evals/support-examples.jsonl`, at least 30
+claims, ten per class), the judge must drop no `supported` claim and keep no `unsupported` claim as `supported`, and agree with the
+labels on at least 80% of claims. `scripts/support-eval.sh` measures it; run it whenever `SupportJudge.Prompt` or the judge model
+changes. First measurement (2026-09-30): Haiku and Sonnet each 25 of 30 (83%), 0 supported dropped, 0 unsupported kept as supported,
+so both meet it; every miss is a `partial` claim judged `unsupported`. The set is small and one person labelled it; the bar is a
+floor for shipping the check, not a claim about its rate.
+
+### Where this differs from the plan of record
+
+- **Signature format.** The plan says an in-toto statement over the commit and the result digest, checked as a bundle. This ADR
+  signs the result itself (ES256 over RFC 8785 canonical JSON) because any language can verify it with a JSON canonicalizer and a
+  P-256 library, and the result already names its commit in its evidence. An in-toto or DSSE envelope can be added later as a second,
+  additive member. If the maintainer wants the in-toto shape first, this is the piece to change.
+- **Evidence bytes.** Each `file`, `diff` and `input` evidence entry that has no `sha256` gets the SHA-256 of the whole cited text
+  (a file's cited lines joined by newlines, a diff's overlapping hunks, an input's text), so a signed result carries the digest of what
+  it cited and a reader can recompute it from the pinned commit. The cited text itself is not embedded.
+- **Calibration in Prompt CI.** The judge's prompt lives in code so a pull request cannot change how its own answers are judged, which
+  puts it outside `prompts/` and outside Prompt CI's cells. Calibration is the script above, run by the maintainer.
+- **Drift detection** (re-checking stored claims on a new commit) is not built.
+
 ## Consequences
 
 - The support check is a model's opinion. Its accuracy is measured on a labelled set and published with the model's name; a reader
