@@ -39,11 +39,11 @@ internal sealed class FakeSseMcpServer : IAsyncDisposable
         _app.MapMcp();
     }
 
-    /// <summary>Where a Streamable HTTP client connects.</summary>
-    public Uri StreamableEndpoint { get; private set; } = null!;
+    /// <summary>The server's root: where a Streamable HTTP client connects.</summary>
+    public Uri Address { get; private set; } = null!;
 
-    /// <summary>Where a legacy SSE client connects.</summary>
-    public Uri SseEndpoint { get; private set; } = null!;
+    /// <summary>The URL a profile would give for a legacy SSE server: the /sse endpoint.</summary>
+    public Uri SseEndpoint => new(Address, "/sse");
 
     /// <summary>Every tool call the server received, in order.</summary>
     public List<(string Tool, IDictionary<string, JsonElement> Arguments)> Calls { get; } = [];
@@ -51,13 +51,15 @@ internal sealed class FakeSseMcpServer : IAsyncDisposable
     /// <summary>The Authorization header of every request, empty when it had none.</summary>
     public List<string> Authorizations { get; } = [];
 
+    /// <summary>A server with one tool that answers every call with <paramref name="reply"/>, like Chronicle's <c>recall</c>.</summary>
+    public static Task<FakeSseMcpServer> StartAsync(string toolName, string reply) =>
+        StartAsync(new FakeTool(toolName, _ => FakeMcpServer.Text(reply)));
+
     public static async Task<FakeSseMcpServer> StartAsync(params FakeTool[] tools)
     {
         var server = new FakeSseMcpServer(tools);
         await server._app.StartAsync();
-        var address = new Uri(server._app.Urls.First());
-        server.StreamableEndpoint = address;
-        server.SseEndpoint = new Uri(address, "/sse");
+        server.Address = new Uri(server._app.Urls.First());
         return server;
     }
 

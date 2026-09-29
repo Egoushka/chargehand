@@ -267,7 +267,7 @@ public class McpConnectionPoolTests
     public async Task A_streamable_http_server_is_reached_and_every_request_carries_the_resolved_headers(string transport)
     {
         await using var server = await FakeSseMcpServer.StartAsync(Ping());
-        await using var pool = new McpConnectionPool(Http(server.StreamableEndpoint, transport), Secret);
+        await using var pool = new McpConnectionPool(Http(server.Address, transport), Secret);
 
         var client = await pool.GetAsync("gw", CancellationToken.None);
         var result = await client.CallToolAsync("ping");
