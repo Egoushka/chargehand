@@ -118,7 +118,7 @@ A failed `result/v1` carries `error`: a fixed `code`, the `message`, `retryable`
 | `checkout_has_secrets` | the clone tracks files the preset denies reading | no |
 | `cost_cap_reached` | the watcher interrupted a node above its USD cap or its input-token budget | no |
 | `deadline_exceeded` | a node's turn was interrupted for any other reason; the deadline is the only other interrupt | yes |
-| `invalid_result` | a node's turns succeeded but left no valid result contract after the repair turn | no |
+| `invalid_result` | a node's turns succeeded but left no valid result contract after the repair turn, or a writing node changed no files | no |
 | `intake_failed` | intake returned no valid Task Spec after one retry | no |
 | `invalid_request` | an unknown preset, a caller block whose sha256 does not match its text, an unknown runtime name, or both Claude Code credentials set | no |
 | `sandbox_unavailable` | a writing preset ran on a machine with no `sandbox-exec` or `bwrap` and `sandbox.kind` is not `none` | no |

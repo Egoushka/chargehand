@@ -309,8 +309,9 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
 
     /// <summary>A worker that writes status failed itself (ADR 0022 still wants an error): most often a change request
     /// on a read-only preset, which runs as an answer when intake's action is not in the preset.</summary>
-    private static string WorkerFailedAction(NodeRequest r) =>
-        $"Read the summary: the worker could not do the task as asked. Ask for a change as a read-only question, or use a preset that allows it. `chargehand show {r.RunId}` prints the session.";
+    private static string WorkerFailedAction(NodeRequest r) => r.AfterAnswer is not null
+        ? $"Read the summary: the writer could not make the change as asked. `chargehand show {r.RunId}` prints the session."
+        : $"Read the summary: the worker could not do the task as asked. Ask for a change as a read-only question, or use a preset that allows it. `chargehand show {r.RunId}` prints the session.";
 
     private const string NoModelCall = "the worker runtime ended the session before any model call and gave no reason";
 

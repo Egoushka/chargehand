@@ -16,7 +16,11 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
 {
     private readonly Queue<string> _specs = new(specs.Length == 0 ? [Spec()] : specs);
     private readonly ConcurrentDictionary<string, List<WorkerMessage>> _sessions = new();
+    private readonly ConcurrentDictionary<string, string> _directories = new();
     private int _ids;
+
+    /// <summary>Called at the start of each turn with the session's directory and the turn's number (1-based), as a worker that edits files would.</summary>
+    public Action<string, int>? OnTurn { get; set; }
 
     public ConcurrentQueue<NodeSpec> Created { get; } = new();
 
@@ -68,6 +72,7 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
         Created.Enqueue(spec);
         var id = $"ses_{Interlocked.Increment(ref _ids)}";
         _sessions[id] = [];
+        _directories[id] = spec.Directory;
         return Task.FromResult(new WorkerSession(id, spec.Directory));
     }
 
@@ -83,6 +88,13 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
     public async Task<IdleOutcome> AwaitIdleAsync(string sessionId, CancellationToken ct)
     {
         await Hold.Task.WaitAsync(ct);
+        if (OnTurn is not null)
+        {
+            int turn;
+            lock (_sessions[sessionId])
+                turn = _sessions[sessionId].Count(m => m.Kind == WorkerMessageKind.User);
+            OnTurn(_directories[sessionId], turn);
+        }
         var now = DateTimeOffset.UtcNow;
         Add(sessionId, new WorkerMessage($"msg_{Interlocked.Increment(ref _ids)}", WorkerMessageKind.Assistant, now, reply, new TokenCounts(1000, 100, 0, 4000, 200), now.AddSeconds(1),
             ToolOutput: ToolResult, ToolResults: ToolResult is null ? null : [ToolResult]));

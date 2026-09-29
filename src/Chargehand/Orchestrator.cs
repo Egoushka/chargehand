@@ -15,7 +15,9 @@ using Chargehand.Prompts;
 using Chargehand.Results;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
+using Chargehand.Sandbox;
 using Chargehand.Verification;
+using Chargehand.Workspace;
 
 namespace Chargehand;
 
@@ -23,6 +25,7 @@ namespace Chargehand;
 /// <param name="promptVersions">Langfuse prompt versions by block sha256, for linking spans; may be empty.</param>
 /// <param name="memory">Long-term memory from the profile, one source or several, or null (ADR 0008, ADR 0026).</param>
 /// <param name="services">Resolves a preset's <c>services</c> into the grants workers get; null: a preset's services are ignored (ADR 0034).</param>
+/// <param name="sandboxFor">Picks the sandbox a writing preset's tests run in (ADR 0035); the platform's, per the profile, if null.</param>
 public sealed class Orchestrator(
     Profile profile,
     IWorkerRuntime runtime,
@@ -31,7 +34,8 @@ public sealed class Orchestrator(
     IRunLog runLog,
     IReadOnlyDictionary<string, int> promptVersions,
     MemoryStack? memory = null,
-    IServiceResolver? services = null)
+    IServiceResolver? services = null,
+    Func<SandboxSettings?, ISandbox>? sandboxFor = null)
 {
     public const string NodeKindName = "worker";
 
@@ -72,6 +76,8 @@ public sealed class Orchestrator(
         {
             var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
             var (kindName, kind) = AnswerKind(preset);
+            // A writing preset without a sandbox is refused before anything is spent (ADR 0035).
+            var sandbox = kind.Writes ? (sandboxFor ?? SandboxSelector.Select)(profile.Sandbox) : null;
             // Unset when the profile maps no real model to the preset's placeholder: the runtime uses its own default.
             var workerModel = profile.ResolveModel(kind.Model);
             var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
@@ -129,7 +135,7 @@ public sealed class Orchestrator(
                         [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
                     _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
                         $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
-                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, ct),
+                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, ct),
                 };
             }
         }
@@ -157,11 +163,20 @@ public sealed class Orchestrator(
     /// <summary>Runs the plan's nodes (one for answer) and returns the node's contract, or the merged one for a split.</summary>
     private async Task<ResultContract> Execute(RunRequest request, TaskSpec spec, IReadOnlyList<PlanNode> plan, string kindName, NodeKind kind, string? workerModel,
         IReadOnlyList<(string Key, string Value)> instructions, PromptChain chain, IReadOnlyList<PromptBlock> callerBlocks, string runId, string traceId,
-        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, CancellationToken ct)
+        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, CancellationToken ct)
     {
         var (directory, commit, repository) = kind.Checkout
             ? await Checkout(request.Context.Repository!, kind, ct)
             : (EmptyDirectory(), "", "");
+        // A writing node works in its own clone on its own branch; the shared checkout stays clean for other runs (ADR 0035).
+        var workspace = kind.Writes ? await RunWorkspace.CreateAsync(directory, commit, profile.WorkerRoot, runId, plan[0].Id, ct) : null;
+        if (workspace is not null)
+            directory = workspace.Directory;
+        var verifier = sandbox is null ? null : new Verifier(sandbox, profile.Sandbox?.Network ?? false, profile.Sandbox?.Env ?? []);
+        var verify = kind.Verify ?? new VerifySettings();
+        VerifyOutcome? lastCheck = null;
+        VerifyPlan? verifyPlan = null;
+        var attempts = 0;
         // ponytail: the run cap is split evenly across nodes up front; share the remainder dynamically if nodes vary a lot.
         var cap = new[] { profile.RunCapUsd / plan.Count, kind.Budget.MaxUsd, (request.Context.BudgetUsd ?? decimal.MaxValue) / plan.Count }.Min();
         // The id is quoted: rendered as "[id]", a model cited "[id]" as the locator, which no input id matches.
@@ -185,7 +200,18 @@ public sealed class Orchestrator(
                 new NodeSpec(directory, kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { [IRunCleanup.RunMetadataKey] = runId, ["chargehand.node"] = node.Id }, granted),
                 instructions, TaskText(request, spec, commit, inputText, callerBlocks, node, plan.Count, upstream) + facts + ServiceCitationNote(granted), chain, directory, commit,
                 (request.Inputs ?? []).Select(i => i.Id).ToHashSet(), inputText, cap, TimeSpan.FromMinutes(15),
-                kind.Budget.MaxInputTokens, kind.Compaction?.TriggerTokens, fork);
+                kind.Budget.MaxInputTokens, kind.Compaction?.TriggerTokens, fork,
+                workspace is null ? null : async (_, token) =>
+                {
+                    // Resolved on each check: the worker may have added the build file it needs.
+                    verifyPlan = VerifyCommand.Resolve(request.Context.Verify, workspace.Directory);
+                    if (verifyPlan is null)
+                        return null;
+                    lastCheck = await verifier!.RunAsync(verifyPlan, workspace.Directory, TimeSpan.FromSeconds(verify.TimeoutSeconds), token);
+                    attempts++;
+                    return lastCheck.Passed ? null : ChangeRun.Feedback(lastCheck, attempts, verifier.Network);
+                },
+                verify.MaxFixRounds);
 
             var instructionRefs = nodeRequest.Instructions.Select(i => new InstructionRef(i.Key, PromptBlock.Hash(i.Value))).ToList();
             using var span = Telemetry.Source.StartActivity("chargehand.node");
@@ -193,6 +219,16 @@ public sealed class Orchestrator(
             span?.SetTag("chargehand.node", node.Id);
             progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.NodeStarted) with { NodeId = node.Id });
             var nodeResult = await new WorkerNode(runtime, prices, new GitEvidenceResolver()).RunAsync(nodeRequest, token, primed);
+            if (workspace is not null && nodeResult.Contract.Status == ResultStatus.Completed)
+            {
+                var branch = await workspace.CommitAsync(ChangeRun.CommitMessage(nodeResult.Contract.Summary), token);
+                var changed = branch is null ? [] : await workspace.ChangedPathsAsync(token);
+                var diff = branch is null ? "" : await workspace.DiffAsync(token);
+                nodeResult = nodeResult with
+                {
+                    Contract = ChangeRun.Finish(nodeResult.Contract, branch, diff, lastCheck, attempts, verifier!.SandboxKind, verifier.Network, changed, verifyPlan),
+                };
+            }
             span?.SetTag("langfuse.session.id", nodeResult.SessionId);
             run?.SetTag("langfuse.session.id", nodeResult.SessionId);
             span?.SetTag("chargehand.contract.status", nodeResult.Contract.Status.ToString().ToLowerInvariant());

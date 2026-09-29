@@ -1,0 +1,33 @@
+# code (ADR 0035, goal 0.7): one writer that edits files in its own clone of the repository and returns a branch. It has no
+# shell (ADR 0006): chargehand runs the repository's tests in a sandbox after each answer and sends failures back, at most
+# verify.max_fix_rounds times. Nothing is pushed or merged. Last matching permission rule wins.
+schema: preset/v1
+name: code
+version: 0.1.0
+allowed_actions: [answer, ask, deny]
+node_kinds:
+  writer:
+    model: provider/worker-model
+    opencode_agent: build
+    writes: true
+    verify: { timeout_seconds: 600, max_fix_rounds: 2 }
+    permissions:
+      - { action: "*", resource: "*", effect: allow }
+      # A writer edits the working tree, never git's own files, secrets, or the workflows that run in CI.
+      - { action: edit, resource: ".git/**", effect: deny }
+      - { action: edit, resource: "*.env", effect: deny }
+      - { action: edit, resource: "*.env.*", effect: deny }
+      - { action: edit, resource: ".github/**", effect: deny }
+      - { action: read, resource: "*.env", effect: deny }
+      - { action: read, resource: "*.env.*", effect: deny }
+      - { action: read, resource: "*.env.example", effect: allow }
+      # No shell (ADR 0006): rules cannot constrain a command, so the tests run outside the worker, in a sandbox.
+      - { action: shell, resource: "*", effect: deny }
+      - { action: webfetch, resource: "*", effect: deny }
+      - { action: external_directory, resource: "*", effect: deny }
+      - { action: question, resource: "*", effect: deny }
+      - { action: subagent, resource: "*", effect: deny }
+    budget: { max_input_tokens: 800000, max_usd: 2.00 }
+    compaction: { auto: true, keep_tokens: 15000, buffer: 120000, trigger_tokens: 100000 }
+critic: { enabled: false }
+approval: {}
