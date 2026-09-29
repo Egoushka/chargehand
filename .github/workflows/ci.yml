@@ -116,7 +116,7 @@ jobs:
 
   # The one required check (ADR 0033): green when every job above passed or was skipped, so a prose-only pull request
   # merges without the build jobs, and a job renamed or added here needs no change to the ruleset.
-  gate:
+  ci-gate:
     if: always()
     needs: [changes, build, package, plugin, secrets, commits, dependencies]
     runs-on: ubuntu-latest

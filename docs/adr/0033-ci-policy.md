@@ -28,15 +28,15 @@ on this repository (public, so hosted minutes are free), 2026-09-29:
 
 Option 3.
 
-- `ci.yml` ends in a `gate` job that passes when every other job passed or was skipped. `gate` and `prompt-ci` are the
-  required checks. A skipped job never blocks; a workflow skipped by a `paths` filter would, so the docs-only skip is
+- `ci.yml` ends in a `ci-gate` job that passes when every other job passed or was skipped (`prompt-ci.yml` already has a
+  job named `gate`, so the name is not reusable). `ci-gate` and `prompt-ci` are the required checks. A skipped job never blocks; a workflow skipped by a `paths` filter would, so the docs-only skip is
   inside the workflow (`changes`), not in its trigger.
 - Docs-only means every changed file is `README.md`, `ROADMAP.md`, `CONTRIBUTING.md` or `docs/**/*.md`. Anything else,
   including `CHANGELOG.md` (the build job checks the version's section), `prompts/`, `presets/` and `plugins/`, runs the
   build.
 - CodeQL moves from GitHub's default setup to `codeql.yml`: weekly, on `v*` tags, on demand. Scorecard drops its push
   trigger. Sonar already ran on main only. Dependency review and the commit check stay per pull request: seconds each.
-- Auto-merge is allowed on the repository, so a pull request merges when `gate` and `prompt-ci` are green.
+- Auto-merge is allowed on the repository, so a pull request merges when `ci-gate` and `prompt-ci` are green.
 
 ## Consequences
 
@@ -44,7 +44,7 @@ Option 3.
   Accepted: the scan never blocked a merge, and this repository takes no outside code without review.
 - A docs-only pull request finishes in seconds.
 - Merging on green needs no session waiting on CI. Rules that say "merge manually" no longer apply.
-- Adding or renaming a job in `ci.yml` needs the `needs` list of `gate` updated; the ruleset does not change.
+- Adding or renaming a job in `ci.yml` needs the `needs` list of `ci-gate` updated; the ruleset does not change.
 
 ## Reopen if
 
