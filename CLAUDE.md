@@ -12,7 +12,7 @@ dotnet format --verify-no-changes     # lint / format check (CI runs this)
 scripts/gen-opencode-api.py <url>     # regenerate docs/opencode-api.md + spec (needs OPENCODE_SERVER_PASSWORD)
 gitleaks git --redact -v              # secret scan over history
 scripts/opencode-serve.sh <bin> <cfg> [port]   # start the orchestrator's own OpenCode server
-dotnet run --project src/Chargehand.Cli -- run|serve|show|cache|reconcile|routes|score|eval|prompts sync   # CLI (profiles/local.json)
+dotnet run --project src/Chargehand.Cli -- run|serve|show|cache|reconcile|routes|score|eval|prompts sync|extensions check   # CLI (profiles/local.json)
 scripts/prompt-ci.sh <pr>             # Prompt CI on the owner's machine (profiles/local.eval.json, eval OpenCode server)
 ```
 
