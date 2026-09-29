@@ -41,6 +41,8 @@ public enum ErrorCode
     IntakeFailed,
     InvalidRequest,
     Internal,
+    SandboxUnavailable,
+    VerificationFailed,
 }
 
 public sealed record Claim(string Text, IReadOnlyList<string> Evidence, double Confidence);

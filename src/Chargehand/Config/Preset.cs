@@ -31,13 +31,17 @@ public sealed record Preset(
 
 /// <param name="Checkout">False: the node needs no repository; it runs in an empty directory under worker_root and intake
 /// does not ask for context.repository (the draft preset, ADR 0018).</param>
+/// <param name="Writes">True: the node edits files in a per-run clone and returns a verified branch (ADR 0035).</param>
 /// <param name="Services">MCP servers of the profile whose named tools the node's workers may call (ADR 0034); null: none.</param>
 public sealed record NodeKind(string Model, string OpencodeAgent, IReadOnlyList<RuleEntry> Permissions, NodeBudget Budget, CompactionSettings? Compaction = null,
-    bool Checkout = true, IReadOnlyList<ServiceUse>? Services = null)
+    bool Checkout = true, IReadOnlyList<ServiceUse>? Services = null, bool Writes = false, VerifySettings? Verify = null)
 {
     public IReadOnlyList<PermissionRule> Rules =>
         Permissions.Select(p => new PermissionRule(p.Action, p.Resource, Enum.Parse<PermissionEffect>(p.Effect, ignoreCase: true))).ToList();
 }
+
+/// <summary>A writing node's verification (ADR 0035): the test command's timeout and how many failed runs go back to the worker.</summary>
+public sealed record VerifySettings(int TimeoutSeconds = 600, int MaxFixRounds = 2);
 
 public sealed record RuleEntry(string Action, string Resource, string Effect);
 

@@ -79,7 +79,7 @@
       "additionalProperties": false,
       "required": ["code", "message", "retryable"],
       "properties": {
-        "code": { "enum": ["runtime_unavailable", "runtime_version_mismatch", "runtime_ambiguous", "provider_unavailable", "rate_limited", "repository_not_allowed", "checkout_invalid", "checkout_has_secrets", "cost_cap_reached", "deadline_exceeded", "invalid_result", "intake_failed", "invalid_request", "internal"] },
+        "code": { "enum": ["runtime_unavailable", "runtime_version_mismatch", "runtime_ambiguous", "provider_unavailable", "rate_limited", "repository_not_allowed", "checkout_invalid", "checkout_has_secrets", "cost_cap_reached", "deadline_exceeded", "invalid_result", "intake_failed", "invalid_request", "internal", "sandbox_unavailable", "verification_failed"] },
         "message": { "type": "string" },
         "retryable": { "type": "boolean", "description": "True when the same request may succeed later unchanged: runtime_unavailable, provider_unavailable, rate_limited, deadline_exceeded." },
         "action": { "type": "string", "description": "What the user or client should do, e.g. the command that starts the runtime." }

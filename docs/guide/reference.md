@@ -121,6 +121,8 @@ A failed `result/v1` carries `error`: a fixed `code`, the `message`, `retryable`
 | `invalid_result` | a node's turns succeeded but left no valid result contract after the repair turn | no |
 | `intake_failed` | intake returned no valid Task Spec after one retry | no |
 | `invalid_request` | an unknown preset, a caller block whose sha256 does not match its text, an unknown runtime name, or both Claude Code credentials set | no |
+| `sandbox_unavailable` | a writing preset ran on a machine with no `sandbox-exec` or `bwrap` and `sandbox.kind` is not `none` | no |
+| `verification_failed` | a writing node's test command still failed after the last fix round; the branch is in the result's artifacts | no |
 | `internal` | anything else | no |
 
 Over HTTP, a request the server refuses before a run exists stays a `400` with `errors` ([ADR 0022](../adr/0022-error-codes-in-result-v1.md)).

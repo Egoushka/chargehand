@@ -17,6 +17,7 @@
         "interactive": { "type": "boolean", "description": "false: never block on a question; return status needs_input instead." },
         "preset": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
         "budget_usd": { "type": "number", "exclusiveMinimum": 0 },
+        "verify": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "description": "The command that verifies a change, as an argument vector, for a preset whose node writes. Absent: chargehand detects the repository's test command." },
         "approved": { "type": "boolean", "description": "true: run even if the preset's approval thresholds (risk, estimate) would stop it with needs_input." },
         "repository": {
           "type": "object",

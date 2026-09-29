@@ -9,7 +9,7 @@ public sealed record RunRequest(
     IReadOnlyList<PromptBlock>? CallerBlocks = null);
 
 /// <param name="Approved">Runs a request the preset would otherwise stop for approval (preset approval thresholds).</param>
-public sealed record RequestContext(bool Interactive, string Preset, decimal? BudgetUsd = null, RepositoryRef? Repository = null, bool? Approved = null);
+public sealed record RequestContext(bool Interactive, string Preset, decimal? BudgetUsd = null, RepositoryRef? Repository = null, bool? Approved = null, IReadOnlyList<string>? Verify = null);
 
 public sealed record RepositoryRef(string Path, string Commit);
 
