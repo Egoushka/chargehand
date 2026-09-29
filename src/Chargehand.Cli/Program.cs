@@ -55,7 +55,17 @@ if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "r
     return 2;
 }
 
-var profile = Profile.Load(profilePath);
+Profile profile;
+try
+{
+    profile = Profile.Load(profilePath);
+}
+catch (ChargehandException e)
+{
+    Console.Error.WriteLine($"{profilePath}: {e.Message}");
+    Console.Error.WriteLine(e.Action);
+    return 2;
+}
 var (root, runLogPath) = InstallPaths.Resolve(profile.RunLog, Directory.GetCurrentDirectory(), AppContext.BaseDirectory,
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify));
 var runLog = new JsonlRunLog(runLogPath);
@@ -258,7 +268,8 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
     return (runtime, runtime.Version);
 }
 
-MemoryStack? Memory() => profile.Memory is { } m
+// Only the single-object form builds a stack until the MCP memory adapter wires the provider list (goal 0.6).
+MemoryStack? Memory() => profile.Memory?.ObjectForm is { } m
     ? MemoryStack.ForObjectForm(m, new HindsightMemory(new HttpClient { BaseAddress = new Uri(m.Url), Timeout = TimeSpan.FromSeconds(30) },
         m.ApiKeySecret is null ? null : profile.Secret(m.ApiKeySecret), m.MaxTokens))
     : null;

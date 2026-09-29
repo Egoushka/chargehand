@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.RunLog;
@@ -159,4 +160,125 @@ public class ProfileTests
 
         Assert.Throws<InvalidOperationException>(() => profile.Secret("whatever"));
     }
+
+    [Fact]
+    public void A_profile_without_mcp_servers_names_none()
+    {
+        using var dir = new TempDir();
+
+        Assert.Null(Profile.Load(System.IO.Path.Combine(dir.Path, "missing.json")).McpServers);
+        Assert.Null(Profile.Load(dir.Write("p.json", """{"schema":"profile/v1"}""")).McpServers);
+    }
+
+    [Fact]
+    public void Mcp_servers_load_by_name()
+    {
+        using var dir = new TempDir();
+        var profile = Profile.Load(dir.Write("p.json", """
+            {"schema":"profile/v1","mcp_servers":{
+              "memory-gateway":{"url":"https://mcp.example.internal/mcp","headers":{"Authorization":"Bearer {secret:memory-gateway-token}"}},
+              "team-notes":{"command":["npx","-y","example-notes-mcp"],"env":{"NOTES_TOKEN":"{secret:team-notes-token}"}},
+              "archive":{"url":"http://localhost:8080/sse","transport":"sse"}}}
+            """));
+
+        Assert.Equal("https://mcp.example.internal/mcp", profile.McpServers!["memory-gateway"].Url);
+        Assert.Equal("Bearer {secret:memory-gateway-token}", profile.McpServers["memory-gateway"].Headers!["Authorization"]);
+        Assert.Null(profile.McpServers["memory-gateway"].Transport);
+        Assert.Equal(["npx", "-y", "example-notes-mcp"], profile.McpServers["team-notes"].Command);
+        Assert.Equal("{secret:team-notes-token}", profile.McpServers["team-notes"].Env!["NOTES_TOKEN"]);
+        Assert.Equal("sse", profile.McpServers["archive"].Transport);
+    }
+
+    [Theory]
+    [InlineData("auto")]
+    [InlineData("streamable-http")]
+    [InlineData("sse")]
+    public void Every_transport_of_a_url_server_loads(string transport)
+    {
+        using var dir = new TempDir();
+
+        var profile = Profile.Load(dir.Write("p.json", """{"schema":"profile/v1","mcp_servers":{"gw":{"url":"http://localhost:8080/sse","transport":"TRANSPORT"}}}""".Replace("TRANSPORT", transport, StringComparison.Ordinal)));
+
+        Assert.Equal(transport, profile.McpServers!["gw"].Transport);
+    }
+
+    [Theory]
+    [InlineData("""{"mcp_servers":{"gw":{"url":"https://a.example.internal/mcp","command":["x"]}}}""")]      // both transports
+    [InlineData("""{"mcp_servers":{"gw":{}}}""")]                                                             // neither
+    [InlineData("""{"mcp_servers":{"gw":{"command":[]}}}""")]                                                 // an empty argv
+    [InlineData("""{"mcp_servers":{"gw":{"url":"https://a.example.internal/mcp?key={secret:k}"}}}""")]      // a secret in a URL
+    [InlineData("""{"mcp_servers":{"gw":{"command":["x","--key={secret:k}"]}}}""")]                        // a secret in argv
+    [InlineData("""{"mcp_servers":{"gw":{"url":"not a url"}}}""")]                                            // not an http(s) URL
+    [InlineData("""{"mcp_servers":{"gw":{"url":"ftp://a.example.internal/mcp"}}}""")]                       // not an http(s) URL
+    [InlineData("""{"mcp_servers":{"Bad_Name":{"url":"https://a.example.internal/mcp"}}}""")]               // name pattern
+    [InlineData("""{"mcp_servers":{"gw":{"command":["x"],"headers":{"a":"b"}}}}""")]                        // headers on stdio
+    [InlineData("""{"mcp_servers":{"gw":{"url":"https://a.example.internal/mcp","env":{"a":"b"}}}}""")]    // env on a url server
+    [InlineData("""{"mcp_servers":{"gw":{"command":["x"],"transport":"sse"}}}""")]                          // transport on stdio
+    [InlineData("""{"mcp_servers":{"gw":{"url":"https://a.example.internal/mcp","transport":"pigeon"}}}""")] // unknown transport
+    public void Invalid_mcp_servers_fail_at_load(string body)
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("p.json", body.Replace("{\"mcp_servers\"", "{\"schema\":\"profile/v1\",\"mcp_servers\"", StringComparison.Ordinal));
+
+        var e = Assert.Throws<ChargehandException>(() => Profile.Load(path));
+
+        Assert.Equal(ErrorCode.InvalidRequest, e.Code);
+        Assert.False(string.IsNullOrEmpty(e.Action));
+    }
+
+    [Fact]
+    public void An_invalid_server_error_names_the_server_and_never_a_secret()
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("p.json", """{"schema":"profile/v1","mcp_servers":{"team-docs":{"url":"https://a.example.internal/mcp?key={secret:k}"}}}""");
+
+        var e = Assert.Throws<ChargehandException>(() => Profile.Load(path));
+
+        Assert.Contains("team-docs", e.Message);
+        Assert.DoesNotContain("a.example.internal", e.Message);
+    }
+
+    [Fact]
+    public void A_command_source_that_hangs_falls_through_to_the_next_source()
+    {
+        var profile = new Profile("profile/v1", Secrets: [new SecretSource(Command: ["sleep", "30"]), new SecretSource(Command: ["echo", "from-second"])])
+        {
+            CommandTimeout = TimeSpan.FromMilliseconds(300),
+        };
+
+        Assert.Equal("from-second", profile.Secret("anything"));
+    }
+
+    [Fact]
+    public void A_command_source_that_times_out_is_killed_and_the_error_says_so()
+    {
+        using var dir = new TempDir();
+        var pidFile = System.IO.Path.Combine(dir.Path, "pid");
+        var profile = new Profile("profile/v1", Secrets: [new SecretSource(Command: ["sh", "-c", $"echo $$ > {pidFile}; sleep 30"])])
+        {
+            CommandTimeout = TimeSpan.FromMilliseconds(500),
+        };
+
+        var e = Assert.Throws<InvalidOperationException>(() => profile.Secret("whatever"));
+
+        Assert.Contains("'whatever'", e.Message);
+        Assert.Contains("timed out", e.Message);
+        var pid = int.Parse(File.ReadAllText(pidFile).Trim(), System.Globalization.CultureInfo.InvariantCulture);
+        Assert.True(SpinWait.SpinUntil(() => !Alive(pid), TimeSpan.FromSeconds(5)), "the hung command outlived its timeout");
+    }
+
+    private static bool Alive(int pid)
+    {
+        try
+        {
+            return !Process.GetProcessById(pid).HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    [Fact]
+    public void The_command_limit_defaults_to_fifteen_seconds() => Assert.Equal(TimeSpan.FromSeconds(15), new Profile("profile/v1").CommandTimeout);
 }

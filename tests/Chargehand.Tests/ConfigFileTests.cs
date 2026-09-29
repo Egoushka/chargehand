@@ -74,4 +74,57 @@ public class ConfigFileTests
         using var doc = JsonDocument.Parse("""{"schema":"profile/v1"}""");
         Assert.True(ProfileSchema.Evaluate(doc.RootElement).IsValid);
     }
+
+    [Theory]
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"https://a.example.internal/mcp","headers":{"Authorization":"Bearer {secret:t}"}}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"command":["npx","-y","x"],"env":{"T":"{secret:t}"}}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"http://localhost:8080/sse","transport":"sse"}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"https://a.example.internal/mcp","command":["x"]}}}""", false)]      // both transports
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{}}}""", false)]                                                             // neither
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"https://a.example.internal/mcp?key={secret:k}"}}}""", false)]      // a secret in a URL
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"command":["x","--key={secret:k}"]}}}""", false)]                        // a secret in argv
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"Bad_Name":{"url":"https://a.example.internal/mcp"}}}""", false)]               // name pattern
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"command":["x"],"headers":{"a":"b"}}}}""", false)]                        // headers on stdio
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"https://a.example.internal/mcp","env":{"a":"b"}}}}""", false)]    // env on a url server
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"command":["x"],"transport":"sse"}}}""", false)]                          // transport on stdio
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"https://a.example.internal/mcp","transport":"pigeon"}}}""", false)] // unknown transport
+    public void The_schema_checks_mcp_servers(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
+    [Fact]
+    public void A_recall_only_provider_with_no_namespace_passes_the_schema()
+    {
+        using var doc = JsonDocument.Parse("""{"schema":"profile/v1","memory":[{"name":"chronicle","server":"chronicle","tools":{"recall":{"tool":"recall","arguments":{"query":"{query}","limit":"{max_facts}"},"results":{"path":"results","id":"segment_id","text":["{date}: {summary}","{date}: {text}"]}}}}]}""");
+        Assert.True(ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
+    [Fact]
+    public void A_memory_provider_without_a_recall_tool_fails_the_schema()
+    {
+        using var doc = JsonDocument.Parse("""{"schema":"profile/v1","memory":[{"name":"a","server":"gw","namespace":"n","tools":{}}]}""");
+        Assert.False(ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
+    [Theory]
+    [InlineData("""{"schema":"profile/v1","memory":[]}""", true)]
+    [InlineData("""{"schema":"profile/v1","memory":{"backend":"hindsight","url":"http://memory.example.internal:8888","namespace":"ns"}}""", true)]   // the object form, until it goes
+    [InlineData("""{"schema":"profile/v1","memory":[{"name":"a","server":"gw","namespace":"n","tools":{"recall":{"tool":"r","arguments":{},"results":{"text":"body"}}}}]}""", true)]
+    [InlineData("""{"schema":"profile/v1","memory":[{"name":"a","server":"gw","max_facts":3,"max_chars":900,"max_fact_chars":200,"timeout_seconds":4,"retain":true,"retain_tags":["t"],"tools":{"recall":{"tool":"r","arguments":{}},"retain":{"tool":"w","arguments":{}}}}]}""", true)]
+    [InlineData("""{"schema":"profile/v1","memory":[{"name":"a","server":"gw","retain":true,"tools":{"recall":{"tool":"r","arguments":{}}}}]}""", false)]           // retain with no retain tool
+    [InlineData("""{"schema":"profile/v1","memory":[{"name":"Bad_Name","server":"gw","tools":{"recall":{"tool":"r","arguments":{}}}}]}""", false)]                   // name pattern
+    [InlineData("""{"schema":"profile/v1","memory":[{"name":"a","tools":{"recall":{"tool":"r","arguments":{}}}}]}""", false)]                                       // no server
+    [InlineData("""{"schema":"profile/v1","memory":[{"name":"a","server":"gw","tools":{"recall":{"tool":"r"}}}]}""", false)]                                        // no arguments
+    [InlineData("""{"schema":"profile/v1","memory":[{"name":"a","server":"gw","tools":{"recall":{"tool":"r","arguments":{},"results":{"format":"xml"}}}}]}""", false)] // unknown format
+    [InlineData("""{"schema":"profile/v1","memory":[{"name":"a","server":"gw","tools":{"recall":{"tool":"r","arguments":{},"results":{"text":[]}}}}]}""", false)]      // no text entry
+    [InlineData("""{"schema":"profile/v1","memory":[{"name":"a","server":"gw","max_facts":0,"tools":{"recall":{"tool":"r","arguments":{}}}}]}""", false)]              // limit below 1
+    [InlineData("""{"schema":"profile/v1","memory":[{"name":"a","server":"gw","namespace":"","tools":{"recall":{"tool":"r","arguments":{}}}}]}""", false)]            // empty namespace
+    [InlineData("""{"schema":"profile/v1","memory":"hindsight"}""", false)]
+    public void The_schema_checks_memory(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
 }
