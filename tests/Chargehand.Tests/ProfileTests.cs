@@ -1,4 +1,6 @@
 using Chargehand.Config;
+using Chargehand.Contracts;
+using Chargehand.RunLog;
 
 namespace Chargehand.Tests;
 
@@ -55,6 +57,36 @@ public class ProfileTests
         var profile = new Profile("profile/v1", RepositoryRoots: ["/repos"]).WithLaunchDirectory("/launch/dir");
 
         Assert.Equal(["/repos"], profile.Roots);
+    }
+
+    [Fact]
+    public void An_unmapped_placeholder_model_is_unset_so_the_runtime_uses_its_default()
+    {
+        Assert.Null(new Profile("profile/v1").ResolveModel("provider/worker-model"));
+    }
+
+    [Fact]
+    public void A_mapped_placeholder_resolves_and_a_real_model_id_passes_through()
+    {
+        var profile = new Profile("profile/v1", Models: new Dictionary<string, string> { ["provider/worker-model"] = "anthropic/sonnet" });
+
+        Assert.Equal("anthropic/sonnet", profile.ResolveModel("provider/worker-model"));
+        Assert.Equal("anthropic/haiku", profile.ResolveModel("anthropic/haiku"));
+    }
+
+    [Fact]
+    public async Task With_no_models_map_the_worker_gets_no_model_and_the_chain_says_auto()
+    {
+        using var root = new TempDir();
+        var runtime = new ScriptedRuntime(Runs.WorkerReply);
+        var orchestrator = new Orchestrator(Runs.Profile(root.Path) with { Models = null }, runtime, "2.0.16", Repo.Root,
+            new JsonlRunLog(System.IO.Path.Combine(root.Path, "log.jsonl")), new Dictionary<string, int>());
+
+        var r = await orchestrator.RunAsync(Runs.CheapRequest(Runs.GitRepo(root.Path)), CancellationToken.None);
+
+        Assert.NotEqual(ResultStatus.Failed, r.Status);
+        Assert.Null(Assert.Single(runtime.Created).Model);
+        Assert.Equal("auto", r.PromptChain.AsSent.Model);
     }
 
     [Fact]

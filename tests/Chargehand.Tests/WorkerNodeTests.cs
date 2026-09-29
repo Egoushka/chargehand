@@ -20,6 +20,8 @@ public class WorkerNodeTests
         public List<(string Id, PermissionDecision Decision)> Answers { get; } = [];
         public Queue<PermissionRequest> Pending { get; } = new();
         public bool HangOnce { get; set; }
+        /// <summary>The model each reply reports; null as a runtime that names none for its calls.</summary>
+        public string? ReplyModel { get; set; } = "p/m";
         /// <summary>InterruptAsync returns only when cancelled, as a runtime that waits for its process to exit.</summary>
         public bool SlowInterrupt { get; set; }
         public int Interrupts { get; private set; }
@@ -57,7 +59,7 @@ public class WorkerNodeTests
             }
             var now = DateTimeOffset.UtcNow.AddSeconds(_messages.Count);
             _messages.Insert(0, new WorkerMessage($"msg_{_messages.Count}", WorkerMessageKind.Assistant, now, _replies.Dequeue(),
-                new TokenCounts(3, 100, 0, 5000, 200), now.AddSeconds(1), "p/m", ToolOutput: "read src/calc.py"));
+                new TokenCounts(3, 100, 0, 5000, 200), now.AddSeconds(1), ReplyModel, ToolOutput: "read src/calc.py"));
             return IdleOutcome.Succeeded;
         }
 
@@ -233,6 +235,25 @@ public class WorkerNodeTests
         Assert.Equal(1, rt.Interrupts);
         Assert.Single(rt.Prompts);
         Assert.Equal(ResultStatus.Failed, r.Contract.Status);
+    }
+
+    [Fact]
+    public async Task A_call_that_names_no_model_is_priced_at_the_nodes_model()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5-6")) { ReplyModel = null };
+        var r = await Node(rt).RunAsync(Request(), CancellationToken.None);
+        Assert.Equal(0.002506m, r.Contract.Usage.Usd);
+    }
+
+    /// <summary>ADR 0026: with no model on the node (the runtime's default) and none on the call, the cost is unknown.</summary>
+    [Fact]
+    public async Task With_no_model_on_the_node_or_the_call_the_cost_is_unknown_not_zero()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5-6")) { ReplyModel = null };
+        var request = Request() with { Spec = Request().Spec with { Model = null } };
+        var r = await Node(rt).RunAsync(request, CancellationToken.None);
+        Assert.Equal(ResultStatus.Completed, r.Contract.Status);
+        Assert.Null(r.Contract.Usage.Usd);
     }
 
     /// <summary>ADR 0026: an unpriced model's cost is unknown, not $0 — the USD cap cannot fire for it, and the token
