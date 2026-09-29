@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Groundwork for writing workers (goal 0.7, ADR 0035), all additive: a preset node kind may set `writes` and `verify` (`timeout_seconds`, `max_fix_rounds`), a request's `context` may carry `verify` (the test command as an argument vector), and `result/v1` error codes gain `sandbox_unavailable` and `verification_failed`. Nothing uses them yet.
+
 ## [0.6.1] - 2026-09-29
 
 Two fixes found by the live checks of 0.6. A worker's citation of a service tool's reply now resolves, and a memory

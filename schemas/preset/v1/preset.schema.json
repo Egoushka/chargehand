@@ -48,6 +48,16 @@
         "model": { "$ref": "#/$defs/model" },
         "opencode_agent": { "type": "string", "minLength": 1 },
         "checkout": { "type": "boolean", "description": "false: the node needs no repository; it runs in an empty directory under worker_root and intake does not ask for context.repository. Default true." },
+        "writes": { "type": "boolean", "description": "true: the node edits files in its own per-run clone and its result is a verified branch (ADR 0035). Default false." },
+        "verify": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How a writing node's change is verified: the timeout of the test command and how many times its failure is fed back to the worker.",
+          "properties": {
+            "timeout_seconds": { "type": "integer", "minimum": 1 },
+            "max_fix_rounds": { "type": "integer", "minimum": 0 }
+          }
+        },
         "permissions": {
           "type": "array",
           "description": "OpenCode V2 permission ruleset, passed at session creation. Last matching rule wins (see ADR 0006).",
