@@ -24,7 +24,8 @@
         "properties": {
           "text": { "type": "string", "minLength": 1 },
           "evidence": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "ids from the top-level evidence array" },
-          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "support": { "enum": ["supported", "partial", "unchecked"], "description": "Whether the text the claim cites supports it, as a model judged (ADR 0036). Absent: no check ran. A claim judged unsupported is moved to open_questions." }
         }
       }
     },
@@ -71,6 +72,17 @@
         "cache_read": { "type": "integer", "minimum": 0 },
         "cache_write": { "type": "integer", "minimum": 0 },
         "usd": { "type": ["number", "null"], "minimum": 0, "description": "Priced by the orchestrator's own table, cache-write surcharge included. Null: unknown cost (ADR 0026), a priced call's model had no price entry." }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "description": "ES256 (ECDSA P-256, SHA-256, IEEE P1363) over the RFC 8785 canonical form of this object without this member (ADR 0036). It says who produced the JSON, not that it is true.",
+      "additionalProperties": false,
+      "required": ["alg", "key_id", "value"],
+      "properties": {
+        "alg": { "const": "ES256" },
+        "key_id": { "type": "string", "pattern": "^[0-9a-f]{16}$", "description": "First 16 hex characters of the SHA-256 of the public key's SubjectPublicKeyInfo DER." },
+        "value": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$", "description": "base64url, no padding." }
       }
     },
     "error": {
