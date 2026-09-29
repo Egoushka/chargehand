@@ -1,6 +1,6 @@
 # 0008. Memory provider contract
 
-- Status: accepted
+- Status: accepted; the Hindsight adapter and the retain content amended by 0034
 - Date: 2026-09-26
 
 ## Decision
