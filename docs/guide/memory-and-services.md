@@ -248,7 +248,9 @@ becomes the `gateway` server and the `hindsight` entry above, with the service's
 
 ## Checked live
 
-The tests ([GoalSixTests](../../tests/Chargehand.Tests/GoalSixTests.cs), [MemoryStackTests](../../tests/Chargehand.Tests/MemoryStackTests.cs), [McpMemoryProviderTests](../../tests/Chargehand.Tests/McpMemoryProviderTests.cs) and the service tests) use fake MCP servers and fake runtime CLIs. On 2026-09-29 the maintainer's session ran the memory side against real services: Hindsight through a gateway, and Chronicle over an SSH tunnel to its loopback endpoint with `"transport": "sse"`, on a `draft` run with no commit.
+The tests ([GoalSixTests](../../tests/Chargehand.Tests/GoalSixTests.cs), [MemoryStackTests](../../tests/Chargehand.Tests/MemoryStackTests.cs), [McpMemoryProviderTests](../../tests/Chargehand.Tests/McpMemoryProviderTests.cs) and the service tests) use fake MCP servers and fake runtime CLIs. On 2026-09-29 the maintainer's session also ran both halves against real software.
+
+**Memory.** Hindsight through a gateway, and Chronicle over an SSH tunnel to its loopback endpoint with `"transport": "sse"`, on a `draft` run with no commit:
 
 | Check | Result |
 |---|---|
@@ -258,8 +260,18 @@ The tests ([GoalSixTests](../../tests/Chargehand.Tests/GoalSixTests.cs), [Memory
 | A run with both providers in the list | 10 facts recalled from `hindsight` and 10 from `chronicle` |
 | Retain | nothing retained: a draft run has no commit |
 
+**Services.** A stdio test server on the real Claude Code runtime, and the shipped OpenCode runtime with a stand-in model:
+
+| Check | Result |
+|---|---|
+| Claude Code 2.1.283, one small-model call, a test server granted `echo_fact` | the tool was called and answered; the server's other tool, `write_note`, was absent from the worker's tools |
+| Claude Code, a second granted server whose command is missing | it read `failed`, and no config directory was left behind |
+| OpenCode 2.0.19, a stand-in model | a granted tool answered and an ungranted one was unknown |
+| OpenCode, two runs with different grants at one location | each saw only its own tool |
+| OpenCode, a server that fails to start | it was reported and removed |
+
 Not yet run against real services, and covered in CI on fake servers only:
 
 1. A run on a real repository with `retain: true`; read the stored item in Hindsight. It should name the repository, the commit and locators, and hold no request text.
-2. A preset of your own with `services` on Claude Code and on OpenCode: `chargehand show` lists the granted tools, and a question that needs the service is answered with a claim citing a URL the service returned.
+2. A service call from OpenCode with a real model: `chargehand show` lists the granted tools, and a question that needs the service is answered with a claim citing a URL the service returned.
 3. One memory server stopped: the run still completes and `chargehand show` says it was skipped.
