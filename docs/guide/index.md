@@ -42,10 +42,10 @@ Sources: [README](../../README.md#how-a-run-works), [ADR 0009](../adr/0009-resul
 
 ## Current status
 
-- **Before 1.0.** The latest release is v0.4.1. Goal 0.4, "it runs with nothing configured", is done: v0.4.0 shipped it and v0.4.1 added its MCP Registry listing. Goal 0.5 in the roadmap, one prompt to a reviewed change, comes next; the plugin, the command and the `review` preset in 0.4.0 are its first pieces.
+- **Before 1.0.** The latest release is v0.4.1. Goal 0.4, "it runs with nothing configured", is done: v0.4.0 shipped it and v0.4.1 added its MCP Registry listing. Goal 0.5 in the roadmap, one prompt to a reviewed change, comes next; the plugin, the command and the `review` preset in 0.4.0 are its first pieces. Goal 0.6, runs that use your MCP services and memory, is done on `main` and not yet released ([Memory and services](memory-and-services.md)).
 - **Read-only workers.** Writing nodes in worktrees belong to goal 0.7.
 - **On nuget.org and in the MCP Registry.** The `Chargehand` tool package and `Chargehand.Contracts` are published, so `dnx Chargehand@<version> --yes -- mcp` runs chargehand without a clone ([the MCP page](mcp.md#from-the-package)). The registry lists `io.github.Egoushka/chargehand` from 0.4.1, and the release workflow lists each new version.
-- **Main and the release.** This guide describes the `main` branch, which is v0.4.1 plus documentation changes. A change that lands on `main` after a release appears under Unreleased in the [changelog](../../CHANGELOG.md#unreleased), and pages mark it "on main, not yet released".
+- **Main and the release.** This guide describes the `main` branch, which is v0.4.1 plus the changes under Unreleased in the [changelog](../../CHANGELOG.md#unreleased). A change that lands on `main` after a release appears there, and pages mark it "on main, not yet released".
 
 ## Where to go next
 
@@ -53,6 +53,7 @@ Sources: [README](../../README.md#how-a-run-works), [ADR 0009](../adr/0009-resul
 - [Quickstart](quickstart.md): one question from a checkout, end to end.
 - [Use it from an MCP client](mcp.md): the `orchestrate` tool over stdio or HTTP.
 - [Run the HTTP server](server.md): `chargehand serve`, its routes and the container image.
+- [Memory and services](memory-and-services.md): recall from MCP memory servers, retain only claims whose citations resolved, and give a preset's workers read-only MCP tools.
 - [The change command](change.md): `/chargehand:change` in Claude Code.
 - [Prompt CI](prompt-ci.md): how prompt and preset changes get gated.
 - [Reference](reference.md): commands, presets, contracts, profile fields, environment variables.

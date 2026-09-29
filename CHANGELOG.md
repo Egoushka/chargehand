@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Goal 0.6: runs use your MCP services and memory. Memory and services are MCP servers you list in the profile; with none
+listed a run behaves as before. [Memory and services](docs/guide/memory-and-services.md) walks through the setup.
+
 ### Security
 
 - OpenCode workers can no longer reach MCP servers. A preset's leading `* * allow` reached the tools of any server
@@ -21,16 +24,18 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - `mcp_servers` in the profile (ADR 0034): MCP servers by name, over Streamable HTTP, the older SSE transport
-  (`"transport": "sse"`) or stdio, with `{secret:item}` in header and environment values. A preset's `services` read them
-  and a `memory` list (below) read them.
-- `memory` in the profile may be a list of providers (ADR 0034). Each entry names an `mcp_servers` entry and maps recall,
-  retain and invalidate onto that server's tools: argument templates with `{query}`, `{namespace}`, `{max_facts}`,
-  `{text}` and the like, and a `results` mapping that says where the facts are in the answer (`path`, `id`, and `text` as a
-  field, a template such as `{date}: {summary}`, or an ordered list of these). An entry without a retain tool is
-  recall-only, and `namespace` defaults to the entry's name. A mapping that names an unknown server or placeholder, or
-  misses its recall tool, fails when the profile loads.
-- `services` on a preset's node kind (`preset/v1`, an additive field; ADR 0034): a server from `mcp_servers` and the
-  tool names workers may call, exact or with `*` globs, never a whole server. At the start of a run chargehand connects,
+  (`"transport": "sse"`; `auto`, the default, tries Streamable HTTP and then SSE, and means Streamable HTTP for a worker's
+  runtime) or stdio, with `{secret:item}` in header and environment values. Memory and a preset's `services` both read
+  them, over one connection per server.
+- Memory from any MCP memory server, several at once (ADR 0034). `memory` is a list of providers; each names an
+  `mcp_servers` entry and maps recall, retain and invalidate onto that server's tools: argument templates with `{query}`,
+  `{namespace}`, `{max_facts}`, `{text}` and the like, and a `results` mapping that says where the facts are in the answer
+  (`path`, `id`, and `text` as a field, a template such as `{date}: {summary}`, or an ordered list of these). Recall reads
+  a tool's structured content when the path finds an array there and its text block otherwise. An entry without a retain
+  tool is recall-only, as an archive such as Chronicle is, and `namespace` defaults to the entry's name. A mapping that
+  names an unknown server or placeholder, or misses its recall tool, fails when the profile loads.
+- `services` on a preset's node kind (`preset/v1`, an additive field; ADR 0034): a server from `mcp_servers` and the tool
+  names workers may call, exact or with `*` globs, never a whole server. At the start of a run chargehand connects,
   lists the server's tools and grants the ones named. A server, secret or tool that does not resolve is dropped, not fatal:
   `chargehand show` prints one `service` line each, with the span tags `chargehand.service.<name>.granted` and `.issues`.
   `as_sent.tools_sha256` covers the granted tools and is unchanged when there are none. No shipped preset lists services.
@@ -55,41 +60,46 @@ All notable changes to this project are documented here. The format follows
   `--preset` names one. `--probe` also runs one real recall per memory and prints how many facts came back, never the
   facts. Exit 0 when nothing is wrong, 1 on a problem, 2 for a usage error or a profile that does not load. A line never
   holds a URL, a credential or an argument value.
+- The guide page [Memory and services](docs/guide/memory-and-services.md): the `mcp_servers` transports, the Hindsight-through-a-gateway
+  and Chronicle entries side by side, retain, preset services and what each runtime does with them, the check command,
+  the migration from the old `memory` object, and the live checks made on 2026-09-29.
 
 ### Changed
 
 - A `memory` list in the profile is now read (ADR 0034); until now it loaded and did nothing. `run`, `serve` and `mcp` build
   one memory stack from it: each entry becomes a source that calls its server's mapped tools over the same MCP
-  connections a preset's `services` use (one connection per server), in list order, with the entry's limits, `retain` and
-  `retain_tags`, and recall asks every source at once. A profile copied from `profiles/example.json` now tries its memory server when a run
-  recalls; a server or secret that does not resolve skips that memory, and `chargehand show` says why.
-- A command secret source that runs longer than 15 s is killed and the next source tried; the error says when one timed out.
-- Recalled facts now carry the name of the memory they came from, and the prompt header says so: `- [hindsight] Deploys
-  go through GitOps.` The chain block for recalled text is named `memory/recall/hindsight` instead of `memory/recall`.
-  One recall per run and retain off by default are unchanged. Recall now keeps at most 10 facts and 4000 characters, cuts
-  a fact at 600 characters, shows each fact as one line, and gives each entry 10 seconds by default (`timeout_seconds`).
+  connections a preset's `services` use, in list order, with the entry's limits, `retain` and `retain_tags`. A profile
+  copied from `profiles/example.json` now tries its memory servers when a run recalls; a server or secret that does not
+  resolve skips that memory, and `chargehand show` says why.
+- Recall asks every memory at once and labels each fact with the memory it came from, and the prompt header says so:
+  `- [hindsight] Deploys go through GitOps.` The chain block for recalled text is named `memory/recall/<name>`, one per
+  memory that contributed, instead of `memory/recall`. Each memory keeps at most 10 facts and 4000 characters, cuts a fact
+  at 600 characters, shows each fact as one line and gets 10 seconds by default (`timeout_seconds`); a fact two memories
+  return appears once with both names. One recall per run and retain off by default are unchanged. A memory that throws,
+  times out or answers what its mapping cannot read is skipped on its own; the others still contribute.
 - `chargehand show` prints one line per memory with what it recalled and retained, or why it was skipped, from a new
   optional `extensions` report in the run record. The span tags for memory are per source
   (`chargehand.memory.<name>.recalled` and `.error`) instead of `chargehand.memory.recalled` and
   `chargehand.memory.error`. `result/v1` is unchanged.
-- Retain keeps less, and what it keeps says where it was checked. With `memory.retain` on, a run used to store the
-  request text, the summary and every claim. It now stores only the claims that cite at least one `file` or `commit`
-  entry that resolved at the run's pinned commit, each with its locators, under a first line that names the repository
-  and the commit: `Repository: github.com/example/proj, commit 0123456789ab (citations checked at this commit)`, then
+- Retain keeps less, and what it keeps says where it was checked. With `retain` on, a run used to store the request text,
+  the summary and every claim. It now stores only the claims that cite at least one `file` or `commit` entry that resolved
+  at the run's pinned commit, each with its locators, under a first line that names the repository and the commit:
+  `Repository: github.com/example/proj, commit 0123456789ab (citations checked at this commit)`, then
   `- <claim> [src/Api/Startup.cs:41-58] (confidence 0.90)`. No longer retained: the request text, the summary, claims
   that rest only on caller inputs, URLs or the session, claims whose citations did not resolve, claims whose text the
   error-text scrubber would change, and everything from a run without a repository (a draft run has no commit, so it
   retains nothing). The repository is the `origin` URL without scheme, user information, port and `.git`, or the
   directory name when there is no `origin`. A run that retained nothing says why in `chargehand show`
   (`no commit`, `no claim qualified`). There is no confidence floor.
+- A command secret source that runs longer than 15 s is killed and the next source tried; the error says when one timed out.
 
 ### Removed
 
 - The Hindsight HTTP client (`HindsightMemory`) and the single-object form of `memory` (`backend`, `url`, `namespace`,
   `api_key_secret`, `max_tokens`, `retain`; ADR 0034). A profile that still has the object fails to load with
-  `memory is a list now` and a pointer to `mcp_servers`. Migration: put the service's MCP endpoint (and its API key as a
+  `memory is a list now` and a pointer to the guide page. Migration: put the service's MCP endpoint (and its API key as a
   header) in `mcp_servers`, and list the provider under `memory` with the tool mapping, which
-  `profiles/example.json` shows for Hindsight seen through an MCP gateway:
+  `profiles/example.json` and the [guide page](docs/guide/memory-and-services.md) show for Hindsight seen through an MCP gateway:
 
   ```json
   "mcp_servers": { "memory-gateway": { "url": "https://<your MCP endpoint for the memory service>", "headers": { "Authorization": "Bearer {secret:<api-key-item>}" } } },
