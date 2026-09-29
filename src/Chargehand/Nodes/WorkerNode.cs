@@ -24,7 +24,9 @@ public sealed record NodeRequest(
     TimeSpan Deadline,
     long MaxInputTokens = long.MaxValue,
     long? CompactAtTokens = null,
-    ForkPoint? Fork = null);
+    ForkPoint? Fork = null,
+    Func<int, CancellationToken, Task<string?>>? AfterAnswer = null,
+    int MaxFixRounds = 0);
 
 /// <summary>
 /// A session to fork before its first message: the fork keeps the system prefix, cached, and no history (spike,
@@ -37,7 +39,7 @@ public sealed record NodeResult(ResultContract Contract, string SessionId, IRead
 /// <summary>
 /// One worker node: fresh session with fixed instruction entries (or a fork of a sibling's that already has them),
 /// one task prompt, idle with a deadline, result contract with at most one repair turn for the schema and one for
-/// evidence (ADR 0009, ADR 0010, ADR 0011).
+/// evidence (ADR 0009, ADR 0010, ADR 0011). A writing node also takes up to <see cref="NodeRequest.MaxFixRounds"/> fix turns.
 /// </summary>
 public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvidenceResolver resolver, TimeSpan? pollInterval = null)
 {
@@ -101,6 +103,20 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
                 contract = repaired ?? contract;
                 contract = ResultAssembler.MoveUnresolved(contract, await resolver.ResolveAsync(contract, await Scope(session.Id, r, ct), ct));
             }
+        }
+
+        // A writing node (ADR 0035): after each answer the caller verifies the change and returns feedback for the next turn, or null
+        // to stop. The check after the last fix round still runs, so the caller holds the outcome of the final answer.
+        for (var round = 0; contract is not null && outcome == IdleOutcome.Succeeded && r.AfterAnswer is not null; round++)
+        {
+            var feedback = await r.AfterAnswer(round, ct);
+            if (feedback is null || round >= r.MaxFixRounds)
+                break;
+            (outcome, _) = await Turn(session.Id, feedback, r, ct);
+            // A reply with no valid block leaves the previous answer standing; the next check still sees the edited tree.
+            var (next, _) = await Assemble(session.Id, r, ct);
+            if (next is not null)
+                contract = ResultAssembler.MoveUnresolved(next, await resolver.ResolveAsync(next, await Scope(session.Id, r, ct), ct));
         }
 
         if (overBudget && contract is not null)

@@ -467,4 +467,66 @@ public class WorkerNodeTests
         Assert.Equal(ResultStatus.Completed, r.Contract.Status);
         Assert.Null(r.Contract.Error);
     }
+
+    [Fact]
+    public async Task A_fix_round_sends_the_hooks_feedback_and_keeps_the_last_answer()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5"), Block("src/calc.py:6"));
+        var calls = new List<int>();
+        var request = Request() with
+        {
+            MaxFixRounds = 2,
+            AfterAnswer = (round, _) =>
+            {
+                calls.Add(round);
+                return Task.FromResult(round == 0 ? "the tests failed: fix it" : null);
+            },
+        };
+        var r = await Node(rt).RunAsync(request, CancellationToken.None);
+        Assert.Equal([0, 1], calls);
+        Assert.Equal(2, rt.Prompts.Count);
+        Assert.Equal("the tests failed: fix it", rt.Prompts[1]);
+        Assert.Equal("src/calc.py:6", r.Contract.Evidence[0].Locator);
+        Assert.Equal(ResultStatus.Completed, r.Contract.Status);
+    }
+
+    [Fact]
+    public async Task Fix_rounds_stop_at_the_limit_and_the_last_answer_is_still_checked()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:1"), Block("src/calc.py:2"), Block("src/calc.py:3"), Block("src/calc.py:4"));
+        var calls = 0;
+        var request = Request() with { MaxFixRounds = 2, AfterAnswer = (_, _) => Task.FromResult<string?>($"still red {calls++}") };
+        var r = await Node(rt).RunAsync(request, CancellationToken.None);
+        Assert.Equal(3, rt.Prompts.Count);
+        Assert.Equal(3, calls);
+        Assert.Equal("src/calc.py:3", r.Contract.Evidence[0].Locator);
+    }
+
+    [Fact]
+    public async Task Without_a_hook_a_node_takes_one_turn()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5"), Block("src/calc.py:6"));
+        await Node(rt).RunAsync(Request() with { MaxFixRounds = 2 }, CancellationToken.None);
+        Assert.Single(rt.Prompts);
+    }
+
+    [Fact]
+    public async Task A_fix_reply_that_does_not_parse_keeps_the_previous_answer()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5"), "no block");
+        var checks = new List<int>();
+        var request = Request() with
+        {
+            MaxFixRounds = 2,
+            AfterAnswer = (round, _) =>
+            {
+                checks.Add(round);
+                return Task.FromResult(round == 0 ? "red" : null);
+            },
+        };
+        var r = await Node(rt).RunAsync(request, CancellationToken.None);
+        Assert.Equal([0, 1], checks);
+        Assert.Equal(2, rt.Prompts.Count);
+        Assert.Equal("src/calc.py:5", r.Contract.Evidence[0].Locator);
+    }
 }
