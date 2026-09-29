@@ -33,7 +33,7 @@ public class DraftTests
         Assert.StartsWith("Task:" + Environment.NewLine, runtime.Prompts.First(), StringComparison.Ordinal);
         // Quoted ids: rendered as "[rel-v1]", a live model cited "[rel-v1]", which matches no input.
         Assert.Contains("- id \"rel-v1\" (signal): Released v1.", runtime.Prompts.First(), StringComparison.Ordinal);
-        Assert.Contains("inputs to use: rel-v1 (signal)", runtime.IntakePrompts.Single(), StringComparison.Ordinal);
+        Assert.Contains("- id \"rel-v1\" (signal, 12 characters): Released v1.", runtime.IntakePrompts.Single(), StringComparison.Ordinal);
         Assert.Equal([RunEventKind.Started, RunEventKind.Intake, RunEventKind.NodeStarted, RunEventKind.NodeFinished, RunEventKind.RunFinished],
             events.Select(e => e.Event!.Value));
         Assert.Equal(r, events[^1].Result);
