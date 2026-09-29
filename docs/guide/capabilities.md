@@ -37,7 +37,7 @@ The tests call no model. They run the orchestrator on a scripted runtime ([Scrip
 | [Claude Code plugin, `/chargehand:change`](#claude-code-plugin-chargehandchange) | partial | [ChangeSkillTests](../../tests/Chargehand.Tests/ChangeSkillTests.cs), [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs) |
 | [`Chargehand` and `Chargehand.Contracts` on nuget.org](#chargehand-and-chargehandcontracts-on-nugetorg) | works | [mcp-smoke.py](../../scripts/mcp-smoke.py), [release.yml](../../.github/workflows/release.yml), [README](../../README.md#from-the-package) |
 | [Listing in the MCP Registry](#listing-in-the-mcp-registry) | works | [McpServerJsonTests](../../tests/Chargehand.Tests/McpServerJsonTests.cs), [release.yml](../../.github/workflows/release.yml), [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) |
-| [Writing nodes in worktrees](#writing-nodes-in-worktrees) | not yet | [ROADMAP.md](../../ROADMAP.md), [ADR 0015](../adr/0015-merging-and-verification.md) |
+| [Writing nodes in worktrees](#writing-nodes-in-worktrees) | works on main, not released | [ChangeRunTests](../../tests/Chargehand.Tests/ChangeRunTests.cs), [SandboxTests](../../tests/Chargehand.Tests/SandboxTests.cs), [write-e2e.sh](../../scripts/write-e2e.sh), [ADR 0035](../adr/0035-sandboxed-writing-workers.md) |
 | [Checking that the cited text supports each claim](#checking-that-the-cited-text-supports-each-claim) | not yet | [ROADMAP.md](../../ROADMAP.md), [GitEvidenceResolver.cs](../../src/Chargehand/Verification/GitEvidenceResolver.cs) |
 
 ## The evidence in full
@@ -214,9 +214,11 @@ What is missing: [Claude Code plugin](#claude-code-plugin).
 
 ### Writing nodes in worktrees
 
-- Goal 0.7 in [ROADMAP.md](../../ROADMAP.md)
-- [ADR 0015](../adr/0015-merging-and-verification.md)
-- [SplitTests](../../tests/Chargehand.Tests/SplitTests.cs) (a split with a writing subtask is rejected).
+- Goal 0.7 in [ROADMAP.md](../../ROADMAP.md), [ADR 0035](../adr/0035-sandboxed-writing-workers.md), [Writing a branch](writing.md).
+- [ChangeRunTests](../../tests/Chargehand.Tests/ChangeRunTests.cs) drive whole runs on a scripted runtime: green, red then fixed, red for good, no test command, no change, refused without a sandbox, and the source repository and shared checkout untouched.
+- [SandboxTests](../../tests/Chargehand.Tests/SandboxTests.cs) run the macOS sandbox for real: a write outside the workspace and a read of a credential directory fail, a connection fails unless the network is allowed.
+- On 2026-09-29 `scripts/write-e2e.sh` ran on macOS with the signed-in Claude Code: one failing Python test fixed in one attempt, verified under `sandbox-exec`.
+- A split with a writing subtask is still rejected ([SplitTests](../../tests/Chargehand.Tests/SplitTests.cs)).
 
 What is missing: [Writing nodes](#writing-nodes).
 
@@ -271,7 +273,7 @@ A preset's `services` give workers read-only tools from MCP servers in the profi
 
 ### Writing nodes
 
-Every shipped preset denies edits. [ADR 0015](../adr/0015-merging-and-verification.md) designs one writing node per git worktree, a build and test check before merge, and merging by a person; none of it is built. Goal 0.7 reads "Workers write branches that build and pass their tests in a sandbox."
+The `code` preset writes; every other shipped preset denies edits. Not covered: the worker can edit the tests the command runs (listed in the verification artifact, not blocked); the Linux sandbox (`bwrap`) has been tested as arguments, never run; the only real-model run is one small Python case; a preset cannot split into writing subtasks; a build that restores packages needs `sandbox.network`. Merging stays a person's step ([ADR 0035](../adr/0035-sandboxed-writing-workers.md)).
 
 ### Support checking
 
