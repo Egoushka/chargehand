@@ -7,7 +7,8 @@
 its workers read-only tools from the MCP servers a preset names, on the profile's say-so and with nothing connected by
 default.
 
-**Architecture:** A new project `Chargehand.Mcp` holds the MCP client code: a connection pool over profile `mcp_servers`,
+**Architecture:** A new project `Chargehand.Mcp` holds the MCP client code: a connection pool over profile `mcp_servers`
+(Streamable HTTP, legacy SSE or stdio),
 a memory adapter driven by a declarative tool mapping, and a service resolver. The core (`Chargehand`) gains records and
 interfaces only: a `MemoryStack` (fan-out recall with source labels, retain), the retain rule, `ServiceGrant`,
 `IServiceResolver`, and an optional `services` list on a preset's node kind. The two runtime adapters read the grant from
@@ -17,12 +18,12 @@ interfaces only: a `MemoryStack` (fan-out recall with source labels, retain), th
 presets, bash and Python 3 (spike only).
 
 **Spec:** `docs/specs/2026-09-29-services-and-memory-design.md`. **ADR:** `docs/adr/0034-memory-and-services-over-mcp.md`
-(proposed).
+(accepted, 2026-09-29).
 
 ## Global Constraints
 
 - The repository is public: never commit IP addresses, hostnames, absolute home paths, employer or project names, key
-  aliases, tracker URLs or prompts from real runs. Example hosts are `*.example.internal`.
+  aliases, tracker URLs or prompts from real runs. Example hosts are `*.example.internal`; a loopback server such as Chronicle's is written `http://localhost:<port>/sse` in docs.
 - Done for every task: `scripts/check.sh` exits 0 and its last test line reads `Passed!  - Failed:     0`.
 - Conventional Commits; never `--no-verify`; never force-push. A PR title may end with the tracker key.
 - Public text says "citations checked", not "claims verified". The retain rule reads "retains only claims whose citations
@@ -45,21 +46,21 @@ presets, bash and Python 3 (spike only).
 | # | Task | Depends on | Can run alongside |
 |---|---|---|---|
 | 1 | Spike: MCP tools for workers on both runtimes | none | 2, 3 |
-| 2 | `Chargehand.Mcp` project: connection pool, `mcp_servers`, secret placeholders | none | 1, 3 |
+| 2 | `Chargehand.Mcp` project: connection pool, `mcp_servers` (HTTP, SSE, stdio), secret placeholders | none | 1, 3 |
 | 3 | `MemoryStack`: fan-out recall, source labels, provenance, fail-open | none | 1, 2 |
-| 4 | Memory list and tool mapping in the profile | 2, 3 | 6, 8 |
-| 5 | `McpMemoryProvider`: the mapping executor | 2, 4 | 9, 10 |
+| 4 | Memory list and tool mapping in the profile (Hindsight and Chronicle entries) | 2, 3 | 6, 8 |
+| 5 | `McpMemoryProvider`: the mapping executor (Hindsight- and Chronicle-shaped fakes) | 2, 4 | 9, 10 |
 | 6 | Retain only claims whose citations resolved | 3 | 4, 8 |
 | 7 | Wire the stack into the CLI and server; `chargehand extensions check` | 3, 4, 5, 8 | 9, 10 |
 | 8 | Services: preset `services`, resolver, grants on `NodeSpec` | 2 | 4, 6 |
 | 9 | Claude Code gives workers the granted services | 1, 8 | 5, 7, 10 |
 | 10 | OpenCode gives workers the granted services (may slip) | 1, 8 | 5, 7, 9 |
 | 11 | Delete `HindsightMemory`; reject the object form of `memory` | 6, 7, and the maintainer's live parity run | none |
-| 12 | Acceptance test, guide, changelog, roadmap | 6, 7, 9, 11 (10 if it ships) | none |
+| 12 | Acceptance test (Chronicle-shaped second provider), guide with both mappings, changelog, roadmap | 6, 7, 9, 11 (10 if it ships) | none |
 
 Order: `{1, 2, 3}` then `{4, 6, 8}` then `{5, 9, 10}` then `{7}` then `{11}` then `{12}`. (Tasks 7 and 8 both edit
 `Program.cs`: Task 8 creates the connection pool there and Task 7 reuses it.) Task 10 can slip past the goal
-if open decision 1 chooses Claude Code first; the done bar needs one runtime.
+if decided item 1 chooses Claude Code first; the done bar needs one runtime.
 
 ## Review Focus
 
@@ -93,13 +94,13 @@ if open decision 1 chooses Claude Code first; the done bar needs one runtime.
 ### Task 1: Spike: MCP tools for workers on both runtimes
 
 Settles every UNKNOWN in the spec's "Where it stands" 8 and 9 before adapter code exists. No production code; the output
-is evidence in ADR 0034 and, if needed, a change to open decision 1. It calls a small model a few times on the
+is evidence in ADR 0034 and, if needed, a change to decided item 1. It calls a small model a few times on the
 maintainer's own runtime credentials (cents); run it by hand, outside the sandbox.
 
 **Files:**
 - Create: `scripts/fake-mcp-server.py`
 - Modify: `docs/adr/0034-memory-and-services-over-mcp.md` (an "Evidence (task 1 spike)" section)
-- Modify: `docs/specs/2026-09-29-services-and-memory-design.md` (a dated note under open decision 1)
+- Modify: `docs/specs/2026-09-29-services-and-memory-design.md` (a dated note under decided item 1)
 
 **Interfaces:**
 - Consumes: `claude` 2.1.283 (`ClaudeCodeSettings.PinnedVersion`), OpenCode 2.0.18 started as ADR 0030 does
@@ -155,7 +156,7 @@ for line in sys.stdin:
 | C2 | Is a call to the allowed tool made and answered; is a call to `write_note` refused, and how does the refusal read? | prompt: "call echo_fact, then write_note, then say DONE" |
 | C3 | Does `--disallowedTools mcp__fake__write_note` remove it from `init.tools`? | compare `init.tools` |
 | C4 | Does `--bare` (API-key mode) accept `--mcp-config`? Does `--setting-sources ""` (subscription mode)? | run both if both credentials exist; else record "not run" |
-| C5 | Does an `http` entry with `headers` connect? | `{"type":"http","url":"http://127.0.0.1:<port>/v1/mcp","headers":{"Authorization":"Bearer <key>"}}` against `chargehand serve`; read `init.mcp_servers[].status` with the right key and a wrong one |
+| C5 | Does an `http` entry with `headers` connect? | `{"type":"http","url":"http://localhost:<port>/v1/mcp","headers":{"Authorization":"Bearer <key>"}}` against `chargehand serve`; read `init.mcp_servers[].status` with the right key and a wrong one |
 | C6 | How many tokens do the two tool schemas add to the first call, granted or not? | `usage.input_tokens` with and without the config |
 
 - [ ] **Step 3: OpenCode 2.0.18.** Start the server as `scripts/opencode-serve.sh` does, with a fresh state directory and a
@@ -174,7 +175,7 @@ for line in sys.stdin:
 
 - [ ] **Step 4: Record and decide.** Fill the ADR's evidence section with the two tables, each row: the observation and
   the pinned version. Then update ADR 0034's "Delivery of services to OpenCode" line from provisional to the observed
-  rule, and add to the spec, under open decision 1, one dated line: "Task 1 result: OpenCode can / cannot gate MCP tools
+  rule, and add to the spec, under decided item 1, one dated line: "Task 1 result: OpenCode can / cannot gate MCP tools
   per session (O3 to O6)". If O4 shows tools of foreign servers reach workers today, open a bug for the preset compile step
   (Task 10 generates the deny rules; the bug covers presets with no `services`).
 
@@ -189,7 +190,7 @@ git commit -m "docs: record how Claude Code and OpenCode take MCP servers for wo
 
 ---
 
-### Task 2: `Chargehand.Mcp` project: connection pool, `mcp_servers`, secret placeholders
+### Task 2: `Chargehand.Mcp` project: connection pool, `mcp_servers` (HTTP, SSE, stdio), secret placeholders
 
 **Files:**
 - Create: `src/Chargehand.Mcp/Chargehand.Mcp.csproj`
@@ -197,18 +198,19 @@ git commit -m "docs: record how Claude Code and OpenCode take MCP servers for wo
 - Modify: `src/Chargehand/Config/Profile.cs` (`McpServerSettings`, `Profile.McpServers`, load-time validation, command-source timeout)
 - Modify: `profiles/profile.schema.json`, `profiles/example.json`
 - Modify: `Chargehand.slnx`, `src/Chargehand.Cli/Chargehand.Cli.csproj`, `tests/Chargehand.Tests/Chargehand.Tests.csproj` (project references)
-- Create: `tests/Chargehand.Tests/FakeMcpServer.cs`, `tests/Chargehand.Tests/McpConnectionPoolTests.cs`, `tests/Chargehand.Tests/SecretTemplateTests.cs`
+- Create: `tests/Chargehand.Tests/FakeMcpServer.cs`, `tests/Chargehand.Tests/FakeSseMcpServer.cs`, `tests/Chargehand.Tests/McpConnectionPoolTests.cs`, `tests/Chargehand.Tests/SecretTemplateTests.cs`
 - Modify: `tests/Chargehand.Tests/ProfileTests.cs`, `tests/Chargehand.Tests/ConfigFileTests.cs`
 
 **Interfaces:**
 - Consumes: `Profile.Secret(item)` (`Profile.cs:70-80`), `ChargehandException`, `ModelContextProtocol.Core` 2.2.0.
 - Produces:
-  - `McpServerSettings(string? Url = null, IReadOnlyDictionary<string,string>? Headers = null, IReadOnlyList<string>? Command = null, IReadOnlyDictionary<string,string>? Env = null)`; `Profile.McpServers` (`IReadOnlyDictionary<string, McpServerSettings>?`, JSON `mcp_servers`).
+  - `McpServerSettings(string? Url = null, IReadOnlyDictionary<string,string>? Headers = null, IReadOnlyList<string>? Command = null, IReadOnlyDictionary<string,string>? Env = null, string? Transport = null)` (`Transport`: `auto`, the default, `streamable-http` or `sse`, only with `Url`); `Profile.McpServers` (`IReadOnlyDictionary<string, McpServerSettings>?`, JSON `mcp_servers`).
   - `McpConnectionPool(IReadOnlyDictionary<string, McpServerSettings> servers, Func<string,string> secret, Func<string, McpServerSettings, CancellationToken, Task<IClientTransport>>? transports = null)` : `IAsyncDisposable`, with `Task<McpClient> GetAsync(string server, CancellationToken ct)`; `internal static StdioClientTransportOptions StdioOptions(string name, McpServerSettings s, Func<string,string> secret)` and `internal static HttpClientTransportOptions HttpOptions(...)`.
   - `SecretTemplate.Resolve(string template, Func<string,string> secret)`.
   - `McpUnavailableException(string code, string server, string detail)` (a plain `Exception`; `Code` is `unknown_server`, `secret_unresolved` or `unreachable`; `Message` is `"<server>: <detail>"`; the detail never holds a secret value).
   - `Profile.CommandTimeout` (internal static `TimeSpan`, default 15 s).
-  - `FakeMcpServer` / `FakeTool` test helpers (used by Tasks 5, 7, 8).
+  - `FakeMcpServer` / `FakeTool` test helpers (used by Tasks 5, 7, 8) and `FakeSseMcpServer`, the SDK's own legacy SSE endpoint on a loopback port (used here and by Task 12).
+  - `McpConnectionPool.HttpOptions` sets `HttpClientTransportOptions.TransportMode` from `Transport`: `auto` → `AutoDetect`, `streamable-http` → `StreamableHttp`, `sse` → `Sse`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -281,6 +283,57 @@ internal sealed class FakeMcpServer : IAsyncDisposable
         if (t.ReadOnly is { } ro)
             tool.ProtocolTool.Annotations = new ToolAnnotations { ReadOnlyHint = ro };
         return tool;
+    }
+}
+```
+
+The legacy SSE helper is the SDK's own server with `EnableLegacySse` on, served by Kestrel on a free loopback port (that
+option is obsolete, `MCP9004`, so the helper suppresses the warning; this server and the client in both `Sse` and
+`AutoDetect` mode passed a scratch test on 2026-09-29):
+
+```csharp
+// tests/Chargehand.Tests/FakeSseMcpServer.cs
+#pragma warning disable MCP9004
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
+
+namespace Chargehand.Tests;
+
+/// <summary>An MCP server on the legacy SSE transport (/sse and /message), on a free loopback port, like Chronicle's.</summary>
+internal sealed class FakeSseMcpServer : IAsyncDisposable
+{
+    private readonly WebApplication _app;
+
+    private FakeSseMcpServer(WebApplication app, Uri address) => (_app, Address) = (app, address);
+
+    public Uri Address { get; }
+
+    /// <summary>The URL a profile would give: the /sse endpoint.</summary>
+    public Uri SseEndpoint => new(Address, "/sse");
+
+    public static async Task<FakeSseMcpServer> StartAsync(string toolName, string reply)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Logging.ClearProviders();
+        builder.Services.AddMcpServer()
+            .WithHttpTransport(o => { o.Stateless = false; o.EnableLegacySse = true; })
+            .WithTools([McpServerTool.Create((RequestContext<CallToolRequestParams> _) => new CallToolResult { Content = [new TextContentBlock { Text = reply }] },
+                new McpServerToolCreateOptions { Name = toolName, Description = toolName })]);
+        var app = builder.Build();
+        app.MapMcp();
+        await app.StartAsync();
+        return new FakeSseMcpServer(app, new Uri(app.Urls.First()));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _app.StopAsync();
+        await _app.DisposeAsync();
     }
 }
 ```
@@ -407,6 +460,32 @@ public class McpConnectionPoolTests
         Assert.Equal("Bearer s3cret", options.AdditionalHeaders!["Authorization"]);
     }
 
+    [Theory]
+    [InlineData(null, HttpTransportMode.AutoDetect)]
+    [InlineData("auto", HttpTransportMode.AutoDetect)]
+    [InlineData("streamable-http", HttpTransportMode.StreamableHttp)]
+    [InlineData("sse", HttpTransportMode.Sse)]
+    public void Http_options_follow_the_transport_setting(string? transport, HttpTransportMode expected)
+    {
+        var settings = new McpServerSettings(Url: "http://localhost:8031/sse", Transport: transport);
+
+        Assert.Equal(expected, McpConnectionPool.HttpOptions("chronicle", settings, Secret).TransportMode);
+    }
+
+    [Theory]
+    [InlineData("sse")]
+    [InlineData("auto")]
+    public async Task A_legacy_sse_server_is_reached_in_sse_mode_and_in_auto_detect(string transport)
+    {
+        await using var server = await FakeSseMcpServer.StartAsync("recall", """{"results":[]}""");
+        var servers = new Dictionary<string, McpServerSettings> { ["chronicle"] = new(Url: server.SseEndpoint.ToString(), Transport: transport) };
+        await using var pool = new McpConnectionPool(servers, Secret);   // the default transports: the real HTTP client
+
+        var client = await pool.GetAsync("chronicle", CancellationToken.None);
+
+        Assert.Equal("recall", Assert.Single(await client.ListToolsAsync()).Name);
+    }
+
     [Fact]
     public void Stdio_options_carry_the_declared_env_and_do_not_inherit_ours()
     {
@@ -455,6 +534,28 @@ Additions to `ProfileTests` (the profile already loads through `Profile.Load`, `
     }
 
     [Fact]
+    public void A_url_server_may_name_the_sse_transport()
+    {
+        using var dir = new TempDir();
+        var profile = Profile.Load(dir.Write("p.json", """{"schema":"profile/v1","mcp_servers":{"chronicle":{"url":"http://localhost:8031/sse","transport":"sse"}}}"""));
+
+        Assert.Equal("sse", profile.McpServers!["chronicle"].Transport);
+    }
+
+    [Theory]
+    [InlineData("""{"mcp_servers":{"gw":{"url":"http://localhost:8031/sse","transport":"websocket"}}}""")]   // not a known transport
+    [InlineData("""{"mcp_servers":{"gw":{"command":["x"],"transport":"sse"}}}""")]                          // transport belongs to url servers
+    public void An_invalid_transport_fails_at_load(string body)
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("p.json", body.Replace("{\"mcp_servers\"", "{\"schema\":\"profile/v1\",\"mcp_servers\"", StringComparison.Ordinal));
+
+        var e = Assert.Throws<ChargehandException>(() => Profile.Load(path));
+
+        Assert.Equal(ErrorCode.InvalidRequest, e.Code);
+    }
+
+    [Fact]
     public void A_command_source_that_hangs_falls_through_to_the_next_source()
     {
         var profile = new Profile("profile/v1", Secrets: [new SecretSource(Command: ["sleep", "30"]), new SecretSource(Command: ["echo", "from-second"])]);
@@ -474,6 +575,13 @@ and in `ConfigFileTests`:
 
 ```csharp
     [Fact]
+    public void The_schema_rejects_an_unknown_transport()
+    {
+        using var doc = JsonDocument.Parse("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"http://localhost:8031/sse","transport":"websocket"}}}""");
+        Assert.False(ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
+    [Fact]
     public void The_schema_rejects_a_server_with_both_transports()
     {
         using var doc = JsonDocument.Parse("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"https://a.example.internal/mcp","command":["x"]}}}""");
@@ -492,15 +600,17 @@ Expected: FAIL to compile (`Chargehand.Mcp` does not exist).
   `InternalsVisibleTo Chargehand.Tests`. Add it to `Chargehand.slnx`, to the CLI and to the test project.
 - `McpServerSettings` and `Profile.McpServers` in `Profile.cs`; `Profile.Load` calls a `Validate` that throws
   `ChargehandException(ErrorCode.InvalidRequest, message, action)` for: not exactly one of `url` and `command`; `headers`
-  on a `command` server or `env` on a `url` server; a `{secret:` in `url` or `command`; a name outside `^[a-z][a-z0-9-]*$`.
-- `profile.schema.json`: `mcp_servers` (object, `propertyNames` pattern, each `oneOf` [`url`+optional `headers`,
+  or `transport` on a `command` server, or `env` on a `url` server; a `transport` other than `auto`, `streamable-http` or
+  `sse`; a `{secret:` in `url` or `command`; a name outside `^[a-z][a-z0-9-]*$`.
+- `profile.schema.json`: `mcp_servers` (object, `propertyNames` pattern, each `oneOf` [`url`+optional `headers` and optional `transport` (enum `auto`, `streamable-http`, `sse`),
   `command`+optional `env`], `additionalProperties: false`); add a sample to `example.json` with `example.internal` hosts.
 - `SecretTemplate`: regex `\{secret:([A-Za-z0-9._-]+)\}`; `Resolve` replaces each through the function and lets its
   `InvalidOperationException` (which names the item) propagate.
 - `McpConnectionPool`: a `ConcurrentDictionary<string, Lazy<Task<McpClient>>>`; `GetAsync` returns the live client, drops
   an entry whose `Completion` task has finished, and wraps every failure (unknown name, unresolved secret, transport
   error, initialisation timeout) in `McpUnavailableException` (`unknown_server`; `secret_unresolved` carrying the item name;
-  `unreachable` carrying the transport's message), the detail scrubbed with `ChargehandException.Scrub`. Default transports: `HttpClientTransport` for `url`, `StdioClientTransport` for `command`
+  `unreachable` carrying the transport's message), the detail scrubbed with `ChargehandException.Scrub`. Default transports: `HttpClientTransport` for `url` (`TransportMode` from `transport`: `AutoDetect` when
+  unset or `auto`, `StreamableHttp`, `Sse`), `StdioClientTransport` for `command`
   (`InheritEnvironmentVariables = false`, `StandardErrorLines` to stderr). `DisposeAsync` disposes every client.
 - `Profile.RunCommand`: run with `CommandTimeout` (internal static, 15 s); on timeout kill the process tree and return
   null so the chain moves on. Its message never holds output.
@@ -529,12 +639,13 @@ git commit -m "feat: add the MCP connection pool, mcp_servers and secret placeho
 - Modify: `src/Chargehand.Cli/Program.cs` (build a one-source stack from the object form of `memory`; `show` prints the report)
 - Create: `tests/Chargehand.Tests/MemoryStackTests.cs`, `tests/Chargehand.Tests/MemoryRunTests.cs`
 - Modify: `tests/Chargehand.Tests/RunLogTests.cs`
+- Modify: `tests/Chargehand.Tests/MemoryFailOpenTests.cs` (#94's tests move onto the stack; `Failure` becomes `internal`)
 
 **Interfaces:**
 - Consumes: `IMemoryProvider`, `MemoryScope`, `RecalledMemory` (`IMemoryProvider.cs`), `ChainBlock`, `BlockSource`, `PromptBlock.Hash`,
   `ChargehandException.Scrub`.
 - Produces:
-  - `MemoryLimits(int MaxFacts = 10, int MaxChars = 4000, TimeSpan? Timeout = null)`.
+  - `MemoryLimits(int MaxFacts = 10, int MaxChars = 4000, TimeSpan? Timeout = null, int MaxFactChars = 600)`.
   - `MemorySource(string Name, IMemoryProvider Provider, MemoryScope Scope, MemoryLimits Limits, bool Retain = false, IReadOnlyList<string>? RetainTags = null)`.
   - `MemoryStack(IReadOnlyList<MemorySource> sources)` with `IReadOnlyList<MemorySource> Sources`, `Task<RecallOutcome> RecallAsync(string query, CancellationToken ct)` and
     `Task<IReadOnlyList<RetainReport>> RetainAsync(MemoryItem item, CancellationToken ct)` (Task 6 changes the item's content, not this signature).
@@ -620,6 +731,17 @@ public class MemoryStackTests
     }
 
     [Fact]
+    public async Task A_long_fact_is_cut_at_the_fact_cap_with_an_ellipsis()
+    {
+        var stack = new MemoryStack([Source("chronicle", new Fake(_ => [F("1", new string('x', 50))]), new MemoryLimits(MaxFactChars: 20))]);
+
+        var outcome = await stack.RecallAsync("q", CancellationToken.None);
+
+        Assert.Equal(new string('x', 19) + "…", Assert.Single(outcome.Sources[0].Items).Text);
+        Assert.Contains($"- [chronicle] {new string('x', 19)}…", outcome.Prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Caps_apply_per_source()
     {
         var alpha = Enumerable.Range(1, 5).Select(i => F($"a{i}", $"alpha number {i}")).ToList();
@@ -634,16 +756,10 @@ public class MemoryStackTests
         Assert.Equal(2, outcome.Sources[1].Items.Count); // "beta number 1" and "beta number 2" are 26 characters; a third would pass 30
     }
 
-    public static TheoryData<string> ExceptionKinds() => new("http", "timeout", "json", "io", "invalid");
+    // The failure kinds #94 pinned on the run-level catch: an HTTP error, HttpClient's own timeout, a provider's own timeout, a bad body, a broken pipe.
+    public static TheoryData<string> ExceptionKinds() => MemoryFailOpenTests.FailureKinds;
 
-    internal static Exception Kind(string kind) => kind switch
-    {
-        "http" => new HttpRequestException("down"),
-        "timeout" => new TaskCanceledException("HttpClient.Timeout elapsed", new TimeoutException()),
-        "json" => new JsonException("bad"),
-        "io" => new IOException("closed"),
-        _ => new InvalidOperationException("mapping error"),
-    };
+    internal static Exception Kind(string kind) => MemoryFailOpenTests.Failure(kind);
 
     [Theory]
     [MemberData(nameof(ExceptionKinds))]
@@ -878,11 +994,12 @@ Expected: FAIL to compile (`MemoryStack`, `ExtensionsReport` do not exist).
 
 - [ ] **Step 3: Implement**
 
-- `MemoryStack.RecallAsync`: start every source's call with `Task.WhenAll`, each in `try { … } catch (Exception e) when (!ct.IsCancellationRequested)`
-  under `CancellationTokenSource.CreateLinkedTokenSource(ct)` with `CancelAfter(limits.Timeout ?? 10 s)`; an
-  `OperationCanceledException` while `ct` is not cancelled is the timeout (`"timed out after 10 s"`), anything else is
-  `ChargehandException.Scrub(e.Message)` cut to 200 characters. Then merge as in the spec: one line per fact (collapse
-  whitespace), `MaxFacts` and `MaxChars` per source, dedupe on trimmed case-insensitive text, extra sources added to the label.
+- `MemoryStack.RecallAsync`: start every source's call with `Task.WhenAll`, each in `try { … } catch (Exception e) when (!(e is OperationCanceledException && ct.IsCancellationRequested))`
+  (the rule #94 put in `Orchestrator.MemoryFailedOpen`, which moves here) under
+  `CancellationTokenSource.CreateLinkedTokenSource(ct)` with `CancelAfter(limits.Timeout ?? 10 s)`; when that timeout token
+  fired the reason is `"timed out after 10 s"`, otherwise `ChargehandException.Scrub(e.Message)` cut to 200 characters (a
+  provider's own `OperationCanceledException` is an ordinary failure). Then merge as in the spec: one line per fact (collapse
+  whitespace, cut at `MaxFactChars` with `…` as the last of those characters), `MaxFacts` and `MaxChars` per source, dedupe on trimmed case-insensitive text, extra sources added to the label.
 - `Prompt` is `"\n" + header + "\n" + lines + "\n"` and `""` when no line survives; the header is the text in the test.
   `Blocks`: per source that contributed a line first, `new ChainBlock($"memory/recall/{name}", "1", PromptBlock.Hash(thoseLines), BlockSource.Runtime)`;
   the hash covers the final rendered lines (labels included) that source contributed first; a source that only repeats
@@ -893,9 +1010,27 @@ Expected: FAIL to compile (`MemoryStack`, `ExtensionsReport` do not exist).
   `RetainReport(name, 1, null)` or `(name, 0, reason)`.
 - `Orchestrator`: the last constructor parameter becomes `MemoryStack? memory = null`; `Recall` becomes one call to
   `memory.RecallAsync(request.Text, ct)`; the retain block calls `memory.RetainAsync(sameItemAsToday, ct)` (Task 6 replaces
-  the item); both drop the `HttpRequestException` catches. A small `ExtensionsCollector` object created in `RunAsync`
-  and passed to `Execute` gathers the recall and retain reports; `RunAsync` puts `collector.ToReport()` in the `RunRecord`.
-  `profile.Memory` is no longer read here.
+  the item); both `catch (Exception e) when (MemoryFailedOpen(e, ct))` blocks and the helper go, because the stack owns the
+  rule. A small `ExtensionsCollector` object created in `RunAsync` and passed to `Execute` gathers the recall and retain
+  reports and sets the span tags `chargehand.memory.<name>.recalled` and `.error` (#94's `chargehand.memory.error` and
+  `chargehand.memory.recalled` were per run; there is now one provider per name); `RunAsync` puts `collector.ToReport()` in
+  the `RunRecord`. `profile.Memory` is no longer read here.
+- `MemoryFailOpenTests` (#94) moves onto the stack. Its `Orchestrator` helper builds the run from a stack instead of a profile
+  with a memory object, so the tests keep their five failure kinds, both steps and the two cancellation cases:
+
+```csharp
+    private static Orchestrator Orchestrator(FakeMemory memory, string workerRoot)
+    {
+        var stack = new MemoryStack([new MemorySource("hindsight", memory, new MemoryScope("hindsight", "ns"), new MemoryLimits(), Retain: true)]);
+        return new Orchestrator(Runs.Profile(workerRoot), new ScriptedRuntime(Runs.DraftReply), "2.0.16", Repo.Root,
+            new JsonlRunLog(Path.Combine(workerRoot, "log.jsonl")), new Dictionary<string, int>(), stack);
+    }
+```
+
+  Its assertions change in three places: the span tags `chargehand.memory.hindsight.error` and
+  `chargehand.memory.hindsight.recalled`, and `b.Name.StartsWith("memory/recall", StringComparison.Ordinal)` for the chain
+  block. `Failure(kind)` becomes `internal`, and `MemoryStackTests` reuses it and `FailureKinds`. The retain cases keep
+  running on a draft request until Task 6 (which retains nothing without a commit) moves them onto a checkout.
 - `Program.cs`: `Memory()` returns `MemoryStack.ForObjectForm(m, new HindsightMemory(…))` for the object form, as today's
   construction; `Show` prints `run.Extensions?.Lines()`.
 
@@ -928,10 +1063,10 @@ git commit -m "feat: fan recall out to every memory provider and label facts by 
 - Consumes: `McpServerSettings` and `Profile.McpServers` (Task 2), `MemorySettings` (the object form, kept until Task 11).
 - Produces:
   - `Profile.Memory` becomes `MemoryBlock?` = `MemoryBlock(IReadOnlyList<MemoryProviderSettings> Providers, MemorySettings? ObjectForm)`; JSON `memory` is an array (Providers) or, until Task 11, the old object (ObjectForm).
-  - `MemoryProviderSettings(string Name, string Server, string Namespace, MemoryTools Tools, int? MaxFacts = null, int? MaxChars = null, int? TimeoutSeconds = null, bool Retain = false, IReadOnlyList<string>? RetainTags = null)`.
-  - `MemoryTools(ToolCall Recall, ToolCall? Retain = null, ToolCall? Invalidate = null)`; `ToolCall(string Tool, IReadOnlyDictionary<string, JsonElement> Arguments, ResultMapping? Results = null)`; `ResultMapping(string? Path = null, string Id = "id", string Text = "text", string Format = "json")`.
+  - `MemoryProviderSettings(string Name, string Server, MemoryTools Tools, string? Namespace = null, int? MaxFacts = null, int? MaxChars = null, int? MaxFactChars = null, int? TimeoutSeconds = null, bool Retain = false, IReadOnlyList<string>? RetainTags = null)` with `EffectiveNamespace => Namespace ?? Name` (a recall-only source such as Chronicle has no banks).
+  - `MemoryTools(ToolCall Recall, ToolCall? Retain = null, ToolCall? Invalidate = null)`; `ToolCall(string Tool, IReadOnlyDictionary<string, JsonElement> Arguments, ResultMapping? Results = null)`; `ResultMapping(string? Path = null, string Id = "id", IReadOnlyList<string>? Text = null, string Format = "json")`, where JSON `text` is a field name, a template over the result's fields (`"{date}: {summary}"`) or an array of these, and a missing `Text` means `["text"]`.
   - `MemoryMapping.Validate(MemoryProviderSettings, IReadOnlyDictionary<string, McpServerSettings>) : IReadOnlyList<string>` (problems; empty when valid). `Profile.Load` throws `ChargehandException(InvalidRequest)` listing them, with an action pointing at the guide.
-  - Allowed placeholders: recall `{query}` `{namespace}`; retain `{namespace}` `{text}` `{context}` `{document_id}` `{timestamp}` `{tags}`; invalidate `{namespace}` `{id}` `{reason}`.
+  - Allowed placeholders: recall `{query}` `{namespace}` `{max_facts}`; retain `{namespace}` `{text}` `{context}` `{document_id}` `{timestamp}` `{tags}`; invalidate `{namespace}` `{id}` `{reason}`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -981,7 +1116,29 @@ public class MemoryConfigTests
 
         var results = Load($"[{entry}]").Memory!.Providers.Single().Tools.Recall.Results!;
 
-        Assert.Equal(("notes", "key", "body", "json"), (results.Path, results.Id, results.Text, results.Format));
+        Assert.Equal(("notes", "key", "json"), (results.Path, results.Id, results.Format));
+        Assert.Equal(["body"], results.Text);
+    }
+
+    /// <summary>Chronicle's MCP server (github.com/Egoushka/chronicle): legacy SSE, recall only, no banks.</summary>
+    internal const string Chronicle = """
+        {"name":"chronicle","server":"chronicle","tools":{"recall":{"tool":"recall","arguments":{"query":"{query}","limit":"{max_facts}"},
+          "results":{"path":"results","id":"segment_id","text":["{date}: {summary}","{date}: {text}"]}}}}
+        """;
+
+    private const string ChronicleServer = """{"chronicle":{"url":"http://localhost:8031/sse","transport":"sse"}}""";
+
+    [Fact]
+    public void A_recall_only_provider_loads_without_a_namespace_and_reads_a_list_of_text_templates()
+    {
+        var provider = Load($"[{Chronicle}]", ChronicleServer).Memory!.Providers.Single();
+
+        Assert.Null(provider.Namespace);
+        Assert.Equal("chronicle", provider.EffectiveNamespace);
+        Assert.Null(provider.Tools.Retain);
+        Assert.False(provider.Retain);
+        Assert.Equal("{max_facts}", provider.Tools.Recall.Arguments["limit"].GetString());
+        Assert.Equal(["{date}: {summary}", "{date}: {text}"], provider.Tools.Recall.Results!.Text);
     }
 
     [Fact]
@@ -997,6 +1154,7 @@ public class MemoryConfigTests
     [InlineData("""[{"name":"a","server":"nope","namespace":"n","tools":{"recall":{"tool":"r","arguments":{}}}}]""", "nope")]
     [InlineData("""[{"name":"a","server":"gw","namespace":"n","tools":{"recall":{"tool":"r","arguments":{"q":"{queryy}"}}}}]""", "{queryy}")]
     [InlineData("""[{"name":"a","server":"gw","namespace":"n","tools":{"recall":{"tool":"r","arguments":{"q":"{text}"}}}}]""", "{text}")]
+    [InlineData("""[{"name":"a","server":"gw","tools":{"recall":{"tool":"r","arguments":{}},"retain":{"tool":"w","arguments":{"n":"{max_facts}"}}}}]""", "{max_facts}")]
     [InlineData("""[{"name":"a","server":"gw","namespace":"n","retain":true,"tools":{"recall":{"tool":"r","arguments":{}}}}]""", "retain")]
     [InlineData("""[{"name":"a","server":"gw","namespace":"n","tools":{"recall":{"tool":"r","arguments":{},"results":{"format":"xml"}}}}]""", "format")]
     [InlineData("""[{"name":"Bad_Name","server":"gw","namespace":"n","tools":{"recall":{"tool":"r","arguments":{}}}}]""", "name")]
@@ -1016,6 +1174,13 @@ Add to `ConfigFileTests` (the `ProfileSchema` field is already there):
 
 ```csharp
     [Fact]
+    public void A_recall_only_provider_with_no_namespace_passes_the_schema()
+    {
+        using var doc = JsonDocument.Parse("""{"schema":"profile/v1","memory":[{"name":"chronicle","server":"chronicle","tools":{"recall":{"tool":"recall","arguments":{"query":"{query}","limit":"{max_facts}"},"results":{"path":"results","id":"segment_id","text":["{date}: {summary}","{date}: {text}"]}}}}]}""");
+        Assert.True(ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
+    [Fact]
     public void A_memory_provider_without_a_recall_tool_fails_the_schema()
     {
         using var doc = JsonDocument.Parse("""{"schema":"profile/v1","memory":[{"name":"a","server":"gw","namespace":"n","tools":{}}]}""");
@@ -1033,6 +1198,7 @@ Expected: FAIL to compile (`MemoryBlock`, `MemoryProviderSettings` do not exist)
 
 - [ ] **Step 3: Implement**
 
+- `ResultMapping.Text` has a `JsonConverter` that reads a string as a one-item list and an array as is.
 - `MemoryBlock` with a `JsonConverter` on `Profile.Memory`: an array deserialises to `Providers`, an object to
   `ObjectForm` (the existing `MemorySettings`), anything else throws `JsonException`.
 - `MemoryMapping.Validate` returns one problem per fault: unknown `server` (message names the key and lists the defined
@@ -1041,9 +1207,11 @@ Expected: FAIL to compile (`MemoryBlock`, `MemoryProviderSettings` do not exist)
   not `json` or `text`. It walks argument values recursively, string leaves only.
 - `Profile.Load`: after the existing deserialise and the Task 2 server checks, validate every provider and throw one
   `ChargehandException(ErrorCode.InvalidRequest, problems joined, "Fix memory in the profile; docs/guide/reference.md lists the fields.")`.
-- Schema: `memory` is `oneOf` [array of provider objects (required `name`, `server`, `namespace`, `tools.recall.tool`,
-  `tools.recall.arguments`), the old object marked `deprecated: true`]. Update `example.json`: an `mcp_servers.memory-gateway`
-  entry and the Hindsight entry of the spec, with `retain: false`.
+- Schema: `memory` is `oneOf` [array of provider objects (required `name`, `server`, `tools.recall.tool`,
+  `tools.recall.arguments`; `namespace` optional; `results.text` a string or an array of strings), the old object marked
+  `deprecated: true`]. Update `example.json`: an `mcp_servers.memory-gateway` entry and the Hindsight entry of the spec with
+  `retain: false`, and an `mcp_servers.chronicle` entry (`"url": "http://localhost:<port>/sse"`, `"transport": "sse"`) with the
+  Chronicle entry of the spec; the placeholders stay placeholders, no host or address.
 - `Program.cs`: `Memory()` reads `profile.Memory?.ObjectForm` (Task 3's stack construction); providers are wired in Task 7.
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -1071,7 +1239,7 @@ git commit -m "feat: make memory a list of providers with a declarative MCP tool
 - Consumes: `MemoryProviderSettings`, `ToolCall`, `ResultMapping` (Task 4), `McpConnectionPool` and `FakeMcpServer` (Task 2), `IMemoryProvider`, `HindsightMemory` (for the parity test only).
 - Produces: `McpMemoryProvider(MemoryProviderSettings settings, McpConnectionPool pool) : IMemoryProvider`;
   `ToolArguments.Expand(IReadOnlyDictionary<string, JsonElement> template, IReadOnlyDictionary<string, object?> values) : Dictionary<string, object?>`;
-  `RecallResults.Read(CallToolResult result, ResultMapping? mapping) : IReadOnlyList<RecalledMemory>`;
+  `RecallResults.Read(CallToolResult result, ResultMapping? mapping) : IReadOnlyList<RecalledMemory>` (`text` entries that are field names or `{field}` templates; an entry is used only when every field it names is present and non-empty; the first that qualifies wins; an item with none is skipped);
   `McpMemoryException` (thrown for `isError`, a missing path, unparsable JSON; the message is scrubbed).
 
 - [ ] **Step 1: Write the failing tests**
@@ -1147,8 +1315,8 @@ public class McpMemoryProviderTests
 
     private static MemoryProviderSettings Settings(string json) => JsonSerializer.Deserialize<MemoryProviderSettings>(json, Profile.Json)!;
 
-    private static McpConnectionPool PoolFor(FakeMcpServer server) =>
-        new(new Dictionary<string, McpServerSettings> { ["gw"] = new(Url: "https://mcp.example.internal/mcp") }, _ => "", async (_, _, _) => await server.TransportAsync());
+    private static McpConnectionPool PoolFor(FakeMcpServer server, string name = "gw") =>
+        new(new Dictionary<string, McpServerSettings> { [name] = new(Url: "https://mcp.example.internal/mcp") }, _ => "", async (_, _, _) => await server.TransportAsync());
 
     private const string Found = """{"results":[{"id":"f1","text":"Deploys go through GitOps.","fact_type":"world"}]}""";
 
@@ -1246,6 +1414,54 @@ public class McpMemoryProviderTests
         Assert.Equal(("f1", "wrong", "chargehand"), (args["memory_id"].GetString(), args["reason"].GetString(), args["bank_id"].GetString()));
     }
 
+    /// <summary>The body of Chronicle's /recall (chronicle/api.py, results built at lines 168-176): one JSON text block through MCP.</summary>
+    private const string ChronicleReply = """
+        {"intent":"open","routed_because":null,"window_from_query":null,"results":[
+          {"segment_id":"seg-1","score":0.031,"date":"2024-05-03T10:12:00","thread":"chat-1","text":"raw conversation one","evidence":["ev-1","ev-2"],"summary":"Agreed to repaint the flat in June."},
+          {"segment_id":"seg-2","score":0.020,"date":"2023-11-20T18:40:00","thread":"chat-2","text":"raw conversation two","evidence":["ev-3"],"summary":null},
+          {"segment_id":"seg-3","score":0.010,"date":"2023-01-02T09:00:00","thread":"chat-3","text":"","evidence":[],"summary":null}]}
+        """;
+
+    [Fact]
+    public async Task A_chronicle_shaped_recall_reads_the_summary_falls_back_to_the_text_and_skips_an_empty_segment()
+    {
+        await using var server = new FakeMcpServer(new FakeTool("recall", _ => FakeMcpServer.Text(ChronicleReply)));
+        await using var pool = PoolFor(server, "chronicle");
+
+        var facts = await new McpMemoryProvider(Settings(Chronicle), pool).RecallAsync("what did we decide about the flat", new MemoryScope("chronicle", "chronicle"), CancellationToken.None);
+
+        Assert.Equal([new RecalledMemory("seg-1", "2024-05-03T10:12:00: Agreed to repaint the flat in June."),
+                      new RecalledMemory("seg-2", "2023-11-20T18:40:00: raw conversation two")], facts);
+        var (tool, args) = Assert.Single(server.Calls);
+        Assert.Equal("recall", tool);
+        Assert.Equal(["limit", "query"], args.Keys.Order());   // date_from, date_to and source are left to Chronicle's own routing
+        Assert.Equal(("what did we decide about the flat", 10), (args["query"].GetString(), args["limit"].GetInt32()));
+    }
+
+    [Fact]
+    public async Task The_limit_is_the_entrys_fact_cap()
+    {
+        var entry = Chronicle.Replace("\"name\":\"chronicle\"", "\"name\":\"chronicle\",\"max_facts\":5", StringComparison.Ordinal);
+        await using var server = new FakeMcpServer(new FakeTool("recall", _ => FakeMcpServer.Text(ChronicleReply)));
+        await using var pool = PoolFor(server, "chronicle");
+
+        await new McpMemoryProvider(Settings(entry), pool).RecallAsync("q", new MemoryScope("chronicle", "chronicle"), CancellationToken.None);
+
+        Assert.Equal(5, Assert.Single(server.Calls).Arguments["limit"].GetInt32());
+    }
+
+    [Fact]
+    public async Task A_recall_only_provider_refuses_to_retain_and_calls_nothing()
+    {
+        await using var server = new FakeMcpServer(new FakeTool("recall", _ => FakeMcpServer.Text(ChronicleReply)));
+        await using var pool = PoolFor(server, "chronicle");
+        var provider = new McpMemoryProvider(Settings(Chronicle), pool);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => provider.RetainAsync(new MemoryItem("fact"), new MemoryScope("chronicle", "chronicle"), CancellationToken.None));
+
+        Assert.Empty(server.Calls);
+    }
+
     private sealed class Recorder(string recallReply) : HttpMessageHandler
     {
         public List<(HttpMethod Method, string Path, JsonElement Body)> Seen { get; } = [];
@@ -1311,10 +1527,15 @@ Expected: FAIL to compile (`McpMemoryProvider`, `ToolArguments` do not exist).
   copied; objects and arrays recurse.
 - `McpMemoryProvider`: `RecallAsync` expands `query` and `namespace`, calls `client.CallToolAsync(tool, args, cancellationToken: ct)`,
   throws `McpMemoryException` when `IsError`, then `RecallResults.Read`. `RetainAsync` supplies `text`, `context`,
-  `document_id`, `timestamp`, `tags`, `namespace`. `InvalidateAsync` supplies `id`, `reason`, `namespace`. A provider with no
+  `document_id`, `timestamp`, `tags`, `namespace`. `InvalidateAsync` supplies `id`, `reason`, `namespace`. The recall
+  values also carry `max_facts`: the entry's `MaxFacts`, else 10, as an integer. `namespace` is `scope.Namespace`. A provider with no
   `retain` tool throws `InvalidOperationException` (config validation already refused `retain: true` without it).
 - `RecallResults.Read`: `StructuredContent` if present, else the first text block parsed as JSON; `Format: "text"` returns one
-  fact; `Path` walks dotted property names; non-array or missing path throws `McpMemoryException`.
+  fact; `Path` walks dotted property names; non-array or missing path throws `McpMemoryException`. For each element:
+  `id` is the named property's text (a missing one becomes the hash of the fact text); the fact text is the first `text`
+  entry that qualifies, where a bare field name qualifies when the property is a non-empty string or a number, and a
+  template qualifies when every `{field}` it names is present and non-empty (strings as is, numbers with the invariant
+  culture, arrays and objects as compact JSON); an element with no qualifying entry is skipped.
 - Every message passes through `ChargehandException.Scrub`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -1339,6 +1560,7 @@ git commit -m "feat: add the MCP memory provider driven by a declarative tool ma
 - Modify: `src/Chargehand/Orchestrator.cs` (`Checkout` returns the label; the retain block uses the selection)
 - Create: `tests/Chargehand.Tests/RetainableClaimsTests.cs`
 - Modify: `tests/Chargehand.Tests/MemoryRunTests.cs`
+- Modify: `tests/Chargehand.Tests/MemoryFailOpenTests.cs` (its retain cases run on a checkout)
 
 **Interfaces:**
 - Consumes: `ResultContract`, `Claim`, `Evidence`, `EvidenceKind`, `ChargehandException.Scrub`, `MemoryStack.RetainAsync` (Task 3), `MemoryItem`.
@@ -1529,6 +1751,10 @@ Expected: FAIL to compile (`RetainableClaims`, `RepositoryLabel` do not exist).
   `memory.RetainAsync(RetainItems.Build(...), ct)`, else record `"no claim qualified"`. Request text and summary are no
   longer written.
 - `MemoryStack.RetainAsync` sets `Tags` on the item per source (`RetainTags` or `["chargehand"]`).
+- `MemoryFailOpenTests.A_failed_retain_leaves_the_completed_result_unchanged` (and the retain-cancellation case) used a draft
+  request, which has no commit and so retains nothing from this task on. Both move to `Runs.GitRepo(root)` with
+  `Runs.CheapRequest(repo)` and a `ScriptedRuntime(Runs.WorkerReply)`, whose claim cites `README.md:1`, so a retain call still
+  happens; the summary assertion becomes `"The README greets."`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -1573,10 +1799,10 @@ namespace Chargehand.Tests;
 
 public class MemoryStacksTests
 {
-    private static Profile ProfileWith(string memory)
+    private static Profile ProfileWith(string memory, string servers = """{"gw":{"url":"https://mcp.example.internal/mcp"}}""")
     {
         using var dir = new TempDir();
-        return Profile.Load(dir.Write("p.json", $$"""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"https://mcp.example.internal/mcp"}},"memory":{{memory}}}"""));
+        return Profile.Load(dir.Write("p.json", $$"""{"schema":"profile/v1","mcp_servers":{{servers}},"memory":{{memory}}}"""));
     }
 
     private static readonly Func<MemorySettings, IMemoryProvider> NoObjectForm = _ => throw new InvalidOperationException("the object form is not expected here");
@@ -1584,7 +1810,7 @@ public class MemoryStacksTests
     [Fact]
     public async Task The_list_becomes_one_source_per_entry_in_order_with_the_entrys_limits()
     {
-        var notes = """{"name":"notes","server":"gw","namespace":"n","max_facts":3,"max_chars":900,"timeout_seconds":4,"retain_tags":["team"],"tools":{"recall":{"tool":"search_notes","arguments":{"q":"{query}"}}}}""";
+        var notes = """{"name":"notes","server":"gw","namespace":"n","max_facts":3,"max_chars":900,"max_fact_chars":200,"timeout_seconds":4,"retain_tags":["team"],"tools":{"recall":{"tool":"search_notes","arguments":{"q":"{query}"}}}}""";
         var profile = ProfileWith($"[{Hindsight},{notes}]");
         await using var pool = new McpConnectionPool(profile.McpServers!, _ => "", (_, _, _) => throw new InvalidOperationException("not connected in this test"));
 
@@ -1592,9 +1818,21 @@ public class MemoryStacksTests
 
         Assert.Equal(["hindsight", "notes"], stack.Sources.Select(s => s.Name));
         Assert.Equal([true, false], stack.Sources.Select(s => s.Retain));
-        Assert.Equal(new MemoryLimits(3, 900, TimeSpan.FromSeconds(4)), stack.Sources[1].Limits);
+        Assert.Equal(new MemoryLimits(3, 900, TimeSpan.FromSeconds(4), 200), stack.Sources[1].Limits);
         Assert.Equal(["team"], stack.Sources[1].RetainTags);
         Assert.Equal(new MemoryScope("notes", "n"), stack.Sources[1].Scope);
+    }
+
+    [Fact]
+    public async Task A_recall_only_entry_without_a_namespace_scopes_to_its_name_and_never_retains()
+    {
+        var profile = ProfileWith($"[{Chronicle}]", """{"chronicle":{"url":"http://localhost:8031/sse","transport":"sse"}}""");
+        await using var pool = new McpConnectionPool(profile.McpServers!, _ => "", (_, _, _) => throw new InvalidOperationException("not connected in this test"));
+
+        var source = Assert.Single(MemoryStacks.From(profile, pool, NoObjectForm)!.Sources);
+
+        Assert.Equal(("chronicle", false), (source.Name, source.Retain));
+        Assert.Equal(new MemoryScope("chronicle", "chronicle"), source.Scope);
     }
 
     [Fact]
@@ -1705,6 +1943,22 @@ public class ExtensionsCheckTests
         var result = await ExtensionsCheck.RunAsync(profile, [], pool, "deploys", CancellationToken.None);
 
         Assert.Contains("memory hindsight: probe returned 1 fact(s)", result.Lines);
+    }
+
+    [Fact]
+    public async Task A_recall_only_provider_is_checked_for_recall_alone()
+    {
+        var servers = """{"chronicle":{"url":"http://localhost:8031/sse","transport":"sse"}}""";
+        var profile = ProfileWith($"[{Chronicle}]", servers);
+        await using var server = new FakeMcpServer(new FakeTool("recall", _ => FakeMcpServer.Text("""{"results":[]}"""),
+            Schema: """{"type":"object","properties":{"query":{"type":"string"},"date_from":{},"date_to":{},"source":{},"limit":{"type":"integer"}}}"""));
+        await using var pool = new McpConnectionPool(profile.McpServers!, _ => "", async (_, _, _) => await server.TransportAsync());
+
+        var result = await ExtensionsCheck.RunAsync(profile, [], pool, null, CancellationToken.None);
+
+        Assert.True(result.Ok);
+        Assert.Contains("memory chronicle: recall -> recall ok", result.Lines);
+        Assert.DoesNotContain(result.Lines, l => l.Contains("retain", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -2336,7 +2590,7 @@ git commit -m "feat: give Claude Code workers the services a preset grants"
 
 ### Task 10: OpenCode gives workers the granted services (may slip)
 
-Ships only if Task 1 shows OpenCode can gate MCP tools per session (open decision 1). Otherwise this task becomes: refuse,
+Ships only if Task 1 shows OpenCode can gate MCP tools per session (decided item 1). Otherwise this task becomes: refuse,
 with a clear `invalid_request` error and action, a preset that lists services when the runtime is OpenCode on a server
 chargehand did not start; and open the follow-up.
 
@@ -2564,7 +2818,6 @@ through the list form as through the object form (the last time the object form 
 - Modify: `src/Chargehand/Memory/MemoryStack.cs` (drop `ForObjectForm`), `src/Chargehand.Mcp/MemoryStacks.cs` (drop the factory parameter), `src/Chargehand.Cli/Program.cs`
 - Modify: `profiles/profile.schema.json` (only the array form), `tests/Chargehand.Tests/McpMemoryProviderTests.cs` (the parity test keeps its expectations as literals)
 - Modify: `tests/Chargehand.Tests/MemoryConfigTests.cs`, `MemoryStacksTests.cs`, `MemoryRunTests.cs`
-- Modify: `docs/adr/0008-memory-provider-contract.md`, `docs/adr/0026-extension-model.md` (status lines: "amended by 0034")
 
 **Interfaces:**
 - Consumes: everything from Tasks 3 to 7.
@@ -2633,7 +2886,6 @@ Expected: FAIL (`memory` object still loads; the old parity test still compiles 
 - Remove the deleted types; `git grep -n "HindsightMemory\|MemorySettings\|ObjectForm"` returns hits in `CHANGELOG.md` and ADRs only.
 - The converter throws `ChargehandException(ErrorCode.InvalidRequest, "memory is a list now: the object form (backend, url, namespace) was removed",
   "Move url and api_key_secret into mcp_servers, and list the provider under memory with its tools mapping. docs/guide/memory-and-services.md has the Hindsight entry.")`.
-- ADR 0008 status: `accepted; the Hindsight adapter and the retain content amended by 0034`. ADR 0026 status: `accepted; runtime selection amended by 0032; the memory and services rows coded by 0034`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -2644,20 +2896,20 @@ Run: `dotnet test` — expected PASS.
 Run: `scripts/check.sh` — expected `Passed!  - Failed:     0`.
 
 ```bash
-git add -A src tests profiles docs/adr
+git add -A src tests profiles
 git commit -m "feat!: remove the Hindsight HTTP client; memory is a list of MCP providers"
 ```
 
 ---
 
-### Task 12: Acceptance test, guide, changelog, roadmap
+### Task 12: Acceptance test (Chronicle-shaped second provider), guide with both mappings, changelog, roadmap
 
 **Files:**
 - Create: `tests/Chargehand.Tests/GoalSixTests.cs`
 - Create: `docs/guide/memory-and-services.md` (front matter like the other guide pages: `title`, `description`, `order`, `section`)
-- Modify: `docs/guide/reference.md` (`mcp_servers` and `memory` rows; the failure table), `docs/guide/capabilities.md` (the memory sections and their tests; services), `docs/guide/decisions.md` (rows for 0032, 0033 and 0034), `docs/guide/index.md`
+- Modify: `docs/guide/reference.md` (`mcp_servers` and `memory` rows; the failure table), `docs/guide/capabilities.md` (the memory sections and their tests; services), `docs/guide/decisions.md` (rows for 0032, 0033 and 0034, and the status cells of 0008 and 0026, whose files changed with ADR 0034's acceptance), `docs/guide/index.md`
 - Modify: `README.md` (one paragraph), `ROADMAP.md` (0.6 done), `CHANGELOG.md` (`Unreleased`: Added, Changed, Removed, with the `memory` migration)
-- Modify: `docs/adr/0034-memory-and-services-over-mcp.md` (status accepted, once the maintainer accepts), `docs/specs/2026-09-29-services-and-memory-design.md` (status: implemented)
+- Modify: `docs/specs/2026-09-29-services-and-memory-design.md` (status: implemented)
 
 **Interfaces:**
 - Consumes: all of the above, in their state after Task 11 (`Profile.Memory` is a plain list; `MemoryStacks.From(profile, pool)` takes no object-form factory). Produces: the done bar as a scripted test in CI, and the maintainer's live checklist.
@@ -2693,30 +2945,31 @@ public class GoalSixTests
         """;
 
     [Fact]
-    public async Task A_run_recalls_from_two_providers_retains_checked_claims_and_gives_a_worker_a_service()
+    public async Task A_run_recalls_from_hindsight_and_chronicle_shaped_providers_retains_checked_claims_and_gives_a_worker_a_service()
     {
         using var root = new TempDir();
         using var presets = new PresetRoot("docs", "    services:\n      - server: team-docs\n        tools: [search_docs, read_doc]\n");
         var repo = Runs.GitRepo(root.Path);
-        await using var hindsight = new FakeMcpServer(new FakeTool("recall", _ => FakeMcpServer.Text("""{"results":[{"id":"f1","text":"Deploys go through GitOps."}]}""")));
-        await using var notes = new FakeMcpServer(
-            new FakeTool("search_notes", _ => FakeMcpServer.Text("""{"notes":[{"key":"n1","body":"The API uses MediatR."}]}""")),
-            new FakeTool("keep_note", _ => FakeMcpServer.Text("saved")));
+        await using var hindsight = new FakeMcpServer(
+            new FakeTool("recall", _ => FakeMcpServer.Text("""{"results":[{"id":"f1","text":"Deploys go through GitOps."}]}""")),
+            new FakeTool("retain", _ => FakeMcpServer.Text("queued")));
+        await using var chronicle = new FakeMcpServer(new FakeTool("recall", _ => FakeMcpServer.Text(
+            """{"intent":"open","routed_because":null,"window_from_query":null,"results":[{"segment_id":"seg-1","score":0.031,"date":"2024-05-03T10:12:00","thread":"chat-1","text":"raw","evidence":["ev-1"],"summary":"The API uses MediatR."}]}""")));
         await using var docs = new FakeMcpServer(new FakeTool("search_docs", _ => FakeMcpServer.Text("x"), ReadOnly: true), new FakeTool("read_doc", _ => FakeMcpServer.Text("x")), new FakeTool("write_note", _ => FakeMcpServer.Text("x")));
-        var fakes = new Dictionary<string, FakeMcpServer> { ["memory-gateway"] = hindsight, ["team-notes"] = notes, ["team-docs"] = docs };
+        var fakes = new Dictionary<string, FakeMcpServer> { ["memory-gateway"] = hindsight, ["chronicle"] = chronicle, ["team-docs"] = docs };
 
         var profile = Runs.Profile(root.Path) with
         {
             McpServers = new Dictionary<string, McpServerSettings>
             {
                 ["memory-gateway"] = new(Url: "https://mcp.example.internal/mcp"),
-                ["team-notes"] = new(Url: "https://mcp.example.internal/notes"),
+                ["chronicle"] = new(Url: "http://localhost:8031/sse", Transport: "sse"),
                 ["team-docs"] = new(Url: "https://mcp.example.internal/docs"),
             },
             Memory =
             [
-                JsonSerializer.Deserialize<MemoryProviderSettings>(Hindsight.Replace("\"server\":\"gw\"", "\"server\":\"memory-gateway\"").Replace("\"retain\":true", "\"retain\":false"), Profile.Json)!,
-                JsonSerializer.Deserialize<MemoryProviderSettings>("""{"name":"notes","server":"team-notes","namespace":"n","retain":true,"tools":{"recall":{"tool":"search_notes","arguments":{"q":"{query}"},"results":{"path":"notes","id":"key","text":"body"}},"retain":{"tool":"keep_note","arguments":{"text":"{text}"}}}}""", Profile.Json)!,
+                JsonSerializer.Deserialize<MemoryProviderSettings>(Hindsight.Replace("\"server\":\"gw\"", "\"server\":\"memory-gateway\""), Profile.Json)!,   // retain: true
+                JsonSerializer.Deserialize<MemoryProviderSettings>(Chronicle, Profile.Json)!,                                                              // recall only
             ],
         };
         await using var pool = new McpConnectionPool(profile.McpServers!, _ => "", async (name, _, _) => await fakes[name].TransportAsync());
@@ -2728,24 +2981,25 @@ public class GoalSixTests
         var result = await new Orchestrator(profile, runtime, "2.0.16", presets.Path, log, new Dictionary<string, int>(), stack, new ServiceResolver(pool)).RunAsync(request, CancellationToken.None);
 
         Assert.Equal(ResultStatus.Completed, result.Status);
-        // 1. two stacked providers, both labelled in the prompt
+        // 1. two stacked providers, both labelled in the prompt; Chronicle's fact reads date and summary, and its limit is the fact cap
         var prompt = Assert.Single(runtime.Prompts);
         Assert.Contains("- [hindsight] Deploys go through GitOps.", prompt, StringComparison.Ordinal);
-        Assert.Contains("- [notes] The API uses MediatR.", prompt, StringComparison.Ordinal);
-        // 2. only the claim whose citation resolved to the repository is retained, with locator, repository and commit
-        var kept = Assert.Single(notes.Calls, c => c.Tool == "keep_note").Arguments["text"].GetString()!;
+        Assert.Contains("- [chronicle] 2024-05-03T10:12:00: The API uses MediatR.", prompt, StringComparison.Ordinal);
+        var asked = Assert.Single(chronicle.Calls);
+        Assert.Equal(("recall", 10), (asked.Tool, asked.Arguments["limit"].GetInt32()));
+        // 2. only the claim whose citation resolved to the repository is retained, with locator, repository and commit; Chronicle is never written to
+        var kept = Assert.Single(hindsight.Calls, c => c.Tool == "retain").Arguments["content"].GetString()!;
         Assert.Contains($"commit {repo.Commit[..12]}", kept, StringComparison.Ordinal);
         Assert.Contains("- The README says hello. [README.md:1]", kept, StringComparison.Ordinal);
         Assert.DoesNotContain("caller says", kept, StringComparison.Ordinal);
         Assert.DoesNotContain("SUMMARY-MARKER", kept, StringComparison.Ordinal);
-        Assert.DoesNotContain(hindsight.Calls, c => c.Tool == "retain");
         // 3. the preset's service reaches the worker's node spec, and only the tools it names
         var grant = Assert.Single(runtime.Created.Single().Services!);
         Assert.Equal("team-docs", grant.Server);
         Assert.Equal(["read_doc", "search_docs"], grant.Tools);
         // and the run log says what happened
         var report = (await log.ReadAsync(result.TaskId, CancellationToken.None)).Run!.Extensions!;
-        Assert.Equal(["hindsight", "notes"], report.Memory.Select(m => m.Source));
+        Assert.Equal(["hindsight", "chronicle"], report.Memory.Select(m => m.Source));
         Assert.Equal("team-docs", Assert.Single(report.Services).Server);
     }
 }
@@ -2760,16 +3014,20 @@ Run: `dotnet test --filter GoalSixTests` — expected FAIL before Tasks 3 to 8 a
 - [ ] **Step 3: Write the docs** (existing style: short paragraphs, one table at most; public wording rule)
 
 - `docs/guide/memory-and-services.md`: what memory and services are and that both are off by default; the profile blocks with
-  the Hindsight entry and one non-Hindsight entry; placeholders and result mapping in a table; how stacking labels facts and
+  the Hindsight entry (a bank, retain) and the Chronicle entry (a legacy SSE server, `"transport": "sse"`, recall only,
+  `{max_facts}` as the limit, a `text` list with a fallback) side by side, with `http://localhost:<port>/sse` as the placeholder
+  URL and a line saying Chronicle is a personal archive whose recalled text reaches the model provider; the `transport` values;
+  placeholders and result mapping in a table; how stacking labels facts and
   what a slow or failing provider does; the retain rule in one paragraph ("retains only claims whose citations resolved") and
   what the item looks like; a services example (a user's own preset, not a shipped one) and what a worker gets on each
   runtime; secrets with `{secret:item}`; `chargehand extensions check`; the failure table from the spec.
 - `reference.md`: replace the `memory` row; add `mcp_servers`. `capabilities.md`: rewrite the two memory sections around
   `MemoryStackTests`, `MemoryRunTests`, `McpMemoryProviderTests`, `GoalSixTests`; state what is not tested (a real Hindsight, a
   real service on a real runtime) until the live run below is recorded.
-- `CHANGELOG.md` `Unreleased`: **Added** MCP memory providers and stacking, `mcp_servers`, services in presets,
+- `CHANGELOG.md` `Unreleased`: **Added** MCP memory providers and stacking (any MCP memory server, including recall-only
+  ones such as Chronicle), `mcp_servers` over Streamable HTTP, legacy SSE or stdio, services in presets,
   `chargehand extensions check`; **Changed** retain writes claims with locators, repository and commit, and no request text or
-  summary; memory and retain failures of any kind no longer fail a run; recall labels facts by source; **Removed** the Hindsight
+  summary; recall labels facts by source and each provider's failure is skipped on its own; **Removed** the Hindsight
   HTTP client, with the migration:
 
 ```json
@@ -2786,11 +3044,13 @@ Run: `scripts/check.sh` — expected `Passed!  - Failed:     0`.
 
 - [ ] **Step 5: The maintainer's live run** (record the result in the pull request; nothing here is automated)
 
-1. `chargehand extensions check --probe "<a real query>"` against the real memory service and one real service: all lines `ok`.
-2. Two real memory providers in the profile; `chargehand run` a question about a real repository: the run log (`chargehand show <run-id>`)
-   lists both sources with counts, and the prompt chain shows two `memory/recall/<name>` blocks.
-3. With `retain: true` on one provider, the same run: read the stored item in that service; it names the repository, the commit
-   and locators, holds no request text.
+1. `chargehand extensions check --probe "<a real query>"` against Hindsight, Chronicle (`transport: sse` on its loopback `/sse`
+   URL) and one real service: all lines `ok`, and the Chronicle probe returns facts that read `<date>: <summary>`.
+2. Hindsight and Chronicle as the two providers in the profile (the done bar's "two stacked memory providers"); `chargehand run` a
+   question about a real repository: the run log (`chargehand show <run-id>`) lists both sources with counts, and the prompt chain
+   shows two `memory/recall/<name>` blocks. Chronicle holds a personal archive, so use a profile meant for this check.
+3. With `retain: true` on the Hindsight entry (Chronicle has no write tool), the same run: read the stored item in Hindsight; it
+   names the repository, the commit and locators, holds no request text.
 4. A preset of your own with `services`, on Claude Code and, if Task 10 shipped, on OpenCode: `chargehand show` lists the granted
    tools, and a question that needs the service is answered with a claim citing a `url` the service returned.
 5. Stop one memory server: the run still completes, and the report says it was skipped.

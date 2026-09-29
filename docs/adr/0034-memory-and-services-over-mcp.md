@@ -1,6 +1,6 @@
 # 0034. Memory and services over MCP
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-29
 
 ## Context
@@ -11,16 +11,20 @@ success wins) and coded only the secrets. What the code does today is in `docs/s
 "Where it stands". The findings that shape this decision:
 
 - One `HindsightMemory` HTTP client behind `IMemoryProvider`, one `memory` object in the profile.
-- "Memory fails open" holds for `HttpRequestException` only. Checked 2026-09-29 with a scratch test on a scripted
-  runtime: a `TaskCanceledException` from a provider ends `RunAsync` with an exception and no result; a `JsonException` or
-  `IOException` fails the run.
+- "Memory fails open" held for `HttpRequestException` only (checked 2026-09-29 on a scripted runtime: a
+  `TaskCanceledException` from a provider ended `RunAsync` with no result; a `JsonException` or `IOException` failed the
+  run). #94 widened the run-level catch to any exception but the caller's own cancellation; the stack applies the same
+  rule per provider.
 - Retain stores the request text, the summary and all claims with no locator, repository or commit, including claims that
   rest only on caller inputs, URLs or session messages.
 - Workers get no MCP tools in either runtime. The runtimes take a server differently: Claude Code `--mcp-config` (which
   `--strict-mcp-config` already scopes), OpenCode `PUT /api/experimental/mcp/{server}` per location. How each behaves
   with a granted tool is unknown until the task 1 spike.
-- `ModelContextProtocol.Core` 2.2.0, already restored for the server, carries the client. A fake MCP server over
-  in-process pipes works in tests.
+- `ModelContextProtocol.Core` 2.2.0, already restored for the server, carries the client, including legacy SSE
+  (`HttpClientTransportOptions.TransportMode`: `AutoDetect`, `StreamableHttp`, `Sse`). A fake MCP server over in-process
+  pipes works in tests.
+- Chronicle, an archive of the owner's own conversations (github.com/Egoushka/chronicle), is a recall-only source: its MCP
+  server speaks legacy SSE, takes no credentials and has no write tool.
 
 ## Options
 
@@ -64,7 +68,11 @@ The choices marked above, and:
   resolve means no connection; nothing is retained when the commit or citations cannot be established (extends ADR 0013).
 - `{secret:item}` in `mcp_servers` headers and environment values resolves through `Profile.Secret`; command sources time
   out at 15 s.
-- Stdio servers get the SDK's default environment plus the declared `env`.
+- Stdio servers get the SDK's default environment plus the declared `env`. A `url` server takes an optional `transport`
+  (`auto`, the default; `streamable-http`; `sse`), so a legacy SSE server such as Chronicle is reachable.
+- A memory entry may be recall-only (no `retain` tool, `retain` false) and may leave out `namespace` (it defaults to the
+  entry's name). Recall arguments may use `{max_facts}`; `results.text` is a field name, a template over the result's
+  fields, or an ordered list of these (the first whose fields are all present and non-empty wins); each fact is cut at `max_fact_chars` (600).
 - Delivery of services to OpenCode is provisional until the spike records the permission action OpenCode gives an MCP tool.
 
 ## Consequences
@@ -75,8 +83,8 @@ The choices marked above, and:
 - `preset/v1` gains an optional `services` on a node kind (additive; `SchemaCompatTests` passes).
 - `as_sent.tools_sha256` includes the granted tools when there are any, and is unchanged otherwise.
 - Prompt CI is unaffected: evals run without memory and shipped presets list no services.
-- On acceptance, the status lines of ADR 0008 ("amended by 0034": the Hindsight adapter and the retain content) and
-  ADR 0026 (the memory and services rows now coded) are updated.
+- ADR 0008's status line reads "amended by 0034" (the Hindsight adapter and the retain content) and ADR 0026's says its
+  memory and services rows are detailed by 0034; both changed with this acceptance.
 - Retained facts about a repository go to the store the provider points at. Retain stays off by default and per provider.
 
 ## Reopen if
