@@ -150,6 +150,9 @@ internal static class Runs
         return new RepositoryRef(path, Git(path, "rev-parse", "HEAD").Trim());
     }
 
+    /// <summary>Gives the repository an <c>origin</c> remote; nothing is fetched from it.</summary>
+    public static void SetOrigin(RepositoryRef repo, string url) => Git(repo.Path, "remote", "add", "origin", url);
+
     /// <summary>Commits the named files; returns the repository at the new commit.</summary>
     public static RepositoryRef Commit(RepositoryRef repo, params string[] files)
     {

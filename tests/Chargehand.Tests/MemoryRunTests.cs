@@ -97,6 +97,101 @@ public class MemoryRunTests
         Assert.Null((await log.ReadAsync(result.TaskId, CancellationToken.None)).Run!.Extensions);
     }
 
+    private const string ThreeClaims = """
+        ```json
+        {"status":"completed","summary":"SUMMARY-MARKER","claims":[
+           {"text":"The README says hello.","evidence":["e1"],"confidence":0.9},
+           {"text":"The README has ninety-nine lines.","evidence":["e2"],"confidence":0.8},
+           {"text":"The caller says v1 shipped.","evidence":["e3"],"confidence":0.7}],
+         "evidence":[{"id":"e1","kind":"file","locator":"README.md:1"},{"id":"e2","kind":"file","locator":"README.md:99"},{"id":"e3","kind":"input","locator":"rel-v1"}],
+         "artifacts":[],"open_questions":[],"confidence":0.8}
+        ```
+        """;
+
+    private const string InputOnlyReply = """
+        ```json
+        {"status":"completed","summary":"SUMMARY-MARKER","claims":[{"text":"The caller says v1 shipped.","evidence":["e1"],"confidence":0.7}],
+         "evidence":[{"id":"e1","kind":"input","locator":"rel-v1"}],"artifacts":[],"open_questions":[],"confidence":0.8}
+        ```
+        """;
+
+    [Fact]
+    public async Task A_run_retains_only_qualifying_claims()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        var provider = new Fake();
+        var stack = new MemoryStack([Source("notes", provider, retain: true)]);
+        var request = Runs.CheapRequest(repo) with { Inputs = [new CallerInput("rel-v1", "signal", "Released v1.")] };
+
+        var result = await Make(root.Path, new ScriptedRuntime(ThreeClaims), stack, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl"))).RunAsync(request, CancellationToken.None);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Contains(result.OpenQuestions, q => q.StartsWith("Unverified: The README has ninety-nine lines.", StringComparison.Ordinal)); // README.md:99 does not resolve
+        var item = Assert.Single(provider.Retained);
+        Assert.Contains("- The README says hello. [README.md:1]", item.Text, StringComparison.Ordinal);
+        Assert.Contains($"commit {repo.Commit[..12]}", item.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("ninety-nine", item.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("caller says", item.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("SUMMARY-MARKER", item.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("What does the README say?", item.Text, StringComparison.Ordinal);
+        Assert.Equal(result.TaskId, item.DocumentId);
+        Assert.Equal(["chargehand"], item.Tags);
+    }
+
+    [Fact]
+    public async Task The_retained_repository_is_the_normalised_origin_and_the_directory_name_without_one()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        var provider = new Fake();
+        var stack = new MemoryStack([Source("notes", provider, retain: true)]);
+        var orchestrator = Make(root.Path, new ScriptedRuntime(Runs.WorkerReply), stack, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")));
+
+        await orchestrator.RunAsync(Runs.CheapRequest(repo), CancellationToken.None);
+        Runs.SetOrigin(repo, "https://user:tok@git.example.com/team/proj.git");
+        await orchestrator.RunAsync(Runs.CheapRequest(repo), CancellationToken.None);
+
+        var firstLines = provider.Retained.Select(i => i.Text.Split('\n')[0]).ToList();
+        Assert.StartsWith("Repository: repo, commit ", firstLines[0], StringComparison.Ordinal);
+        Assert.StartsWith("Repository: git.example.com/team/proj, commit ", firstLines[1], StringComparison.Ordinal);
+        Assert.DoesNotContain("tok@", firstLines[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Nothing_is_retained_when_no_claim_qualifies_or_there_is_no_commit()
+    {
+        using var root = new TempDir();
+        var provider = new Fake();
+        var log = new JsonlRunLog(Path.Combine(root.Path, "log.jsonl"));
+        var stack = new MemoryStack([Source("notes", provider, retain: true)]);
+
+        var result = await Make(root.Path, new ScriptedRuntime(Runs.DraftReply), stack, log).RunAsync(Runs.DraftRequest(), CancellationToken.None);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Empty(provider.Retained);
+        Assert.Equal("no commit", (await log.ReadAsync(result.TaskId, CancellationToken.None)).Run!.Extensions!.Memory.Single().RetainSkipped);
+    }
+
+    [Fact]
+    public async Task Nothing_is_retained_when_every_claim_rests_on_the_request()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        var provider = new Fake();
+        var log = new JsonlRunLog(Path.Combine(root.Path, "log.jsonl"));
+        var stack = new MemoryStack([Source("notes", provider, retain: true)]);
+        var request = Runs.CheapRequest(repo) with { Inputs = [new CallerInput("rel-v1", "signal", "Released v1.")] };
+
+        var result = await Make(root.Path, new ScriptedRuntime(InputOnlyReply), stack, log).RunAsync(request, CancellationToken.None);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Empty(provider.Retained);
+        var report = (await log.ReadAsync(result.TaskId, CancellationToken.None)).Run!.Extensions!.Memory.Single();
+        Assert.Equal("no claim qualified", report.RetainSkipped);
+        Assert.Equal(0, report.Retained);
+    }
+
     [Fact]
     public void The_object_form_of_memory_becomes_one_source_named_hindsight()
     {

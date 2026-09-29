@@ -159,9 +159,9 @@ public sealed class Orchestrator(
         IReadOnlyList<(string Key, string Value)> instructions, PromptChain chain, IReadOnlyList<PromptBlock> callerBlocks, string runId, string traceId,
         Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, CancellationToken ct)
     {
-        var (directory, commit) = kind.Checkout
+        var (directory, commit, repository) = kind.Checkout
             ? await Checkout(request.Context.Repository!, kind, ct)
-            : (EmptyDirectory(), "");
+            : (EmptyDirectory(), "", "");
         // ponytail: the run cap is split evenly across nodes up front; share the remainder dynamically if nodes vary a lot.
         var cap = new[] { profile.RunCapUsd / plan.Count, kind.Budget.MaxUsd, (request.Context.BudgetUsd ?? decimal.MaxValue) / plan.Count }.Min();
         // The id is quoted: rendered as "[id]", a model cited "[id]" as the locator, which no input id matches.
@@ -239,16 +239,32 @@ public sealed class Orchestrator(
 
         var outcomes = await new GraphRunner().RunAsync(plan, RunNode, Failed, ct);
         var result = plan.Count == 1 ? outcomes[0].Contract : ResultMerger.Merge(runId, traceId, chain, outcomes);
-        if (memory is not null && result.Status == ResultStatus.Completed)
-        {
-            // Memory fails open (ADR 0008): the stack reports a failed retain instead of throwing it, so a completed run stays completed.
-            var reports = await memory.RetainAsync(new MemoryItem($"{request.Text}\n{result.Summary}\n{string.Join("\n", result.Claims.Select(c => $"- {c.Text}"))}",
-                "chargehand run result", DateTimeOffset.UtcNow, runId, ["chargehand"]), ct);
-            extensions.Retained(reports);
-            foreach (var r in reports.Where(r => r.SkippedReason is not null))
-                run?.SetTag($"chargehand.memory.{r.Source}.error", r.SkippedReason);
-        }
+        await Retain(result, repository, commit, runId, run, extensions, ct);
         return result;
+    }
+
+    /// <summary>
+    /// Keeps the claims whose citations resolved, with where they were checked (ADR 0034). A run with no commit has nothing
+    /// checked, and a claim resting on the request or on the session anchors nothing in the repository; neither is retained.
+    /// Memory fails open (ADR 0008): the stack reports a failed retain instead of throwing it, so a completed run stays completed.
+    /// </summary>
+    private async Task Retain(ResultContract result, string repository, string commit, string runId, Activity? run, ExtensionsCollector extensions, CancellationToken ct)
+    {
+        if (memory is null || result.Status != ResultStatus.Completed)
+            return;
+        var selection = commit.Length == 0 ? new RetainSelection([], []) : RetainableClaims.From(result);
+        if (selection.Skipped.Count > 0)
+            run?.SetTag("chargehand.retain.claims_left_out", selection.Skipped.Count);
+        if (selection.Claims.Count == 0)
+        {
+            var why = commit.Length == 0 ? "no commit" : "no claim qualified";
+            extensions.Retained(memory.Sources.Where(s => s.Retain).Select(s => new RetainReport(s.Name, 0, why)));
+            return;
+        }
+        var reports = await memory.RetainAsync(RetainItems.Build(selection, repository, commit, runId, DateTimeOffset.UtcNow), ct);
+        extensions.Retained(reports);
+        foreach (var r in reports.Where(r => r.SkippedReason is not null))
+            run?.SetTag($"chargehand.memory.{r.Source}.error", r.SkippedReason);
     }
 
     /// <summary>Memory is optional context: a source that fails leaves the run without its facts rather than failing it.</summary>
@@ -306,7 +322,7 @@ public sealed class Orchestrator(
     /// read (ADR 0006): OpenCode's grep searches any path or include glob it is given, and its permission resource is
     /// the search pattern, so a read deny cannot keep it out of a file.
     /// </summary>
-    private async Task<(string Directory, string Commit)> Checkout(RepositoryRef repo, NodeKind kind, CancellationToken ct)
+    private async Task<(string Directory, string Commit, string Repository)> Checkout(RepositoryRef repo, NodeKind kind, CancellationToken ct)
     {
         // git prints the top level with symbolic links resolved, so a link under a root cannot point the worker elsewhere.
         var source = await Git(Path.GetFullPath(repo.Path), ct, "rev-parse", "--show-toplevel")
@@ -349,7 +365,7 @@ public sealed class Orchestrator(
         }
         var denied = await DeniedFiles(dir, kind.Permissions, ct);
         return denied.Count == 0
-            ? (dir, commit)
+            ? (dir, commit, RepositoryLabel.From(await Git(source, ct, "config", "--get", "remote.origin.url"), Path.GetFileName(source)))
             : throw new ChargehandException(ErrorCode.CheckoutHasSecrets, $"the repository tracks files the preset denies reading, which grep would still reach: " +
                 $"{string.Join(", ", denied.Take(5))}{(denied.Count > 5 ? ", ..." : "")}",
                 "Pin a commit that does not track them, or remove them from the repository.");

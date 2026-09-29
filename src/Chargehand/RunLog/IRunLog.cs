@@ -94,7 +94,7 @@ public sealed record ExtensionsReport(IReadOnlyList<MemoryReport> Memory, IReadO
 }
 
 /// <param name="RecallSkipped">Why the source recalled nothing (failed, timed out); null when it answered.</param>
-/// <param name="RetainSkipped">Why the source retained nothing when a retain was tried and failed; null otherwise.</param>
+/// <param name="RetainSkipped">Why the source retained nothing when it should have: the retain failed, the run had no commit, or no claim qualified; null otherwise.</param>
 public sealed record MemoryReport(string Source, int Recalled, string? RecallSkipped, int Retained, string? RetainSkipped);
 
 /// <summary>A service a preset asked for: its tools as granted, and why part of the request was dropped.</summary>
