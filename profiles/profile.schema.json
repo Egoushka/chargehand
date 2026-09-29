@@ -232,6 +232,55 @@
         }
       }
     },
+    "mcp_servers": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+      "description": "MCP servers by name (ADR 0034), for memory providers and preset services to refer to. Nothing connects until something refers to a server. Each has exactly one of url and command. {secret:item} is allowed in header and environment values only: it is resolved through the secrets chain when the connection opens, and a server whose secret no source resolves is not connected.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": ["url"],
+            "properties": { "command": false, "env": false }
+          },
+          {
+            "required": ["command"],
+            "properties": { "url": false, "headers": false, "transport": false }
+          }
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https?://",
+            "not": { "pattern": "\\{secret:" },
+            "description": "A server reached over HTTP. Streamable HTTP or, for older servers, SSE (see transport). Never holds {secret:...}: put a credential in headers."
+          },
+          "transport": {
+            "enum": ["auto", "streamable-http", "sse"],
+            "default": "auto",
+            "description": "auto tries Streamable HTTP, then falls back to SSE if the server does not support it. Name sse for a server that only speaks the older SSE transport (skips the failed first attempt), or streamable-http to never fall back."
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Headers sent with every request, e.g. { \"Authorization\": \"Bearer {secret:item}\" }."
+          },
+          "command": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "not": { "pattern": "\\{secret:" } },
+            "description": "A stdio server's argv, started by chargehand. Never holds {secret:...}: put a credential in env."
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Environment of the stdio server, on top of the SDK's default set (PATH, HOME and the like). Nothing else of chargehand's own environment is inherited."
+          }
+        }
+      }
+    },
     "memory": {
       "type": "object",
       "additionalProperties": false,

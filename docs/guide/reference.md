@@ -139,6 +139,7 @@ The profile is `profile/v1` JSON; `profiles/example.json` fills in most fields w
 | `prices` | empty: cost unknown | USD per 1M tokens per `provider/model`: `input`, `output`, `cache_read`, `cache_write` (with the provider's cache-write surcharge) |
 | `models` | empty | maps the presets' placeholder models to real `provider/model` ids |
 | `http` | unset | `api_key_secret` (required), `port` (4300), `listen` (`127.0.0.1`), `allowed_hosts`; `serve` needs it |
+| `mcp_servers` | unset | MCP servers by name, for later features to refer to; nothing connects until one does. Each has `url` (Streamable HTTP or SSE; optional `headers` and `transport`: `auto`, `streamable-http` or `sse`, default `auto`) or `command` (a stdio argv; optional `env`). `{secret:item}` is allowed in header and `env` values only and resolves through `secrets` when the connection opens; a server whose secret nothing resolves is not connected. A command secret source that runs longer than 15 s is killed and the next source tried |
 | `memory` | unset | `backend` (`hindsight`), `url` and `namespace` (required), `api_key_secret`, `max_tokens` (1024), `retain` (false) |
 
 A profile still carrying `"secret_store": "keychain"` needs a one-line migration to `"secrets": [{"env": true}, {"command": ["security", "find-generic-password", "-s", "{item}", "-w"]}]` ([changelog 0.4.0](../../CHANGELOG.md#040---2026-09-29)).

@@ -26,6 +26,20 @@
     "port": 4300,
     "api_key_secret": "chargehand-api-key"
   },
+  "mcp_servers": {
+    "memory-gateway": {
+      "url": "https://mcp.example.internal/mcp",
+      "headers": { "Authorization": "Bearer {secret:memory-gateway-token}" }
+    },
+    "team-notes": {
+      "command": ["npx", "-y", "example-notes-mcp"],
+      "env": { "NOTES_TOKEN": "{secret:team-notes-token}" }
+    },
+    "archive": {
+      "url": "http://localhost:8080/sse",
+      "transport": "sse"
+    }
+  },
   "memory": {
     "backend": "hindsight",
     "url": "http://memory.example.internal:8888",

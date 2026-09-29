@@ -14,8 +14,8 @@ image.
 - ✅ **0.3** Every change is tracked, released and checked: GitHub Releases with notes, `Chargehand.Contracts` on
   nuget.org, OpenSSF Scorecard, CodeQL, dependency review, stricter analyzers.
 - ✅ **0.4** It runs with nothing configured: no profile file needed, the runtime picked by name or found on the machine,
-  secrets from environment variables, extensions by category, the `Chargehand` tool package on nuget.org. Not done: the
-  MCP Registry listing. The entry ships in the package; the release workflow on main lists it from the next release.
+  secrets from environment variables, extensions by category, the `Chargehand` tool package on nuget.org, and its
+  MCP Registry listing (from 0.4.1: the 0.4.0 package's README could not match the registry's name).
 
 ## Stage 3 — One prompt, whole result · ▶ (0.5–0.7)
 

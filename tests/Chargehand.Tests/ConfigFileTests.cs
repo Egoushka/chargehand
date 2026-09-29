@@ -74,4 +74,23 @@ public class ConfigFileTests
         using var doc = JsonDocument.Parse("""{"schema":"profile/v1"}""");
         Assert.True(ProfileSchema.Evaluate(doc.RootElement).IsValid);
     }
+
+    [Theory]
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"https://a.example.internal/mcp","headers":{"Authorization":"Bearer {secret:t}"}}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"command":["npx","-y","x"],"env":{"T":"{secret:t}"}}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"http://localhost:8080/sse","transport":"sse"}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"https://a.example.internal/mcp","command":["x"]}}}""", false)]      // both transports
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{}}}""", false)]                                                             // neither
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"https://a.example.internal/mcp?key={secret:k}"}}}""", false)]      // a secret in a URL
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"command":["x","--key={secret:k}"]}}}""", false)]                        // a secret in argv
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"Bad_Name":{"url":"https://a.example.internal/mcp"}}}""", false)]               // name pattern
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"command":["x"],"headers":{"a":"b"}}}}""", false)]                        // headers on stdio
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"https://a.example.internal/mcp","env":{"a":"b"}}}}""", false)]    // env on a url server
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"command":["x"],"transport":"sse"}}}""", false)]                          // transport on stdio
+    [InlineData("""{"schema":"profile/v1","mcp_servers":{"gw":{"url":"https://a.example.internal/mcp","transport":"pigeon"}}}""", false)] // unknown transport
+    public void The_schema_checks_mcp_servers(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
 }
