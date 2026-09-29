@@ -194,13 +194,14 @@ The mapping is declarative:
   text. Numbers and booleans are literal. Placeholders: `{query}`, `{namespace}` and `{max_facts}` (recall); `{namespace}`,
   `{text}`, `{context}`, `{document_id}`, `{timestamp}` and `{tags}` (retain); `{namespace}`, `{id}` and `{reason}`
   (invalidate). An unknown placeholder fails at load.
-- **Results.** For recall, the tool's `structuredContent` if present, else its first text block parsed as JSON.
-  `results.path` is a dotted path to the array (empty: the root); `id` names the id field (default `id`); `text` is a
-  field name (default `text`), a template over the result's fields in which `{field}` is replaced by that field's value,
-  or an ordered list of these. An entry is used only if every field it names is present and non-empty; the first entry
-  that qualifies wins, and an item with none is skipped. A missing id becomes the first 12 hex characters of the text's SHA-256. `results.format: "text"` takes the
-  whole first text block as one fact. `isError: true`, a path that does not resolve or unparsable JSON is a provider
-  failure.
+- **Results.** For recall, the tool's `structuredContent` if `results.path` leads to an array in it, else its first text
+  block parsed as JSON (a Python MCP tool that returns `str` sends its text in both, wrapped as `{"result": "…"}` in
+  `structuredContent`, so the first alone would read nothing). `results.path` is a dotted path to the array (empty: the
+  root); `id` names the id field (default `id`); `text` is a field name (default `text`), a template over the result's
+  fields in which `{field}` is replaced by that field's value, or an ordered list of these. An entry is used only if
+  every field it names is present and non-empty; the first entry that qualifies wins, and an item with none is skipped.
+  A missing id becomes the first 12 hex characters of the text's SHA-256. `results.format: "text"` takes the whole first
+  text block as one fact. `isError: true`, a path that does not resolve or unparsable JSON is a provider failure.
 - **Required tools.** `recall` for a provider to take part in recall; `retain` when `retain` is true; `invalidate` is
   optional and unused by a run (nothing under `src` calls `InvalidateAsync` outside the adapters).
 
@@ -234,7 +235,8 @@ credentials, has a `recall` tool and no write tool:
 - `query` is the request text; `limit` is the entry's `max_facts` (10, as an integer, because the whole string is one
   placeholder). `date_from`, `date_to` and `source` are left out, so Chronicle's own routing applies; a mapping can pin
   `source` or a date as a literal to narrow it.
-- The tool returns Chronicle's `/recall` body as one text block, so `format` stays `json`. `results.path` is `results`; each
+- The tool returns Chronicle's `/recall` body as one text block (and, wrapped as above, in `structuredContent`), so `format`
+  stays `json`. `results.path` is `results`; each
   element's `segment_id` is the fact id. A fact reads `<date>: <summary>`; a segment not yet enriched has a null summary, so
   the second template falls back to the raw text, which `max_fact_chars` then cuts (a segment is up to 2000 characters).
 - No `retain` tool and no `retain` flag: Chronicle is recall-only. `namespace` is left out because Chronicle has no banks.
