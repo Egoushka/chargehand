@@ -268,8 +268,9 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
     return (runtime, runtime.Version);
 }
 
-IMemoryProvider? Memory() => profile.Memory is { } m
-    ? new HindsightMemory(new HttpClient { BaseAddress = new Uri(m.Url), Timeout = TimeSpan.FromSeconds(30) }, m.ApiKeySecret is null ? null : profile.Secret(m.ApiKeySecret), m.MaxTokens)
+MemoryStack? Memory() => profile.Memory is { } m
+    ? MemoryStack.ForObjectForm(m, new HindsightMemory(new HttpClient { BaseAddress = new Uri(m.Url), Timeout = TimeSpan.FromSeconds(30) },
+        m.ApiKeySecret is null ? null : profile.Secret(m.ApiKeySecret), m.MaxTokens))
     : null;
 
 async Task<int> Show(string runId)
@@ -285,6 +286,8 @@ async Task<int> Show(string runId)
     if (run is not null)
         Console.WriteLine($"{run.RunId}  preset={run.Preset}  intake={run.IntakeAction ?? "needs_input"}  status={run.Result.Status}  " +
                           $"{(run.Finished - run.Started).TotalSeconds:0.0}s  usd={run.Result.Usage.Usd}  claims={run.Result.Claims.Count}  open={run.Result.OpenQuestions.Count}");
+    foreach (var line in run?.Extensions?.Lines() ?? [])
+        Console.WriteLine(line);
     Console.WriteLine("node     kind     model                       prompt   cached  cache%   out+rsn  latency     usd");
     foreach (var c in calls)
         Console.WriteLine($"{c.NodeId,-8} {c.Kind,-8} {c.Model,-27} {c.PromptTokens,7} {c.Tokens?.CacheRead,8} {c.CacheRate,6:P0} {c.Tokens?.Output + c.Tokens?.Reasoning,8} {c.LatencyMs / 1000,6:0.0}s {c.Usd,8:0.000000}");

@@ -78,7 +78,24 @@ public sealed record RunRecord(
     string? IntakeAction,
     TaskSpec? Spec,
     ResultContract Result,
-    string? ExecutedAction = null);
+    string? ExecutedAction = null,
+    ExtensionsReport? Extensions = null);
+
+/// <summary>What the profile's extensions did in one run, for the run log and <c>chargehand show</c> (goal 0.6). Null on a record from before it existed.</summary>
+public sealed record ExtensionsReport(IReadOnlyList<MemoryReport> Memory, IReadOnlyList<ServiceReport> Services)
+{
+    /// <summary>One line per memory source: <c>memory notes: recalled 2, retained 1</c>; a skipped step says so and why in place of its count.</summary>
+    public IReadOnlyList<string> Lines() =>
+        [.. Memory.Select(m => $"memory {m.Source}: {(m.RecallSkipped is null ? $"recalled {m.Recalled}" : $"recall skipped ({m.RecallSkipped})")}, "
+            + (m.RetainSkipped is null ? $"retained {m.Retained}" : $"retain skipped ({m.RetainSkipped})"))];
+}
+
+/// <param name="RecallSkipped">Why the source recalled nothing (failed, timed out); null when it answered.</param>
+/// <param name="RetainSkipped">Why the source retained nothing when a retain was tried and failed; null otherwise.</param>
+public sealed record MemoryReport(string Source, int Recalled, string? RecallSkipped, int Retained, string? RetainSkipped);
+
+/// <summary>A service a preset asked for: its tools as granted, and why part of the request was dropped.</summary>
+public sealed record ServiceReport(string Server, IReadOnlyList<string> Tools, IReadOnlyList<string> Issues);
 
 /// <summary>A score for a run, 0 to 1: from an eval (source "eval:&lt;name&gt;") or by hand (source "hand").</summary>
 public sealed record ScoreRecord(string RunId, string Name, double Value, DateTimeOffset At, string Source);
