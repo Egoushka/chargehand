@@ -384,6 +384,10 @@ The evidence did not settle these, so the draft listed them with recommendations
 1. **OpenCode in 0.6.** Decision: decide after task 1. Cover both runtimes if the spike shows OpenCode can gate MCP tools
    per session; else ship Claude Code first and refuse, with a clear error, a preset with services on OpenCode. Task 10
    stays separate so it can slip without moving the goal. Decided by the owner, 2026-09-29.
+   Task 1 result, 2026-09-29: OpenCode can gate MCP tools per session (O3 to O6): the permission action is
+   `<server>_<tool>`, a deny rule removes the tool from that session's catalog, and rulesets at one location stay
+   separate. Both runtimes are covered. A preset's `* * allow` also reaches MCP tools registered at an OpenCode location
+   (O4); the evidence is in ADR 0034.
 2. **Memory config shape.** Decision: `memory` is a list under the same key, and the object form fails at load with a
    migration message. The profile is pre-1.0 and the migration is one paragraph. Decided by the owner, 2026-09-29.
 3. **One server registry for memory and services.** Decision: the registry, `mcp_servers`. Decided by the owner, 2026-09-29.
