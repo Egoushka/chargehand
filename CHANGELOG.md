@@ -12,6 +12,13 @@ All notable changes to this project are documented here. The format follows
 - `mcp_servers` in the profile (ADR 0034): MCP servers by name, over Streamable HTTP, the older SSE transport
   (`"transport": "sse"`) or stdio, with `{secret:item}` in header and environment values. Nothing reads them yet; goal
   0.6's memory and services will.
+- `memory` in the profile may be a list of providers (ADR 0034). Each entry names an `mcp_servers` entry and maps recall,
+  retain and invalidate onto that server's tools: argument templates with `{query}`, `{namespace}`, `{max_facts}`,
+  `{text}` and the like, and a `results` mapping that says where the facts are in the answer (`path`, `id`, and `text` as a
+  field, a template such as `{date}: {summary}`, or an ordered list of these). An entry without a retain tool is
+  recall-only, and `namespace` defaults to the entry's name. A mapping that names an unknown server or placeholder, or
+  misses its recall tool, fails when the profile loads. The single-object form still loads and is deprecated. Nothing
+  reads the list yet; the MCP memory adapter will.
 
 ### Changed
 
