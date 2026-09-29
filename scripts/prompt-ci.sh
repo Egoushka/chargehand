@@ -88,10 +88,13 @@ else
 fi
 dotnet build -v q -c Release "$src/src/Chargehand.Cli" >&2
 gh pr view "$pr" --json body -q .body > "$work/body"
+# The change's cells recognise only files the change adds; tolerances and every existing file stay on the trusted cells.
+git show "$head:evals/cells.json" > "$work/change-cells.json" 2>/dev/null || rm -f "$work/change-cells.json"
 
 set +e
 dotnet "$src/src/Chargehand.Cli/bin/Release/net10.0/Chargehand.Cli.dll" --profile "$profile" \
   eval gate "$work/base" "$work/change" --changed-files "$work/changed" --pr-body "$work/body" --cells-file "$src/evals/cells.json" \
+  --change-cells-file "$work/change-cells.json" \
   --name "pr-$pr-$(echo "$head" | cut -c1-7)" $uncovered | tee "$work/out"
 set -e
 

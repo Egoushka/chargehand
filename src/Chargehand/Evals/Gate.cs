@@ -24,6 +24,23 @@ public sealed record Verdict(string Cell, int Items, double QualityDelta, double
 /// </summary>
 public static partial class Gate
 {
+    /// <summary>The commit status text: blocked cells, else files no cell gates, else what ran and what passed without a
+    /// cell (allowed or new), never "no prompt or preset change" when there was one.</summary>
+    public static string Describe(IReadOnlyList<Verdict> verdicts, IReadOnlyList<string> uncovered, IReadOnlyList<string> fresh, bool allowUncovered)
+    {
+        var blocked = verdicts.Where(v => v.Blocked).ToList();
+        if (blocked.Count > 0)
+            return string.Join("; ", blocked.Select(v => $"{v.Cell}: {v.Reason}"));
+        if (uncovered.Count > 0 && !allowUncovered)
+            return $"no eval cell gates {string.Join(", ", uncovered)}";
+        var parts = verdicts.Select(v => $"{v.Cell}: {v.Reason}").ToList();
+        if (uncovered.Count > 0)
+            parts.Add($"allowed without an eval cell: {string.Join(", ", uncovered)}");
+        if (fresh.Count > 0)
+            parts.Add($"new, gated from the next change by its cell: {string.Join(", ", fresh)}");
+        return parts.Count == 0 ? "no prompt or preset change" : string.Join("; ", parts);
+    }
+
     public static Verdict Decide(EvalCell cell, IReadOnlyList<Pair> pairs, Trade? trade)
     {
         var d = pairs.Select(p => p.ChangeQuality - p.BaseQuality).ToList();

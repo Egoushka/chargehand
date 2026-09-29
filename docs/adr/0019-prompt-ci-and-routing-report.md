@@ -103,7 +103,9 @@ fork code on the owner's machine.
   choose, 5 synthetic stop cases, the content engine's draft. `draft/draft`, 8: the content engine's call and 7
   variants built from this repository's public changelog, one of them baiting a fact the inputs lack. `core/worker.md`
   is evaluated on `cheap` only; the `default`, `thorough` and `strict` blocks have no cell, and a change to them fails
-  unless the owner passes `--allow-uncovered`.
+  unless the owner passes `--allow-uncovered`. A file the base lacks passes when a cell in the change's own
+  `evals/cells.json` names it: a new preset has nothing to regress from, and its cell gates it from the next change on.
+  The trusted cells still set every tolerance and decide for every file the base has.
 - **Scores**, 0 to 1, no model call. Worker: grounding, the mean of the share of claims whose evidence resolved and
   the recall of reference files (files cited by at least 3 of the 4 benchmark answers), times completeness, the
   claims kept over the item's `reference_claims` (the median over its runs under the base prompts; `eval seed`
