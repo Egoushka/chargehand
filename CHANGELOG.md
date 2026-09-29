@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The `.private-terms` hooks work in a linked worktree. The list is gitignored, so a worktree never had a copy and every
+  commit there aborted with "`.private-terms` is missing"; the check now falls back to the main worktree's list. A
+  worktree's own file still wins, and with no list in either place the commit is still blocked.
+
 ## [0.4.0] - 2026-09-29
 
 Goal 0.4 ([roadmap](ROADMAP.md)): chargehand runs with nothing configured. No profile file is needed, the worker

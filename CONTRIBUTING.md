@@ -29,7 +29,8 @@ cp .private-terms.example .private-terms   # then list your own private terms
 ```
 
 The `pre-commit` hook needs [gitleaks](https://github.com/gitleaks/gitleaks) and blocks commits
-that match `.private-terms`. Don't bypass it with `--no-verify`.
+that match `.private-terms`. Don't bypass it with `--no-verify`. In a linked worktree the hooks use the main
+checkout's `.private-terms`; there is nothing to copy.
 
 ## Build and test
 
