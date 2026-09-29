@@ -19,9 +19,15 @@ public static class PromptChains
             : throw new ChargehandException(ErrorCode.InvalidRequest, $"caller block '{block.Name}': sha256 does not match its text.",
                 "Send the SHA-256 of the block's text, lower-case hex.");
 
-    /// <summary>Proxy for OpenCode's tool catalog, which is a function of its version, the agent and the ruleset.</summary>
-    public static string ToolsSha256(string opencodeVersion, string agent, IReadOnlyList<PermissionRule> rules) =>
-        Hash(JsonSerializer.Serialize(new { opencodeVersion, agent, rules = rules.Select(r => new[] { r.Action, r.Resource, r.Effect.ToString() }) }));
+    /// <summary>Proxy for OpenCode's tool catalog, which is a function of its version, the agent and the ruleset, and of the
+    /// MCP tools granted (server, tool names, description hash); the same as without grants when there are none.</summary>
+    public static string ToolsSha256(string opencodeVersion, string agent, IReadOnlyList<PermissionRule> rules, IReadOnlyList<ServiceGrant>? grants = null)
+    {
+        var ruleList = rules.Select(r => new[] { r.Action, r.Resource, r.Effect.ToString() });
+        return Hash(grants is not { Count: > 0 }
+            ? JsonSerializer.Serialize(new { opencodeVersion, agent, rules = ruleList })
+            : JsonSerializer.Serialize(new { opencodeVersion, agent, rules = ruleList, services = grants.Select(g => new[] { g.Server, string.Join(",", g.Tools), g.Sha256 }) }));
+    }
 
     public static string InstructionsSha256(IReadOnlyList<(string Key, string Value)> entries) =>
         Hash(JsonSerializer.Serialize(entries.Select(e => new[] { e.Key, e.Value })));

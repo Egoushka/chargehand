@@ -31,14 +31,24 @@ public sealed record Preset(
 
 /// <param name="Checkout">False: the node needs no repository; it runs in an empty directory under worker_root and intake
 /// does not ask for context.repository (the draft preset, ADR 0018).</param>
+/// <param name="Services">MCP servers of the profile whose named tools the node's workers may call (ADR 0034); null: none.</param>
 public sealed record NodeKind(string Model, string OpencodeAgent, IReadOnlyList<RuleEntry> Permissions, NodeBudget Budget, CompactionSettings? Compaction = null,
-    bool Checkout = true)
+    bool Checkout = true, IReadOnlyList<ServiceUse>? Services = null)
 {
     public IReadOnlyList<PermissionRule> Rules =>
         Permissions.Select(p => new PermissionRule(p.Action, p.Resource, Enum.Parse<PermissionEffect>(p.Effect, ignoreCase: true))).ToList();
 }
 
 public sealed record RuleEntry(string Action, string Resource, string Effect);
+
+/// <summary>A server of the profile's <c>mcp_servers</c> and the tools of it a node may use: exact names, or globs where <c>*</c> is
+/// any run of characters (never the server's whole set, ADR 0034).</summary>
+public sealed record ServiceUse(string Server, IReadOnlyList<string> Tools)
+{
+    public bool Equals(ServiceUse? other) => other is not null && Server == other.Server && Tools.SequenceEqual(other.Tools);
+
+    public override int GetHashCode() => HashCode.Combine(Server, Tools.Count);
+}
 
 /// <param name="MaxInputTokens">Prompt tokens (input + cache read + cache write) summed over the node's calls; the node is interrupted above it.</param>
 public sealed record NodeBudget(long MaxInputTokens, decimal MaxUsd);

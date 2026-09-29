@@ -22,6 +22,7 @@ namespace Chargehand;
 /// <summary>Request → intake → action: stop (ask, improve, deny, approval) or run one node (answer) or a task graph (split) → result/v1.</summary>
 /// <param name="promptVersions">Langfuse prompt versions by block sha256, for linking spans; may be empty.</param>
 /// <param name="memory">Long-term memory from the profile, one source or several, or null (ADR 0008, ADR 0026).</param>
+/// <param name="services">Resolves a preset's <c>services</c> into the grants workers get; null: a preset's services are ignored (ADR 0034).</param>
 public sealed class Orchestrator(
     Profile profile,
     IWorkerRuntime runtime,
@@ -29,7 +30,8 @@ public sealed class Orchestrator(
     string rootDirectory,
     IRunLog runLog,
     IReadOnlyDictionary<string, int> promptVersions,
-    MemoryStack? memory = null)
+    MemoryStack? memory = null,
+    IServiceResolver? services = null)
 {
     public const string NodeKindName = "worker";
 
@@ -172,11 +174,15 @@ public sealed class Orchestrator(
         var recall = await Recall(request.Text, run, extensions, ct);
         var facts = recall.Prompt;
         chain = chain with { Blocks = [.. chain.Blocks, .. recall.Blocks] };
+        // Granted once per run and shared by every node; the tools hash covers the grant, and is today's when there is none.
+        var granted = await Grant(kind.Services, run, extensions, ct);
+        if (granted.Count > 0)
+            chain = chain with { AsSent = chain.AsSent with { ToolsSha256 = PromptChains.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules, granted) } };
 
         async Task<NodeResult> RunNode(PlanNode node, IReadOnlyList<ResultContract> upstream, ForkPoint? fork, TaskCompletionSource<ForkPoint?>? primed, CancellationToken token)
         {
             var nodeRequest = new NodeRequest(runId, node.Id, traceId,
-                new NodeSpec(directory, kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { ["chargehand.run"] = runId, ["chargehand.node"] = node.Id }),
+                new NodeSpec(directory, kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { ["chargehand.run"] = runId, ["chargehand.node"] = node.Id }, granted),
                 instructions, TaskText(request, spec, commit, inputText, callerBlocks, node, plan.Count, upstream) + facts, chain, directory, commit,
                 (request.Inputs ?? []).Select(i => i.Id).ToHashSet(), inputText, cap, TimeSpan.FromMinutes(15),
                 kind.Budget.MaxInputTokens, kind.Compaction?.TriggerTokens, fork);
@@ -274,6 +280,33 @@ public sealed class Orchestrator(
             else
                 run?.SetTag($"chargehand.memory.{s.Source}.recalled", s.Items.Count);
         return outcome;
+    }
+
+    /// <summary>Services are optional tools: one that does not resolve leaves the workers without it, reported in the run log, and never fails the run.</summary>
+    private async Task<IReadOnlyList<ServiceGrant>> Grant(IReadOnlyList<ServiceUse>? uses, Activity? run, ExtensionsCollector extensions, CancellationToken ct)
+    {
+        if (uses is not { Count: > 0 } || services is null)
+            return [];
+        ResolvedServices resolved;
+        try
+        {
+            resolved = await services.ResolveAsync(uses, ct);
+        }
+        catch (Exception e)
+        {
+            // Whatever the resolver threw, it is a service failure; only the caller's own cancellation is not.
+            ct.ThrowIfCancellationRequested();
+            var reason = string.Join(' ', ChargehandException.Scrub(string.IsNullOrWhiteSpace(e.Message) ? e.GetType().Name : e.Message).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            resolved = new ResolvedServices([], [.. uses.Select(u => u.Server).Distinct().Select(server => new ServiceReport(server, [], [$"unreachable: {reason}"]))]);
+        }
+        extensions.Serviced(resolved.Report);
+        foreach (var r in resolved.Report)
+        {
+            run?.SetTag($"chargehand.service.{r.Server}.granted", r.Tools.Count);
+            if (r.Issues.Count > 0)
+                run?.SetTag($"chargehand.service.{r.Server}.issues", string.Join("; ", r.Issues));
+        }
+        return resolved.Grants;
     }
 
     private static string Name<T>(T value) where T : struct, Enum => value.ToString().ToLowerInvariant();

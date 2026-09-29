@@ -17,4 +17,7 @@ public sealed class McpUnavailableException(string code, string server, string d
     public string Code => code;
 
     public string Server => server;
+
+    /// <summary>What went wrong, scrubbed, without the server's name.</summary>
+    public string Detail { get; } = ChargehandException.Scrub(detail);
 }

@@ -31,13 +31,22 @@ public sealed class OpenCodeWorkerRuntime : IWorkerRuntime
                 $"Run OpenCode {pinnedVersion}, or change opencode.version in the profile.");
     }
 
+    /// <summary>
+    /// Ends every session's rules (last match wins): denies each action with an underscore. An MCP tool's action is
+    /// the server name, an underscore and the tool name, so this covers every server, and the MCP resource tools and
+    /// external_directory (every preset denies it already). Servers cannot be listed instead: a checkout's own config
+    /// registers them after the session exists, the listing lags that by up to a second, and any client can add one
+    /// later (ADR 0034). A granted tool is allowed by a rule after this one.
+    /// </summary>
+    internal static readonly PermissionRule DenyMcpTools = new("*_*", "*", PermissionEffect.Deny);
+
     public async Task<WorkerSession> CreateAsync(NodeSpec spec, CancellationToken ct)
     {
         var s = await _oc.CreateSessionAsync(new CreateSessionBody(
             spec.Agent,
             spec.Model is { } m ? new ModelBody(m.ProviderId, m.ModelId, m.Variant) : null,
             new LocationBody(spec.Directory),
-            spec.Permissions.Select(r => new RuleBody(r.Action, r.Resource, r.Effect.ToString().ToLowerInvariant())).ToList(),
+            spec.Permissions.Append(DenyMcpTools).Select(r => new RuleBody(r.Action, r.Resource, r.Effect.ToString().ToLowerInvariant())).ToList(),
             spec.Metadata), ct);
         return new WorkerSession(s.Id, s.Location.Directory);
     }

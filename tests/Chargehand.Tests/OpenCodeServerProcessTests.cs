@@ -25,7 +25,28 @@ public sealed class OpenCodeServerProcessTests : IDisposable
         Assert.Equal($"args=serve --hostname 127.0.0.1 --port {server.Url.Port}", seen[0]);
         Assert.Matches("^password=[0-9a-f]{64}$", seen[1]);
         Assert.Equal($"home={state}/home config={state}/xdg/config data={state}/xdg/data autoupdate=1", seen[2]);
+        Assert.Equal("disable_project_config=1 config_project_disable=1", seen[3]);
         Assert.Contains("\"title\"", File.ReadAllText(Path.Combine(state, "xdg", "config", "opencode", "opencode.json")));
+    }
+
+    /// <summary>OpenCode reads OPENCODE_CONFIG_PROJECT_DISABLE first (<c>a ?? b</c>), so an inherited "0" there would beat
+    /// OPENCODE_DISABLE_PROJECT_CONFIG=1; both are set. Without them a checkout's opencode.json can start a command.</summary>
+    [Fact]
+    public async Task Disables_project_config_even_when_the_parent_environment_says_otherwise()
+    {
+        const string variable = "OPENCODE_CONFIG_PROJECT_DISABLE";
+        var before = Environment.GetEnvironmentVariable(variable);
+        Environment.SetEnvironmentVariable(variable, "0");
+        try
+        {
+            using var server = await OpenCodeServerProcess.StartAsync(FakeOpencode(OpenCodeWorkerRuntime.PinnedVersion), Path.Combine(_dir.Path, "state"), CancellationToken.None);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, before);
+        }
+
+        Assert.Equal("disable_project_config=1 config_project_disable=1", File.ReadAllLines(Path.Combine(_dir.Path, "seen.txt"))[3]);
     }
 
     [Fact]
@@ -74,6 +95,7 @@ public sealed class OpenCodeServerProcessTests : IDisposable
             echo "args=$*" > "{{_dir.Path}}/seen.txt"
             echo "password=$OPENCODE_SERVER_PASSWORD" >> "{{_dir.Path}}/seen.txt"
             echo "home=$HOME config=$XDG_CONFIG_HOME data=$XDG_DATA_HOME autoupdate=$OPENCODE_DISABLE_AUTOUPDATE" >> "{{_dir.Path}}/seen.txt"
+            echo "disable_project_config=$OPENCODE_DISABLE_PROJECT_CONFIG config_project_disable=$OPENCODE_CONFIG_PROJECT_DISABLE" >> "{{_dir.Path}}/seen.txt"
             exec python3 -m http.server --bind 127.0.0.1 --directory "{{_dir.Path}}/www" "$5"
             """);
     }

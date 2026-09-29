@@ -50,7 +50,7 @@ Without a `prices` entry for a model, chargehand cannot price its calls: `usage.
 
 With no `opencode` block, `run`, `serve` and `mcp` start their own `opencode serve` on `127.0.0.1` and a free port, with a random password and their own state under `chargehand/opencode` in the per-user data directory, and stop it on exit. Providers come from the environment variables OpenCode reads. To configure more, edit `xdg/config/opencode/opencode.json` in that directory; chargehand never overwrites it.
 
-To use a server you run yourself, start it with `scripts/opencode-serve.sh <opencode-binary> profiles/local.opencode.json 4296` (copy the config from `profiles/opencode.example.json`) and add an `opencode` block with `url`, `password_secret` and `version`. chargehand then starts nothing ([ADR 0030](../adr/0030-default-opencode-server.md)).
+To use a server you run yourself, start it with `scripts/opencode-serve.sh <opencode-binary> profiles/local.opencode.json 4296` (copy the config from `profiles/opencode.example.json`) and add an `opencode` block with `url`, `password_secret` and `version`. chargehand then starts nothing ([ADR 0030](../adr/0030-default-opencode-server.md)). The script turns off OpenCode's project configuration, so a checkout's own `opencode.json` cannot start a command; a server you start another way needs `OPENCODE_DISABLE_PROJECT_CONFIG=1` and `OPENCODE_CONFIG_PROJECT_DISABLE=1` in its environment.
 
 ### Claude Code
 
