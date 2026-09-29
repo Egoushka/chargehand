@@ -9,6 +9,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Intake saw a caller input's id and kind but not its text, so a run whose request carried its goal, diff and test
+  output as `inputs` could stop with `ask`, asking for the inputs it had been sent. Intake now reads each
+  input's id, kind, size and the first 2000 characters of its text, and the prompt says when an input was cut; the
+  worker still gets every input whole.
 - A worker session that ended `failed` with no assistant message and no error text (OpenCode drops the session before
   any model call when the model is one its server does not declare) returned a bare "worker ended failed" with a
   generic action, and the reason was only in the server's log. The error now says the server ended the session before

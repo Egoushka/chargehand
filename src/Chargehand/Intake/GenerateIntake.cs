@@ -19,6 +19,10 @@ public sealed record IntakeCall(DateTimeOffset Started, double LatencyMs, bool V
 /// <param name="needsRepository">False for node kinds that run without a checkout (the draft preset).</param>
 public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, PromptBlock block, string runId, bool needsRepository = true) : IIntake
 {
+    /// <summary>Characters of each caller input that intake reads. Intake runs on a small model, so the head of a long input (a diff)
+    /// stands in for all of it; the worker gets the input whole (Orchestrator.Execute).</summary>
+    public const int MaxInputChars = 2000;
+
     public PromptBlock Block => block;
 
     public async Task<TaskSpec> CreateSpecAsync(RunRequest request, CancellationToken ct) =>
@@ -32,9 +36,7 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, Prom
             return new(null, "The request names no repository checkout and commit (context.repository).", []);
 
         var calls = new List<IntakeCall>();
-        // Intake sees which inputs a program caller sent (ids and kinds, not their text): without them it asks for facts it has.
-        var inputs = request.Inputs is { Count: > 0 } i ? $"\nThe caller supplies these inputs to use: {string.Join(", ", i.Select(x => $"{x.Id} ({x.Kind})"))}.\n" : "";
-        var prompt = $"{block.Text}\nJSON Schema:\n{ContractSchemas.Text(ContractSchemas.TaskSpec)}\n\nUse id \"{runId}\".\nRequest:\n{request.Text}\n{inputs}";
+        var prompt = $"{block.Text}\nJSON Schema:\n{ContractSchemas.Text(ContractSchemas.TaskSpec)}\n\nUse id \"{runId}\".\nRequest:\n{request.Text}\n{InputsText(request.Inputs)}";
         string? errors = null;
         for (var attempt = 0; attempt < 2; attempt++)
         {
@@ -49,6 +51,22 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, Prom
         }
         throw new ChargehandException(ErrorCode.IntakeFailed, $"intake returned no valid task-spec/v1 after one retry: {errors}",
             "Retry, or set the profile's intake_model to a stronger model.");
+    }
+
+    /// <summary>Each input's id, kind, size and text, so intake does not ask for facts the caller sent; the head only, and it says when it cut.</summary>
+    private static string InputsText(IReadOnlyList<CallerInput>? inputs)
+    {
+        if (inputs is not { Count: > 0 })
+            return "";
+        var lines = inputs.Select(i =>
+        {
+            if (i.Text.Length <= MaxInputChars)
+                return $"- id \"{i.Id}\" ({i.Kind}, {i.Text.Length} characters): {i.Text}";
+            // A cut inside a surrogate pair would leave half of it, which the request body cannot encode.
+            var head = i.Text[..(char.IsHighSurrogate(i.Text[MaxInputChars - 1]) ? MaxInputChars - 1 : MaxInputChars)];
+            return $"- id \"{i.Id}\" ({i.Kind}, {i.Text.Length} characters, cut to the first {head.Length} here; the worker gets all of it): {head}";
+        });
+        return $"\nThe caller supplies these inputs to use:\n{string.Join("\n", lines)}\n";
     }
 
     internal static (TaskSpec? Spec, IReadOnlyList<string> Errors) Parse(string text)
