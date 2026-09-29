@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format follows
   output as `inputs` could stop with `ask`, asking for the inputs it had been sent. Intake now reads each
   input's id, kind, size and the first 2000 characters of its text, and the prompt says when an input was cut; the
   worker still gets every input whole.
+- A worker session that ended `failed` with no assistant message and no error text (OpenCode drops the session before
+  any model call when the model is one its server does not declare) returned a bare "worker ended failed" with a
+  generic action, and the reason was only in the server's log. The error now says the server ended the session before
+  any model call, and its `action` points at the OpenCode server's log and names the model the run asked for, to check
+  against the server's models and the profile's `models` map (or says no model was mapped).
 - A request with many `inputs` still grew intake's prompt without bound, up to the request size limit. Intake now reads
   at most 8000 characters of input text in all, in request order; an input after that is listed with its id, kind and
   size and a note that its text is left out here, and the worker still gets every input whole.
