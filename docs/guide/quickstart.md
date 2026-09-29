@@ -19,15 +19,15 @@ You clone chargehand, write a small profile, and ask one question about a commit
 | OpenCode | `opencode` | 2.0.18 | for a server chargehand starts: the provider variables OpenCode reads, such as `ANTHROPIC_API_KEY` |
 | Claude Code | `claude` | 2.1.283 | the CLI's own login (run `claude` once and sign in), or one of `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` |
 
-A runtime at another version fails with `runtime_version_mismatch`. With both CLIs on `PATH`, name one with `CHARGEHAND_RUNTIME` (`opencode` or `claude_code`) or the profile's `runtime` field, or the run fails with `runtime_ambiguous` (on main, not yet released).
+A runtime at another version fails with `runtime_version_mismatch`. With both CLIs on `PATH`, name one with `CHARGEHAND_RUNTIME` (`opencode` or `claude_code`) or the profile's `runtime` field, or the run fails with `runtime_ambiguous`.
 
 ## Write a profile
 
 Every command reads `profiles/local.json` (gitignored) unless `--profile <path>` or `CHARGEHAND_PROFILE` names another file. The flag goes before the command: `dotnet run --project src/Chargehand.Cli -- --profile <path> run`.
 
-On main the file itself is optional: with no file, chargehand uses defaults (on main, not yet released). One part stays required. The shipped presets name placeholder models (`provider/worker-model`, `provider/small-model`, `provider/critic-model`), and the profile's `models` map turns them into real model ids. With no map they reach the runtime unresolved. The [package README](../../src/Chargehand.Cli/README.package.md) says a profile is optional except while the presets name placeholder models, and the [README](../../README.md#quick-start) says a profile with a `models` map stays required for Claude Code "until 0.4 lands the fix".
+The file itself is optional: with no file, chargehand uses defaults. The shipped presets name placeholder models (`provider/worker-model`, `provider/small-model`, `provider/critic-model`), and the profile's `models` map turns them into real model ids. A placeholder the map does not name (all of them with no file) is unset, so the runtime uses its own default model ([ADR 0026](../adr/0026-extension-model.md)).
 
-`scripts/change-e2e.sh` writes this minimal profile for Claude Code. Save it as `profiles/local.json`:
+To pick models, save the minimal profile that `scripts/change-e2e.sh` writes for Claude Code as `profiles/local.json`:
 
 ```json
 {
@@ -44,7 +44,7 @@ For OpenCode, map the same three ids to `provider/model` ids your OpenCode serve
 
 The README's quick start copies `profiles/example.json` instead, which fills in secrets, an `opencode` block, prices, telemetry, the HTTP server and memory. If you start from it, delete the blocks you do not use. An `opencode` block makes chargehand connect to its `url` instead of starting its own server. The [reference](reference.md#profile-fields) lists the fields. A profile names secrets by item name and never holds them.
 
-Without a `prices` entry for a model, chargehand cannot price its calls: `usage.usd` may be `null`, and the USD caps cannot fire, while the per-node token budgets still apply (on main, not yet released).
+Without a `prices` entry for a model, chargehand cannot price its calls: `usage.usd` may be `null`, and the USD caps cannot fire, while the per-node token budgets still apply.
 
 ### OpenCode
 
@@ -62,7 +62,7 @@ A request names a repository and a commit. chargehand clones the repository at t
 
 - `repository_roots` lists the directories a repository may sit under; `"/"` allows any.
 - Without `repository_roots`, `run` and `mcp` allow `worker_root` and the directory they were launched in. `serve` allows `worker_root` only.
-- `worker_root` must sit outside your home directory. On main it defaults to `/var/tmp/chargehand/work`, created on first use.
+- `worker_root` must sit outside your home directory. It defaults to `/var/tmp/chargehand/work`, created on first use.
 - chargehand refuses a clone that tracks a file the preset denies reading (`*.env`, `*.env.*`) with `checkout_has_secrets`.
 
 The shortest path is a question about chargehand itself. Run from `<checkout>` and the checkout is the launch directory, so you need no roots.
@@ -94,7 +94,7 @@ It names no repository, so intake stops it with `needs_input` before a worker st
 | `contract_version` | always `request/v1` |
 | `text` | the request in natural language |
 | `context.interactive` | `false`: never block on a question, return `needs_input` instead. Only the MCP tool reads it: with `true` it asks the client intake's questions. The CLI returns `needs_input` either way. |
-| `context.preset` | a preset name from `presets/`: `default`, `cheap`, `thorough`, `strict`, `draft`, or `review` (on main, not yet released) |
+| `context.preset` | a preset name from `presets/`: `default`, `cheap`, `thorough`, `strict`, `draft`, or `review` |
 | `context.repository` | `path` of a local git checkout and the `commit` to pin, 7 to 40 hex characters |
 | `context.budget_usd` | optional USD bound for the run, divided evenly across a split's nodes |
 | `context.approved` | optional; `true` runs past a preset's approval thresholds |

@@ -9,7 +9,7 @@ chargehand serves one MCP tool, `orchestrate`, over two transports:
 
 | transport | how it starts | auth | notes |
 |---|---|---|---|
-| stdio | `chargehand mcp`, started by the client (on main, not yet released) | none | no port and no key; stdout carries only MCP messages, logs go to stderr |
+| stdio | `chargehand mcp`, started by the client | none | no port and no key; stdout carries only MCP messages, logs go to stderr |
 | Streamable HTTP | `chargehand serve`, path `/v1/mcp` | `Authorization: Bearer <key>` | the same server as the HTTP routes, see [Run the HTTP server](server.md) |
 
 Both hosts share the tool, the tasks store and the server instructions, which tell a client on `initialize` when to call chargehand. [McpTests](../../tests/Chargehand.Tests/McpTests.cs) and [StdioMcpTests](../../tests/Chargehand.Tests/StdioMcpTests.cs) cover the tool, tasks, the question paths, the progress notification and `Prefer: wait` with the MCP SDK's own client and a scripted runtime.
@@ -22,13 +22,13 @@ The README's line for Claude Code:
 claude mcp add chargehand -- dotnet run --project <checkout>/src/Chargehand.Cli -- mcp
 ```
 
-The process reads its profile like every command: `CHARGEHAND_PROFILE`, else `profiles/local.json` relative to its working directory. The client picks that directory, so point `CHARGEHAND_PROFILE` at your profile, as the README's plugin workaround does:
+The process reads its profile like every command: `CHARGEHAND_PROFILE`, else `profiles/local.json` relative to its working directory. The client picks that directory, so point `CHARGEHAND_PROFILE` at your profile, as [the change command's checkout example](change.md#point-it-at-a-checkout-instead) does:
 
 ```bash
 claude mcp add chargehand -e CHARGEHAND_PROFILE=<checkout>/profiles/local.json -- dotnet run --project <checkout>/src/Chargehand.Cli -- mcp
 ```
 
-The profile needs a `models` map for the presets' placeholder models ([Quickstart](quickstart.md#write-a-profile)). The working directory decides three more things:
+A `models` map in the profile picks the models the presets' placeholders stand for; without one the runtime's default model runs ([Quickstart](quickstart.md#write-a-profile)). The working directory decides three more things:
 
 - **Repositories.** Without `repository_roots`, `mcp` allows `worker_root` and the directory it was launched in.
 - **Prompts and presets.** They come from the working directory when it holds both `prompts/` and `presets/`, else from the copies the build places next to the binary.
@@ -63,7 +63,7 @@ A client that declines gets the `needs_input` result as it stands. A non-interac
 
 ## The run id before a client timeout
 
-Outside a task, the tool answers once the run finishes, and a run can take minutes. Two paths give the client the run id first (on main, not yet released, [ADR 0029](../adr/0029-mcp-run-id-before-a-client-timeout.md)).
+Outside a task, the tool answers once the run finishes, and a run can take minutes. Two paths give the client the run id first ([ADR 0029](../adr/0029-mcp-run-id-before-a-client-timeout.md)).
 
 A call that carries a progress token gets one progress notification when the run starts:
 
@@ -73,11 +73,9 @@ chargehand run <run-id> started; GET /v1/runs/<run-id> or `chargehand show <run-
 
 When the HTTP request of an MCP call carries `Prefer: wait=N` (N at most 60) and the run has not finished after N seconds, the call returns a tool error. Its first text block names the run and its routes; its second is the run's latest `run-status/v1`. The run goes on, and resending the request would start a second run. Without the header the call waits for the result. Over stdio there is no HTTP request, so no header.
 
-## From the package, once it is published
+## From the package
 
-> **Not on nuget.org yet.** The lines below work once a release publishes the `Chargehand` package. Until then use the checkout lines above. The release workflow on main has no step that publishes it.
-
-The package is a .NET tool that `dnx` (.NET 10 SDK) fetches and runs: no install step, no port, no key. Pin `<version>` to a release. Pass the Claude Code credential as one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`; `CHARGEHAND_RUNTIME` and `CHARGEHAND_PROFILE` are optional. If a desktop app does not see your shell's `PATH`, give the full path to `dnx`. While the presets name placeholder models, the [package README](../../src/Chargehand.Cli/README.package.md) requires a profile with a `models` map.
+The package is a .NET tool that `dnx` (.NET 10 SDK) fetches from [nuget.org](https://www.nuget.org/packages/Chargehand) and runs: no install step, no port, no key. Pin `<version>` to one of its versions. Pass the Claude Code credential as one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`; `CHARGEHAND_RUNTIME` and `CHARGEHAND_PROFILE` are optional. If a desktop app does not see your shell's `PATH`, give the full path to `dnx`. A profile is optional: without one the workers run on the agent CLI's default model ([package README](../../src/Chargehand.Cli/README.package.md)).
 
 Claude Code:
 

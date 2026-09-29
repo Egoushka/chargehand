@@ -42,10 +42,10 @@ Sources: [README](../../README.md#how-a-run-works), [ADR 0009](../adr/0009-resul
 
 ## Current status
 
-- **Before 1.0.** The latest release is v0.3.0. Goal 0.4 in the roadmap, "it runs with nothing configured", comes next.
+- **Before 1.0.** The latest release is v0.4.0, which finished goal 0.4, "it runs with nothing configured". Goal 0.5 in the roadmap, one prompt to a reviewed change, comes next; the plugin, the command and the `review` preset in 0.4.0 are its first pieces.
 - **Read-only workers.** Writing nodes in worktrees belong to goal 0.7.
-- **Not on nuget.org.** Neither the `Chargehand` tool package nor `Chargehand.Contracts` is published, so you run chargehand from a clone of the repository. The `dnx` lines in the README and on [the MCP page](mcp.md) work only once the package is published.
-- **Main is ahead of the release.** This guide describes the `main` branch. The changes under Unreleased in the [changelog](../../CHANGELOG.md#unreleased) (optional profile file, runtime selection, unknown cost for unpriced models) are not in a release. Neither are `chargehand mcp`, the Claude Code plugin and the `review` preset, which no section of the changelog lists yet. Pages mark these "on main, not yet released".
+- **On nuget.org.** The `Chargehand` tool package and `Chargehand.Contracts` are published, so `dnx Chargehand@<version> --yes -- mcp` runs chargehand without a clone ([the MCP page](mcp.md#from-the-package)). The MCP Registry listing is not done.
+- **Main and the release.** This guide describes the `main` branch, which is v0.4.0 plus documentation changes. A change that lands on `main` after a release appears under Unreleased in the [changelog](../../CHANGELOG.md#unreleased), and pages mark it "on main, not yet released".
 
 ## Where to go next
 

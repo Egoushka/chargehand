@@ -16,7 +16,7 @@ From a checkout, every command runs as `dotnet run --project src/Chargehand.Cli 
 | `cache <run-id>` | cache reads, writes and hit rate per call, and the first block that broke a prefix the nodes should have shared | 1 when the run has no calls |
 | `reconcile <run-id> < spend-rows.jsonl` | joins the run's calls to exported gateway spend rows by model, token counts and time, and prints own against gateway cost | 1 when a call stays unmatched |
 | `serve` | HTTP and MCP, on `127.0.0.1` unless the profile's `http` block opens it | 2 without an `http` block |
-| `mcp` | MCP over stdio, for a client that starts chargehand itself; no port, no key (on main, not yet released) | |
+| `mcp` | MCP over stdio, for a client that starts chargehand itself; no port, no key | |
 | `routes [run-log.jsonl ...]` | routing report per preset, node kind and model, from the given logs or the default one | |
 | `score <run-id> <0-1> [name]` | records a hand score for a run; the name defaults to `quality` | |
 | `eval seed <cell> <run-id>...` | proposes eval items (JSONL on stdout) from runs in the log | |
@@ -52,7 +52,7 @@ Each preset is a `preset/v1` file in `presets/`. Intake picks one action; when t
 | `thorough` | 0.3.0 | `answer`, `split`, `improve`, `ask`, `deny` | `worker` | `provider/worker-model` |
 | `strict` | 0.2.0 | `answer`, `split`, `improve`, `ask`, `deny` | `worker` | `provider/worker-model` |
 | `draft` | 0.1.0 | `answer`, `deny` | `draft`, with `checkout: false` | `provider/small-model` |
-| `review` (on main, not yet released) | 0.1.0 | `answer` | `worker` | `provider/worker-model` |
+| `review` | 0.1.0 | `answer` | `worker` | `provider/worker-model` |
 
 | preset | input tokens per node | USD per node | compaction trigger | critic | approval |
 |---|---|---|---|---|---|
@@ -76,7 +76,7 @@ On Claude Code, chargehand translates the rules into `--tools`, `--allowedTools`
 ### Budgets and stops
 
 - A node whose prompt tokens, summed over its calls, pass `max_input_tokens` gets interrupted, then gets one turn to answer from what it has read. The result says so in `open_questions`.
-- A node stops at its USD cap: the smallest of the preset's `max_usd`, the profile's `run_cap_usd` (default 1.00) and the request's `budget_usd`, where the last two are divided evenly across a split's nodes. A USD cap cannot fire on a model with no price (on main, not yet released).
+- A node stops at its USD cap: the smallest of the preset's `max_usd`, the profile's `run_cap_usd` (default 1.00) and the request's `budget_usd`, where the last two are divided evenly across a split's nodes. A USD cap cannot fire on a model with no price.
 - Every node has a 15-minute deadline.
 - Above `trigger_tokens` of context in a call, the orchestrator compacts the session; on Claude Code it compacts between turns. `auto`, `keep_tokens` and `buffer` describe the OpenCode server's own settings.
 - The critic reviews writing nodes only, and no writing node runs yet.
@@ -93,7 +93,7 @@ On Claude Code, chargehand translates the rules into `--tools`, `--allowedTools`
 | `preset/v1` | a preset file | [preset.schema.json](../../schemas/preset/v1/preset.schema.json) |
 | `profile/v1` | the profile | [profile.schema.json](../../profiles/profile.schema.json) |
 
-Each schema under `schemas/` sits in `schemas/<name>/v<major>/`, next to valid and invalid examples. A published major takes additive changes only: `SchemaCompatTests` fails the build on a breaking change since the latest `v*` tag. `Chargehand.Contracts` packs the five schemas under `schemas/` with C# types and a validator. It versions by schema major (1.2.0-alpha on main) and is not on nuget.org yet. `samples/ContentEngineCall` is a program caller built from it alone.
+Each schema under `schemas/` sits in `schemas/<name>/v<major>/`, next to valid and invalid examples. A published major takes additive changes only: `SchemaCompatTests` fails the build on a breaking change since the latest `v*` tag. `Chargehand.Contracts` packs the five schemas under `schemas/` with C# types and a validator. It versions by schema major (1.2.0-alpha) and is on nuget.org. `samples/ContentEngineCall` is a program caller built from it alone.
 
 ## Error codes
 
@@ -103,7 +103,7 @@ A failed `result/v1` carries `error`: a fixed `code`, the `message`, `retryable`
 |---|---|---|
 | `runtime_unavailable` | the OpenCode server refuses the connection or cannot start; the Claude Code binary cannot start or `--version` fails; `claude` is signed out and no credential is set; no agent CLI is on `PATH` | yes |
 | `runtime_version_mismatch` | the runtime's version differs from the pin | no |
-| `runtime_ambiguous` | more than one agent CLI is on `PATH` and nothing names one (on main, not yet released) | no |
+| `runtime_ambiguous` | more than one agent CLI is on `PATH` and nothing names one | no |
 | `provider_unavailable` | OpenCode answers 502, 503 or 504 | yes |
 | `rate_limited` | OpenCode answers 429, or an error's text is a rate limit | yes |
 | `repository_not_allowed` | the repository is outside `repository_roots`, or a worker checkout would sit under the home directory | no |
@@ -120,7 +120,7 @@ Over HTTP, a request the server refuses before a run exists stays a `400` with `
 
 ## Profile fields
 
-The profile is `profile/v1` JSON; `profiles/example.json` fills in most fields with placeholders. The defaults for `worker_root`, `default_preset`, `intake_model`, `prices` and `secrets` are on main, not yet released ([ADR 0026](../adr/0026-extension-model.md)).
+The profile is `profile/v1` JSON; `profiles/example.json` fills in most fields with placeholders. The defaults for `worker_root`, `default_preset`, `intake_model`, `prices` and `secrets` come from [ADR 0026](../adr/0026-extension-model.md).
 
 | field | default | what it does |
 |---|---|---|
@@ -141,7 +141,7 @@ The profile is `profile/v1` JSON; `profiles/example.json` fills in most fields w
 | `http` | unset | `api_key_secret` (required), `port` (4300), `listen` (`127.0.0.1`), `allowed_hosts`; `serve` needs it |
 | `memory` | unset | `backend` (`hindsight`), `url` and `namespace` (required), `api_key_secret`, `max_tokens` (1024), `retain` (false) |
 
-A profile still carrying `"secret_store": "keychain"` needs a one-line migration to `"secrets": [{"env": true}, {"command": ["security", "find-generic-password", "-s", "{item}", "-w"]}]` ([changelog, Unreleased](../../CHANGELOG.md#unreleased)).
+A profile still carrying `"secret_store": "keychain"` needs a one-line migration to `"secrets": [{"env": true}, {"command": ["security", "find-generic-password", "-s", "{item}", "-w"]}]` ([changelog 0.4.0](../../CHANGELOG.md#040---2026-09-29)).
 
 ## Environment variables
 

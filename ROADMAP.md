@@ -9,16 +9,17 @@ Intake, one or more read-only workers on OpenCode or Claude Code, `result/v1` wi
 pinned commit, presets with token and USD budgets, CLI, HTTP and MCP, Prompt CI, cache and routing reports, a server
 image.
 
-## Stage 2 — Easy to install, trust and follow · ▶ (0.3–0.4)
+## Stage 2 — Easy to install, trust and follow · ✅ (0.3–0.4)
 
 - ✅ **0.3** Every change is tracked, released and checked: GitHub Releases with notes, `Chargehand.Contracts` on
   nuget.org, OpenSSF Scorecard, CodeQL, dependency review, stricter analyzers.
-- ▶ **0.4** It runs with nothing configured: no profile file needed, the runtime picked by name or found on the machine,
-  secrets from environment variables, extensions by category, listed in the MCP Registry.
+- ✅ **0.4** It runs with nothing configured: no profile file needed, the runtime picked by name or found on the machine,
+  secrets from environment variables, extensions by category, the `Chargehand` tool package on nuget.org. Not done: the
+  MCP Registry listing. The entry ships in the package; no workflow publishes it yet.
 
-## Stage 3 — One prompt, whole result · (0.5–0.7)
+## Stage 3 — One prompt, whole result · ▶ (0.5–0.7)
 
-- · **0.5** `/chargehand:change <goal>` in Claude Code takes one prompt to a reviewed change.
+- ▶ **0.5** `/chargehand:change <goal>` in Claude Code takes one prompt to a reviewed change.
 - · **0.6** Runs use your MCP services and memory: any MCP memory server, several at once.
 - · **0.7** Workers write branches that build and pass their tests in a sandbox.
 

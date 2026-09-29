@@ -1,13 +1,13 @@
 ---
 title: "The change command"
-description: "/chargehand:change takes one goal to a reviewed change on a local branch: installing the plugin today, the steps it runs, and what --budget bounds."
+description: "/chargehand:change takes one goal to a reviewed change on a local branch: installing the plugin, the steps it runs, and what --budget bounds."
 order: 5
 section: "Guides"
 ---
 
 `/chargehand:change <goal>` takes one prompt to a reviewed change on a local branch `change/<slug>`. chargehand researches the goal with citations checked against the current commit, your Claude Code session writes the change and runs the tests, chargehand reviews the diff with the `review` preset, the session fixes what holds (at most 2 fix rounds), and a report lands in `.chargehand/reports/<slug>.md` as its own commit. Nothing is pushed.
 
-The plugin, the command and the `review` preset are on main, not yet released. The command is goal 0.5 in [ROADMAP.md](../../ROADMAP.md).
+The plugin, the command and the `review` preset shipped in 0.4.0 as the first pieces of goal 0.5 in [ROADMAP.md](../../ROADMAP.md), which is still open.
 
 ## Install the plugin
 
@@ -16,17 +16,17 @@ The plugin, the command and the `review` preset are on main, not yet released. T
 /plugin install chargehand@chargehand
 ```
 
-The plugin starts chargehand through `dnx`: its [MCP entry](../../plugins/chargehand/.mcp.json) runs `dotnet dnx Chargehand@0.3.0 --yes -- mcp`. That needs the .NET 10 SDK and a published `Chargehand` package, and the package is not on nuget.org yet. After `/plugin install`, the plugin's own server cannot start.
+The plugin starts chargehand through `dnx`: its [MCP entry](../../plugins/chargehand/.mcp.json) runs `dotnet dnx Chargehand@<version> --yes -- mcp`, where [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs) pins `<version>` to `Directory.Build.props`. That needs the .NET 10 SDK and the `Chargehand` package, which is on nuget.org, so the plugin needs no checkout.
 
-## Point it at a checkout for now
+## Point it at a checkout instead
 
-Until the package is published, configure an MCP server named `chargehand` that runs a checkout:
+To run a checkout of chargehand rather than the package, configure an MCP server named `chargehand` that runs it:
 
 ```json
 {"mcpServers": {"chargehand": {"command": "dotnet", "args": ["run", "--project", "<checkout>/src/Chargehand.Cli", "--", "mcp"], "env": {"CHARGEHAND_PROFILE": "<checkout>/profiles/local.json"}}}}
 ```
 
-The profile needs a `models` map from the presets' placeholder ids to real models; `scripts/change-e2e.sh` writes a minimal working one, shown in the [Quickstart](quickstart.md#write-a-profile). The command uses the `orchestrate` tool of an MCP server whose name contains `chargehand`, preferring the plugin's own. [Use it from an MCP client](mcp.md#over-stdio-from-a-checkout) explains what the server's working directory decides.
+A profile is optional, and without one the workers run on the agent CLI's default model. A `models` map from the presets' placeholder ids to real models picks others; `scripts/change-e2e.sh` writes a minimal working one, shown in the [Quickstart](quickstart.md#write-a-profile). The command uses the `orchestrate` tool of an MCP server whose name contains `chargehand`, preferring the plugin's own. [Use it from an MCP client](mcp.md#over-stdio-from-a-checkout) explains what the server's working directory decides.
 
 ## What the command does
 
@@ -47,7 +47,7 @@ The command is a skill, [SKILL.md](../../plugins/chargehand/skills/change/SKILL.
 
 `--budget <usd>` sets `context.budget_usd` on each chargehand call, not on the whole run, and a run makes up to four calls: one research and up to three reviews. Without `--budget`, each call is bounded by the preset's per-node `max_usd` ($1.00 for `default` and `review`) and the profile's `run_cap_usd` (default $1.00).
 
-USD limits need prices. For a model with no entry in the profile's `prices`, chargehand cannot price a call and no USD limit fires; the preset's token budget, 400,000 input tokens per node for `default` and `review`, still bounds each call (on main, not yet released). The minimal profile from `scripts/change-e2e.sh` has no prices.
+USD limits need prices. For a model with no entry in the profile's `prices`, chargehand cannot price a call and no USD limit fires; the preset's token budget, 400,000 input tokens per node for `default` and `review`, still bounds each call. The minimal profile from `scripts/change-e2e.sh` has no prices.
 
 ## How it is checked
 

@@ -135,15 +135,12 @@ Claude Code, from a checkout:
 claude mcp add chargehand -- dotnet run --project <checkout>/src/Chargehand.Cli -- mcp
 ```
 
-### From the package (once published)
+### From the package
 
-> **Not on nuget.org yet.** The lines below work once the first release publishes the `Chargehand` package; until
-> then use the checkout line above.
-
-The package is a .NET tool that `dnx` (.NET 10 SDK) fetches and runs; no install step, no port, no key. Pin
-`<version>` to a release. Pass the Claude Code credential as one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`;
-`CHARGEHAND_RUNTIME` and `CHARGEHAND_PROFILE` are optional. If a desktop app does not see your shell's `PATH`, give
-the full path to `dnx`.
+The package is a .NET tool that `dnx` (.NET 10 SDK) fetches from [nuget.org](https://www.nuget.org/packages/Chargehand)
+and runs; no install step, no port, no key. Pin `<version>` to one of its versions. Pass the Claude Code credential as
+one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`; `CHARGEHAND_RUNTIME` and `CHARGEHAND_PROFILE` are optional. If
+a desktop app does not see your shell's `PATH`, give the full path to `dnx`.
 
 Claude Code:
 
@@ -196,9 +193,8 @@ report lands in `.chargehand/reports/<slug>.md` as its own commit. Nothing is pu
 /plugin install chargehand@chargehand
 ```
 
-The plugin starts chargehand through `dnx`, so it needs the .NET 10 SDK and a published `Chargehand` package. That
-package is not on nuget.org yet: after `/plugin install`, the plugin's own server cannot start, so for now point a
-`chargehand` MCP server at a checkout instead:
+The plugin starts chargehand through `dnx`, so it needs the .NET 10 SDK; the `Chargehand` package it runs is on
+nuget.org. To run a checkout of chargehand instead of the package, point a `chargehand` MCP server at it:
 
 ```json
 {"mcpServers": {"chargehand": {"command": "dotnet", "args": ["run", "--project", "<checkout>/src/Chargehand.Cli", "--", "mcp"]}}}
