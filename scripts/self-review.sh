@@ -8,12 +8,14 @@
 # usage: scripts/self-review.sh <base> <head>   (the diff is base...head: head's changes since the merge base)
 # env: CHARGEHAND_PROFILE  profile for the run (this script requires one; its models map is optional, as an unmapped
 #                          placeholder model runs on the runtime's default model)
-#      CHARGEHAND_RUNTIME  optional, picks the worker runtime when the profile allows more than one
+#      CHARGEHAND_RUNTIME  optional, names the worker runtime. Order (ADR 0026, ADR 0032): the profile's runtime field,
+#                          then this variable, then the profile's only runtime block, then a PATH probe
 #
-# The runner needs: the .NET SDK from global.json, jq, the worker runtime the profile names (a reachable OpenCode
-# server, or Claude Code), and its secrets in the profile's secret store. The profile's repository_roots must contain
-# the runner's work directory (for example _work/chargehand/chargehand); a profile without repository_roots allows
-# worker_root and the directory the script runs in.
+# The runner needs: the .NET SDK from global.json, jq, the worker runtime that order picks (a reachable OpenCode
+# server, or Claude Code), and its secrets, which the profile's ordered secrets list resolves (each source in turn,
+# first success wins). The profile's repository_roots must contain the runner's work directory (for example
+# _work/chargehand/chargehand); a profile without repository_roots allows worker_root and the directory the script
+# runs in.
 set -euo pipefail
 export LC_ALL=C.UTF-8 # ${#diff} below counts characters, not bytes
 
