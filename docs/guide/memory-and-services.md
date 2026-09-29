@@ -64,7 +64,8 @@ The profile below stacks two providers: Hindsight through an MCP gateway (a bank
           "tool": "hindsight_retain",
           "arguments": {
             "content": "{text}", "context": "{context}", "document_id": "{document_id}",
-            "timestamp": "{timestamp}", "tags": "{tags}", "bank_id": "{namespace}"
+            "timestamp": "{timestamp}", "tags": "{tags}", "bank_id": "{namespace}",
+            "metadata": { "repository": "{repository}", "commit": "{commit}", "locators": "{locators}" }
           }
         },
         "invalidate": {
@@ -109,7 +110,7 @@ The profile below stacks two providers: Hindsight through an MCP gateway (a bank
 | tool | placeholders |
 |---|---|
 | recall | `{query}` (the request text), `{namespace}`, `{max_facts}` |
-| retain | `{namespace}`, `{text}`, `{context}`, `{document_id}`, `{timestamp}`, `{tags}` |
+| retain | `{namespace}`, `{text}`, `{context}`, `{document_id}`, `{timestamp}`, `{tags}`, and the provenance `{repository}`, `{commit}` (12 hex characters) and `{locators}` (every locator of the item, joined with `; `) |
 | invalidate | `{namespace}`, `{id}`, `{reason}` |
 
 **Results.** For recall, chargehand reads the tool's `structuredContent` when `results.path` leads to an array in it, and otherwise the first text block parsed as JSON. A Python MCP tool that returns a string sends it as text and, wrapped as `{"result": "..."}`, as structured content too; Chronicle does, so the wrapper has no array at `results` and the text block is read. An error result, a path that does not resolve or text that is not JSON counts as a provider failure.
@@ -118,7 +119,7 @@ The profile below stacks two providers: Hindsight through an MCP gateway (a bank
 |---|---|---|
 | `path` | `results`; the root if a `results` block leaves it out | dotted property names leading to the array |
 | `id` | `id` | the field holding a fact's id; a missing id becomes the first 12 hex characters of the text's SHA-256 |
-| `text` | `text` | a field name, a template over fields such as `{date}: {summary}`, or an ordered list of these. An entry is used only if every field it names is present and non-empty; the first that qualifies wins, and an item with none is skipped |
+| `text` | `text` | a field name, a template over fields such as `{date}: {summary}` (a dotted name such as `{metadata.commit}` reads a nested object), or an ordered list of these. An entry is used only if every field it names is present and non-empty; the first that qualifies wins, and an item with none is skipped |
 | `format` | `json` | `text` takes the whole first text block as one fact |
 
 ### Hindsight through a gateway
@@ -156,6 +157,10 @@ With `retain` true on an entry, a completed run writes one item to that provider
 Repository: github.com/example/proj, commit 0123456789ab (citations checked at this commit)
 - The API registers handlers with MediatR. [src/Api/Startup.cs:41-58] (confidence 0.90)
 ```
+
+Hindsight rewrites the item into facts of its own and keeps only a sentence about the repository, so the mapping also sends where the citations were checked as `metadata` (a string-to-string map on the retain tool), from `{repository}`, `{commit}` and `{locators}`; the Hindsight entry above does. A mapping without those placeholders sends nothing extra. The full item text stays on the stored document, whose `document_id` is the run id.
+
+Every run with `retain` on also recalls first, and recall appends up to 10 bank facts (`max_facts`) to the prompt of each worker, so they go to the model provider.
 
 Its `document_id` is the run id, its context is `chargehand run result`, its timestamp is the run's finish, and its tags are the entry's `retain_tags`. The repository is the checkout's `origin` URL without scheme, user information, port and `.git`, or the directory name when there is no `origin`.
 
@@ -269,7 +274,7 @@ The tests ([GoalSixTests](../../tests/Chargehand.Tests/GoalSixTests.cs), [Memory
 | Recall | a query on the run's subject returned two ids: the fact Hindsight extracted from the item, tied to that `document_id`, and an observation it consolidated from the fact |
 | Invalidate | `hindsight_invalidate_memory` on the fact set it to `invalidated` with the reason; the observation had no other source and was gone; a new recall returned neither. The document stays, with no facts left; nothing was deleted |
 
-Hindsight rewrites the item into facts of its own. The extracted fact kept the repository label and dropped the commit, the locators and the confidence: it was one sentence about the repository with a date. The full item is the document's text, so a recalled fact names the repository but not the commit, which is on the document.
+Hindsight rewrites the item into facts of its own. The extracted fact kept the repository label and dropped the commit, the locators and the confidence: it was one sentence about the repository with a date. The full item is the document's text, so a recalled fact names the repository but not the commit, which is on the document. That is why retain now sends the provenance as `metadata`. The gateway's retain tool takes `metadata` as an object of strings (or null), and each recalled fact has a `metadata` object (empty on all 19 facts of the bank checked). Whether Hindsight copies a document's metadata onto the facts it extracts is not checked: nothing was written to a bank. To show it on recalled facts, give the recall entry `"results": { "path": "results", "text": ["{text} [{metadata.repository}@{metadata.commit}]", "{text}"] }`; a fact without metadata falls back to the second entry. If Hindsight does not copy it, recalled facts carry no provenance and the document does.
 
 **Services.** A stdio test server on the real Claude Code runtime, and on the shipped OpenCode runtime first with a stand-in model, then with a real one:
 

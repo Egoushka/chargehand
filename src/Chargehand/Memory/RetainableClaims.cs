@@ -74,10 +74,12 @@ public static class RetainItems
 
     public static MemoryItem Build(RetainSelection selection, string repositoryLabel, string commit, string runId, DateTimeOffset finished)
     {
-        var lines = new List<string> { $"Repository: {repositoryLabel}, commit {commit[..Math.Min(ShortCommitLength, commit.Length)]} (citations checked at this commit)" };
+        var shortCommit = commit[..Math.Min(ShortCommitLength, commit.Length)];
+        var lines = new List<string> { $"Repository: {repositoryLabel}, commit {shortCommit} (citations checked at this commit)" };
         lines.AddRange(selection.Claims.Select(c =>
             $"- {c.Text} [{string.Join("; ", c.Locators)}] (confidence {c.Confidence.ToString("0.00", CultureInfo.InvariantCulture)})"));
-        return new MemoryItem(string.Join("\n", lines), "chargehand run result", finished, runId, ["chargehand"]);
+        var provenance = new RetainProvenance(repositoryLabel, shortCommit, selection.Claims.SelectMany(c => c.Locators).Distinct().ToList());
+        return new MemoryItem(string.Join("\n", lines), "chargehand run result", finished, runId, ["chargehand"], provenance);
     }
 }
 

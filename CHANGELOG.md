@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Retain placeholders `{repository}`, `{commit}` (12 hex characters) and `{locators}` (joined with `; `), so a memory mapping can
+  send where a run's citations were checked as metadata (`profiles/example.json` and the guide's Hindsight entry do). Hindsight
+  rewrites a retained item into a sentence without the commit; the metadata and the stored document keep it. A recall
+  `results.text` template can read nested fields (`{metadata.commit}`). Mappings without the new placeholders send what they sent.
+
 ## [0.6.0] - 2026-09-29
 
 Breaking: the single-object form of `memory` in the profile no longer loads. Memory is a list of MCP providers now, and a

@@ -3,7 +3,14 @@ namespace Chargehand.Memory;
 /// <summary>Where a memory lives: which configured backend, and a namespace inside it (ADR 0008).</summary>
 public sealed record MemoryScope(string Backend, string Namespace);
 
-public sealed record MemoryItem(string Text, string? Context = null, DateTimeOffset? Timestamp = null, string? DocumentId = null, IReadOnlyList<string>? Tags = null);
+/// <summary>Where a retained item's citations were checked, for a mapping that sends it beside the text (the text alone may be rewritten by the memory).</summary>
+/// <param name="Commit">The first 12 hex characters.</param>
+/// <param name="Locators">Every locator of the item, once each.</param>
+public sealed record RetainProvenance(string Repository, string Commit, IReadOnlyList<string> Locators);
+
+public sealed record MemoryItem(
+    string Text, string? Context = null, DateTimeOffset? Timestamp = null, string? DocumentId = null, IReadOnlyList<string>? Tags = null,
+    RetainProvenance? Provenance = null);
 
 public sealed record RecalledMemory(string Id, string Text);
 

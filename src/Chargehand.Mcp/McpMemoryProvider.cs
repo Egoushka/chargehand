@@ -36,6 +36,9 @@ public sealed class McpMemoryProvider(MemoryProviderSettings settings, McpConnec
             ["document_id"] = item.DocumentId,
             ["timestamp"] = timestamp,
             ["tags"] = item.Tags?.ToArray(),
+            ["repository"] = item.Provenance?.Repository,
+            ["commit"] = item.Provenance?.Commit,
+            ["locators"] = item.Provenance is { } p ? string.Join("; ", p.Locators) : null,
         }, ct));
     }
 
