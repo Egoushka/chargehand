@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Chargehand.Budget;
 using Chargehand.Contracts;
+using Chargehand.Runtime;
 
 namespace Chargehand.Config;
 
@@ -33,6 +34,11 @@ public sealed record Profile(
 
     /// <summary>Where a request's repository may live (ADR 0023); worker_root alone when the profile names none.</summary>
     public IReadOnlyList<string> Roots => RepositoryRoots ?? [WorkerRoot];
+
+    /// <summary>The runtimes this profile has a block for; the only one names the runtime when neither the runtime field
+    /// nor CHARGEHAND_RUNTIME does (ADR 0032).</summary>
+    public IReadOnlyList<RuntimeKind> RuntimeBlocks =>
+        [.. Opencode is null ? [] : new[] { RuntimeKind.Opencode }, .. ClaudeCode is null ? [] : new[] { RuntimeKind.ClaudeCode }];
 
     /// <summary>The CLI's default when the profile names no repository_roots (ADR 0028): worker_root and the directory
     /// chargehand was launched in, the user's own choice at their shell. serve never calls this; explicit roots win.</summary>

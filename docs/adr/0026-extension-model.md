@@ -1,6 +1,6 @@
 # 0026. The extension model
 
-- Status: accepted
+- Status: accepted; runtime selection amended by 0032
 - Date: 2026-09-28
 
 ## Context

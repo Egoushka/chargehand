@@ -5,9 +5,9 @@ namespace Chargehand.Runtime;
 public enum RuntimeKind { Opencode, ClaudeCode }
 
 /// <summary>
-/// Which runtime to drive (ADR 0026): a profile field or environment variable naming one wins; otherwise PATH is
-/// probed for a known agent CLI. No priority-order fallback: none found or more than one found is an error naming
-/// what was seen.
+/// Which runtime to drive (ADR 0026): a profile field or environment variable naming one wins, then the profile's only
+/// runtime block (ADR 0032); otherwise PATH is probed for a known agent CLI. No priority-order fallback: none found or
+/// more than one found is an error naming what was seen.
 /// </summary>
 public static class RuntimeSelector
 {
@@ -17,12 +17,15 @@ public static class RuntimeSelector
         ("claude_code", "claude", RuntimeKind.ClaudeCode),
     ];
 
-    public static RuntimeKind Select(string? namedByProfile, string? namedByEnvironment, Func<string, bool> onPath)
+    /// <param name="blocks">The runtimes the profile has a block for (<c>opencode</c>, <c>claude_code</c>).</param>
+    public static RuntimeKind Select(string? namedByProfile, string? namedByEnvironment, Func<string, bool> onPath, IReadOnlyList<RuntimeKind>? blocks = null)
     {
         if (Parse(namedByProfile) is { } fromProfile)
             return fromProfile;
         if (Parse(namedByEnvironment) is { } fromEnvironment)
             return fromEnvironment;
+        if (blocks is [var only])
+            return only;
         var found = Known.Where(k => onPath(k.Binary)).ToList();
         return found.Count switch
         {

@@ -1,6 +1,7 @@
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.RunLog;
+using Chargehand.Runtime;
 
 namespace Chargehand.Tests;
 
@@ -41,6 +42,17 @@ public class ProfileTests
         Assert.Equal(Profile.DefaultWorkerRoot, profile.WorkerRoot);
         Assert.Equal("cheap", profile.DefaultPreset);
         Assert.Null(profile.IntakeModel);
+    }
+
+    [Fact]
+    public void Runtime_blocks_lists_the_runtimes_the_profile_configures()
+    {
+        var opencode = new OpenCodeSettings("http://127.0.0.1:1", "pw", "2.0.18");
+
+        Assert.Empty(new Profile("profile/v1").RuntimeBlocks);
+        Assert.Equal([RuntimeKind.Opencode], new Profile("profile/v1", opencode).RuntimeBlocks);
+        Assert.Equal([RuntimeKind.Opencode, RuntimeKind.ClaudeCode],
+            new Profile("profile/v1", opencode, ClaudeCode: new ClaudeCodeSettings(ClaudeCodeSettings.PinnedVersion)).RuntimeBlocks);
     }
 
     [Fact]
