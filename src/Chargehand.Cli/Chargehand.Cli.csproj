@@ -34,6 +34,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
     <ProjectReference Include="..\Chargehand.ClaudeCode\Chargehand.ClaudeCode.csproj" />
+    <ProjectReference Include="..\Chargehand.Mcp\Chargehand.Mcp.csproj" />
     <ProjectReference Include="..\Chargehand.OpenCode\Chargehand.OpenCode.csproj" />
     <ProjectReference Include="..\Chargehand.Server\Chargehand.Server.csproj" />
   </ItemGroup>

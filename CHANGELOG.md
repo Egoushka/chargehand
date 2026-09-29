@@ -7,8 +7,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mcp_servers` in the profile (ADR 0034): MCP servers by name, over Streamable HTTP, the older SSE transport
+  (`"transport": "sse"`) or stdio, with `{secret:item}` in header and environment values. Nothing reads them yet; goal
+  0.6's memory and services will.
+
 ### Changed
 
+- A command secret source that runs longer than 15 s is killed and the next source tried; the error says when one timed out.
 - Recalled facts now carry the name of the memory they came from, and the prompt header says so: `- [hindsight] Deploys
   go through GitOps.` The chain block for recalled text is named `memory/recall/hindsight` instead of `memory/recall`.
   A profile with the `memory` block behaves as before otherwise: one recall per run, retain off by default, the
