@@ -20,6 +20,24 @@ internal sealed class ExtensionsCollector
 
     public void Serviced(IEnumerable<ServiceReport> reports) => _services.AddRange(reports);
 
+    /// <summary>A granted server whose worker could not use it, added to that server's report once; nodes run at the same time.
+    /// The tools stay as granted: the grant was made, the connection failed, and the issue says which.</summary>
+    public void Unavailable(string server, string issue)
+    {
+        lock (_services)
+            if (_services.FindIndex(s => s.Server == server) is var i and >= 0)
+            {
+                if (!_services[i].Issues.Contains(issue))
+                    _services[i] = _services[i] with { Issues = [.. _services[i].Issues, issue] };
+            }
+            else
+                _services.Add(new ServiceReport(server, [], [issue]));
+    }
+
     /// <summary>Null when nothing was recorded, so a run without extensions writes the record it always did.</summary>
-    public ExtensionsReport? ToReport() => _memory.Count + _services.Count == 0 ? null : new ExtensionsReport([.. _memory], [.. _services]);
+    public ExtensionsReport? ToReport()
+    {
+        lock (_services)
+            return _memory.Count + _services.Count == 0 ? null : new ExtensionsReport([.. _memory], [.. _services]);
+    }
 }

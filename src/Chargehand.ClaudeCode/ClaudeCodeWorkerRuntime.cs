@@ -17,9 +17,15 @@ namespace Chargehand.ClaudeCode;
 /// <c>claude setup-token</c> (the owner's plan limits, no per-token bill); with neither, the CLI's own login.
 /// <c>--bare</c> ignores OAuth and the keychain, so the subscription and login modes isolate with
 /// <c>--setting-sources ""</c> instead.
+/// Granted services (ADR 0034) reach the worker as a private <c>--mcp-config</c> file, written per turn and removed when
+/// the process exits, with <c>--allowedTools</c> naming exactly the granted tools.
 /// </summary>
-public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
+public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
 {
+    /// <summary>Prefix of the per-turn directories that hold the MCP config, which carries resolved secrets.</summary>
+    private const string ConfigDirPrefix = "chargehand-mcp-";
+    private const string ConfigFile = "mcp.json";
+
     private readonly string _binary;
     private readonly ClaudeCodeCredential _credential;
     private readonly Uri? _baseUrl;
@@ -32,6 +38,9 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
     }
 
     public string Version { get; }
+
+    /// <summary>Where the per-turn MCP config directories go: the system temp directory, never a session's checkout.</summary>
+    internal string ConfigRoot { get; set; } = Path.GetTempPath();
 
     /// <summary>Refuses a CLI whose version differs from the pinned one. <c>claude --version</c> prints "2.1.283 (Claude Code)".</summary>
     public static async Task<ClaudeCodeWorkerRuntime> ConnectAsync(string binary, string pinnedVersion, ClaudeCodeCredential credential, CancellationToken ct,
@@ -58,7 +67,26 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
         if (credential.Secret is null && (await Exec(binary, Path.GetTempPath(), ["auth", "status"], null, ct, runtime.Env)).Exit != 0)
             throw new ChargehandException(ErrorCode.RuntimeUnavailable, $"{binary} is not signed in and no Claude Code credential is set",
                 $"Run {binary} and sign in, or set CLAUDE_CODE_OAUTH_TOKEN (from claude setup-token) or ANTHROPIC_API_KEY.");
+        SweepStaleConfigs(runtime.ConfigRoot, TimeSpan.FromDays(1));
         return runtime;
+    }
+
+    /// <summary>
+    /// Removes config directories a crash left behind (the process died between writing the file and the turn ending). A turn lasts
+    /// minutes, so a directory a day old is nobody's. Best effort: what cannot be removed stays for the next connect.
+    /// </summary>
+    internal static void SweepStaleConfigs(string root, TimeSpan olderThan)
+    {
+        try
+        {
+            foreach (var dir in Directory.EnumerateDirectories(root, ConfigDirPrefix + "*"))
+                if (Directory.GetLastWriteTimeUtc(dir) < DateTime.UtcNow - olderThan)
+                    RemoveConfigDir(dir);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // An unreadable temp directory is not a reason to refuse to connect.
+        }
     }
 
     public async Task<WorkerSession> CreateAsync(NodeSpec spec, CancellationToken ct)
@@ -127,6 +155,14 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
         var s = Get(sessionId);
         lock (s)
             return Task.FromResult<IReadOnlyList<WorkerMessage>>(Enumerable.Reverse(s.Messages).ToList());
+    }
+
+    /// <summary>What the CLI's <c>init</c> event said about the granted servers, latest turn included; see <see cref="IServiceHealth"/>.</summary>
+    public IReadOnlyDictionary<string, string> UnavailableServices(string sessionId)
+    {
+        var s = Get(sessionId);
+        lock (s)
+            return new Dictionary<string, string>(s.UnavailableServices);
     }
 
     /// <summary>Always empty: the CLI runs in <c>dontAsk</c> mode, where anything not allowed is denied without asking.</summary>
@@ -238,7 +274,18 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
             if (s.Instructions.Count > 0)
                 args.AddRange(["--append-system-prompt", string.Join("\n\n", s.Instructions.Values)]);
         }
-        var (tools, allowed, disallowed) = Permissions(s.Spec.Permissions);
+        var (tools, allowedTools, disallowedTools) = Permissions(s.Spec.Permissions);
+        IReadOnlyList<string> allowed = allowedTools, disallowed = disallowedTools;
+        string? configDir = null;
+        if (s.Spec.Services is { Count: > 0 } grants)
+        {
+            // --mcp-config takes a list, so it goes before another flag; --strict-mcp-config (in CommonArgs) keeps every other server out.
+            var (json, granted, hidden) = ServiceConfig(grants);
+            configDir = WriteConfig(json);
+            args.AddRange(["--mcp-config", Path.Combine(configDir, ConfigFile)]);
+            allowed = [.. allowed, .. granted];
+            disallowed = [.. disallowed, .. hidden];
+        }
         args.AddRange(["--permission-mode", "dontAsk", "--tools", string.Join(",", tools)]);
         if (allowed.Count > 0)
             args.AddRange(["--allowedTools", .. allowed]);
@@ -246,28 +293,141 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
             args.AddRange(["--disallowedTools", .. disallowed]);
 
         s.Interrupted = false;
-        var p = Process.Start(Psi(_binary, s.Spec.Directory, args, Env))!;
+        Process p;
+        try
+        {
+            p = Process.Start(Psi(_binary, s.Spec.Directory, args, Env))!;
+        }
+        catch
+        {
+            RemoveConfigDir(configDir);
+            throw;
+        }
         s.Process = p;
         return Task.Run(async () =>
         {
-            await p.StandardInput.WriteAsync(prompt);
-            p.StandardInput.Close();
-            var stderr = p.StandardError.ReadToEndAsync();
-            var sawResult = false;
-            while (await p.StandardOutput.ReadLineAsync() is { } line)
-                if (line.StartsWith('{'))
-                {
-                    using var doc = JsonDocument.Parse(line);
-                    lock (s)
-                        sawResult |= Apply(s, doc.RootElement, compact);
-                }
-            await p.WaitForExitAsync();
-            lock (s)
-                if (!sawResult && !compact)
-                    s.Messages.Add(Idle(s.Interrupted ? IdleOutcome.Interrupted : IdleOutcome.Failed, $"claude exited {p.ExitCode}: {stderr.Result.Trim()}"));
-            s.Process = null;
-            p.Dispose();
+            try
+            {
+                await p.StandardInput.WriteAsync(prompt);
+                p.StandardInput.Close();
+                var stderr = p.StandardError.ReadToEndAsync();
+                var sawResult = false;
+                while (await p.StandardOutput.ReadLineAsync() is { } line)
+                    if (line.StartsWith('{'))
+                    {
+                        using var doc = JsonDocument.Parse(line);
+                        lock (s)
+                            sawResult |= Apply(s, doc.RootElement, compact);
+                    }
+                await p.WaitForExitAsync();
+                lock (s)
+                    if (!sawResult && !compact)
+                        s.Messages.Add(Idle(s.Interrupted ? IdleOutcome.Interrupted : IdleOutcome.Failed,
+                            Redact($"claude exited {p.ExitCode}: {stderr.Result.Trim()}", s.Spec.Services)));
+                s.Process = null;
+                p.Dispose();
+            }
+            finally
+            {
+                RemoveConfigDir(configDir);
+            }
         });
+    }
+
+    /// <summary>
+    /// The <c>--mcp-config</c> content for the granted servers, and the tool lists for the CLI: the granted tools to allow
+    /// (<c>dontAsk</c> refuses any MCP tool not named, 2.1.283) and the server's other tools to disallow, which the CLI would
+    /// otherwise still list and send to the model (about 50 tokens each). <c>--tools</c> does not touch MCP tools.
+    /// The JSON holds the resolved secrets: it goes to a private file, never to a command line or a log.
+    /// </summary>
+    internal static (string Json, IReadOnlyList<string> Allowed, IReadOnlyList<string> Disallowed) ServiceConfig(IReadOnlyList<ServiceGrant> grants)
+    {
+        var servers = new Dictionary<string, Dictionary<string, object>>();
+        foreach (var grant in grants)
+        {
+            var entry = new Dictionary<string, object>();
+            switch (grant.Transport)
+            {
+                case HttpServiceTransport http:
+                    entry["type"] = http.Protocol == HttpServiceProtocol.Sse ? "sse" : "http";
+                    entry["url"] = http.Url.AbsoluteUri;
+                    if (http.Headers.Count > 0)
+                        entry["headers"] = http.Headers;
+                    break;
+                case StdioServiceTransport stdio:
+                    entry["command"] = stdio.Command[0];
+                    entry["args"] = stdio.Command.Skip(1).ToList();
+                    if (stdio.Env.Count > 0)
+                        entry["env"] = stdio.Env;
+                    break;
+                default:
+                    throw new NotSupportedException($"no Claude Code config for {grant.Transport.GetType().Name}");
+            }
+            servers[grant.Server] = entry;
+        }
+        return (JsonSerializer.Serialize(new { mcpServers = servers }),
+            [.. grants.SelectMany(g => g.Tools.Select(t => ToolName(g.Server, t)))],
+            [.. grants.SelectMany(g => (g.Hidden ?? []).Select(t => ToolName(g.Server, t)))]);
+    }
+
+    /// <summary><c>mcp__server__tool</c>, each part with what the CLI would not keep replaced by "_" (2.1.283: a tool <c>echo.fact</c> is listed
+    /// as <c>echo_fact</c>). Profile server names are already letters, digits and hyphens.</summary>
+    private static string ToolName(string server, string tool) => $"mcp__{Spell(server)}__{Spell(tool)}";
+
+    private static string Spell(string name) => string.Concat(name.Select(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-' ? c : '_'));
+
+    /// <summary>A fresh directory only the runtime's user can enter, holding the config file only that user can read.</summary>
+    private string WriteConfig(string json)
+    {
+        var dir = Path.Combine(ConfigRoot, ConfigDirPrefix + Guid.NewGuid().ToString("N"));
+        if (OperatingSystem.IsWindows())
+            Directory.CreateDirectory(dir);
+        else
+            Directory.CreateDirectory(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        try
+        {
+            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+            if (!OperatingSystem.IsWindows())
+                options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            using var file = new FileStream(Path.Combine(dir, ConfigFile), options);
+            file.Write(Encoding.UTF8.GetBytes(json));
+            return dir;
+        }
+        catch
+        {
+            RemoveConfigDir(dir);
+            throw;
+        }
+    }
+
+    /// <summary>Best effort: a directory that cannot be removed now is swept on a later connect.</summary>
+    private static void RemoveConfigDir(string? dir)
+    {
+        if (dir is null)
+            return;
+        try
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Text the CLI printed, without the exact header and environment values of the session's grants: the CLI may echo what it was
+    /// given, and this text reaches the run log. Values under four characters are left, as they would mangle ordinary words.
+    /// </summary>
+    private static string Redact(string text, IReadOnlyList<ServiceGrant>? grants)
+    {
+        foreach (var value in (grants ?? []).SelectMany(g => g.Transport switch
+                 {
+                     HttpServiceTransport http => http.Headers.Values,
+                     StdioServiceTransport stdio => stdio.Env.Values,
+                     _ => [],
+                 }).Where(v => v.Length >= 4).OrderByDescending(v => v.Length))
+            text = text.Replace(value, "[redacted]", StringComparison.Ordinal);
+        return text;
     }
 
     /// <summary>Folds one stream-json event into the session's messages. Returns true on the final result event.</summary>
@@ -297,6 +457,9 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
                 if (s.Messages.FindLastIndex(x => x.Kind == WorkerMessageKind.Assistant) is var i and >= 0)
                     s.Messages[i] = s.Messages[i] with { ToolOutput = s.Messages[i].ToolOutput + Content(e.GetProperty("message")).Tools };
                 return false;
+            case "system" when e.TryGetProperty("subtype", out var kind) && kind.GetString() == "init":
+                NoteServers(s, e);
+                return false;
             case "system" when e.TryGetProperty("subtype", out var st) && st.GetString() == "compact_boundary":
                 Complete(s, now);
                 s.Messages.Add(new WorkerMessage($"compact_{Guid.NewGuid():N}", WorkerMessageKind.Compaction, now, null, null, now));
@@ -318,12 +481,31 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
                     ReconcileOutput(s, e);
                     var isError = e.GetProperty("is_error").GetBoolean();
                     s.Messages.Add(Idle(s.Interrupted ? IdleOutcome.Interrupted : isError ? IdleOutcome.Failed : IdleOutcome.Succeeded,
-                        isError ? ErrorText(e) : null));
+                        isError ? Redact(ErrorText(e), s.Spec.Services) : null));
                 }
                 return true;
             default:
                 return false;
         }
+    }
+
+    /// <summary>
+    /// The <c>init</c> event lists every server of the CLI's config with a status (<c>connected</c>, <c>failed</c>, ...). A granted one
+    /// that is not connected gives the worker none of its tools for the turn; it is kept, by server, for <see cref="UnavailableServices"/>
+    /// and stays once seen, so a turn that lost a server is not forgotten by a later one that got it back.
+    /// </summary>
+    private static void NoteServers(Session s, JsonElement init)
+    {
+        if (s.Spec.Services is not { Count: > 0 } grants)
+            return;
+        var status = new Dictionary<string, string>();
+        if (init.TryGetProperty("mcp_servers", out var listed) && listed.ValueKind == JsonValueKind.Array)
+            foreach (var server in listed.EnumerateArray())
+                if (server.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String)
+                    status[name.GetString()!] = server.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.String ? st.GetString()! : "unknown";
+        foreach (var grant in grants)
+            if (status.GetValueOrDefault(grant.Server, "absent") is var state && !state.Equals("connected", StringComparison.OrdinalIgnoreCase))
+                s.UnavailableServices[grant.Server] = state;
     }
 
     /// <summary>
@@ -537,6 +719,8 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime
         public bool Started { get; set; }
         public volatile bool Interrupted;
         public volatile bool CompactPending;
+        /// <summary>Granted servers the CLI reported as not connected, by name. Guarded by a lock on the session.</summary>
+        public Dictionary<string, string> UnavailableServices { get; } = [];
         public Task? Turn { get; set; }
         public Process? Process { get; set; }
     }

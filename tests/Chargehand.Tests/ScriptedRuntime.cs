@@ -12,7 +12,7 @@ namespace Chargehand.Tests;
 /// Whole runs without OpenCode: intake returns the next scripted Task Spec (the last one repeats), and every turn of
 /// every session ends with the scripted final message. Turns wait on <see cref="Hold"/>, to observe a run unfinished.
 /// </summary>
-internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWorkerRuntime
+internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWorkerRuntime, IServiceHealth
 {
     private readonly Queue<string> _specs = new(specs.Length == 0 ? [Spec()] : specs);
     private readonly ConcurrentDictionary<string, List<WorkerMessage>> _sessions = new();
@@ -29,6 +29,11 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
 
     /// <summary>Thrown, one per call, by the next session creations (e.g. a runtime that cannot start a worker).</summary>
     public ConcurrentQueue<Exception> CreateFailures { get; } = new();
+
+    /// <summary>Granted servers the workers could not use (server to status), as the runtime would report them once a session has run.</summary>
+    public Dictionary<string, string> Unavailable { get; } = [];
+
+    public IReadOnlyDictionary<string, string> UnavailableServices(string sessionId) => Unavailable;
 
     public TaskCompletionSource Hold { get; set; } = Released();
 
