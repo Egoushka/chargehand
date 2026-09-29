@@ -177,6 +177,7 @@ What is missing: [Long-term memory](#long-term-memory).
 - [ServiceRunTests](../../tests/Chargehand.Tests/ServiceRunTests.cs): the grant reaches the node, the tools hash changes only when something is granted, and a dropped service is in the run log.
 - [ClaudeCodeServicesTests](../../tests/Chargehand.Tests/ClaudeCodeServicesTests.cs) (stand-in CLI): a private config file outside the checkout, exactly the granted tools allowed, the file removed when the turn ends. [OpenCodeServicesTests](../../tests/Chargehand.Tests/OpenCodeServicesTests.cs) (recording HTTP handler): the registration lifecycle and the deny-then-allow rules. [GoalSixTests](../../tests/Chargehand.Tests/GoalSixTests.cs) drives a whole run from a preset through a real service resolver into the Claude Code runtime's stand-in CLI.
 - [ADR 0034](../adr/0034-memory-and-services-over-mcp.md) records the spike behind the delivery to each runtime and a live check on OpenCode 2.0.19 with a stand-in model.
+- Live, on 2026-09-29 ([the guide](memory-and-services.md#checked-live)): on Claude Code 2.1.283 a granted tool of a test server was called and answered, its other tool was absent, and a granted server with a missing command read `failed` and left no config directory; on OpenCode 2.0.19 with a stand-in model a granted tool answered, an ungranted one was unknown, two runs with different grants at one location each saw only their own tool, and a failed server was reported and removed.
 
 What is missing: [Services](#services).
 
@@ -258,7 +259,7 @@ What no test or recorded run covers: a retain against a real memory service (the
 
 ### Services
 
-A preset's `services` give workers read-only tools from MCP servers in the profile, on Claude Code and on OpenCode. No shipped preset lists any. What is missing: no recorded run uses a real service through a real runtime, so how the pinned Claude Code and OpenCode versions treat a granted tool is known from the spike and the stand-ins, not from a run through chargehand. On OpenCode, a preset that denies `*` (such as `draft`) cannot use services, because workers reach a server through OpenCode's `execute` tool; and a claim that rests on a service's output cites a URL it returned, which the resolver accepts as seen in tool output and does not check against the claim (goal 0.8).
+A preset's `services` give workers read-only tools from MCP servers in the profile, on Claude Code and on OpenCode. No shipped preset lists any. What is missing: no recorded run calls a service from OpenCode with a real model (the live check used a stand-in model). On OpenCode, a preset that denies `*` (such as `draft`) cannot use services, because workers reach a server through OpenCode's `execute` tool; and a claim that rests on a service's output cites a URL it returned, which the resolver accepts as seen in tool output and does not check against the claim (goal 0.8).
 
 ### Running with no profile file
 
