@@ -14,7 +14,8 @@ public sealed record RetainSelection(IReadOnlyList<RetainableClaim> Claims, IRea
 /// Which claims of a result long-term memory may keep (goal 0.6, ADR 0034, spec decisions 4 and 10). A completed result's
 /// evidence has all resolved by the time it gets here: the worker node drops what did not, after its repair turn, so a
 /// claim qualifies when at least one <c>file</c> or <c>commit</c> entry it cites is left. No confidence floor. "Resolved"
-/// means the path, lines or commit exist at the pinned commit; the cited text is not compared with the claim (0.8).
+/// means the path, lines or commit exist at the pinned commit. A claim the support check found only partly supported is not kept (ADR 0036); an
+/// unsupported one is no longer a claim.
 /// </summary>
 public static partial class RetainableClaims
 {
@@ -32,6 +33,11 @@ public static partial class RetainableClaims
         foreach (var claim in result.Claims)
         {
             var text = OneLine(claim.Text);
+            if (claim.Support == ClaimSupport.Partial)
+            {
+                skipped.Add($"partly supported: {Preview(text)}");
+                continue;
+            }
             var locators = claim.Evidence
                 .Select(id => evidence.GetValueOrDefault(id))
                 .OfType<Evidence>()

@@ -116,6 +116,7 @@
       "type": "string",
       "description": "Where worker clones and worktrees live. Must be outside the OpenCode user's home: OpenCode discovers skills by walking up from the session directory. Default (ADR 0026): a fixed directory outside $HOME, created on first use."
     },
+    "support_check": { "type": "boolean", "description": "Default true (ADR 0036): after a node, one call on the intake model judges whether the text each claim cites supports it; unsupported claims move to open_questions and the rest carry support. false: no check, no extra call." },
     "sandbox": {
       "type": "object",
       "additionalProperties": false,

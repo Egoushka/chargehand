@@ -32,7 +32,8 @@ public sealed record Profile(
     IReadOnlyList<string>? RepositoryRoots = null,
     string? Runtime = null,
     IReadOnlyDictionary<string, McpServerSettings>? McpServers = null,
-    SandboxSettings? Sandbox = null)
+    SandboxSettings? Sandbox = null,
+    bool SupportCheck = true)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
