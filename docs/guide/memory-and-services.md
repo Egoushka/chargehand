@@ -5,7 +5,7 @@ order: 6
 section: "Guides"
 ---
 
-Two parts of a run can come from MCP servers you name in the profile. **Memory** is context chargehand fetches before the workers start and, if you turn it on, writes to when the run ends. **Services** are read-only tools a preset lets its workers call. Both are off until you list a server: a profile with no `mcp_servers`, no `memory` and no preset `services` behaves as before. This page describes v0.6.0 ([changelog](../../CHANGELOG.md#060---2026-09-29)).
+Two parts of a run can come from MCP servers you name in the profile. **Memory** is context chargehand fetches before the workers start and, if you turn it on, writes to when the run ends. **Services** are read-only tools a preset lets its workers call. Both are off until you list a server: a profile with no `mcp_servers`, no `memory` and no preset `services` behaves as before. This page describes v0.6.1 ([changelog](../../CHANGELOG.md#061---2026-09-29)).
 
 ## Name your servers: mcp_servers
 

@@ -42,10 +42,10 @@ Sources: [README](../../README.md#how-a-run-works), [ADR 0009](../adr/0009-resul
 
 ## Current status
 
-- **Before 1.0.** The latest release is v0.6.0. Goal 0.4, "it runs with nothing configured", is done: v0.4.0 shipped it and v0.4.1 added its MCP Registry listing. Goal 0.5 in the roadmap, one prompt to a reviewed change, is still open: its code (the plugin, the command and the `review` preset) shipped in 0.4.0, there is no 0.5.0, and what is left is the maintainer's own use of the command on real tasks. Goal 0.6, runs that use your MCP services and memory, is done and released in v0.6.0 ([Memory and services](memory-and-services.md)).
+- **Before 1.0.** The latest release is v0.6.1. Goal 0.4, "it runs with nothing configured", is done: v0.4.0 shipped it and v0.4.1 added its MCP Registry listing. Goal 0.5 in the roadmap, one prompt to a reviewed change, is still open: its code (the plugin, the command and the `review` preset) shipped in 0.4.0, there is no 0.5.0, and what is left is the maintainer's own use of the command on real tasks. Goal 0.6, runs that use your MCP services and memory, is done and released in v0.6.0 ([Memory and services](memory-and-services.md)).
 - **Read-only workers.** Writing nodes in worktrees belong to goal 0.7.
 - **On nuget.org and in the MCP Registry.** The `Chargehand` tool package and `Chargehand.Contracts` are published, so `dnx Chargehand@<version> --yes -- mcp` runs chargehand without a clone ([the MCP page](mcp.md#from-the-package)). The registry lists `io.github.Egoushka/chargehand` from 0.4.1, and the release workflow lists each new version.
-- **Main and the release.** This guide describes the `main` branch, which is v0.6.0 plus the changes under Unreleased in the [changelog](../../CHANGELOG.md#unreleased). A change that lands on `main` after a release appears there, and pages mark it "on main, not yet released".
+- **Main and the release.** This guide describes the `main` branch, which is v0.6.1 plus the changes under Unreleased in the [changelog](../../CHANGELOG.md#unreleased). A change that lands on `main` after a release appears there, and pages mark it "on main, not yet released".
 
 ## Where to go next
 
