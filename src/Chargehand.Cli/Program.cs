@@ -55,7 +55,17 @@ if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "r
     return 2;
 }
 
-var profile = Profile.Load(profilePath);
+Profile profile;
+try
+{
+    profile = Profile.Load(profilePath);
+}
+catch (ChargehandException e)
+{
+    Console.Error.WriteLine($"{profilePath}: {e.Message}");
+    Console.Error.WriteLine(e.Action);
+    return 2;
+}
 var (root, runLogPath) = InstallPaths.Resolve(profile.RunLog, Directory.GetCurrentDirectory(), AppContext.BaseDirectory,
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify));
 var runLog = new JsonlRunLog(runLogPath);
