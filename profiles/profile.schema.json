@@ -116,6 +116,16 @@
       "type": "string",
       "description": "Where worker clones and worktrees live. Must be outside the OpenCode user's home: OpenCode discovers skills by walking up from the session directory. Default (ADR 0026): a fixed directory outside $HOME, created on first use."
     },
+    "sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where a writing preset's tests run (ADR 0035): the platform's sandbox, with no network and a cut environment unless allowed here.",
+      "properties": {
+        "kind": { "enum": ["auto", "seatbelt", "bubblewrap", "none"], "description": "auto (default): sandbox-exec on macOS, bwrap on Linux, and a writing run is refused when neither is there. none: run the tests unconfined, an explicit opt-in." },
+        "network": { "type": "boolean", "description": "Allow the sandboxed command network access. Default false; a build that restores packages needs true." },
+        "env": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Names of environment variables passed to the command besides PATH, LANG, LC_ALL and TERM." }
+      }
+    },
     "repository_roots": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
