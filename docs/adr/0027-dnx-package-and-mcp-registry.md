@@ -73,11 +73,11 @@ from the flat-container index (checked 2026-09-28).
 ## Decision
 
 - **Package** `Chargehand` from `src/Chargehand.Cli`: `PackAsTool`, `ToolCommandName` `chargehand`, `PackageType`
-  `McpServer`, `PackageReadmeFile` pointing at a package README with `<!-- mcp-name: io.github.egoushka/chargehand -->`,
+  `McpServer`, `PackageReadmeFile` pointing at a package README with `<!-- mcp-name: io.github.Egoushka/chargehand -->`,
   and `.mcp/server.json` packed at `/.mcp/`. `prompts/` and `presets/` ship in the tool; `mcp` reads them from
   `AppContext.BaseDirectory` unless the working directory has its own. The run log defaults to a per-user state
   directory under `mcp`, never the client's workspace.
-- **server.json**: `name` `io.github.egoushka/chargehand`, `registryType` `nuget`, `runtimeHint` `dnx`,
+- **server.json**: `name` `io.github.Egoushka/chargehand`, `registryType` `nuget`, `runtimeHint` `dnx`,
   `transport` stdio, `packageArguments` one positional `mcp`, and optional `environmentVariables`
   `CHARGEHAND_PROFILE` and `CHARGEHAND_RUNTIME`. No required input: the goal is a client config of one line.
 - **What the user brings**: the .NET 10 SDK, one agent CLI (`claude` or `opencode`) installed and signed in, and
@@ -126,6 +126,28 @@ Note, 2026-09-28: the pack stamps the version itself. `Chargehand.Cli.csproj` wr
 `Directory.Build.props`; the release job still stamps the committed file for `mcp-publisher`. `dnx` from SDK 10.0.302 on macOS (not on the Linux CI runner)
 prints "Skipping NuGet package signature verification." to stdout on a first install, ahead of the server's first
 message; `scripts/mcp-smoke.py` skips non-JSON lines and reports them.
+
+Note, 2026-09-29: the server name is `io.github.Egoushka/chargehand`, with the owner spelled as GitHub spells it, not
+`io.github.egoushka/chargehand`. That answers the case unknown above. In registry v1.8.1 the OIDC exchange grants
+`io.github.<repository_owner>/*`, publish checks the name against it with `strings.HasPrefix`, and the `mcp-name` line is
+found with `strings.Index`: all case-sensitive
+([github_oidc.go](https://github.com/modelcontextprotocol/registry/blob/v1.8.1/internal/api/handlers/v0/auth/github_oidc.go),
+[jwt.go](https://github.com/modelcontextprotocol/registry/blob/v1.8.1/internal/auth/jwt.go),
+[mcpname.go](https://github.com/modelcontextprotocol/registry/blob/v1.8.1/internal/validators/registries/mcpname.go)).
+The `Chargehand` 0.4.0 package on nuget.org carries the lower-case line and a published version does not change, so 0.4.0
+cannot be listed; the first version that can be is the first release with the corrected line. `McpServerJsonTests` pins
+the name's owner segment to `repository.url`.
+
+Note, 2026-09-29: the entry is published by a job of its own, `mcp-registry` with `needs: release`, not by a step of
+`release`. It holds `contents: read` and `id-token: write` and nothing else. A registry failure (the registry is in
+preview) leaves the image, the packages and the GitHub Release as they are, and re-running the failed job repeats it
+alone. The job stamps a copy of `.mcp/server.json` with `jq`, installs `mcp-publisher` 1.8.1 after checking the archive's
+SHA-256, waits at most 20 minutes for nuget.org to serve the package README with the ownership line (the URL the registry
+reads, not the version index), then runs `login github-oidc` and `publish`. The registry refuses a second publish of a
+version ("cannot publish duplicate version"), so the job asks the registry whether the version is listed before it
+publishes and again after a failed attempt. A publisher older than v1.7.6 fails with `invalid audience`
+([GitHub Actions](https://github.com/modelcontextprotocol/registry/blob/main/docs/modelcontextprotocol-io/github-actions.mdx));
+the pin is bumped by hand.
 
 ## Reopen if
 

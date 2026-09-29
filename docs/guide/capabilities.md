@@ -35,7 +35,7 @@ The tests call no model. They run the orchestrator on a scripted runtime ([Scrip
 | [Running with no profile file](#running-with-no-profile-file) | partial | [ProfileTests](../../tests/Chargehand.Tests/ProfileTests.cs), [ROADMAP.md](../../ROADMAP.md) |
 | [Claude Code plugin, `/chargehand:change`](#claude-code-plugin-chargehandchange) | partial | [ChangeSkillTests](../../tests/Chargehand.Tests/ChangeSkillTests.cs), [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs) |
 | [`Chargehand` and `Chargehand.Contracts` on nuget.org](#chargehand-and-chargehandcontracts-on-nugetorg) | works | [mcp-smoke.py](../../scripts/mcp-smoke.py), [release.yml](../../.github/workflows/release.yml), [README](../../README.md#from-the-package) |
-| [Listing in the MCP Registry](#listing-in-the-mcp-registry) | not yet | [ROADMAP.md](../../ROADMAP.md), [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) |
+| [Listing in the MCP Registry](#listing-in-the-mcp-registry) | partial | [McpServerJsonTests](../../tests/Chargehand.Tests/McpServerJsonTests.cs), [release.yml](../../.github/workflows/release.yml), [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) |
 | [Writing nodes in worktrees](#writing-nodes-in-worktrees) | not yet | [ROADMAP.md](../../ROADMAP.md), [ADR 0015](../adr/0015-merging-and-verification.md) |
 | [Checking that the cited text supports each claim](#checking-that-the-cited-text-supports-each-claim) | not yet | [ROADMAP.md](../../ROADMAP.md), [GitEvidenceResolver.cs](../../src/Chargehand/Verification/GitEvidenceResolver.cs) |
 
@@ -190,11 +190,11 @@ What is missing: [Claude Code plugin](#claude-code-plugin).
 
 ### Listing in the MCP Registry
 
-- Goal 0.4 in [ROADMAP.md](../../ROADMAP.md)
-- [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md).
-- [McpServerJsonTests](../../tests/Chargehand.Tests/McpServerJsonTests.cs) validates `.mcp/server.json`
-- no workflow publishes it
-- the registry's server list has no entry named `io.github.egoushka/chargehand` (checked on 2026-09-29).
+- Goal 0.4 in [ROADMAP.md](../../ROADMAP.md) and [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md).
+- [McpServerJsonTests](../../tests/Chargehand.Tests/McpServerJsonTests.cs) validates `.mcp/server.json` against the pinned schema, and pins its name to the repository owner's spelling and to the package README's ownership line.
+- The `mcp-registry` job in [release.yml](../../.github/workflows/release.yml) publishes the entry after a release, when `NUGET_USER` is set. It has not run yet, and no test covers it.
+- The registry's server list has no entry named `io.github.Egoushka/chargehand` (checked on 2026-09-29).
+- The `Chargehand` 0.4.0 README has the ownership line in lower case, which the registry does not match to that name, so 0.4.0 cannot be listed.
 
 What is missing: [MCP Registry listing](#mcp-registry-listing).
 
@@ -251,7 +251,7 @@ With the profile's `memory` block set, a run recalls facts once and adds them to
 
 ### MCP Registry listing
 
-`.mcp/server.json` describes the entry `io.github.egoushka/chargehand` for the `Chargehand` package. The registry needs the package on nuget.org before the entry ([ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md)); the package is there now, and no workflow publishes the entry.
+`.mcp/server.json` describes the entry `io.github.Egoushka/chargehand` for the `Chargehand` package. The registry needs the package on nuget.org before the entry ([ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md)); the package is there now. On main, not yet released: the `mcp-registry` job in the release workflow publishes the entry after each release. The registry matches the name and the README's ownership line case-sensitively and 0.4.0's line is in lower case, so the first entry comes with the next release.
 
 ### Writing nodes
 
