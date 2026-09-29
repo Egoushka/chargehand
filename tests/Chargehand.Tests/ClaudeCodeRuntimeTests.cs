@@ -1,9 +1,12 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Chargehand.Budget;
 using Chargehand.ClaudeCode;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Nodes;
 using Chargehand.Runtime;
+using Chargehand.Verification;
 
 namespace Chargehand.Tests;
 
@@ -84,6 +87,55 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         Apply(s, """{"type":"system","subtype":"compact_boundary"}""", compact: true);
         Apply(s, """{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":10,"output_tokens":400,"cache_read_input_tokens":9000,"cache_creation_input_tokens":0}}""", compact: true);
         Assert.Equal((WorkerMessageKind.Compaction, 400L), (s.Messages[^1].Kind, s.Messages[^1].Tokens!.Output));
+    }
+
+    /// <summary>The error_* subtypes of Claude Code's result event carry no <c>result</c> (2.1.283 emits <c>errors</c> instead), and a
+    /// <c>success</c> one flagged is_error can carry it empty: the idle message still names the cause.</summary>
+    [Theory]
+    [InlineData("""{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":3,"errors":["Reached maximum number of turns (3)"]}""",
+        "claude reported error_max_turns after 3 turns: Reached maximum number of turns (3)")]
+    [InlineData("""{"type":"result","subtype":"error_max_budget_usd","is_error":true,"num_turns":1,"errors":["Reached maximum budget ($0.5)","second"]}""",
+        "claude reported error_max_budget_usd after 1 turn: Reached maximum budget ($0.5); second")]
+    [InlineData("""{"type":"result","subtype":"error_during_execution","is_error":true}""", "claude reported error_during_execution")]
+    [InlineData("""{"type":"result","subtype":"success","is_error":true,"result":"","num_turns":2,"api_error_status":529}""",
+        "claude reported success with is_error after 2 turns (API status 529)")]
+    [InlineData("""{"type":"result","subtype":"success","is_error":true,"result":null}""", "claude reported success with is_error")]
+    [InlineData("""{"type":"result","is_error":true}""", "claude reported an error result")]
+    public void An_error_result_without_result_text_still_names_its_cause(string result, string expected)
+    {
+        var s = new ClaudeCodeWorkerRuntime.Session("s", Spec, null);
+        Assert.True(Apply(s, result));
+        Assert.Equal((IdleOutcome.Failed, expected), (s.Messages[^1].Outcome, s.Messages[^1].Error));
+    }
+
+    [Fact]
+    public void An_error_result_with_result_text_keeps_that_text_and_a_successful_one_has_no_error()
+    {
+        var s = new ClaudeCodeWorkerRuntime.Session("s", Spec, null);
+        Apply(s, """{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":3,"result":"Stopped early","errors":["ignored"]}""");
+        Assert.Equal("Stopped early", s.Messages[^1].Error);
+        Apply(s, """{"type":"result","subtype":"success","is_error":false,"result":"DONE"}""");
+        Assert.Equal(IdleOutcome.Succeeded, s.Messages[^1].Outcome);
+        Assert.Null(s.Messages[^1].Error);
+    }
+
+    /// <summary>The bug behind this: an error result with no <c>result</c> and no assistant message reached WorkerNode as a failed
+    /// session with no reason, which it reported in OpenCode's terms.</summary>
+    [Fact]
+    public async Task A_max_turns_result_reaches_the_caller_as_its_cause_not_as_a_missing_model_call()
+    {
+        var claude = FakeClaude("""{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":3,"errors":["Reached maximum number of turns (3)"]}""");
+        var rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", new ClaudeCodeCredential("k", false), CancellationToken.None);
+        var request = new NodeRequest("run-1", "worker", new string('0', 32), Spec with { Directory = _dir.Path }, [], "Task",
+            new PromptChain([], new AsSent("2.0.16", "build", "anthropic/claude-sonnet-5", "2026-09-26")),
+            _dir.Path, "abc1234", [], "", 1.00m, TimeSpan.FromMinutes(1));
+
+        var e = (await new WorkerNode(rt, new PriceTable(new Dictionary<string, ModelPrice>()), new GitEvidenceResolver(), TimeSpan.FromMilliseconds(10))
+            .RunAsync(request, CancellationToken.None)).Contract.Error!;
+
+        Assert.Equal("worker ended failed: claude reported error_max_turns after 3 turns: Reached maximum number of turns (3)", e.Message);
+        Assert.DoesNotContain("model call", e.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("OpenCode", e.Action, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -209,6 +261,16 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         Assert.Contains("--system-prompt", args);
         Assert.Contains("--no-session-persistence", args);
         Assert.Equal("0", File.ReadAllText(Path.Combine(_dir.Path, "thinking.txt")).Trim());
+    }
+
+    [Fact]
+    public async Task Generate_names_the_cause_of_an_error_result_that_has_no_result_text()
+    {
+        var claude = FakeClaude("""{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":1,"errors":["Reached maximum number of turns (1)"]}""");
+        var rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", new ClaudeCodeCredential("k", false), CancellationToken.None);
+
+        var e = await Assert.ThrowsAsync<InvalidOperationException>(() => rt.GenerateAsync(null, "spec please", CancellationToken.None));
+        Assert.Equal("claude -p exited 0: claude reported error_max_turns after 1 turn: Reached maximum number of turns (1)", e.Message);
     }
 
     [Fact]
