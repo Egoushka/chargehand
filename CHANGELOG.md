@@ -28,7 +28,7 @@ All notable changes to this project are documented here. The format follows
   `{text}` and the like, and a `results` mapping that says where the facts are in the answer (`path`, `id`, and `text` as a
   field, a template such as `{date}: {summary}`, or an ordered list of these). An entry without a retain tool is
   recall-only, and `namespace` defaults to the entry's name. A mapping that names an unknown server or placeholder, or
-  misses its recall tool, fails when the profile loads. The single-object form still loads and is deprecated.
+  misses its recall tool, fails when the profile loads.
 - `services` on a preset's node kind (`preset/v1`, an additive field; ADR 0034): a server from `mcp_servers` and the
   tool names workers may call, exact or with `*` globs, never a whole server. At the start of a run chargehand connects,
   lists the server's tools and grants the ones named. A server, secret or tool that does not resolve is dropped, not fatal:
@@ -61,15 +61,13 @@ All notable changes to this project are documented here. The format follows
 - A `memory` list in the profile is now read (ADR 0034); until now it loaded and did nothing. `run`, `serve` and `mcp` build
   one memory stack from it: each entry becomes a source that calls its server's mapped tools over the same MCP
   connections a preset's `services` use (one connection per server), in list order, with the entry's limits, `retain` and
-  `retain_tags`, and recall asks every source at once. The single-object form builds its one `hindsight` source as before
-  until its client is removed. A profile copied from `profiles/example.json` now tries its memory server when a run
+  `retain_tags`, and recall asks every source at once. A profile copied from `profiles/example.json` now tries its memory server when a run
   recalls; a server or secret that does not resolve skips that memory, and `chargehand show` says why.
 - A command secret source that runs longer than 15 s is killed and the next source tried; the error says when one timed out.
 - Recalled facts now carry the name of the memory they came from, and the prompt header says so: `- [hindsight] Deploys
   go through GitOps.` The chain block for recalled text is named `memory/recall/hindsight` instead of `memory/recall`.
-  A profile with the `memory` block behaves as before otherwise: one recall per run, retain off by default, the
-  30-second limit of the HTTP client. Recall now keeps at most 10 facts and 4000 characters, cuts a fact at 600
-  characters, and shows each fact as one line.
+  One recall per run and retain off by default are unchanged. Recall now keeps at most 10 facts and 4000 characters, cuts
+  a fact at 600 characters, shows each fact as one line, and gives each entry 10 seconds by default (`timeout_seconds`).
 - `chargehand show` prints one line per memory with what it recalled and retained, or why it was skipped, from a new
   optional `extensions` report in the run record. The span tags for memory are per source
   (`chargehand.memory.<name>.recalled` and `.error`) instead of `chargehand.memory.recalled` and
@@ -84,6 +82,23 @@ All notable changes to this project are documented here. The format follows
   retains nothing). The repository is the `origin` URL without scheme, user information, port and `.git`, or the
   directory name when there is no `origin`. A run that retained nothing says why in `chargehand show`
   (`no commit`, `no claim qualified`). There is no confidence floor.
+
+### Removed
+
+- The Hindsight HTTP client (`HindsightMemory`) and the single-object form of `memory` (`backend`, `url`, `namespace`,
+  `api_key_secret`, `max_tokens`, `retain`; ADR 0034). A profile that still has the object fails to load with
+  `memory is a list now` and a pointer to `mcp_servers`. Migration: put the service's MCP endpoint (and its API key as a
+  header) in `mcp_servers`, and list the provider under `memory` with the tool mapping, which
+  `profiles/example.json` shows for Hindsight seen through an MCP gateway:
+
+  ```json
+  "mcp_servers": { "memory-gateway": { "url": "https://<your MCP endpoint for the memory service>", "headers": { "Authorization": "Bearer {secret:<api-key-item>}" } } },
+  "memory": [ { "name": "hindsight", "server": "memory-gateway", "namespace": "<your bank>", "tools": { "recall": { … }, "retain": { … } } } ]
+  ```
+
+  The `retain` flag moved from the object to the entry, and a recall entry takes the bank as `{namespace}` in its
+  arguments. The tool names are the ones the MCP endpoint lists (a gateway may prefix them: `chargehand extensions check`
+  prints the mapping's tool names and says which are missing). `profile/v1` needs no other change.
 
 ## [0.4.1] - 2026-09-29
 

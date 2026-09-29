@@ -43,9 +43,7 @@ public static partial class ExtensionsCheck
             else
                 report.Fail($"server {name}: {listings[name].Reason}", listings[name].Action!);
 
-        if (profile.Memory?.ObjectForm is not null)
-            report.Pass("memory: the single-object form is not checked here (it does not use MCP and is deprecated, ADR 0034)");
-        var providers = profile.Memory?.Providers ?? [];
+        var providers = profile.Memory ?? [];
         foreach (var problem in MemoryMapping.Validate(providers, servers))
             report.Fail(problem, "fix memory in the profile; docs/guide/reference.md lists the fields");
         foreach (var provider in providers.Where(p => MemoryMapping.Validate(p, servers).Count == 0))

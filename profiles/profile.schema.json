@@ -282,53 +282,9 @@
       }
     },
     "memory": {
-      "description": "Long-term memory (ADR 0034): an ordered list of providers, each an entry of mcp_servers plus a declarative mapping from chargehand's recall and retain to that server's tools. Each executed run asks every provider at once, each under its own timeout, and gives the merged facts to its nodes as unverified context labelled with the provider's name. The single-object form (Hindsight over HTTP) still loads, deprecated, until the Hindsight client is removed.",
-      "oneOf": [
-        {
-          "type": "array",
-          "items": { "$ref": "#/$defs/memoryProvider" }
-        },
-        {
-          "type": "object",
-          "deprecated": true,
-          "additionalProperties": false,
-          "required": [
-            "backend",
-            "url",
-            "namespace"
-          ],
-          "description": "The single-object form (ADR 0008), replaced by the list above.",
-          "properties": {
-            "backend": {
-              "enum": [
-                "hindsight"
-              ]
-            },
-            "url": {
-              "type": "string",
-              "format": "uri"
-            },
-            "namespace": {
-              "type": "string",
-              "minLength": 1,
-              "description": "The backend's namespace (a Hindsight bank)."
-            },
-            "api_key_secret": {
-              "type": "string",
-              "description": "Secret-store item holding the API key, if the backend needs one."
-            },
-            "max_tokens": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Recall budget in tokens (default 1024)."
-            },
-            "retain": {
-              "type": "boolean",
-              "description": "Retain each completed run's claims whose file or commit citations resolved, with their locators, the repository and the commit; never the request or the summary (default false)."
-            }
-          }
-        }
-      ]
+      "description": "Long-term memory (ADR 0034): an ordered list of providers, each an entry of mcp_servers plus a declarative mapping from chargehand's recall and retain to that server's tools. Each executed run asks every provider at once, each under its own timeout, and gives the merged facts to its nodes as unverified context labelled with the provider's name. The single-object form (backend, url, namespace) was removed; a profile that still has it fails to load.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/memoryProvider" }
     }
   },
   "$defs": {

@@ -44,14 +44,6 @@ public sealed partial class MemoryStack(IReadOnlyList<MemorySource> sources)
 
     public IReadOnlyList<MemorySource> Sources => sources;
 
-    /// <summary>
-    /// The profile's single <c>memory</c> object as a stack of one source named <c>hindsight</c>, until the object form
-    /// goes. Its timeout is the 30 s the CLI gives the HTTP client, so a slow service is waited for as before.
-    /// </summary>
-    public static MemoryStack ForObjectForm(MemorySettings settings, IMemoryProvider provider) =>
-        new([new MemorySource("hindsight", provider, new MemoryScope(settings.Backend, settings.Namespace), new MemoryLimits(Timeout: TimeSpan.FromSeconds(30)),
-            settings.Retain, ["chargehand"])]);
-
     /// <summary>Asks every source at once, then merges in list order: one line per fact, labelled with the names of the sources that returned it.</summary>
     public async Task<RecallOutcome> RecallAsync(string query, CancellationToken ct)
     {

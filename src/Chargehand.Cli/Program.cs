@@ -277,9 +277,7 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
     return (runtime, runtime.Version);
 }
 
-// The provider list runs over the shared MCP pool; the single-object form keeps its Hindsight client until ADR 0034 removes it.
-MemoryStack? Memory() => MemoryStacks.From(profile, mcpPool, m => new HindsightMemory(
-    new HttpClient { BaseAddress = new Uri(m.Url), Timeout = TimeSpan.FromSeconds(30) }, m.ApiKeySecret is null ? null : profile.Secret(m.ApiKeySecret), m.MaxTokens));
+MemoryStack? Memory() => MemoryStacks.From(profile, mcpPool);
 
 /// <summary>Setup mistakes before a run: <c>--preset</c> narrows the services check to one preset, <c>--probe</c> adds one real recall per memory.</summary>
 async Task<int> CheckExtensions(IReadOnlyList<string> options)

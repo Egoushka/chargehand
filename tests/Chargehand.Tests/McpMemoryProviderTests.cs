@@ -1,5 +1,3 @@
-using System.Net;
-using System.Text;
 using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Mcp;
@@ -221,53 +219,26 @@ public class McpMemoryProviderTests
         Assert.Empty(server.Calls);
     }
 
-    private sealed class Recorder(string recallReply) : HttpMessageHandler
-    {
-        public List<(HttpMethod Method, string Path, JsonElement Body)> Seen { get; } = [];
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            Seen.Add((request.Method, request.RequestUri!.AbsolutePath, JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct)).RootElement.Clone()));
-            var body = request.RequestUri.AbsolutePath.EndsWith("/recall", StringComparison.Ordinal) ? recallReply : "{}";
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
-        }
-    }
-
-    /// <summary>The bar for deleting HindsightMemory (spec, decision 14): the mapping sends what the HTTP client sends.</summary>
+    /// <summary>What HindsightMemory sent (0.4.0), written down: the Hindsight mapping keeps sending it.</summary>
     [Fact]
-    public async Task Hindsight_mapping_sends_what_HindsightMemory_sends()
+    public async Task The_hindsight_mapping_sends_the_fields_the_http_client_sent()
     {
         var item = new MemoryItem("fact", "ctx", new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero), "run-1", ["chargehand", "x"]);
-        var http = new Recorder(Found);
-        var hindsight = new HindsightMemory(new HttpClient(http) { BaseAddress = new Uri("http://memory.example.internal:8888/") }, apiKey: null, recallMaxTokens: 1024);
-        var overHttp = await hindsight.RecallAsync("how are deploys done", Scope, CancellationToken.None);
-        await hindsight.RetainAsync(item, Scope, CancellationToken.None);
-        await hindsight.InvalidateAsync("f1", "wrong", Scope, CancellationToken.None);
-
         await using var server = new FakeMcpServer(new FakeTool("recall", _ => FakeMcpServer.Text(Found)), new FakeTool("retain", _ => FakeMcpServer.Text("queued")),
             new FakeTool("invalidate_memory", _ => FakeMcpServer.Text("ok")));
         await using var pool = PoolFor(server);
         var mcp = new McpMemoryProvider(Settings(Hindsight), pool);
-        var overMcp = await mcp.RecallAsync("how are deploys done", Scope, CancellationToken.None);
+
+        await mcp.RecallAsync("how are deploys done", Scope, CancellationToken.None);
         await mcp.RetainAsync(item, Scope, CancellationToken.None);
         await mcp.InvalidateAsync("f1", "wrong", Scope, CancellationToken.None);
 
-        Assert.Equal(overHttp, overMcp);
+        // What HindsightMemory sent (0.4.0): recall {query, budget "low", max_tokens 1024} on the namespace's bank; retain
+        // {content, context, timestamp, document_id, tags} asynchronously; invalidate {state, reason} on the id.
         var (recall, retain, invalidate) = (server.Calls[0].Arguments, server.Calls[1].Arguments, server.Calls[2].Arguments);
-        Assert.Contains("/banks/chargehand/", http.Seen[0].Path, StringComparison.Ordinal);
-        Assert.Equal("chargehand", recall["bank_id"].GetString());
-        foreach (var field in new[] { "query", "budget" })
-            Assert.Equal(http.Seen[0].Body.GetProperty(field).GetString(), recall[field].GetString());
-        Assert.Equal(http.Seen[0].Body.GetProperty("max_tokens").GetInt32(), recall["max_tokens"].GetInt32());
-
-        var sent = http.Seen[1].Body.GetProperty("items")[0];
-        Assert.True(http.Seen[1].Body.GetProperty("async").GetBoolean()); // the MCP tool is the asynchronous one, not sync_retain
-        foreach (var field in new[] { "content", "context", "document_id", "timestamp" })
-            Assert.Equal(sent.GetProperty(field).GetString(), retain[field].GetString());
-        Assert.Equal(sent.GetProperty("tags").EnumerateArray().Select(t => t.GetString()), retain["tags"].EnumerateArray().Select(t => t.GetString()));
-
-        Assert.EndsWith("/memories/f1", http.Seen[2].Path, StringComparison.Ordinal);
-        Assert.Equal(http.Seen[2].Body.GetProperty("reason").GetString(), invalidate["reason"].GetString());
-        Assert.Equal("f1", invalidate["memory_id"].GetString());
+        Assert.Equal(("how are deploys done", "low", 1024, "chargehand"), (recall["query"].GetString(), recall["budget"].GetString(), recall["max_tokens"].GetInt32(), recall["bank_id"].GetString()));
+        Assert.Equal(("fact", "ctx", "run-1", "2026-09-29T12:00:00+00:00"), (retain["content"].GetString(), retain["context"].GetString(), retain["document_id"].GetString(), retain["timestamp"].GetString()));
+        Assert.Equal(["chargehand", "x"], retain["tags"].EnumerateArray().Select(t => t.GetString()));
+        Assert.Equal(("f1", "wrong"), (invalidate["memory_id"].GetString(), invalidate["reason"].GetString()));
     }
 }

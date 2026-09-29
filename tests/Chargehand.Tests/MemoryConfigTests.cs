@@ -27,7 +27,7 @@ public class MemoryConfigTests
     [Fact]
     public void A_memory_list_loads_with_its_mapping()
     {
-        var provider = Load($"[{Hindsight}]").Memory!.Providers.Single();
+        var provider = Load($"[{Hindsight}]").Memory!.Single();
 
         Assert.Equal(("hindsight", "gw", "chargehand", true), (provider.Name, provider.Server, provider.Namespace, provider.Retain));
         Assert.Equal("recall", provider.Tools.Recall.Tool);
@@ -42,7 +42,7 @@ public class MemoryConfigTests
     {
         var entry = """{"name":"notes","server":"gw","namespace":"n","tools":{"recall":{"tool":"search_notes","arguments":{"q":"{query}"},"results":{"path":"notes","id":"key","text":"body"}}}}""";
 
-        var results = Load($"[{entry}]").Memory!.Providers.Single().Tools.Recall.Results!;
+        var results = Load($"[{entry}]").Memory!.Single().Tools.Recall.Results!;
 
         Assert.Equal(("notes", "key", "json"), (results.Path, results.Id, results.Format));
         Assert.Equal(["body"], results.Text);
@@ -59,7 +59,7 @@ public class MemoryConfigTests
     [Fact]
     public void A_recall_only_provider_loads_without_a_namespace_and_reads_a_list_of_text_templates()
     {
-        var provider = Load($"[{Chronicle}]", ChronicleServer).Memory!.Providers.Single();
+        var provider = Load($"[{Chronicle}]", ChronicleServer).Memory!.Single();
 
         Assert.Null(provider.Namespace);
         Assert.Equal("chronicle", provider.EffectiveNamespace);
@@ -70,12 +70,23 @@ public class MemoryConfigTests
     }
 
     [Fact]
-    public void The_object_form_still_loads_until_the_hindsight_client_goes()
+    public void The_object_form_of_memory_fails_with_the_migration()
     {
-        var memory = Load("""{"backend":"hindsight","url":"http://memory.example.internal:8888","namespace":"ns"}""", "{}").Memory!;
+        using var dir = new TempDir();
+        var path = dir.Write("p.json", """{"schema":"profile/v1","memory":{"backend":"hindsight","url":"http://memory.example.internal:8888","namespace":"ns"}}""");
 
-        Assert.Empty(memory.Providers);
-        Assert.Equal("ns", memory.ObjectForm!.Namespace);
+        var e = Assert.Throws<ChargehandException>(() => Profile.Load(path));
+
+        Assert.Equal(ErrorCode.InvalidRequest, e.Code);
+        Assert.Contains("memory is a list now", e.Message, StringComparison.Ordinal);
+        Assert.Contains("mcp_servers", e.Action, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_example_profile_holds_no_object_form()
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllText(Repo.Path("profiles", "example.json")));
+        Assert.Equal(JsonValueKind.Array, doc.RootElement.GetProperty("memory").ValueKind);
     }
 
     [Theory]
@@ -183,7 +194,7 @@ public class MemoryConfigTests
             "recall":{"tool":"r","arguments":{},"results":{"path":"data.items","text":["{created-at}: {body.text}","body"]}}
             """);
 
-        var results = Load(entry).Memory!.Providers.Single().Tools.Recall.Results!;
+        var results = Load(entry).Memory!.Single().Tools.Recall.Results!;
 
         Assert.Equal(("data.items", "id", "json"), (results.Path, results.Id, results.Format));
         Assert.Equal(["{created-at}: {body.text}", "body"], results.Text);
@@ -192,7 +203,7 @@ public class MemoryConfigTests
     [Fact]
     public void Without_a_results_block_recall_reads_the_results_array_and_a_text_field()
     {
-        var call = Load($"[{Hindsight}]").Memory!.Providers.Single().Tools.Recall;
+        var call = Load($"[{Hindsight}]").Memory!.Single().Tools.Recall;
 
         Assert.Null(call.Results);
         Assert.Equal(("results", "id", "json"), (call.EffectiveResults.Path, call.EffectiveResults.Id, call.EffectiveResults.Format));
@@ -206,7 +217,7 @@ public class MemoryConfigTests
             "recall":{"tool":"r","arguments":{},"results":{"id":"key"}}
             """);
 
-        var results = Load(entry).Memory!.Providers.Single().Tools.Recall.EffectiveResults;
+        var results = Load(entry).Memory!.Single().Tools.Recall.EffectiveResults;
 
         Assert.Null(results.Path);
         Assert.Equal("key", results.Id);
@@ -217,7 +228,7 @@ public class MemoryConfigTests
     public void Limits_default_to_the_stacks_and_an_entry_overrides_them()
     {
         var notes = """{"name":"notes","server":"gw","max_facts":3,"max_chars":900,"max_fact_chars":200,"timeout_seconds":4,"retain_tags":["team"],"tools":{"recall":{"tool":"r","arguments":{}}}}""";
-        var providers = Load($"[{Chronicle.Replace("\"server\":\"chronicle\"", "\"server\":\"gw\"", StringComparison.Ordinal)},{notes}]").Memory!.Providers;
+        var providers = Load($"[{Chronicle.Replace("\"server\":\"chronicle\"", "\"server\":\"gw\"", StringComparison.Ordinal)},{notes}]").Memory!;
 
         Assert.Equal(new MemoryLimits(), providers[0].Limits);
         Assert.Equal(new MemoryLimits(3, 900, TimeSpan.FromSeconds(4), 200), providers[1].Limits);
@@ -252,7 +263,7 @@ public class MemoryConfigTests
     [InlineData("42")]
     [InlineData("[null]")]
     [InlineData("[\"hindsight\"]")]
-    public void A_memory_value_that_is_neither_a_list_of_entries_nor_the_object_form_is_a_json_error(string memory)
+    public void A_memory_value_that_is_is_not_a_list_of_entries_is_a_json_error(string memory)
     {
         Assert.ThrowsAny<JsonException>(() => Load(memory));
     }
@@ -260,10 +271,9 @@ public class MemoryConfigTests
     [Fact]
     public void The_example_profile_loads_with_both_mappings()
     {
-        var profile = Profile.Load(Repo.Path("profiles", "example.json"));
+        var memory = Profile.Load(Repo.Path("profiles", "example.json")).Memory!;
 
-        Assert.Equal(["hindsight", "chronicle"], profile.Memory!.Providers.Select(p => p.Name));
-        Assert.Equal([false, false], profile.Memory.Providers.Select(p => p.Retain));
-        Assert.Null(profile.Memory.ObjectForm);
+        Assert.Equal(["hindsight", "chronicle"], memory.Select(p => p.Name));
+        Assert.Equal([false, false], memory.Select(p => p.Retain));
     }
 }

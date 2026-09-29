@@ -157,7 +157,7 @@ public class MemoryRunTests
         var log = new JsonlRunLog(Path.Combine(root.Path, "log.jsonl"));
         var request = Runs.CheapRequest(repo) with { Inputs = [new CallerInput("rel-v1", "signal", "Released v1.")] };
 
-        var result = await Make(root.Path, runtime, MemoryStacks.From(profile, pool, _ => throw new InvalidOperationException("no object form here")), log)
+        var result = await Make(root.Path, runtime, MemoryStacks.From(profile, pool), log)
             .RunAsync(request, CancellationToken.None);
 
         Assert.Equal(ResultStatus.Completed, result.Status);
@@ -221,23 +221,5 @@ public class MemoryRunTests
         var report = (await log.ReadAsync(result.TaskId, CancellationToken.None)).Run!.Extensions!.Memory.Single();
         Assert.Equal("no claim qualified", report.RetainSkipped);
         Assert.Equal(0, report.Retained);
-    }
-
-    [Fact]
-    public void The_object_form_of_memory_becomes_one_source_named_hindsight()
-    {
-        var stack = MemoryStack.ForObjectForm(new MemorySettings("hindsight", "http://memory.example.internal:8888", "ns", Retain: true), new Fake());
-
-        var source = Assert.Single(stack.Sources);
-        Assert.Equal(("hindsight", true), (source.Name, source.Retain));
-        Assert.Equal(new MemoryScope("hindsight", "ns"), source.Scope);
-    }
-
-    [Fact]
-    public void The_object_form_retains_nothing_unless_it_says_so()
-    {
-        var stack = MemoryStack.ForObjectForm(new MemorySettings("hindsight", "http://memory.example.internal:8888", "ns"), new Fake());
-
-        Assert.False(Assert.Single(stack.Sources).Retain);
     }
 }

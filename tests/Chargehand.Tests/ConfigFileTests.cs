@@ -119,7 +119,7 @@ public class ConfigFileTests
 
     [Theory]
     [InlineData("""{"schema":"profile/v1","memory":[]}""", true)]
-    [InlineData("""{"schema":"profile/v1","memory":{"backend":"hindsight","url":"http://memory.example.internal:8888","namespace":"ns"}}""", true)]   // the object form, until it goes
+    [InlineData("""{"schema":"profile/v1","memory":{"backend":"hindsight","url":"http://memory.example.internal:8888","namespace":"ns"}}""", false)]  // the object form, removed
     [InlineData("""{"schema":"profile/v1","memory":[{"name":"a","server":"gw","namespace":"n","tools":{"recall":{"tool":"r","arguments":{},"results":{"text":"body"}}}}]}""", true)]
     [InlineData("""{"schema":"profile/v1","memory":[{"name":"a","server":"gw","max_facts":3,"max_chars":900,"max_fact_chars":200,"timeout_seconds":4,"retain":true,"retain_tags":["t"],"tools":{"recall":{"tool":"r","arguments":{}},"retain":{"tool":"w","arguments":{}}}}]}""", true)]
     [InlineData("""{"schema":"profile/v1","memory":[{"name":"a","server":"gw","retain":true,"tools":{"recall":{"tool":"r","arguments":{}}}}]}""", false)]           // retain with no retain tool

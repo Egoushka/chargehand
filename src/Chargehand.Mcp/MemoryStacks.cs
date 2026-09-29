@@ -9,19 +9,11 @@ public static class MemoryStacks
     /// <summary>
     /// The profile's <c>memory</c> as a stack, or null when it lists nothing. Each list entry becomes one source over the shared
     /// <paramref name="pool"/>, in list order, with the entry's limits, retain flag and tags, in the scope of its namespace
-    /// (its name when it sets none). The old single object, which the profile never holds beside the list, becomes its one
-    /// source through <paramref name="objectForm"/>; both go when the object form does.
+    /// (its name when it sets none).
     /// </summary>
-    /// <param name="objectForm">Builds the provider of the single object (the Hindsight HTTP client).</param>
-    public static MemoryStack? From(Profile profile, McpConnectionPool pool, Func<MemorySettings, IMemoryProvider> objectForm)
-    {
-        if (profile.Memory is not { } memory)
-            return null;
-        if (memory.ObjectForm is { } settings)
-            return MemoryStack.ForObjectForm(settings, objectForm(settings));
-        return memory.Providers.Count == 0
+    public static MemoryStack? From(Profile profile, McpConnectionPool pool) =>
+        profile.Memory is not { Count: > 0 } memory
             ? null
-            : new MemoryStack([.. memory.Providers.Select(p =>
+            : new MemoryStack([.. memory.Select(p =>
                 new MemorySource(p.Name, new McpMemoryProvider(p, pool), new MemoryScope(p.Name, p.EffectiveNamespace), p.Limits, p.Retain, p.EffectiveRetainTags))]);
-    }
 }
