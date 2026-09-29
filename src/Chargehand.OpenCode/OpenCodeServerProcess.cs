@@ -59,6 +59,10 @@ public sealed class OpenCodeServerProcess : IDisposable
             psi.ArgumentList.Add(a);
         psi.Environment["OPENCODE_SERVER_PASSWORD"] = password;
         psi.Environment["OPENCODE_DISABLE_AUTOUPDATE"] = "1";
+        // A checkout's opencode.json or .opencode can register an MCP server whose command the session then starts.
+        // OpenCode reads the second name only when the first is unset, so set both (an inherited "0" would win).
+        psi.Environment["OPENCODE_CONFIG_PROJECT_DISABLE"] = "1";
+        psi.Environment["OPENCODE_DISABLE_PROJECT_CONFIG"] = "1";
         psi.Environment["HOME"] = Dir("home");
         psi.Environment["XDG_CONFIG_HOME"] = Dir("xdg", "config");
         psi.Environment["XDG_DATA_HOME"] = Dir("xdg", "data");

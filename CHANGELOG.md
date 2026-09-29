@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- OpenCode workers can no longer reach MCP servers. A preset's leading `* * allow` reached the tools of any server
+  registered at the location, including write-shaped ones and OpenCode's MCP resource tools, and a checkout's own
+  `opencode.json` could register a server whose command OpenCode started when a session was created there. Every
+  OpenCode session's rules now end with `*_* * deny`. The server chargehand starts and `scripts/opencode-serve.sh` set
+  `OPENCODE_DISABLE_PROJECT_CONFIG=1` and `OPENCODE_CONFIG_PROJECT_DISABLE=1`, so a checkout's `opencode.json`,
+  `.opencode`, `AGENTS.md` and project skills are no longer read (workers stop receiving the checkout's `AGENTS.md`).
+  Restart a server you started earlier with the script, and set both variables on one you start another way. The Claude
+  Code runtime was not affected (ADR 0034).
+
 ### Added
 
 - `mcp_servers` in the profile (ADR 0034): MCP servers by name, over Streamable HTTP, the older SSE transport

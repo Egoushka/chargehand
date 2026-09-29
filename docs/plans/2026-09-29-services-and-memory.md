@@ -2785,9 +2785,9 @@ Expected: FAIL to compile (`PutMcpServerAsync`, `ReleaseServicesAsync` do not ex
   status is connected (poll up to 5 s if O1 showed the connection is not immediate); append the generated rules; record
   `sessionId → (directory, server names)` and a `ConcurrentDictionary<(string, string), int>` count.
   `ReleaseAsync(sessionId, ct)` (`ISessionCleanup`, called by `WorkerNode` when the node ends) decrements and `DELETE`s at zero.
-- Rules: exactly what Task 1's O3 to O6 justify, and the tests above carry that shape. If O4 showed foreign servers reach
-  workers under `* * allow`, also append, for every server `GET /api/mcp` lists that is not in the grants, a deny for that
-  server's tools, and add a test for it.
+- Rules: exactly what Task 1's O3 to O6 justify, and the tests above carry that shape. O4 showed foreign servers reach
+  workers under `* * allow`; that is closed by `*_* * deny` at the end of every OpenCode session's rules
+  (`OpenCodeWorkerRuntime.DenyMcpTools`, ADR 0034), so a grant is one `<server>_<tool> * allow` after it and no listing is needed.
 - `docs/opencode-adapter-ops.json`: add the three operations; regenerate `docs/opencode-api.md` with `scripts/gen-opencode-api.py`
   if it lists operations by use.
 
