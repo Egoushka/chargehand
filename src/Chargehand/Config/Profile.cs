@@ -306,10 +306,11 @@ public sealed record ToolCall(string Tool, IReadOnlyDictionary<string, JsonEleme
 
 /// <summary>
 /// How to read a recall tool's answer as facts. With <see cref="Format"/> <c>json</c>: the answer is the tool's
-/// <c>structuredContent</c> if it has any, else its first text block parsed as JSON; <see cref="Path"/> leads from the root to
-/// the array of results; each element of the array is one candidate fact, whose <see cref="Id"/> property is the fact's id
-/// (a missing one becomes the first 12 hex characters of the SHA-256 of the fact text) and whose text is the first of
-/// <see cref="EffectiveText"/> that qualifies. With <see cref="FormatText"/> the whole first text block is one fact and the
+/// <c>structuredContent</c> if <see cref="Path"/> leads to an array in it, else its first text block parsed as JSON (a Python
+/// MCP tool that returns <c>str</c> sends its text in both, wrapped as <c>{"result": "…"}</c> in the structured content);
+/// <see cref="Path"/> leads from the root to the array of results; each element of the array is one candidate fact, whose
+/// <see cref="Id"/> property is the fact's id (a missing one becomes the first 12 hex characters of the SHA-256 of the fact
+/// text) and whose text is the first of <see cref="EffectiveText"/> that qualifies. With <see cref="FormatText"/> the whole first text block is one fact and the
 /// other fields are unused. An error result, a path that does not lead to an array, or JSON that does not parse is a failure of
 /// the provider (the stack skips it), never a fact.
 /// </summary>
