@@ -8,8 +8,41 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request supersedes the run in flight; main keeps every run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # ADR 0033: a pull request that touches only prose skips the build jobs. Nothing else reads these files: tests read
+  # docs/*.json, and prompts/, presets/, plugins/ and CHANGELOG.md are not in the list. File names come from the API;
+  # nothing from the pull request is checked out here.
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          code=true
+          if [ -n "$PR" ]; then
+            files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" -q '.[] | .filename, (.previous_filename // empty)')
+            other=$(echo "$files" | grep -vE '^(README\.md|ROADMAP\.md|CONTRIBUTING\.md|docs/.*\.md)$' || true)
+            if [ -n "$files" ] && [ -z "$other" ]; then
+              code=false
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -28,6 +61,8 @@ jobs:
   # ADR 0027: the dnx tool packs, carries the Directory.Build.props version in .mcp/server.json, starts from an empty
   # directory and lists orchestrate over stdio. McpServerJsonTests (build job) checks server.json against the schema.
   package:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,6 +74,8 @@ jobs:
 
   # Goal 0.5: the Claude Code plugin and its marketplace entry pass the pinned Claude Code validator.
   plugin:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -76,3 +113,16 @@ jobs:
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
+
+  # The one required check (ADR 0033): green when every job above passed or was skipped, so a prose-only pull request
+  # merges without the build jobs, and a job renamed or added here needs no change to the ruleset.
+  ci-gate:
+    if: always()
+    needs: [changes, build, package, plugin, secrets, commits, dependencies]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null
