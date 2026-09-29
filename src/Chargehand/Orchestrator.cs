@@ -15,6 +15,7 @@ using Chargehand.Prompts;
 using Chargehand.Results;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
+using Chargehand.Signing;
 using Chargehand.Verification;
 
 namespace Chargehand;
@@ -66,12 +67,15 @@ public sealed class Orchestrator(
             new("result/v1", runId, "intake", traceId, intakeChain, status, summary, [], [], artifacts ?? [], questions, 0, new Usage(0, 0, 0, 0, 0));
 
         ResultContract result;
+        System.Security.Cryptography.ECDsa? signingKey = null;
         IntakeOutcome? intake = null;
         TaskAction? executed = null;
         try
         {
             var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
             var (kindName, kind) = AnswerKind(preset);
+            // A key that cannot be used stops the run before anything is spent (ADR 0036).
+            signingKey = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
             // Unset when the profile maps no real model to the preset's placeholder: the runtime uses its own default.
             var workerModel = profile.ResolveModel(kind.Model);
             var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
@@ -141,6 +145,11 @@ public sealed class Orchestrator(
                 error);
         }
 
+        if (signingKey is not null)
+        {
+            result = ResultSignature.Sign(result, signingKey);
+            signingKey.Dispose();
+        }
         run?.SetTag("chargehand.contract.status", result.Status.ToString().ToLowerInvariant());
         run?.SetTag("chargehand.intake.action", intake?.Spec is null ? null : Name(intake.Spec.Action));
         run?.SetTag("chargehand.action", executed is null ? null : Name(executed.Value));
