@@ -41,7 +41,9 @@ public sealed record NodeResult(ResultContract Contract, string SessionId, IRead
 /// one task prompt, idle with a deadline, result contract with at most one repair turn for the schema and one for
 /// evidence (ADR 0009, ADR 0010, ADR 0011). A writing node also takes up to <see cref="NodeRequest.MaxFixRounds"/> fix turns.
 /// </summary>
-public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvidenceResolver resolver, TimeSpan? pollInterval = null)
+/// <param name="supportCheck">Runs on a completed result once its evidence has resolved (ADR 0036); null: no check.</param>
+public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvidenceResolver resolver, TimeSpan? pollInterval = null,
+    Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? supportCheck = null)
 {
     private readonly TimeSpan _poll = pollInterval ?? TimeSpan.FromSeconds(5);
 
@@ -118,6 +120,9 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
             if (next is not null)
                 contract = ResultAssembler.MoveUnresolved(next, await resolver.ResolveAsync(next, await Scope(session.Id, r, ct), ct));
         }
+
+        if (contract is not null && outcome == IdleOutcome.Succeeded && contract.Status == ResultStatus.Completed && supportCheck is not null)
+            contract = await supportCheck(contract, await Scope(session.Id, r, ct), ct);
 
         if (overBudget && contract is not null)
             contract = contract with { OpenQuestions = [.. contract.OpenQuestions, BudgetNote] };

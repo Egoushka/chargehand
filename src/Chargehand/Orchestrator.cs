@@ -192,7 +192,8 @@ public sealed class Orchestrator(
             TagChain(span, chain);
             span?.SetTag("chargehand.node", node.Id);
             progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.NodeStarted) with { NodeId = node.Id });
-            var nodeResult = await new WorkerNode(runtime, prices, new GitEvidenceResolver()).RunAsync(nodeRequest, token, primed);
+            var nodeResult = await new WorkerNode(runtime, prices, new GitEvidenceResolver(),
+                supportCheck: profile.SupportCheck ? (contract, scope, ct2) => SupportCheck.RunAsync(runtime, ParseModel(profile.IntakeModel), contract, scope, ct2) : null).RunAsync(nodeRequest, token, primed);
             span?.SetTag("langfuse.session.id", nodeResult.SessionId);
             run?.SetTag("langfuse.session.id", nodeResult.SessionId);
             span?.SetTag("chargehand.contract.status", nodeResult.Contract.Status.ToString().ToLowerInvariant());
