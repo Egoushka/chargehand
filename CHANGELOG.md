@@ -26,8 +26,7 @@ unless a preset grants them (Security; restart an OpenCode server you started ea
 
 There is no 0.5.0: goal 0.5's code shipped in 0.4.0, and what remains of its done-when is the maintainer's own use of
 `/chargehand:change` on real tasks, which is still open. The one schema change is additive: `preset/v1` gains the
-optional `services` field. `Chargehand.Contracts` has no code change and stays at 1.2.0-alpha, so this release does not
-publish it again; the published 1.2.0-alpha package predates `services`.
+optional `services` field, and `Chargehand.Contracts` 1.3.0-alpha is published with it.
 
 ### Security
 
