@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-29
+
+Fixes found in use of 0.4.0 and the first pieces of goal 0.5, and the first version the MCP Registry can list, under
+the name `io.github.Egoushka/chargehand`. Intake now sees the text of caller inputs, within a cap per input and a cap
+in total; a failed worker session and a Claude Code error result always carry a cause; memory that times out or
+answers garbage is skipped instead of failing the run; and the private-terms hook works in a linked worktree. No schema
+changed, so `Chargehand.Contracts` stays at 1.2.0-alpha.
+
 ### Added
 
 - The release workflow lists each new version in the MCP Registry (ADR 0027). A `mcp-registry` job runs after `release`
@@ -16,8 +24,8 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - The MCP Registry name is `io.github.Egoushka/chargehand`, with the owner spelled as GitHub spells it: the registry
-  matches the namespace and the README's `mcp-name` line case-sensitively. The `Chargehand` 0.4.0 package still has the
-  lower-case line, so the first listing comes with the next release.
+  matches the namespace and the README's `mcp-name` line case-sensitively. The `Chargehand` 0.4.0 package has the
+  lower-case line and cannot change, so 0.4.1 is the first version the registry can list.
 
 ### Fixed
 
@@ -39,6 +47,10 @@ All notable changes to this project are documented here. The format follows
 - The `.private-terms` hooks work in a linked worktree. The list is gitignored, so a worktree never had a copy and every
   commit there aborted with "`.private-terms` is missing"; the check now falls back to the main worktree's list. A
   worktree's own file still wins, and with no list in either place the commit is still blocked.
+- Memory failed open only on `HttpRequestException`. A provider timing out (`TaskCanceledException`, which `HttpClient`
+  raises when its own timeout elapses) ended the run with an exception and no result, and a `JsonException` or
+  `IOException` from a provider failed it. Recall and retain now skip the provider on any exception except the caller's
+  own cancellation, and the run goes on without it.
 
 ## [0.4.0] - 2026-09-29
 
@@ -383,7 +395,11 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/Egoushka/chargehand/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/Egoushka/chargehand/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/Egoushka/chargehand/compare/v0.2.2...v0.3.0
+[0.2.2]: https://github.com/Egoushka/chargehand/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Egoushka/chargehand/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Egoushka/chargehand/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Egoushka/chargehand/releases/tag/v0.1.0
