@@ -2,6 +2,7 @@
 title: "Reference"
 description: "Commands, HTTP routes, presets, contracts, error codes, profile fields, environment variables, and where the run log lives."
 order: 7
+section: "Reference"
 ---
 
 ## Commands

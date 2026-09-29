@@ -2,6 +2,7 @@
 title: "Prompt CI"
 description: "How prompt and preset changes are gated by paired evals: the cells, the eval commands, the verdict and its tolerances, and what the gate has missed."
 order: 6
+section: "Concepts"
 ---
 
 Prompt CI runs a pull request's prompts and presets against its base on real tasks, in pairs, and blocks the change when quality falls or cost rises beyond what noise explains. You meet it when you change a file under `prompts/` or `presets/`.

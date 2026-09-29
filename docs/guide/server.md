@@ -2,6 +2,7 @@
 title: "Run the HTTP server"
 description: "chargehand serve: the profile's http block, the bearer key, binding and allowed hosts, each route with its status codes, and the release image."
 order: 4
+section: "Guides"
 ---
 
 `chargehand serve` hosts the HTTP interface and the MCP endpoint in one process. Runs started through either land in the same run log as CLI runs.

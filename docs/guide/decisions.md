@@ -2,6 +2,7 @@
 title: "Architecture decisions"
 description: "Every architecture decision record in docs/adr, in number order, with its status and one line on what it decides."
 order: 8
+section: "Project"
 ---
 
 Each decision lives in `docs/adr/` as a numbered file that states the options, the evidence and the condition for reopening it. Superseded ADRs stay, with a pointer to their successor ([ADR 0000](../adr/0000-record-architecture-decisions.md)). The status column repeats each file's own status line.
