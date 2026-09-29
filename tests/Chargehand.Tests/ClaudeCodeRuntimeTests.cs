@@ -58,12 +58,22 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         Assert.Equal(("msg_1", "Looking. ", 9L, 100L, 50L), (first.Id, first.Text, first.Tokens!.Output, first.Tokens.CacheRead, first.Tokens.CacheWrite));
         Assert.Contains("\"command\":\"ls\"", first.ToolOutput);
         Assert.Contains("a.txt", first.ToolOutput);
+        Assert.Equal(["a.txt"], first.ToolResults);
         Assert.NotNull(first.Completed);
         Assert.Equal("anthropic/claude-sonnet-5", second.Model);
         Assert.NotNull(second.Completed);
         // Assistant events carry the message_start stub; the result's total output lands on the turn's last call.
         Assert.Equal(211 - 9, second.Tokens!.Output);
         Assert.Equal((WorkerMessageKind.Idle, IdleOutcome.Succeeded), (idle.Kind, idle.Outcome));
+    }
+
+    [Fact]
+    public void A_tool_result_given_as_content_blocks_is_kept_as_text()
+    {
+        var s = new ClaudeCodeWorkerRuntime.Session("s", Spec, null);
+        Apply(s, """{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"t1","name":"mcp__fake__echo_fact","input":{}}],"usage":{"input_tokens":3,"output_tokens":1}}}""");
+        Apply(s, """{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"echo_fact ok: \"spike\" fact"}]}]}}""");
+        Assert.Equal(["echo_fact ok: \"spike\" fact"], s.Messages[0].ToolResults);
     }
 
     /// <summary>ADR 0026: an unset model (the session ran with the CLI's own default, no --model pinned) reports no

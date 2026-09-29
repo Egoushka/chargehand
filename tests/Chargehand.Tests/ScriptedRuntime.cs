@@ -30,6 +30,9 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
     /// <summary>Thrown, one per call, by the next session creations (e.g. a runtime that cannot start a worker).</summary>
     public ConcurrentQueue<Exception> CreateFailures { get; } = new();
 
+    /// <summary>What a tool of the worker's returned, kept on its assistant message like a runtime does; null: no tool call.</summary>
+    public string? ToolResult { get; set; }
+
     /// <summary>Granted servers the workers could not use (server to status), as the runtime would report them once a session has run.</summary>
     public Dictionary<string, string> Unavailable { get; } = [];
 
@@ -81,7 +84,8 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
     {
         await Hold.Task.WaitAsync(ct);
         var now = DateTimeOffset.UtcNow;
-        Add(sessionId, new WorkerMessage($"msg_{Interlocked.Increment(ref _ids)}", WorkerMessageKind.Assistant, now, reply, new TokenCounts(1000, 100, 0, 4000, 200), now.AddSeconds(1)));
+        Add(sessionId, new WorkerMessage($"msg_{Interlocked.Increment(ref _ids)}", WorkerMessageKind.Assistant, now, reply, new TokenCounts(1000, 100, 0, 4000, 200), now.AddSeconds(1),
+            ToolOutput: ToolResult, ToolResults: ToolResult is null ? null : [ToolResult]));
         return IdleOutcome.Succeeded;
     }
 

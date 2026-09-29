@@ -37,7 +37,7 @@
         "properties": {
           "id": { "type": "string", "minLength": 1 },
           "kind": { "enum": ["file", "diff", "url", "session_message", "commit", "input"] },
-          "locator": { "type": "string", "minLength": 1, "description": "file: path:line or path:start-end; diff: path:start-end in the node's session diff; url: the URL; session_message: message id; commit: sha; input: the caller's input id." },
+          "locator": { "type": "string", "minLength": 1, "description": "file: path:line or path:start-end; diff: path:start-end in the node's session diff; url: the URL; session_message: message id, or an exact quotation (at least 12 characters) of a tool reply in the node's session; commit: sha; input: the caller's input id." },
           "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
           "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
         }
