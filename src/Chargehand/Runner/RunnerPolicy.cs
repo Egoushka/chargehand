@@ -6,7 +6,9 @@ namespace Chargehand.Runner;
 /// <param name="Images">Session images by digest; the only images that start.</param>
 /// <param name="EgressImage">The egress proxy's image; the caller never names it.</param>
 /// <param name="MaxContainers">Labelled containers that may exist at once, running or not.</param>
-public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressImage, int MaxContainers = 8, int MaxMemoryMb = 16_384, double MaxCpus = 4, int MaxPids = 1024)
+/// <param name="SourceRoots">Directories a workspace's read-only source may be under (chargehand's checkouts). None: no workspace is prepared, because a source path names a host directory.</param>
+public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressImage, int MaxContainers = 8, int MaxMemoryMb = 16_384, double MaxCpus = 4, int MaxPids = 1024,
+    IReadOnlyList<string>? SourceRoots = null)
 {
     public const string WorkPrefix = "chargehand-work-";
     public const string OutPrefix = "chargehand-out-";
@@ -26,6 +28,24 @@ public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressIma
         if (start.MemoryMb > MaxMemoryMb || start.Cpus > MaxCpus || start.Pids > MaxPids)
             return $"limits are above the runner's ceilings (memory {MaxMemoryMb} MiB, cpus {MaxCpus}, pids {MaxPids})";
         return null;
+    }
+
+    /// <summary>A workspace helper mounts a host directory read-only: it must be a directory strictly under a configured root, by its normalised path, so <c>..</c> and a
+    /// sibling that shares a prefix do not pass.</summary>
+    public string? RefuseWorkspace(RunnerWorkspace workspace)
+    {
+        if (!Images.Contains(workspace.Image, StringComparer.Ordinal))
+            return "image is not on the runner's allowlist";
+        if (workspace.WorkVolume != WorkPrefix + workspace.RunId)
+            return $"the volume must be {WorkPrefix}<run id>";
+        if (SourceRoots is not { Count: > 0 })
+            return "the runner has no source roots configured, so it prepares no workspace";
+        if (workspace.SourcePath.Split('/').Contains(".."))
+            return "the source path may not contain '..'";
+        var path = Path.TrimEndingDirectorySeparator(workspace.SourcePath);
+        return SourceRoots.Any(root => path.StartsWith(Path.TrimEndingDirectorySeparator(root) + "/", StringComparison.Ordinal))
+            ? null
+            : "the source is not under one of the runner's source roots";
     }
 
     public static string? RefuseVolume(string name) =>

@@ -7,7 +7,7 @@ namespace Chargehand.Runner;
 
 /// <summary>An <see cref="IContainerEngine"/> over the runner's HTTP API (ADR 0039), for a server that must not hold the container engine's
 /// socket. The <see cref="HttpClient"/> carries the base address and the bearer key.</summary>
-public sealed class RunnerClient(HttpClient http) : IContainerEngine
+public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspaceEngine
 {
     public async Task<string> StartAsync(ContainerSpec spec, CancellationToken ct)
     {
@@ -15,6 +15,9 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine
             spec.MemoryMb, spec.Cpus, spec.Pids, [.. spec.Command]);
         return (await Send<IdReply>(HttpMethod.Post, "/start", body, ct)).Id;
     }
+
+    public Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct) =>
+        Send(HttpMethod.Post, "/workspace", new RunnerWorkspace(spec.RunId, spec.Image, spec.SourcePath, spec.WorkVolume, spec.Branch, spec.Commit), ct);
 
     public Task SignalAsync(string id, string signal, CancellationToken ct) => Send(HttpMethod.Post, "/signal", new RunnerSignal(id, signal), ct);
 

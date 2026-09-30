@@ -14,7 +14,7 @@ public class RunnerTests
     private const string EgressImage = "registry.example/chargehand@sha256:2222222222222222222222222222222222222222222222222222222222222222";
     private const string Key = "runner-key-for-tests";
 
-    private sealed class FakeEngine : IContainerEngine
+    private sealed class FakeEngine : IContainerEngine, IWorkspaceEngine
     {
         public List<string> Calls { get; } = [];
         public HashSet<string> Owned { get; } = ["ours1"];
@@ -34,6 +34,8 @@ public class RunnerTests
         public Task RemoveNetworkAsync(string name, CancellationToken ct) { Calls.Add($"network-rm {name}"); return Task.CompletedTask; }
         public Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct) { Egress = spec; Calls.Add("egress"); return Task.FromResult("ours1"); }
         public Task ConnectNetworkAsync(string container, string network, CancellationToken ct) { Calls.Add($"connect {container} {network}"); return Task.CompletedTask; }
+        public WorkspaceSpec? Prepared { get; private set; }
+        public Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct) { Prepared = spec; Calls.Add("workspace"); return Task.CompletedTask; }
         public Task<bool> OwnsAsync(string id, CancellationToken ct) => Task.FromResult(Owned.Contains(id));
         public Task<int> CountAsync(CancellationToken ct) => Task.FromResult(Count);
     }
@@ -56,7 +58,7 @@ public class RunnerTests
     private static async Task<Runner> Start(int maxContainers = 8, IReadOnlyList<string>? hosts = null)
     {
         var engine = new FakeEngine();
-        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage, maxContainers), AllowedHosts: hosts), engine);
+        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage, maxContainers, SourceRoots: ["/srv/checkouts"]), AllowedHosts: hosts), engine);
         await app.StartAsync();
         return new Runner(engine, app);
     }
@@ -156,6 +158,61 @@ public class RunnerTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(EgressImage, r.Engine.Egress!.Image);
         Assert.Equal(HttpStatusCode.BadRequest, (await r.Http.PostAsync("/egress", Json("""{"batch_id":"b1","network":"chargehand-net-b1","allow":["api.anthropic.com"],"image":"evil"}"""))).StatusCode);
+    }
+
+    private static string WorkspaceBody(string source = "/srv/checkouts/repo-abc1234", string image = Image, string volume = "chargehand-work-run1", string branch = "chargehand/run1", string commit = "abc1234", string extra = "") =>
+        $$"""{"run_id":"run1","image":"{{image}}","source_path":"{{source}}","work_volume":"{{volume}}","branch":"{{branch}}","commit":"{{commit}}"{{extra}}}""";
+
+    [Fact]
+    public async Task A_workspace_is_prepared_from_a_source_under_an_allowed_root_with_a_listed_image()
+    {
+        await using var r = await Start();
+        var response = await r.Http.PostAsync("/workspace", Json(WorkspaceBody()));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(new WorkspaceSpec("run1", Image, "/srv/checkouts/repo-abc1234", "chargehand-work-run1", "chargehand/run1", "abc1234"), r.Engine.Prepared);
+    }
+
+    [Theory]
+    [InlineData("/etc")]                                             // not under an allowed root
+    [InlineData("/srv/checkouts/../secrets")]                        // a path that leaves it
+    [InlineData("/srv/checkouts-evil/x")]                            // a sibling with the same prefix
+    [InlineData("/srv/checkouts")]                                   // the root itself
+    public async Task A_source_outside_the_allowed_roots_is_refused(string source)
+    {
+        await using var r = await Start();
+        Assert.True((await r.Http.PostAsync("/workspace", Json(WorkspaceBody(source: source)))).StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.BadRequest);
+        Assert.Empty(r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_workspace_needs_a_listed_image_a_volume_named_for_the_run_and_takes_no_other_field()
+    {
+        await using var r = await Start();
+        var other = "registry.example/other@sha256:3333333333333333333333333333333333333333333333333333333333333333";
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/workspace", Json(WorkspaceBody(image: other)))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/workspace", Json(WorkspaceBody(volume: "postgres-data")))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await r.Http.PostAsync("/workspace", Json(WorkspaceBody(extra: ",\"network\":\"host\"")))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await r.Http.PostAsync("/workspace", Json(WorkspaceBody(branch: "main")))).StatusCode);
+        Assert.Empty(r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task With_no_source_roots_configured_no_workspace_is_prepared()
+    {
+        var engine = new FakeEngine();
+        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage)), engine);
+        await app.StartAsync();
+        using var http = Runner.Authorized(new Uri(app.Urls.First()), Key);
+        Assert.Equal(HttpStatusCode.Forbidden, (await http.PostAsync("/workspace", Json(WorkspaceBody()))).StatusCode);
+        await app.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task The_client_prepares_a_workspace_through_the_runner()
+    {
+        await using var r = await Start();
+        await new RunnerClient(r.Http).PrepareWorkspaceAsync(new WorkspaceSpec("run1", Image, "/srv/checkouts/repo-abc1234", "chargehand-work-run1", "chargehand/run1", "abc1234"), default);
+        Assert.Equal(["workspace"], r.Engine.Calls);
     }
 
     [Fact]

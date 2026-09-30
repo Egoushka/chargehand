@@ -19,6 +19,9 @@ public sealed record RunnerConnect(string Container, string Network);
 /// <summary>The image is the runner's, not the caller's.</summary>
 public sealed record RunnerEgress(string BatchId, string Network, List<string> Allow);
 
+/// <summary>A workspace to prepare; the runner builds the helper's command line from <see cref="Chargehand.Containers.ContainerTemplate.WorkspaceArgs"/>.</summary>
+public sealed record RunnerWorkspace(string RunId, string Image, string SourcePath, string WorkVolume, string Branch, string Commit);
+
 public sealed record RunnerInspect(string Status, int? ExitCode, bool OomKilled);
 
 public static class RunnerJson

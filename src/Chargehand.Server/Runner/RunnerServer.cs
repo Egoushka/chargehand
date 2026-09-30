@@ -60,7 +60,22 @@ public static class RunnerServer
             if (await engine.CountAsync(ct) >= policy.MaxContainers)
                 return Reply(StatusCodes.Status429TooManyRequests, $"{policy.MaxContainers} session containers exist already");
             var spec = new ContainerSpec(start.RunId, start.Image, start.WorkVolume, start.OutVolume, start.Network, start.Env, start.MemoryMb, start.Cpus, start.Pids, start.Command);
+            _ = ContainerTemplate.RunArgs(spec, "/dev/null");
+            _ = ContainerTemplate.EnvFileLines(spec.Env);
             return Ok(new { id = await engine.StartAsync(spec, ct) });
+        }));
+
+        app.MapPost("/workspace", (HttpContext ctx, CancellationToken ct) => Guard(async () =>
+        {
+            var workspace = await Body<RunnerWorkspace>(ctx, ct);
+            if (engine is not IWorkspaceEngine preparer)
+                return Reply(StatusCodes.Status501NotImplemented, "this runner's engine cannot prepare workspaces");
+            if (policy.RefuseWorkspace(workspace) is { } refusal)
+                return Refuse(refusal);
+            var spec = new WorkspaceSpec(workspace.RunId, workspace.Image, workspace.SourcePath, workspace.WorkVolume, workspace.Branch, workspace.Commit);
+            _ = ContainerTemplate.WorkspaceArgs(spec); // the runner validates every value itself, whatever its engine does
+            await preparer.PrepareWorkspaceAsync(spec, ct);
+            return Ok(new { });
         }));
 
         app.MapPost("/signal", (HttpContext ctx, CancellationToken ct) => Guard(async () =>
