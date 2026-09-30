@@ -45,8 +45,10 @@ public sealed class Orchestrator(
     /// <param name="runId">The id to run under (the HTTP interface hands it out before the run starts); a new one if null.</param>
     /// <param name="progress">Receives run-status/v1 events: started, intake, node started and finished, run finished.</param>
     /// <param name="parentRunId">The run this one resends with answers, if any; recorded in the start record.</param>
+    /// <param name="cancelledByCaller">True once the caller cancelled this run on purpose (not a shutdown): the run then ends as a failed result with
+    /// <c>cancelled</c> and is recorded, instead of the cancellation escaping.</param>
     public async Task<ResultContract> RunAsync(RunRequest request, CancellationToken ct, string? runId = null, Action<RunStatus>? progress = null,
-        string? parentRunId = null)
+        string? parentRunId = null, Func<bool>? cancelledByCaller = null)
     {
         var started = DateTimeOffset.UtcNow;
         runId ??= NewRunId();
@@ -143,10 +145,10 @@ public sealed class Orchestrator(
                 };
             }
         }
-        catch (Exception e) when (e is not OperationCanceledException)
+        catch (Exception e) when (e is not OperationCanceledException || cancelledByCaller?.Invoke() == true)
         {
             // A run that throws (a bad checkout, an unknown preset, no valid Task Spec) still ends with a result and a run record.
-            var error = ChargehandException.ErrorOf(e);
+            var error = e is OperationCanceledException ? Cancelled() : ChargehandException.ErrorOf(e);
             result = new ResultContract("result/v1", runId, "run", traceId, intakeChain, ResultStatus.Failed, error.Message, [], [], [], [error.Message], 0, new Usage(0, 0, 0, 0, 0),
                 error);
         }
@@ -159,9 +161,27 @@ public sealed class Orchestrator(
         run?.SetTag("chargehand.contract.status", result.Status.ToString().ToLowerInvariant());
         run?.SetTag("chargehand.intake.action", intake?.Spec is null ? null : Name(intake.Spec.Action));
         run?.SetTag("chargehand.action", executed is null ? null : Name(executed.Value));
+        // A caller's cancel must not stop the record of it from being written.
         await runLog.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, presetName, intake?.Spec is null ? null : Name(intake.Spec.Action), intake?.Spec, result,
-            executed is null ? null : Name(executed.Value), extensions.ToReport()), ct);
+            executed is null ? null : Name(executed.Value), extensions.ToReport()), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
+        return result;
+    }
+
+    private static ResultError Cancelled() => new(ErrorCode.Cancelled, "the run was cancelled", false, "Start the task again if it is still wanted; nothing was pushed.");
+
+    /// <summary>Records a run that was cancelled before it started (it was queued): a start record and a failed result with <c>cancelled</c>.</summary>
+    public async Task<ResultContract> RecordCancelledAsync(RunRequest request, string runId, string? parentRunId, Action<RunStatus>? progress = null)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var traceId = ActivityTraceId.CreateRandom().ToHexString();
+        var chain = new PromptChain([], new AsSent(opencodeVersion, "generate", profile.IntakeModel ?? "auto", now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+        var error = Cancelled();
+        var result = new ResultContract("result/v1", runId, "run", traceId, chain, ResultStatus.Failed, "The run was cancelled before it started.", [], [], [],
+            [error.Message], 0, new Usage(0, 0, 0, 0, 0), error);
+        await runLog.AppendAsync(new StartRecord(runId, now, traceId, request, Environment.ProcessId, parentRunId), CancellationToken.None);
+        await runLog.AppendAsync(new RunRecord(runId, now, now, request.Context.Preset, null, null, result), CancellationToken.None);
+        progress?.Invoke(RunStatus.Of(runId, RunState.Failed, RunEventKind.RunFinished) with { Result = result });
         return result;
     }
 

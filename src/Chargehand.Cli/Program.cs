@@ -30,6 +30,7 @@ const string Usage = """
                                    checks a signed result offline; exit 0 valid, 1 invalid or unsigned, 2 usage
       egress --listen <ip:port> --allow <host,*.suffix,...>
                                    the allowlist proxy of a driven-session batch's egress container (CONNECT to port 443 only)
+      runs kill --all              removes every driven-session container and batch network by label (works with the server down)
       show <run-id>                prints a run and its calls from the run log
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
       cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
@@ -69,7 +70,7 @@ if (argv is ["egress", .. var egressArgs])
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Egress.EgressCli.RunAsync(egressArgs, Console.Error, stop.Token);
 }
-if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions"))
+if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions" or "runs"))
 {
     Console.Error.WriteLine(Usage);
     return 2;
@@ -106,6 +107,8 @@ switch (argv)
         return await Mcp();
     case ["show", var id]:
         return await Show(id);
+    case ["runs", "kill", "--all"]:
+        return await Chargehand.Containers.RunsCli.KillAllAsync(new Chargehand.Containers.DockerCliEngine(), Console.Out, Console.Error, ct);
     case ["reconcile", var id]:
         return await Reconcile(id);
     case ["cache", var id]:
