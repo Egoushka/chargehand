@@ -71,6 +71,37 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
         var ids = listed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(ContainerTemplate.IsPlainName).ToList();
         if (ids.Count > 0)
             await RunAsync(["rm", "-f", .. ids], ct);
+        var networks = await RunAsync(["network", "ls", "-q", "--filter", $"label={ContainerTemplate.RunLabel}"], ct);
+        foreach (var network in networks.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(ContainerTemplate.IsPlainName))
+            await RunAsync(["network", "rm", network], ct);
+    }
+
+    public async Task CreateNetworkAsync(string name, string batchId, CancellationToken ct)
+    {
+        RequirePlain(name);
+        RequirePlain(batchId);
+        Require(await RunAsync(["network", "create", "--internal", "--label", $"{ContainerTemplate.RunLabel}={batchId}", name], ct), "docker network create failed");
+    }
+
+    public async Task RemoveNetworkAsync(string name, CancellationToken ct)
+    {
+        RequirePlain(name);
+        await RunAsync(["network", "rm", name], ct);
+    }
+
+    public async Task ConnectNetworkAsync(string container, string network, CancellationToken ct)
+    {
+        RequirePlain(container);
+        RequirePlain(network);
+        Require(await RunAsync(["network", "connect", network, container], ct), "docker network connect failed");
+    }
+
+    public async Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct)
+    {
+        var result = await RunAsync(ContainerTemplate.EgressArgs(spec), ct);
+        if (result.ExitCode != 0)
+            throw Unavailable("docker run of the egress proxy failed", result, null);
+        return result.Stdout.Trim();
     }
 
     public async Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct)

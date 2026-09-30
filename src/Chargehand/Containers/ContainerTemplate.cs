@@ -66,6 +66,35 @@ public static partial class ContainerTemplate
         return args;
     }
 
+    /// <summary>The arguments after <c>docker</c> for a batch's egress proxy: the server image, its <c>egress</c> verb, read-only, no capabilities,
+    /// no mounts, on the batch's internal network only (the caller joins the outside network after it starts).</summary>
+    public static IReadOnlyList<string> EgressArgs(EgressSpec spec)
+    {
+        Check(RunIdPattern(), spec.BatchId, "batch id");
+        Check(ImagePattern(), spec.Image, "image (must be name@sha256:<64 hex> or a local image id)");
+        Check(NamePattern(), spec.Network, "network");
+        if (spec.Port is < 1024 or > 65535)
+            throw new ArgumentException("port must be 1024 to 65535", nameof(spec));
+        _ = new Chargehand.Egress.AllowlistMatcher(spec.Allow);
+        return
+        [
+            "run", "--detach", "--init",
+            "--name", $"chargehand-egress-{spec.BatchId}",
+            "--label", $"{RunLabel}={spec.BatchId}",
+            "--read-only",
+            "--tmpfs", "/tmp:rw,nosuid,size=64m",
+            "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges",
+            "--user", "10001:10001",
+            "--pids-limit", "256",
+            "--memory", "256m",
+            "--cpus", "1",
+            "--network", spec.Network,
+            spec.Image,
+            "egress", "--listen", $"0.0.0.0:{spec.Port.ToString(CultureInfo.InvariantCulture)}", "--allow", string.Join(',', spec.Allow),
+        ];
+    }
+
     /// <summary>The env file's lines, <c>NAME=value</c>, in name order. Refuses a name outside <see cref="AllowedEnv"/> and a value
     /// with a line break or NUL (which would add a second variable).</summary>
     public static IReadOnlyList<string> EnvFileLines(IReadOnlyDictionary<string, string> env)
@@ -95,7 +124,7 @@ public static partial class ContainerTemplate
     [GeneratedRegex(@"^[a-z0-9][a-z0-9_.-]{0,62}$")]
     private static partial Regex RunIdPattern();
 
-    [GeneratedRegex(@"^[a-z0-9][a-z0-9._/-]*(:[0-9]+)?(/[a-z0-9._-]+)*@sha256:[0-9a-f]{64}$")]
+    [GeneratedRegex(@"^[a-z0-9][a-z0-9._/-]*(:[0-9]+)?(/[a-z0-9._-]+)*@sha256:[0-9a-f]{64}$|^sha256:[0-9a-f]{64}$")]
     private static partial Regex ImagePattern();
 
     [GeneratedRegex(@"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")]

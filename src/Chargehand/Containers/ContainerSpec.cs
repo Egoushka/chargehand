@@ -22,6 +22,10 @@ public sealed record ContainerSpec(
     IReadOnlyList<string> Command,
     string User = "10001:10001");
 
+/// <summary>The egress proxy's container (ADR 0039): the server image started with its <c>egress</c> verb, one per batch.</summary>
+/// <param name="Allow">Host patterns for <see cref="Chargehand.Egress.AllowlistMatcher"/>.</param>
+public sealed record EgressSpec(string BatchId, string Image, string Network, IReadOnlyList<string> Allow, int Port = 3128);
+
 public enum ContainerStatus { Running, Exited, Missing }
 
 /// <param name="ExitCode">Set once the container has exited.</param>
@@ -51,4 +55,14 @@ public interface IContainerEngine
     Task CreateVolumeAsync(string name, string runId, CancellationToken ct);
 
     Task RemoveVolumeAsync(string name, CancellationToken ct);
+
+    /// <summary>Creates an internal network (no route out) labelled with the batch.</summary>
+    Task CreateNetworkAsync(string name, string batchId, CancellationToken ct);
+
+    Task RemoveNetworkAsync(string name, CancellationToken ct);
+
+    /// <summary>Starts a batch's egress proxy on <see cref="EgressSpec.Network"/>; the caller then joins it to the outside network.</summary>
+    Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct);
+
+    Task ConnectNetworkAsync(string container, string network, CancellationToken ct);
 }

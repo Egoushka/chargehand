@@ -28,6 +28,8 @@ const string Usage = """
       mcp                          the MCP tool over stdio, for a client that starts chargehand itself
       verify <result.json> --public-key <key.pem>
                                    checks a signed result offline; exit 0 valid, 1 invalid or unsigned, 2 usage
+      egress --listen <ip:port> --allow <host,*.suffix,...>
+                                   the allowlist proxy of a driven-session batch's egress container (CONNECT to port 443 only)
       show <run-id>                prints a run and its calls from the run log
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
       cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
@@ -59,6 +61,14 @@ if (argv.Count >= 2 && argv[0] == "--profile")
 // Offline and profile-free: a verifier holds a result and a public key, nothing else (ADR 0036).
 if (argv is ["verify", .. var verifyArgs])
     return Chargehand.Signing.VerifyCli.Run(verifyArgs, Console.Out, Console.Error);
+// Profile-free too: the egress container of a driven-session batch holds an allowlist and nothing else (ADR 0039).
+if (argv is ["egress", .. var egressArgs])
+{
+    using var stop = new CancellationTokenSource();
+    using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Egress.EgressCli.RunAsync(egressArgs, Console.Error, stop.Token);
+}
 if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions"))
 {
     Console.Error.WriteLine(Usage);
