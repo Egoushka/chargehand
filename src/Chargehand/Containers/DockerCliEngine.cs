@@ -5,8 +5,9 @@ using Chargehand.Contracts;
 namespace Chargehand.Containers;
 
 /// <summary>An <see cref="IContainerEngine"/> that calls the <c>docker</c> CLI (ADR 0039). Arguments go through
-/// <see cref="ProcessStartInfo.ArgumentList"/>, never a shell string; every name is checked before it reaches docker.</summary>
-public sealed class DockerCliEngine(string docker = "docker") : IContainerEngine
+/// <see cref="ProcessStartInfo.ArgumentList"/>, never a shell string; every name is checked before it reaches docker. <paramref name="leadingArgs"/>
+/// go before every call (a test runs a fake docker script as <c>sh script</c>, which avoids a busy-executable race on Linux).</summary>
+public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null) : IContainerEngine
 {
     private const int OutputCap = 64 * 1024;
 
@@ -119,6 +120,8 @@ public sealed class DockerCliEngine(string docker = "docker") : IContainerEngine
     private async Task<DockerResult> RunAsync(IEnumerable<string> args, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(docker) { RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
+        foreach (var a in leadingArgs ?? [])
+            psi.ArgumentList.Add(a);
         foreach (var a in args)
             psi.ArgumentList.Add(a);
         Process process;

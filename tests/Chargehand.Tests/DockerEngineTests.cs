@@ -17,17 +17,17 @@ public class DockerEngineTests
     {
         var log = System.IO.Path.Combine(dir.Path, "calls.log");
         var script = dir.Write("docker", $"#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{log}'\nfor a in \"$@\"; do if [ \"$prev\" = \"--env-file\" ]; then cat \"$a\" >> '{log}.env'; fi; prev=$a; done\n{body}\n");
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         return (script, log);
     }
+
+    private static DockerCliEngine Engine(string script) => new("/bin/sh", [script]);
 
     [Fact]
     public async Task Start_runs_the_template_and_returns_the_container_id_and_leaves_no_env_file()
     {
         using var dir = new TempDir();
         var (docker, log) = FakeDocker(dir, "echo abc123def");
-        var id = await new DockerCliEngine(docker).StartAsync(Spec(), default);
+        var id = await Engine(docker).StartAsync(Spec(), default);
         Assert.Equal("abc123def", id);
         var call = File.ReadAllLines(log).Single();
         Assert.StartsWith("run --detach", call);
@@ -42,7 +42,7 @@ public class DockerEngineTests
     {
         using var dir = new TempDir();
         var (docker, _) = FakeDocker(dir, "echo 'Cannot connect to the Docker daemon at unix:///x. canary-token-value' >&2; exit 125");
-        var e = await Assert.ThrowsAsync<ChargehandException>(() => new DockerCliEngine(docker).StartAsync(Spec(), default));
+        var e = await Assert.ThrowsAsync<ChargehandException>(() => Engine(docker).StartAsync(Spec(), default));
         Assert.Equal(ErrorCode.ContainerUnavailable, e.Code);
         Assert.NotNull(e.Action);
         Assert.DoesNotContain("canary-token-value", e.Message);
@@ -54,7 +54,7 @@ public class DockerEngineTests
     {
         using var dir = new TempDir();
         var (docker, log) = FakeDocker(dir, "echo line1");
-        var engine = new DockerCliEngine(docker);
+        var engine = Engine(docker);
         await engine.SignalAsync("abc123", "SIGINT", default);
         await engine.RemoveAsync("abc123", default);
         Assert.Equal("line1", (await engine.LogsTailAsync("abc123", 4096, default)).Trim());
@@ -72,7 +72,7 @@ public class DockerEngineTests
     {
         using var dir = new TempDir();
         var (docker, _) = FakeDocker(dir, $"echo '{output}'");
-        var state = await new DockerCliEngine(docker).InspectAsync("abc123", default);
+        var state = await Engine(docker).InspectAsync("abc123", default);
         Assert.Equal(new ContainerState(status, exit, oom), state);
     }
 
@@ -81,7 +81,7 @@ public class DockerEngineTests
     {
         using var dir = new TempDir();
         var (docker, _) = FakeDocker(dir, "echo 'Error: No such object: abc123' >&2; exit 1");
-        Assert.Equal(new ContainerState(ContainerStatus.Missing, null, false), await new DockerCliEngine(docker).InspectAsync("abc123", default));
+        Assert.Equal(new ContainerState(ContainerStatus.Missing, null, false), await Engine(docker).InspectAsync("abc123", default));
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public class DockerEngineTests
     {
         using var dir = new TempDir();
         var (docker, log) = FakeDocker(dir, "case \"$1\" in ps) printf 'aaa\\nbbb\\n';; esac");
-        await new DockerCliEngine(docker).KillAllAsync(default);
+        await Engine(docker).KillAllAsync(default);
         Assert.Equal(["ps -aq --filter label=chargehand.run", "rm -f aaa bbb"], File.ReadAllLines(log));
     }
 
@@ -98,7 +98,7 @@ public class DockerEngineTests
     {
         using var dir = new TempDir();
         var (docker, log) = FakeDocker(dir, "true");
-        await new DockerCliEngine(docker).KillAllAsync(default);
+        await Engine(docker).KillAllAsync(default);
         Assert.Equal(["ps -aq --filter label=chargehand.run"], File.ReadAllLines(log));
     }
 
@@ -107,7 +107,7 @@ public class DockerEngineTests
     {
         using var dir = new TempDir();
         var (docker, log) = FakeDocker(dir, "true");
-        var engine = new DockerCliEngine(docker);
+        var engine = Engine(docker);
         await engine.CreateVolumeAsync("work-run-1", "run-1", default);
         await engine.RemoveVolumeAsync("work-run-1", default);
         Assert.Equal(["volume create --label chargehand.run=run-1 work-run-1", "volume rm -f work-run-1"], File.ReadAllLines(log));
