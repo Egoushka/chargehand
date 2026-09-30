@@ -46,6 +46,25 @@ public class BatchNetworkTests
     }
 
     [Fact]
+    public async Task An_outside_network_and_forwards_are_the_batchs_to_name()
+    {
+        var engine = new RecordingEngine();
+        var info = await new BatchNetwork(engine).CreateAsync("b1", Image, ["api.anthropic.com"], default, outsideNetwork: "stack_net", forwards: ["4301=chargehand:4300"]);
+        Assert.Equal("connect egress-id-1 stack_net", engine.Calls[2]);
+        Assert.Equal(["4301=chargehand:4300"], engine.Egress!.Forwards);
+        Assert.Equal("http://chargehand-egress-b1:4301", info.ServiceUrl(4301));
+        var args = ContainerTemplate.EgressArgs(engine.Egress);
+        Assert.Equal(["--forward", "4301=chargehand:4300"], args.Skip(args.ToList().IndexOf("--forward")).Take(2));
+    }
+
+    [Theory]
+    [InlineData("nonsense")]
+    [InlineData("80=host:1")]
+    [InlineData("4301=1.1.1.1:80")]
+    public void The_egress_line_refuses_a_bad_forward(string forward) =>
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.EgressArgs(new EgressSpec("b1", Image, "chargehand-net-b1", ["api.anthropic.com"], Forwards: [forward])));
+
+    [Fact]
     public async Task A_failure_part_way_removes_what_was_made()
     {
         var engine = new RecordingEngine { FailOn = "connect" };
