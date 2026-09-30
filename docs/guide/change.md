@@ -16,7 +16,7 @@ The plugin, the command and the `review` preset shipped in 0.4.0 as the first pi
 /plugin install chargehand@chargehand
 ```
 
-The plugin starts chargehand through `dnx`: its [MCP entry](../../plugins/chargehand/.mcp.json) runs `dotnet dnx Chargehand@<version> --yes -- mcp`, where [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs) pins `<version>` to `Directory.Build.props`. That needs the .NET 10 SDK and the `Chargehand` package, which is on nuget.org, so the plugin needs no checkout.
+The plugin starts chargehand through `dnx`: its [MCP entry](../../plugins/chargehand/.mcp.json) runs `dotnet dnx Chargehand@<version> --yes --source https://api.nuget.org/v3/index.json -- mcp` (the `--source` keeps `dnx` from querying a private feed in your NuGet config, which fails with 401 on a machine that lists one), where [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs) pins `<version>` to `Directory.Build.props`. That needs the .NET 10 SDK and the `Chargehand` package, which is on nuget.org, so the plugin needs no checkout.
 
 ## Point it at a checkout instead
 

@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The plugin's MCP entry passes `--source https://api.nuget.org/v3/index.json` to `dnx`, so a machine whose NuGet config lists a private feed no longer fails with 401 and `CONNECTION_CLOSED` (CHARGEHAND-127).
+
 ## [0.8.0] - 2026-09-30
 
 One release for two goals; there is no 0.7.0, because no commit is 0.7 only (as with the missing 0.5.0). Goal 0.7
