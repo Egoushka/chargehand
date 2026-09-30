@@ -6,6 +6,7 @@ using Chargehand.Contracts;
 using Chargehand.RunLog;
 using Chargehand.Server;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Chargehand.Tests;
 
@@ -33,6 +34,8 @@ internal sealed class TestServer : IAsyncDisposable
     public HttpClient Http { get; }
 
     public string WorkerRoot => _root.Path;
+
+    public RunTokenService Tokens => _app.Services.GetRequiredService<RunService>().Tokens;
 
     public static async Task<TestServer> StartAsync(ScriptedRuntime runtime, IReadOnlyList<string>? allowedHosts = null)
     {
