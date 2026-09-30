@@ -135,6 +135,20 @@
         "env": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Names of environment variables passed to the command besides PATH, LANG, LC_ALL and TERM." }
       }
     },
+    "driven": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Driven writing sessions (ADR 0039): each task runs in its own container and ends in a draft pull request. Off unless enabled.",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Default false." },
+        "max_parallel": { "type": "integer", "minimum": 1, "maximum": 4, "description": "Tasks running at once in one batch. Default 2." },
+        "max_parallel_total": { "type": "integer", "minimum": 1, "maximum": 8, "description": "Tasks running at once across batches. Default 4." },
+        "images": { "type": "array", "items": { "type": "string", "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$" }, "description": "Session images by digest; nothing else may run." },
+        "network": { "type": "object", "additionalProperties": false, "properties": { "allow": { "type": "array", "items": { "type": "string", "minLength": 1 } } }, "description": "Hosts added to the preset's allowlist." },
+        "runner": { "type": "object", "additionalProperties": false, "required": ["url", "api_key_secret"], "properties": { "url": { "type": "string", "minLength": 1 }, "api_key_secret": { "type": "string", "minLength": 1 } }, "description": "The runner service in front of the container engine. Absent: the server calls the engine itself (a laptop)." },
+        "push_secret": { "type": "string", "minLength": 1, "description": "Secret item for the credential that pushes non-default branches and opens draft pull requests." }
+      }
+    },
     "repository_roots": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },

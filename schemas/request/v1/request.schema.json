@@ -45,6 +45,32 @@
         }
       }
     },
+    "driven": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tasks"],
+      "description": "A batch of tasks run as driven sessions, one container each, ending in a draft pull request per task (ADR 0039). Needs context.repository and unique task ids; both are checked by the server, not by this schema (a schema rule that tightens a published contract would be a breaking change).",
+      "properties": {
+        "tasks": {
+          "type": "array", "minItems": 1, "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "anyOf": [{ "required": ["ref"] }, { "required": ["goal"] }],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" },
+              "ref": { "type": "string", "minLength": 1, "maxLength": 128, "description": "A tracker item id, resolved through the profile's task source." },
+              "goal": { "type": "string", "minLength": 1, "description": "Free text: what the change should do." }
+            }
+          }
+        },
+        "max_parallel": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "max_tokens_total": { "type": "integer", "minimum": 1, "description": "Input plus output tokens over the batch. Binds in both credential modes." },
+        "max_usd_total": { "type": "number", "exclusiveMinimum": 0, "description": "Dollars over the batch; enforced only where the credential is priced (an API key)." },
+        "draft_pr": { "const": true, "description": "Always true: pull requests are opened as drafts and never merged." }
+      }
+    },
     "caller_blocks": {
       "type": "array",
       "description": "Caller-owned prompt blocks. Placed in the task block and recorded in prompt_chain.",

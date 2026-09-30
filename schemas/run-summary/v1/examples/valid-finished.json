@@ -1,0 +1,2 @@
+{ "contract_version": "run-summary/v1", "run_id": "run-20260930-120000-a1b2c3", "task_ref": "t1", "preset": "driven", "status": "completed",
+  "started_at": "2026-09-30T12:00:00Z", "finished_at": "2026-09-30T12:20:00Z", "usd": 0.42, "branch": "chargehand/run-20260930-120000-a1b2c3", "pr_url": "https://example.test/pull/1" }

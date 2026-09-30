@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:chargehand:schema:run-summary:v1",
+  "title": "chargehand run summary, v1",
+  "description": "One row of a run list (ADR 0039): enough to show a run's state, cost and pull request without reading its result.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "run_id", "status", "preset", "started_at"],
+  "properties": {
+    "contract_version": { "const": "run-summary/v1" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "parent_run_id": { "type": ["string", "null"], "minLength": 1, "description": "Set when a driven session started this run (its research and review calls)." },
+    "task_ref": { "type": ["string", "null"], "description": "The tracker item id or task id the run was started for." },
+    "preset": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "status": { "enum": ["queued", "running", "lost", "completed", "needs_input", "failed", "denied"] },
+    "started_at": { "type": "string", "format": "date-time" },
+    "finished_at": { "type": ["string", "null"], "format": "date-time" },
+    "usd": { "type": ["number", "null"], "minimum": 0, "description": "Priced by the orchestrator's table; null when the cost is unknown or the credential is not priced." },
+    "branch": { "type": ["string", "null"] },
+    "pr_url": { "type": ["string", "null"] },
+    "error_code": { "type": ["string", "null"], "description": "result/v1's error.code of a failed run." }
+  }
+}

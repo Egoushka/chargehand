@@ -13,7 +13,7 @@
       "enum": ["queued", "running", "lost", "completed", "needs_input", "failed", "denied"],
       "description": "queued and running: not finished. lost: the process that ran it ended before it finished. The rest mirror result/v1's status."
     },
-    "event": { "enum": ["accepted", "started", "intake", "node_started", "node_finished", "run_finished"] },
+    "event": { "enum": ["accepted", "started", "intake", "node_started", "node_finished", "run_finished", "container_started", "session_progress", "verify_finished", "pushed", "pr_opened", "task_finished"] },
     "at": { "type": "string", "format": "date-time" },
     "action": { "type": "string", "description": "intake: the action intake chose; absent when intake stopped the request itself." },
     "executed_action": { "type": "string", "description": "intake: the action that runs; absent for a stop." },
@@ -22,6 +22,11 @@
     "node_status": { "enum": ["completed", "needs_input", "failed", "denied"] },
     "usd": { "type": "number", "minimum": 0, "description": "node_finished: the node's cost, priced by the orchestrator's own table." },
     "detail": { "type": "string" },
-    "result": { "type": "object", "description": "run_finished: the run's result/v1." }
+    "result": { "type": "object", "description": "run_finished: the run's result/v1." },
+    "task_id": { "type": "string", "description": "Driven sessions: the batch task the event is about." },
+    "branch": { "type": "string", "description": "Driven sessions: the pushed branch." },
+    "pr_url": { "type": "string", "description": "Driven sessions: the draft pull request." },
+    "usd_total": { "type": "number", "minimum": 0, "description": "Driven sessions: the batch's cost so far, where the credential is priced." },
+    "turns": { "type": "integer", "minimum": 0, "description": "Driven sessions: assistant messages so far in the task's session." }
   }
 }

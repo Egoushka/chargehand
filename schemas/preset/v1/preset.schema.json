@@ -29,6 +29,21 @@
         "model": { "$ref": "#/$defs/model" }
       }
     },
+    "driven": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Limits of a driven session's container (ADR 0039). Absent on presets that do not run driven sessions.",
+      "properties": {
+        "max_minutes": { "type": "integer", "minimum": 1, "description": "Wall clock for one task's session." },
+        "no_progress_minutes": { "type": "integer", "minimum": 1, "description": "No stream event for this long ends the session as stalled." },
+        "max_turns": { "type": "integer", "minimum": 1, "description": "Assistant messages after which the session ends as stalled." },
+        "max_tokens": { "type": "integer", "minimum": 1, "description": "Input plus output tokens for one task." },
+        "memory_mb": { "type": "integer", "minimum": 256 },
+        "cpus": { "type": "number", "exclusiveMinimum": 0 },
+        "pids": { "type": "integer", "minimum": 16 },
+        "allow": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Host names the container may reach through the egress proxy (port 443 only)." }
+      }
+    },
     "approval": {
       "type": "object",
       "additionalProperties": false,
