@@ -15,6 +15,7 @@ using Chargehand.Prompts;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Server;
+using Chargehand.Verification;
 using Microsoft.Extensions.Hosting;
 using OpenTelemetry;
 using OpenTelemetry.Exporter;
@@ -38,6 +39,7 @@ const string Usage = """
       score <run-id> <0-1> [name]  records a hand score for a run (name defaults to quality)
       eval seed <cell> <run-id>... proposes eval items (JSONL on stdout) from runs in the log, for review
       eval support <examples.jsonl> runs the support judge over labelled claims and prints agreement and every miss
+      eval score-claims <claims.jsonl> --repo <dir> --commit <sha> [--out <verdicts.jsonl>]   resolves each claim's path:line locators at the commit and judges the cited text
       eval push <cell>             pushes reviewed items (JSONL on stdin) to the cell's Langfuse dataset
       eval gate <base> <change> [--cells a,b] [--changed-files f] [--pr-body f] [--name n] [--cells-file f]
                                    [--change-cells-file f] [--allow-uncovered]
@@ -146,6 +148,8 @@ switch (argv)
         return 0;
     case ["eval", "support", var examplesFile]:
         return await EvalSupport(examplesFile);
+    case ["eval", "score-claims", var claimsFile, .. var scoreOptions]:
+        return await EvalScoreClaims(claimsFile, scoreOptions);
     case ["eval", "gate", var baseRoot, var changeRoot, .. var options]:
         return await EvalGate(Path.GetFullPath(baseRoot), Path.GetFullPath(changeRoot), options);
     case ["prompts", "sync"]:
@@ -197,6 +201,24 @@ async Task<int> EvalSupport(string examplesFile)
     Console.WriteLine($"judge model: {profile.IntakeModel ?? "the runtime's default"}");
     Console.WriteLine(SupportEval.Report(outcomes));
     return outcomes.All(o => o.Got is not null) ? 0 : 1;
+}
+
+async Task<int> EvalScoreClaims(string claimsFile, IReadOnlyList<string> options)
+{
+    string? Option(string name) => options.SkipWhile(o => o != name).Skip(1).FirstOrDefault();
+    if (Option("--repo") is not { } repo || Option("--commit") is not { } commit)
+    {
+        Console.Error.WriteLine("usage: eval score-claims <claims.jsonl> --repo <dir> --commit <sha> [--out <verdicts.jsonl>]");
+        return 2;
+    }
+    var (runtime, _) = await Connect();
+    var scope = new EvidenceScope(Path.GetFullPath(repo), commit, new HashSet<string>(), new HashSet<string>(), "", []);
+    var scored = await ClaimScorer.ScoreAsync(runtime, Orchestrator.ParseModel(profile.IntakeModel), ClaimScorer.ReadClaims(File.ReadLines(claimsFile)), scope, ct);
+    if (Option("--out") is { } outFile)
+        File.WriteAllLines(outFile, ClaimScorer.ToJsonl(scored));
+    Console.WriteLine($"judge model: {profile.IntakeModel ?? "the runtime's default"}");
+    Console.WriteLine(ClaimScorer.Report(scored));
+    return scored.Any(s => s.Outcome == ClaimOutcome.Unchecked) ? 1 : 0;
 }
 
 async Task<int> Serve()
