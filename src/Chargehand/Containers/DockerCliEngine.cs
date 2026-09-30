@@ -5,8 +5,9 @@ using Chargehand.Contracts;
 namespace Chargehand.Containers;
 
 /// <summary>An <see cref="IContainerEngine"/> that calls the <c>docker</c> CLI (ADR 0039). Arguments go through
-/// <see cref="ProcessStartInfo.ArgumentList"/>, never a shell string; every name is checked before it reaches docker.</summary>
-public sealed class DockerCliEngine(string docker = "docker") : IContainerEngine
+/// <see cref="ProcessStartInfo.ArgumentList"/>, never a shell string; every name is checked before it reaches docker. <paramref name="leadingArgs"/>
+/// go before every call (a test runs a fake docker script as <c>sh script</c>, which avoids a busy-executable race on Linux).</summary>
+public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null) : IContainerEngine
 {
     private const int OutputCap = 64 * 1024;
 
@@ -70,6 +71,37 @@ public sealed class DockerCliEngine(string docker = "docker") : IContainerEngine
         var ids = listed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(ContainerTemplate.IsPlainName).ToList();
         if (ids.Count > 0)
             await RunAsync(["rm", "-f", .. ids], ct);
+        var networks = await RunAsync(["network", "ls", "-q", "--filter", $"label={ContainerTemplate.RunLabel}"], ct);
+        foreach (var network in networks.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(ContainerTemplate.IsPlainName))
+            await RunAsync(["network", "rm", network], ct);
+    }
+
+    public async Task CreateNetworkAsync(string name, string batchId, CancellationToken ct)
+    {
+        RequirePlain(name);
+        RequirePlain(batchId);
+        Require(await RunAsync(["network", "create", "--internal", "--label", $"{ContainerTemplate.RunLabel}={batchId}", name], ct), "docker network create failed");
+    }
+
+    public async Task RemoveNetworkAsync(string name, CancellationToken ct)
+    {
+        RequirePlain(name);
+        await RunAsync(["network", "rm", name], ct);
+    }
+
+    public async Task ConnectNetworkAsync(string container, string network, CancellationToken ct)
+    {
+        RequirePlain(container);
+        RequirePlain(network);
+        Require(await RunAsync(["network", "connect", network, container], ct), "docker network connect failed");
+    }
+
+    public async Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct)
+    {
+        var result = await RunAsync(ContainerTemplate.EgressArgs(spec), ct);
+        if (result.ExitCode != 0)
+            throw Unavailable("docker run of the egress proxy failed", result, null);
+        return result.Stdout.Trim();
     }
 
     public async Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct)
@@ -119,6 +151,8 @@ public sealed class DockerCliEngine(string docker = "docker") : IContainerEngine
     private async Task<DockerResult> RunAsync(IEnumerable<string> args, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(docker) { RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
+        foreach (var a in leadingArgs ?? [])
+            psi.ArgumentList.Add(a);
         foreach (var a in args)
             psi.ArgumentList.Add(a);
         Process process;

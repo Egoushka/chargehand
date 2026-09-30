@@ -17,17 +17,17 @@ public class DockerEngineTests
     {
         var log = System.IO.Path.Combine(dir.Path, "calls.log");
         var script = dir.Write("docker", $"#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{log}'\nfor a in \"$@\"; do if [ \"$prev\" = \"--env-file\" ]; then cat \"$a\" >> '{log}.env'; fi; prev=$a; done\n{body}\n");
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         return (script, log);
     }
+
+    private static DockerCliEngine Engine(string script) => new("/bin/sh", [script]);
 
     [Fact]
     public async Task Start_runs_the_template_and_returns_the_container_id_and_leaves_no_env_file()
     {
         using var dir = new TempDir();
         var (docker, log) = FakeDocker(dir, "echo abc123def");
-        var id = await new DockerCliEngine(docker).StartAsync(Spec(), default);
+        var id = await Engine(docker).StartAsync(Spec(), default);
         Assert.Equal("abc123def", id);
         var call = File.ReadAllLines(log).Single();
         Assert.StartsWith("run --detach", call);
@@ -42,7 +42,7 @@ public class DockerEngineTests
     {
         using var dir = new TempDir();
         var (docker, _) = FakeDocker(dir, "echo 'Cannot connect to the Docker daemon at unix:///x. canary-token-value' >&2; exit 125");
-        var e = await Assert.ThrowsAsync<ChargehandException>(() => new DockerCliEngine(docker).StartAsync(Spec(), default));
+        var e = await Assert.ThrowsAsync<ChargehandException>(() => Engine(docker).StartAsync(Spec(), default));
         Assert.Equal(ErrorCode.ContainerUnavailable, e.Code);
         Assert.NotNull(e.Action);
         Assert.DoesNotContain("canary-token-value", e.Message);
@@ -54,7 +54,7 @@ public class DockerEngineTests
     {
         using var dir = new TempDir();
         var (docker, log) = FakeDocker(dir, "echo line1");
-        var engine = new DockerCliEngine(docker);
+        var engine = Engine(docker);
         await engine.SignalAsync("abc123", "SIGINT", default);
         await engine.RemoveAsync("abc123", default);
         Assert.Equal("line1", (await engine.LogsTailAsync("abc123", 4096, default)).Trim());
@@ -72,7 +72,7 @@ public class DockerEngineTests
     {
         using var dir = new TempDir();
         var (docker, _) = FakeDocker(dir, $"echo '{output}'");
-        var state = await new DockerCliEngine(docker).InspectAsync("abc123", default);
+        var state = await Engine(docker).InspectAsync("abc123", default);
         Assert.Equal(new ContainerState(status, exit, oom), state);
     }
 
@@ -81,16 +81,16 @@ public class DockerEngineTests
     {
         using var dir = new TempDir();
         var (docker, _) = FakeDocker(dir, "echo 'Error: No such object: abc123' >&2; exit 1");
-        Assert.Equal(new ContainerState(ContainerStatus.Missing, null, false), await new DockerCliEngine(docker).InspectAsync("abc123", default));
+        Assert.Equal(new ContainerState(ContainerStatus.Missing, null, false), await Engine(docker).InspectAsync("abc123", default));
     }
 
     [Fact]
-    public async Task Kill_all_removes_exactly_the_labelled_containers()
+    public async Task Kill_all_removes_exactly_the_labelled_containers_then_the_labelled_networks()
     {
         using var dir = new TempDir();
-        var (docker, log) = FakeDocker(dir, "case \"$1\" in ps) printf 'aaa\\nbbb\\n';; esac");
-        await new DockerCliEngine(docker).KillAllAsync(default);
-        Assert.Equal(["ps -aq --filter label=chargehand.run", "rm -f aaa bbb"], File.ReadAllLines(log));
+        var (docker, log) = FakeDocker(dir, "case \"$1\" in ps) printf 'aaa\\nbbb\\n';; network) [ \"$2\" = ls ] && printf 'net1\\n';; esac");
+        await Engine(docker).KillAllAsync(default);
+        Assert.Equal(["ps -aq --filter label=chargehand.run", "rm -f aaa bbb", "network ls -q --filter label=chargehand.run", "network rm net1"], File.ReadAllLines(log));
     }
 
     [Fact]
@@ -98,8 +98,8 @@ public class DockerEngineTests
     {
         using var dir = new TempDir();
         var (docker, log) = FakeDocker(dir, "true");
-        await new DockerCliEngine(docker).KillAllAsync(default);
-        Assert.Equal(["ps -aq --filter label=chargehand.run"], File.ReadAllLines(log));
+        await Engine(docker).KillAllAsync(default);
+        Assert.Equal(["ps -aq --filter label=chargehand.run", "network ls -q --filter label=chargehand.run"], File.ReadAllLines(log));
     }
 
     [Fact]
@@ -107,11 +107,29 @@ public class DockerEngineTests
     {
         using var dir = new TempDir();
         var (docker, log) = FakeDocker(dir, "true");
-        var engine = new DockerCliEngine(docker);
+        var engine = Engine(docker);
         await engine.CreateVolumeAsync("work-run-1", "run-1", default);
         await engine.RemoveVolumeAsync("work-run-1", default);
         Assert.Equal(["volume create --label chargehand.run=run-1 work-run-1", "volume rm -f work-run-1"], File.ReadAllLines(log));
         await Assert.ThrowsAsync<ArgumentException>(() => engine.CreateVolumeAsync("/etc", "run-1", default));
+    }
+
+    [Fact]
+    public async Task Networks_are_internal_labelled_and_joined_by_name()
+    {
+        using var dir = new TempDir();
+        var (docker, log) = FakeDocker(dir, "echo egress-id");
+        var engine = Engine(docker);
+        await engine.CreateNetworkAsync("chargehand-net-b1", "b1", default);
+        await engine.ConnectNetworkAsync("egress-id", "bridge", default);
+        await engine.RemoveNetworkAsync("chargehand-net-b1", default);
+        var id = await engine.StartEgressAsync(new EgressSpec("b1", $"registry.example/c@sha256:{Digest}", "chargehand-net-b1", ["api.anthropic.com"]), default);
+        Assert.Equal("egress-id", id);
+        var calls = File.ReadAllLines(log);
+        Assert.Equal(["network create --internal --label chargehand.run=b1 chargehand-net-b1", "network connect bridge egress-id", "network rm chargehand-net-b1"], calls.Take(3));
+        Assert.StartsWith("run --detach --init --name chargehand-egress-b1", calls[3]);
+        await Assert.ThrowsAsync<ArgumentException>(() => engine.CreateNetworkAsync("--internal=false", "b1", default));
+        await Assert.ThrowsAsync<ArgumentException>(() => engine.ConnectNetworkAsync("egress-id", "/x", default));
     }
 
     // A real engine and an image the test may run: CHARGEHAND_TEST_IMAGE is a name@sha256:... reference of a local image with sh.
@@ -153,12 +171,16 @@ public sealed class DockerFactAttribute : FactAttribute
 {
     public static string? Image { get; } = Environment.GetEnvironmentVariable("CHARGEHAND_TEST_IMAGE");
 
-    public DockerFactAttribute()
+    public DockerFactAttribute() => Skip = Reason(egress: false);
+
+    /// <summary>Why a Docker test cannot run here, or null when it can.</summary>
+    internal static string? Reason(bool egress)
     {
         if (string.IsNullOrEmpty(Image))
-            Skip = "set CHARGEHAND_TEST_IMAGE to a local image reference (name@sha256:...) to run Docker tests";
-        else if (!EngineAnswers())
-            Skip = "no Docker engine answered `docker info`";
+            return "set CHARGEHAND_TEST_IMAGE to a local image reference (name@sha256:...) to run Docker tests";
+        if (egress && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CHARGEHAND_TEST_EGRESS_IMAGE")))
+            return "set CHARGEHAND_TEST_EGRESS_IMAGE (scripts/egress-test-image.sh <aspnet-base-image>) to run the egress tests";
+        return EngineAnswers() ? null : "no Docker engine answered `docker info`";
     }
 
     private static bool EngineAnswers()
@@ -173,4 +195,10 @@ public sealed class DockerFactAttribute : FactAttribute
             return false;
         }
     }
+}
+
+/// <summary>A <see cref="DockerFactAttribute"/> test that also needs the egress test image.</summary>
+public sealed class DockerEgressFactAttribute : FactAttribute
+{
+    public DockerEgressFactAttribute() => Skip = DockerFactAttribute.Reason(egress: true);
 }
