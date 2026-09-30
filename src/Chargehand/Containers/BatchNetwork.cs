@@ -5,6 +5,9 @@ public sealed record BatchNetworkInfo(string Network, string EgressContainer, st
 {
     /// <summary>The value of a session container's <c>HTTPS_PROXY</c>; the run id is the proxy log's label, not a credential.</summary>
     public string ProxyUrl(string runId) => $"http://{runId}:x@{ProxyHost}:{ProxyPort}";
+
+    /// <summary>Where a session reaches an operator-named forward (the chargehand server's MCP endpoint): the egress container's name and the forward's listen port.</summary>
+    public string ServiceUrl(int listenPort) => $"http://{ProxyHost}:{listenPort}";
 }
 
 /// <summary>A batch's network (ADR 0039): an internal Docker network, which has no route out, plus one egress container on it that is also
@@ -13,12 +16,15 @@ public sealed record BatchNetworkInfo(string Network, string EgressContainer, st
 public sealed class BatchNetwork(IContainerEngine engine)
 {
     /// <summary>Docker's default outside network.</summary>
-    private const string Outside = "bridge";
+    public const string DefaultOutside = "bridge";
 
-    public async Task<BatchNetworkInfo> CreateAsync(string batchId, string egressImage, IReadOnlyList<string> allow, CancellationToken ct)
+    /// <param name="outsideNetwork">The network the egress container also joins: the way out to the registries, and to the chargehand server when that sits on a network of its own.</param>
+    /// <param name="forwards">Operator-named forwards (<c>listen-port=host:port</c>), for reaching the chargehand server from the internal network.</param>
+    public async Task<BatchNetworkInfo> CreateAsync(string batchId, string egressImage, IReadOnlyList<string> allow, CancellationToken ct, string outsideNetwork = DefaultOutside,
+        IReadOnlyList<string>? forwards = null)
     {
         var network = $"chargehand-net-{batchId}";
-        var spec = new EgressSpec(batchId, egressImage, network, allow);
+        var spec = new EgressSpec(batchId, egressImage, network, allow, Forwards: forwards);
         _ = ContainerTemplate.EgressArgs(spec); // validates every value before anything is created
         var info = new BatchNetworkInfo(network, "", $"chargehand-egress-{batchId}", spec.Port);
         await engine.CreateNetworkAsync(network, batchId, ct);
@@ -26,7 +32,7 @@ public sealed class BatchNetwork(IContainerEngine engine)
         try
         {
             egress = await engine.StartEgressAsync(spec, ct);
-            await engine.ConnectNetworkAsync(egress, Outside, ct);
+            await engine.ConnectNetworkAsync(egress, outsideNetwork, ct);
             return info with { EgressContainer = egress };
         }
         catch
