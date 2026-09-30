@@ -105,7 +105,17 @@ public static class OrchestrateTool
     /// </summary>
     private static async Task<RunHandle> Run(RequestContext<CallToolRequestParams> context, RunService runs, RunRequest request, string? parentRunId, CancellationToken ct)
     {
-        var run = runs.Start(request, parentRunId) ?? throw new McpException($"{RunService.MaxUnfinished} runs are unfinished; retry later");
+        if (runs.Halted)
+            throw new McpException(RunService.HaltedMessage);
+        string? chargeTo = null;
+        if (context.Services!.GetService<IHttpContextAccessor>()?.HttpContext?.Items[RunScope.ItemKey] is RunTokenClaims scope)
+        {
+            var applied = RunScope.Apply(scope, request, runs.Ledger);
+            if (applied.Refusal is { } refusal)
+                throw new McpException(refusal);
+            (request, parentRunId, chargeTo) = (applied.Request!, scope.RunId, scope.RunId);
+        }
+        var run = runs.Start(request, parentRunId, chargeTo) ?? throw new McpException($"{RunService.MaxUnfinished} runs are unfinished; retry later");
         // A task already hands the client an id to poll: the tasks filter runs every call from a client that opts in.
         if (context.JsonRpcRequest.Context?.ClientCapabilities?.Extensions?.ContainsKey(TasksProtocol.ExtensionId) == true)
         {

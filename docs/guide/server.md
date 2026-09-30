@@ -51,6 +51,10 @@ With no `repository_roots`, `serve` allows repositories under `worker_root` only
 | route | answers |
 |---|---|
 | `POST /v1/runs` | `200` with `result/v1` when the run finishes within the wait; `202` with `run-status/v1` when it does not; `400` with `errors` for a bad request; `429` when 10 runs are unfinished |
+| `GET /v1/runs?status=&since=&limit=` | `200` with `{"runs": [run-summary/v1, ...]}`, newest first: state, preset, cost, branch and pull request link when the result has them, and the error code of a failed run. `status` is a run state (`queued`, `running`, `lost`, `completed`, `needs_input`, `failed`, `denied`), `since` an ISO 8601 time, `limit` 1 to 500 (default 50); `400` for a bad value |
+| `POST /v1/runs/{id}/cancel` | `202` when this server holds the run and starts cancelling it; the run ends `failed` with error code `cancelled`. `404` for an unknown id, `409` when the run has finished or another process runs it |
+| `POST /v1/halt` | `200` with the number of runs it cancelled; from then on `POST /v1/runs` and the MCP tool are refused with `503` until `POST /v1/resume` |
+| `POST /v1/resume` | `200`; accepts runs again |
 | `GET /v1/runs/{id}` | `202` with `run-status/v1` while queued or running; `200` with `result/v1` once finished; `410` when the process that ran it ended first; `404` for an unknown id |
 | `GET /v1/runs/{id}/events` | server-sent events for the run; `404` for an unknown id |
 | `/v1/mcp` | MCP over Streamable HTTP, see [the MCP page](mcp.md) |
@@ -77,6 +81,10 @@ A `202` body is `run-status/v1` with status `queued` or `running`; a run that an
 ### GET /v1/runs/{id}/events
 
 A `text/event-stream` with the events `accepted`, `started`, `intake`, `node_started`, `node_finished` and `run_finished`. Each event's data is `run-status/v1`. The `intake` event carries the action intake chose, the action that runs and the number of nodes; `node_finished` carries the node's id, status and cost; `run_finished` carries the result. For a run this process does not hold (finished, lost, or running in another process), the stream has one event, read from the run log.
+
+## Run tokens (driven sessions)
+
+A driven session ([ADR 0039](../adr/0039-driven-writing-sessions.md)) calls chargehand back for research and review. It does not get the server's key: the server issues it a **run token**, `chr1.<payload>.<signature>`, an HMAC over its claims with a key only that process holds. The token opens `POST /v1/runs`, `GET /v1/runs/{id}` and the MCP tool, and nothing else (every other route is `403`). Through it a session can start only the `default` and `review` presets, only on the repository and commit of its task, never a batch, and only while the task's token and dollar caps last; each call's budget is cut to what is left. The runs it starts record the task's run as their parent and count against its caps. They run on a separate gate of two, not the one-at-a-time gate that the batch holds while it waits for them. A token expires, and it dies with the server.
 
 ## Runs and the run log
 

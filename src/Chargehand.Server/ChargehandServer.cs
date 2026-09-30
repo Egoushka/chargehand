@@ -73,12 +73,30 @@ public static partial class ChargehandServer
         var expected = Encoding.UTF8.GetBytes($"Bearer {settings.ApiKey}");
         app.Use(async (ctx, next) =>
         {
-            if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(ctx.Request.Headers.Authorization.ToString()), expected))
+            var header = ctx.Request.Headers.Authorization.ToString();
+            if (CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(header), expected))
             {
-                ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await next(ctx);
                 return;
             }
-            await next(ctx);
+            // A driven session's run-scoped token opens three things and nothing else: POST /v1/runs, one run's status, and the MCP tool (ADR 0039).
+            if (header.StartsWith("Bearer ", StringComparison.Ordinal)
+                && ctx.RequestServices.GetRequiredService<RunService>().Tokens.Validate(header["Bearer ".Length..], DateTimeOffset.UtcNow) is { } claims)
+            {
+                var path = ctx.Request.Path.Value ?? "";
+                var open = (ctx.Request.Method == "POST" && path == "/v1/runs")
+                    || (ctx.Request.Method == "GET" && Regex.IsMatch(path, "^/v1/runs/[^/]+$"))
+                    || path == "/v1/mcp" || path.StartsWith("/v1/mcp/", StringComparison.Ordinal);
+                if (!open)
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    return;
+                }
+                ctx.Items[RunScope.ItemKey] = claims;
+                await next(ctx);
+                return;
+            }
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
         });
 
         app.MapPost("/v1/runs", async (HttpContext ctx, RunService runs) =>
@@ -96,11 +114,62 @@ public static partial class ChargehandServer
             }
             if (request is null)
                 return Json(new { errors }, StatusCodes.Status400BadRequest);
-            if (runs.Start(request) is not { } run)
+            if (runs.Halted)
+                return Json(new { errors = new[] { RunService.HaltedMessage } }, StatusCodes.Status503ServiceUnavailable);
+            string? parent = null;
+            if (ctx.Items[RunScope.ItemKey] is RunTokenClaims scope)
+            {
+                var applied = RunScope.Apply(scope, request, runs.Ledger);
+                if (applied.Refusal is { } refusal)
+                    return Json(Problem(refusal), StatusCodes.Status403Forbidden);
+                (request, parent) = (applied.Request!, scope.RunId);
+            }
+            if (runs.Start(request, parent, parent) is not { } run)
                 return Json(new { errors = new[] { $"{RunService.MaxUnfinished} runs are unfinished; retry later" } }, StatusCodes.Status429TooManyRequests);
             ctx.Response.Headers.Location = $"/v1/runs/{run.Id}";
             await Task.WhenAny(run.Done, Task.Delay(Wait(ctx.Request.Headers["Prefer"]), ctx.RequestAborted));
             return Reply(run);
+        });
+
+        app.MapGet("/v1/runs", async (HttpContext ctx) =>
+        {
+            var q = ctx.Request.Query;
+            RunState? status = null;
+            if (q.TryGetValue("status", out var st))
+            {
+                var parsed = Enum.GetValues<RunState>().Where(v => JsonNamingPolicy.SnakeCaseLower.ConvertName(v.ToString()) == st.ToString()).Select(v => (RunState?)v).FirstOrDefault();
+                if (parsed is null)
+                    return Json(new { errors = new[] { $"status must be one of {string.Join(", ", Enum.GetNames<RunState>().Select(JsonNamingPolicy.SnakeCaseLower.ConvertName))}" } }, StatusCodes.Status400BadRequest);
+                status = parsed;
+            }
+            DateTimeOffset? since = null;
+            if (q.TryGetValue("since", out var sinceText))
+            {
+                if (!DateTimeOffset.TryParse(sinceText, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var when))
+                    return Json(Problem("since must be an ISO 8601 time"), StatusCodes.Status400BadRequest);
+                since = when;
+            }
+            var limit = 50;
+            if (q.TryGetValue("limit", out var limitText) && (!int.TryParse(limitText, out limit) || limit is < 1 or > 500))
+                return Json(Problem("limit must be 1 to 500"), StatusCodes.Status400BadRequest);
+            return Json(new { runs = await log.ListAsync(new RunListQuery(status, since, limit), ctx.RequestAborted) }, StatusCodes.Status200OK);
+        });
+
+        app.MapPost("/v1/runs/{id}/cancel", async (string id, HttpContext ctx, RunService runs) =>
+        {
+            if (runs.Cancel(id))
+                return Json(new { run_id = id, status = "cancelling" }, StatusCodes.Status202Accepted);
+            return await Stored(log, id, ctx.RequestAborted) is null
+                ? HttpResults.NotFound()
+                : Json(Problem("this server does not hold that run: it has finished, or another process runs it"), StatusCodes.Status409Conflict);
+        });
+
+        app.MapPost("/v1/halt", (RunService runs) => Json(new { halted = true, cancelled = runs.Halt() }, StatusCodes.Status200OK));
+
+        app.MapPost("/v1/resume", (RunService runs) =>
+        {
+            runs.Resume();
+            return Json(new { halted = false }, StatusCodes.Status200OK);
         });
 
         app.MapGet("/v1/runs/{id}", async (string id, HttpContext ctx, RunService runs) =>
@@ -177,6 +246,8 @@ public static partial class ChargehandServer
     /// <summary>RFC 7240 "Prefer: wait=N" in seconds, at most <see cref="MaxWaitSeconds"/>.</summary>
     internal static TimeSpan Wait(string? prefer) =>
         PreferWait().Match(prefer ?? "") is { Success: true } m ? TimeSpan.FromSeconds(Math.Min(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), MaxWaitSeconds)) : DefaultWait;
+
+    private static object Problem(string message) => new { errors = new[] { message } };
 
     private static IResult Json(object value, int status) => HttpResults.Json(value, ContractJson.Options, statusCode: status);
 
