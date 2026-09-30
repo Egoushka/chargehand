@@ -46,6 +46,8 @@ public class SessionImageTests
         var output = Run("test -f /opt/chargehand-plugin/skills/change/SKILL.md && echo skill-ok; test -f /opt/chargehand/Chargehand.Cli.dll && echo cli-ok; dotnet /opt/chargehand/Chargehand.Cli.dll session --out /nonexistent; echo exit=$?");
         Assert.Contains("skill-ok", output);
         Assert.Contains("cli-ok", output);
+        Assert.Contains("task.json", output);                    // the session verb ran and looked for its task file (an unknown verb prints the usage instead)
+        Assert.DoesNotContain("usage: chargehand [--profile", output);
         Assert.Contains("exit=2", output);                       // no task file: a usage-class failure, not a crash
     }
 }

@@ -70,6 +70,14 @@ if (argv is ["egress", .. var egressArgs])
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Egress.EgressCli.RunAsync(egressArgs, Console.Error, stop.Token);
 }
+// The command a driven-session container runs (ADR 0039); not listed in the usage: it is not for a person to type.
+if (argv is ["session", .. var sessionArgs])
+{
+    using var stop = new CancellationTokenSource();
+    using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Driven.SessionCli.RunAsync(sessionArgs, Console.Error, stop.Token);
+}
 if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions" or "runs"))
 {
     Console.Error.WriteLine(Usage);
