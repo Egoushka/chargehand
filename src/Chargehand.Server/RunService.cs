@@ -16,9 +16,21 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
     public const int MaxUnfinished = 10;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
+
+    /// <summary>Runs a driven session starts through its token (research, review) use this gate, not the main one: the batch that holds the main gate
+    /// is waiting for them, so sharing it would deadlock (ADR 0039).</summary>
+    private readonly SemaphoreSlim _childGate = new(2, 2);
     private readonly ConcurrentDictionary<string, RunHandle> _runs = new();
 
-    public void Dispose() => _gate.Dispose();
+    public void Dispose()
+    {
+        _gate.Dispose();
+        _childGate.Dispose();
+    }
+
+    public RunTokenService Tokens { get; } = new();
+
+    public RunTokenLedger Ledger { get; } = new();
 
     /// <summary>The kill switch is on: no new run starts until <see cref="Resume"/> (ADR 0039).</summary>
     public bool Halted { get; private set; }
@@ -61,7 +73,8 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
     }
 
     /// <summary>Queues a run, or returns null when <see cref="MaxUnfinished"/> runs are unfinished.</summary>
-    public RunHandle? Start(RunRequest request, string? parentRunId = null)
+    /// <param name="chargeTo">The parent run whose token started this one: it runs on the child gate and its cost goes to that run's ledger.</param>
+    public RunHandle? Start(RunRequest request, string? parentRunId = null, string? chargeTo = null)
     {
         // ponytail: count-then-add is not atomic; two racing calls can exceed the bound by one.
         if (_runs.Count >= MaxUnfinished)
@@ -69,24 +82,28 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         var run = new RunHandle(Orchestrator.NewRunId(), stopping);
         _runs[run.Id] = run;
         run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
-        _ = Task.Run(() => Execute(run, request, parentRunId));
+        _ = Task.Run(() => Execute(run, request, parentRunId, chargeTo));
         return run;
     }
 
     public RunHandle? Find(string runId) => _runs.GetValueOrDefault(runId);
 
-    private async Task Execute(RunHandle run, RunRequest request, string? parentRunId)
+    private async Task Execute(RunHandle run, RunRequest request, string? parentRunId, string? chargeTo)
     {
+        var gate = chargeTo is null ? _gate : _childGate;
         try
         {
-            await _gate.WaitAsync(run.Token);
+            await gate.WaitAsync(run.Token);
             try
             {
-                run.Complete(await orchestrator.RunAsync(request, run.Token, run.Id, run.Publish, parentRunId, () => run.CancelledByCaller));
+                var result = await orchestrator.RunAsync(request, run.Token, run.Id, run.Publish, parentRunId, () => run.CancelledByCaller);
+                if (chargeTo is not null)
+                    Ledger.Charge(chargeTo, result.Usage.Usd ?? 0, result.Usage.Input + result.Usage.Output);
+                run.Complete(result);
             }
             finally
             {
-                _gate.Release();
+                gate.Release();
             }
         }
         catch (OperationCanceledException) when (run.CancelledByCaller)

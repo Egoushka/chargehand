@@ -73,12 +73,30 @@ public static partial class ChargehandServer
         var expected = Encoding.UTF8.GetBytes($"Bearer {settings.ApiKey}");
         app.Use(async (ctx, next) =>
         {
-            if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(ctx.Request.Headers.Authorization.ToString()), expected))
+            var header = ctx.Request.Headers.Authorization.ToString();
+            if (CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(header), expected))
             {
-                ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await next(ctx);
                 return;
             }
-            await next(ctx);
+            // A driven session's run-scoped token opens three things and nothing else: POST /v1/runs, one run's status, and the MCP tool (ADR 0039).
+            if (header.StartsWith("Bearer ", StringComparison.Ordinal)
+                && ctx.RequestServices.GetRequiredService<RunService>().Tokens.Validate(header["Bearer ".Length..], DateTimeOffset.UtcNow) is { } claims)
+            {
+                var path = ctx.Request.Path.Value ?? "";
+                var open = (ctx.Request.Method == "POST" && path == "/v1/runs")
+                    || (ctx.Request.Method == "GET" && Regex.IsMatch(path, "^/v1/runs/[^/]+$"))
+                    || path == "/v1/mcp" || path.StartsWith("/v1/mcp/", StringComparison.Ordinal);
+                if (!open)
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    return;
+                }
+                ctx.Items[RunScope.ItemKey] = claims;
+                await next(ctx);
+                return;
+            }
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
         });
 
         app.MapPost("/v1/runs", async (HttpContext ctx, RunService runs) =>
@@ -98,7 +116,15 @@ public static partial class ChargehandServer
                 return Json(new { errors }, StatusCodes.Status400BadRequest);
             if (runs.Halted)
                 return Json(new { errors = new[] { RunService.HaltedMessage } }, StatusCodes.Status503ServiceUnavailable);
-            if (runs.Start(request) is not { } run)
+            string? parent = null;
+            if (ctx.Items[RunScope.ItemKey] is RunTokenClaims scope)
+            {
+                var applied = RunScope.Apply(scope, request, runs.Ledger);
+                if (applied.Refusal is { } refusal)
+                    return Json(Problem(refusal), StatusCodes.Status403Forbidden);
+                (request, parent) = (applied.Request!, scope.RunId);
+            }
+            if (runs.Start(request, parent, parent) is not { } run)
                 return Json(new { errors = new[] { $"{RunService.MaxUnfinished} runs are unfinished; retry later" } }, StatusCodes.Status429TooManyRequests);
             ctx.Response.Headers.Location = $"/v1/runs/{run.Id}";
             await Task.WhenAny(run.Done, Task.Delay(Wait(ctx.Request.Headers["Prefer"]), ctx.RequestAborted));

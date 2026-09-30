@@ -15,12 +15,12 @@ public class McpTests
 {
     private const string AskSpecDetail = """{"questions":["Which tone?"]}""";
 
-    private static async Task<McpClient> Connect(TestServer s, Func<ElicitRequestParams?, CancellationToken, ValueTask<ElicitResult>>? elicit = null, string? prefer = null) =>
+    private static async Task<McpClient> Connect(TestServer s, Func<ElicitRequestParams?, CancellationToken, ValueTask<ElicitResult>>? elicit = null, string? prefer = null, string? bearer = null) =>
         await McpClient.CreateAsync(
             new HttpClientTransport(new HttpClientTransportOptions
             {
                 Endpoint = new Uri(s.BaseAddress, "/v1/mcp"),
-                AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {TestServer.Key}" }
+                AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {bearer ?? TestServer.Key}" }
                     .Concat(prefer is null ? [] : [new("Prefer", prefer)]).ToDictionary(),
             }),
             new McpClientOptions { Handlers = new McpClientHandlers { ElicitationHandler = elicit } });
@@ -57,6 +57,25 @@ public class McpTests
         Assert.Equal(ResultStatus.Completed, result.Status);
         // A run started over MCP is the same run the HTTP interface reads.
         await ServerTests.WaitUntil(async () => (await s.Http.GetAsync($"/v1/runs/{result.TaskId}")).IsSuccessStatusCode);
+    }
+
+    [Fact]
+    public async Task A_sessions_run_token_reaches_the_tool_for_two_presets_on_its_commit_and_records_its_parent()
+    {
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.WorkerReply));
+        var repo = Runs.GitRepo(s.WorkerRoot);
+        var token = s.Tokens.Issue(new RunTokenClaims("run-parent", repo.Path, repo.Commit, null, null, DateTimeOffset.UtcNow.AddHours(1)), DateTimeOffset.UtcNow);
+        await using var client = await Connect(s, bearer: token);
+        Assert.Equal(OrchestrateTool.Name, Assert.Single(await client.ListToolsAsync()).Name);
+
+        var refused = await client.CallToolAsync(OrchestrateTool.Name, Args(new RunRequest("request/v1", "Write it.", new RequestContext(false, "code", Repository: repo))).ToDictionary(a => a.Key, a => (object?)a.Value));
+        Assert.True(refused.IsError);
+        Assert.Contains("preset", ((TextContentBlock)refused.Content[0]).Text, StringComparison.Ordinal);
+
+        var request = new RunRequest("request/v1", "What does the README say?", new RequestContext(false, "default", Repository: repo));
+        var result = Result(await client.CallToolAsync(OrchestrateTool.Name, Args(request).ToDictionary(a => a.Key, a => (object?)a.Value)));
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal("run-parent", (await s.Log.ReadAsync(result.TaskId, CancellationToken.None)).Start!.ParentRunId);
     }
 
     [Fact]
