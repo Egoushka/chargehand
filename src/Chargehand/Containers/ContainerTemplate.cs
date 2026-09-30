@@ -76,7 +76,10 @@ public static partial class ContainerTemplate
         if (spec.Port is < 1024 or > 65535)
             throw new ArgumentException("port must be 1024 to 65535", nameof(spec));
         _ = new Chargehand.Egress.AllowlistMatcher(spec.Allow);
-        return
+        foreach (var forward in spec.Forwards ?? [])
+            if (Chargehand.Egress.PortForward.Parse(forward) is null || Chargehand.Egress.PortForward.Parse(forward)!.ListenPort == spec.Port)
+                throw new ArgumentException($"invalid forward '{forward}' (listen-port=host:port, a named host, a port of 1024 or more, not the proxy's own)", nameof(spec));
+        List<string> line =
         [
             "run", "--detach", "--init",
             "--name", $"chargehand-egress-{spec.BatchId}",
@@ -93,6 +96,9 @@ public static partial class ContainerTemplate
             spec.Image,
             "egress", "--listen", $"0.0.0.0:{spec.Port.ToString(CultureInfo.InvariantCulture)}", "--allow", string.Join(',', spec.Allow),
         ];
+        foreach (var forward in spec.Forwards ?? [])
+            line.AddRange(["--forward", forward]);
+        return line;
     }
 
     /// <summary>The script the workspace helper runs; the branch and the commit reach it only as arguments (<c>$1</c>, <c>$2</c>), never spliced into its text.
