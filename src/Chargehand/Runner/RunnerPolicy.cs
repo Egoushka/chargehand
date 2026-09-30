@@ -6,9 +6,10 @@ namespace Chargehand.Runner;
 /// <param name="Images">Session images by digest; the only images that start.</param>
 /// <param name="EgressImage">The egress proxy's image; the caller never names it.</param>
 /// <param name="MaxContainers">Labelled containers that may exist at once, running or not.</param>
+/// <param name="OutsideNetworks">Networks besides <c>bridge</c> a session container's egress proxy may be joined to: the network the chargehand server sits on, so a session can reach it through a forward.</param>
 /// <param name="SourceRoots">Directories a workspace's read-only source may be under (chargehand's checkouts). None: no workspace is prepared, because a source path names a host directory.</param>
 public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressImage, int MaxContainers = 8, int MaxMemoryMb = 16_384, double MaxCpus = 4, int MaxPids = 1024,
-    IReadOnlyList<string>? SourceRoots = null)
+    IReadOnlyList<string>? SourceRoots = null, IReadOnlyList<string>? OutsideNetworks = null)
 {
     public const string WorkPrefix = "chargehand-work-";
     public const string OutPrefix = "chargehand-out-";
@@ -54,6 +55,6 @@ public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressIma
     public static string? RefuseNetwork(string name) =>
         name.StartsWith(NetworkPrefix, StringComparison.Ordinal) ? null : $"a network must start with {NetworkPrefix}";
 
-    public static string? RefuseConnect(string network) =>
-        network == OutsideNetwork ? null : $"a container may only be joined to {OutsideNetwork}";
+    public string? RefuseConnect(string network) =>
+        network == OutsideNetwork || (OutsideNetworks?.Contains(network) ?? false) ? null : $"a container may only be joined to {OutsideNetwork} or a configured outside network";
 }

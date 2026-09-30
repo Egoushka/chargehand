@@ -11,7 +11,7 @@ public static class RunnerCli
 {
     public const string KeyVariable = "CHARGEHAND_RUNNER_KEY";
 
-    public const string Usage = "usage: chargehand runner --listen <ip:port> --images <name@sha256:...,...> --egress-image <name@sha256:...> [--max-containers N] [--allowed-hosts a,b] [--source-roots /dir,...]  (key: CHARGEHAND_RUNNER_KEY)";
+    public const string Usage = "usage: chargehand runner --listen <ip:port> --images <name@sha256:...,...> --egress-image <name@sha256:...> [--max-containers N] [--allowed-hosts a,b] [--source-roots /dir,...] [--outside-networks name,...]  (key: CHARGEHAND_RUNNER_KEY)";
 
     public static RunnerSettings? Parse(IReadOnlyList<string> args, string? key, TextWriter error)
     {
@@ -26,6 +26,7 @@ public static class RunnerCli
         var max = 8;
         List<string> hosts = [];
         List<string> roots = [];
+        List<string> outside = [];
         for (var i = 0; i < args.Count; i += 2)
         {
             if (i + 1 >= args.Count)
@@ -44,6 +45,9 @@ public static class RunnerCli
                 case "--max-containers" when int.TryParse(args[i + 1], out var n) && n is >= 1 and <= 64:
                     max = n;
                     break;
+                case "--outside-networks":
+                    outside = [.. args[i + 1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+                    break;
                 case "--source-roots":
                     roots = [.. args[i + 1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
                     break;
@@ -58,7 +62,7 @@ public static class RunnerCli
             || !images.All(ContainerTemplate.IsImageReference) || !ContainerTemplate.IsImageReference(egress)
             || roots.Any(r => !r.StartsWith('/') || r.TrimEnd('/').Length == 0 || r.Contains("..", StringComparison.Ordinal)))
             return Fail(error);
-        return new RunnerSettings(listen.Port, key, new RunnerPolicy(images, egress, max, SourceRoots: roots), listen.Address.ToString(), hosts);
+        return new RunnerSettings(listen.Port, key, new RunnerPolicy(images, egress, max, SourceRoots: roots, OutsideNetworks: outside), listen.Address.ToString(), hosts);
     }
 
     public static async Task<int> RunAsync(IReadOnlyList<string> args, TextWriter error, CancellationToken ct)

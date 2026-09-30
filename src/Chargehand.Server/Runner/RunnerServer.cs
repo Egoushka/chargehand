@@ -164,7 +164,7 @@ public static class RunnerServer
         app.MapPost("/connect", (HttpContext ctx, CancellationToken ct) => Guard(async () =>
         {
             var connect = await Body<RunnerConnect>(ctx, ct);
-            if (RunnerPolicy.RefuseConnect(connect.Network) is { } refusal)
+            if (policy.RefuseConnect(connect.Network) is { } refusal)
                 return Refuse(refusal);
             if (!await engine.OwnsAsync(connect.Container, ct))
                 return NotOurs();

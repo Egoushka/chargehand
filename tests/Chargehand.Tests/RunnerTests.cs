@@ -58,7 +58,7 @@ public class RunnerTests
     private static async Task<Runner> Start(int maxContainers = 8, IReadOnlyList<string>? hosts = null)
     {
         var engine = new FakeEngine();
-        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage, maxContainers, SourceRoots: ["/srv/checkouts"]), AllowedHosts: hosts), engine);
+        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage, maxContainers, SourceRoots: ["/srv/checkouts"], OutsideNetworks: ["stack_net"]), AllowedHosts: hosts), engine);
         await app.StartAsync();
         return new Runner(engine, app);
     }
@@ -148,6 +148,15 @@ public class RunnerTests
         Assert.Empty(r.Engine.Calls);
         Assert.Equal(HttpStatusCode.OK, (await r.Http.PostAsync("/volumes", Json("""{"name":"chargehand-work-run1","run_id":"run1"}"""))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await r.Http.PostAsync("/connect", Json("""{"container":"ours1","network":"bridge"}"""))).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_container_may_join_a_configured_outside_network_and_no_other()
+    {
+        await using var r = await Start();
+        Assert.Equal(HttpStatusCode.OK, (await r.Http.PostAsync("/connect", Json("""{"container":"ours1","network":"stack_net"}"""))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/connect", Json("""{"container":"ours1","network":"db_net"}"""))).StatusCode);
+        Assert.Equal(["connect ours1 stack_net"], r.Engine.Calls);
     }
 
     [Fact]
