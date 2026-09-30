@@ -96,6 +96,20 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
         Require(await RunAsync(["network", "connect", network, container], ct), "docker network connect failed");
     }
 
+    public async Task<bool> OwnsAsync(string id, CancellationToken ct)
+    {
+        RequirePlain(id);
+        var result = await RunAsync(["inspect", "--format", $"{{{{index .Config.Labels \"{ContainerTemplate.RunLabel}\"}}}}", id], ct);
+        return result.ExitCode == 0 && result.Stdout.Trim() is { Length: > 0 } label && label != "<no value>";
+    }
+
+    public async Task<int> CountAsync(CancellationToken ct)
+    {
+        var listed = await RunAsync(["ps", "-aq", "--filter", $"label={ContainerTemplate.RunLabel}"], ct);
+        Require(listed, "docker ps failed");
+        return listed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
+    }
+
     public async Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct)
     {
         var result = await RunAsync(ContainerTemplate.EgressArgs(spec), ct);

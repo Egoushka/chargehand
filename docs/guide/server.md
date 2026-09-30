@@ -101,3 +101,17 @@ The [Dockerfile](../../Dockerfile) builds:
 OpenCode is not in the image; an OpenCode profile points `opencode.url` at a server that runs next to the container. Pass the worker's credential in the container's environment: with no `claude_code` block, chargehand looks for `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`. The server's repositories live under its `repository_roots`, and keeping them fetched is the deployment's job.
 
 No test in the repository runs the image ([capabilities](capabilities.md#server-container-image)).
+
+## Runner (driven sessions)
+
+Driven sessions ([ADR 0039](../adr/0039-driven-writing-sessions.md)) start one container per task. The server never holds the container engine's socket: a separate **runner** does, and exposes a narrow API in front of it.
+
+```bash
+export CHARGEHAND_RUNNER_KEY=<key>
+chargehand runner --listen <private-ip>:4310 --allowed-hosts <runner-name> \
+  --images <name>@sha256:<digest> --egress-image <name>@sha256:<digest>
+```
+
+The runner refuses to listen off loopback without `--allowed-hosts`, needs the key in the environment (never an argument), and starts only images on `--images`, by digest. Every container it starts comes from one fixed template: non-root, read-only root filesystem, no capabilities, no Docker socket, no host mount, one internal network. A request names a run, a listed image and numbers under the runner's ceilings, nothing else, and a body with any other field is refused. It signals, reads, removes and joins only containers that carry chargehand's `chargehand.run` label, so it is safe on an engine other stacks share. `GET /count` and `POST /kill-all` work without the server's records.
+
+The runner's own compromise is the security cost of this design: whoever holds its key can start listed images and remove labelled containers, and the process holds the engine's socket, which is root-equivalent on a rootful engine. Run it on a private network, behind its key, and prefer a rootless engine where you can.

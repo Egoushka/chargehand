@@ -109,6 +109,9 @@ public static partial class ContainerTemplate
         return env.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}").ToList();
     }
 
+    /// <summary>Whether <paramref name="image"/> is a digest reference (<c>name@sha256:&lt;64 hex&gt;</c>) or a local image id (<c>sha256:&lt;64 hex&gt;</c>).</summary>
+    public static bool IsImageReference(string image) => ImagePattern().IsMatch(image);
+
     /// <summary>Whether <paramref name="name"/> is safe as a container id or name, a volume or a network in a later docker call.</summary>
     public static bool IsPlainName(string name) => NamePattern().IsMatch(name);
 

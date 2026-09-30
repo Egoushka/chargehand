@@ -31,6 +31,8 @@ public class BatchNetworkTests
         public Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct) => throw new NotSupportedException();
         public Task CreateVolumeAsync(string name, string runId, CancellationToken ct) => throw new NotSupportedException();
         public Task RemoveVolumeAsync(string name, CancellationToken ct) => throw new NotSupportedException();
+        public Task<bool> OwnsAsync(string id, CancellationToken ct) => throw new NotSupportedException();
+        public Task<int> CountAsync(CancellationToken ct) => throw new NotSupportedException();
     }
 
     [Fact]
