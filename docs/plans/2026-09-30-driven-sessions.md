@@ -76,6 +76,10 @@ Measurement, not a feature. No production code; the result is recorded in ADR 00
   then a forwarding variant against the real API with a low-limit key supplied by the maintainer's secret source, never printed)
 - Modify: `docs/adr/0039-driven-writing-sessions.md` (record the result), `docs/specs/2026-09-30-driven-sessions-design.md` (open item 1)
 
+**Already answered (2026-09-30, local listener, no real credential):** in both modes Claude Code sends the dummy credential to the base URL
+(`x-api-key` for the API key, `Authorization: Bearer` for the subscription token), so the first two questions below are half done: what remains
+is the forwarded response with the real credential swapped in.
+
 **Questions to answer, with output kept out of the repository:**
 - With `ANTHROPIC_BASE_URL` set to a local listener and `ANTHROPIC_API_KEY` a dummy, does `claude -p` send the dummy as `x-api-key`
   and accept a forwarded response? (Decides the API-key path.)

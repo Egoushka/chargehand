@@ -60,6 +60,14 @@ claims go through the existing resolver and support judge; every contract change
   that opens only draft pull requests.
 - **ADR 0023's source-is-read-only rule stands:** the session works in a clone that the runner makes from the read-only source.
 
+### Spike result so far (2026-09-30)
+
+Claude Code 2.1.283 sends a dummy credential to a custom `ANTHROPIC_BASE_URL` in both API-key mode (`x-api-key`) and subscription
+mode (`Authorization: Bearer`), so the per-run token design is possible. Not yet shown: a forwarded response with the real credential
+swapped in, and the subscription token's refresh behaviour (plan Task 1 finishes it). The VPS engine is Docker 29.6.2, not rootless,
+so the runner holds a root-equivalent socket there; that is the security cost of decision "runner service" and is why the runner's
+template and review focus are the most scrutinised code in the plan.
+
 ## Consequences
 
 - A shell exists again, in a container, running repository content and model output. The boundary is the container, its network
