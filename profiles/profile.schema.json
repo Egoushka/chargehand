@@ -146,7 +146,20 @@
         "images": { "type": "array", "items": { "type": "string", "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$" }, "description": "Session images by digest; nothing else may run." },
         "network": { "type": "object", "additionalProperties": false, "properties": { "allow": { "type": "array", "items": { "type": "string", "minLength": 1 } } }, "description": "Hosts added to the preset's allowlist." },
         "runner": { "type": "object", "additionalProperties": false, "required": ["url", "api_key_secret"], "properties": { "url": { "type": "string", "minLength": 1 }, "api_key_secret": { "type": "string", "minLength": 1 } }, "description": "The runner service in front of the container engine. Absent: the server calls the engine itself (a laptop)." },
-        "push_secret": { "type": "string", "minLength": 1, "description": "Secret item for the credential that pushes non-default branches and opens draft pull requests." }
+        "push_secret": { "type": "string", "minLength": 1, "description": "Secret item for the credential that pushes non-default branches and opens draft pull requests." },
+        "task_source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["server", "tool", "arguments", "title"],
+          "description": "How a tracker item id (a task's ref) becomes a goal: call the tool on the mcp_servers entry with {ref} replaced by the id, then read the goal from the JSON answer.",
+          "properties": {
+            "server": { "type": "string", "minLength": 1 },
+            "tool": { "type": "string", "minLength": 1 },
+            "arguments": { "type": "object", "description": "The tool's arguments; the string {ref} is replaced by the item id." },
+            "title": { "type": "string", "minLength": 1, "description": "Dotted property names to the title string in the answer." },
+            "body": { "type": "string", "minLength": 1, "description": "The same for the description; omit for a title-only goal." }
+          }
+        }
       }
     },
     "repository_roots": {
