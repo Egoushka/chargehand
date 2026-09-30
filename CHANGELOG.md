@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Driven sessions call chargehand back with a run-scoped token (ADR 0039): it opens only `POST /v1/runs`, one run's status and the MCP tool, only for the `default` and `review` presets on its task's repository and commit, within the task's caps; the runs it starts record the task as their parent and use their own gate, so they cannot wait for the batch that holds the main one.
 - The server can list runs (`GET /v1/runs`, `run-summary/v1`), cancel a run it holds (`POST /v1/runs/{id}/cancel`, ending `failed` with `cancelled`) and be halted and resumed (`POST /v1/halt`, `POST /v1/resume`); `chargehand runs kill --all` removes driven-session containers by label without a server (ADR 0039).
 
 ### Fixed

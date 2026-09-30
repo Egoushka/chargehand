@@ -82,6 +82,10 @@ A `202` body is `run-status/v1` with status `queued` or `running`; a run that an
 
 A `text/event-stream` with the events `accepted`, `started`, `intake`, `node_started`, `node_finished` and `run_finished`. Each event's data is `run-status/v1`. The `intake` event carries the action intake chose, the action that runs and the number of nodes; `node_finished` carries the node's id, status and cost; `run_finished` carries the result. For a run this process does not hold (finished, lost, or running in another process), the stream has one event, read from the run log.
 
+## Run tokens (driven sessions)
+
+A driven session ([ADR 0039](../adr/0039-driven-writing-sessions.md)) calls chargehand back for research and review. It does not get the server's key: the server issues it a **run token**, `chr1.<payload>.<signature>`, an HMAC over its claims with a key only that process holds. The token opens `POST /v1/runs`, `GET /v1/runs/{id}` and the MCP tool, and nothing else (every other route is `403`). Through it a session can start only the `default` and `review` presets, only on the repository and commit of its task, never a batch, and only while the task's token and dollar caps last; each call's budget is cut to what is left. The runs it starts record the task's run as their parent and count against its caps. They run on a separate gate of two, not the one-at-a-time gate that the batch holds while it waits for them. A token expires, and it dies with the server.
+
 ## Runs and the run log
 
 Runs outlive the request that started them and execute one at a time; the server holds at most 10 unfinished runs. The server and the CLI share the run log when they use the same file: `chargehand show` reads runs started over HTTP and MCP, and `GET /v1/runs/{id}` reads runs started from the CLI. A server restart leaves unfinished runs `lost`, and their callers resend ([ADR 0018](../adr/0018-callable-interface-http-mcp-run-store.md)).
