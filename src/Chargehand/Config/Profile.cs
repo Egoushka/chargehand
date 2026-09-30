@@ -35,7 +35,8 @@ public sealed record Profile(
     IReadOnlyDictionary<string, McpServerSettings>? McpServers = null,
     SandboxSettings? Sandbox = null,
     bool SupportCheck = true,
-    SigningSettings? Signing = null)
+    SigningSettings? Signing = null,
+    DrivenSettings? Driven = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
@@ -383,3 +384,21 @@ public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecr
 /// <summary>chargehand serve (ADR 0018): a port, and the secret-store item holding the API key callers send. Listen and
 /// AllowedHosts open it beyond loopback, for a private network only (ADR 0024).</summary>
 public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null);
+
+/// <summary>Driven writing sessions (ADR 0039). Off unless <c>Enabled</c>: a shell runs in a container only when the profile opts in.</summary>
+/// <param name="Images">Session images by digest (<c>name@sha256:...</c>); a repository may pick one of these by name, never another.</param>
+/// <param name="Network">Hosts added to the preset's allowlist.</param>
+/// <param name="PushSecret">The secret item holding the credential that pushes non-default branches and opens draft pull requests.</param>
+public sealed record DrivenSettings(
+    bool Enabled = false,
+    int MaxParallel = 2,
+    int MaxParallelTotal = 4,
+    IReadOnlyList<string>? Images = null,
+    DrivenNetwork? Network = null,
+    DrivenRunner? Runner = null,
+    string? PushSecret = null);
+
+public sealed record DrivenNetwork(IReadOnlyList<string>? Allow = null);
+
+/// <summary>The runner service that holds the container engine's socket; null means the server calls the engine itself.</summary>
+public sealed record DrivenRunner(string Url, string ApiKeySecret);

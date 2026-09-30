@@ -14,7 +14,12 @@ public sealed record RunStatus(
     ResultStatus? NodeStatus = null,
     decimal? Usd = null,
     string? Detail = null,
-    ResultContract? Result = null)
+    ResultContract? Result = null,
+    string? TaskId = null,
+    string? Branch = null,
+    string? PrUrl = null,
+    decimal? UsdTotal = null,
+    int? Turns = null)
 {
     public static RunStatus Of(string runId, RunState status, RunEventKind? kind = null) => new("run-status/v1", runId, status, kind, DateTimeOffset.UtcNow);
 
@@ -25,4 +30,4 @@ public sealed record RunStatus(
 /// <summary>Lost: the process that ran it ended before it finished. The last four mirror result/v1's status.</summary>
 public enum RunState { Queued, Running, Lost, Completed, NeedsInput, Failed, Denied }
 
-public enum RunEventKind { Accepted, Started, Intake, NodeStarted, NodeFinished, RunFinished }
+public enum RunEventKind { Accepted, Started, Intake, NodeStarted, NodeFinished, RunFinished, ContainerStarted, SessionProgress, VerifyFinished, Pushed, PrOpened, TaskFinished }

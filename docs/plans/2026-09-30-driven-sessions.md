@@ -111,8 +111,7 @@ is the forwarded response with the real credential swapped in.
   SessionStalled, PushRejected, PrFailed, Cancelled, TasksIncomplete}`; `RunSummary` record; `DrivenSettings`.
 
 - [ ] **Step 1: Write the failing tests.** A request with `driven` (two tasks, one `ref` one `goal`) validates and round-trips; a
-  task with neither `ref` nor `goal`, a duplicate `id`, 0 or 21 tasks, `draft_pr: false`, or `driven` without `context.repository`
-  is rejected with a specific message; each new error code serialises snake_case and validates; each new `run-status` event and
+  task with neither `ref` nor `goal`, a duplicate `id`, 0 or 21 tasks, `draft_pr: false`, is rejected with a specific message; `driven` without `context.repository` and duplicate ids are caught by `DrivenRules` (the schema cannot say it additively); each new error code serialises snake_case and validates; each new `run-status` event and
   field validates; a `run-summary/v1` example validates and round-trips; a profile with a `driven` block loads and a profile
   without it loads with `Driven == null`; `driven.yaml` loads as a preset. Use `PresetRoot` for preset fixtures.
 - [ ] **Step 2: Run** `dotnet test --filter DrivenContractsTests`; expect unknown-property and missing-type failures.

@@ -151,7 +151,7 @@ Three things in the skill do not fit a container and change, additively, in Task
   "max_parallel": 2, "max_tokens_total": 4000000, "max_usd_total": 6.0, "draft_pr": true }
 ```
 
-`tasks` has 1 to 20 items; each has a unique `id` within the batch and at least one of `ref` (a tracker item id, resolved through a profile mapping in the style of ADR 0034, else `invalid_request` with the action to configure it) or `goal`. `text` stays required and describes the batch. `max_tokens_total` is required in subscription mode; `max_usd_total` is required in API-key mode; `draft_pr` accepts only `true`; the field exists so a future non-draft mode is a visible change, not a silent one. `context.repository` is required with `driven`.
+`tasks` has 1 to 20 items; each has a unique `id` within the batch and at least one of `ref` (a tracker item id, resolved through a profile mapping in the style of ADR 0034, else `invalid_request` with the action to configure it) or `goal`. `text` stays required and describes the batch. `max_tokens_total` is required in subscription mode; `max_usd_total` is required in API-key mode; `draft_pr` accepts only `true`; the field exists so a future non-draft mode is a visible change, not a silent one. `context.repository` is required with `driven`, and task ids must be unique; both are checked in code (`DrivenRules`) when the request is accepted, not in the schema, because `SchemaCompatTests` treats a new cross-field rule on a published schema as breaking.
 
 **`result/v1`** (the batch result; each task also has its own `result/v1` in the run store under its own run id):
 

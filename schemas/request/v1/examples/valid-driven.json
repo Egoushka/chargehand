@@ -1,0 +1,3 @@
+{ "contract_version": "request/v1", "text": "Two small changes in one batch",
+  "context": { "interactive": false, "preset": "driven", "repository": { "path": "/srv/repos/sample", "commit": "0123abc" } },
+  "driven": { "tasks": [ { "id": "t1", "ref": "ITEM-12" }, { "id": "t2", "goal": "Add a retry to the fetch client" } ], "max_parallel": 2, "max_tokens_total": 4000000, "draft_pr": true } }
