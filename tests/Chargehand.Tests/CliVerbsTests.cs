@@ -8,6 +8,7 @@ public class CliVerbsTests
     [InlineData("verify")]
     [InlineData("egress")]
     [InlineData("session")]
+    [InlineData("verify-branch")]
     public void A_profile_free_verb_is_dispatched_in_the_cli(string verb)
     {
         var source = File.ReadAllText(Repo.Path("src", "Chargehand.Cli", "Program.cs"));
