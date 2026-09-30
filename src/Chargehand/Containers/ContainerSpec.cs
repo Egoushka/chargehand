@@ -26,6 +26,20 @@ public sealed record ContainerSpec(
 /// <param name="Allow">Host patterns for <see cref="Chargehand.Egress.AllowlistMatcher"/>.</param>
 public sealed record EgressSpec(string BatchId, string Image, string Network, IReadOnlyList<string> Allow, int Port = 3128);
 
+/// <summary>The helper that fills a session's workspace volume (ADR 0039): a clone of the read-only source on a new branch at a commit, made in a container
+/// that has no network and can write only the volume.</summary>
+/// <param name="Image">A session image (it has git).</param>
+/// <param name="SourcePath">An absolute host path, mounted read-only: the worker's checkout of the pinned commit (ADR 0023).</param>
+/// <param name="WorkVolume">A new, empty named volume.</param>
+/// <param name="Branch">Created at <paramref name="Commit"/>; under <c>chargehand/</c>.</param>
+public sealed record WorkspaceSpec(string RunId, string Image, string SourcePath, string WorkVolume, string Branch, string Commit);
+
+/// <summary>Fills a workspace volume before a session starts, and again for the fresh verification run after it.</summary>
+public interface IWorkspaceEngine
+{
+    Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct);
+}
+
 public enum ContainerStatus { Running, Exited, Missing }
 
 /// <param name="ExitCode">Set once the container has exited.</param>
