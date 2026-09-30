@@ -1,6 +1,6 @@
 # 0035. Sandboxed writing workers
 
-- Status: proposed; implemented on `main` for goal 0.7, not yet reviewed by the maintainer
+- Status: proposed; implemented on `main` for goal 0.7, not yet reviewed by the maintainer. Decision 1 (no shell) is superseded for driven sessions by 0039; the `code` preset is unchanged
 - Date: 2026-09-30
 
 ## Context
