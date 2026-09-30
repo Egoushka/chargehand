@@ -91,6 +91,7 @@ public class SessionDriverTests
         Assert.Equal("added a retry", doc.RootElement.GetProperty("summary").GetString());
         Assert.True(File.Exists(Path.Combine(w.Out, "session-outcome.json")));
         Assert.Contains("\"type\":\"result\"", File.ReadAllText(Path.Combine(w.Out, "stream.jsonl")));
+        Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(w.Out, "stream.jsonl")))), outcome.StreamSha256);
     }
 
     [Fact]
