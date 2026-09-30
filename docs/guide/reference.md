@@ -100,7 +100,7 @@ A node kind may list `services`, an optional `preset/v1` field (ADR 0034): each 
 | `preset/v1` | a preset file | [preset.schema.json](../../schemas/preset/v1/preset.schema.json) |
 | `profile/v1` | the profile | [profile.schema.json](../../profiles/profile.schema.json) |
 
-Each schema under `schemas/` sits in `schemas/<name>/v<major>/`, next to valid and invalid examples. A published major takes additive changes only: `SchemaCompatTests` fails the build on a breaking change since the latest `v*` tag. `Chargehand.Contracts` packs the five schemas under `schemas/` with C# types and a validator. It versions by schema major (1.3.1-alpha) and is on nuget.org. `samples/ContentEngineCall` is a program caller built from it alone.
+Each schema under `schemas/` sits in `schemas/<name>/v<major>/`, next to valid and invalid examples. A published major takes additive changes only: `SchemaCompatTests` fails the build on a breaking change since the latest `v*` tag. `Chargehand.Contracts` packs the five schemas under `schemas/` with C# types and a validator. It versions by schema major (1.4.0-alpha) and is on nuget.org. `samples/ContentEngineCall` is a program caller built from it alone.
 
 ## Error codes
 
