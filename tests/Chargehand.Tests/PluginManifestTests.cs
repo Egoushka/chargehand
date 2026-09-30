@@ -25,7 +25,8 @@ public class PluginManifestTests
         var args = server.GetProperty("args").EnumerateArray().Select(a => a.GetString()).ToList();
         var packageId = XDocument.Load(Repo.Path("src", "Chargehand.Cli", "Chargehand.Cli.csproj")).Descendants("PackageId").Single().Value;
         Assert.Equal("dotnet", server.GetProperty("command").GetString());
-        Assert.Equal(["dnx", $"{packageId}@{Version}", "--yes", "--", "mcp"], args);
+        // --source: a machine whose NuGet config lists a private feed makes dnx fail with 401 on it (CHARGEHAND-127).
+        Assert.Equal(["dnx", $"{packageId}@{Version}", "--yes", "--source", "https://api.nuget.org/v3/index.json", "--", "mcp"], args);
     }
 
     [Fact]
