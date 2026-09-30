@@ -31,6 +31,16 @@
       "min_items": 8
     },
     {
+      "name": "driven/session",
+      "dataset": "chargehand-driven-session",
+      "kind": "worker",
+      "preset": "driven",
+      "files": ["presets/driven.yaml"],
+      "quality_tolerance": 0.10,
+      "cost_tolerance": 0.30,
+      "min_items": 8
+    },
+    {
       "name": "draft/draft",
       "dataset": "chargehand-draft-draft",
       "kind": "draft",
