@@ -396,9 +396,16 @@ public sealed record DrivenSettings(
     IReadOnlyList<string>? Images = null,
     DrivenNetwork? Network = null,
     DrivenRunner? Runner = null,
-    string? PushSecret = null);
+    string? PushSecret = null,
+    DrivenTaskSource? TaskSource = null);
 
 public sealed record DrivenNetwork(IReadOnlyList<string>? Allow = null);
 
 /// <summary>The runner service that holds the container engine's socket; null means the server calls the engine itself.</summary>
 public sealed record DrivenRunner(string Url, string ApiKeySecret);
+
+/// <summary>How a tracker item id becomes a goal (ADR 0039): call <c>Tool</c> on <c>Server</c> (a key of <c>mcp_servers</c>) with <c>{ref}</c> in
+/// <c>Arguments</c> replaced by the id, then read the goal's title and body from the JSON answer by dotted path.</summary>
+/// <param name="Title">Dotted property names leading to the title string.</param>
+/// <param name="Body">The same for the description; null for a title-only goal.</param>
+public sealed record DrivenTaskSource(string Server, string Tool, IReadOnlyDictionary<string, JsonElement> Arguments, string Title, string? Body = null);
