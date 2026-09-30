@@ -7,10 +7,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-30
+
+One release for two goals; there is no 0.7.0, because no commit is 0.7 only (as with the missing 0.5.0). Goal 0.7
+([roadmap](ROADMAP.md)): workers can write. The `code` preset edits files in its own clone, runs the repository's tests
+in a sandbox and returns a branch, a diff and a verification artifact. Goal 0.8: every claim is checked for support
+against the text it cites, results can be signed with a key you make, and `chargehand verify` checks a signed result
+offline; each cited text's sha256 is recorded on its evidence. Schema changes are additive, and `Chargehand.Contracts`
+1.4.0-alpha is published with them. Still open: the usage bars of 0.5 and 0.7 (the maintainer's own use on real tasks);
+the Linux sandbox (`bwrap`) is only tested as arguments, never run; the support judge was measured on 30 claims.
+
 ### Added
 
 - Every claim is checked for support (goal 0.8, ADR 0036): after a node, one call on the intake model judges whether the text each claim cites supports it. `result/v1` claims gain an optional `support` (`supported`, `partial`, `unchecked`); an unsupported claim moves to `open_questions`, a partly supported one stays at half confidence and is not kept for memory; a failed check leaves the claims `unchecked` and never fails a run. Profile `support_check` (default true) turns it off. On 30 labelled claims, Haiku and Sonnet each agreed with the labels 25 times, perfectly on clearly supported and clearly unsupported claims and not on partly supported ones (`scripts/support-eval.sh`, [guide](docs/guide/support-and-signing.md)).
 - Results can be signed (ADR 0036): profile `signing.key_file` or `CHARGEHAND_SIGNING_KEY_FILE`, a P-256 key you make yourself; `result/v1` gains an optional `signature` (ES256 over the RFC 8785 canonical result). `chargehand verify <result.json> --public-key <pem>` and `ResultSignature.Verify` in `Chargehand.Contracts` check it offline. Chargehand never creates or stores a key.
+- Evidence without a `sha256` gets the SHA-256 of the whole cited text, taken before any cut for the judge.
 - Groundwork for writing workers (goal 0.7, ADR 0035), all additive: a preset node kind may set `writes` and `verify` (`timeout_seconds`, `max_fix_rounds`), a request's `context` may carry `verify` (the test command as an argument vector), and `result/v1` error codes gain `sandbox_unavailable` and `verification_failed`. Nothing uses them yet.
 - A writing node's workspace (ADR 0035): a per-run clone under `<worker_root>/.runs/<run>/<node>` of the cached checkout, on branch `chargehand/<run>/<node>`. Chargehand commits for the worker with the repository's hooks off and signing off; the source repository and the shared checkout are never written. Nothing creates one yet.
 - The sandbox a writing run's tests will execute in (ADR 0035): `sandbox-exec` on macOS, `bwrap` on Linux, behind one interface; profile field `sandbox` (`kind`, `network`, `env`). A command may write only in its workspace and a private temp directory, may not read credential locations, has no network unless allowed and gets a cut environment. Nothing runs in it yet.
@@ -551,7 +562,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Egoushka/chargehand/compare/v0.6.1...v0.8.0
 [0.6.1]: https://github.com/Egoushka/chargehand/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Egoushka/chargehand/compare/v0.4.1...v0.6.0
 [0.4.1]: https://github.com/Egoushka/chargehand/compare/v0.4.0...v0.4.1

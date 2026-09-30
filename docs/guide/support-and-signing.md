@@ -1,6 +1,6 @@
 # Support checking and signed results
 
-On main, not yet released. [ADR 0036](../adr/0036-support-checking-and-signed-results.md) has the decisions and their reasons.
+Since 0.8.0. [ADR 0036](../adr/0036-support-checking-and-signed-results.md) has the decisions and their reasons.
 
 ## Claims checked for support
 

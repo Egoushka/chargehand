@@ -23,12 +23,14 @@ image.
   and there is no 0.5.0; what is open is its usage bar, the maintainer's own use of the command on real tasks.
 - ✅ **0.6** Runs use your MCP services and memory: any MCP memory server, several at once, retaining only claims whose
   citations resolved, and a preset can give workers read-only tools from an MCP service (released in 0.6.0).
-- ▶ **0.7** Workers write branches that build and pass their tests in a sandbox. On main: the `code` preset, the sandbox and the verifier (ADR 0035); not yet released.
+- ✅ **0.7** Workers write branches that build and pass their tests in a sandbox: the `code` preset, the sandbox and the
+  verifier (ADR 0035), released in 0.8.0 (there is no 0.7.0). Its usage bar, five real issues taken to a merged change,
+  is not met yet.
 
-## Stage 4 — Answers you can prove · (0.8)
+## Stage 4 — Answers you can prove · ✅ (0.8)
 
-- ▶ **0.8** Every claim is checked for support against its cited text, and results are signed so anyone can verify them
-  offline. On main: the support check and signing; not yet released.
+- ✅ **0.8** Every claim is checked for support against its cited text, and results are signed so anyone can verify them
+  offline (released in 0.8.0).
 
 ## Stage 5 — People find it · (0.9–1.0)
 

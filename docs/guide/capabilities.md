@@ -37,7 +37,7 @@ The tests call no model. They run the orchestrator on a scripted runtime ([Scrip
 | [Claude Code plugin, `/chargehand:change`](#claude-code-plugin-chargehandchange) | partial | [ChangeSkillTests](../../tests/Chargehand.Tests/ChangeSkillTests.cs), [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs) |
 | [`Chargehand` and `Chargehand.Contracts` on nuget.org](#chargehand-and-chargehandcontracts-on-nugetorg) | works | [mcp-smoke.py](../../scripts/mcp-smoke.py), [release.yml](../../.github/workflows/release.yml), [README](../../README.md#from-the-package) |
 | [Listing in the MCP Registry](#listing-in-the-mcp-registry) | works | [McpServerJsonTests](../../tests/Chargehand.Tests/McpServerJsonTests.cs), [release.yml](../../.github/workflows/release.yml), [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) |
-| [Writing nodes in worktrees](#writing-nodes-in-worktrees) | works on main, not released | [ChangeRunTests](../../tests/Chargehand.Tests/ChangeRunTests.cs), [SandboxTests](../../tests/Chargehand.Tests/SandboxTests.cs), [write-e2e.sh](../../scripts/write-e2e.sh), [ADR 0035](../adr/0035-sandboxed-writing-workers.md) |
+| [Writing nodes in worktrees](#writing-nodes-in-worktrees) | works since 0.8.0 | [ChangeRunTests](../../tests/Chargehand.Tests/ChangeRunTests.cs), [SandboxTests](../../tests/Chargehand.Tests/SandboxTests.cs), [write-e2e.sh](../../scripts/write-e2e.sh), [ADR 0035](../adr/0035-sandboxed-writing-workers.md) |
 | [Checking that the cited text supports each claim](#checking-that-the-cited-text-supports-each-claim) | not yet | [ROADMAP.md](../../ROADMAP.md), [GitEvidenceResolver.cs](../../src/Chargehand/Verification/GitEvidenceResolver.cs) |
 
 ## The evidence in full
@@ -277,4 +277,4 @@ The `code` preset writes; every other shipped preset denies edits. Not covered: 
 
 ### Support checking
 
-The resolver still only confirms that a citation points at something real. On main, and not yet released, a model then judges whether the cited text supports each claim ([Support checking and signed results](support-and-signing.md)); on 30 labelled claims two Claude models agreed with the labels 25 times, perfectly on clearly supported and clearly unsupported claims and not on partly supported ones. It is a model's opinion, not a proof, and it does not cover claims that cite only a URL, a commit or a session message.
+The resolver still only confirms that a citation points at something real. Since 0.8.0, a model then judges whether the cited text supports each claim ([Support checking and signed results](support-and-signing.md)); on 30 labelled claims two Claude models agreed with the labels 25 times, perfectly on clearly supported and clearly unsupported claims and not on partly supported ones. It is a model's opinion, not a proof, and it does not cover claims that cite only a URL, a commit or a session message.
