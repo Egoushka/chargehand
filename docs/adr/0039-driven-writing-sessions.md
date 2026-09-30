@@ -77,9 +77,14 @@ template and review focus are the most scrutinised code in the plan.
   data in a URL.
 - The runner is new security-sensitive code: a small program holding the Docker socket, reviewed as such (plan Task 5's review focus).
 - The server's one-run-at-a-time gate must change for batches (plan Task 7).
-- Model spend is real. With an API key the batch cap is a ceiling; with a subscription token dollars are not measurable and only turns
-  and time bound a run. Whether unattended parallel subscription use is within the plan's terms is **unknown**; the design recommends an
-  API key for batches until the maintainer has read them.
+- **The subscription is the default model credential (maintainer's decision, 2026-09-30), with an API key as the manual fallback.**
+  Dollars are not measurable in that mode, so batches are bounded by a token ceiling counted from the stream, plus turns and time; the
+  dollar ceiling binds only in API-key mode. Parallel sessions share one plan's limit. Whether unattended parallel server-hosted use is
+  within the plan's terms is **unknown** and accepted as a risk by the maintainer; the risk is an action by the provider on the
+  account. A rate limit or sign-out ends tasks as retryable and stops the batch; nothing switches to an API key on its own.
+  Because the subscription token is long-lived and covers the whole plan, keeping it out of the container (the per-run token design)
+  matters more here than for a limited API key; if the spike shows it cannot be kept out, the fallback delivery puts a year-long
+  credential where hostile repository code runs, and the maintainer should then reconsider before enabling it.
 - The image is another thing to pin, scan and keep at the profile's Claude Code version.
 - A session whose model ignores the skill's steps produces a branch that chargehand's own verification and review still judge; the
   skill is followed by instruction, not enforced, so the plan measures adherence (Task 12).

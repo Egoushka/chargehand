@@ -54,8 +54,8 @@ Builds on `docs/plans/2026-09-30-writing-workers.md` (the verifier, `RunWorkspac
    `Secret_in_diff_blocks_push`).
 5. **Cancel stops the container and pushes nothing.** With the server down, `kill-all` still works by label. Pinned in Task 7
    (`Cancel_stops_within_ten_seconds_and_pushes_nothing`) and Task 5 (`Kill_all_by_label`).
-6. **The spend cap is a ceiling, not a hope.** No task starts if its cap would exceed the batch cap; a run token is refused after its
-   cap. A subscription-mode run says it has no dollar figure. Pinned in Task 8 (`Batch_does_not_start_a_task_that_could_exceed_the_cap`)
+6. **The spend cap is a ceiling, not a hope.** The token ceiling binds in both modes; the dollar ceiling only in API-key mode. No task
+   starts if its cap would exceed the batch cap; a rate-limited subscription stops the batch and never switches to an API key by itself. Pinned in Task 8 (`Batch_does_not_start_a_task_that_could_exceed_the_cap`, `Rate_limited_subscription_stops_the_batch_without_fallback`)
    and Task 1/4 (gateway refusal).
 7. **A looping session ends.** No progress, a repeated identical tool call, too many turns, and the wall clock each end it with
    `session_stalled`. Pinned in Task 6 (`Stall_detectors`).
@@ -106,7 +106,7 @@ is the forwarded response with the real credential swapped in.
 - Test: `tests/Chargehand.Tests/DrivenContractsTests.cs`
 
 **Interfaces:**
-- Produces: `RequestDriven(IReadOnlyList<DrivenTask> Tasks, int? MaxParallel, decimal? MaxUsdTotal, bool DraftPr = true)`;
+- Produces: `RequestDriven(IReadOnlyList<DrivenTask> Tasks, int? MaxParallel, long? MaxTokensTotal, decimal? MaxUsdTotal, bool DraftPr = true)`;
   `DrivenTask(string Id, string? Ref, string? Goal)`; `ErrorCode.{ContainerUnavailable, CredentialUnavailable, SessionFailed,
   SessionStalled, PushRejected, PrFailed, Cancelled, TasksIncomplete}`; `RunSummary` record; `DrivenSettings`.
 
@@ -260,7 +260,7 @@ public static class ContainerTemplate { public static IReadOnlyList<string> RunA
 - Test: `tests/Chargehand.Tests/BatchSchedulerTests.cs`, `TaskSourceTests.cs`
 
 **Interfaces:**
-- Produces: `BatchScheduler.RunAsync(batch, runTask, ct)` with `max_parallel`, `max_parallel_total`, the batch cap and halt;
+- Produces: `BatchScheduler.RunAsync(batch, runTask, ct)` with `max_parallel`, `max_parallel_total`, the token and dollar caps and halt;
   `TaskSource.ResolveAsync(ref)` returning a goal via the mapped MCP tool, or a `ChargehandException(InvalidRequest)` with the
   action to configure `driven.task_source`.
 
