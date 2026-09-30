@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The server can list runs (`GET /v1/runs`, `run-summary/v1`), cancel a run it holds (`POST /v1/runs/{id}/cancel`, ending `failed` with `cancelled`) and be halted and resumed (`POST /v1/halt`, `POST /v1/resume`); `chargehand runs kill --all` removes driven-session containers by label without a server (ADR 0039).
+
 ### Fixed
 
 - The plugin's MCP entry passes `--source https://api.nuget.org/v3/index.json` to `dnx`, so a machine whose NuGet config lists a private feed no longer fails with 401 and `CONNECTION_CLOSED` (CHARGEHAND-127).

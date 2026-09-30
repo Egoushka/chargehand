@@ -50,6 +50,43 @@ public sealed class JsonlRunLog(string path) : IRunLog
         return new(start, run, calls);
     }
 
+    public async Task<IReadOnlyList<RunSummary>> ListAsync(RunListQuery query, CancellationToken ct)
+    {
+        // ponytail: reads the whole log per call, like ReadAllAsync; index it if a list is ever polled often over a large log.
+        var data = await ReadAllAsync(ct);
+        var finished = data.Runs.GroupBy(r => r.RunId).ToDictionary(g => g.Key, g => g.Last());
+        var rows = new List<RunSummary>();
+        foreach (var start in data.Starts.GroupBy(s => s.RunId).Select(g => g.First()))
+        {
+            if (query.Since is { } since && start.Started < since)
+                continue;
+            finished.TryGetValue(start.RunId, out var run);
+            var state = run is not null ? RunStatus.StateOf(run.Result.Status) : start.OwnerAlive() ? RunState.Running : RunState.Lost;
+            if (query.Status is { } wanted && wanted != state)
+                continue;
+            rows.Add(new RunSummary("run-summary/v1", start.RunId, state, run?.Preset ?? start.Request.Context.Preset, start.Started, start.ParentRunId,
+                null, run?.Finished, run?.Result.Usage.Usd, ArtifactField(run?.Result, "branch", "branch"), ArtifactField(run?.Result, "pull-request", "url"), run?.Result.Error?.Code));
+        }
+        return [.. rows.OrderByDescending(r => r.StartedAt).Take(Math.Clamp(query.Limit, 1, 500))];
+    }
+
+    /// <summary>A string member of a result artifact's inline JSON (the branch artifact's <c>branch</c>, the pull request's <c>url</c>); null when there is none.</summary>
+    private static string? ArtifactField(ResultContract? result, string kind, string member)
+    {
+        var content = result?.Artifacts.FirstOrDefault(a => a.Kind == kind)?.Content;
+        if (content is null)
+            return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(content);
+            return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty(member, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     public async Task<RunLogData> ReadAllAsync(CancellationToken ct)
     {
         List<StartRecord> starts = [];

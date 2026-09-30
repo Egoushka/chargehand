@@ -51,6 +51,10 @@ With no `repository_roots`, `serve` allows repositories under `worker_root` only
 | route | answers |
 |---|---|
 | `POST /v1/runs` | `200` with `result/v1` when the run finishes within the wait; `202` with `run-status/v1` when it does not; `400` with `errors` for a bad request; `429` when 10 runs are unfinished |
+| `GET /v1/runs?status=&since=&limit=` | `200` with `{"runs": [run-summary/v1, ...]}`, newest first: state, preset, cost, branch and pull request link when the result has them, and the error code of a failed run. `status` is a run state (`queued`, `running`, `lost`, `completed`, `needs_input`, `failed`, `denied`), `since` an ISO 8601 time, `limit` 1 to 500 (default 50); `400` for a bad value |
+| `POST /v1/runs/{id}/cancel` | `202` when this server holds the run and starts cancelling it; the run ends `failed` with error code `cancelled`. `404` for an unknown id, `409` when the run has finished or another process runs it |
+| `POST /v1/halt` | `200` with the number of runs it cancelled; from then on `POST /v1/runs` and the MCP tool are refused with `503` until `POST /v1/resume` |
+| `POST /v1/resume` | `200`; accepts runs again |
 | `GET /v1/runs/{id}` | `202` with `run-status/v1` while queued or running; `200` with `result/v1` once finished; `410` when the process that ran it ended first; `404` for an unknown id |
 | `GET /v1/runs/{id}/events` | server-sent events for the run; `404` for an unknown id |
 | `/v1/mcp` | MCP over Streamable HTTP, see [the MCP page](mcp.md) |

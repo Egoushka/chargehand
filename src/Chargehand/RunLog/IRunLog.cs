@@ -18,7 +18,14 @@ public interface IRunLog
     Task AppendAsync(RunRecord record, CancellationToken ct);
 
     Task<RunEntry> ReadAsync(string runId, CancellationToken ct);
+
+    /// <summary>One <see cref="RunSummary"/> per run, newest first, for a client that lists runs (ADR 0039).</summary>
+    Task<IReadOnlyList<RunSummary>> ListAsync(RunListQuery query, CancellationToken ct);
 }
+
+/// <param name="Status">Only runs in this state; null for all.</param>
+/// <param name="Since">Only runs started at or after this time.</param>
+public sealed record RunListQuery(RunState? Status = null, DateTimeOffset? Since = null, int Limit = 50);
 
 /// <summary>Everything the log holds for one run.</summary>
 public sealed record RunEntry(StartRecord? Start, RunRecord? Run, IReadOnlyList<CallRecord> Calls);

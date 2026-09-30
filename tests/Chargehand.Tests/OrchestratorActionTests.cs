@@ -41,6 +41,7 @@ public class OrchestratorActionTests
             return Task.CompletedTask;
         }
         public Task<RunEntry> ReadAsync(string runId, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<RunSummary>> ListAsync(RunListQuery query, CancellationToken ct) => throw new NotSupportedException();
     }
 
     private static async Task<(ResultContract Result, RunRecord Run)> Run(IWorkerRuntime runtime, string preset, bool? approved = null)

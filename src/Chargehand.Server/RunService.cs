@@ -20,6 +20,32 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
 
     public void Dispose() => _gate.Dispose();
 
+    /// <summary>The kill switch is on: no new run starts until <see cref="Resume"/> (ADR 0039).</summary>
+    public bool Halted { get; private set; }
+
+    public const string HaltedMessage = "the server is halted; POST /v1/resume to accept runs again";
+
+    /// <summary>Cancels a run this process holds, on purpose. False when it holds no such run.</summary>
+    public bool Cancel(string runId)
+    {
+        if (_runs.GetValueOrDefault(runId) is not { } run)
+            return false;
+        run.CancelByCaller();
+        return true;
+    }
+
+    /// <summary>Stops accepting runs and cancels every unfinished one. Returns how many it cancelled.</summary>
+    public int Halt()
+    {
+        Halted = true;
+        var held = _runs.Values.ToList();
+        foreach (var run in held)
+            run.CancelByCaller();
+        return held.Count;
+    }
+
+    public void Resume() => Halted = false;
+
     /// <summary>request/v1 schema, a known preset, and caller blocks whose sha256 matches their text.</summary>
     public (RunRequest? Request, IReadOnlyList<string> Errors) Validate(JsonElement json)
     {
@@ -40,7 +66,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         // ponytail: count-then-add is not atomic; two racing calls can exceed the bound by one.
         if (_runs.Count >= MaxUnfinished)
             return null;
-        var run = new RunHandle(Orchestrator.NewRunId());
+        var run = new RunHandle(Orchestrator.NewRunId(), stopping);
         _runs[run.Id] = run;
         run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
         _ = Task.Run(() => Execute(run, request, parentRunId));
@@ -53,15 +79,20 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
     {
         try
         {
-            await _gate.WaitAsync(stopping);
+            await _gate.WaitAsync(run.Token);
             try
             {
-                run.Complete(await orchestrator.RunAsync(request, stopping, run.Id, run.Publish, parentRunId));
+                run.Complete(await orchestrator.RunAsync(request, run.Token, run.Id, run.Publish, parentRunId, () => run.CancelledByCaller));
             }
             finally
             {
                 _gate.Release();
             }
+        }
+        catch (OperationCanceledException) when (run.CancelledByCaller)
+        {
+            // Cancelled in the queue, or before the run's first log write: nothing ran, but the caller still gets a failed result and the log a record.
+            run.Complete(await orchestrator.RecordCancelledAsync(request, run.Id, parentRunId, run.Publish));
         }
         catch (Exception e)
         {
@@ -72,18 +103,34 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         {
             // The run record is in the log by now; later reads go there.
             _runs.TryRemove(run.Id, out _);
+            run.Dispose();
         }
     }
 }
 
 /// <summary>A run this process accepted and has not finished: its events so far and its result to come.</summary>
-public sealed class RunHandle(string id)
+public sealed class RunHandle(string id, CancellationToken stopping) : IDisposable
 {
+    private readonly CancellationTokenSource _cancel = CancellationTokenSource.CreateLinkedTokenSource(stopping);
     private readonly List<RunStatus> _events = [];
     private readonly TaskCompletionSource<ResultContract> _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public string Id => id;
+
+    /// <summary>Cancelled by the server's shutdown or by <see cref="CancelByCaller"/>.</summary>
+    public CancellationToken Token => _cancel.Token;
+
+    /// <summary>True once a caller cancelled this run on purpose, as opposed to a shutdown.</summary>
+    public bool CancelledByCaller { get; private set; }
+
+    public void CancelByCaller()
+    {
+        CancelledByCaller = true;
+        _cancel.Cancel();
+    }
+
+    public void Dispose() => _cancel.Dispose();
 
     public Task<ResultContract> Done => _done.Task;
 
