@@ -95,6 +95,48 @@ public static partial class ContainerTemplate
         ];
     }
 
+    /// <summary>The script the workspace helper runs; the branch and the commit reach it only as arguments (<c>$1</c>, <c>$2</c>), never spliced into its text.
+    /// <c>safe.directory</c> is needed because the read-only source belongs to another user; the clone gets no hooks (<c>--template=</c>) and its own commits
+    /// run none (<c>core.hooksPath</c>).</summary>
+    public const string WorkspaceScript =
+        "set -e\n"
+        + "git -c safe.directory='*' clone --quiet --no-hardlinks --template= /src /work\n"
+        + "git -C /work checkout --quiet -b \"$1\" \"$2\"\n"
+        + "git -C /work config user.name chargehand\n"
+        + "git -C /work config user.email chargehand@localhost\n"
+        + "git -C /work config core.hooksPath /dev/null\n";
+
+    /// <summary>The arguments after <c>docker</c> for a workspace helper: foreground, removed when it ends, no network, a read-only source and one volume.</summary>
+    public static IReadOnlyList<string> WorkspaceArgs(WorkspaceSpec spec)
+    {
+        Check(RunIdPattern(), spec.RunId, "run id");
+        Check(ImagePattern(), spec.Image, "image (must be name@sha256:<64 hex> or a local image id)");
+        Check(NamePattern(), spec.WorkVolume, "work volume");
+        Check(SourcePathPattern(), spec.SourcePath, "source path (a plain absolute path)");
+        Check(WorkspaceBranchPattern(), spec.Branch, "branch (chargehand/<name>)");
+        Check(CommitPattern(), spec.Commit, "commit (7 to 40 hex characters)");
+        return
+        [
+            "run", "--rm", "--init",
+            "--name", $"chargehand-prep-{spec.RunId}",
+            "--label", $"{RunLabel}={spec.RunId}",
+            "--network", "none",
+            "--read-only",
+            "--tmpfs", "/tmp:rw,nosuid,size=256m",
+            "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges",
+            "--user", "10001:10001",
+            "--pids-limit", "128",
+            "--memory", "512m",
+            "--cpus", "1",
+            "-v", $"{spec.SourcePath}:/src:ro",
+            "-v", $"{spec.WorkVolume}:/work",
+            "--entrypoint", "sh",
+            spec.Image,
+            "-c", WorkspaceScript, "prepare", spec.Branch, spec.Commit,
+        ];
+    }
+
     /// <summary>The env file's lines, <c>NAME=value</c>, in name order. Refuses a name outside <see cref="AllowedEnv"/> and a value
     /// with a line break or NUL (which would add a second variable).</summary>
     public static IReadOnlyList<string> EnvFileLines(IReadOnlyDictionary<string, string> env)
@@ -135,6 +177,15 @@ public static partial class ContainerTemplate
 
     [GeneratedRegex(@"^[0-9]{1,9}:[0-9]{1,9}$")]
     private static partial Regex UserPattern();
+
+    [GeneratedRegex(@"^/[A-Za-z0-9_.+@-]+(/[A-Za-z0-9_.+@-]+)*$")]
+    private static partial Regex SourcePathPattern();
+
+    [GeneratedRegex(@"^chargehand/[a-z0-9][a-z0-9_-]*(/[a-z0-9][a-z0-9_-]*)*$")]
+    private static partial Regex WorkspaceBranchPattern();
+
+    [GeneratedRegex(@"^[0-9a-f]{7,40}$")]
+    private static partial Regex CommitPattern();
 
     [GeneratedRegex(@"^SIG[A-Z0-9]{2,10}$")]
     private static partial Regex SignalPattern();

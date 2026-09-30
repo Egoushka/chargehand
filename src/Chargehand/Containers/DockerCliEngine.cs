@@ -7,7 +7,7 @@ namespace Chargehand.Containers;
 /// <summary>An <see cref="IContainerEngine"/> that calls the <c>docker</c> CLI (ADR 0039). Arguments go through
 /// <see cref="ProcessStartInfo.ArgumentList"/>, never a shell string; every name is checked before it reaches docker. <paramref name="leadingArgs"/>
 /// go before every call (a test runs a fake docker script as <c>sh script</c>, which avoids a busy-executable race on Linux).</summary>
-public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null) : IContainerEngine
+public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null) : IContainerEngine, IWorkspaceEngine
 {
     private const int OutputCap = 64 * 1024;
 
@@ -108,6 +108,18 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
         var listed = await RunAsync(["ps", "-aq", "--filter", $"label={ContainerTemplate.RunLabel}"], ct);
         Require(listed, "docker ps failed");
         return listed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
+    }
+
+    public async Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct)
+    {
+        var args = ContainerTemplate.WorkspaceArgs(spec);
+        await CreateVolumeAsync(spec.WorkVolume, spec.RunId, ct);
+        var result = await RunAsync(args, ct);
+        if (result.ExitCode != 0)
+        {
+            await RemoveVolumeAsync(spec.WorkVolume, CancellationToken.None);
+            throw Unavailable("preparing the workspace failed", result, null);
+        }
     }
 
     public async Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct)

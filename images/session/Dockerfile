@@ -17,6 +17,8 @@ RUN apt-get update \
     && useradd --uid 10001 --create-home --home-dir /home/session --shell /bin/bash session
 COPY --from=build /out /opt/chargehand
 COPY plugins/chargehand /opt/chargehand-plugin
+# A new named volume mounted here takes this ownership on first use, so the non-root session can write it.
+RUN mkdir -p /work /out && chown 10001:10001 /work /out
 # The runner starts the container with a read-only root and a tmpfs at /home/session and /tmp: tool caches and Claude Code's own state go there.
 ENV HOME=/home/session DISABLE_AUTOUPDATER=1 DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 USER 10001

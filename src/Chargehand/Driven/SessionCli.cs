@@ -20,7 +20,7 @@ public static class SessionCli
         You are running headless inside a container, on a task chargehand started. There is no person to answer questions.
         Follow the /chargehand:change steps as written, with these changes:
         - Where a step would ask the user something, stop working and print a line `NEEDS_INPUT:` followed by the questions, one per line. Then finish.
-        - Create and use the branch named in the environment variable CHARGEHAND_BRANCH instead of choosing a `change/<slug>` name.
+        - The branch named in the environment variable CHARGEHAND_BRANCH already exists and is checked out: use it instead of choosing a `change/<slug>` name.
         - The working tree is already clean; do not stop for uncommitted changes.
         - Do not push, do not open a pull request, do not merge: chargehand does that after it checks your branch itself.
         - Finish with one fenced ```json block: {"summary": string, "claims": [{"text": string, "evidence": [ "path:start-end" ]}], "tests": {"command": string, "exit_code": number}}.
