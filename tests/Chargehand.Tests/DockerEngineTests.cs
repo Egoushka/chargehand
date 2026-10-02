@@ -132,6 +132,45 @@ public class DockerEngineTests
         await Assert.ThrowsAsync<ArgumentException>(() => engine.ConnectNetworkAsync("egress-id", "/x", default));
     }
 
+    [Fact]
+    public async Task Ownership_is_the_run_label_and_count_is_the_labelled_containers()
+    {
+        using var dir = new TempDir();
+        var (docker, log) = FakeDocker(dir, "case \"$1\" in inspect) case \"$*\" in *ours*) echo run-1;; *) echo '<no value>';; esac;; ps) printf 'a\\nb\\nc\\n';; esac");
+        var engine = Engine(docker);
+        Assert.True(await engine.OwnsAsync("ours-1", default));
+        Assert.False(await engine.OwnsAsync("theirs-1", default));
+        Assert.Equal(3, await engine.CountAsync(default));
+        Assert.Contains("inspect --format {{index .Config.Labels \"chargehand.run\"}} ours-1", File.ReadAllLines(log));
+        await Assert.ThrowsAsync<ArgumentException>(() => engine.OwnsAsync("--all", default));
+    }
+
+    [DockerFact]
+    public async Task On_a_real_engine_a_labelled_container_is_ours_and_an_unlabelled_one_is_not()
+    {
+        var image = DockerFactAttribute.Image!;
+        var engine = new DockerCliEngine();
+        var run = "o" + Guid.NewGuid().ToString("N")[..10];
+        var stranger = "cht-stranger-" + run;
+        string? ours = null;
+        try
+        {
+            var psi = new ProcessStartInfo("docker", ["run", "-d", "--name", stranger, image, "sleep", "30"]) { RedirectStandardOutput = true, RedirectStandardError = true };
+            using (var p = Process.Start(psi)!) { await p.WaitForExitAsync(); Assert.Equal(0, p.ExitCode); }
+            ours = await engine.StartAsync(new ContainerSpec(run, image, "cht-w-" + run, "cht-o-" + run, "none", new Dictionary<string, string>(), 256, 1, 64, ["sleep", "30"]), default);
+            Assert.True(await engine.OwnsAsync(ours, default));
+            Assert.False(await engine.OwnsAsync(stranger, default));
+            Assert.True(await engine.CountAsync(default) >= 1);
+        }
+        finally
+        {
+            if (ours is not null)
+                await engine.RemoveAsync(ours, default);
+            using var rm = Process.Start(new ProcessStartInfo("docker", ["rm", "-f", stranger]) { RedirectStandardOutput = true, RedirectStandardError = true })!;
+            await rm.WaitForExitAsync();
+        }
+    }
+
     // A real engine and an image the test may run: CHARGEHAND_TEST_IMAGE is a name@sha256:... reference of a local image with sh.
     [DockerFact]
     public async Task A_real_container_starts_is_inspected_signalled_and_removed_and_kill_all_spares_unlabelled_ones()
