@@ -6,6 +6,19 @@ argument-hint: <goal or #issue> [--budget <usd per call>]
 
 Goal from the user: $ARGUMENTS
 
+## Driven mode
+
+If the environment variable `CHARGEHAND_DRIVEN` is `1`, no person is watching: chargehand started this session inside a container and will check the
+branch itself, push it and open a draft pull request. Follow the steps below with these changes, and only these:
+
+- Step 1: the working tree is already clean, on a branch chargehand made; do not stop for it.
+- Steps 2, 7 and 8: where a step would ask the user questions, stop working, print a line `NEEDS_INPUT:` followed by the questions, one per line, and
+  finish. Do not guess the answers.
+- Step 3: the branch named in the environment variable `CHARGEHAND_BRANCH` already exists and is checked out; use it instead of creating `change/<slug>`.
+- Step 9: do not write or commit the report file; chargehand records the outcome itself.
+- Step 10: do not push and do not open a pull request. Finish with one fenced ```json block, `{"summary": ..., "claims": [...], "tests": {...}}`, as the
+  session's system prompt describes it: each claim names the code lines it rests on, and what you did not verify is said, not guessed.
+
 Follow these steps in order. In steps 1 and 2 a failure stops the run with nothing created: tell the user why and what
 fixes it. From step 3 on the branch exists: any failure (git, a commit hook, a write, a chargehand error) keeps the
 branch and goes to step 9, recording the step and the error with its action.
