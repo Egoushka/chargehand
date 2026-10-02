@@ -26,6 +26,12 @@ image.
 - ✅ **0.7** Workers write branches that build and pass their tests in a sandbox: the `code` preset, the sandbox and the
   verifier (ADR 0035), released in 0.8.0 (there is no 0.7.0). Its usage bar, five real issues taken to a merged change,
   is not met yet.
+- ▶ **Driven sessions** (ADR 0039, pulled forward from after 1.0): a list of tasks becomes parallel headless Claude Code
+  sessions, one container each, and a draft pull request per task that chargehand checked, tested in a fresh container
+  and pushed itself. Its parts are built and tested; open are the path from a request to them with its end-to-end
+  script, the check that Claude Code runs on a substituted credential, deployment on the server, and the skill's
+  measured adherence (at least 7 of 10 sessions follow its steps). It gets a minor version when it is wired; until
+  then `driven.enabled` stays false in every real profile. [Guide](docs/guide/driven.md).
 
 ## Stage 4 — Answers you can prove · ✅ (0.8)
 
@@ -39,5 +45,6 @@ image.
 
 ## After 1.0
 
-Issues in and reviewed changes out without anyone watching, a chat client that approves and denies runs, more agent
+Work picked from the tracker without anyone watching (driven sessions take the list a person gives), a second session
+runtime behind the same interface, a chat client that approves and denies runs, more agent
 runtimes through ACP. Not planned: an own agent loop, model gateway, memory store or plugin marketplace.
