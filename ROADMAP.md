@@ -52,12 +52,14 @@ agent client protocol. [Spec](docs/specs/2026-10-02-a-client-of-your-own-design.
 - · **1.1** Sessions you can steer: a session resource (start, stream, message, approve, cancel) over an agent client
   protocol adapter, proved on one runtime. First a spike on what the protocol covers.
 - · **1.2** A web client served by `chargehand serve`, usable from a phone: list, live transcript, cost, steering.
-- · **1.3** What no vendor client has: every claim in the transcript shows its checked citation and support verdict, a
-  session ends in a `result/v1`, memory recall in the client. A second runtime with no client change.
+- · **1.3** What no vendor client has: the model picked for each message from your scored runs (with its reason and
+  cost, one click to override), prompts improved before sending and learned into versioned templates, every claim in the transcript shows its checked citation and support verdict, a
+  session ends in a `result/v1`, memory recall in the client. A second runtime with no client change, and client
+  features as extensions you can add yourself.
 - · **1.4** Unattended pickup: work taken from the tracker by a session with no person in it, as a mode of the same
   session resource.
 
 ## After that
 
 A native shell for the client if a browser tab proves not enough, more runtimes. Not planned: an own agent loop, model
-gateway, memory store or plugin marketplace; multi-user accounts; a hosted service.
+gateway, memory store, a public plugin marketplace (extensions you write yourself are planned, 1.3); multi-user accounts; a hosted service.

@@ -25,13 +25,13 @@ Evidence: commands and files at `a92cb67` (main), checked 2026-10-02 unless a li
 
 | # | Question | Decision |
 |---|---|---|
-| 1 | What "replace Claude Code" means | Replace the **client**, not the agent. The client talks to Claude Code, OpenCode and others through ACP. chargehand still does not write an own agent loop or model gateway (ROADMAP "Not planned" stands). Reopen only if Task 1 shows ACP cannot carry what the client needs (approvals, resume, edits shown as diffs). |
+| 1 | What "replace Claude Code" means | Replace the **client**, not the agent. The client talks to Claude Code, OpenCode and others through ACP; the agents keep doing the reading, editing and tool calls. chargehand still does not write its own agent loop (the code that sends a prompt to a model, runs the tools it asks for, and loops until done) or a model gateway (ROADMAP "Not planned" stands). Test for revisiting this: if Task 1 shows ACP cannot carry tool approvals, session resume or edits shown as diffs for the agents the maintainer uses, the maintainer decides between a per-agent adapter (more code per agent) and an own loop (a much larger project). Until then the own loop stays off the table. |
 | 2 | Where the client lives | A web client served by `chargehand serve` first, reachable over the maintainer's private network and from a phone. A native shell (Tauri) wraps the same web client later, only if a browser tab proves not enough. One client codebase, not two. |
 | 3 | The seam | A new **session** resource beside runs: `POST /v1/sessions`, `GET /v1/sessions/{id}/events` (server-sent events), `POST /v1/sessions/{id}/messages`, `POST /v1/sessions/{id}/approvals/{call}`, `DELETE /v1/sessions/{id}`. Additive: no change to `request/v1` or `result/v1`. The server speaks ACP to the runtime and the client speaks only this API. |
 | 4 | Isolation | An interactive session runs in the driven container (ADR 0039) when it writes, in the read-only research path when it does not. The client shows which. No new isolation mechanism. |
 | 5 | Result of a session | Ending a session produces a `result/v1` with checked claims, like any run, so a session's findings are as checkable as a research answer. This is the part no vendor client offers and is the reason to build this. |
-| 6 | The first own feature | Inline evidence: every claim in the transcript shows its resolved citation and support verdict, and an unsupported claim is marked. It needs only data chargehand already produces. Memory recall in the client (MCP memory is shipped) is the second. |
-| 7 | What is not built | A chat model picker of its own, a prompt library, a plugin store, an editor, a terminal emulator. If the maintainer needs a file view or a terminal, link out. |
+| 6 | The own features, in order | (a) **The model picked for you.** The chat has no model dropdown by default: chargehand picks the model per message from the request and its context (size, kind of task, whether it writes code), and shows which model it picked, why, and the estimated cost; one click overrides it, and the override is recorded. It starts from the routing report that already exists (`chargehand routes`, ADR 0019: a cheaper model is named only when it scores within 0.10 of the default on 20 scored runs and costs at least 15% less), so the picker learns from scored runs, not guesses. (b) **The prompt gets better before it is sent.** chargehand rewrites the pasted prompt using what it knows (repository, memory, the maintainer's past prompts), shows the rewrite as a diff, and sends the original unless the maintainer accepts the rewrite. (c) **Inline evidence:** every claim in the transcript shows its resolved citation and support verdict. (d) Memory recall in the client. |
+| 7 | Prompts and plugins | **Prompts are learned, not filed.** No hand-kept prompt library: chargehand records every prompt the maintainer sends and the outcome (accepted, overridden, rewritten, the run's score), groups similar ones, and keeps its own versioned templates for recurring kinds of work, on the prompt registry that exists (ADR 0007: SemVer blocks with a sha256, synced to Langfuse). A new prompt is matched against them; a template changes only through Prompt CI (ADR 0019), so a "better" version must score at least as well. Real prompts never enter this public repository: the learned store lives in Langfuse and the gitignored run store. **Plugins: yes, as extension points, not a store.** Client features are extensions in the 0026 model (a category, a default, a combine rule), so the maintainer can add one without forking. A public marketplace (hosting, vetting, signing other people's code) stays out. Not built: an editor and a terminal emulator; link out. |
 | 8 | Order against unattended tracker-to-pull-request | The client first. Unattended pickup needs the driven wiring (0.9 era) and a trusted credential path; the client needs neither, and it is what the maintainer will use daily. Pickup is a mode of the same session resource (a session with no person). |
 
 ## Tasks (each one pull request)
@@ -42,15 +42,20 @@ Evidence: commands and files at `a92cb67` (main), checked 2026-10-02 unless a li
 4. **Web client, read side:** the run and session list, a live transcript, cost and caps. No input yet.
 5. **Web client, steering:** send, approve, deny, cancel; works at phone width.
 6. **Second runtime** through the same adapter, with no client change (done-when 2).
-7. **Inline evidence** (decision 6).
-8. **Session result** on end (decision 5).
-9. **Daily-use trial:** a month of use, a written list of what was missing.
+7. **Model picked for you** (decision 6a): a picker over the routing report, the reason and cost shown, overrides recorded as its feedback.
+8. **Prompt learning** (decisions 6b and 7): record prompts and outcomes, group them, propose a rewrite as a diff; templates versioned in the registry and gated by Prompt CI.
+9. **Inline evidence** (decision 6c).
+10. **Client extension points** (decision 7) in the 0026 model, with one feature of the maintainer's built as an extension to prove it.
+11. **Session result** on end (decision 5).
+12. **Daily-use trial:** a month of use, a written list of what was missing.
 
 Tasks 1 to 3 can start before 1.0; the session routes join the 1.0 route-table snapshot (`docs/plans/2026-09-30-stability-1.0.md`, Tasks 2 to 4) if they land first.
 
 ## Risks
 
-- **Scope.** A client is open-ended. Mitigation: decision 7, and every task ends in something the maintainer can use that week.
+- **A picker with no signal.** A chat message has no test that passes or fails, so "better and cheaper" is unscored at first. Mitigation: the picker defaults to the strong model until it has scored runs for a kind of task; overrides and accepted answers are its signal; it shows its reason every time.
+- **A rewrite that changes the intent.** Mitigation: the original is sent unless the rewrite is accepted, and acceptance is the rewrite's score.
+- **Scope.** A client is open-ended. Mitigation: decision 7 (no editor, no terminal, no store), and every task ends in something the maintainer can use that week.
 - **A crowded space.** Mitigation: decision 5 and 6 are the differentiator; if inline evidence is not noticeably useful in the trial, stop and use an existing client.
 - **ACP gaps.** Mitigation: Task 1 first; the fallback is the runtime's own streaming interface per agent, which costs a code path per runtime.
 - **Terms of use for a subscription through a third-party client.** UNKNOWN. Mitigation: run on an API key with the existing caps until read.
