@@ -36,6 +36,25 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
     }
 
     [Fact]
+    public void Start_retries_text_file_busy_and_gives_up_after_the_bound()
+    {
+        const int etxtbsy = 26;
+        var calls = 0;
+        var started = ClaudeCodeWorkerRuntime.StartWithRetry(() => ++calls < 3 ? throw new System.ComponentModel.Win32Exception(etxtbsy) : new Process());
+        Assert.Equal(3, calls);
+        started.Dispose();
+
+        calls = 0;
+        Assert.Throws<System.ComponentModel.Win32Exception>(() => ClaudeCodeWorkerRuntime.StartWithRetry(() => { calls++; throw new System.ComponentModel.Win32Exception(etxtbsy); }));
+        Assert.Equal(5, calls);
+
+        // Any other start failure is not retried.
+        calls = 0;
+        Assert.Throws<System.ComponentModel.Win32Exception>(() => ClaudeCodeWorkerRuntime.StartWithRetry(() => { calls++; throw new System.ComponentModel.Win32Exception(2); }));
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
     public void Deny_everything_leaves_an_empty_catalog()
     {
         var (tools, allowed, disallowed) = ClaudeCodeWorkerRuntime.Permissions(Preset.Load(Repo.Path("presets"), "draft").NodeKinds["draft"].Rules);
