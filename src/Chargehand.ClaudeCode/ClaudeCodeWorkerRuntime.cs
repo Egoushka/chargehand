@@ -296,7 +296,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         Process p;
         try
         {
-            p = Process.Start(Psi(_binary, s.Spec.Directory, args, Env))!;
+            p = StartWithRetry(() => Process.Start(Psi(_binary, s.Spec.Directory, args, Env)));
         }
         catch
         {
@@ -705,10 +705,31 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         return psi;
     }
 
+    /// <summary>
+    /// Starts a process, retrying ETXTBSY ("Text file busy"): Linux refuses to exec a file while any process still holds it open
+    /// for writing, and a concurrent fork inherits that descriptor until its own exec. A CLI being replaced by an update hits
+    /// the same window. Bounded: five tries, 50 ms apart.
+    /// </summary>
+    internal static Process StartWithRetry(Func<Process?> start)
+    {
+        const int textFileBusy = 26, tries = 5;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return start() ?? throw new InvalidOperationException("could not start process");
+            }
+            catch (Win32Exception e) when (e.NativeErrorCode == textFileBusy && attempt < tries)
+            {
+                Thread.Sleep(50);
+            }
+        }
+    }
+
     private static async Task<(int Exit, string Stdout, string Stderr)> Exec(string file, string directory, IEnumerable<string> args, string? stdin, CancellationToken ct,
         IReadOnlyDictionary<string, string?>? env = null)
     {
-        using var p = Process.Start(Psi(file, directory, args, env))!;
+        using var p = StartWithRetry(() => Process.Start(Psi(file, directory, args, env)));
         await p.StandardInput.WriteAsync(stdin);
         p.StandardInput.Close();
         var stdout = p.StandardOutput.ReadToEndAsync(ct);
