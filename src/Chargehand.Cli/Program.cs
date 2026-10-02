@@ -15,6 +15,7 @@ using Chargehand.Prompts;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Server;
+using Chargehand.Verification;
 using Microsoft.Extensions.Hosting;
 using OpenTelemetry;
 using OpenTelemetry.Exporter;
@@ -30,6 +31,8 @@ const string Usage = """
                                    checks a signed result offline; exit 0 valid, 1 invalid or unsigned, 2 usage
       egress --listen <ip:port> --allow <host,*.suffix,...>
                                    the allowlist proxy of a driven-session batch's egress container (CONNECT to port 443 only)
+      runner --listen <ip:port> --images <digest,...> --egress-image <digest>
+                                   the service in front of the container engine for driven sessions (key in CHARGEHAND_RUNNER_KEY)
       runs kill --all              removes every driven-session container and batch network by label (works with the server down)
       show <run-id>                prints a run and its calls from the run log
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
@@ -38,6 +41,7 @@ const string Usage = """
       score <run-id> <0-1> [name]  records a hand score for a run (name defaults to quality)
       eval seed <cell> <run-id>... proposes eval items (JSONL on stdout) from runs in the log, for review
       eval support <examples.jsonl> runs the support judge over labelled claims and prints agreement and every miss
+      eval score-claims <claims.jsonl> --repo <dir> --commit <sha> [--out <verdicts.jsonl>]   resolves each claim's path:line locators at the commit and judges the cited text
       eval push <cell>             pushes reviewed items (JSONL on stdin) to the cell's Langfuse dataset
       eval gate <base> <change> [--cells a,b] [--changed-files f] [--pr-body f] [--name n] [--cells-file f]
                                    [--change-cells-file f] [--allow-uncovered]
@@ -69,6 +73,14 @@ if (argv is ["egress", .. var egressArgs])
     using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Egress.EgressCli.RunAsync(egressArgs, Console.Error, stop.Token);
+}
+// The runner service holds the container engine's socket so `serve` never has to (ADR 0039); it is profile-free as well.
+if (argv is ["runner", .. var runnerArgs])
+{
+    using var stop = new CancellationTokenSource();
+    using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Server.RunnerCli.RunAsync(runnerArgs, Console.Error, stop.Token);
 }
 // The command a driven-session container runs (ADR 0039); not listed in the usage: it is not for a person to type.
 if (argv is ["session", .. var sessionArgs])
@@ -154,6 +166,8 @@ switch (argv)
         return 0;
     case ["eval", "support", var examplesFile]:
         return await EvalSupport(examplesFile);
+    case ["eval", "score-claims", var claimsFile, .. var scoreOptions]:
+        return await EvalScoreClaims(claimsFile, scoreOptions);
     case ["eval", "gate", var baseRoot, var changeRoot, .. var options]:
         return await EvalGate(Path.GetFullPath(baseRoot), Path.GetFullPath(changeRoot), options);
     case ["prompts", "sync"]:
@@ -205,6 +219,24 @@ async Task<int> EvalSupport(string examplesFile)
     Console.WriteLine($"judge model: {profile.IntakeModel ?? "the runtime's default"}");
     Console.WriteLine(SupportEval.Report(outcomes));
     return outcomes.All(o => o.Got is not null) ? 0 : 1;
+}
+
+async Task<int> EvalScoreClaims(string claimsFile, IReadOnlyList<string> options)
+{
+    string? Option(string name) => options.SkipWhile(o => o != name).Skip(1).FirstOrDefault();
+    if (Option("--repo") is not { } repo || Option("--commit") is not { } commit)
+    {
+        Console.Error.WriteLine("usage: eval score-claims <claims.jsonl> --repo <dir> --commit <sha> [--out <verdicts.jsonl>]");
+        return 2;
+    }
+    var (runtime, _) = await Connect();
+    var scope = new EvidenceScope(Path.GetFullPath(repo), commit, new HashSet<string>(), new HashSet<string>(), "", []);
+    var scored = await ClaimScorer.ScoreAsync(runtime, Orchestrator.ParseModel(profile.IntakeModel), ClaimScorer.ReadClaims(File.ReadLines(claimsFile)), scope, ct);
+    if (Option("--out") is { } outFile)
+        File.WriteAllLines(outFile, ClaimScorer.ToJsonl(scored));
+    Console.WriteLine($"judge model: {profile.IntakeModel ?? "the runtime's default"}");
+    Console.WriteLine(ClaimScorer.Report(scored));
+    return scored.Any(s => s.Outcome == ClaimOutcome.Unchecked) ? 1 : 0;
 }
 
 async Task<int> Serve()

@@ -30,7 +30,7 @@ public class McpTests
 
     private static ResultContract Result(CallToolResult call)
     {
-        Assert.NotEqual(true, call.IsError);
+        Assert.True(call.IsError != true, string.Join(" | ", call.Content.OfType<TextContentBlock>().Select(c => c.Text)));
         Assert.Empty(ContractSchemas.Validate(ContractSchemas.Result, call.StructuredContent!.Value));
         return call.StructuredContent.Value.Deserialize<ResultContract>(ContractJson.Options)!;
     }

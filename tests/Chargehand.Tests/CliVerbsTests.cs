@@ -7,6 +7,7 @@ public class CliVerbsTests
     [Theory]
     [InlineData("verify")]
     [InlineData("egress")]
+    [InlineData("runner")]
     [InlineData("session")]
     [InlineData("verify-branch")]
     public void A_profile_free_verb_is_dispatched_in_the_cli(string verb)
@@ -17,6 +18,7 @@ public class CliVerbsTests
 
     [Theory]
     [InlineData("egress")]
+    [InlineData("runner")]
     [InlineData("runs")]
     public void A_verb_a_person_types_is_in_the_usage(string verb)
     {

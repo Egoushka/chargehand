@@ -23,6 +23,8 @@ public class ContainerVerifierTests
         public Task<ContainerState> InspectAsync(string id, CancellationToken ct) { Calls.Add("inspect"); return Task.FromResult(States.Count > 1 ? States.Dequeue() : States.Peek()); }
         public Task RemoveAsync(string id, CancellationToken ct) { Calls.Add($"rm {id}"); return Task.CompletedTask; }
         public Task KillAllAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<bool> OwnsAsync(string id, CancellationToken ct) => throw new NotSupportedException();
+        public Task<int> CountAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct) { Calls.Add("logs"); return Task.FromResult(Logs); }
         public Task CreateVolumeAsync(string name, string runId, CancellationToken ct) => throw new NotSupportedException();
         public Task RemoveVolumeAsync(string name, CancellationToken ct) { Calls.Add($"volume-rm {name}"); return Task.CompletedTask; }

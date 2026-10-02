@@ -24,7 +24,8 @@ public sealed record ContainerSpec(
 
 /// <summary>The egress proxy's container (ADR 0039): the server image started with its <c>egress</c> verb, one per batch.</summary>
 /// <param name="Allow">Host patterns for <see cref="Chargehand.Egress.AllowlistMatcher"/>.</param>
-public sealed record EgressSpec(string BatchId, string Image, string Network, IReadOnlyList<string> Allow, int Port = 3128);
+/// <param name="Forwards">Operator-named forwards, <c>listen-port=host:port</c>: how a session reaches the chargehand server from the internal network.</param>
+public sealed record EgressSpec(string BatchId, string Image, string Network, IReadOnlyList<string> Allow, int Port = 3128, IReadOnlyList<string>? Forwards = null);
 
 /// <summary>The helper that fills a session's workspace volume (ADR 0039): a clone of the read-only source on a new branch at a commit, made in a container
 /// that has no network and can write only the volume.</summary>
@@ -79,4 +80,10 @@ public interface IContainerEngine
     Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct);
 
     Task ConnectNetworkAsync(string container, string network, CancellationToken ct);
+
+    /// <summary>Whether the container carries the <c>chargehand.run</c> label: the runner touches nothing else on a shared engine.</summary>
+    Task<bool> OwnsAsync(string id, CancellationToken ct);
+
+    /// <summary>How many labelled containers exist, running or not.</summary>
+    Task<int> CountAsync(CancellationToken ct);
 }
