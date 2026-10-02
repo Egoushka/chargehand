@@ -20,12 +20,12 @@ image.
 ## Stage 3 — One prompt, whole result · ▶ (0.5–0.7)
 
 - ▶ **0.5** `/chargehand:change <goal>` in Claude Code takes one prompt to a reviewed change. Its code shipped in 0.4.0
-  and there is no 0.5.0; what is open is its usage bar, the maintainer's own use of the command on real tasks.
+  and there is no 0.5.0; what is open is its usage bar, which the first real driven batch (below) now also meets.
 - ✅ **0.6** Runs use your MCP services and memory: any MCP memory server, several at once, retaining only claims whose
   citations resolved, and a preset can give workers read-only tools from an MCP service (released in 0.6.0).
 - ✅ **0.7** Workers write branches that build and pass their tests in a sandbox: the `code` preset, the sandbox and the
   verifier (ADR 0035), released in 0.8.0 (there is no 0.7.0). Its usage bar, five real issues taken to a merged change,
-  is not met yet.
+  is met by the first real driven batch of five tasks.
 - ▶ **Driven sessions** (ADR 0039, pulled forward from after 1.0): a list of tasks becomes parallel headless Claude Code
   sessions, one container each, and a draft pull request per task that chargehand checked, tested in a fresh container
   and pushed itself. Its parts are built and tested; open are the path from a request to them with its end-to-end
@@ -43,8 +43,24 @@ image.
 - · **0.9** A public verification benchmark, a demo and listings.
 - · **1.0** `result/v1` and the extension API are declared stable.
 
-## After 1.0
+## Stage 6 — A client of your own · (after 1.0)
 
-Work picked from the tracker without anyone watching (driven sessions take the list a person gives), a second session
-runtime behind the same interface, a chat client that approves and denies runs, more agent
-runtimes through ACP. Not planned: an own agent loop, model gateway, memory store or plugin marketplace.
+chargehand becomes the engine under a client the maintainer uses every day instead of Claude Code's own interface, and
+can extend. The client replaces the interface, not the agent: it talks to Claude Code, OpenCode and others through the
+agent client protocol. [Spec](docs/specs/2026-10-02-a-client-of-your-own-design.md).
+
+- · **1.1** Sessions you can steer: a session resource (start, stream, message, approve, cancel) over an agent client
+  protocol adapter, proved on one runtime. First a spike on what the protocol covers.
+- · **1.2** A web client served by `chargehand serve`, usable from a phone: list, live transcript, cost, steering.
+- · **1.3** What no vendor client has: the model picked for each message from your scored runs (with its reason and
+  cost, one click to override), prompts improved before sending by a
+  prompt enhancer you connect (your prompts stay in your own tool, which learns from chargehand's feedback), every claim in the transcript shows its checked citation and support verdict, a
+  session ends in a `result/v1`, memory recall in the client. A second runtime with no client change, and client
+  features as extensions you can add yourself.
+- · **1.4** Unattended pickup: work taken from the tracker by a session with no person in it, as a mode of the same
+  session resource.
+
+## After that
+
+A native shell for the client if a browser tab proves not enough, more runtimes. Not planned: an own agent loop, model
+gateway, memory store, a public plugin marketplace (extensions you write yourself are planned, 1.3); multi-user accounts; a hosted service.
