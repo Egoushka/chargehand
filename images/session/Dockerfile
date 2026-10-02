@@ -23,4 +23,6 @@ RUN mkdir -p /work /out && chown 10001:10001 /work /out
 ENV HOME=/home/session DISABLE_AUTOUPDATER=1 DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 USER 10001
 WORKDIR /work
-ENTRYPOINT ["dotnet", "/opt/chargehand/Chargehand.Cli.dll", "session"]
+# The runner passes the verb: `session` for a session, `verify-branch` for the fresh verification run.
+ENTRYPOINT ["dotnet", "/opt/chargehand/Chargehand.Cli.dll"]
+CMD ["session"]
