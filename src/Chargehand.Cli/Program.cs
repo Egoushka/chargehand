@@ -31,6 +31,8 @@ const string Usage = """
                                    checks a signed result offline; exit 0 valid, 1 invalid or unsigned, 2 usage
       egress --listen <ip:port> --allow <host,*.suffix,...>
                                    the allowlist proxy of a driven-session batch's egress container (CONNECT to port 443 only)
+      runner --listen <ip:port> --images <digest,...> --egress-image <digest>
+                                   the service in front of the container engine for driven sessions (key in CHARGEHAND_RUNNER_KEY)
       runs kill --all              removes every driven-session container and batch network by label (works with the server down)
       show <run-id>                prints a run and its calls from the run log
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
@@ -71,6 +73,14 @@ if (argv is ["egress", .. var egressArgs])
     using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Egress.EgressCli.RunAsync(egressArgs, Console.Error, stop.Token);
+}
+// The runner service holds the container engine's socket so `serve` never has to (ADR 0039); it is profile-free as well.
+if (argv is ["runner", .. var runnerArgs])
+{
+    using var stop = new CancellationTokenSource();
+    using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Server.RunnerCli.RunAsync(runnerArgs, Console.Error, stop.Token);
 }
 // The command a driven-session container runs (ADR 0039); not listed in the usage: it is not for a person to type.
 if (argv is ["session", .. var sessionArgs])

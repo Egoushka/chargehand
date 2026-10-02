@@ -80,4 +80,10 @@ public interface IContainerEngine
     Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct);
 
     Task ConnectNetworkAsync(string container, string network, CancellationToken ct);
+
+    /// <summary>Whether the container carries the <c>chargehand.run</c> label: the runner touches nothing else on a shared engine.</summary>
+    Task<bool> OwnsAsync(string id, CancellationToken ct);
+
+    /// <summary>How many labelled containers exist, running or not.</summary>
+    Task<int> CountAsync(CancellationToken ct);
 }
