@@ -68,6 +68,10 @@ swapped in, and the subscription token's refresh behaviour (plan Task 1 finishes
 so the runner holds a root-equivalent socket there; that is the security cost of decision "runner service" and is why the runner's
 template and review focus are the most scrutinised code in the plan.
 
+### Amendments while building (2026-09-30)
+
+The spec's "As built" section lists them. In short: the server's MCP endpoint is reached through operator-named forwards on the egress container, because the allowlist proxy refuses private addresses (correctly); workspaces and the fresh verification run are built by a no-network helper from chargehand's read-only checkout; a change to CI configuration and a repository with no test command are not pushed unless allowed; the handover never runs git in the session's workspace. No decision above is reopened.
+
 ## Consequences
 
 - A shell exists again, in a container, running repository content and model output. The boundary is the container, its network
