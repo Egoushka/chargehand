@@ -30,8 +30,9 @@ public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed }
 
 /// <param name="Reason">For a stall, its wire name; for a failure, a short cause.</param>
 /// <param name="BundleWritten">A bundle of the session's branch is in the output directory; the handover decides whether to use it.</param>
+/// <param name="StreamSha256">The SHA-256 of the stored stream (<c>stream.jsonl</c>, secrets redacted), so a result can cite the log without carrying it.</param>
 public sealed record SessionOutcome(SessionStatus Status, string Reason, int Turns, long InputTokens, long OutputTokens, long CacheReadTokens,
-    decimal? CostUsd, int? ExitCode, IReadOnlyList<string> Questions, bool BundleWritten);
+    decimal? CostUsd, int? ExitCode, IReadOnlyList<string> Questions, bool BundleWritten, string? StreamSha256 = null);
 
 /// <summary>Runs headless Claude Code on the <c>change</c> skill inside a session container (ADR 0039), watches its stream, ends it when it
 /// stalls or passes its token cap, and leaves three files in the output directory: <c>stream.jsonl</c> (secrets redacted), <c>chargehand.bundle</c>
@@ -142,8 +143,10 @@ public static partial class SessionDriver
             var status = stoppedBy.Cause?.Status
                 ?? (questions.Count > 0 ? SessionStatus.NeedsInput : tally.HasResult && !tally.ResultIsError ? SessionStatus.Completed : SessionStatus.Failed);
             var reason = stoppedBy.Cause?.Reason ?? (status == SessionStatus.Failed ? (tally.HasResult ? "session_error" : "no_result") : "");
+            await stream.DisposeAsync();
+            var streamHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(options.OutDirectory, "stream.jsonl"), ct)));
             var outcome = new SessionOutcome(status, reason, detector.Turns, tally.Input, tally.Output, tally.CacheRead, tally.CostUsd, process.ExitCode,
-                [.. questions.Select(q => Redact(q, options.Secrets))], bundle);
+                [.. questions.Select(q => Redact(q, options.Secrets))], bundle, streamHash);
             await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "session-outcome.json"), Redact(JsonSerializer.Serialize(outcome, OutcomeJson), options.Secrets), ct);
             return outcome;
         }
