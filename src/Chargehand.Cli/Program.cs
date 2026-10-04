@@ -239,6 +239,31 @@ async Task<int> EvalScoreClaims(string claimsFile, IReadOnlyList<string> options
     return scored.Any(s => s.Outcome == ClaimOutcome.Unchecked) ? 1 : 0;
 }
 
+/// <summary>Driven sessions (ADR 0039): null while the profile has them off, so nothing about containers is read or connected.</summary>
+Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
+{
+    if (profile.Driven is not { Enabled: true } driven)
+        return new Chargehand.Driven.DrivenRun(profile, runLog, root, null);
+    Chargehand.Containers.IContainerEngine engine;
+    Chargehand.Containers.IWorkspaceEngine workspace;
+    if (driven.Runner is { } runner)
+    {
+        var http = new HttpClient { BaseAddress = new Uri(runner.Url) };
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", profile.Secret(runner.ApiKeySecret));
+        var client = new Chargehand.Runner.RunnerClient(http);
+        (engine, workspace) = (client, client);
+    }
+    else
+    {
+        var docker = new Chargehand.Containers.DockerCliEngine();
+        (engine, workspace) = (docker, docker);
+    }
+    return new Chargehand.Driven.DrivenRun(profile, runLog, root, new Chargehand.Driven.DrivenServices(engine, workspace, new Chargehand.Driven.UnavailableSessionVolumes(),
+        push => new Chargehand.Driven.GitHubPullRequests(new HttpClient { BaseAddress = new Uri("https://api.github.com/") }, push.Value),
+        driven.TaskSource is { } source ? new Chargehand.Mcp.McpTaskSource(source, mcpPool) : null,
+        orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck));
+}
+
 async Task<int> Serve()
 {
     if (profile.Http is not { } http)
@@ -250,7 +275,7 @@ async Task<int> Serve()
     var (runtime, runtimeVersion) = await Connect();
     var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services);
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
-        http.Listen, http.AllowedHosts), orchestrator, runLog);
+        http.Listen, http.AllowedHosts), orchestrator, runLog, DrivenRunFor(orchestrator));
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp)");
     await app.WaitForShutdownAsync(ct);

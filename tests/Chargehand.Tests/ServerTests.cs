@@ -37,12 +37,12 @@ internal sealed class TestServer : IAsyncDisposable
 
     public RunTokenService Tokens => _app.Services.GetRequiredService<RunService>().Tokens;
 
-    public static async Task<TestServer> StartAsync(ScriptedRuntime runtime, IReadOnlyList<string>? allowedHosts = null)
+    public static async Task<TestServer> StartAsync(ScriptedRuntime runtime, IReadOnlyList<string>? allowedHosts = null, Func<string, JsonlRunLog, Chargehand.Driven.DrivenRun>? driven = null)
     {
         var root = new TempDir();
         var log = new JsonlRunLog(System.IO.Path.Combine(root.Path, "log.jsonl"));
         var app = ChargehandServer.Create(new ServerSettings(0, Key, Repo.Path("presets"), AllowedHosts: allowedHosts),
-            Runs.Orchestrator(runtime, root.Path, log), log);
+            Runs.Orchestrator(runtime, root.Path, log), log, driven?.Invoke(root.Path, log));
         await app.StartAsync();
         return new TestServer(root, runtime, log, app, new Uri(app.Urls.First()));
     }

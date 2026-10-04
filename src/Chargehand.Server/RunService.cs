@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Driven;
 
 namespace Chargehand.Server;
 
@@ -10,7 +11,7 @@ namespace Chargehand.Server;
 /// uses both. A run outlives the HTTP or MCP call that started it. Start and run records live in the run log, which
 /// the CLI shares (ADR 0018); events live here only while the run is unfinished.
 /// </summary>
-public sealed class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping) : IDisposable
+public sealed class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping, DrivenRun? driven = null) : IDisposable
 {
     /// <summary>Unfinished runs held at most; beyond it a new run is refused (HTTP 429).</summary>
     public const int MaxUnfinished = 10;
@@ -26,6 +27,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
     {
         _gate.Dispose();
         _childGate.Dispose();
+        driven?.Dispose();
     }
 
     public RunTokenService Tokens { get; } = new();
@@ -34,6 +36,9 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
 
     /// <summary>The kill switch is on: no new run starts until <see cref="Resume"/> (ADR 0039).</summary>
     public bool Halted { get; private set; }
+
+    private string MintToken(TaskGrant g) =>
+        Tokens.Issue(new RunTokenClaims(g.RunId, g.RepositoryPath, g.Commit, g.MaxUsd, g.MaxTokens, g.Expires), DateTimeOffset.UtcNow);
 
     public const string HaltedMessage = "the server is halted; POST /v1/resume to accept runs again";
 
@@ -96,7 +101,10 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
             await gate.WaitAsync(run.Token);
             try
             {
-                var result = await orchestrator.RunAsync(request, run.Token, run.Id, run.Publish, parentRunId, () => run.CancelledByCaller);
+                // A batch holds one slot of the main gate and schedules its own tasks (ADR 0039); without a driven setup the orchestrator refuses the request.
+                var result = request.Driven is not null && driven is not null
+                    ? await driven.RunAsync(request, run.Id, MintToken, run.Token, run.Publish, () => run.CancelledByCaller)
+                    : await orchestrator.RunAsync(request, run.Token, run.Id, run.Publish, parentRunId, () => run.CancelledByCaller);
                 if (chargeTo is not null)
                     Ledger.Charge(chargeTo, result.Usage.Usd ?? 0, result.Usage.Input + result.Usage.Output);
                 run.Complete(result);
