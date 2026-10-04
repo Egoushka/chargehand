@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using Chargehand.Budget;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Enhancement;
 using Chargehand.Intake;
 using Chargehand.Memory;
 using Chargehand.Nodes;
@@ -27,6 +28,7 @@ namespace Chargehand;
 /// <param name="memory">Long-term memory from the profile, one source or several, or null (ADR 0008, ADR 0026).</param>
 /// <param name="services">Resolves a preset's <c>services</c> into the grants workers get; null: a preset's services are ignored (ADR 0034).</param>
 /// <param name="sandboxFor">Picks the sandbox a writing preset's tests run in (ADR 0035); the platform's, per the profile, if null.</param>
+/// <param name="enhancer">The profile's prompt enhancer, already behind its guard, or null (ADR 0040, ADR 0041). It sees each request's text and reports the outcome; it never changes what is sent.</param>
 public sealed class Orchestrator(
     Profile profile,
     IWorkerRuntime runtime,
@@ -36,7 +38,8 @@ public sealed class Orchestrator(
     IReadOnlyDictionary<string, int> promptVersions,
     MemoryStack? memory = null,
     IServiceResolver? services = null,
-    Func<SandboxSettings?, ISandbox>? sandboxFor = null)
+    Func<SandboxSettings?, ISandbox>? sandboxFor = null,
+    IPromptEnhancer? enhancer = null)
 {
     public const string NodeKindName = "worker";
 
@@ -76,6 +79,7 @@ public sealed class Orchestrator(
         System.Security.Cryptography.ECDsa? signingKey = null;
         IntakeOutcome? intake = null;
         TaskAction? executed = null;
+        Enhanced? enhanced = null;
         try
         {
             if (request.Driven is not null)
@@ -89,6 +93,7 @@ public sealed class Orchestrator(
             // Unset when the profile maps no real model to the preset's placeholder: the runtime uses its own default.
             var workerModel = profile.ResolveModel(kind.Model);
             var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
+            enhanced = await Enhance(request, run, ct);
 
             // Intake.
             using (var span = Telemetry.Source.StartActivity("chargehand.intake"))
@@ -166,8 +171,46 @@ public sealed class Orchestrator(
         // A caller's cancel must not stop the record of it from being written.
         await runLog.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, presetName, intake?.Spec is null ? null : Name(intake.Spec.Action), intake?.Spec, result,
             executed is null ? null : Name(executed.Value), extensions.ToReport()), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
+        await ReportOutcome(enhanced, result, executed);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
+    }
+
+    /// <summary>
+    /// Asks the prompt enhancer about the request's text (ADR 0041). The answer is only recorded: the original is what intake and the
+    /// workers get, because no one is there to accept a rewrite. The guard makes this fail open; only the caller's cancellation escapes.
+    /// </summary>
+    private async Task<Enhanced?> Enhance(RunRequest request, Activity? run, CancellationToken ct)
+    {
+        if (enhancer is null || string.IsNullOrWhiteSpace(request.Text))
+            return null;
+        var answer = await enhancer.EnhanceAsync(request.Text, EnhanceContextOf(request), ct);
+        run?.SetTag("chargehand.enhancer.rewrite_offered", answer.Changed);
+        return answer;
+    }
+
+    /// <summary>Exactly the four fields ADR 0040 allows. The repository is the checkout's folder name, never its path; a commit that is not a hex id is left out.</summary>
+    internal static EnhanceContext EnhanceContextOf(RunRequest request)
+    {
+        var repo = request.Context.Repository;
+        var name = repo is null ? null : Path.GetFileName(repo.Path.TrimEnd('/', '\\'));
+        return new EnhanceContext(string.IsNullOrEmpty(name) ? null : name,
+            repo is not null && Regex.IsMatch(repo.Commit, "^[0-9a-f]{7,40}$") ? repo.Commit : null, request.Context.Preset);
+    }
+
+    /// <summary>
+    /// Tells the enhancer how the run ended, once, if it gave a request id. A rewrite that was offered was not accepted (ADR 0041);
+    /// with none there was nothing to accept or reject. No score: a run is not scored. Cost only when a worker ran, since a run
+    /// that stopped at intake prices nothing. Best effort and bounded by the guard's deadline.
+    /// </summary>
+    private async Task ReportOutcome(Enhanced? enhanced, ResultContract result, TaskAction? executed)
+    {
+        if (enhancer is null || enhanced?.RequestId is not { } requestId)
+            return;
+        var model = result.PromptChain.AsSent.Model;
+        var ran = executed is TaskAction.Answer or TaskAction.Split;
+        await enhancer.FeedbackAsync(requestId, new EnhanceOutcome(
+            RewriteAccepted: enhanced.Changed ? false : null, CostUsd: ran ? result.Usage.Usd : null, Model: model == "auto" ? null : model), CancellationToken.None);
     }
 
     /// <summary>The support check a driven task's claims go through, or null when the profile has it off.</summary>

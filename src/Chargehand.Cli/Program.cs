@@ -201,7 +201,7 @@ async Task<int> Run()
     try
     {
         var (runtime, runtimeVersion) = await Connect();
-        var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services);
+        var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
         result = await orchestrator.RunAsync(request, ct);
     }
     catch (ChargehandException e)
@@ -282,7 +282,7 @@ async Task<int> Serve()
     }
     using var tracing = Tracing();
     var (runtime, runtimeVersion) = await Connect();
-    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services);
+    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts), orchestrator, runLog, DrivenRunFor(orchestrator));
     await app.StartAsync(ct);
@@ -296,7 +296,7 @@ async Task<int> Mcp()
 {
     using var tracing = Tracing();
     var (runtime, runtimeVersion) = await Connect();
-    var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services);
+    var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
     using var host = ChargehandServer.CreateStdio(Path.Combine(root, "presets"), orchestrator, Console.OpenStandardInput(), Console.OpenStandardOutput());
     // The transport stops the host when the client closes stdin.
     await host.RunAsync(ct);
@@ -390,6 +390,8 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
 }
 
 MemoryStack? Memory() => MemoryStacks.From(profile, mcpPool);
+
+Chargehand.Enhancement.IPromptEnhancer? Enhancer() => PromptEnhancers.From(profile, mcpPool);
 
 /// <summary>Setup mistakes before a run: <c>--preset</c> narrows the services check to one preset, <c>--probe</c> adds one real recall per memory.</summary>
 async Task<int> CheckExtensions(IReadOnlyList<string> options)
