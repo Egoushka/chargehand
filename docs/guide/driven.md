@@ -5,7 +5,7 @@ order: 10
 section: "Guides"
 ---
 
-Driven sessions ([ADR 0039](../adr/0039-driven-writing-sessions.md)) run a list of tasks as headless Claude Code sessions, one container each, following the [`change` skill](change.md), and end each in a pushed branch `chargehand/<run>` and a **draft** pull request. chargehand never merges and never enables auto-merge. **Status: the parts below are built and tested; the request that starts a batch end to end is not wired yet** (see "Not wired yet"). Turn nothing on in a real profile until it is.
+Driven sessions ([ADR 0039](../adr/0039-driven-writing-sessions.md)) run a list of tasks as headless Claude Code sessions, one container each, following the [`change` skill](change.md), and end each in a pushed branch `chargehand/<run>` and a **draft** pull request. chargehand never merges and never enables auto-merge. **Status: a request with a `driven` block now runs the batch, and the parts below are tested with fakes; the transfer of a task and a bundle through the output volume is not built, so no real session runs yet** (see "Not wired yet"). Turn nothing on in a real profile until it is.
 
 ## How a task is isolated
 
@@ -43,7 +43,7 @@ Each task has its own `result/v1` under its own run id (`GET /v1/runs/{id}`); th
 
 ## Not wired yet
 
-- The path from a request with a `driven` block to these parts (the task runner that starts a session, reads its outcome and calls the handover) and `scripts/driven-e2e.sh`.
+- The transfer through a session's output volume: `ISessionVolumes` puts `task.json` in before the container starts and reads `chargehand.bundle`, the report and the outcome out after it ends, but the runner service has no route for either, so the server ships a stand-in that fails each task with `container_unavailable`. Live token counts need the same transfer, so a task reports its usage when it ends, not while it runs (the per-task token cap is enforced inside the session). `scripts/driven-e2e.sh` stays unwritten until this exists.
 - The model credential delivery: the design prefers a per-run token that a gateway exchanges for the real credential, so the credential is never in the container. Whether Claude Code accepts that in both modes is half checked (a dummy credential reaches a base URL in both; a real one swapped in is not). Until it is, the fallback puts the credential in the container's environment, where hostile repository code could read and commit it; the diff scan is only a backstop.
 - Deployment on the VPS (a compose change in the homelab repository), the session image's pull time there, and whether `--internal` isolates on that engine.
 - Whether a model keeps to the skill's steps over a long headless session. The plan measures it (10 sessions, at least 7 must follow the steps in order).
@@ -51,4 +51,4 @@ Each task has its own `result/v1` under its own run id (`GET /v1/runs/{id}`); th
 
 ## Configure it
 
-The profile's `driven` block (`schemas` and `profiles/profile.schema.json` document each key): `enabled` (default false), `max_parallel`, `max_parallel_total`, `images` (by digest), `network.allow`, `runner` (URL and the secret item for its key), `push_secret`, and `task_source` (how a tracker item id becomes a goal through a mapped MCP tool). A request adds `driven: { tasks: [{id, ref | goal}], max_parallel, max_tokens_total | max_usd_total }` and `context.repository`.
+The profile's `driven` block (`schemas` and `profiles/profile.schema.json` document each key): `enabled` (default false), `max_parallel`, `max_parallel_total`, `images` (by digest), `network.allow`, `runner` (URL and the secret item for its key), `push_secret`, and `task_source` (how a tracker item id becomes a goal through a mapped MCP tool). `network.outside` and `network.mcp_forward` (`host:port` of the chargehand server as the egress container reaches it) let a session call chargehand for research and review. `images[0]` is the session image and the egress image. Keep `enabled` false in any shared profile. A request adds `driven: { tasks: [{id, ref | goal}], max_parallel, max_tokens_total | max_usd_total }` and `context.repository`.

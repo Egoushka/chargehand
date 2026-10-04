@@ -46,7 +46,7 @@ public static partial class ChargehandServer
         + "a second agent's independent answer. Pin the checkout with context.repository (path, commit); bound cost with "
         + "context.preset (default, cheap, thorough, strict, draft) or context.budget_usd. Runs can take minutes.";
 
-    public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log)
+    public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log, Chargehand.Driven.DrivenRun? driven = null)
     {
         var address = IPAddress.Parse(settings.Listen);
         IReadOnlyList<string> hosts = settings.AllowedHosts ?? [];
@@ -64,7 +64,7 @@ public static partial class ChargehandServer
         builder.Services.AddHostFiltering(o => o.AllowedHosts = ["localhost", "127.0.0.1", .. hosts]);
         // OrchestrateTool reads the MCP call's Prefer header.
         builder.Services.AddHttpContextAccessor();
-        AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory)
+        AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory, driven)
             // Hybrid: 2026-07-28 clients run stateless (tasks, input_required results); initialize clients get a session.
             .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients);
 
@@ -211,10 +211,10 @@ public static partial class ChargehandServer
     }
 
     /// <summary>What both hosts share: the run service, the tool, the tasks store and the instructions.</summary>
-    private static IMcpServerBuilder AddOrchestrate(IServiceCollection services, Orchestrator orchestrator, string presetsDirectory)
+    private static IMcpServerBuilder AddOrchestrate(IServiceCollection services, Orchestrator orchestrator, string presetsDirectory, Chargehand.Driven.DrivenRun? driven = null)
     {
         services.AddSingleton(sp => new RunService(orchestrator, presetsDirectory,
-            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping));
+            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping, driven));
         return services.AddMcpServer(o =>
             {
                 o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" };

@@ -37,6 +37,11 @@ public interface IBranchVerifier
     Task<VerificationRecord> VerifyAsync(BranchVerification verification, CancellationToken ct);
 }
 
+public interface IBranchHandover
+{
+    Task<HandoverOutcome> RunAsync(HandoverInput input, CancellationToken ct);
+}
+
 public enum HandoverStatus { Pushed, PrFailed, NotPushed }
 
 /// <param name="Reason">Why it was not pushed, or why the pull request failed; a credential is never in it.</param>
@@ -48,7 +53,7 @@ public sealed record HandoverOutcome(HandoverStatus Status, string Reason, Error
 /// something, its diff carries no secret and no CI configuration, and the repository's tests pass in a fresh container. Only then does it push <c>chargehand/&lt;run&gt;</c>
 /// (never anything else, never forced) with a credential that cannot push the default branch, and open a <b>draft</b> pull request. It never merges. A session that says
 /// its tests pass is not believed: the verification here is chargehand's own.</summary>
-public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pullRequests)
+public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pullRequests) : IBranchHandover
 {
     private const int MaxDiffBytes = 8 * 1024 * 1024;
     private static readonly TimeSpan GitTimeout = TimeSpan.FromMinutes(5);

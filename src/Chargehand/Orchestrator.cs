@@ -78,6 +78,8 @@ public sealed class Orchestrator(
         TaskAction? executed = null;
         try
         {
+            if (request.Driven is not null)
+                throw new ChargehandException(ErrorCode.InvalidRequest, "a request with a driven block runs only through chargehand serve", "Send it to the server's POST /v1/runs or its MCP tool.");
             var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
             var (kindName, kind) = AnswerKind(preset);
             // A writing preset without a sandbox is refused before anything is spent (ADR 0035).
@@ -166,6 +168,22 @@ public sealed class Orchestrator(
             executed is null ? null : Name(executed.Value), extensions.ToReport()), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
+    }
+
+    /// <summary>The support check a driven task's claims go through, or null when the profile has it off.</summary>
+    public Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? DrivenSupportCheck =>
+        profile.SupportCheck ? (contract, scope, ct) => SupportCheck.RunAsync(runtime, ParseModel(profile.IntakeModel), contract, scope, ct) : null;
+
+    /// <summary>The clone of the request's commit that driven sessions start from (the same checkout and refusals as a worker's), with the source's remote and default branch.</summary>
+    public async Task<Driven.DrivenCheckout> CheckoutForDrivenAsync(RepositoryRef repo, string presetName, CancellationToken ct)
+    {
+        var (_, kind) = AnswerKind(Preset.Load(Path.Combine(rootDirectory, "presets"), presetName));
+        var (directory, commit, _) = await Checkout(repo, kind, ct);
+        var source = Path.GetFullPath(repo.Path);
+        var remote = await Git(source, ct, "config", "--get", "remote.origin.url")
+            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{repo.Path} has no remote.origin.url to push to", "Add an origin remote to the repository.");
+        var head = await Git(source, ct, "symbolic-ref", "--short", "refs/remotes/origin/HEAD");
+        return new Driven.DrivenCheckout(directory, commit, remote, head is not null && head.StartsWith("origin/", StringComparison.Ordinal) ? head["origin/".Length..] : "main");
     }
 
     private static ResultError Cancelled() => new(ErrorCode.Cancelled, "the run was cancelled", false, "Start the task again if it is still wanted; nothing was pushed.");
