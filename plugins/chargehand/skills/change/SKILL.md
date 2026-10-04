@@ -12,6 +12,10 @@ If the environment variable `CHARGEHAND_DRIVEN` is `1`, no person is watching: c
 branch itself, push it and open a draft pull request. Follow the steps below with these changes, and only these:
 
 - Step 1: the working tree is already clean, on a branch chargehand made; do not stop for it.
+- Steps 2 and 7: call `orchestrate` with `context.repository` = { path: the environment variable `CHARGEHAND_REPOSITORY_PATH`, commit: the environment variable
+  `CHARGEHAND_BASE_COMMIT` } in both, never `/work`, `.` or `HEAD`: your token admits that path and commit only. The review still gets the diff
+  (`git diff $CHARGEHAND_BASE_COMMIT..HEAD`) as its `diff` input. Do not skip research or review: if a call is refused, read the error and fix the call;
+  if chargehand stays unreachable, stop with `NEEDS_INPUT:` and the error instead of going on without the step.
 - Steps 2, 7 and 8: where a step would ask the user questions, stop working, print a line `NEEDS_INPUT:` followed by the questions, one per line, and
   finish. Do not guess the answers.
 - Step 3: the branch named in the environment variable `CHARGEHAND_BRANCH` already exists and is checked out; use it instead of creating `change/<slug>`.

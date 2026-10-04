@@ -29,6 +29,8 @@ public class DrivenRunTests
         public List<string> Calls { get; } = [];
         public List<ContainerSpec> Started { get; } = [];
         public bool HoldRunning { get; set; }
+        /// <summary>The start call is cancelled after docker made the container, as a cancel in flight does.</summary>
+        public bool CancelOnStart { get; set; }
 
         private void Record(string call)
         {
@@ -41,6 +43,8 @@ public class DrivenRunTests
             lock (_gate)
                 Started.Add(spec);
             Record($"start {spec.RunId}");
+            if (CancelOnStart)
+                throw new OperationCanceledException();
             return Task.FromResult($"cid-{spec.RunId}");
         }
 
@@ -195,6 +199,9 @@ public class DrivenRunTests
             Assert.Equal($"tok-{spec.RunId}", spec.Env["CHARGEHAND_RUN_TOKEN"]);
             Assert.Equal("http://chargehand-egress-run-batch-1:4300/v1/mcp", spec.Env["CHARGEHAND_MCP_URL"]);
             Assert.Equal("chargehand-egress-run-batch-1", spec.Env["NO_PROXY"]);
+            // The token admits exactly this path and commit, so the session is told them instead of having to guess.
+            Assert.Equal(Commit, spec.Env["CHARGEHAND_BASE_COMMIT"]);
+            Assert.False(string.IsNullOrEmpty(spec.Env["CHARGEHAND_REPOSITORY_PATH"]));
             Assert.DoesNotContain("value-of-secret-push", spec.Env.Values);
             Assert.Contains($"rm cid-{spec.RunId}", rig.Engine.Calls);
             Assert.Contains($"volume-rm chargehand-work-{spec.RunId}", rig.Engine.Calls);
@@ -252,6 +259,18 @@ public class DrivenRunTests
             Assert.Contains($"rm cid-{spec.RunId}", rig.Engine.Calls);
         }
         Assert.Contains("network-rm chargehand-net-run-batch-3", rig.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_cancel_while_a_container_is_starting_still_removes_it_by_name()
+    {
+        using var rig = new Rig();
+        rig.Engine.CancelOnStart = true;
+        using var cts = new CancellationTokenSource();
+        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-9", Token, cts.Token, cancelledByCaller: () => true);
+
+        var spec = rig.Engine.Started.Single();
+        Assert.Contains($"rm chargehand-{spec.RunId}", rig.Engine.Calls);
     }
 
     [Fact]

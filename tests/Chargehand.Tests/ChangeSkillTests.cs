@@ -49,6 +49,8 @@ public class ChangeSkillTests
     [Theory]
     [InlineData("CHARGEHAND_DRIVEN")]
     [InlineData("CHARGEHAND_BRANCH")]
+    [InlineData("CHARGEHAND_REPOSITORY_PATH")]
+    [InlineData("CHARGEHAND_BASE_COMMIT")]
     [InlineData("NEEDS_INPUT:")]
     [InlineData("do not push")]
     [InlineData("```json")]
@@ -62,7 +64,7 @@ public class ChangeSkillTests
     public void The_driven_section_changes_only_steps_that_need_a_person_and_says_which()
     {
         var section = Skill[Skill.IndexOf("## Driven mode", StringComparison.Ordinal)..Skill.IndexOf(SkillSteps[0], StringComparison.Ordinal)];
-        foreach (var step in new[] { "Step 1:", "Steps 2, 7 and 8:", "Step 3:", "Step 9:", "Step 10:" })
+        foreach (var step in new[] { "Step 1:", "Steps 2 and 7:", "Steps 2, 7 and 8:", "Step 3:", "Step 9:", "Step 10:" })
             Assert.Contains(step, section, StringComparison.Ordinal);
         foreach (var untouched in new[] { "Step 4", "Step 5", "Step 6", "Steps 4", "Steps 5", "Steps 6" })
             Assert.DoesNotContain(untouched, section, StringComparison.Ordinal);
@@ -72,7 +74,7 @@ public class ChangeSkillTests
     public void The_drivers_prompt_and_the_skill_agree_on_the_words_they_share()
     {
         var prompt = Chargehand.Driven.SessionCli.DefaultPrompt;
-        foreach (var shared in new[] { "NEEDS_INPUT:", "CHARGEHAND_BRANCH", "```json" })
+        foreach (var shared in new[] { "NEEDS_INPUT:", "CHARGEHAND_BRANCH", "CHARGEHAND_REPOSITORY_PATH", "CHARGEHAND_BASE_COMMIT", "```json" })
         {
             Assert.Contains(shared, prompt, StringComparison.Ordinal);
             Assert.Contains(shared, Skill, StringComparison.Ordinal);
