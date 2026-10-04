@@ -137,6 +137,22 @@ Set A meets the plan's bar (12 of 12, at least 7 of 10) on these two tiny reposi
 
 **Set B, the committed wording (steps 4 and 7 of the skill, driver prompt as in set A), image `sha256:63e936d43a6cc27e2a2fd89c73adfb5f9415deb7e8ae3a3ce0e3384d015b72a5`.** Four more runs, node, python, node, python, 12 sessions, same token. 12 of 12 followed (`easy` + `unskip` 8 of 8, `impossible` 4 of 4), `honest_stop` 0 of 12, every session reviewed twice (one fix round), no test file edited (`one_task_failed` ok in all four runs), `cancel_leaves_no_container` passed in all four, no rate limiting, auth refusal or secret. Tokens 72,442 input plus output (about 6.6 million with cache). Together 24 of 24 on the two wordings; the same caveat on tiny repositories applies.
 
+### On a real repository, 10 sessions (2026-10-04): 10 of 10 followed, 4 of 4 passable tasks reached a draft pull request
+
+Measured with `scripts/driven-e2e.sh` on a clone of a TypeScript-on-Node repository (Node 26, `node --test`, biome, tsc), session image with Node 26.10.0, Claude Code 2.1.283 on the subscription token. Five tasks written from the repository's own code (a validation and its test, a duplicate check in a config parser, a refactor with a missing unit test, a missing test alone, and one whose goal contradicts an existing test), two batches of five, 10 sessions, each judged by `chargehand runs adherence`.
+
+| | followed | sessions |
+|---|---|---|
+| batch 1 | 5 | 5 |
+| batch 2 | 5 | 5 |
+| all | 10 | 10 |
+
+Every session reviewed twice (one fix round). `honest_stop` 0 of 10. Tokens: 50,528 and 51,920 input plus output in the two batches.
+
+- **Batch 1: 0 of 4 passable tasks reached a pull request.** Chargehand's own fresh-container test run failed all five with exit 1. Cause, from the stored output: the repository's tests write a script into `/tmp` and run it; `/tmp` is a `noexec` tmpfs (Docker's default), so 3 of 217 tests failed with `spawn claude EACCES`. Reproduced under the verifier's exact flags, and with `TMPDIR` set under `/work` on a volume: 216 of 216. The template was left as it is (see Consequences); the repository's `context.verify` now sets `TMPDIR`.
+- **Batch 2, with that verify command: 4 of 4 passable tasks ended in a draft pull request** on the local remote (every PR draft, base `main`, head `chargehand/<run>`): each changed one source file and its test, or the test alone (14 to 24 added lines), and chargehand's own run of the repository's check passed. The task that cannot pass ended `verification_failed` with the assertion `12 !== 8`; no test file was edited. The default branch did not move; the cancel case left no container and opened no pull request; neither credential appeared in any file the run wrote.
+- **Not shown:** one repository, five goals written by an agent, a local remote and a stub of the pull-request endpoint (no pull request exists on GitHub). The first deployment's credential can move the default branch (Consequences).
+
 ## Consequences
 
 - A shell exists again, in a container, running repository content and model output. The boundary is the container, its network
@@ -154,6 +170,8 @@ Set A meets the plan's bar (12 of 12, at least 7 of 10) on these two tiny reposi
   Because the subscription token is long-lived and covers the whole plan, keeping it out of the container (the per-run token design)
   matters more here than for a limited API key; if the spike shows it cannot be kept out, the fallback delivery puts a year-long
   credential where hostile repository code runs, and the maintainer should then reconsider before enabling it.
+- `/tmp` in a session and in the fresh verification run is `noexec` (Docker's default for `--tmpfs`, kept on purpose: a hostile repository cannot run a binary it dropped there). A repository whose tests run a script they write to `/tmp` fails with `EACCES` (measured, 2026-10-04: 3 of 217 tests on a TypeScript-on-Node repository, all five tasks of a batch ended `verification_failed`). Decision (maintainer): no `exec` on `/tmp`; the repository's `context.verify` sets `TMPDIR` to a directory under `/work`, which a volume provides.
+- **The push credential of the first deployment can move the default branch (maintainer's decision, 2026-10-04).** It is a fine-grained token of the owner's account, limited to one repository. A repository ruleset that blocks updates of the default branch does not bind it: the owner's admin role is the ruleset's bypass, and a probe on a throwaway branch under a copy of the ruleset showed the token updating a protected branch (HTTP 200). What holds `main` is chargehand's code (the handover pushes one ref, `chargehand/<run>`, never forced, and opens only draft pull requests) and the ruleset against the owner's own mistakes, not the credential. The maintainer accepts this for one repository. A separate account or GitHub App with write but not admin would make the ruleset bind the credential; reopen if more repositories are added.
 - The image is another thing to pin, scan and keep at the profile's Claude Code version.
 - A session whose model ignores the skill's steps produces a branch that chargehand's own verification and review still judge; the
   skill is followed by instruction, not enforced, so the plan measures adherence (Task 12).

@@ -28,10 +28,11 @@ image.
   is not met yet.
 - ▶ **Driven sessions** (ADR 0039, pulled forward from after 1.0): a list of tasks becomes parallel headless Claude Code
   sessions, one container each, and a draft pull request per task that chargehand checked, tested in a fresh container
-  and pushed itself. Its parts are built and tested; open are the path from a request to them with its end-to-end
-  script, the check that Claude Code runs on a substituted credential, deployment on the server, and the skill's
-  measured adherence (at least 7 of 10 sessions follow its steps). It gets a minor version when it is wired; until
-  then `driven.enabled` stays false in every real profile. [Guide](docs/guide/driven.md).
+  and pushed itself. Built, and run end to end on a real TypeScript-on-Node repository: 10 of 10 sessions followed the
+  skill's steps, and 4 of 4 passable tasks reached a draft pull request (on a local remote). Open are the substituted
+  credential (a gateway; until then the model credential is in the container's environment) and deployment on the
+  server. It gets a minor version when it is wired; until then `driven.enabled` stays false in every real profile.
+  [Guide](docs/guide/driven.md).
 
 ## Stage 4 — Answers you can prove · ✅ (0.8)
 
