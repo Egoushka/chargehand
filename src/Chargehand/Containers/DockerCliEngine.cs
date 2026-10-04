@@ -257,12 +257,12 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
                 try
                 {
                     await process.StandardInput.BaseStream.WriteAsync(stdin, ct);
+                    process.StandardInput.Close();
                 }
                 catch (IOException)
                 {
                     // The helper ended before reading its input; its exit code says why.
                 }
-                process.StandardInput.Close();
                 await copied;
                 await process.WaitForExitAsync(ct);
             }
