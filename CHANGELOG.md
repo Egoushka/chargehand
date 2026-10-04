@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Driven batches see a session's token use while it runs (ADR 0039, CHARGEHAND-147): the in-container driver rewrites `session-usage.json` in the output volume as the stream grows, and the runner reads it through the existing out-volume read (a fifth allowlisted name, read only) every poll interval (5 s by default) while the task runs and reports it to the scheduler. A task that reports more than its own token or dollar cap is stopped at once (`cost_cap_reached`), and a batch stops its running tasks as soon as their reported use passes the batch cap (before: only once it was over by a whole task cap). Dollars still arrive only with the session's final result, so live dollar caps bind through the session's own `--max-budget-usd`.
 - A driven session is told the repository path and base commit its run token admits (`CHARGEHAND_REPOSITORY_PATH`, `CHARGEHAND_BASE_COMMIT`, ADR 0039, CHARGEHAND-141): the skill's driven section and the driver prompt use them for the research and the review call (the review at the base commit, with the diff as input) and say not to skip either step. Measured: 7 of 9 sessions followed the steps, up from 1 of 3; the ADR records the result and that the feature is not ready. The runner also removes a container whose start was cancelled in flight, by its name.
 - `scripts/driven-e2e.sh` (ADR 0039, CHARGEHAND-141): an end-to-end run of a driven batch on a synthetic repository (three tasks, a local bare remote that takes only `chargehand/*`, `max_parallel` 2, a stub of the draft-pull-request endpoint, a cancel case, a scan of everything it wrote for the push token and the model key). It calls a real model and has not been run yet. It needs two switches in the CLI that exist for it alone: `CHARGEHAND_E2E_GITHUB_API` and `CHARGEHAND_E2E_LOCAL_REMOTE=1`.
 - `chargehand runs adherence <stream.jsonl>...` reads stored session streams and says, per session, whether it did research, a write, a test run and a review in that order with at most 2 fix rounds, and whether at least 7 of 10 did. Nothing is measured yet.
@@ -25,6 +26,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `scripts/egress-test-image.sh` publishes the CLI for the container engine's architecture (`linux-arm64` or `linux-x64`) instead of the host's, and sets the image's entrypoint, so the egress tests run on a Mac; the egress tests supply a `nc` stand-in (bash `/dev/tcp`) when the test image has none.
 - The plugin's MCP entry passes `--source https://api.nuget.org/v3/index.json` to `dnx`, so a machine whose NuGet config lists a private feed no longer fails with 401 and `CONNECTION_CLOSED` (CHARGEHAND-127).
 
 ## [0.8.0] - 2026-09-30

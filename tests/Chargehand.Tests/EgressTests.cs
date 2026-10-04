@@ -4,16 +4,21 @@ using Chargehand.Containers;
 namespace Chargehand.Tests;
 
 /// <summary>ADR 0039: what a session container can and cannot reach, on a real engine. Needs Docker, CHARGEHAND_TEST_IMAGE (a local image
-/// with busybox <c>nc</c> and <c>nslookup</c>, by digest, e.g. alpine) and CHARGEHAND_TEST_EGRESS_IMAGE (from scripts/egress-test-image.sh).
+/// with <c>sh</c>, and busybox <c>nc</c> or else <c>bash</c> and <c>timeout</c> (alpine; ubuntu), by digest) and CHARGEHAND_TEST_EGRESS_IMAGE (from scripts/egress-test-image.sh).
 /// The allowed-host test also needs the internet: it connects the egress container to example.com.</summary>
 public class EgressTests
 {
     private static readonly string? EgressImage = Environment.GetEnvironmentVariable("CHARGEHAND_TEST_EGRESS_IMAGE");
 
+    /// <summary>Stands in for <c>nc [-w secs] host port</c> (stdin to the socket, the reply to stdout) where the image has none, with bash's /dev/tcp.</summary>
+    private const string NcShim = """
+        command -v nc >/dev/null 2>&1 || nc() { w=5; [ "$1" = -w ] && { w=$2; shift 2; }; timeout "$w" bash -c 'exec 3<>/dev/tcp/$0/$1 || exit 1; cat >&3; cat <&3' "$1" "$2"; }; 
+        """;
+
     private static async Task<(int Exit, string Logs)> RunSession(DockerCliEngine engine, BatchNetworkInfo net, string batch, string run, string script)
     {
         var spec = new ContainerSpec(run, DockerFactAttribute.Image!, $"cht-work-{run}", $"cht-out-{run}", net.Network, new Dictionary<string, string>(),
-            256, 1, 64, ["sh", "-c", script]);
+            256, 1, 64, ["sh", "-c", NcShim + script]);
         await engine.CreateVolumeAsync(spec.WorkVolume, batch, default);
         await engine.CreateVolumeAsync(spec.OutVolume, batch, default);
         var id = await engine.StartAsync(spec, default);
@@ -69,7 +74,7 @@ public class EgressTests
         try
         {
             var proxy = $"{net.ProxyHost} {net.ProxyPort}";
-            var script = $"for i in 1 2 3 4 5 6 7 8 9 10; do printf 'CONNECT example.com:443 HTTP/1.1\\r\\nProxy-Authorization: Basic cnVuLTc6eA==\\r\\n\\r\\n' | nc -w 5 {proxy} > /tmp/ok 2>/dev/null && [ -s /tmp/ok ] && break; sleep 1; done; head -1 /tmp/ok; "
+            var script = $"for i in 1 2 3 4 5 6 7 8 9 10; do printf 'CONNECT example.com:443 HTTP/1.1\\r\\nProxy-Authorization: Basic cnVuLTc6eA==\\r\\n\\r\\n' | nc -w 5 {proxy} > /tmp/ok 2>/dev/null; [ -s /tmp/ok ] && break; sleep 1; done; head -1 /tmp/ok; "
                 + $"printf 'CONNECT evil.example:443 HTTP/1.1\\r\\n\\r\\n' | nc -w 5 {proxy} | head -1; printf 'CONNECT 1.1.1.1:443 HTTP/1.1\\r\\n\\r\\n' | nc -w 5 {proxy} | head -1";
             var (_, logs) = await RunSession(engine, net, batch, batch + "b", script);
             var lines = logs.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

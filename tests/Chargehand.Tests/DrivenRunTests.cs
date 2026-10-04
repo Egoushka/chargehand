@@ -83,6 +83,17 @@ public class DrivenRunTests
     {
         private readonly Dictionary<string, string> _goals = [];
 
+        /// <summary>What the session's running tally says while it works; null: it has written none.</summary>
+        public TaskUsage? Usage { get; set; }
+
+        public int UsageReads;
+
+        public Task<TaskUsage?> ReadUsageAsync(string runId, CancellationToken ct)
+        {
+            Interlocked.Increment(ref UsageReads);
+            return Task.FromResult(Usage);
+        }
+
         public Task WriteTaskAsync(string runId, SessionTask task, CancellationToken ct)
         {
             lock (_goals)
@@ -139,7 +150,7 @@ public class DrivenRunTests
         public DrivenRun Run { get; }
         public Profile Profile { get; }
 
-        public Rig(bool enabled = true, Func<string, SessionStatus>? script = null, string? mcpForward = null, string? dir = null, JsonlRunLog? log = null)
+        public Rig(bool enabled = true, Func<string, SessionStatus>? script = null, string? mcpForward = null, string? dir = null, JsonlRunLog? log = null, FakeVolumes? volumes = null)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
@@ -148,7 +159,7 @@ public class DrivenRunTests
                 Driven = new DrivenSettings(enabled, MaxParallel: 2, Images: [Image], PushSecret: PushSecret, Network: new DrivenNetwork(McpForward: mcpForward)),
             };
             var services = enabled
-                ? new DrivenServices(Engine, Engine, new FakeVolumes(script ?? (_ => SessionStatus.Completed)), _ => throw new NotSupportedException("the handover is faked"), null,
+                ? new DrivenServices(Engine, Engine, volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed)), _ => throw new NotSupportedException("the handover is faked"), null,
                     (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", Commit, "https://github.com/o/r.git", "main")), new NoEvidenceProblems(),
                     name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1))
                 : null;
@@ -259,6 +270,22 @@ public class DrivenRunTests
             Assert.Contains($"rm cid-{spec.RunId}", rig.Engine.Calls);
         }
         Assert.Contains("network-rm chargehand-net-run-batch-3", rig.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_task_whose_live_usage_passes_its_cap_is_stopped_before_it_ends()
+    {
+        var volumes = new FakeVolumes(_ => SessionStatus.Completed) { Usage = new TaskUsage(1_000_000_000, 0) };
+        using var rig = new Rig(volumes: volumes);
+        rig.Engine.HoldRunning = true;
+        var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-10", Token, default);
+
+        var task = BatchTasks(result).EnumerateArray().Single();
+        Assert.Equal("failed", task.GetProperty("status").GetString());
+        Assert.Equal(["signal cid-" + rig.Engine.Started.Single().RunId + " SIGINT", "signal cid-" + rig.Engine.Started.Single().RunId + " SIGKILL"],
+            rig.Engine.Calls.Where(c => c.StartsWith("signal ", StringComparison.Ordinal)));
+        Assert.Empty(rig.Handover.Inputs);
+        Assert.True(volumes.UsageReads >= 1);
     }
 
     [Fact]

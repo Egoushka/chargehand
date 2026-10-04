@@ -147,8 +147,11 @@ public static partial class ContainerTemplate
     /// <summary>The files chargehand writes into a session's output volume.</summary>
     public static readonly IReadOnlyList<string> OutFilesIn = ["task.json"];
 
-    /// <summary>The files chargehand reads out of it: the bundle, the report and the outcome. Nothing else leaves the volume.</summary>
-    public static readonly IReadOnlyList<string> OutFilesOut = ["chargehand.bundle", "driven-report.json", "session-outcome.json"];
+    /// <summary>The files chargehand reads out of it: the bundle, the report, the outcome and the running token tally. Nothing else leaves the volume.</summary>
+    public static readonly IReadOnlyList<string> OutFilesOut = ["chargehand.bundle", "driven-report.json", "session-outcome.json", UsageFile];
+
+    /// <summary>The session's running token tally, rewritten while it works; the host polls it so the caps bind before the task ends.</summary>
+    public const string UsageFile = "session-usage.json";
 
     /// <summary>Exit code of the read helper when the file is not there.</summary>
     public const int OutFileMissing = 3;

@@ -41,6 +41,7 @@ public class OutVolumeEngineTests
     [InlineData("task.json", false)]           // a result file is not task.json
     [InlineData("chargehand.bundle", true)]    // and the task file is the only one written
     [InlineData("driven-report.json", true)]
+    [InlineData("session-usage.json", true)]   // the tally is read, never written, by chargehand
     public void Only_the_fixed_names_move_in_their_own_direction(string name, bool write) =>
         Assert.Throws<ArgumentException>(() => ContainerTemplate.OutFileArgs(Spec(name), write));
 

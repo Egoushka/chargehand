@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Chargehand.Containers;
 
 namespace Chargehand.Driven;
 
@@ -25,6 +26,9 @@ public sealed record SessionCommand(string File, IReadOnlyList<string> LeadingAr
 /// <param name="McpToken">The run-scoped token for it.</param>
 public sealed record SessionOptions(string WorkDirectory, string OutDirectory, SessionTask Task, SessionCommand Command, IReadOnlyList<string> Secrets,
     string PromptText, string? McpUrl, string? McpToken, string PluginDirectory = "/opt/chargehand-plugin");
+
+/// <summary>The running tally the session writes to <c>session-usage.json</c>: input plus output tokens so far. Dollars are not known until the stream's <c>result</c>.</summary>
+public sealed record SessionUsage(long Tokens);
 
 public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed }
 
@@ -95,6 +99,7 @@ public static partial class SessionDriver
             var started = DateTimeOffset.UtcNow;
             var detector = new StallDetector(TimeSpan.FromSeconds(task.NoProgressSeconds), 5, task.MaxTurns, TimeSpan.FromMinutes(task.MaxMinutes), started);
             var tally = new Tally();
+            long lastUsage = -1;
             using var process = Process.Start(psi) ?? throw new InvalidOperationException("could not start Claude Code");
             process.StandardInput.Close();
             var stderr = process.StandardError.ReadToEndAsync(ct);
@@ -114,6 +119,7 @@ public static partial class SessionDriver
                     var now = DateTimeOffset.UtcNow;
                     detector.OnEvent(e, now);
                     tally.Add(e);
+                    WriteUsage(options.OutDirectory, tally, ref lastUsage);
                     if (task.MaxTokens is { } cap && tally.Input + tally.Output >= cap && stoppedBy.Set(SessionStatus.TokenCap, "token_cap"))
                         Interrupt(process);
                 }
@@ -153,6 +159,25 @@ public static partial class SessionDriver
         finally
         {
             scratch.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Keeps <see cref="ContainerTemplate.UsageFile"/> current for the host's poll. It is written beside and renamed, so a read never sees half a file; a failed write only
+    /// delays the host's view, never the session.</summary>
+    private static void WriteUsage(string directory, Tally tally, ref long last)
+    {
+        var tokens = tally.Input + tally.Output;
+        if (tokens == last)
+            return;
+        try
+        {
+            var file = Path.Combine(directory, ContainerTemplate.UsageFile);
+            File.WriteAllText(file + ".tmp", JsonSerializer.Serialize(new SessionUsage(tokens), OutcomeJson));
+            File.Move(file + ".tmp", file, overwrite: true);
+            last = tokens;
+        }
+        catch (IOException)
+        {
         }
     }
 

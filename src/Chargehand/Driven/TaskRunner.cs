@@ -17,6 +17,9 @@ public interface ISessionVolumes
 
     /// <summary>Copies <c>chargehand.bundle</c>, <c>driven-report.json</c> and <c>session-outcome.json</c> (each only if it exists) from the volume into <paramref name="directory"/>.</summary>
     Task FetchOutputAsync(string runId, string directory, CancellationToken ct);
+
+    /// <summary>The session's running tally while it works; null if it has not written one yet or the file is unreadable.</summary>
+    Task<TaskUsage?> ReadUsageAsync(string runId, CancellationToken ct);
 }
 
 /// <summary>Used where the engine cannot move files through a volume: a batch then ends each task as <c>container_unavailable</c> before any session container starts.</summary>
@@ -28,6 +31,8 @@ public sealed class UnavailableSessionVolumes : ISessionVolumes
     public Task WriteTaskAsync(string runId, SessionTask task, CancellationToken ct) => throw Unavailable();
 
     public Task FetchOutputAsync(string runId, string directory, CancellationToken ct) => throw Unavailable();
+
+    public Task<TaskUsage?> ReadUsageAsync(string runId, CancellationToken ct) => throw Unavailable();
 }
 
 /// <summary>What a session's run token is for: one repository at one commit, within the task's caps, until it expires.</summary>
@@ -52,6 +57,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     TimeSpan? poll = null, TimeSpan? stopGrace = null) : ITaskRunner
 {
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan DefaultUsagePoll = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultGrace = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan WallClockSlack = TimeSpan.FromMinutes(5);
 
@@ -92,7 +98,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             }
             container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
                 preset.MemoryMb, preset.Cpus, preset.Pids, ["session"]), ct);
-            var state = await WaitAsync(container, preset, ct);
+            var state = await WaitAsync(container, runId, preset, progress, ct);
 
             await volumes.FetchOutputAsync(runId, outDirectory, ct);
             var session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, state.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, state.ExitCode, [], false);
@@ -128,10 +134,12 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     }
 
     /// <summary>Waits for the container to end. A cancel interrupts the session, gives it a moment, then kills it, and rethrows; a session past its wall clock plus a margin is killed.</summary>
-    private async Task<ContainerState> WaitAsync(string container, DrivenPreset preset, CancellationToken ct)
+    private async Task<ContainerState> WaitAsync(string container, string runId, DrivenPreset preset, IProgress<TaskUsage> progress, CancellationToken ct)
     {
         var every = poll ?? DefaultPoll;
         var clock = Stopwatch.StartNew();
+        var usageClock = Stopwatch.StartNew();
+        long reported = 0;
         try
         {
             while (true)
@@ -144,6 +152,15 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                     await engine.SignalAsync(container, "SIGKILL", CancellationToken.None);
                     return await engine.InspectAsync(container, CancellationToken.None);
                 }
+                if (usageClock.Elapsed >= (poll ?? DefaultUsagePoll))
+                {
+                    usageClock.Restart();
+                    if (await ReadUsageQuietly(runId, ct) is { } usage && usage.Tokens > reported)
+                    {
+                        reported = usage.Tokens;
+                        progress.Report(new TaskUsage(usage.Tokens, 0));
+                    }
+                }
                 await Task.Delay(every, ct);
             }
         }
@@ -155,6 +172,19 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 await Task.Delay(every, CancellationToken.None);
             await engine.SignalAsync(container, "SIGKILL", CancellationToken.None);
             throw;
+        }
+    }
+
+    /// <summary>A poll that fails (the engine busy, a half-written file) is skipped: the final outcome still carries the real numbers.</summary>
+    private async Task<TaskUsage?> ReadUsageQuietly(string runId, CancellationToken ct)
+    {
+        try
+        {
+            return await volumes.ReadUsageAsync(runId, ct);
+        }
+        catch (Exception e) when (e is ChargehandException or IOException or JsonException)
+        {
+            return null;
         }
     }
 

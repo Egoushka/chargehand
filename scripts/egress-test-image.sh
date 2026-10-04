@@ -7,6 +7,12 @@ base="${1:?usage: scripts/egress-test-image.sh <base-image>}"
 cd "$(dirname "$0")/.."
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-dotnet publish src/Chargehand.Cli -c Release -o "$work/out" >&2
-printf 'FROM %s\nCOPY out /app/bin\n' "$base" > "$work/Dockerfile"
+# The CLI runs in a Linux container, so publish for the engine's architecture, not the host's (a Mac would otherwise ship a Mach-O binary).
+case "$(docker info --format '{{.Architecture}}')" in
+  aarch64|arm64) rid=linux-arm64 ;;
+  x86_64|amd64) rid=linux-x64 ;;
+  *) echo "unsupported container architecture" >&2; exit 1 ;;
+esac
+dotnet publish src/Chargehand.Cli -c Release -r "$rid" --self-contained false -o "$work/out" >&2
+printf 'FROM %s\nCOPY out /app/bin\nENTRYPOINT ["dotnet", "/app/bin/Chargehand.Cli.dll"]\n' "$base" > "$work/Dockerfile"
 docker build -q "$work"
