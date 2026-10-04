@@ -5,7 +5,7 @@ order: 10
 section: "Guides"
 ---
 
-Driven sessions ([ADR 0039](../adr/0039-driven-writing-sessions.md)) run a list of tasks as headless Claude Code sessions, one container each, following the [`change` skill](change.md), and end each in a pushed branch `chargehand/<run>` and a **draft** pull request. chargehand never merges and never enables auto-merge. **Status: a request with a `driven` block now runs the batch, and the parts below are tested with fakes; the task and the bundle move through the output volume, but no real session has run end to end yet** (see "Not wired yet"). Turn nothing on in a real profile until it is.
+Driven sessions ([ADR 0039](../adr/0039-driven-writing-sessions.md)) run a list of tasks as headless Claude Code sessions, one container each, following the [`change` skill](change.md), and end each in a pushed branch `chargehand/<run>` and a **draft** pull request. chargehand never merges and never enables auto-merge. **Status: a request with a `driven` block runs the batch, and the parts below are tested with fakes. The end-to-end script exists, but no real session has been run through it, so nothing here is measured** (see "Not done yet"). Turn nothing on in a real profile until it has.
 
 ## How a task is isolated
 
@@ -41,12 +41,27 @@ Each task has its own `result/v1` under its own run id (`GET /v1/runs/{id}`); th
 
 `POST /v1/runs/{id}/cancel` cancels a run; `POST /v1/halt` cancels every run and refuses new ones until `POST /v1/resume`; `GET /v1/runs` lists runs with state, cost, branch and pull-request link. `chargehand runs kill --all` removes the containers by label with no server. Cancel never pushes.
 
-## Not wired yet
+## Try it end to end
 
-- Live token counts: a task reports its usage when it ends, not while it runs. The session counts tokens inside its container and the scheduler gets the total only from the outcome file read after it ends (the per-task token cap is enforced inside the session). `scripts/driven-e2e.sh` stays unwritten until a session has run on the real stack.
-- The model credential delivery: the design prefers a per-run token that a gateway exchanges for the real credential, so the credential is never in the container. Whether Claude Code accepts that in both modes is half checked (a dummy credential reaches a base URL in both; a real one swapped in is not). Until it is, the fallback puts the credential in the container's environment, where hostile repository code could read and commit it; the diff scan is only a backstop.
-- Deployment on the VPS (a compose change in the homelab repository), the session image's pull time there, and whether `--internal` isolates on that engine.
-- Whether a model keeps to the skill's steps over a long headless session. The plan measures it (10 sessions, at least 7 must follow the steps in order).
+`scripts/driven-e2e.sh` runs the whole path against a real model, by hand, never in CI. It needs Docker, the .NET SDK, python3, `claude` on `PATH` at the version inside the session image, a session image pushed to a registry (build `images/session/Dockerfile`; the profile takes the image by digest), and an Anthropic API key with a **low spend limit set in the console**:
+
+```bash
+export CHARGEHAND_E2E_MODEL_KEY=<capped key>
+export CHARGEHAND_E2E_IMAGE=<registry>/<image>@sha256:<digest>
+scripts/driven-e2e.sh
+```
+
+It builds a synthetic repository with a local bare remote that refuses every branch except `chargehand/*`, starts its own server on port 4390 with a throwaway profile (`driven.enabled` true, `max_parallel` 2, the key read from the environment and never written to a file) and a stub of the GitHub endpoint that opens draft pull requests, then runs three tasks: one easy, one that must implement a function and remove a test's skip, and one that cannot pass. It checks that two draft pull requests were recorded, one task failed, the batch ended `failed` with `tasks_incomplete`, the default branch did not move, a cancelled task leaves no container and no pull request, and neither the push token nor the model key appears in any file the run made. The task that cannot pass is two contradictory tests; a model that edits them has dodged it, and the script then reports it. The environment variables are listed at the top of the script. Two switches in the CLI make the local remote and the stub possible and exist for this script only (`CHARGEHAND_E2E_GITHUB_API`, `CHARGEHAND_E2E_LOCAL_REMOTE`); they are not profile keys.
+
+With `CHARGEHAND_E2E_STREAMS=<dir>` the script copies each task's stored session stream (`stream.jsonl`, secrets redacted) out of its output volume and runs `chargehand runs adherence <dir>/*.jsonl`, which reports per session whether research, a write, a test run and a review came in that order with at most 2 fix rounds, and whether at least 7 of 10 sessions did (fewer than 10 is reported as not conclusive). Ten sessions means running the script until ten streams are collected, for example the three tasks over four runs, or the plan's five tasks twice; point the helper at the combined directory.
+
+## Not done yet
+
+- **A real run.** Neither the script nor the adherence measurement has run against a real model: no cost, no pass rate and no adherence figure exists. Until 10 sessions (five tasks, twice) have been measured, and at least 7 follow the steps, the feature is not ready; fewer than 7 goes into the ADR.
+- Live token counts: a task reports its usage when it ends, not while it runs. The session counts tokens inside its container and the scheduler gets the total only from the outcome file read after it ends (the per-task token cap is enforced inside the session). The script runs without the research and review calls (`network.mcp_forward` unset), so it does not exercise them.
+- The credential spike: the model credential delivery: the design prefers a per-run token that a gateway exchanges for the real credential, so the credential is never in the container. Whether Claude Code accepts that in both modes is half checked (a dummy credential reaches a base URL in both; a real one swapped in is not). Until it is, the fallback puts the credential in the container's environment, where hostile repository code could read and commit it; the diff scan is only a backstop.
+- Deployment on the VPS, which is the maintainer's decision and not done by any agent (a compose change in the homelab repository), the session image's pull time there, and whether `--internal` isolates on that engine.
+- Whether a model keeps to the skill's steps over a long headless session: the helper above measures it from stored streams; no figure exists yet.
 - The subscription's terms for unattended parallel use are unread; the maintainer accepted that risk.
 
 ## Configure it

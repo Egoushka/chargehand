@@ -39,6 +39,8 @@ Any other command prints the usage and exits 2. `eval` and `prompts sync` need t
 |---|---|
 | `POST /v1/runs` | takes `request/v1`. With `Prefer: wait=N` (default 10 s, at most 60): `200` and `result/v1` if the run finishes in time, else `202`, `run-status/v1` and a `Location` |
 | `GET /v1/runs/{id}` | `202` while queued or running, `200` and `result/v1` once finished, `410` if the process that ran it ended first, `404` if unknown |
+| `GET /v1/runs` | run summaries, newest first, filtered by `status` and `since`; [Run the HTTP server](server.md#routes) |
+| `POST /v1/runs/{id}/cancel`, `POST /v1/halt`, `POST /v1/resume` | cancel one run, cancel every run and refuse new ones, and lift that; a cancelled run ends `failed` with `cancelled` ([driven sessions](driven.md#limits-and-the-kill-switch)) |
 | `GET /v1/runs/{id}/events` | server-sent events `accepted`, `started`, `intake`, `node_started`, `node_finished`, `run_finished` |
 | `/v1/mcp` | MCP over Streamable HTTP: tool `orchestrate`, `inputSchema` `request/v1`, `outputSchema` `result/v1` |
 
@@ -122,7 +124,15 @@ A failed `result/v1` carries `error`: a fixed `code`, the `message`, `retryable`
 | `intake_failed` | intake returned no valid Task Spec after one retry | no |
 | `invalid_request` | an unknown preset, a caller block whose sha256 does not match its text, an unknown runtime name, or both Claude Code credentials set | no |
 | `sandbox_unavailable` | a writing preset ran on a machine with no `sandbox-exec` or `bwrap` and `sandbox.kind` is not `none` | no |
-| `verification_failed` | a writing node's test command still failed after the last fix round; the branch is in the result's artifacts | no |
+| `verification_failed` | a writing node's test command still failed after the last fix round; the branch is in the result's artifacts. For a driven task: chargehand's own run of the tests in a fresh container failed, or there is no test command | no |
+| `container_unavailable` | a driven session needs a container engine and none answers (no Docker, or the runner is down), or a task's output volume cannot be moved | yes |
+| `credential_unavailable` | a driven batch has no model credential or no push credential in the profile's secret sources | no |
+| `session_failed` | a driven session made no usable branch, or chargehand refused it: nothing changed, a secret-shaped diff, a change to CI configuration | no |
+| `session_stalled` | a driven session ended on no progress, a repeated tool call, too many turns or its wall clock | yes |
+| `push_rejected` | the remote refused `chargehand/<run>`, or the remote is not an https or ssh URL | no |
+| `pr_failed` | the branch was pushed but the draft pull request did not open; the result names the branch | yes |
+| `cancelled` | a run was cancelled (`POST /v1/runs/{id}/cancel` or `POST /v1/halt`); nothing is pushed | no |
+| `tasks_incomplete` | a driven batch ended with at least one task that has no draft pull request; the result names them | no |
 | `internal` | anything else | no |
 
 Over HTTP, a request the server refuses before a run exists stays a `400` with `errors` ([ADR 0022](../adr/0022-error-codes-in-result-v1.md)).
@@ -151,6 +161,7 @@ The profile is `profile/v1` JSON; `profiles/example.json` fills in most fields w
 | `prices` | empty: cost unknown | USD per 1M tokens per `provider/model`: `input`, `output`, `cache_read`, `cache_write` (with the provider's cache-write surcharge) |
 | `models` | empty | maps the presets' placeholder models to real `provider/model` ids |
 | `http` | unset | `api_key_secret` (required), `port` (4300), `listen` (`127.0.0.1`), `allowed_hosts`; `serve` needs it |
+| `driven` | `{enabled: false}` | Driven writing sessions ([ADR 0039](../adr/0039-driven-writing-sessions.md), [guide](driven.md#configure-it)): `enabled`, `max_parallel` (2, at most 4), `max_parallel_total` (4, at most 8), `images` (session image by digest), `network` (`allow`, `outside`, `mcp_forward`), `runner` (`url`, `api_key_secret`), `push_secret` and `task_source`. Leave `enabled` false in a shared profile |
 | `mcp_servers` | unset | MCP servers by name, which `memory` entries and presets' `services` refer to; one connection per server, opened on first use and shared by both. Each has `url` (Streamable HTTP or SSE; optional `headers` and `transport`: `auto`, `streamable-http` or `sse`, default `auto`) or `command` (a stdio argv; optional `env`). `{secret:item}` is allowed in header and `env` values only and resolves through `secrets` when the connection opens; a server whose secret nothing resolves is not connected. A command secret source that runs longer than 15 s is killed and the next source tried. [Memory and services](memory-and-services.md#name-your-servers-mcp_servers) covers transports and a Keychain item stored with an account |
 | `memory` | unset | a list of providers (ADR 0034), in priority order, each: `name` and `server` (an `mcp_servers` key) and `tools` (required); `namespace` (default `name`); `max_facts` (10), `max_chars` (4000), `max_fact_chars` (600), `timeout_seconds` (10); `retain` (false) and `retain_tags` (`["chargehand"]`). `tools.recall` is required, `tools.retain` when `retain` is true, `tools.invalidate` is optional. A tool is `{ "tool": <name>, "arguments": {...} }`; in the arguments, a string that is exactly one placeholder keeps the value's type. Recall may use `{query}`, `{namespace}` and `{max_facts}`; retain `{namespace}`, `{text}`, `{context}`, `{document_id}`, `{timestamp}`, `{tags}`, `{repository}`, `{commit}` and `{locators}`; invalidate `{namespace}`, `{id}` and `{reason}`. Recall's `results` says how to read the answer: `path` (dotted, to the array; without a `results` block it is `results`, with one and no `path` it is the root), `id` (default `id`), `text` (default `text`; a field, a template over fields such as `{date}: {summary}`, or an ordered list of these, the first whose fields are all present and non-empty winning) and `format` (`json`, or `text` for one fact from the whole answer). A mapping with an unknown server or placeholder fails at load; `chargehand extensions check` connects and checks the tools. [Memory and services](memory-and-services.md) has the Hindsight and Chronicle entries. The old single object (`backend`, `url`, `namespace`, `api_key_secret`, `max_tokens`, `retain`) was removed and fails at load with a migration message ([changelog](../../CHANGELOG.md)) |
 
@@ -178,6 +189,8 @@ Scripts and CI read a few more:
 | `PROMPT_CI_RUNTIME`, `PROMPT_CI_PROFILE_<RUNTIME>` | the eval runner | its default runtime, and one eval profile per runtime |
 | `SELF_REVIEW_PROFILE` | the eval runner, `.github/workflows/self-review.yml` | the profile for reviews of this repository's own pull requests |
 | `CLAUDE_CODE_VERSION` | Docker build argument | the Claude Code version in the image, default 2.1.283 |
+| `CHARGEHAND_E2E_MODEL_KEY`, `CHARGEHAND_E2E_IMAGE` | `scripts/driven-e2e.sh` | a capped Anthropic API key and the session image by digest; the script's other variables are listed at its top |
+| `CHARGEHAND_E2E_GITHUB_API`, `CHARGEHAND_E2E_LOCAL_REMOTE` | the CLI, for `scripts/driven-e2e.sh` only | the draft-pull-request client's base URL, and `1` to accept a `file://` remote; never set in a deployment |
 
 ## Run log
 

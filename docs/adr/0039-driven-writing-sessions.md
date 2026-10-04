@@ -72,6 +72,10 @@ template and review focus are the most scrutinised code in the plan.
 
 The spec's "As built" section lists them. In short: the server's MCP endpoint is reached through operator-named forwards on the egress container, because the allowlist proxy refuses private addresses (correctly); workspaces and the fresh verification run are built by a no-network helper from chargehand's read-only checkout; a change to CI configuration and a repository with no test command are not pushed unless allowed; the handover never runs git in the session's workspace. No decision above is reopened.
 
+### Adherence not yet measured (2026-10-04)
+
+No real session has run end to end. `scripts/driven-e2e.sh` and `chargehand runs adherence` exist, but the 10-session measurement (five tasks, twice; at least 7 must do research, test, review and at most 2 fix rounds in order) has not been run, so this ADR states no rate. Status stays proposed. If fewer than 7 of 10 follow the steps, record it here and do not call the feature ready.
+
 ## Consequences
 
 - A shell exists again, in a container, running repository content and model output. The boundary is the container, its network
