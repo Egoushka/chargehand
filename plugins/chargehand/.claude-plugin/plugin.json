@@ -1,7 +1,7 @@
 {
   "name": "chargehand",
   "displayName": "chargehand",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "The change command: one prompt to a reviewed change on a local branch.",
   "author": { "name": "Egoushka" },
   "repository": "https://github.com/Egoushka/chargehand",
