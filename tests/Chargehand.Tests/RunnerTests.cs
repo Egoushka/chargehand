@@ -14,7 +14,7 @@ public class RunnerTests
     private const string EgressImage = "registry.example/chargehand@sha256:2222222222222222222222222222222222222222222222222222222222222222";
     private const string Key = "runner-key-for-tests";
 
-    private sealed class FakeEngine : IContainerEngine, IWorkspaceEngine
+    private sealed class FakeEngine : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine
     {
         public List<string> Calls { get; } = [];
         public HashSet<string> Owned { get; } = ["ours1"];
@@ -34,6 +34,16 @@ public class RunnerTests
         public Task RemoveNetworkAsync(string name, CancellationToken ct) { Calls.Add($"network-rm {name}"); return Task.CompletedTask; }
         public Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct) { Egress = spec; Calls.Add("egress"); return Task.FromResult("ours1"); }
         public Task ConnectNetworkAsync(string container, string network, CancellationToken ct) { Calls.Add($"connect {container} {network}"); return Task.CompletedTask; }
+        public Dictionary<string, byte[]> OutFiles { get; } = [];
+        public Task WriteOutFileAsync(OutFileSpec spec, ReadOnlyMemory<byte> content, CancellationToken ct) { Calls.Add($"out-write {spec.OutVolume} {spec.Name}"); OutFiles[spec.Name] = content.ToArray(); return Task.CompletedTask; }
+        public async Task<bool> ReadOutFileAsync(OutFileSpec spec, Stream destination, CancellationToken ct)
+        {
+            Calls.Add($"out-read {spec.OutVolume} {spec.Name}");
+            if (!OutFiles.TryGetValue(spec.Name, out var bytes))
+                return false;
+            await destination.WriteAsync(bytes, ct);
+            return true;
+        }
         public WorkspaceSpec? Prepared { get; private set; }
         public Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct) { Prepared = spec; Calls.Add("workspace"); return Task.CompletedTask; }
         public Task<bool> OwnsAsync(string id, CancellationToken ct) => Task.FromResult(Owned.Contains(id));
@@ -222,6 +232,46 @@ public class RunnerTests
         await using var r = await Start();
         await new RunnerClient(r.Http).PrepareWorkspaceAsync(new WorkspaceSpec("run1", Image, "/srv/checkouts/repo-abc1234", "chargehand-work-run1", "chargehand/run1", "abc1234"), default);
         Assert.Equal(["workspace"], r.Engine.Calls);
+    }
+
+    private static string OutUrl(string name, string run = "run1", string image = Image) => $"/out/{run}/{name}?image={Uri.EscapeDataString(image)}";
+
+    [Fact]
+    public async Task The_task_file_goes_into_the_run_s_output_volume_and_the_results_come_out_through_the_client()
+    {
+        await using var r = await Start();
+        var client = new RunnerClient(r.Http);
+        await client.WriteOutFileAsync(new OutFileSpec("run1", Image, "chargehand-out-run1", "task.json"), "{\"goal\":\"g\"}"u8.ToArray(), default);
+        Assert.Equal("{\"goal\":\"g\"}", Encoding.UTF8.GetString(r.Engine.OutFiles["task.json"]));
+        r.Engine.OutFiles["chargehand.bundle"] = [1, 2, 3, 0, 255];
+        using var read = new MemoryStream();
+        Assert.True(await client.ReadOutFileAsync(new OutFileSpec("run1", Image, "chargehand-out-run1", "chargehand.bundle"), read, default));
+        Assert.Equal(new byte[] { 1, 2, 3, 0, 255 }, read.ToArray());
+        Assert.False(await client.ReadOutFileAsync(new OutFileSpec("run1", Image, "chargehand-out-run1", "session-outcome.json"), new MemoryStream(), default));
+        Assert.Contains("out-write chargehand-out-run1 task.json", r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task Out_files_need_a_listed_image_a_fixed_name_and_the_right_direction()
+    {
+        await using var r = await Start();
+        var other = "registry.example/other@sha256:3333333333333333333333333333333333333333333333333333333333333333";
+        var content = new ByteArrayContent([1]);
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PutAsync(OutUrl("task.json", image: other), content)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PutAsync(OutUrl("chargehand.bundle"), content)).StatusCode);        // only task.json goes in
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.GetAsync(OutUrl("task.json"))).StatusCode);                        // only the results come out
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.GetAsync(OutUrl("stream.jsonl"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.GetAsync(OutUrl("session-outcome.json", image: other))).StatusCode);
+        Assert.True((await r.Http.GetAsync(OutUrl("session-outcome.json", run: "a;b"))).StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Forbidden);
+        Assert.Empty(r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task Out_files_need_the_runner_key()
+    {
+        await using var r = await Start();
+        using var http = new HttpClient { BaseAddress = r.Address };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await http.GetAsync(OutUrl("session-outcome.json"))).StatusCode);
     }
 
     [Fact]

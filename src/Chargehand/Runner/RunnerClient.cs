@@ -7,7 +7,7 @@ namespace Chargehand.Runner;
 
 /// <summary>An <see cref="IContainerEngine"/> over the runner's HTTP API (ADR 0039), for a server that must not hold the container engine's
 /// socket. The <see cref="HttpClient"/> carries the base address and the bearer key.</summary>
-public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspaceEngine
+public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine
 {
     public async Task<string> StartAsync(ContainerSpec spec, CancellationToken ct)
     {
@@ -18,6 +18,31 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspace
 
     public Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct) =>
         Send(HttpMethod.Post, "/workspace", new RunnerWorkspace(spec.RunId, spec.Image, spec.SourcePath, spec.WorkVolume, spec.Branch, spec.Commit), ct);
+
+    public Task WriteOutFileAsync(OutFileSpec spec, ReadOnlyMemory<byte> content, CancellationToken ct) =>
+        SendRaw(HttpMethod.Put, OutPath(spec), new ByteArrayContent(content.ToArray()), ct);
+
+    public async Task<bool> ReadOutFileAsync(OutFileSpec spec, Stream destination, CancellationToken ct)
+    {
+        HttpResponseMessage response;
+        try
+        {
+            response = await SendRaw(HttpMethod.Get, OutPath(spec), null, ct, HttpCompletionOption.ResponseHeadersRead);
+        }
+        catch (ChargehandException e) when (e.Message.Contains("404", StringComparison.Ordinal))
+        {
+            return false;
+        }
+        using (response)
+        {
+            await using var body = await response.Content.ReadAsStreamAsync(ct);
+            await body.CopyToAsync(destination, ct);
+        }
+        return true;
+    }
+
+    private static string OutPath(OutFileSpec spec) =>
+        $"/out/{Uri.EscapeDataString(spec.RunId)}/{Uri.EscapeDataString(spec.Name)}?image={Uri.EscapeDataString(spec.Image)}";
 
     public Task SignalAsync(string id, string signal, CancellationToken ct) => Send(HttpMethod.Post, "/signal", new RunnerSignal(id, signal), ct);
 
@@ -76,15 +101,18 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspace
         return await response.Content.ReadFromJsonAsync<T>(RunnerJson.Options, ct) ?? throw Unavailable("the runner answered with an empty body", null);
     }
 
-    private async Task<HttpResponseMessage> SendRaw(HttpMethod method, string path, object? body, CancellationToken ct)
+    private async Task<HttpResponseMessage> SendRaw(HttpMethod method, string path, object? body, CancellationToken ct,
+        HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead)
     {
         using var request = new HttpRequestMessage(method, path);
-        if (body is not null)
+        if (body is HttpContent raw)
+            request.Content = raw;
+        else if (body is not null)
             request.Content = JsonContent.Create(body, options: RunnerJson.Options);
         HttpResponseMessage response;
         try
         {
-            response = await http.SendAsync(request, ct);
+            response = await http.SendAsync(request, completion, ct);
         }
         catch (HttpRequestException e)
         {
