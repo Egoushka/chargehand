@@ -17,7 +17,7 @@ public sealed record ExtensionsCheckResult(IReadOnlyList<string> Lines, bool Ok)
 /// checks that each tool a memory mapping or a preset's <c>services</c> names is there, so a setup mistake shows before a run
 /// does. A problem is a line and a flag, never an exception: whatever a server throws is a finding, and only the caller's own
 /// cancellation ends the check early. The lines name servers, tools and argument names only; a reason has URLs and
-/// credentials scrubbed, and no argument value or recalled fact is printed.
+/// credentials scrubbed, and no argument value or recalled fact is printed. A <c>prompt_enhancer</c> (ADR 0040) is checked for the two tools it calls.
 /// </summary>
 public static partial class ExtensionsCheck
 {
@@ -48,6 +48,9 @@ public static partial class ExtensionsCheck
             report.Fail(problem, "fix memory in the profile; docs/guide/reference.md lists the fields");
         foreach (var provider in providers.Where(p => MemoryMapping.Validate(p, servers).Count == 0))
             await CheckMemoryAsync(provider, listings[provider.Server], probeQuery, timeout ?? DefaultTimeout, pool, report, ct);
+
+        if (profile.PromptEnhancer is { } enhancer)
+            CheckEnhancer(enhancer, listings, report);
 
         foreach (var preset in presets.OrderBy(p => p.Name, StringComparer.Ordinal))
             foreach (var use in preset.NodeKinds.Values.SelectMany(k => k.Services ?? []).GroupBy(u => u.Server))
@@ -150,6 +153,21 @@ public static partial class ExtensionsCheck
             report.Fail($"memory {provider.Name}: probe failed: {(e is OperationCanceledException ? $"no answer within {Seconds(timeout)} s" : Reason(e))}",
                 $"check memory.{provider.Name}.tools.recall (arguments and results) against what the server answers");
         }
+    }
+
+    private static void CheckEnhancer(PromptEnhancerSettings enhancer, IReadOnlyDictionary<string, Listing> listings, Report report)
+    {
+        var who = "prompt_enhancer";
+        if (listings[enhancer.Server].Tools is not { } tools)
+        {
+            report.Fail($"{who}: server '{enhancer.Server}' is not available, so its tools were not checked", $"fix server '{enhancer.Server}' first; its line is above");
+            return;
+        }
+        foreach (var name in McpPromptEnhancer.RequiredTools)
+            if (tools.Any(t => t.Name == name))
+                report.Pass($"{who}: {name} ok");
+            else
+                report.Fail($"{who}: tool '{name}' is not listed by server '{enhancer.Server}'", $"point prompt_enhancer.server at a server that lists enhance and feedback");
     }
 
     private static void CheckService(

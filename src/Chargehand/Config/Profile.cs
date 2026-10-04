@@ -36,7 +36,8 @@ public sealed record Profile(
     SandboxSettings? Sandbox = null,
     bool SupportCheck = true,
     SigningSettings? Signing = null,
-    DrivenSettings? Driven = null)
+    DrivenSettings? Driven = null,
+    PromptEnhancerSettings? PromptEnhancer = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
@@ -76,6 +77,8 @@ public sealed record Profile(
         if (profile.Memory is { Count: > 0 } memory && MemoryMapping.Validate(memory, servers) is { Count: > 0 } problems)
             throw new ChargehandException(ErrorCode.InvalidRequest, string.Join("; ", problems),
                 "Fix memory in the profile; docs/guide/reference.md lists the fields.");
+        if (profile.PromptEnhancer is { } enhancer)
+            enhancer.Validate(servers);
         return profile;
     }
 
@@ -411,3 +414,28 @@ public sealed record DrivenRunner(string Url, string ApiKeySecret);
 /// <param name="Title">Dotted property names leading to the title string.</param>
 /// <param name="Body">The same for the description; null for a title-only goal.</param>
 public sealed record DrivenTaskSource(string Server, string Tool, IReadOnlyDictionary<string, JsonElement> Arguments, string Title, string? Body = null);
+
+
+/// <summary>
+/// The <c>prompt-enhancer</c> extension (ADR 0040): an entry of <c>mcp_servers</c> that lists the tools <c>enhance</c> and
+/// <c>feedback</c> (whetstone's contract). Unset: no enhancer, and every prompt is sent as written.
+/// </summary>
+/// <param name="Server">A key of <c>mcp_servers</c>.</param>
+/// <param name="DeadlineMs">How long to wait for <c>enhance</c> before sending the original; null is 1500. Also the <c>deadline_ms</c> the enhancer is told.</param>
+public sealed record PromptEnhancerSettings(string Server, int? DeadlineMs = null)
+{
+    public const int MinDeadlineMs = 50;
+    public const int MaxDeadlineMs = 30_000;
+
+    public int EffectiveDeadlineMs => DeadlineMs ?? (int)Chargehand.Enhancement.GuardedPromptEnhancer.DefaultDeadline.TotalMilliseconds;
+
+    internal void Validate(IReadOnlyDictionary<string, McpServerSettings> servers)
+    {
+        if (string.IsNullOrEmpty(Server) || !servers.ContainsKey(Server))
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"prompt_enhancer.server '{Server}' is not defined in mcp_servers",
+                "Add the server to mcp_servers, or remove prompt_enhancer; docs/guide/reference.md lists the fields.");
+        if (EffectiveDeadlineMs is < MinDeadlineMs or > MaxDeadlineMs)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"prompt_enhancer.deadline_ms must be {MinDeadlineMs} to {MaxDeadlineMs}",
+                "Fix deadline_ms in the profile.");
+    }
+}
