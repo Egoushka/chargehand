@@ -9,8 +9,22 @@ RUN dotnet publish src/Chargehand.Cli -c Release -o /out
 FROM mcr.microsoft.com/dotnet/sdk:10.0
 # Must match claude_code.version in the profile: the adapter refuses to run on a mismatch (ADR 0020).
 ARG CLAUDE_CODE_VERSION=2.1.283
+# Node from nodejs.org, checked against its SHASUMS256.txt: the distribution's nodejs (18) cannot run repositories that need 26 (type stripping).
+ARG NODE_VERSION=26.10.0
+ARG NODE_SHA256_X64=ca70e9e349de048b9522abb3adc05b3bd6f43c5ffd3ec57916c7da292f59f022
+ARG NODE_SHA256_ARM64=7a6353f63eb3d04765004b4adf172616243e4522434635cb1d26288658b04ab5
+ARG TARGETARCH
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git nodejs npm python3 python3-pip python3-venv \
+    && apt-get install -y --no-install-recommends ca-certificates curl git python3 python3-pip python3-venv xz-utils \
+    && case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+         amd64) arch=x64 sha="$NODE_SHA256_X64" ;; \
+         arm64) arch=arm64 sha="$NODE_SHA256_ARM64" ;; \
+         *) echo "no Node build for this architecture" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSLo /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${arch}.tar.xz" \
+    && echo "${sha}  /tmp/node.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --no-same-owner \
+    && rm /tmp/node.tar.xz \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
     && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/* \
