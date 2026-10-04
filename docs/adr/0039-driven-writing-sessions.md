@@ -60,11 +60,30 @@ claims go through the existing resolver and support judge; every contract change
   that opens only draft pull requests.
 - **ADR 0023's source-is-read-only rule stands:** the session works in a clone that the runner makes from the read-only source.
 
-### Spike result so far (2026-09-30)
+### Spike result (2026-10-04)
 
-Claude Code 2.1.283 sends a dummy credential to a custom `ANTHROPIC_BASE_URL` in both API-key mode (`x-api-key`) and subscription
-mode (`Authorization: Bearer`), so the per-run token design is possible. Not yet shown: a forwarded response with the real credential
-swapped in, and the subscription token's refresh behaviour (plan Task 1 finishes it). The VPS engine is Docker 29.6.2, not rootless,
+Measured with `scripts/driven-credential-spike.sh` on Claude Code 2.1.283 (the version pinned in `images/session/Dockerfile`; run on the Mac
+with an empty config directory, not inside the image). **No gateway exists yet:** a local listener on loopback swapped the credential, which
+shows only that a swap is feasible, not that a gateway is built, scoped or safe. Two trivial `claude -p` prompts on the subscription token,
+the token read from the Keychain into the listener's memory only; header values and bodies were never logged, and a scan of every file the
+run wrote found no token.
+
+| Question | Answer |
+|---|---|
+| Subscription mode: which header does a dummy `CLAUDE_CODE_OAUTH_TOKEN` travel in? | `Authorization: Bearer <dummy>` to `ANTHROPIC_BASE_URL`, with `anthropic-beta` carrying the OAuth flag. No `x-api-key`. |
+| Does it contact a refresh or auth host? | No. The only other destination was `api.anthropic.com:443`, and only without `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` (see below). No `platform.claude.com`. |
+| Does a forwarded response with the real token swapped in succeed, streaming included? | Yes. Status 200 as server-sent events, `claude -p` finished with `is_error: false`, in both runs. |
+| API-key mode | **Not tested.** No API key was available. The 2026-09-30 half result (dummy sent as `x-api-key`) stands; acceptance of a forwarded response is UNKNOWN. |
+| Hosts contacted with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | None other than the base URL, observed through an `HTTPS_PROXY` that logged and refused every CONNECT. Without the variable the process asked for `api.anthropic.com:443` six times through the proxy (refused, the run still succeeded). |
+| Can a gateway count usage? | Yes. `message_start` carries integer `input_tokens`, `output_tokens` and the two cache token counts; `message_delta` carries integer `output_tokens`, in the streamed response. |
+
+Not tested: API-key mode; a refresh when the token is near expiry or revoked; long sessions, tool calls and many requests in parallel;
+other Claude Code versions; running inside the session image (same version as the host, but the container path was not exercised); a
+gateway that checks a run token, counts or refuses; hosts that ignore the proxy variables (only traffic that honours `HTTPS_PROXY` or the
+base URL was observed, the later egress test on an internal network covers the rest). Decision 9's preferred design stands for subscription
+mode. If a later run fails, decision 9 falls back to `credential_delivery: env` for that mode and Task 4 drops the credential exchange.
+
+The VPS engine is Docker 29.6.2, not rootless,
 so the runner holds a root-equivalent socket there; that is the security cost of decision "runner service" and is why the runner's
 template and review focus are the most scrutinised code in the plan.
 
