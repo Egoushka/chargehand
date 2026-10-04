@@ -3,13 +3,20 @@
 # pull requests for the two that can pass, and a cancel case. It starts its own `chargehand serve` with a throwaway profile and a stub for the
 # GitHub API, and it calls a real model, so it runs by hand on a machine with Docker, never on every push.
 # Needs: Docker, the .NET SDK, python3, git, curl, and a `claude` on PATH whose version is the one inside the session image.
-# env (required):
-#   CHARGEHAND_E2E_MODEL_KEY  an Anthropic API key with a low spend limit set in the console. It is read here, passed to the server through the
-#                             environment and never printed or written to a file; the script fails if it shows up in any file it made.
+# env (required, one of the two credentials):
+#   CHARGEHAND_E2E_OAUTH_ITEM the subscription mode (ADR 0039's default): the name of a macOS Keychain generic-password item that holds a Claude Code
+#                             OAuth token (`claude setup-token`). The throwaway server reads it itself with `security find-generic-password -s <item> -w`
+#                             and hands it to each container; this script never holds it in a variable, a file or an argument list. Caps are tokens and
+#                             no dollar price is checked. Wins over CHARGEHAND_E2E_MODEL_KEY when both are set.
+#   CHARGEHAND_E2E_MODEL_KEY  the priced mode: an Anthropic API key with a low spend limit set in the console. It is read here, passed to the server
+#                             through the environment and never printed or written to a file.
+#   Either credential is searched for in every file the run made; the script fails if it shows up.
 #   CHARGEHAND_E2E_IMAGE      the session image by digest, name@sha256:<64 hex> (build images/session/Dockerfile and push it to a registry,
 #                             so the digest exists; a local image id is not a digest).
 # env (optional):
-#   CHARGEHAND_E2E_MAX_USD    cap for the batch in dollars (default 5); the cancel case gets a fifth of it
+#   CHARGEHAND_E2E_MAX_USD    priced mode: cap for the batch in dollars (default 5); the cancel case gets a fifth of it
+#   CHARGEHAND_E2E_MAX_TOKENS subscription mode: cap for the batch in input plus output tokens (default 4000000). A task is only started when the
+#                             preset's per-task cap (2000000) still fits, so values under that start nothing; the cancel case gets 2000000
 #   CHARGEHAND_E2E_PORT       port of the throwaway server (default 4390; 4300 belongs to the always-on agent)
 #   CHARGEHAND_E2E_TIMEOUT    seconds to wait for a batch (default 3000)
 #   CHARGEHAND_E2E_STREAMS    a directory: each task's stored session stream is copied there as <task>.jsonl (secrets redacted), and
@@ -21,10 +28,12 @@
 # Each case prints "ok   <case>" or "FAIL <case>  (<where to look>)"; exit 1 when any case fails.
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
-: "${CHARGEHAND_E2E_MODEL_KEY:?set CHARGEHAND_E2E_MODEL_KEY to a capped Anthropic API key}"
+oauth_item=${CHARGEHAND_E2E_OAUTH_ITEM:-}
+if [ -z "$oauth_item" ]; then : "${CHARGEHAND_E2E_MODEL_KEY:?set CHARGEHAND_E2E_OAUTH_ITEM (subscription) or CHARGEHAND_E2E_MODEL_KEY (a capped Anthropic API key)}"; fi
 : "${CHARGEHAND_E2E_IMAGE:?set CHARGEHAND_E2E_IMAGE to the session image, name@sha256:<digest>}"
 case $CHARGEHAND_E2E_IMAGE in *@sha256:????????????????????????????????????????????????????????????????) ;; *) echo "CHARGEHAND_E2E_IMAGE must be name@sha256:<64 hex>" >&2; exit 2 ;; esac
 max_usd=${CHARGEHAND_E2E_MAX_USD:-5}
+max_tokens=${CHARGEHAND_E2E_MAX_TOKENS:-4000000}
 port=${CHARGEHAND_E2E_PORT:-4390}
 timeout_s=${CHARGEHAND_E2E_TIMEOUT:-3000}
 claude_version=$(claude --version | awk '{print $1}')
@@ -118,12 +127,15 @@ for _ in $(seq 50); do [ -s "$work/stub.port" ] && break; sleep 0.1; done
 [ -s "$work/stub.port" ] || { echo "the GitHub stub did not start" >&2; exit 1; }
 
 # The profile: the model key and the push token are item names, never values; secrets come from the environment.
-export CHARGEHAND_E2E_MODEL_KEY
-python3 - "$work" "$port" "$claude_version" "$CHARGEHAND_E2E_IMAGE" <<'PY'
+# Subscription mode: the server's own secret chain asks the Keychain for the token, so it goes Keychain -> server -> container only.
+[ -n "$oauth_item" ] || export CHARGEHAND_E2E_MODEL_KEY
+python3 - "$work" "$port" "$claude_version" "$CHARGEHAND_E2E_IMAGE" "$oauth_item" <<'PY'
 import json, sys
-work, port, version, image = sys.argv[1:5]
-profile = {"schema": "profile/v1", "runtime": "claude_code", "secrets": [{"env": True}],
-  "claude_code": {"version": version, "api_key_secret": "chargehand-e2e-model-key"},
+work, port, version, image, oauth_item = sys.argv[1:6]
+secrets = [{"env": True}] + ([{"command": ["security", "find-generic-password", "-s", "{item}", "-w"]}] if oauth_item else [])
+credential = {"oauth_token_secret": oauth_item} if oauth_item else {"api_key_secret": "chargehand-e2e-model-key"}
+profile = {"schema": "profile/v1", "runtime": "claude_code", "secrets": secrets,
+  "claude_code": {"version": version, **credential},
   "models": {"provider/worker-model": "anthropic/sonnet", "provider/small-model": "anthropic/haiku"},
   "worker_root": work + "/worker", "repository_roots": [work], "run_log": work + "/run-log.jsonl",
   "http": {"port": int(port), "api_key_secret": "chargehand-e2e-server-key"},
@@ -137,13 +149,13 @@ auth=(-H "Authorization: Bearer $CHARGEHAND_E2E_SERVER_KEY")
 for _ in $(seq 100); do curl -fs "${auth[@]}" "$api/v1/runs" >/dev/null 2>&1 && break; sleep 0.3; done
 curl -fs "${auth[@]}" "$api/v1/runs" >/dev/null || { echo "the server did not start (log: $work/server.log)" >&2; exit 1; }
 
-request() { # tasks as JSON, max_usd_total
-  python3 - "$repo" "$base" "$1" "$2" <<'PY'
+request() { # tasks as JSON, the batch cap (dollars, or tokens in subscription mode)
+  python3 - "$repo" "$base" "$1" "$2" "$oauth_item" <<'PY'
 import json, sys
-repo, commit, tasks, usd = sys.argv[1:5]
+repo, commit, tasks, cap, subscription = sys.argv[1:6]
 print(json.dumps({"contract_version": "request/v1", "text": "driven e2e",
   "context": {"interactive": False, "preset": "driven", "repository": {"path": repo, "commit": commit}, "verify": ["python3", "-m", "unittest", "-q"]},
-  "driven": {"tasks": json.loads(tasks), "max_parallel": 2, "max_usd_total": float(usd)}}))
+  "driven": {"tasks": json.loads(tasks), "max_parallel": 2, **({"max_tokens_total": int(cap)} if subscription else {"max_usd_total": float(cap)})}}))
 PY
 }
 start() { # request json -> run id
@@ -168,7 +180,8 @@ await() { # run id, result file: waits for the final result
 tasks='[{"id":"easy","goal":"Add a function farewell(name) to greet.py that returns \"Goodbye \" plus the capitalised name, and a test for it in test_all.py"},
         {"id":"unskip","goal":"Implement slugify(text) in text.py (lower case, words joined by a hyphen, punctuation dropped) and remove the skip from test_slugify in test_all.py so it runs and passes"},
         {"id":"impossible","goal":"Make add(2, 2) return 5 while the existing test_add, which expects 4, stays unchanged and passing. Do not edit any test"}]'
-id=$(start "$(request "$tasks" "$max_usd")")
+cap=$max_usd; [ -z "$oauth_item" ] || cap=$max_tokens
+id=$(start "$(request "$tasks" "$cap")")
 [ -n "$id" ] || { echo "the batch did not start (log: $work/server.log)" >&2; exit 1; }
 if await "$id" "$work/batch.json"; then done_ok=pass; else done_ok=""; fi
 check batch_finished "$work/server.log" "$done_ok"
@@ -194,7 +207,8 @@ fi
 
 # cancel: one task, cancelled while it runs; nothing is pushed, no draft is opened, no container is left.
 prs_before=$(wc -l < "$work/prs.jsonl" | tr -d ' ')
-cid=$(start "$(request '[{"id":"cancelled","goal":"Add a function farewell(name) to greet.py that returns \"Goodbye \" plus the capitalised name, and a test for it in test_all.py"}]' "$(python3 -c "print($max_usd/5)")")")
+cancel_cap=$(python3 -c "print($max_usd/5)"); [ -z "$oauth_item" ] || cancel_cap=$((max_tokens / 5 < 2000000 ? 2000000 : max_tokens / 5))
+cid=$(start "$(request '[{"id":"cancelled","goal":"Add a function farewell(name) to greet.py that returns \"Goodbye \" plus the capitalised name, and a test for it in test_all.py"}]' "$cancel_cap")")
 running=""
 for _ in $(seq 60); do
   [ "$(docker ps -q --filter label=chargehand.run | wc -l | tr -d ' ')" != 0 ] && { running=pass; break; }
@@ -208,14 +222,20 @@ for _ in $(seq 30); do
   [ "$(docker ps -aq --filter label=chargehand.run | wc -l | tr -d ' ')" = 0 ] && { gone=pass; break; }
   sleep 2
 done
-check cancel "$work/cancel.json" "$([ "$(field "$work/cancel.json" "d['error']['code']")" = cancelled ] && [ "$gone" = pass ] &&
+# A cancel that reaches the batch while its task runs ends as tasks_incomplete with the task row "cancelled"; one that cuts the batch itself, as "cancelled".
+cancel_row="[t['status'] for t in $rows][0]"
+check cancel "$work/cancel.json" "$( { [ "$(field "$work/cancel.json" "d['error']['code']")" = cancelled ] || [ "$(field "$work/cancel.json" "$cancel_row")" = cancelled ]; } && [ "$gone" = pass ] &&
   [ "$(wc -l < "$work/prs.jsonl" | tr -d ' ')" = "$prs_before" ] && echo pass)"
 
 # no credential in anything this script or the server wrote: the push token, and the model key (searched for, never printed).
 leak=""
-for secret in "$CHARGEHAND_E2E_PUSH_KEY" "$CHARGEHAND_E2E_MODEL_KEY"; do
-  if grep -rqF -e "$secret" "$work" 2>/dev/null; then leak=1; fi
-done
+scan=("$work"); [ -z "${CHARGEHAND_E2E_STREAMS:-}" ] || scan+=("$CHARGEHAND_E2E_STREAMS")
+if grep -rqF -e "$CHARGEHAND_E2E_PUSH_KEY" "${scan[@]}" 2>/dev/null; then leak=1; fi
+if [ -n "$oauth_item" ]; then
+  # The token is read again for the search through a pipe, so it is in no variable and no argument list.
+  security find-generic-password -s "$oauth_item" -w 2>/dev/null | grep -rqF -f - "${scan[@]}" 2>/dev/null && leak=1
+elif grep -rqF -e "$CHARGEHAND_E2E_MODEL_KEY" "${scan[@]}" 2>/dev/null; then leak=1
+fi
 check no_credential_in_output "$work" "$([ -z "$leak" ] && echo pass)"
 
 exit $fail
