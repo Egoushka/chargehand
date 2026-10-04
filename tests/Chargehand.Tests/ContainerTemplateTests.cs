@@ -57,6 +57,13 @@ public class ContainerTemplateTests
     }
 
     [Fact]
+    public void The_env_file_takes_the_names_the_runner_sets_for_a_session()
+    {
+        Assert.Equal(["CHARGEHAND_BASE_COMMIT=abc", "CHARGEHAND_REPOSITORY_PATH=/r"],
+            ContainerTemplate.EnvFileLines(new Dictionary<string, string> { ["CHARGEHAND_REPOSITORY_PATH"] = "/r", ["CHARGEHAND_BASE_COMMIT"] = "abc" }));
+    }
+
+    [Fact]
     public void The_env_file_holds_only_names_of_the_fixed_set()
     {
         Assert.Equal(["CHARGEHAND_RUN_TOKEN=canary-token-value", "HTTPS_PROXY=http://egress:3128"], ContainerTemplate.EnvFileLines(Spec().Env));

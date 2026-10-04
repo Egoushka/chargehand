@@ -216,21 +216,24 @@ cancel_cap=$(python3 -c "print($max_usd/5)"); [ -z "$oauth_item" ] || cancel_cap
 cid=$(start "$(request '[{"id":"cancelled","goal":"Add a function farewell(name) to greet.py that returns \"Goodbye \" plus the capitalised name, and a test for it in test_all.py"}]' "$cancel_cap")")
 running=""
 for _ in $(seq 60); do
-  [ "$(docker ps -q --filter label=chargehand.run | wc -l | tr -d ' ')" != 0 ] && { running=pass; break; }
+  # The task's own container (chargehand-run-...), not the batch's egress container, which exists earlier.
+  [ "$(docker ps -q --filter name=^chargehand-run- | wc -l | tr -d ' ')" != 0 ] && { running=pass; break; }
   sleep 2
 done
 check cancel_task_started "$work/server.log" "$running"
 curl -fs -X POST "${auth[@]}" "$api/v1/runs/$cid/cancel" >/dev/null || true
 await "$cid" "$work/cancel.json" || true
-gone=""
-for _ in $(seq 30); do
-  [ "$(docker ps -aq --filter label=chargehand.run | wc -l | tr -d ' ')" = 0 ] && { gone=pass; break; }
+gone=""; left=""; waited=$SECONDS
+for _ in $(seq 10); do
+  left=$(docker ps -a --filter label=chargehand.run --format '{{.Names}} {{.Status}}')
+  [ -z "$left" ] && { gone=pass; break; }
   sleep 2
 done
+waited=$((SECONDS - waited))
 # A cancel that reaches the batch while its task runs ends as tasks_incomplete with the task row "cancelled"; one that cuts the batch itself, as "cancelled".
 cancel_row="[t['status'] for t in $rows][0]"
 check cancel_result "$work/cancel.json" "$({ [ "$(field "$work/cancel.json" "d['error']['code']")" = cancelled ] || [ "$(field "$work/cancel.json" "$cancel_row")" = cancelled ]; } && echo pass)"
-[ "$gone" = pass ] || docker ps -a --filter label=chargehand.run --format 'left: {{.Names}} {{.Status}}'
+[ "$gone" = pass ] && echo "     (containers gone ${waited}s after the cancel result)" || printf '%s\n' "$left" | sed 's/^/left: /'
 check cancel_leaves_no_container "docker ps -a --filter label=chargehand.run" "$([ "$gone" = pass ] && echo pass)"
 check cancel_opens_no_pr "$work/prs.jsonl" "$([ "$(wc -l < "$work/prs.jsonl" | tr -d ' ')" = "$prs_before" ] && echo pass)"
 

@@ -82,6 +82,9 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             if (settings.McpUrl is { } mcp)
             {
                 env["CHARGEHAND_MCP_URL"] = mcp;
+                // The token admits only this path and commit; /work is not it, so the session is told them.
+                env["CHARGEHAND_REPOSITORY_PATH"] = settings.SourcePath;
+                env["CHARGEHAND_BASE_COMMIT"] = settings.BaseCommit;
                 // The forward is plain HTTP to the egress container; the proxy variables would send it to that same proxy, which answers CONNECT only.
                 env["NO_PROXY"] = env["no_proxy"] = settings.Network.ProxyHost;
                 env["CHARGEHAND_RUN_TOKEN"] = mint(new TaskGrant(runId, settings.SourcePath, settings.BaseCommit, settings.Limits.MaxUsd, settings.Limits.MaxTokens,
@@ -116,8 +119,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         }
         finally
         {
-            if (container is not null)
-                await engine.RemoveAsync(container, CancellationToken.None);
+            // A start cancelled in flight can leave the container docker already made; the name is fixed, so remove it by name.
+            await engine.RemoveAsync(container ?? $"chargehand-{runId}", CancellationToken.None);
             await engine.RemoveVolumeAsync(RunnerNames.Work(runId), CancellationToken.None);
             DeleteQuietly(outDirectory);
             DeleteQuietly(Path.Combine(settings.ScratchRoot, runId));
