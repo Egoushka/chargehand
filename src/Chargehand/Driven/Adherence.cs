@@ -71,7 +71,7 @@ public static partial class Adherence
         return null;
     }
 
-    [GeneratedRegex(@"\b(pytest|unittest|(npm|pnpm|yarn)\s+(run\s+)?test|(dotnet|cargo|go)\s+test|make\s+test|ctest|mvn\s+test|gradle\s+test)\b")]
+    [GeneratedRegex(@"\b(pytest|unittest|node\s+--test|jest|vitest|mocha|(npm|pnpm|yarn)\s+(run\s+)?test|(dotnet|cargo|go)\s+test|make\s+test|ctest|mvn\s+test|gradle\s+test)\b")]
     private static partial Regex TestCommand();
 
     private static JsonElement? GetPropertyOrNull(this JsonElement e, string name) =>
