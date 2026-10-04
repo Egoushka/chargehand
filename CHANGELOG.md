@@ -9,7 +9,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- The headless `change` skill and the driver prompt state the order research, write, run the tests, then review, and that a goal which cannot be met still gets a best attempt and a stop with the reason, never a stop after research alone or an edit to a test (CHARGEHAND-141). Measured: 12 of 12 sessions followed the steps, up from 7 of 12.
+- The headless `change` skill and the driver prompt state the order research, write, run the tests, then review, and that a goal which cannot be met still gets a best attempt and a stop with the reason, never a stop after research alone or an edit to a test (CHARGEHAND-141). Measured: 12 of 12 sessions followed the steps on an interim wording and 12 of 12 on this one, up from 7 of 12.
 
 ### Added
 
