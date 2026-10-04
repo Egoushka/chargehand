@@ -82,6 +82,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             if (settings.McpUrl is { } mcp)
             {
                 env["CHARGEHAND_MCP_URL"] = mcp;
+                // The forward is plain HTTP to the egress container; the proxy variables would send it to that same proxy, which answers CONNECT only.
+                env["NO_PROXY"] = env["no_proxy"] = settings.Network.ProxyHost;
                 env["CHARGEHAND_RUN_TOKEN"] = mint(new TaskGrant(runId, settings.SourcePath, settings.BaseCommit, settings.Limits.MaxUsd, settings.Limits.MaxTokens,
                     started.AddMinutes(preset.MaxMinutes + 15)));
             }
