@@ -160,7 +160,7 @@ public class SessionDriverTests
     public async Task The_running_token_tally_is_in_the_usage_file_while_the_session_works()
     {
         using var w = new Workspace();
-        var script = Emit(Init, Assistant("m1", "step", """{"input_tokens":300,"output_tokens":50}""")) + $"\nfor i in 1 2 3 4 5 6 7 8 9 10; do grep -q '"tokens":350' '{Path.Combine(w.Out, "session - usage.json")}' 2>/dev/null && break; sleep 0.2; done\n"
+        var script = Emit(Init, Assistant("m1", "step", """{"input_tokens":300,"output_tokens":50}""")) + $"\nfor i in 1 2 3 4 5 6 7 8 9 10; do grep -q 'tokens.:350' '{Path.Combine(w.Out, "session - usage.json")}' 2>/dev/null && break; sleep 0.2; done\n"
             + $"cp '{Path.Combine(w.Out, "session-usage.json")}' '{Path.Combine(w.Dir.Path, "seen.json")}'\n" + Emit(Result());
         await SessionDriver.RunAsync(Options(w, script, Task()), default);
         Assert.Equal(350, JsonDocument.Parse(File.ReadAllText(Path.Combine(w.Dir.Path, "seen.json"))).RootElement.GetProperty("tokens").GetInt64());
