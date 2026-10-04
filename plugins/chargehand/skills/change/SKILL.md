@@ -64,7 +64,7 @@ and so on.
 
 ## 4. Write
 
-Make the change the goal asks for, guided by the research claims. Keep it to what the goal needs.
+Make the change the goal asks for, guided by the research claims. Keep it to what the goal needs. Research alone is not an attempt: write the change before you decide it cannot be done. If the goal cannot be met (for example it contradicts a test that must stay as it is), still make your best attempt and run the tests; never edit a test to make it pass. Then say why in the report or hand-back and stop without asking.
 
 ## 5. Test
 
@@ -83,7 +83,7 @@ One commit with a Conventional Commit message that describes the change.
 Diff input: `git diff <base>..HEAD`. If it is longer than 60000 characters, keep the first 60000 characters and
 append the line `[diff truncated at 60000 characters]`.
 
-Call `orchestrate` with `request/v1`: `contract_version` = "request/v1", `text` = "Review the change against its
+Run step 5 before this step. Call `orchestrate` with `request/v1`: `contract_version` = "request/v1", `text` = "Review the change against its
 goal.", `context.preset` = "review", so preset "review" runs, `context.repository` = { path, commit: HEAD (hex sha) },
 `context.interactive` = false, the budget as in step 2, and `inputs`:
 `[{ "id": "goal", "kind": "goal", "text": <goal> }, { "id": "diff", "kind": "diff", "text": <diff input> },
