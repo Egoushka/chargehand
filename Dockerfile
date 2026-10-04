@@ -5,6 +5,10 @@ WORKDIR /src
 COPY . .
 RUN dotnet publish src/Chargehand.Cli -c Release -o /out
 
+# The runner (`chargehand runner`, ADR 0039) starts containers through the docker CLI. The server never has the engine's socket, so the CLI is inert
+# there. Version of the engine it talks to (the VPS runs 29.6.2); copied from the official image, by digest.
+FROM docker:29.6.2-cli@sha256:be132a9f282288de4afaf63379dff75711fda0147c6b72a9df44e51841402144 AS dockercli
+
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 # Must match claude_code.version in the profile: the adapter refuses to run on a mismatch (ADR 0020).
 ARG CLAUDE_CODE_VERSION=2.1.283
@@ -13,6 +17,7 @@ RUN apt-get update \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
     && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 WORKDIR /app
 COPY --from=build /out bin/
 COPY prompts prompts/

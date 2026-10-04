@@ -1,7 +1,8 @@
 name: release
 
 # A tag v<Version> publishes the release (ADR 0024, decision D8): the GitHub Release with the version's CHANGELOG.md
-# section, the server image ghcr.io/<owner>/chargehand:<Version>, and on nuget.org the dnx tool Chargehand (ADR 0027) and
+# section, the server image ghcr.io/<owner>/chargehand:<Version>, the session image of driven sessions
+# ghcr.io/<owner>/chargehand-session:<Version> (ADR 0039), and on nuget.org the dnx tool Chargehand (ADR 0027) and
 # Chargehand.Contracts, each when its version is new there, when the repository variable NUGET_USER names the nuget.org
 # account whose trusted-publishing policy trusts this workflow. The release environment waits for the owner's approval. A tag without a changelog section fails first.
 # When NUGET_USER is set, the mcp-registry job then lists the version in the MCP Registry (ADR 0027).
@@ -37,9 +38,19 @@ jobs:
           scripts/release-notes.sh "$version" > "$RUNNER_TEMP/notes.md"
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}:$version" >> "$GITHUB_ENV"
+          echo "SESSION_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-session:$version" >> "$GITHUB_ENV"
       - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - run: docker build --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t "$IMAGE" .
       - run: docker push "$IMAGE"
+      # The session image is built from the same checkout, so its driver and plugin match the server's version. A deployment pins both by digest (printed below).
+      - run: docker build -f images/session/Dockerfile --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t "$SESSION_IMAGE" .
+      - run: docker push "$SESSION_IMAGE"
+      - name: Digests to pin
+        run: |
+          {
+            echo "### Images"
+            for image in "$IMAGE" "$SESSION_IMAGE"; do echo "- \`$(docker inspect --format '{{index .RepoDigests 0}}' "$image")\`"; done
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         if: vars.NUGET_USER != ''
         with:

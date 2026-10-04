@@ -31,8 +31,8 @@
 #                             "impossible" is expected not to pass; if it passes by editing a test file the case impossible_tests_untouched fails
 #   CHARGEHAND_E2E_KEEP=1     keep the work directory (it holds the run log, the stub's records and the server's log)
 # Sessions reach the throwaway server's MCP endpoint (research and review through `orchestrate`) through the batch's egress container, which forwards
-# to host.docker.internal:<port> (OrbStack and Docker Desktop; the server stays on loopback). The session's Host header is the egress container's name,
-# which changes per batch, so the server accepts any Host (http.allowed_hosts "*"): it listens on loopback only and wants the bearer key.
+# to host.docker.internal:<port> (OrbStack and Docker Desktop; the server stays on loopback). The session's Host header is the egress container's
+# alias on the batch network, chargehand-driven (the same in every batch), which the server lists in http.allowed_hosts.
 # The push credential is a random token this script makes: the remote is a local bare repository and the GitHub stub only checks that the token
 # arrived. Two switches in the CLI make that possible and exist for this script: CHARGEHAND_E2E_GITHUB_API (the draft-pull-request client's base
 # URL) and CHARGEHAND_E2E_LOCAL_REMOTE=1 (a file:// remote is accepted). Neither is in a profile; neither is set in a real deployment.
@@ -203,7 +203,7 @@ profile = {"schema": "profile/v1", "runtime": "claude_code", "secrets": secrets,
   "claude_code": {"version": version, **credential},
   "models": {"provider/worker-model": "anthropic/sonnet", "provider/small-model": "anthropic/haiku"},
   "worker_root": work + "/worker", "repository_roots": [work], "run_log": work + "/run-log.jsonl",
-  "http": {"port": int(port), "api_key_secret": "chargehand-e2e-server-key", "allowed_hosts": ["*"]},
+  "http": {"port": int(port), "api_key_secret": "chargehand-e2e-server-key", "allowed_hosts": ["chargehand-driven"]},
   "driven": {"enabled": True, "max_parallel": 2, "images": [image], "push_secret": "chargehand-e2e-push-key",
              "network": {"mcp_forward": "host.docker.internal:" + port}}}
 json.dump(profile, open(work + "/profile.json", "w"), indent=2)

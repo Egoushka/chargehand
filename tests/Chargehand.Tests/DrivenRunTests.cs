@@ -208,8 +208,8 @@ public class DrivenRunTests
             Assert.Equal("chargehand-net-run-batch-1", spec.Network);
             Assert.Equal("value-of-claude-code-oauth-token", spec.Env["CLAUDE_CODE_OAUTH_TOKEN"]);
             Assert.Equal($"tok-{spec.RunId}", spec.Env["CHARGEHAND_RUN_TOKEN"]);
-            Assert.Equal("http://chargehand-egress-run-batch-1:4300/v1/mcp", spec.Env["CHARGEHAND_MCP_URL"]);
-            Assert.Equal("chargehand-egress-run-batch-1", spec.Env["NO_PROXY"]);
+            Assert.Equal("http://chargehand-driven:4300/v1/mcp", spec.Env["CHARGEHAND_MCP_URL"]);
+            Assert.Equal("chargehand-egress-run-batch-1,chargehand-driven", spec.Env["NO_PROXY"]);
             // The token admits exactly this path and commit, so the session is told them instead of having to guess.
             Assert.Equal(Commit, spec.Env["CHARGEHAND_BASE_COMMIT"]);
             Assert.False(string.IsNullOrEmpty(spec.Env["CHARGEHAND_REPOSITORY_PATH"]));
