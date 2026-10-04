@@ -22,6 +22,9 @@
 #   CHARGEHAND_E2E_STREAMS    a directory: each task's stored session stream is copied there as <task>.jsonl (secrets redacted), and
 #                             `chargehand runs adherence` is run over them (the measurement of the plan's Task 12 step 2 needs these)
 #   CHARGEHAND_E2E_KEEP=1     keep the work directory (it holds the run log, the stub's records and the server's log)
+# Sessions reach the throwaway server's MCP endpoint (research and review through `orchestrate`) through the batch's egress container, which forwards
+# to host.docker.internal:<port> (OrbStack and Docker Desktop; the server stays on loopback). The session's Host header is the egress container's name,
+# which changes per batch, so the server accepts any Host (http.allowed_hosts "*"): it listens on loopback only and wants the bearer key.
 # The push credential is a random token this script makes: the remote is a local bare repository and the GitHub stub only checks that the token
 # arrived. Two switches in the CLI make that possible and exist for this script: CHARGEHAND_E2E_GITHUB_API (the draft-pull-request client's base
 # URL) and CHARGEHAND_E2E_LOCAL_REMOTE=1 (a file:// remote is accepted). Neither is in a profile; neither is set in a real deployment.
@@ -138,8 +141,9 @@ profile = {"schema": "profile/v1", "runtime": "claude_code", "secrets": secrets,
   "claude_code": {"version": version, **credential},
   "models": {"provider/worker-model": "anthropic/sonnet", "provider/small-model": "anthropic/haiku"},
   "worker_root": work + "/worker", "repository_roots": [work], "run_log": work + "/run-log.jsonl",
-  "http": {"port": int(port), "api_key_secret": "chargehand-e2e-server-key"},
-  "driven": {"enabled": True, "max_parallel": 2, "images": [image], "push_secret": "chargehand-e2e-push-key"}}
+  "http": {"port": int(port), "api_key_secret": "chargehand-e2e-server-key", "allowed_hosts": ["*"]},
+  "driven": {"enabled": True, "max_parallel": 2, "images": [image], "push_secret": "chargehand-e2e-push-key",
+             "network": {"mcp_forward": "host.docker.internal:" + port}}}
 json.dump(profile, open(work + "/profile.json", "w"), indent=2)
 PY
 CHARGEHAND_E2E_GITHUB_API="http://127.0.0.1:$(cat "$work/stub.port")/" CHARGEHAND_E2E_LOCAL_REMOTE=1 \
@@ -189,8 +193,9 @@ rows="json.loads([a for a in d['artifacts'] if a['kind']=='driven-batch'][0]['co
 check two_draft_prs "$work/prs.jsonl" "$([ "$(wc -l < "$work/prs.jsonl" | tr -d ' ')" = 2 ] &&
   [ "$(python3 -c "import json; r=[json.loads(l) for l in open('$work/prs.jsonl')]; print(all(x['draft'] is True and x['token_ok'] and x['head'].startswith('chargehand/') for x in r))")" = True ] && echo pass)"
 check two_tasks_have_pr_urls "$work/batch.json" "$([ "$(field "$work/batch.json" "sum(1 for t in $rows if t['pr_url'])")" = 2 ] && echo pass)"
+# The model may stop and ask (needs_input) or fail with a code; either is "did not pass", a completed task without a pull request is not.
 check one_task_failed "$work/batch.json" "$([ "$(field "$work/batch.json" "[t['id'] for t in $rows if not t['pr_url']]")" = "['impossible']" ] &&
-  [ -n "$(field "$work/batch.json" "[t['error_code'] for t in $rows if t['id']=='impossible'][0] or ''")" ] && echo pass)"
+  [ "$(field "$work/batch.json" "[t['status'] for t in $rows if t['id']=='impossible'][0]")" != completed ] && echo pass)"
 check batch_tasks_incomplete "$work/batch.json" "$([ "$(field "$work/batch.json" "d['status']")" = failed ] && [ "$(field "$work/batch.json" "d['error']['code']")" = tasks_incomplete ] && echo pass)"
 check default_branch_untouched "$work/remote.git" "$([ "$(git -C "$work/remote.git" rev-parse main 2>/dev/null || echo none)" = "$main_before" ] &&
   [ "$(git -C "$work/remote.git" for-each-ref --format='%(refname)' refs/heads | grep -vc -e '^refs/heads/main$' -e '^refs/heads/chargehand/' || true)" = 0 ] && echo pass)"
@@ -224,8 +229,10 @@ for _ in $(seq 30); do
 done
 # A cancel that reaches the batch while its task runs ends as tasks_incomplete with the task row "cancelled"; one that cuts the batch itself, as "cancelled".
 cancel_row="[t['status'] for t in $rows][0]"
-check cancel "$work/cancel.json" "$( { [ "$(field "$work/cancel.json" "d['error']['code']")" = cancelled ] || [ "$(field "$work/cancel.json" "$cancel_row")" = cancelled ]; } && [ "$gone" = pass ] &&
-  [ "$(wc -l < "$work/prs.jsonl" | tr -d ' ')" = "$prs_before" ] && echo pass)"
+check cancel_result "$work/cancel.json" "$({ [ "$(field "$work/cancel.json" "d['error']['code']")" = cancelled ] || [ "$(field "$work/cancel.json" "$cancel_row")" = cancelled ]; } && echo pass)"
+[ "$gone" = pass ] || docker ps -a --filter label=chargehand.run --format 'left: {{.Names}} {{.Status}}'
+check cancel_leaves_no_container "docker ps -a --filter label=chargehand.run" "$([ "$gone" = pass ] && echo pass)"
+check cancel_opens_no_pr "$work/prs.jsonl" "$([ "$(wc -l < "$work/prs.jsonl" | tr -d ' ')" = "$prs_before" ] && echo pass)"
 
 # no credential in anything this script or the server wrote: the push token, and the model key (searched for, never printed).
 leak=""

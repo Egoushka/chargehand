@@ -194,6 +194,7 @@ public class DrivenRunTests
             Assert.Equal("value-of-claude-code-oauth-token", spec.Env["CLAUDE_CODE_OAUTH_TOKEN"]);
             Assert.Equal($"tok-{spec.RunId}", spec.Env["CHARGEHAND_RUN_TOKEN"]);
             Assert.Equal("http://chargehand-egress-run-batch-1:4300/v1/mcp", spec.Env["CHARGEHAND_MCP_URL"]);
+            Assert.Equal("chargehand-egress-run-batch-1", spec.Env["NO_PROXY"]);
             Assert.DoesNotContain("value-of-secret-push", spec.Env.Values);
             Assert.Contains($"rm cid-{spec.RunId}", rig.Engine.Calls);
             Assert.Contains($"volume-rm chargehand-work-{spec.RunId}", rig.Engine.Calls);
