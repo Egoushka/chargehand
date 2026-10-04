@@ -21,6 +21,16 @@ public class AdherenceTests
         Assert.Equal(0, report.FixRounds);
     }
 
+    [Theory]
+    [InlineData("node --test 2>&1 | tail -200")]
+    [InlineData("npx jest")]
+    [InlineData("npx vitest run")]
+    public void Node_test_commands_count_as_a_test_run(string command)
+    {
+        var test = Call("3", "Bash", $$"""{"command":"{{command}}"}""");
+        Assert.True(Adherence.Check([Research("1"), Write("2"), test, Review("4")]).Followed);
+    }
+
     [Fact]
     public void Two_fix_rounds_are_allowed_and_a_third_is_not()
     {

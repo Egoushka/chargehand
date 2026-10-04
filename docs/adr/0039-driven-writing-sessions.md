@@ -82,6 +82,23 @@ Measured with `scripts/driven-e2e.sh` on a synthetic Python repository, session 
 - Tokens: the nine sessions used 50,443 input plus output tokens (3.83 million counting cache reads and writes), as the sessions' own stream totals report. The cancel sessions (one per run) were not measured.
 - Cancel: `cancel_leaves_no_container` failed once and passed in the later runs. The cause found: the script's wait for "the task is running" matched the batch's egress container, which exists earlier, so a cancel could land during setup. The script now waits for the task's own container. A start cancelled in flight could also leave the container docker had made (it was removed only by the id a finished start returned); the runner now removes it by its fixed name too. Whether that second path was the one hit is not known.
 
+### Adherence measured on 12 more sessions, two toolchains (2026-10-04): 7 of 12, not met
+
+Four more runs of `scripts/driven-e2e.sh` with the same session image and subscription token as above, now on two synthetic repositories: a Node project (`node --test`, runs 1 and 2) and the Python one (runs 3 and 4), three tasks each (`easy`, `unskip`, `impossible`), 12 sessions in all, judged by `chargehand runs adherence`. This set does not include the 9 sessions above (their streams were not kept).
+
+| | followed | sessions |
+|---|---|---|
+| all | 7 | 12 |
+| `easy` + `unskip` | 7 | 8 |
+| `impossible` | 0 | 4 |
+| Node repository | 4 | 6 |
+| Python repository | 3 | 6 |
+
+The plan's bar (at least 7 of 10, or 70%) is **not met** on all sessions (58%); it is met by the two tasks that can pass (88%), and a task that cannot pass is where it fails. Causes in the streams: in 3 of 4 `impossible` sessions the model did research and then stopped without writing (no write, no test, no review), in the fourth it researched, ran the tests and reviewed an empty diff (no write); one `easy` session (Python) committed and reviewed before it ran the tests. No `impossible` session passed, so none was caught editing a test (the script now fails that case if it ever does). Tokens: 76,842 input plus output tokens over the 12 sessions (5.68 million counting cache reads and writes); per task type, `easy` 26,940, `unskip` 23,212, `impossible` 26,690 (input plus output, 4 sessions each). Four batches ran; the cancel sessions were not measured. The sample is still tiny repositories with tiny goals.
+
+- Found and fixed: `chargehand runs adherence` did not recognise `node --test` (or `jest`, `vitest`, `mocha`) as a test run, so the first Node run read 0 of 3 with "no test" on sessions that had run it; re-reading the kept streams with the fix gives the figures above.
+- Open: in run 1 `cancel_leaves_no_container` failed once (a batch's egress container, `Exited (127)`, was still listed 20 seconds after the cancel result); it passed in runs 2 to 4 and 6 earlier runs. Cause not found (the run's log was not kept); the script now prints the leftover's last log lines.
+
 ## Consequences
 
 - A shell exists again, in a container, running repository content and model output. The boundary is the container, its network
