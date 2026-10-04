@@ -399,7 +399,9 @@ public sealed record DrivenSettings(
     string? PushSecret = null,
     DrivenTaskSource? TaskSource = null);
 
-public sealed record DrivenNetwork(IReadOnlyList<string>? Allow = null);
+/// <param name="Outside">A network besides the default one that the batch's egress container joins: the one the chargehand server sits on.</param>
+/// <param name="McpForward"><c>host:port</c> of the chargehand server as the egress container reaches it. Set, a session can call chargehand for research and review through a forward on its batch network; unset, it cannot.</param>
+public sealed record DrivenNetwork(IReadOnlyList<string>? Allow = null, string? Outside = null, string? McpForward = null);
 
 /// <summary>The runner service that holds the container engine's socket; null means the server calls the engine itself.</summary>
 public sealed record DrivenRunner(string Url, string ApiKeySecret);
