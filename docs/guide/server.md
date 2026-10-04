@@ -123,3 +123,14 @@ chargehand runner --listen <private-ip>:4310 --allowed-hosts <runner-name> \
 The runner refuses to listen off loopback without `--allowed-hosts`, needs the key in the environment (never an argument), and starts only images on `--images`, by digest. Every container it starts comes from one fixed template: non-root, read-only root filesystem, no capabilities, no Docker socket, no host mount, one internal network. A request names a run, a listed image and numbers under the runner's ceilings, nothing else, and a body with any other field is refused. It signals, reads, removes and joins only containers that carry chargehand's `chargehand.run` label, so it is safe on an engine other stacks share. `GET /count` and `POST /kill-all` work without the server's records.
 
 The runner's own compromise is the security cost of this design: whoever holds its key can start listed images and remove labelled containers, and the process holds the engine's socket, which is root-equivalent on a rootful engine. Run it on a private network, behind its key, and prefer a rootless engine where you can.
+
+### Deploying it with containers
+
+Two services from the release image (`chargehand`), and the session image (`chargehand-session`, the same version) that the runner starts:
+
+- **The server** (`chargehand serve`) has no engine socket. `driven.runner` names the runner's URL and the secret item for its key; `driven.images` lists the session image by digest; `driven.push_secret` names the credential that pushes `chargehand/<run>` and opens draft pull requests.
+- **The runner** (`chargehand runner`, the same image: it carries the docker CLI) mounts the engine's socket and joins the server's network. Run it as the image's user with the socket's group added (`group_add`), listen on its container name and give `--allowed-hosts` that name. `--images` and `--egress-image` take the session image's digest.
+- **Paths must mean the same to the engine as to the server.** The server makes each task's checkout under `worker_root` and the runner hands that path to the engine to mount, so `worker_root` has to be a bind mount whose host path equals its path in the container (a named volume would not resolve, and the engine would mount an empty directory).
+- **The callback.** A session calls the server for research and review through its batch's egress container, as `http://chargehand-driven:<port>`: set `driven.network.outside` to the network the server sits on and `driven.network.mcp_forward` to the server's name and port on it (`name:port`), and add `chargehand-driven` to `http.allowed_hosts`. A repository the sessions work on must be a checkout under `repository_roots` with an https `origin`; a private one needs the fetch credential on the host.
+
+Keep `driven.enabled` false until a smoke batch of one task has produced a draft pull request.

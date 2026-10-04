@@ -101,7 +101,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             var handover = s.HandoverFor?.Invoke(verifierSettings, push)
                 ?? new Handover(new ContainerVerifier(s.Engine, s.Workspace, verifierSettings), s.PullRequestsFor(push));
             var task = new TaskRunnerSettings(runId, request, image, checkout.Directory, checkout.Commit, checkout.RemoteUrl, checkout.BaseBranch, net,
-                forward is null ? null : $"{net.ServiceUrl(port)}/v1/mcp", drivenPreset, limits.PerTask, priced, modelEnvironment, push,
+                forward is null ? null : $"{BatchNetworkInfo.ServiceUrl(port)}/v1/mcp", drivenPreset, limits.PerTask, priced, modelEnvironment, push,
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1");
             var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll);

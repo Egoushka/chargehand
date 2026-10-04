@@ -6,8 +6,8 @@ public sealed record BatchNetworkInfo(string Network, string EgressContainer, st
     /// <summary>The value of a session container's <c>HTTPS_PROXY</c>; the run id is the proxy log's label, not a credential.</summary>
     public string ProxyUrl(string runId) => $"http://{runId}:x@{ProxyHost}:{ProxyPort}";
 
-    /// <summary>Where a session reaches an operator-named forward (the chargehand server's MCP endpoint): the egress container's name and the forward's listen port.</summary>
-    public string ServiceUrl(int listenPort) => $"http://{ProxyHost}:{listenPort}";
+    /// <summary>Where a session reaches an operator-named forward (the chargehand server's MCP endpoint): the egress container's alias on the batch network and the forward's listen port.</summary>
+    public static string ServiceUrl(int listenPort) => $"http://{ContainerTemplate.CallbackAlias}:{listenPort}";
 }
 
 /// <summary>A batch's network (ADR 0039): an internal Docker network, which has no route out, plus one egress container on it that is also

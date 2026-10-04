@@ -54,8 +54,10 @@ public class BatchNetworkTests
         var info = await new BatchNetwork(engine).CreateAsync("b1", Image, ["api.anthropic.com"], default, outsideNetwork: "stack_net", forwards: ["4301=chargehand:4300"]);
         Assert.Equal("connect egress-id-1 stack_net", engine.Calls[2]);
         Assert.Equal(["4301=chargehand:4300"], engine.Egress!.Forwards);
-        Assert.Equal("http://chargehand-egress-b1:4301", info.ServiceUrl(4301));
+        Assert.Equal("http://chargehand-driven:4301", BatchNetworkInfo.ServiceUrl(4301)); // a name the server can list in http.allowed_hosts, whatever the batch
         var args = ContainerTemplate.EgressArgs(engine.Egress);
+        Assert.Equal(["--network-alias", "chargehand-driven"], args.Skip(args.ToList().IndexOf("--network-alias")).Take(2));
+        Assert.Equal(args.ToList().IndexOf("--network") + 2, args.ToList().IndexOf("--network-alias"));
         Assert.Equal(["--forward", "4301=chargehand:4300"], args.Skip(args.ToList().IndexOf("--forward")).Take(2));
     }
 

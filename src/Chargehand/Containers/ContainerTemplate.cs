@@ -10,6 +10,9 @@ public static partial class ContainerTemplate
     /// <summary>The labels chargehand puts on what it creates, so cleanup and the kill switch find it without any record.</summary>
     public const string RunLabel = "chargehand.run";
 
+    /// <summary>The name a session calls the chargehand server by, through a forward on the egress container: the same in every batch, so the server can list it in <c>http.allowed_hosts</c> (the egress container's own name changes with the batch).</summary>
+    public const string CallbackAlias = "chargehand-driven";
+
     /// <summary>The only environment names a session container gets. A name outside it is refused, so a caller cannot inject
     /// <c>LD_PRELOAD</c>, <c>NODE_OPTIONS</c> or <c>DOCKER_HOST</c>.</summary>
     public static readonly IReadOnlySet<string> AllowedEnv = new HashSet<string>(StringComparer.Ordinal)
@@ -94,6 +97,7 @@ public static partial class ContainerTemplate
             "--memory", "256m",
             "--cpus", "1",
             "--network", spec.Network,
+            "--network-alias", CallbackAlias,
             spec.Image,
             "egress", "--listen", $"0.0.0.0:{spec.Port.ToString(CultureInfo.InvariantCulture)}", "--allow", string.Join(',', spec.Allow),
         ];
