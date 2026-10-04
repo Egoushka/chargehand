@@ -1,7 +1,7 @@
 <Project>
   <!-- One version source for the orchestrator. Chargehand.Contracts overrides it (schema-major versioning). -->
   <PropertyGroup>
-    <Version>0.8.0</Version>
+    <Version>0.8.1</Version>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
