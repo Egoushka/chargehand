@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-05
+
+What a container deployment of driven sessions needs from the code, all additive: the session image is published with the release, the server image carries the docker CLI the runner needs, and a session calls the server back by a fixed name. This is still not the minor version that driven sessions get when they are wired: `driven.enabled` stays false in every real profile, and a batch still delivers the model credential in the container's environment until the credential exchange (CHARGEHAND-148) lands. The v0.8.1 tag did not carry these: its notes listed the entry below by mistake, and it is moved here.
+
+### Added
+
+- Driven sessions can be deployed with containers (ADR 0039, CHARGEHAND-151): the release publishes the session image `chargehand-session:<version>` next to the server image and prints both digests in the job summary; the server image carries the docker CLI (pinned by digest to the engine's version) so `chargehand runner` runs from it; a session calls the server back as `http://chargehand-driven:<port>` (the egress container's alias on the batch network, the same in every batch), so `http.allowed_hosts` lists one name instead of a wildcard; the server guide describes the services and the path rule for `worker_root`.
+
 ## [0.8.1] - 2026-10-05
 
 The parts of driven writing sessions ([ADR 0039](docs/adr/0039-driven-writing-sessions.md), [guide](docs/guide/driven.md)) and the prompt-enhancer extension (ADR 0040, 0041), all additive. This is not the minor version that driven sessions get when they are wired: `driven.enabled` stays false in every real profile, a driven batch still needs its credential exchange, and the skill's measured adherence (at least 7 of 10) is not met. No schema major changes; `Chargehand.Contracts` changes are additive.
@@ -18,7 +26,6 @@ The parts of driven writing sessions ([ADR 0039](docs/adr/0039-driven-writing-se
 
 ### Added
 
-- Driven sessions can be deployed with containers (ADR 0039, CHARGEHAND-151): the release publishes the session image `chargehand-session:<version>` next to the server image and prints both digests in the job summary; the server image carries the docker CLI (pinned by digest to the engine's version) so `chargehand runner` runs from it; a session calls the server back as `http://chargehand-driven:<port>` (the egress container's alias on the batch network, the same in every batch), so `http.allowed_hosts` lists one name instead of a wildcard; the server guide describes the services and the path rule for `worker_root`.
 - `scripts/driven-e2e.sh` runs on a real repository: `CHARGEHAND_E2E_REPO=<path of a git checkout>` clones its committed history (nothing is pushed to its own remote), with `CHARGEHAND_E2E_TASKS` and `CHARGEHAND_E2E_VERIFY` (the verification command as a JSON argument vector) required (ADR 0039, CHARGEHAND-150). Measured on a TypeScript-on-Node repository: 10 of 10 sessions followed the skill's steps and 4 of 4 passable tasks ended in a draft pull request. `/tmp` in a session and in the fresh verification run stays `noexec`; a repository whose tests run a script from `/tmp` sets `TMPDIR` under `/work` in its `context.verify` (guide and ADR).
 - A run now asks the profile's `prompt_enhancer` about its request text and reports the outcome (ADR 0041): one `enhance` call before intake and one `feedback` call after the result, in `run`, `serve`, the MCP tool and `change`. The text sent to workers is always the original; a rewrite is offered to nobody and reported as not accepted. Context is the four allowed fields (repository as the folder name). No `prompt_enhancer` in the profile: no call.
 - A `prompt_enhancer` extension (ADR 0040, WHET-13): a profile entry naming an `mcp_servers` server that lists `enhance` and `feedback`. `IPromptEnhancer` and `McpPromptEnhancer` carry the calls, and `GuardedPromptEnhancer` turns a late, failing or empty answer into the original prompt inside `deadline_ms`. `chargehand extensions check` verifies the two tools. No client calls it yet.
@@ -600,7 +607,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/Egoushka/chargehand/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/Egoushka/chargehand/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Egoushka/chargehand/compare/v0.6.1...v0.8.0
 [0.6.1]: https://github.com/Egoushka/chargehand/compare/v0.6.0...v0.6.1
