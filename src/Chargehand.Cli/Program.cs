@@ -33,6 +33,8 @@ const string Usage = """
                                    the allowlist proxy of a driven-session batch's egress container (CONNECT to port 443 only)
       runner --listen <ip:port> --images <digest,...> --egress-image <digest>
                                    the service in front of the container engine for driven sessions (key in CHARGEHAND_RUNNER_KEY)
+      runs adherence <stream.jsonl>...
+                                   whether driven sessions kept to the change skill's steps, from their stored streams
       runs kill --all              removes every driven-session container and batch network by label (works with the server down)
       show <run-id>                prints a run and its calls from the run log
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
@@ -66,6 +68,9 @@ if (argv.Count >= 2 && argv[0] == "--profile")
 // Offline and profile-free: a verifier holds a result and a public key, nothing else (ADR 0036).
 if (argv is ["verify", .. var verifyArgs])
     return Chargehand.Signing.VerifyCli.Run(verifyArgs, Console.Out, Console.Error);
+// Reads stored session streams only (ADR 0039).
+if (argv is ["runs", "adherence", .. var adherenceArgs])
+    return Chargehand.Driven.AdherenceCli.Run(adherenceArgs, Console.Out, Console.Error);
 // Profile-free too: the egress container of a driven-session batch holds an allowlist and nothing else (ADR 0039).
 if (argv is ["egress", .. var egressArgs])
 {
@@ -263,7 +268,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         ? new Chargehand.Driven.EngineSessionVolumes(files, images[0])
         : new Chargehand.Driven.UnavailableSessionVolumes();
     return new Chargehand.Driven.DrivenRun(profile, runLog, root, new Chargehand.Driven.DrivenServices(engine, workspace, volumes,
-        push => new Chargehand.Driven.GitHubPullRequests(new HttpClient { BaseAddress = new Uri("https://api.github.com/") }, push.Value),
+        push => new Chargehand.Driven.GitHubPullRequests(new HttpClient { BaseAddress = new Uri(Environment.GetEnvironmentVariable("CHARGEHAND_E2E_GITHUB_API") ?? "https://api.github.com/") }, push.Value),
         driven.TaskSource is { } source ? new Chargehand.Mcp.McpTaskSource(source, mcpPool) : null,
         orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck));
 }
