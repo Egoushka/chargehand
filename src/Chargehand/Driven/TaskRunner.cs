@@ -41,7 +41,7 @@ public delegate string TaskTokenMinter(TaskGrant grant);
 /// <param name="McpUrl">The chargehand server's MCP address on the batch network; null: the session gets no research or review calls.</param>
 public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, string Image, string SourcePath, string BaseCommit, string RemoteUrl, string BaseBranch,
     BatchNetworkInfo Network, string? McpUrl, DrivenPreset Preset, TaskLimits Limits, bool Priced, IReadOnlyDictionary<string, string> ModelEnvironment, PushCredential Push,
-    string ScratchRoot, string Model, string ClaudeVersion);
+    string ScratchRoot, string Model, string ClaudeVersion, bool AllowLocalRemote = false);
 
 /// <summary>Runs one task of a batch to its end (ADR 0039): a workspace at the pinned commit, a session container on the batch network, then the handover (chargehand's own
 /// verification, the scan, the push, a draft pull request) and the task's own <c>result/v1</c> in the run log. A cancel signals the session and ends the task; it never reaches
@@ -99,7 +99,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             if (session.Status == SessionStatus.Completed && reportJson is not null && DrivenReport.Parse(reportJson) is { } report)
                 handed = await handover.RunAsync(new HandoverInput(runId, outDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, settings.BaseBranch,
                     Title(task.Goal), $"{report.Summary}\n\nTask: {task.Id}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify,
-                    [.. settings.ModelEnvironment.Values]), ct);
+                    [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote), ct);
 
             var scratchClone = Path.Combine(settings.ScratchRoot, runId);
             var traceId = ActivityTraceId.CreateRandom().ToHexString();
