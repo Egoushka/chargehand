@@ -31,7 +31,7 @@ public class SessionImageTests
     {
         var output = Run("dotnet --version; node --version; python3 --version; git --version; claude --version; id -u; command -v docker || echo no-docker; command -v pip3 >/dev/null && echo pip-ok");
         Assert.Matches(@"(?m)^10\.\d+\.\d+", output);           // dotnet
-        Assert.Matches(@"(?m)^v\d+\.\d+\.\d+", output);          // node
+        Assert.Matches(@"(?m)^v(2[6-9]|[3-9]\d)\.\d+\.\d+", output); // node 26 or later: repositories that run .ts sources need its type stripping
         Assert.Contains("Python 3.", output);
         Assert.Contains("git version", output);
         Assert.Contains("2.1.283 (Claude Code)", output);         // the pinned version the adapter demands
