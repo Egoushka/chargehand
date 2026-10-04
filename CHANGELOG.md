@@ -7,10 +7,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The headless `change` skill and the driver prompt state the order research, write, run the tests, then review, and that a goal which cannot be met still gets a best attempt and a stop with the reason, never a stop after research alone or an edit to a test (CHARGEHAND-141). Measured: 12 of 12 sessions followed the steps, up from 7 of 12.
+
 ### Added
 
+- `chargehand runs adherence` prints `adherence` and `honest_stop` apart (ADR 0039, CHARGEHAND-141): `honest_stop` counts sessions that did research, a write and a test run in order, made no review and wrote no test file; it is not part of the 7 of 10 bar.
 - Driven batches see a session's token use while it runs (ADR 0039, CHARGEHAND-147): the in-container driver rewrites `session-usage.json` in the output volume as the stream grows, and the runner reads it through the existing out-volume read (a fifth allowlisted name, read only) every poll interval (5 s by default) while the task runs and reports it to the scheduler. A task that reports more than its own token or dollar cap is stopped at once (`cost_cap_reached`), and a batch stops its running tasks as soon as their reported use passes the batch cap (before: only once it was over by a whole task cap). Dollars still arrive only with the session's final result, so live dollar caps bind through the session's own `--max-budget-usd`.
-||||||| parent of 1fcb021 (feat(driven): e2e on a Node repo, test-edit flag, adherence reads node --test (CHARGEHAND-141))
 - `scripts/driven-e2e.sh` can run on a Node repository (`CHARGEHAND_E2E_REPO=node`) or a task list of its own (`CHARGEHAND_E2E_TASKS`), and fails `impossible_tests_untouched` when the task that cannot pass is passed by editing a test file (ADR 0039, CHARGEHAND-141).
 - A driven session is told the repository path and base commit its run token admits (`CHARGEHAND_REPOSITORY_PATH`, `CHARGEHAND_BASE_COMMIT`, ADR 0039, CHARGEHAND-141): the skill's driven section and the driver prompt use them for the research and the review call (the review at the base commit, with the diff as input) and say not to skip either step. Measured: 7 of 9 sessions followed the steps, up from 1 of 3; the ADR records the result and that the feature is not ready. The runner also removes a container whose start was cancelled in flight, by its name.
 - `scripts/driven-e2e.sh` (ADR 0039, CHARGEHAND-141): an end-to-end run of a driven batch on a synthetic repository (three tasks, a local bare remote that takes only `chargehand/*`, `max_parallel` 2, a stub of the draft-pull-request endpoint, a cancel case, a scan of everything it wrote for the push token and the model key). It calls a real model and has not been run yet. It needs two switches in the CLI that exist for it alone: `CHARGEHAND_E2E_GITHUB_API` and `CHARGEHAND_E2E_LOCAL_REMOTE=1`.
@@ -29,7 +33,6 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - `scripts/egress-test-image.sh` publishes the CLI for the container engine's architecture (`linux-arm64` or `linux-x64`) instead of the host's, and sets the image's entrypoint, so the egress tests run on a Mac; the egress tests supply a `nc` stand-in (bash `/dev/tcp`) when the test image has none.
-||||||| parent of 1fcb021 (feat(driven): e2e on a Node repo, test-edit flag, adherence reads node --test (CHARGEHAND-141))
 - `chargehand runs adherence` counts `node --test`, `jest`, `vitest` and `mocha` as a test run (it read them as no test).
 - The plugin's MCP entry passes `--source https://api.nuget.org/v3/index.json` to `dnx`, so a machine whose NuGet config lists a private feed no longer fails with 401 and `CONNECTION_CLOSED` (CHARGEHAND-127).
 

@@ -99,6 +99,23 @@ The plan's bar (at least 7 of 10, or 70%) is **not met** on all sessions (58%); 
 - Found and fixed: `chargehand runs adherence` did not recognise `node --test` (or `jest`, `vitest`, `mocha`) as a test run, so the first Node run read 0 of 3 with "no test" on sessions that had run it; re-reading the kept streams with the fix gives the figures above.
 - Open: in run 1 `cancel_leaves_no_container` failed once (a batch's egress container, `Exited (127)`, was still listed 20 seconds after the cancel result); it passed in runs 2 to 4 and 6 earlier runs. Cause not found (the run's log was not kept); the script now prints the leftover's last log lines.
 
+### Adherence after the order was made explicit, 12 sessions (2026-10-04): 12 of 12, bar met on these tasks
+
+Change: the skill's driven section and the driver prompt now say the order is research, write, run the tests, then review; that a goal which cannot be met still gets a best attempt (write and test) and then a stop with the reason, never a stop after research alone and never an edit to a test; and step 5 must run before step 7. The report now has two numbers. `adherence` is the plan's metric, unchanged. `honest_stop` counts sessions that did research, a write and a test run, in that order, made no review and wrote no test file; it is shown next to adherence and is not counted in the 7 of 10 bar.
+
+Measured with a rebuilt session image (skill text with the instruction as a bullet in the driven section; before the commit it was moved into steps 4 and 7 of the skill, because a test keeps the driven section to the steps that need a person, with the driver prompt unchanged; the moved text was not measured, the run limit was four): four runs of `scripts/driven-e2e.sh`, alternating the Node repository (runs 1, 3) and the Python one (runs 2, 4), three tasks each, 12 sessions, same subscription token, no rate limiting or auth refusal, no secret found in streams or logs.
+
+| | followed | sessions |
+|---|---|---|
+| all | 12 | 12 |
+| `easy` + `unskip` | 8 | 8 |
+| `impossible` | 4 | 4 |
+| `honest_stop` | 0 | 12 |
+
+Every session reviewed once, fixed once and reviewed again (2 reviews). On `impossible` all four wrote an attempt, ran the tests (exit 1), reviewed, and finished with the failing test result and the reason; none edited a test (`impossible_tests_untouched` held, `one_task_failed` ok). So the earlier misses came from the model stopping after research; `honest_stop` stays at 0 because every stopped session now reviews. Tokens: 74,206 input plus output (about 6.4 million with cache). `cancel_leaves_no_container` passed in all four runs (containers gone 0 s after the cancel result); the earlier failure did not recur and its cause is still unknown.
+
+This meets the plan's bar (12 of 12, at least 7 of 10) on these two tiny repositories and three trivial goals; it does not show the same rate on real repositories. The feature stays not ready: `driven.enabled` stays false until the credential design (CHARGEHAND-130) and a run on a real repository.
+
 ## Consequences
 
 - A shell exists again, in a container, running repository content and model output. The boundary is the container, its network

@@ -96,4 +96,45 @@ public class AdherenceTests
         Assert.Equal(1, AdherenceCli.Run([.. Enumerable.Repeat(good, 6), .. Enumerable.Repeat(bad, 4)], output, new StringWriter()));
         Assert.Contains("not met", output.ToString());
     }
+
+    private static string WriteTo(string id, string path) => Call(id, "Write", $$"""{"file_path":"{{path}}"}""");
+
+    [Fact]
+    public void Research_write_test_and_no_review_is_an_honest_stop()
+    {
+        var report = Adherence.Check([Research("1"), WriteTo("2", "/work/mathx.js"), Test("3")]);
+        Assert.False(report.Followed);
+        Assert.True(report.HonestStop);
+    }
+
+    [Theory]
+    [InlineData("/work/test_mathx.py")]
+    [InlineData("/work/all.test.js")]
+    [InlineData("/work/tests/foo.py")]
+    public void Editing_a_test_file_is_not_an_honest_stop(string path)
+    {
+        Assert.False(Adherence.Check([Research("1"), WriteTo("2", path), Test("3")]).HonestStop);
+    }
+
+    [Fact]
+    public void Research_alone_or_a_followed_session_is_not_an_honest_stop()
+    {
+        Assert.False(Adherence.Check([Research("1")]).HonestStop);
+        Assert.False(Adherence.Check([Research("1"), Write("2"), Test("3"), Review("4")]).HonestStop);
+        Assert.False(Adherence.Check([Research("1"), Write("2"), Review("3")]).HonestStop);
+    }
+
+    [Fact]
+    public void The_command_reports_honest_stops_apart_from_adherence()
+    {
+        using var dir = new TempDir();
+        var good = Path.Combine(dir.Path, "good.jsonl");
+        var stop = Path.Combine(dir.Path, "stop.jsonl");
+        File.WriteAllLines(good, [Research("1"), Write("2"), Test("3"), Review("4")]);
+        File.WriteAllLines(stop, [Research("1"), WriteTo("2", "/work/a.js"), Test("3")]);
+        var output = new StringWriter();
+        AdherenceCli.Run([good, stop], output, new StringWriter());
+        Assert.Contains("adherence: 1 of 2", output.ToString());
+        Assert.Contains("honest_stop: 1 of 2", output.ToString());
+    }
 }
