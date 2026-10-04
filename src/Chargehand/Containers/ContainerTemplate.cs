@@ -143,6 +143,48 @@ public static partial class ContainerTemplate
         ];
     }
 
+    /// <summary>The files chargehand writes into a session's output volume.</summary>
+    public static readonly IReadOnlyList<string> OutFilesIn = ["task.json"];
+
+    /// <summary>The files chargehand reads out of it: the bundle, the report and the outcome. Nothing else leaves the volume.</summary>
+    public static readonly IReadOnlyList<string> OutFilesOut = ["chargehand.bundle", "driven-report.json", "session-outcome.json"];
+
+    /// <summary>Exit code of the read helper when the file is not there.</summary>
+    public const int OutFileMissing = 3;
+
+    private const string OutWriteScript = "set -e\ncat > \"/out/$1\"\n";
+    private const string OutReadScript = "[ -f \"/out/$1\" ] || exit 3\nexec cat \"/out/$1\"\n";
+
+    /// <summary>The arguments after <c>docker</c> for the helper that writes (stdin to the file) or reads (the file to stdout) one fixed-name file of the output volume:
+    /// foreground, removed when it ends, no network, read-only root, the volume read-only for a read. The name reaches the script only as <c>$1</c>.</summary>
+    public static IReadOnlyList<string> OutFileArgs(OutFileSpec spec, bool write)
+    {
+        Check(RunIdPattern(), spec.RunId, "run id");
+        Check(ImagePattern(), spec.Image, "image (must be name@sha256:<64 hex> or a local image id)");
+        Check(NamePattern(), spec.OutVolume, "out volume");
+        if (!(write ? OutFilesIn : OutFilesOut).Contains(spec.Name, StringComparer.Ordinal))
+            throw new ArgumentException($"'{spec.Name}' is not a file chargehand {(write ? "writes into" : "reads out of")} an output volume");
+        return
+        [
+            "run", "--rm", "--init", "-i",
+            "--name", $"chargehand-xfer-{spec.RunId}",
+            "--label", $"{RunLabel}={spec.RunId}",
+            "--network", "none",
+            "--read-only",
+            "--tmpfs", "/tmp:rw,nosuid,size=16m",
+            "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges",
+            "--user", "10001:10001",
+            "--pids-limit", "64",
+            "--memory", "256m",
+            "--cpus", "1",
+            "-v", write ? $"{spec.OutVolume}:/out" : $"{spec.OutVolume}:/out:ro",
+            "--entrypoint", "sh",
+            spec.Image,
+            "-c", write ? OutWriteScript : OutReadScript, "transfer", spec.Name,
+        ];
+    }
+
     /// <summary>The env file's lines, <c>NAME=value</c>, in name order. Refuses a name outside <see cref="AllowedEnv"/> and a value
     /// with a line break or NUL (which would add a second variable).</summary>
     public static IReadOnlyList<string> EnvFileLines(IReadOnlyDictionary<string, string> env)

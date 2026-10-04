@@ -7,9 +7,12 @@ namespace Chargehand.Containers;
 /// <summary>An <see cref="IContainerEngine"/> that calls the <c>docker</c> CLI (ADR 0039). Arguments go through
 /// <see cref="ProcessStartInfo.ArgumentList"/>, never a shell string; every name is checked before it reaches docker. <paramref name="leadingArgs"/>
 /// go before every call (a test runs a fake docker script as <c>sh script</c>, which avoids a busy-executable race on Linux).</summary>
-public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null) : IContainerEngine, IWorkspaceEngine
+public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null) : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine
 {
     private const int OutputCap = 64 * 1024;
+
+    /// <summary>The most a file read out of an output volume may be (a bundle of the session's branch).</summary>
+    public const long OutFileCap = 256L * 1024 * 1024;
 
     public async Task<string> StartAsync(ContainerSpec spec, CancellationToken ct)
     {
@@ -122,6 +125,23 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
         }
     }
 
+    public async Task WriteOutFileAsync(OutFileSpec spec, ReadOnlyMemory<byte> content, CancellationToken ct)
+    {
+        var result = await RunStreamAsync(ContainerTemplate.OutFileArgs(spec, write: true), content, Stream.Null, ct);
+        if (result.ExitCode != 0)
+            throw Unavailable($"writing {spec.Name} into the output volume failed", result, null);
+    }
+
+    public async Task<bool> ReadOutFileAsync(OutFileSpec spec, Stream destination, CancellationToken ct)
+    {
+        var result = await RunStreamAsync(ContainerTemplate.OutFileArgs(spec, write: false), default, destination, ct);
+        if (result.ExitCode == ContainerTemplate.OutFileMissing)
+            return false;
+        if (result.ExitCode != 0)
+            throw Unavailable($"reading {spec.Name} from the output volume failed", result, null);
+        return true;
+    }
+
     public async Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct)
     {
         var result = await RunAsync(ContainerTemplate.EgressArgs(spec), ct);
@@ -206,6 +226,70 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
                 throw;
             }
             return new DockerResult(process.ExitCode, await stdout, await stderr);
+        }
+    }
+
+    /// <summary>Like <see cref="RunAsync"/> but with bytes in and bytes out: <paramref name="stdin"/> goes to the process, its stdout is copied to <paramref name="stdout"/> up to
+    /// <see cref="OutFileCap"/> (more kills the process).</summary>
+    private async Task<DockerResult> RunStreamAsync(IEnumerable<string> args, ReadOnlyMemory<byte> stdin, Stream stdout, CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo(docker) { RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
+        foreach (var a in leadingArgs ?? [])
+            psi.ArgumentList.Add(a);
+        foreach (var a in args)
+            psi.ArgumentList.Add(a);
+        Process process;
+        try
+        {
+            process = Process.Start(psi) ?? throw new InvalidOperationException("could not start docker");
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            throw new ChargehandException(ErrorCode.ContainerUnavailable, $"could not start '{docker}': {e.Message}",
+                "Install Docker, or set driven.runner in the profile to use a runner service.");
+        }
+        using (process)
+        {
+            var stderr = Read(process.StandardError);
+            var copied = CopyCappedAsync(process.StandardOutput.BaseStream, stdout, process, ct);
+            try
+            {
+                try
+                {
+                    await process.StandardInput.BaseStream.WriteAsync(stdin, ct);
+                }
+                catch (IOException)
+                {
+                    // The helper ended before reading its input; its exit code says why.
+                }
+                process.StandardInput.Close();
+                await copied;
+                await process.WaitForExitAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                process.Kill(entireProcessTree: true);
+                throw;
+            }
+            return new DockerResult(process.ExitCode, "", await stderr);
+        }
+    }
+
+    private static async Task CopyCappedAsync(Stream from, Stream to, Process process, CancellationToken ct)
+    {
+        var buffer = new byte[81920];
+        long total = 0;
+        int n;
+        while ((n = await from.ReadAsync(buffer, ct)) > 0)
+        {
+            total += n;
+            if (total > OutFileCap)
+            {
+                process.Kill(entireProcessTree: true);
+                throw new ChargehandException(ErrorCode.ContainerUnavailable, $"a file in the output volume is larger than {OutFileCap / (1024 * 1024)} MiB",
+                    "The session wrote more than chargehand will copy out; nothing from it is used.");
+            }
+            await to.WriteAsync(buffer.AsMemory(0, n), ct);
         }
     }
 
