@@ -10,7 +10,7 @@ using Chargehand.Verification;
 namespace Chargehand.Driven;
 
 /// <summary>How a session's output volume is written and read (ADR 0039): the task file goes in before the container starts, and after it ends the bundle, the report
-/// and the outcome come out into a directory chargehand owns. The runner service has no route for this yet, so a deployment supplies the implementation.</summary>
+/// and the outcome come out into a directory chargehand owns.</summary>
 public interface ISessionVolumes
 {
     Task WriteTaskAsync(string runId, SessionTask task, CancellationToken ct);
@@ -19,11 +19,11 @@ public interface ISessionVolumes
     Task FetchOutputAsync(string runId, string directory, CancellationToken ct);
 }
 
-/// <summary>Stands in until a deployment supplies the volume transfer: a batch then ends each task as <c>container_unavailable</c> before any session container starts.</summary>
+/// <summary>Used where the engine cannot move files through a volume: a batch then ends each task as <c>container_unavailable</c> before any session container starts.</summary>
 public sealed class UnavailableSessionVolumes : ISessionVolumes
 {
-    private static ChargehandException Unavailable() => new(ErrorCode.ContainerUnavailable, "this deployment cannot yet put a task into a session's output volume or read its bundle out",
-        "The runner service has no route for the output volume yet (docs/guide/driven.md, \"Not wired yet\").");
+    private static ChargehandException Unavailable() => new(ErrorCode.ContainerUnavailable, "this deployment cannot put a task into a session's output volume or read its bundle out",
+        "Set driven.runner in the profile, or install Docker, and list the session image in driven.images (docs/guide/driven.md).");
 
     public Task WriteTaskAsync(string runId, SessionTask task, CancellationToken ct) => throw Unavailable();
 
