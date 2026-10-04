@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-05
+
+The parts of driven writing sessions ([ADR 0039](docs/adr/0039-driven-writing-sessions.md), [guide](docs/guide/driven.md)) and the prompt-enhancer extension (ADR 0040, 0041), all additive. This is not the minor version that driven sessions get when they are wired: `driven.enabled` stays false in every real profile, a driven batch still needs its credential exchange, and the skill's measured adherence (at least 7 of 10) is not met. No schema major changes; `Chargehand.Contracts` changes are additive.
+
 ### Changed
 
 - The session image installs Node 26.10.0 from nodejs.org, checked against its published SHA-256, in place of the distribution's Node 18 (ADR 0039): a repository that runs `.ts` sources through Node's type stripping, or asks for `engines.node >= 26`, could not pass its tests in a session or in the fresh verification run.
@@ -594,7 +598,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/Egoushka/chargehand/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Egoushka/chargehand/compare/v0.6.1...v0.8.0
 [0.6.1]: https://github.com/Egoushka/chargehand/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Egoushka/chargehand/compare/v0.4.1...v0.6.0
