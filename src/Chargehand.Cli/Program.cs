@@ -258,7 +258,11 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         var docker = new Chargehand.Containers.DockerCliEngine();
         (engine, workspace) = (docker, docker);
     }
-    return new Chargehand.Driven.DrivenRun(profile, runLog, root, new Chargehand.Driven.DrivenServices(engine, workspace, new Chargehand.Driven.UnavailableSessionVolumes(),
+    // Both engines move files through a volume with a helper started from the session image; without an image no batch starts anyway.
+    Chargehand.Driven.ISessionVolumes volumes = engine is Chargehand.Containers.IOutVolumeEngine files && driven.Images is { Count: > 0 } images
+        ? new Chargehand.Driven.EngineSessionVolumes(files, images[0])
+        : new Chargehand.Driven.UnavailableSessionVolumes();
+    return new Chargehand.Driven.DrivenRun(profile, runLog, root, new Chargehand.Driven.DrivenServices(engine, workspace, volumes,
         push => new Chargehand.Driven.GitHubPullRequests(new HttpClient { BaseAddress = new Uri("https://api.github.com/") }, push.Value),
         driven.TaskSource is { } source ? new Chargehand.Mcp.McpTaskSource(source, mcpPool) : null,
         orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck));

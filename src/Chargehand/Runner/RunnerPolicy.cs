@@ -49,6 +49,16 @@ public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressIma
             : "the source is not under one of the runner's source roots";
     }
 
+    /// <summary>A file helper touches one run's output volume: a listed image and a fixed name, <c>task.json</c> in and the three result files out, whatever the caller asks.</summary>
+    public string? RefuseOutFile(string image, string name, bool write)
+    {
+        if (!Images.Contains(image, StringComparer.Ordinal))
+            return "image is not on the runner's allowlist";
+        return (write ? Containers.ContainerTemplate.OutFilesIn : Containers.ContainerTemplate.OutFilesOut).Contains(name, StringComparer.Ordinal)
+            ? null
+            : $"the runner {(write ? "writes" : "reads")} only {string.Join(", ", write ? Containers.ContainerTemplate.OutFilesIn : Containers.ContainerTemplate.OutFilesOut)}";
+    }
+
     public static string? RefuseVolume(string name) =>
         name.StartsWith(WorkPrefix, StringComparison.Ordinal) || name.StartsWith(OutPrefix, StringComparison.Ordinal) ? null : $"a volume must start with {WorkPrefix} or {OutPrefix}";
 

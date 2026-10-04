@@ -78,6 +78,49 @@ public static class RunnerServer
             return Ok(new { });
         }));
 
+        app.MapPut("/out/{runId}/{name}", (HttpContext ctx, string runId, string name, CancellationToken ct) => Guard(async () =>
+        {
+            var image = ctx.Request.Query["image"].ToString();
+            if (engine is not IOutVolumeEngine volumes)
+                return Reply(StatusCodes.Status501NotImplemented, "this runner's engine cannot write into an output volume");
+            if (policy.RefuseOutFile(image, name, write: true) is { } refusal)
+                return Refuse(refusal);
+            var spec = new OutFileSpec(runId, image, RunnerPolicy.OutPrefix + runId, name);
+            _ = ContainerTemplate.OutFileArgs(spec, write: true);
+            using var body = new MemoryStream();
+            await ctx.Request.Body.CopyToAsync(body, ct);
+            await volumes.WriteOutFileAsync(spec, body.ToArray(), ct);
+            return Ok(new { });
+        }));
+
+        app.MapGet("/out/{runId}/{name}", (HttpContext ctx, string runId, string name, CancellationToken ct) => Guard(async () =>
+        {
+            var image = ctx.Request.Query["image"].ToString();
+            if (engine is not IOutVolumeEngine volumes)
+                return Reply(StatusCodes.Status501NotImplemented, "this runner's engine cannot read an output volume");
+            if (policy.RefuseOutFile(image, name, write: false) is { } refusal)
+                return Refuse(refusal);
+            var spec = new OutFileSpec(runId, image, RunnerPolicy.OutPrefix + runId, name);
+            _ = ContainerTemplate.OutFileArgs(spec, write: false);
+            // A bundle can be large: it goes through a temporary file that is deleted when the response ends, not through memory.
+            var file = new FileStream(Path.GetTempFileName(), new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.ReadWrite, Options = FileOptions.DeleteOnClose });
+            try
+            {
+                if (!await volumes.ReadOutFileAsync(spec, file, ct))
+                {
+                    await file.DisposeAsync();
+                    return Reply(StatusCodes.Status404NotFound, $"no {name} in the output volume");
+                }
+                file.Position = 0;
+                return HttpResults.Stream(file, "application/octet-stream");
+            }
+            catch
+            {
+                await file.DisposeAsync();
+                throw;
+            }
+        }));
+
         app.MapPost("/signal", (HttpContext ctx, CancellationToken ct) => Guard(async () =>
         {
             var signal = await Body<RunnerSignal>(ctx, ct);

@@ -8,7 +8,7 @@ namespace Chargehand.Driven;
 /// exit code, is the record: the exit code is 0 when the session completed or needs input, 1 otherwise.</summary>
 public static class SessionCli
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,

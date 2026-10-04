@@ -41,6 +41,21 @@ public interface IWorkspaceEngine
     Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct);
 }
 
+/// <summary>One file of a session's output volume, moved by a throwaway helper (ADR 0039).</summary>
+/// <param name="Image">A session image (it has <c>sh</c> and <c>cat</c>).</param>
+/// <param name="OutVolume">The run's output volume.</param>
+/// <param name="Name">One of <see cref="ContainerTemplate.OutFilesIn"/> to write, <see cref="ContainerTemplate.OutFilesOut"/> to read.</param>
+public sealed record OutFileSpec(string RunId, string Image, string OutVolume, string Name);
+
+/// <summary>Puts the task file into a session's output volume before the session starts and reads its results out after it ends.</summary>
+public interface IOutVolumeEngine
+{
+    Task WriteOutFileAsync(OutFileSpec spec, ReadOnlyMemory<byte> content, CancellationToken ct);
+
+    /// <returns>False when the volume has no such file; nothing was written to <paramref name="destination"/> then.</returns>
+    Task<bool> ReadOutFileAsync(OutFileSpec spec, Stream destination, CancellationToken ct);
+}
+
 public enum ContainerStatus { Running, Exited, Missing }
 
 /// <param name="ExitCode">Set once the container has exited.</param>
