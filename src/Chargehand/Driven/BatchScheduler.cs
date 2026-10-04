@@ -5,7 +5,8 @@ namespace Chargehand.Driven;
 /// <summary>Runs a batch's tasks under its limits (ADR 0039): at most <c>MaxParallel</c> at once, tasks in order, and a task starts only if the
 /// batch could still afford it. "Afford" reserves each running task's whole cap, so two tasks at 2000 tokens each against a 5000 cap leave no
 /// room for a third until they finish and their real spend replaces the reservation. A batch that ends up over its cap by more than one task's
-/// cap while tasks are still running has them cancelled. A rate-limited or unavailable provider stops new starts and says how to switch to an
+/// cap while tasks are still running has them cancelled; so has a task that reports more than its own cap (live usage reaches the scheduler while the task
+/// runs, so the caps bind before it ends). A rate-limited or unavailable provider stops new starts and says how to switch to an
 /// API key; nothing switches by itself. A halt (the token) cancels what runs and starts nothing more.</summary>
 public sealed class BatchScheduler(ITaskRunner runner)
 {
@@ -19,6 +20,7 @@ public sealed class BatchScheduler(ITaskRunner runner)
         public CancellationTokenSource Cts { get; } = cts;
         public TaskUsage Reported { get; set; } = new(0, 0);
         public Task<TaskOutcome>? Task { get; set; }
+        public bool OverTaskCap { get; set; }
     }
 
     public async Task<BatchOutcome> RunAsync(IReadOnlyList<ResolvedTask> tasks, BatchLimits limits, CancellationToken ct)
@@ -55,14 +57,25 @@ public sealed class BatchScheduler(ITaskRunner runner)
             }
         }
 
+        void CheckTaskCap(Running r)
+        {
+            lock (gate)
+            {
+                if (r.OverTaskCap || (r.Reported.Tokens <= r.Limits.MaxTokens && (r.Limits.MaxUsd is not { } cap || r.Reported.Usd <= cap)))
+                    return;
+                r.OverTaskCap = true;
+                r.Cts.Cancel();
+            }
+        }
+
         void CheckOverspend()
         {
             lock (gate)
             {
                 var tokens = doneTokens + running.Values.Sum(r => r.Reported.Tokens);
                 var usd = doneUsd + running.Values.Sum(r => r.Reported.Usd);
-                var over = (limits.MaxTokensTotal is { } t && tokens > t + limits.PerTask.MaxTokens)
-                    || (limits.MaxUsdTotal is { } u && limits.PerTask.MaxUsd is { } p && usd > u + p);
+                var over = (limits.MaxTokensTotal is { } t && tokens > t)
+                    || (limits.MaxUsdTotal is { } u && usd > u);
                 if (!over || overspent)
                     return;
                 overspent = true;
@@ -89,6 +102,7 @@ public sealed class BatchScheduler(ITaskRunner runner)
                 {
                     lock (gate)
                         state.Reported = u;
+                    CheckTaskCap(state);
                     CheckOverspend();
                     changed.Release();
                 });
@@ -123,6 +137,10 @@ public sealed class BatchScheduler(ITaskRunner runner)
                 if (!state.Task!.IsCompleted)
                     continue;
                 var outcome = await state.Task;
+                if (outcome.Tokens == 0 && outcome.Usd == 0)
+                    outcome = outcome with { Tokens = state.Reported.Tokens, Usd = state.Reported.Usd };
+                if (state.OverTaskCap && outcome.State != TaskState.Completed)
+                    outcome = outcome with { State = TaskState.Failed, Error = ErrorCode.CostCapReached, Detail = "stopped: the task's cap was exceeded" };
                 lock (gate)
                 {
                     running.Remove(index);

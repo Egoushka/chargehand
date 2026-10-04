@@ -59,7 +59,22 @@ public class EngineSessionVolumesTests
         Assert.Equal(new byte[] { 0, 1, 2, 255 }, File.ReadAllBytes(System.IO.Path.Combine(dir.Path, "chargehand.bundle")));
         Assert.Equal("{}", File.ReadAllText(System.IO.Path.Combine(dir.Path, "session-outcome.json")));
         Assert.False(File.Exists(System.IO.Path.Combine(dir.Path, "driven-report.json")));
-        Assert.Equal(["chargehand.bundle", "driven-report.json", "session-outcome.json"], engine.Specs.Select(s => s.Name).Order());
+        Assert.Equal(["chargehand.bundle", "driven-report.json", "session-outcome.json"], engine.Specs.Select(s => s.Name).Order());     // the usage file is a poll, not an output
+    }
+
+    [Fact]
+    public async Task The_running_tally_is_read_from_the_usage_file_and_a_bad_one_is_ignored()
+    {
+        var engine = new FakeOut();
+        var volumes = new EngineSessionVolumes(engine, Image);
+        Assert.Null(await volumes.ReadUsageAsync("run1", default));
+        engine.Files["session-usage.json"] = """{"tokens": 4200}"""u8.ToArray();
+        Assert.Equal(new TaskUsage(4200, 0), await volumes.ReadUsageAsync("run1", default));
+        Assert.Equal("session-usage.json", engine.Specs.Last().Name);
+        engine.Files["session-usage.json"] = """{"tokens": 42"""u8.ToArray();
+        Assert.Null(await volumes.ReadUsageAsync("run1", default));
+        engine.Files["session-usage.json"] = """{"tokens": -5}"""u8.ToArray();
+        Assert.Null(await volumes.ReadUsageAsync("run1", default));
     }
 
     [Fact]

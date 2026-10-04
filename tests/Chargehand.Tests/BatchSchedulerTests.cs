@@ -148,6 +148,55 @@ public class BatchSchedulerTests
         Assert.True(runner.Tokens["t1"].IsCancellationRequested);
     }
 
+    [Fact]
+    public async Task A_task_that_reports_more_than_its_own_cap_is_stopped_while_it_runs()
+    {
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner).RunAsync(Tasks(2), Limits(parallel: 2, perTaskTokens: 1000), default);
+        await runner.WaitStarted(2);
+        runner.Progress["t1"].Report(new TaskUsage(1200, 0));
+        await Task.Delay(100);
+        Assert.True(runner.Tokens["t1"].IsCancellationRequested);
+        Assert.False(runner.Tokens["t2"].IsCancellationRequested);
+        runner.Finish("t2");
+        var outcome = await batch;
+        Assert.Equal(TaskState.Failed, outcome.Tasks[0].State);
+        Assert.Equal(ErrorCode.CostCapReached, outcome.Tasks[0].Error);
+        Assert.Equal(1200, outcome.Tasks[0].Tokens);         // what it used before it was stopped still counts
+        Assert.Equal(TaskState.Completed, outcome.Tasks[1].State);
+    }
+
+    [Fact]
+    public async Task A_task_over_its_dollar_cap_is_stopped_too()
+    {
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner).RunAsync(Tasks(1), Limits(parallel: 1, perTaskUsd: 2m), default);
+        await runner.WaitStarted(1);
+        runner.Progress["t1"].Report(new TaskUsage(10, 2.5m));
+        var outcome = await batch;
+        Assert.Equal(ErrorCode.CostCapReached, outcome.Tasks.Single().Error);
+        Assert.Equal(2.5m, outcome.Usd);
+    }
+
+    [Fact]
+    public async Task The_batch_cap_stops_running_tasks_as_soon_as_their_reported_use_passes_it()
+    {
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner).RunAsync(Tasks(2), Limits(parallel: 2, tokens: 3000, perTaskTokens: 1500), default);
+        await runner.WaitStarted(2);
+        runner.Progress["t1"].Report(new TaskUsage(1400, 0));
+        runner.Progress["t2"].Report(new TaskUsage(1400, 0));      // 2800 of 3000: still inside
+        await Task.Delay(100);
+        Assert.False(runner.Tokens["t1"].IsCancellationRequested);
+        runner.Progress["t2"].Report(new TaskUsage(1500, 0));      // 2900
+        runner.Progress["t1"].Report(new TaskUsage(1500, 0));      // 3000: not over yet
+        await Task.Delay(100);
+        Assert.False(runner.Tokens["t1"].IsCancellationRequested);
+        runner.Progress["t1"].Report(new TaskUsage(1501, 0));      // 3001
+        var outcome = await batch;
+        Assert.All(outcome.Tasks, t => Assert.Equal(ErrorCode.CostCapReached, t.Error));
+    }
+
     [Theory]
     [InlineData(ErrorCode.RateLimited)]
     [InlineData(ErrorCode.ProviderUnavailable)]

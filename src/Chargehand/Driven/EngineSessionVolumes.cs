@@ -12,7 +12,7 @@ public sealed class EngineSessionVolumes(IOutVolumeEngine engine, string image) 
 
     public async Task FetchOutputAsync(string runId, string directory, CancellationToken ct)
     {
-        foreach (var name in ContainerTemplate.OutFilesOut)
+        foreach (var name in ContainerTemplate.OutFilesOut.Where(n => n != ContainerTemplate.UsageFile))
         {
             var path = Path.Combine(directory, name);
             bool found;
@@ -20,6 +20,21 @@ public sealed class EngineSessionVolumes(IOutVolumeEngine engine, string image) 
                 found = await engine.ReadOutFileAsync(Spec(runId, name), file, ct);
             if (!found)
                 File.Delete(path);
+        }
+    }
+
+    public async Task<TaskUsage?> ReadUsageAsync(string runId, CancellationToken ct)
+    {
+        using var buffer = new MemoryStream();
+        if (!await engine.ReadOutFileAsync(Spec(runId, ContainerTemplate.UsageFile), buffer, ct))
+            return null;
+        try
+        {
+            return JsonSerializer.Deserialize<SessionUsage>(buffer.ToArray(), SessionCli.Json) is { Tokens: >= 0 } usage ? new TaskUsage(usage.Tokens, 0) : null;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 
