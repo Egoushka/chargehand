@@ -327,6 +327,16 @@
         }
       }
     },
+    "prompt_enhancer": {
+      "description": "A prompt enhancer (ADR 0040), unset by default: an entry of mcp_servers that lists the tools enhance and feedback (whetstone's contract). A client sends it the prompt and the repository, commit, task kind and client name, shows the rewrite beside the original and sends the original unless the user accepts it; the outcome goes back through feedback. A slow, failing or unreachable enhancer means the original is sent.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["server"],
+      "properties": {
+        "server": { "type": "string", "description": "A key of mcp_servers." },
+        "deadline_ms": { "type": "integer", "minimum": 50, "maximum": 30000, "description": "How long to wait for enhance before sending the original; default 1500. Also the deadline_ms the enhancer is told." }
+      }
+    },
     "memory": {
       "description": "Long-term memory (ADR 0034): an ordered list of providers, each an entry of mcp_servers plus a declarative mapping from chargehand's recall and retain to that server's tools. Each executed run asks every provider at once, each under its own timeout, and gives the merged facts to its nodes as unverified context labelled with the provider's name. The single-object form (backend, url, namespace) was removed; a profile that still has it fails to load.",
       "type": "array",

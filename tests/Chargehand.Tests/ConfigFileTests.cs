@@ -103,6 +103,18 @@ public class ConfigFileTests
         Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
     }
 
+    [Theory]
+    [InlineData("""{"schema":"profile/v1","prompt_enhancer":{"server":"w"}}""", true)]
+    [InlineData("""{"schema":"profile/v1","prompt_enhancer":{"server":"w","deadline_ms":800}}""", true)]
+    [InlineData("""{"schema":"profile/v1","prompt_enhancer":{}}""", false)]                                  // no server
+    [InlineData("""{"schema":"profile/v1","prompt_enhancer":{"server":"w","deadline_ms":10}}""", false)]     // below the contract's minimum
+    [InlineData("""{"schema":"profile/v1","prompt_enhancer":{"server":"w","tools":{}}}""", false)]           // no tool mapping: the contract is fixed
+    public void The_schema_checks_prompt_enhancer(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
     [Fact]
     public void A_recall_only_provider_with_no_namespace_passes_the_schema()
     {
