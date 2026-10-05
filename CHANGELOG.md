@@ -7,12 +7,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-10-05
+
+Two fixes found by the first real driven batch on a Linux host (one of them hid the other) and a docs fix from the first deploy. All additive; `driven.enabled` is still false by default.
+
 ### Fixed
 
 - The first driven batch on a Linux host failed, and said the wrong thing (ADR 0039, CHARGEHAND-153). (1) The workspace helper cloned the checkout with `-c safe.directory`, which `git clone` of a local path does not pass to its `git-upload-pack` child: on a host where the checkout belongs to another user it stopped with "detected dubious ownership" (a Mac's bind mounts hide the owner, so no earlier run saw it). The helper now sets a global `safe.directory` in its writable `/tmp`. (2) `RunnerClient.RemoveAsync` threw on the runner's 404 for a container that was never started, so any failure before the start was replaced by "no such session container" and the rest of the cleanup was skipped; a missing container is now a no-op, as with `docker rm -f`.
-
-### Fixed
-
 - The server guide says what the runner needs to start and to run a batch (CHARGEHAND-152): an image reference without a tag (a tagged one is refused, and the runner prints its usage and exits), `--source-roots` and `--outside-networks`.
 
 ## [0.8.2] - 2026-10-05
@@ -615,7 +616,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.3...HEAD
+[0.8.3]: https://github.com/Egoushka/chargehand/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/Egoushka/chargehand/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/Egoushka/chargehand/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Egoushka/chargehand/compare/v0.6.1...v0.8.0
