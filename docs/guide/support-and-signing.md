@@ -1,4 +1,9 @@
-# Support checking and signed results
+---
+title: "Support checking and signed results"
+description: "How chargehand checks that a cited text supports its claim, and how a result is signed with your key and verified offline."
+order: 12
+section: "Concepts"
+---
 
 Since 0.8.0. [ADR 0036](../adr/0036-support-checking-and-signed-results.md) has the decisions and their reasons.
 

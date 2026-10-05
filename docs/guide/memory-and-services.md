@@ -1,6 +1,6 @@
 ---
 title: "Memory and services"
-description: "Recall from any MCP memory server, several at once, and give a preset's workers read-only MCP tools: mcp_servers, the memory mapping with Hindsight and Chronicle examples, retain, services, and the check command."
+description: "Recall from any MCP memory server and give a preset's workers read-only MCP tools: mcp_servers, the memory mapping, retain, services and the check command."
 order: 6
 section: "Guides"
 ---
