@@ -1,4 +1,9 @@
-# Writing a branch
+---
+title: "Writing a branch"
+description: "The code preset takes a request to a git branch that passed the repository's tests in a sandbox: how to run it and what the result carries."
+order: 11
+section: "Guides"
+---
 
 Since 0.8.0. The `code` preset takes a request to a git branch that passed the repository's tests in a
 sandbox. [ADR 0035](../adr/0035-sandboxed-writing-workers.md) has the decisions and their reasons.

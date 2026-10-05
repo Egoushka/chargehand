@@ -1,6 +1,6 @@
 ---
 title: "Driven writing sessions"
-description: "A list of tasks becomes parallel headless Claude Code sessions in containers and a draft pull request per task: what is built, how it is isolated, and what is not wired yet."
+description: "A list of tasks becomes parallel headless Claude Code sessions in containers, each ending in a draft pull request: isolation, results and what is not wired yet."
 order: 10
 section: "Guides"
 ---
