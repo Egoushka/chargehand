@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `chargehand runner` says which argument it rejected (ADR 0039, CHARGEHAND-152): the reason, with the value, on its own line before the usage (the usage names every flag, so alone it did not say which one was wrong, and the first deploy restart-looped on a tagged image reference). A valid command line with `--source-roots`, `--outside-networks` or `--forwards` empty now prints a note for each, since each starts fine and then silently refuses work (no workspace, no network join, no callback).
+
 ### Changed
 
 - The first deployment of driven sessions on a VPS is recorded (ADR 0039, the driven guide, the roadmap; CHARGEHAND-156): a draft pull request on the fourth attempt, the four defects each attempt found, and what is still open (the credential gateway, the kept per-task output volume).
