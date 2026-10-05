@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-10-05
+
+The second fix from the first driven batches on a Linux host: a batch through the runner could not call the server back. Additive; `driven.enabled` is still false by default.
+
 ### Fixed
 
 - A driven batch through the runner could not call the server back (ADR 0039, CHARGEHAND-154): the runner's egress request had no field for the forward, so the egress container started without it and a session's research and review call was refused (`ECONNREFUSED`; it stopped and asked, rightly, instead of skipping them). The request now carries the forwards and the runner starts only those listed in its new `--forwards` option, like `--outside-networks`, so a server cannot point an egress container at any other host. An egress with no forwards is unchanged.
@@ -620,7 +624,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.3...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.4...HEAD
+[0.8.4]: https://github.com/Egoushka/chargehand/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/Egoushka/chargehand/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/Egoushka/chargehand/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/Egoushka/chargehand/compare/v0.8.0...v0.8.1
