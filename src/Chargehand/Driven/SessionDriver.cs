@@ -27,8 +27,9 @@ public sealed record SessionCommand(string File, IReadOnlyList<string> LeadingAr
 public sealed record SessionOptions(string WorkDirectory, string OutDirectory, SessionTask Task, SessionCommand Command, IReadOnlyList<string> Secrets,
     string PromptText, string? McpUrl, string? McpToken, string PluginDirectory = "/opt/chargehand-plugin");
 
-/// <summary>The running tally the session writes to <c>session-usage.json</c>: input plus output tokens so far. Dollars are not known until the stream's <c>result</c>.</summary>
-public sealed record SessionUsage(long Tokens);
+/// <summary>The running tally the session writes to <c>session-usage.json</c>: input plus output tokens so far, assistant messages so far, and the <c>change</c> skill's step of the
+/// latest tool call that names one (<see cref="Adherence.StageOf"/>). Dollars are not known until the stream's <c>result</c>.</summary>
+public sealed record SessionUsage(long Tokens, int? Turns = null, string? Stage = null);
 
 public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed }
 
@@ -99,7 +100,8 @@ public static partial class SessionDriver
             var started = DateTimeOffset.UtcNow;
             var detector = new StallDetector(TimeSpan.FromSeconds(task.NoProgressSeconds), 5, task.MaxTurns, TimeSpan.FromMinutes(task.MaxMinutes), started);
             var tally = new Tally();
-            long lastUsage = -1;
+            SessionUsage? lastUsage = null;
+            string? stage = null;
             using var process = Process.Start(psi) ?? throw new InvalidOperationException("could not start Claude Code");
             process.StandardInput.Close();
             var stderr = process.StandardError.ReadToEndAsync(ct);
@@ -119,7 +121,8 @@ public static partial class SessionDriver
                     var now = DateTimeOffset.UtcNow;
                     detector.OnEvent(e, now);
                     tally.Add(e);
-                    WriteUsage(options.OutDirectory, tally, ref lastUsage);
+                    stage = Adherence.StageOf(e) ?? stage;
+                    WriteUsage(options.OutDirectory, new SessionUsage(tally.Input + tally.Output, detector.Turns, stage), ref lastUsage);
                     if (task.MaxTokens is { } cap && tally.Input + tally.Output >= cap && stoppedBy.Set(SessionStatus.TokenCap, "token_cap"))
                         Interrupt(process);
                 }
@@ -164,17 +167,16 @@ public static partial class SessionDriver
 
     /// <summary>Keeps <see cref="ContainerTemplate.UsageFile"/> current for the host's poll. It is written beside and renamed, so a read never sees half a file; a failed write only
     /// delays the host's view, never the session.</summary>
-    private static void WriteUsage(string directory, Tally tally, ref long last)
+    private static void WriteUsage(string directory, SessionUsage usage, ref SessionUsage? last)
     {
-        var tokens = tally.Input + tally.Output;
-        if (tokens == last)
+        if (usage == last)
             return;
         try
         {
             var file = Path.Combine(directory, ContainerTemplate.UsageFile);
-            File.WriteAllText(file + ".tmp", JsonSerializer.Serialize(new SessionUsage(tokens), OutcomeJson));
+            File.WriteAllText(file + ".tmp", JsonSerializer.Serialize(usage, OutcomeJson));
             File.Move(file + ".tmp", file, overwrite: true);
-            last = tokens;
+            last = usage;
         }
         catch (IOException)
         {

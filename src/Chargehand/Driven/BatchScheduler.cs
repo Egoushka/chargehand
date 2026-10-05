@@ -23,7 +23,8 @@ public sealed class BatchScheduler(ITaskRunner runner)
         public bool OverTaskCap { get; set; }
     }
 
-    public async Task<BatchOutcome> RunAsync(IReadOnlyList<ResolvedTask> tasks, BatchLimits limits, CancellationToken ct)
+    /// <param name="onFinished">Told each started task's final outcome as it ends, after the caps have had their say.</param>
+    public async Task<BatchOutcome> RunAsync(IReadOnlyList<ResolvedTask> tasks, BatchLimits limits, CancellationToken ct, Action<TaskOutcome>? onFinished = null)
     {
         var outcomes = new TaskOutcome?[tasks.Count];
         var running = new Dictionary<int, Running>();
@@ -152,6 +153,7 @@ public sealed class BatchScheduler(ITaskRunner runner)
                 if (overspent && outcome.State != TaskState.Completed)
                     outcome = outcome with { Error = ErrorCode.CostCapReached, Detail = "stopped: the batch's cap was exceeded" };
                 outcomes[index] = outcome;
+                onFinished?.Invoke(outcome);
                 if (outcome.Error is ErrorCode.RateLimited or ErrorCode.ProviderUnavailable && notStartedReason is null)
                 {
                     notStartedReason = "not started: the provider is rate limited or unavailable";

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Containers;
 using Chargehand.Contracts;
@@ -47,7 +48,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         try
         {
             key = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
-            result = await RunBatchAsync(request, runId, traceId, mint, key is null ? null : r => ResultSignature.Sign(r, key), ct);
+            result = await RunBatchAsync(request, runId, traceId, mint, key is null ? null : r => ResultSignature.Sign(r, key), progress, ct);
         }
         catch (Exception e) when (e is not OperationCanceledException || cancelledByCaller?.Invoke() == true)
         {
@@ -66,7 +67,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         return result;
     }
 
-    private async Task<ResultContract> RunBatchAsync(RunRequest request, string runId, string traceId, TaskTokenMinter mint, Func<ResultContract, ResultContract>? sign, CancellationToken ct)
+    private async Task<ResultContract> RunBatchAsync(RunRequest request, string runId, string traceId, TaskTokenMinter mint, Func<ResultContract, ResultContract>? sign,
+        Action<RunStatus>? progress, CancellationToken ct)
     {
         var settings = profile.Driven ?? new DrivenSettings();
         // Throws when the profile has driven sessions off, so a refused request touches nothing else.
@@ -104,8 +106,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 forward is null ? null : $"{BatchNetworkInfo.ServiceUrl(port)}/v1/mcp", drivenPreset, limits.PerTask, priced, modelEnvironment, push,
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1");
-            var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll);
-            ran = await new BatchScheduler(runner).RunAsync(ready, limits, ct);
+            var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress);
+            ran = await new BatchScheduler(runner).RunAsync(ready, limits, ct, o => progress?.Invoke(TaskFinished(runId, o)));
         }
         finally
         {
@@ -116,6 +118,16 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var all = request.Driven.Tasks.Select(t => unresolved.FirstOrDefault(u => u.Id == t.Id) ?? ran.Tasks.First(o => o.Id == t.Id)).ToList();
         return DrivenResult.BuildBatch(runId, traceId, "", new BatchOutcome(all, ran.Action), CredentialDelivery, priced, claude.Version);
     }
+
+    private static RunStatus TaskFinished(string runId, TaskOutcome o) =>
+        RunStatus.Of(runId, RunState.Running, RunEventKind.TaskFinished) with
+        {
+            TaskId = o.Id,
+            Branch = o.Branch,
+            PrUrl = o.PrUrl,
+            Tokens = o.Tokens,
+            Detail = $"task {o.Id}: {JsonNamingPolicy.SnakeCaseLower.ConvertName(o.State.ToString())}{(o.Detail is { } d ? $": {d}" : "")}",
+        };
 
     private static string Resolve(DrivenServices s, string item)
     {

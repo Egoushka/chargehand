@@ -109,6 +109,20 @@ public class DrivenContractsTests
     }
 
     [Fact]
+    public void A_session_progress_event_carries_tokens_and_a_stage()
+    {
+        const string json = """{"contract_version":"run-status/v1","run_id":"r","status":"running","event":"session_progress","task_id":"t1","tokens":48200,"turns":12,"stage":"write"}""";
+        using var doc = JsonDocument.Parse(json);
+        Assert.Empty(ContractSchemas.Validate(ContractSchemas.RunStatus, doc.RootElement));
+        var typed = JsonSerializer.Deserialize<RunStatus>(json, ContractJson.Options)!;
+        Assert.Equal((48200L, SessionStage.Write), (typed.Tokens, typed.Stage));
+        Assert.Contains("\"stage\":\"write\"", JsonSerializer.Serialize(typed, ContractJson.Options));
+
+        using var bad = JsonDocument.Parse(json.Replace("\"write\"", "\"deploy\"", StringComparison.Ordinal));
+        Assert.NotEmpty(ContractSchemas.Validate(ContractSchemas.RunStatus, bad.RootElement));
+    }
+
+    [Fact]
     public void A_run_summary_validates_and_round_trips()
     {
         const string json = """{"contract_version":"run-summary/v1","run_id":"r1","parent_run_id":"r0","task_ref":"CHARGEHAND-12","preset":"driven","status":"failed","started_at":"2026-09-30T12:00:00Z","finished_at":"2026-09-30T12:20:00Z","usd":null,"branch":"chargehand/r1","pr_url":null,"error_code":"push_rejected"}""";

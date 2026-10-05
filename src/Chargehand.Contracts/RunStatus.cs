@@ -19,7 +19,9 @@ public sealed record RunStatus(
     string? Branch = null,
     string? PrUrl = null,
     decimal? UsdTotal = null,
-    int? Turns = null)
+    int? Turns = null,
+    long? Tokens = null,
+    SessionStage? Stage = null)
 {
     public static RunStatus Of(string runId, RunState status, RunEventKind? kind = null) => new("run-status/v1", runId, status, kind, DateTimeOffset.UtcNow);
 
@@ -31,3 +33,6 @@ public sealed record RunStatus(
 public enum RunState { Queued, Running, Lost, Completed, NeedsInput, Failed, Denied }
 
 public enum RunEventKind { Accepted, Started, Intake, NodeStarted, NodeFinished, RunFinished, ContainerStarted, SessionProgress, VerifyFinished, Pushed, PrOpened, TaskFinished }
+
+/// <summary>The <c>change</c> skill's step a driven session is on, by its latest tool call: research, write, test, review (the order <c>chargehand runs adherence</c> checks).</summary>
+public enum SessionStage { Research, Write, Test, Review }

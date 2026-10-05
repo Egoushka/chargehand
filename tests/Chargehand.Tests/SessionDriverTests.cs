@@ -167,6 +167,25 @@ public class SessionDriverTests
     }
 
     [Fact]
+    public async Task The_usage_file_also_says_how_many_turns_and_which_step_the_session_is_on()
+    {
+        using var w = new Workspace();
+        var edit = JsonSerializer.Serialize(new
+        {
+            type = "assistant",
+            message = new { id = "m2", content = new object[] { new { type = "tool_use", id = "tu1", name = "Edit", input = new { file_path = "/work/a.txt" } } }, usage = new { input_tokens = 10, output_tokens = 5 } },
+        });
+        var usage = Path.Combine(w.Out, "session-usage.json");
+        var script = Emit(Init, Assistant("m1", "looking"), edit) + $"\nfor i in 1 2 3 4 5 6 7 8 9 10; do grep -q 'write' '{usage}' 2>/dev/null && break; sleep 0.2; done\n"
+            + $"cp '{usage}' '{Path.Combine(w.Dir.Path, "seen.json")}'\n" + Emit(Result());
+        await SessionDriver.RunAsync(Options(w, script, Task()), default);
+        var seen = JsonDocument.Parse(File.ReadAllText(Path.Combine(w.Dir.Path, "seen.json"))).RootElement;
+        Assert.Equal(135, seen.GetProperty("tokens").GetInt64());
+        Assert.Equal(2, seen.GetProperty("turns").GetInt32());
+        Assert.Equal("write", seen.GetProperty("stage").GetString());
+    }
+
+    [Fact]
     public void The_claude_command_line_is_headless_bounded_and_carries_no_secret()
     {
         var args = SessionDriver.ClaudeArgs(Task(maxTokens: 500_000) with { Model = "claude-sonnet-5-5", MaxUsd = 2.5m }, "/opt/plugin", "/tmp/mcp.json", "/tmp/prompt.md");
