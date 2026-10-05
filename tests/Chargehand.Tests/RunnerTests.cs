@@ -68,7 +68,7 @@ public class RunnerTests
     private static async Task<Runner> Start(int maxContainers = 8, IReadOnlyList<string>? hosts = null)
     {
         var engine = new FakeEngine();
-        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage, maxContainers, SourceRoots: ["/srv/checkouts"], OutsideNetworks: ["stack_net"]), AllowedHosts: hosts), engine);
+        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage, maxContainers, SourceRoots: ["/srv/checkouts"], OutsideNetworks: ["stack_net"], Forwards: ["4300=chargehand:4300"]), AllowedHosts: hosts), engine);
         await app.StartAsync();
         return new Runner(engine, app);
     }
@@ -317,6 +317,33 @@ public class RunnerTests
         var client = new RunnerClient(r.Http);
         await client.RemoveAsync("chargehand-run-not-started", default);
         Assert.Empty(r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task An_egress_carries_the_forwards_the_runner_allows_and_refuses_any_other()
+    {
+        // Without this the egress container started with no forward at all: a session's call back to the server was refused (measured on the first
+        // batch through a runner on a Linux host), because the runner's egress request had no field for it.
+        await using var r = await Start();
+        var client = new RunnerClient(r.Http);
+        await client.StartEgressAsync(new EgressSpec("b1", "ignored-by-runner", "chargehand-net-b1", ["api.anthropic.com"], Forwards: ["4300=chargehand:4300"]), default);
+        Assert.Equal(["4300=chargehand:4300"], r.Engine.Egress!.Forwards);
+        Assert.Equal(EgressImage, r.Engine.Egress.Image);
+
+        var refused = await Assert.ThrowsAsync<ChargehandException>(() => client.StartEgressAsync(
+            new EgressSpec("b2", "ignored-by-runner", "chargehand-net-b2", ["api.anthropic.com"], Forwards: ["4300=evil.example:443"]), default));
+        Assert.Equal(Chargehand.Contracts.ErrorCode.ContainerUnavailable, refused.Code);
+        Assert.Contains("forward", refused.Message);
+        Assert.Equal("b1", r.Engine.Egress.BatchId);   // the refused request reached no engine
+    }
+
+    [Fact]
+    public async Task An_egress_without_forwards_still_starts()
+    {
+        await using var r = await Start();
+        var client = new RunnerClient(r.Http);
+        await client.StartEgressAsync(new EgressSpec("b1", "ignored-by-runner", "chargehand-net-b1", ["api.anthropic.com"]), default);
+        Assert.True(r.Engine.Egress!.Forwards is null or { Count: 0 });
     }
 
     [Fact]

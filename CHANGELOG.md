@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A driven batch through the runner could not call the server back (ADR 0039, CHARGEHAND-154): the runner's egress request had no field for the forward, so the egress container started without it and a session's research and review call was refused (`ECONNREFUSED`; it stopped and asked, rightly, instead of skipping them). The request now carries the forwards and the runner starts only those listed in its new `--forwards` option, like `--outside-networks`, so a server cannot point an egress container at any other host. An egress with no forwards is unchanged.
+
 ## [0.8.3] - 2026-10-05
 
 Two fixes found by the first real driven batch on a Linux host (one of them hid the other) and a docs fix from the first deploy. All additive; `driven.enabled` is still false by default.
