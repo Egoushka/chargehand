@@ -11,7 +11,7 @@ public static class RunnerCli
 {
     public const string KeyVariable = "CHARGEHAND_RUNNER_KEY";
 
-    public const string Usage = "usage: chargehand runner --listen <ip:port> --images <name@sha256:...,...> --egress-image <name@sha256:...> [--max-containers N] [--allowed-hosts a,b] [--source-roots /dir,...] [--outside-networks name,...]  (key: CHARGEHAND_RUNNER_KEY)";
+    public const string Usage = "usage: chargehand runner --listen <ip:port> --images <name@sha256:...,...> --egress-image <name@sha256:...> [--max-containers N] [--allowed-hosts a,b] [--source-roots /dir,...] [--outside-networks name,...] [--forwards listen=host:port,...]  (key: CHARGEHAND_RUNNER_KEY)";
 
     public static RunnerSettings? Parse(IReadOnlyList<string> args, string? key, TextWriter error)
     {
@@ -27,6 +27,7 @@ public static class RunnerCli
         List<string> hosts = [];
         List<string> roots = [];
         List<string> outside = [];
+        List<string> forwards = [];
         for (var i = 0; i < args.Count; i += 2)
         {
             if (i + 1 >= args.Count)
@@ -48,6 +49,9 @@ public static class RunnerCli
                 case "--outside-networks":
                     outside = [.. args[i + 1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
                     break;
+                case "--forwards":
+                    forwards = [.. args[i + 1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+                    break;
                 case "--source-roots":
                     roots = [.. args[i + 1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
                     break;
@@ -60,9 +64,10 @@ public static class RunnerCli
         }
         if (listen is null || images is not { Count: > 0 } || egress is null
             || !images.All(ContainerTemplate.IsImageReference) || !ContainerTemplate.IsImageReference(egress)
-            || roots.Any(r => !r.StartsWith('/') || r.TrimEnd('/').Length == 0 || r.Contains("..", StringComparison.Ordinal)))
+            || roots.Any(r => !r.StartsWith('/') || r.TrimEnd('/').Length == 0 || r.Contains("..", StringComparison.Ordinal))
+            || forwards.Any(f => Chargehand.Egress.PortForward.Parse(f) is null))
             return Fail(error);
-        return new RunnerSettings(listen.Port, key, new RunnerPolicy(images, egress, max, SourceRoots: roots, OutsideNetworks: outside), listen.Address.ToString(), hosts);
+        return new RunnerSettings(listen.Port, key, new RunnerPolicy(images, egress, max, SourceRoots: roots, OutsideNetworks: outside, Forwards: forwards), listen.Address.ToString(), hosts);
     }
 
     public static async Task<int> RunAsync(IReadOnlyList<string> args, TextWriter error, CancellationToken ct)

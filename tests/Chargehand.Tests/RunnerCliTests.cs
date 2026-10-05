@@ -10,7 +10,7 @@ public class RunnerCliTests
     [Fact]
     public void A_full_command_line_parses_into_settings()
     {
-        var settings = RunnerCli.Parse(["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress, "--max-containers", "6", "--allowed-hosts", "runner.internal", "--source-roots", "/srv/checkouts,/srv/other", "--outside-networks", "stack_net"],
+        var settings = RunnerCli.Parse(["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress, "--max-containers", "6", "--allowed-hosts", "runner.internal", "--source-roots", "/srv/checkouts,/srv/other", "--outside-networks", "stack_net", "--forwards", "4300=chargehand:4300"],
             key: "k", TextWriter.Null);
         Assert.Equal(4310, settings!.Port);
         Assert.Equal("127.0.0.1", settings.Listen);
@@ -20,6 +20,7 @@ public class RunnerCliTests
         Assert.Equal(["runner.internal"], settings.AllowedHosts);
         Assert.Equal(["/srv/checkouts", "/srv/other"], settings.Policy.SourceRoots);
         Assert.Equal(["stack_net"], settings.Policy.OutsideNetworks);
+        Assert.Equal(["4300=chargehand:4300"], settings.Policy.Forwards);
     }
 
     [Theory]
@@ -30,6 +31,7 @@ public class RunnerCliTests
     [InlineData("--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", "evil")]
     [InlineData("--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress, "--unknown", "x")]
     [InlineData("--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress, "--source-roots", "relative/root")]
+    [InlineData("--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress, "--forwards", "not-a-forward")]
     [InlineData("--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress, "--source-roots", "/")]
     public void A_bad_command_line_prints_usage_and_returns_nothing(params string[] args)
     {

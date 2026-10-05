@@ -8,8 +8,9 @@ namespace Chargehand.Runner;
 /// <param name="MaxContainers">Labelled containers that may exist at once, running or not.</param>
 /// <param name="OutsideNetworks">Networks besides <c>bridge</c> a session container's egress proxy may be joined to: the network the chargehand server sits on, so a session can reach it through a forward.</param>
 /// <param name="SourceRoots">Directories a workspace's read-only source may be under (chargehand's checkouts). None: no workspace is prepared, because a source path names a host directory.</param>
+/// <param name="Forwards">The forwards (<c>listen-port=host:port</c>) an egress container may carry: how a session calls the chargehand server back. The server names them in its request and the runner starts only these, so a server cannot point an egress container at any other host. None: an egress container carries no forward.</param>
 public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressImage, int MaxContainers = 8, int MaxMemoryMb = 16_384, double MaxCpus = 4, int MaxPids = 1024,
-    IReadOnlyList<string>? SourceRoots = null, IReadOnlyList<string>? OutsideNetworks = null)
+    IReadOnlyList<string>? SourceRoots = null, IReadOnlyList<string>? OutsideNetworks = null, IReadOnlyList<string>? Forwards = null)
 {
     public const string WorkPrefix = "chargehand-work-";
     public const string OutPrefix = "chargehand-out-";
@@ -64,6 +65,9 @@ public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressIma
 
     public static string? RefuseNetwork(string name) =>
         name.StartsWith(NetworkPrefix, StringComparison.Ordinal) ? null : $"a network must start with {NetworkPrefix}";
+
+    public string? RefuseForwards(IReadOnlyList<string>? requested) =>
+        requested is null || requested.All(f => Forwards?.Contains(f, StringComparer.Ordinal) ?? false) ? null : "a forward may only be one the runner is configured for (--forwards)";
 
     public string? RefuseConnect(string network) =>
         network == OutsideNetwork || (OutsideNetworks?.Contains(network) ?? false) ? null : $"a container may only be joined to {OutsideNetwork} or a configured outside network";

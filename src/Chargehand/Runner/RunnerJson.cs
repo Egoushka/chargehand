@@ -17,7 +17,7 @@ public sealed record RunnerNetwork(string Name, string BatchId);
 public sealed record RunnerConnect(string Container, string Network);
 
 /// <summary>The image is the runner's, not the caller's.</summary>
-public sealed record RunnerEgress(string BatchId, string Network, List<string> Allow);
+public sealed record RunnerEgress(string BatchId, string Network, List<string> Allow, List<string>? Forwards = null);
 
 /// <summary>A workspace to prepare; the runner builds the helper's command line from <see cref="Chargehand.Containers.ContainerTemplate.WorkspaceArgs"/>.</summary>
 public sealed record RunnerWorkspace(string RunId, string Image, string SourcePath, string WorkVolume, string Branch, string Commit);

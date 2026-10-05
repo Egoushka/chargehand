@@ -201,7 +201,9 @@ public static class RunnerServer
             var egress = await Body<RunnerEgress>(ctx, ct);
             if (RunnerPolicy.RefuseNetwork(egress.Network) is { } refusal)
                 return Refuse(refusal);
-            return Ok(new { id = await engine.StartEgressAsync(new EgressSpec(egress.BatchId, policy.EgressImage, egress.Network, egress.Allow), ct) });
+            if (policy.RefuseForwards(egress.Forwards) is { } forwardRefusal)
+                return Refuse(forwardRefusal);
+            return Ok(new { id = await engine.StartEgressAsync(new EgressSpec(egress.BatchId, policy.EgressImage, egress.Network, egress.Allow, Forwards: egress.Forwards), ct) });
         }));
 
         app.MapPost("/connect", (HttpContext ctx, CancellationToken ct) => Guard(async () =>
