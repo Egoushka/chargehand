@@ -22,9 +22,13 @@ public sealed record PushCredential(string Value, PushCredentialKind Kind = Push
 /// <param name="AllowCiChanges">Push a branch that changes CI configuration; off by default.</param>
 /// <param name="AllowNoTests">Push a branch of a repository with no test command; off by default.</param>
 /// <param name="AllowLocalRemote">Accept a <c>file://</c> remote (tests); a real deployment pushes to https or ssh only.</param>
+/// <param name="Report">Told each step as it ends: <c>verify_finished</c>, <c>pushed</c>, <c>pr_opened</c>.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
-    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null);
+    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null);
+
+/// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
+public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
 
 /// <summary>A verification run in a fresh container on the branch as the bundle holds it (ADR 0035's verifier, now in a container).</summary>
 public sealed record BranchVerification(string RunId, string BundlePath, string Branch, IReadOnlyList<string> Argv, TimeSpan Timeout);
@@ -137,6 +141,9 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         {
             var raw = await verifier.VerifyAsync(new BranchVerification(input.RunId, bundle, input.Branch, plan.Argv, input.VerifyTimeout ?? TimeSpan.FromMinutes(10)), ct);
             verification = raw with { Source = plan.Source, OutputTail = Redact(raw.OutputTail, secrets) };
+            var passed = verification.ExitCode == 0 && !verification.TimedOut;
+            input.Report?.Invoke(new HandoverEvent(RunEventKind.VerifyFinished, string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"tests {(passed ? "passed" : verification.TimedOut ? "timed out" : $"failed (exit {verification.ExitCode})")} in {verification.Duration.TotalSeconds:0}s: {string.Join(' ', verification.Argv)}")));
             if (verification.ExitCode != 0 || verification.TimedOut)
                 return Refuse(verification.TimedOut ? "the tests timed out in chargehand's own verification" : $"the tests failed in chargehand's own verification (exit {verification.ExitCode})", ErrorCode.VerificationFailed,
                     verification, changed, verificationPaths: verificationPaths, commit: commit);
@@ -145,6 +152,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         var push = await Git.RunAsync(scratch, PushEnvironment(input.Credential, input.RemoteUrl, input.ScratchRoot, env), PushArgs(input.RemoteUrl, input.Branch), GitTimeout, ct);
         if (push.ExitCode != 0)
             return Refuse($"the push was rejected: {push.Tail}", ErrorCode.PushRejected, verification, changed, verificationPaths: verificationPaths, commit: commit);
+        input.Report?.Invoke(new HandoverEvent(RunEventKind.Pushed, $"pushed {input.Branch}"));
 
         var repository = RemoteRepository.Parse(input.RemoteUrl) ?? (input.AllowLocalRemote ? new RemoteRepository("local", "local") : null);
         if (repository is null)
@@ -152,6 +160,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         try
         {
             var pr = await pullRequests.CreateDraftAsync(repository, input.Branch, input.BaseBranch, input.Title, DescribeBody(input.Body, changed, verification, verificationPaths), ct);
+            input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, "draft pull request opened", pr.Url));
             return new(HandoverStatus.Pushed, "", null, input.Branch, commit, pr, verification, changed, verificationPaths, [], changes);
         }
         catch (PullRequestException e)

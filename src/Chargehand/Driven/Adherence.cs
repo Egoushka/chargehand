@@ -64,6 +64,19 @@ public static partial class Adherence
         return new AdherenceReport(problems.Count == 0, reviews, Math.Max(reviews - 1, 0), problems, honestStop);
     }
 
+    /// <summary>The step of the last tool call in one stream event (research, write, test or review); null when the event is not an assistant message or names no step.</summary>
+    public static string? StageOf(JsonElement streamEvent)
+    {
+        if (streamEvent.ValueKind != JsonValueKind.Object || streamEvent.GetPropertyOrNull("type")?.GetString() != "assistant"
+            || streamEvent.GetPropertyOrNull("message")?.GetPropertyOrNull("content") is not { ValueKind: JsonValueKind.Array } content)
+            return null;
+        string? stage = null;
+        foreach (var block in content.EnumerateArray())
+            if (block.ValueKind == JsonValueKind.Object && block.GetPropertyOrNull("type")?.GetString() == "tool_use" && Step(block) is { } step)
+                stage = step;
+        return stage;
+    }
+
     private static string? Step(JsonElement block)
     {
         var name = block.GetPropertyOrNull("name")?.GetString() ?? "";

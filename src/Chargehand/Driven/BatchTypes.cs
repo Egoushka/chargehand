@@ -8,8 +8,8 @@ public enum TaskState { Completed, Failed, NeedsInput, NotStarted, Cancelled }
 public sealed record TaskOutcome(string Id, TaskState State, string? RunId = null, string? Detail = null, ErrorCode? Error = null, decimal Usd = 0, long Tokens = 0,
     string? Branch = null, string? PrUrl = null);
 
-/// <summary>What a running task has used so far, cumulative.</summary>
-public sealed record TaskUsage(long Tokens, decimal Usd);
+/// <summary>What a running task has used so far, cumulative, and where its session is: turns and stage are known only while it runs, from the session's tally.</summary>
+public sealed record TaskUsage(long Tokens, decimal Usd, int? Turns = null, SessionStage? Stage = null);
 
 /// <summary>The most one task may use. Tokens bind in both credential modes; <c>MaxUsd</c> is null where the credential is not priced.</summary>
 public sealed record TaskLimits(long MaxTokens, decimal? MaxUsd);

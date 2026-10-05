@@ -177,6 +177,25 @@ public class HandoverTests
     }
 
     [Fact]
+    public async Task Each_step_is_reported_as_it_finishes()
+    {
+        using var f = new Fixture();
+        List<HandoverEvent> seen = [];
+        var outcome = await new Handover(new FakeVerifier(), new FakePullRequests()).RunAsync(f.Input(with: i => i with { Report = seen.Add }), default);
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        Assert.Equal([RunEventKind.VerifyFinished, RunEventKind.Pushed, RunEventKind.PrOpened], seen.Select(e => e.Kind));
+        Assert.Contains("passed", seen[0].Detail);
+        Assert.Equal("https://example.test/o/r/pull/9", seen[2].PrUrl);
+
+        using var red = new Fixture();
+        seen.Clear();
+        await new Handover(new FakeVerifier(exit: 1), new FakePullRequests()).RunAsync(red.Input(with: i => i with { Report = seen.Add }), default);
+        var only = Assert.Single(seen);
+        Assert.Equal(RunEventKind.VerifyFinished, only.Kind);
+        Assert.Contains("failed", only.Detail);
+    }
+
+    [Fact]
     public async Task Session_claim_does_not_override_red_verification()
     {
         using var f = new Fixture();
