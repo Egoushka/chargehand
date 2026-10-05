@@ -43,7 +43,11 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
         RequirePlain(id);
         if (!ContainerTemplate.IsSignal(signal))
             throw new ArgumentException("invalid signal", nameof(signal));
-        Require(await RunAsync(["kill", $"--signal={signal}", id], ct), "docker kill failed");
+        var result = await RunAsync(["kill", $"--signal={signal}", id], ct);
+        // A container that already ended or is gone has nothing to signal: a cancel that loses the race with the session's own exit is still a cancel.
+        if (result.ExitCode != 0 && (result.Stderr.Contains("is not running", StringComparison.Ordinal) || result.Stderr.Contains("No such container", StringComparison.OrdinalIgnoreCase)))
+            return;
+        Require(result, "docker kill failed");
     }
 
     public async Task<ContainerState> InspectAsync(string id, CancellationToken ct)
