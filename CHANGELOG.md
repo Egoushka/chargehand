@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The first deployment of driven sessions on a VPS is recorded (ADR 0039, the driven guide, the roadmap; CHARGEHAND-156): a draft pull request on the fourth attempt, the four defects each attempt found, and what is still open (the credential gateway, the kept per-task output volume).
+
 ### Fixed
 
 - The server guide says that `repository_roots` must also cover `<worker_root>/.checkouts` for driven sessions (CHARGEHAND-155): a session's research and review calls name its own checkout, and without that root the server refuses them (`repository_not_allowed`), found on the first deploy.

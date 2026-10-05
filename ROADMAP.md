@@ -29,9 +29,11 @@ image.
 - ▶ **Driven sessions** (ADR 0039, pulled forward from after 1.0): a list of tasks becomes parallel headless Claude Code
   sessions, one container each, and a draft pull request per task that chargehand checked, tested in a fresh container
   and pushed itself. Built, and run end to end on a real TypeScript-on-Node repository: 10 of 10 sessions followed the
-  skill's steps, and 4 of 4 passable tasks reached a draft pull request (on a local remote). Open are the substituted
-  credential (a gateway; until then the model credential is in the container's environment) and deployment on the
-  server. It gets a minor version when it is wired; until then `driven.enabled` stays false in every real profile.
+  skill's steps, and 4 of 4 passable tasks reached a draft pull request (on a local remote). Deployed on a VPS (runner,
+  socket proxy, release images) and run there once: after four attempts, one test-only task on a private repository ended
+  in a draft pull request. Open is the substituted credential (a gateway; until then the model credential is in the
+  container's environment). It gets a minor version when it is wired; until then `driven.enabled` stays false in every
+  real profile.
   [Guide](docs/guide/driven.md).
 
 ## Stage 4 — Answers you can prove · ✅ (0.8)
