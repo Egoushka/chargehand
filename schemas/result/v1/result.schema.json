@@ -52,7 +52,7 @@
         "required": ["kind", "media_type", "sha256"],
         "anyOf": [{ "required": ["uri"] }, { "required": ["content"] }],
         "properties": {
-          "kind": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "minLength": 1, "description": "Free. Driven sessions (docs/guide/driven.md): branch, pull-request, verification, session-tests, review, session-log, changes (base, commit, files[{path, added, removed, binary}], files_total, diff cut at 32 KiB, diff_truncated)." },
           "uri": { "type": "string", "format": "uri-reference" },
           "content": { "type": "string", "maxLength": 65536, "description": "Inline UTF-8, at most 64 KiB (the validator checks bytes; the schema bounds characters)." },
           "media_type": { "type": "string", "pattern": "^[a-z]+/[a-zA-Z0-9.+-]+" },

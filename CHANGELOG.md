@@ -14,6 +14,7 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - `scripts/driven-e2e.sh` can run a batch through a real `chargehand runner` (`CHARGEHAND_E2E_RUNNER=runner`) and behind a `docker-socket-proxy` container with the deployment's flags (`proxy`), the way a VPS runs it (CHARGEHAND-157). The default `direct` is unchanged. A case asserts the proxy served the batch, and the runner's key joins the credential scan. Every earlier run used the server's own docker engine, so the runner path, where the first VPS batch found four defects, was untested.
+- A driven task's result carries a `changes` artifact (ADR 0039): each changed path with its added and removed line counts, and the unified diff cut at a line within 32 KiB, from chargehand's own clone of the bundle. Until now the changed paths only reached the pull request body as a count, so a client had to fetch the branch to see the change. A diff that looks like it carries a secret is left out; the paths and counts stay. The handover's git output cap now keeps a prefix instead of skipping a read that did not fit.
 
 ### Changed
 

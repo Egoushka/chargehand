@@ -45,8 +45,15 @@ public interface IBranchHandover
 public enum HandoverStatus { Pushed, PrFailed, NotPushed }
 
 /// <param name="Reason">Why it was not pushed, or why the pull request failed; a credential is never in it.</param>
+/// <param name="Changes">The branch against its base, once the bundle is fetched and the branch changes something; null before that.</param>
 public sealed record HandoverOutcome(HandoverStatus Status, string Reason, ErrorCode? Error, string? Branch, string? Commit, PullRequestRef? PullRequest, VerificationRecord? Verification,
-    IReadOnlyList<string> ChangedPaths, IReadOnlyList<string> ChangedVerificationPaths, IReadOnlyList<ScanFinding> Findings);
+    IReadOnlyList<string> ChangedPaths, IReadOnlyList<string> ChangedVerificationPaths, IReadOnlyList<ScanFinding> Findings, ChangeSummary? Changes = null);
+
+/// <summary>One path the branch changes, from <c>git diff --numstat --no-renames</c>: a rename is a delete and an add. Null counts: a binary file.</summary>
+public sealed record FileChange(string Path, int? Added, int? Removed);
+
+/// <param name="Diff">The unified diff, cut at a line within <see cref="Handover.MaxChangesDiffBytes"/>; null when the diff looked like it carried a secret.</param>
+public sealed record ChangeSummary(IReadOnlyList<FileChange> Files, string? Diff, bool DiffTruncated);
 
 /// <summary>What happens to a session's branch once the session is over (ADR 0039), all of it outside any container. chargehand makes a scratch clone of its own checkout,
 /// fetches the session's bundle into it (a bundle is objects and refs, no configuration, no hooks), and then checks the branch itself: it descends from the base, it changes
@@ -56,6 +63,9 @@ public sealed record HandoverOutcome(HandoverStatus Status, string Reason, Error
 public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pullRequests) : IBranchHandover
 {
     private const int MaxDiffBytes = 8 * 1024 * 1024;
+
+    /// <summary>The most of the unified diff a <see cref="ChangeSummary"/> keeps, so it fits an inline artifact (64 KiB) beside the paths.</summary>
+    public const int MaxChangesDiffBytes = 32 * 1024;
     private static readonly TimeSpan GitTimeout = TimeSpan.FromMinutes(5);
 
     public async Task<HandoverOutcome> RunAsync(HandoverInput input, CancellationToken ct)
@@ -66,9 +76,10 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         List<string> secrets = [.. input.Secrets ?? []];
         if (input.Credential is { } credential)
             secrets.Add(credential.Value);
+        ChangeSummary? changes = null;
         HandoverOutcome Refuse(string reason, ErrorCode error, VerificationRecord? verification = null, IReadOnlyList<string>? changed = null, IReadOnlyList<ScanFinding>? findings = null,
             IReadOnlyList<string>? verificationPaths = null, string? commit = null) =>
-            new(HandoverStatus.NotPushed, Redact(reason, secrets), error, input.Branch, commit, null, verification, changed ?? [], verificationPaths ?? [], findings ?? []);
+            new(HandoverStatus.NotPushed, Redact(reason, secrets), error, input.Branch, commit, null, verification, changed ?? [], verificationPaths ?? [], findings ?? [], changes);
 
         var bundle = Path.Combine(input.OutDirectory, "chargehand.bundle");
         if (!File.Exists(bundle))
@@ -97,12 +108,16 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         List<string> changed = [.. names.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries)];
         if (changed.Count == 0)
             return Refuse("the branch has no change against its base", ErrorCode.SessionFailed, commit: commit);
+        var numstat = await Git.RunAsync(scratch, env, ["diff", "--numstat", "--no-renames", "-z", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
+        changes = new ChangeSummary(ParseNumstat(numstat.Stdout), null, false);
         var diff = await Git.RunAsync(scratch, env, ["diff", "--no-color", "-U0", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
         if (diff.Truncated)
             return Refuse("the diff is too large to scan", ErrorCode.SessionFailed, changed: changed, commit: commit);
         var findings = DiffScan.Scan(diff.Stdout, secrets, changed);
         if (findings.Count > 0)
             return Refuse($"the diff looks like it carries a secret ({string.Join(", ", findings.Select(f => $"{f.Kind} in {f.Path}"))}); nothing was pushed", ErrorCode.SessionFailed, changed: changed, findings: findings, commit: commit);
+        var unified = await Git.RunAsync(scratch, env, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", input.BaseCommit, commit], GitTimeout, ct, MaxChangesDiffBytes);
+        changes = changes with { Diff = CutAtLine(Redact(unified.Stdout, secrets), unified.Truncated, out var cut), DiffTruncated = cut };
         var ci = DiffScan.CiPaths(changed);
         if (ci.Count > 0 && !input.AllowCiChanges)
             return Refuse($"the change edits CI configuration ({string.Join(", ", ci)}); chargehand does not push that, because pushing can run it", ErrorCode.SessionFailed, changed: changed, commit: commit);
@@ -133,15 +148,15 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
 
         var repository = RemoteRepository.Parse(input.RemoteUrl) ?? (input.AllowLocalRemote ? new RemoteRepository("local", "local") : null);
         if (repository is null)
-            return new(HandoverStatus.PrFailed, "the remote's owner and repository could not be read from its URL", ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, []);
+            return new(HandoverStatus.PrFailed, "the remote's owner and repository could not be read from its URL", ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes);
         try
         {
             var pr = await pullRequests.CreateDraftAsync(repository, input.Branch, input.BaseBranch, input.Title, DescribeBody(input.Body, changed, verification, verificationPaths), ct);
-            return new(HandoverStatus.Pushed, "", null, input.Branch, commit, pr, verification, changed, verificationPaths, []);
+            return new(HandoverStatus.Pushed, "", null, input.Branch, commit, pr, verification, changed, verificationPaths, [], changes);
         }
         catch (PullRequestException e)
         {
-            return new(HandoverStatus.PrFailed, Redact(e.Message, secrets), ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, []);
+            return new(HandoverStatus.PrFailed, Redact(e.Message, secrets), ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes);
         }
     }
 
@@ -205,6 +220,32 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         return text.ToString();
     }
 
+    /// <summary><c>added\tremoved\tpath\0</c> per path; a binary file has <c>-</c> for both counts.</summary>
+    private static List<FileChange> ParseNumstat(string output)
+    {
+        List<FileChange> files = [];
+        foreach (var record in output.Split('\0', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = record.Split('\t', 3);
+            if (parts.Length == 3)
+                files.Add(new FileChange(parts[2], Count(parts[0]), Count(parts[1])));
+        }
+        return files;
+
+        static int? Count(string s) => int.TryParse(s, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : null;
+    }
+
+    /// <summary>At most <see cref="MaxChangesDiffBytes"/> bytes of <paramref name="diff"/>, ending at a line; <paramref name="cut"/> says whether anything was left out.</summary>
+    private static string CutAtLine(string diff, bool truncated, out bool cut)
+    {
+        cut = truncated || Encoding.UTF8.GetByteCount(diff) > MaxChangesDiffBytes;
+        if (!cut)
+            return diff;
+        var bytes = Encoding.UTF8.GetBytes(diff);
+        var end = Array.LastIndexOf(bytes, (byte)'\n', Math.Min(bytes.Length, MaxChangesDiffBytes) - 1);
+        return end < 0 ? "" : Encoding.UTF8.GetString(bytes, 0, end + 1);
+    }
+
     private static string Redact(string text, IReadOnlyList<string> secrets)
     {
         foreach (var secret in secrets)
@@ -253,10 +294,12 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
                 var buffer = new char[8192];
                 int n;
                 while ((n = await r.ReadAsync(buffer)) > 0)
-                    if (text.Length + n <= maxBytes)
-                        text.Append(buffer, 0, n);
-                    else
-                        truncated = true;
+                {
+                    // Keep a prefix: what fits of this read, then nothing more, so a cut output is never spliced.
+                    var take = truncated ? 0 : Math.Min(n, maxBytes - text.Length);
+                    text.Append(buffer, 0, take);
+                    truncated |= take < n;
+                }
                 return text.ToString();
             }
             var stdout = Read(process.StandardOutput);

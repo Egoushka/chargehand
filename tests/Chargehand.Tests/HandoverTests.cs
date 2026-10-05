@@ -148,6 +148,35 @@ public class HandoverTests
     }
 
     [Fact]
+    public async Task The_outcome_carries_each_changed_path_with_its_line_counts_and_the_diff()
+    {
+        using var f = new Fixture(edit: w =>
+        {
+            File.WriteAllText(Path.Combine(w, "README.md"), "hi\n");
+            File.WriteAllBytes(Path.Combine(w, "blob.bin"), [0, 1, 2, 0, 255]);
+        });
+        var outcome = await new Handover(new FakeVerifier(), new FakePullRequests()).RunAsync(f.Input(), default);
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        var changes = outcome.Changes!;
+        Assert.Equal([new FileChange("README.md", 1, 1), new FileChange("blob.bin", null, null), new FileChange("retry.txt", 1, 0)], changes.Files);
+        Assert.Contains("+retry twice", changes.Diff);
+        Assert.Contains("-hello", changes.Diff);
+        Assert.False(changes.DiffTruncated);
+    }
+
+    [Fact]
+    public async Task A_large_diff_is_cut_at_a_line_within_its_cap_and_the_counts_stay_whole()
+    {
+        using var f = new Fixture(edit: w => File.WriteAllLines(Path.Combine(w, "big.txt"), Enumerable.Range(0, 5000).Select(i => $"line {i:D6} of the file")));
+        var outcome = await new Handover(new FakeVerifier(), new FakePullRequests()).RunAsync(f.Input(), default);
+        var changes = outcome.Changes!;
+        Assert.Contains(new FileChange("big.txt", 5000, 0), changes.Files);
+        Assert.True(changes.DiffTruncated);
+        Assert.InRange(System.Text.Encoding.UTF8.GetByteCount(changes.Diff!), 1, Handover.MaxChangesDiffBytes);
+        Assert.EndsWith("\n", changes.Diff);
+    }
+
+    [Fact]
     public async Task Session_claim_does_not_override_red_verification()
     {
         using var f = new Fixture();
@@ -183,6 +212,8 @@ public class HandoverTests
         Assert.Equal(ErrorCode.SessionFailed, outcome.Error);
         Assert.Equal("aws", Assert.Single(outcome.Findings).Kind);
         Assert.DoesNotContain(AwsKey, JsonSerializer.Serialize(outcome));
+        Assert.Contains(outcome.Changes!.Files, c => c.Path == "config.txt");
+        Assert.Null(outcome.Changes.Diff);                                     // the counts, never the text that carries the secret
         Assert.Empty(verifier.Calls);                                           // the scan comes before anything else runs
         Assert.Equal("", f.RemoteRef("refs/heads/chargehand/run1"));
     }
