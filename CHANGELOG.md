@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The server guide says that `repository_roots` must also cover `<worker_root>/.checkouts` for driven sessions (CHARGEHAND-155): a session's research and review calls name its own checkout, and without that root the server refuses them (`repository_not_allowed`), found on the first deploy.
+
 ## [0.8.4] - 2026-10-05
 
 The second fix from the first driven batches on a Linux host: a batch through the runner could not call the server back. Additive; `driven.enabled` is still false by default.
