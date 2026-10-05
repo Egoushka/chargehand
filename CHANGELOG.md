@@ -7,8 +7,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Cancelling a task whose container had already ended no longer fails (ADR 0039, CHARGEHAND-157): `docker kill` answered "is not running" (or "No such container"), the engine threw, and the cancel ended `container_unavailable` instead of `cancelled`. A signal to a container that is gone or ended is now a no-op; any other `kill` failure still throws. Found by the e2e script's new runner mode; the runner uses the same engine.
+
 ### Added
 
+- `scripts/driven-e2e.sh` can run a batch through a real `chargehand runner` (`CHARGEHAND_E2E_RUNNER=runner`) and behind a `docker-socket-proxy` container with the deployment's flags (`proxy`), the way a VPS runs it (CHARGEHAND-157). The default `direct` is unchanged. A case asserts the proxy served the batch, and the runner's key joins the credential scan. Every earlier run used the server's own docker engine, so the runner path, where the first VPS batch found four defects, was untested.
 - A driven batch shows its tasks while they run (ADR 0039): the batch run publishes `container_started`, `session_progress` (tokens, turns and the `change` skill's step), `verify_finished`, `pushed`, `pr_opened` and `task_finished`, each with its `task_id`, so `GET /v1/runs/{batch}` and its events say more than `started`. Until now only `accepted`, `started` and `run_finished` were published, and a task's own run is unknown until it ends. `run-status/v1` gains two optional fields, `tokens` and `stage` (additive); the session driver writes turns and stage into `session-usage.json` beside the tokens.
 
 ### Changed
