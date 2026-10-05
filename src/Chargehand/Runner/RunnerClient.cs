@@ -52,7 +52,18 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspace
         return new ContainerState(Enum.Parse<ContainerStatus>(reply.Status, ignoreCase: true), reply.ExitCode, reply.OomKilled);
     }
 
-    public Task RemoveAsync(string id, CancellationToken ct) => Send(HttpMethod.Post, $"/remove/{Uri.EscapeDataString(id)}", new { }, ct);
+    /// <summary>A task cleans up by the container's fixed name even when it never started one, and the runner answers 404 for a name it does not own or that
+    /// is gone. That is not a failure: it must not replace the error that came first (<c>docker rm -f</c> is silent about a missing container too).</summary>
+    public async Task RemoveAsync(string id, CancellationToken ct)
+    {
+        try
+        {
+            await Send(HttpMethod.Post, $"/remove/{Uri.EscapeDataString(id)}", new { }, ct);
+        }
+        catch (ChargehandException e) when (e.Message.Contains("404", StringComparison.Ordinal))
+        {
+        }
+    }
 
     public Task KillAllAsync(CancellationToken ct) => Send(HttpMethod.Post, "/kill-all", new { }, ct);
 
