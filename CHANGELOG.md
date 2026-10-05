@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Cancelling a task whose container had already ended no longer fails (ADR 0039, CHARGEHAND-157): `docker kill` answered "is not running" (or "No such container"), the engine threw, and the cancel ended `container_unavailable` instead of `cancelled`. A signal to a container that is gone or ended is now a no-op; any other `kill` failure still throws. Found by the e2e script's new runner mode; the runner uses the same engine.
+
+### Added
+
+- `scripts/driven-e2e.sh` can run a batch through a real `chargehand runner` (`CHARGEHAND_E2E_RUNNER=runner`) and behind a `docker-socket-proxy` container with the deployment's flags (`proxy`), the way a VPS runs it (CHARGEHAND-157). The default `direct` is unchanged. A case asserts the proxy served the batch, and the runner's key joins the credential scan. Every earlier run used the server's own docker engine, so the runner path, where the first VPS batch found four defects, was untested.
+
 ### Changed
 
 - The first deployment of driven sessions on a VPS is recorded (ADR 0039, the driven guide, the roadmap; CHARGEHAND-156): a draft pull request on the fourth attempt, the four defects each attempt found, and what is still open (the credential gateway, the kept per-task output volume).

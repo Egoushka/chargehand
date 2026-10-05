@@ -29,6 +29,12 @@
 #                             synthetic repositories have their own
 #   CHARGEHAND_E2E_TASKS      a JSON file with the tasks ([{"id","goal"}, ...]) in place of the repository's own three. A task with the id
 #                             "impossible" is expected not to pass; if it passes by editing a test file the case impossible_tests_untouched fails
+#   CHARGEHAND_E2E_RUNNER     how the server reaches the container engine: direct (default: the server calls docker itself), runner (a real
+#                             `chargehand runner` process on this machine, the way the VPS deploys it: its policy flags, the egress forward
+#                             and the request API are exercised) or proxy (as runner, and the runner reaches docker through a
+#                             docker-socket-proxy container started here with the deployment's flags, so the proxy's allowed API calls are
+#                             exercised too; needs to pull the proxy image). The deployed defects of the first VPS batch were all on this path.
+#   CHARGEHAND_E2E_RUNNER_PORT, CHARGEHAND_E2E_PROXY_PORT   ports of the runner (default 4393) and the proxy (default 4394), loopback only
 #   CHARGEHAND_E2E_KEEP=1     keep the work directory (it holds the run log, the stub's records and the server's log)
 # Sessions reach the throwaway server's MCP endpoint (research and review through `orchestrate`) through the batch's egress container, which forwards
 # to host.docker.internal:<port> (OrbStack and Docker Desktop; the server stays on loopback). The session's Host header is the egress container's
@@ -49,13 +55,24 @@ port=${CHARGEHAND_E2E_PORT:-4390}
 timeout_s=${CHARGEHAND_E2E_TIMEOUT:-3000}
 claude_version=$(claude --version | awk '{print $1}')
 work=$(mktemp -d "${TMPDIR:-/tmp}/driven-e2e.XXXXXX")
-server_pid=""; stub_pid=""
+# The physical path: on macOS $TMPDIR is under /var, a symlink to /private/var, and the runner's source root must match the path the server reports.
+work=$(cd "$work" && pwd -P)
+server_pid=""; stub_pid=""; runner_pid=""
+runner_mode=${CHARGEHAND_E2E_RUNNER:-direct}
+case $runner_mode in direct|runner|proxy) ;; *) echo "CHARGEHAND_E2E_RUNNER must be direct, runner or proxy" >&2; exit 2 ;; esac
+runner_port=${CHARGEHAND_E2E_RUNNER_PORT:-4393}
+proxy_port=${CHARGEHAND_E2E_PROXY_PORT:-4394}
+proxy_name=chargehand-e2e-socket-proxy
+# The image the deployment's docker-socket-proxy runs (same digest as the homelab stacks that use it).
+proxy_image=tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
 fail=0
 
 # shellcheck disable=SC2329  # runs from the EXIT trap
 cleanup() {
   [ -n "$server_pid" ] && kill "$server_pid" 2>/dev/null || true
   [ -n "$stub_pid" ] && kill "$stub_pid" 2>/dev/null || true
+  [ -n "$runner_pid" ] && kill "$runner_pid" 2>/dev/null || true
+  [ "$runner_mode" = proxy ] && docker rm -f "$proxy_name" >/dev/null 2>&1 || true
   # Whatever a failed case left behind: containers, volumes and batch networks carry chargehand's label.
   dotnet "$here/src/Chargehand.Cli/bin/Debug/net10.0/Chargehand.Cli.dll" runs kill --all >/dev/null 2>&1 || true
   # The output volumes of this script's runs (the stream is kept in one); other volumes that were there before are left alone.
@@ -191,12 +208,39 @@ python3 "$work/stub.py" "$work" & stub_pid=$!
 for _ in $(seq 50); do [ -s "$work/stub.port" ] && break; sleep 0.1; done
 [ -s "$work/stub.port" ] || { echo "the GitHub stub did not start" >&2; exit 1; }
 
+# runner and proxy modes: the server talks to a runner process, which talks to docker (through a socket proxy in proxy mode). The runner starts only
+# what its policy lists, which is why its flags mirror the deployment's: the source root is the server's worker root, the forward is the one the
+# server names for the callback.
+if [ "$runner_mode" != direct ]; then
+  export CHARGEHAND_E2E_RUNNER_KEY; CHARGEHAND_E2E_RUNNER_KEY=$(openssl rand -hex 16)
+  runner_docker_host=""
+  if [ "$runner_mode" = proxy ]; then
+    docker rm -f "$proxy_name" >/dev/null 2>&1 || true
+    docker run -d --name "$proxy_name" -p "127.0.0.1:$proxy_port:2375" -e CONTAINERS=1 -e POST=1 -e IMAGES=1 -e VOLUMES=1 -e NETWORKS=1 \
+      -v /var/run/docker.sock:/var/run/docker.sock "$proxy_image" >/dev/null || { echo "the socket proxy did not start" >&2; exit 1; }
+    runner_docker_host="tcp://127.0.0.1:$proxy_port"
+    for _ in $(seq 50); do curl -fs -o /dev/null "http://127.0.0.1:$proxy_port/_ping" && break; sleep 0.2; done
+  fi
+  mkdir -p "$work/worker"
+  runner_env=(env "CHARGEHAND_RUNNER_KEY=$CHARGEHAND_E2E_RUNNER_KEY")
+  [ -z "$runner_docker_host" ] || runner_env+=("DOCKER_HOST=$runner_docker_host")
+  "${runner_env[@]}" $cli runner --listen "127.0.0.1:$runner_port" --images "$CHARGEHAND_E2E_IMAGE" --egress-image "$CHARGEHAND_E2E_IMAGE" \
+      --source-roots "$work/worker" --forwards "$port=host.docker.internal:$port" > "$work/runner.log" 2>&1 & runner_pid=$!
+  runner_ready=""
+  for _ in $(seq 50); do
+    [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $CHARGEHAND_E2E_RUNNER_KEY" "http://127.0.0.1:$runner_port/count")" = 200 ] && { runner_ready=1; break; }
+    sleep 0.3
+  done
+  [ -n "$runner_ready" ] || { echo "the runner did not answer (log: $work/runner.log)" >&2; exit 1; }
+fi
+echo "engine path: $runner_mode"
+
 # The profile: the model key and the push token are item names, never values; secrets come from the environment.
 # Subscription mode: the server's own secret chain asks the Keychain for the token, so it goes Keychain -> server -> container only.
 [ -n "$oauth_item" ] || export CHARGEHAND_E2E_MODEL_KEY
-python3 - "$work" "$port" "$claude_version" "$CHARGEHAND_E2E_IMAGE" "$oauth_item" <<'PY'
+python3 - "$work" "$port" "$claude_version" "$CHARGEHAND_E2E_IMAGE" "$oauth_item" "$([ "$runner_mode" = direct ] || echo "$runner_port")" <<'PY'
 import json, sys
-work, port, version, image, oauth_item = sys.argv[1:6]
+work, port, version, image, oauth_item, runner_port = sys.argv[1:7]
 secrets = [{"env": True}] + ([{"command": ["security", "find-generic-password", "-s", "{item}", "-w"]}] if oauth_item else [])
 credential = {"oauth_token_secret": oauth_item} if oauth_item else {"api_key_secret": "chargehand-e2e-model-key"}
 profile = {"schema": "profile/v1", "runtime": "claude_code", "secrets": secrets,
@@ -206,6 +250,8 @@ profile = {"schema": "profile/v1", "runtime": "claude_code", "secrets": secrets,
   "http": {"port": int(port), "api_key_secret": "chargehand-e2e-server-key", "allowed_hosts": ["chargehand-driven"]},
   "driven": {"enabled": True, "max_parallel": 2, "images": [image], "push_secret": "chargehand-e2e-push-key",
              "network": {"mcp_forward": "host.docker.internal:" + port}}}
+if runner_port:
+  profile["driven"]["runner"] = {"url": "http://127.0.0.1:" + runner_port, "api_key_secret": "chargehand-e2e-runner-key"}
 json.dump(profile, open(work + "/profile.json", "w"), indent=2)
 PY
 CHARGEHAND_E2E_GITHUB_API="http://127.0.0.1:$(cat "$work/stub.port")/" CHARGEHAND_E2E_LOCAL_REMOTE=1 \
@@ -275,6 +321,12 @@ if [ "$has_impossible" = True ] && [ -s "$work/batch.json" ]; then
 fi
 check default_branch_untouched "$work/remote.git" "$([ "$(git -C "$work/remote.git" rev-parse main 2>/dev/null || echo none)" = "$main_before" ] &&
   [ "$(git -C "$work/remote.git" for-each-ref --format='%(refname)' refs/heads | grep -vc -e '^refs/heads/main$' -e '^refs/heads/chargehand/' || true)" = 0 ] && echo pass)"
+# proxy mode: the batch really went through the socket proxy (it logs every API call it forwards).
+if [ "$runner_mode" = proxy ]; then
+  # The log is read into a variable first: `docker logs | grep -q` is killed by SIGPIPE once the log is long, and pipefail then reports a failure.
+  proxy_log=$(docker logs "$proxy_name" 2>&1 || true)
+  check proxy_served_the_batch "docker logs $proxy_name" "$(grep -q 'containers/create' <<<"$proxy_log" && echo pass)"
+fi
 
 # streams: copy each task's session stream out of its output volume, then measure adherence over them.
 if [ -n "${CHARGEHAND_E2E_STREAMS:-}" ] && [ -s "$work/batch.json" ]; then
@@ -321,6 +373,7 @@ check cancel_opens_no_pr "$work/prs.jsonl" "$([ "$(wc -l < "$work/prs.jsonl" | t
 leak=""
 scan=("$work"); [ -z "${CHARGEHAND_E2E_STREAMS:-}" ] || scan+=("$CHARGEHAND_E2E_STREAMS")
 if grep -rqF -e "$CHARGEHAND_E2E_PUSH_KEY" "${scan[@]}" 2>/dev/null; then leak=1; fi
+if [ "$runner_mode" != direct ] && grep -rqF -e "$CHARGEHAND_E2E_RUNNER_KEY" "${scan[@]}" 2>/dev/null; then leak=1; fi
 if [ -n "$oauth_item" ]; then
   # The token is read again for the search through a pipe, so it is in no variable and no argument list.
   security find-generic-password -s "$oauth_item" -w 2>/dev/null | grep -rqF -f - "${scan[@]}" 2>/dev/null && leak=1

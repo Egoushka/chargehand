@@ -49,6 +49,26 @@ public class DockerEngineTests
         Assert.True(ChargehandException.Retryable(ErrorCode.ContainerUnavailable));
     }
 
+    [Theory]
+    [InlineData("Error response from daemon: cannot kill container: abc123: container abc123 is not running")]
+    [InlineData("Error response from daemon: No such container: abc123")]
+    public async Task Signalling_a_container_that_already_ended_or_is_gone_is_not_an_error(string daemonSays)
+    {
+        // A cancel that loses the race with the session's own exit is still a cancel: the first batch cancelled through a runner ended
+        // container_unavailable because `docker kill` said "is not running".
+        using var dir = new TempDir();
+        var (docker, _) = FakeDocker(dir, $"echo '{daemonSays}' >&2; exit 1");
+        await Engine(docker).SignalAsync("abc123", "SIGINT", default);
+    }
+
+    [Fact]
+    public async Task Any_other_kill_failure_still_throws()
+    {
+        using var dir = new TempDir();
+        var (docker, _) = FakeDocker(dir, "echo 'permission denied while trying to connect to the docker API' >&2; exit 1");
+        await Assert.ThrowsAsync<ChargehandException>(() => Engine(docker).SignalAsync("abc123", "SIGINT", default));
+    }
+
     [Fact]
     public async Task Signal_remove_and_logs_pass_validated_arguments()
     {
