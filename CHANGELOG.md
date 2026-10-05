@@ -10,6 +10,11 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - `chargehand runner` says which argument it rejected (ADR 0039, CHARGEHAND-152): the reason, with the value, on its own line before the usage (the usage names every flag, so alone it did not say which one was wrong, and the first deploy restart-looped on a tagged image reference). A valid command line with `--source-roots`, `--outside-networks` or `--forwards` empty now prints a note for each, since each starts fine and then silently refuses work (no workspace, no network join, no callback).
+- Cancelling a task whose container had already ended no longer fails (ADR 0039, CHARGEHAND-157): `docker kill` answered "is not running" (or "No such container"), the engine threw, and the cancel ended `container_unavailable` instead of `cancelled`. A signal to a container that is gone or ended is now a no-op; any other `kill` failure still throws. Found by the e2e script's new runner mode; the runner uses the same engine.
+
+### Added
+
+- `scripts/driven-e2e.sh` can run a batch through a real `chargehand runner` (`CHARGEHAND_E2E_RUNNER=runner`) and behind a `docker-socket-proxy` container with the deployment's flags (`proxy`), the way a VPS runs it (CHARGEHAND-157). The default `direct` is unchanged. A case asserts the proxy served the batch, and the runner's key joins the credential scan. Every earlier run used the server's own docker engine, so the runner path, where the first VPS batch found four defects, was untested.
 
 ### Changed
 
