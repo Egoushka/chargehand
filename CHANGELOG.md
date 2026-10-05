@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The server guide says what the runner needs to start and to run a batch (CHARGEHAND-152): an image reference without a tag (a tagged one is refused, and the runner prints its usage and exits), `--source-roots` and `--outside-networks`.
+
 ## [0.8.2] - 2026-10-05
 
 What a container deployment of driven sessions needs from the code, all additive: the session image is published with the release, the server image carries the docker CLI the runner needs, and a session calls the server back by a fixed name. This is still not the minor version that driven sessions get when they are wired: `driven.enabled` stays false in every real profile, and a batch still delivers the model credential in the container's environment until the credential exchange (CHARGEHAND-148) lands. The v0.8.1 tag did not carry these: its notes listed the entry below by mistake, and it is moved here.
