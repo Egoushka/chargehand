@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Enhancement;
@@ -69,37 +68,50 @@ public class PromptEnhancerTests
     }
 
     [Fact]
-    public async Task A_late_enhancer_yields_the_original_before_the_deadline()
+    public async Task A_late_enhancer_yields_the_original_at_the_deadline()
     {
-        var late = new Scripted(async (p, _) =>
-        {
-            await Task.Delay(TimeSpan.FromSeconds(10), CancellationToken.None);
-            return new Enhanced(p, "too late", "late");
-        });
-        var clock = Stopwatch.StartNew();
+        var never = new TaskCompletionSource<Enhanced>();
+        var time = new ManualTimeProvider();
+        var call = new GuardedPromptEnhancer(new Scripted((_, _) => never.Task), Deadline, time).EnhanceAsync(Prompt, Context, CancellationToken.None);
 
-        var enhanced = await new GuardedPromptEnhancer(late, Deadline).EnhanceAsync(Prompt, Context, CancellationToken.None);
+        Assert.False(call.IsCompleted);
+        time.Advance(Deadline);
+        var enhanced = await call;
 
-        Assert.True(clock.Elapsed < Deadline + TimeSpan.FromMilliseconds(500), $"answered after {clock.ElapsedMilliseconds} ms");
         Assert.False(enhanced.Changed);
         Assert.Equal(Prompt, enhanced.Original);
         Assert.Contains("in time", enhanced.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task A_blocking_enhancer_yields_the_original_before_the_deadline()
+    public async Task A_blocking_enhancer_yields_the_original_at_the_deadline()
     {
+        using var release = new ManualResetEventSlim();
         var blocking = new Scripted((p, _) =>
         {
-            Thread.Sleep(TimeSpan.FromSeconds(2));
+            release.Wait(CancellationToken.None);
             return Task.FromResult(new Enhanced(p, "too late", "late"));
         });
-        var clock = Stopwatch.StartNew();
+        var time = new ManualTimeProvider();
+        var call = new GuardedPromptEnhancer(blocking, Deadline, time).EnhanceAsync(Prompt, Context, CancellationToken.None);
 
-        var enhanced = await new GuardedPromptEnhancer(blocking, Deadline).EnhanceAsync(Prompt, Context, CancellationToken.None);
+        time.Advance(Deadline);
+        var enhanced = await call;
+        release.Set();
 
-        Assert.True(clock.Elapsed < Deadline + TimeSpan.FromMilliseconds(500), $"answered after {clock.ElapsedMilliseconds} ms");
         Assert.False(enhanced.Changed);
+        Assert.Contains("in time", enhanced.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_answer_before_the_deadline_is_kept()
+    {
+        var time = new ManualTimeProvider();
+        var call = new GuardedPromptEnhancer(Fake("Review the diff against main."), Deadline, time).EnhanceAsync(Prompt, Context, CancellationToken.None);
+
+        time.Advance(Deadline - TimeSpan.FromMilliseconds(1));
+
+        Assert.True((await call).Changed);
     }
 
     [Fact]
@@ -147,13 +159,14 @@ public class PromptEnhancerTests
     public async Task A_failing_or_late_feedback_never_reaches_the_run()
     {
         var failing = new Scripted((p, _) => Task.FromResult(Enhanced.Unchanged(p, "x")), _ => throw new InvalidOperationException("boom"));
-        var late = new Scripted((p, _) => Task.FromResult(Enhanced.Unchanged(p, "x")), _ => Task.Delay(TimeSpan.FromSeconds(10), CancellationToken.None));
-        var clock = Stopwatch.StartNew();
+        var never = new TaskCompletionSource();
+        var late = new Scripted((p, _) => Task.FromResult(Enhanced.Unchanged(p, "x")), _ => never.Task);
+        var time = new ManualTimeProvider();
 
-        await new GuardedPromptEnhancer(failing, Deadline).FeedbackAsync("req-1", new EnhanceOutcome(RewriteAccepted: true), CancellationToken.None);
-        await new GuardedPromptEnhancer(late, Deadline).FeedbackAsync("req-1", new EnhanceOutcome(RewriteAccepted: true), CancellationToken.None);
-
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(2), $"took {clock.ElapsedMilliseconds} ms");
+        await new GuardedPromptEnhancer(failing, Deadline, time).FeedbackAsync("req-1", new EnhanceOutcome(RewriteAccepted: true), CancellationToken.None);
+        var call = new GuardedPromptEnhancer(late, Deadline, time).FeedbackAsync("req-1", new EnhanceOutcome(RewriteAccepted: true), CancellationToken.None);
+        time.Advance(Deadline);
+        await call;
     }
 
     [Fact]
