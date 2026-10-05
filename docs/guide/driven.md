@@ -50,7 +50,21 @@ A task's own run id is known only when it ends, so `GET /v1/runs/{task}` is `404
 
 ## The result
 
-Each task has its own `result/v1` under its own run id (`GET /v1/runs/{id}`); the batch result lists them. Its claims are the session's, cited against the pushed commit and put through the same evidence resolver and [support check](support-and-signing.md) as any result. Artifacts: `branch`, `pull-request`, `verification` (chargehand's run), `session-tests` (the session's claim), `review` (the nested runs), `session-log` (a reference and a hash, never inline). A batch is `completed` only when every task ended in a draft pull request; otherwise it is `failed` with `tasks_incomplete` naming the tasks that did not.
+Each task has its own `result/v1` under its own run id (`GET /v1/runs/{id}`); the batch result lists them. Its claims are the session's, cited against the pushed commit and put through the same evidence resolver and [support check](support-and-signing.md) as any result. Artifacts: `branch`, `pull-request`, `verification` (chargehand's run), `session-tests` (the session's claim), `review` (the nested runs), `session-log` (a reference and a hash, never inline). A task whose branch was fetched and changes something also has `changes` (below). A batch is `completed` only when every task ended in a draft pull request; otherwise it is `failed` with `tasks_incomplete` naming the tasks that did not.
+
+### The `changes` artifact
+
+What the branch changes against its base, from chargehand's own clone of the bundle (`application/vnd.chargehand.changes+json`, inline). It is there whether or not the branch was pushed, so a refused task shows what it would have pushed.
+
+| Field | |
+|---|---|
+| `base`, `commit` | the commit the session started from and the branch commit |
+| `files` | `{path, added, removed, binary}` per path, from `git diff --numstat --no-renames`: a rename is a delete and an add; a binary file has `added` and `removed` null |
+| `files_total` | the number of changed paths, even when `files` is cut |
+| `diff` | the unified diff (`git diff base commit`, three lines of context), cut at a line within 32 KiB; null when the diff looked like it carried a secret (the paths and counts stay) or when it did not fit |
+| `diff_truncated` | true when `diff` is cut or left out |
+
+An inline artifact holds at most 64 KiB: if the whole does not fit, the diff is left out first, then paths from the end of `files`. For the full diff, fetch the pushed branch.
 
 ## Limits and the kill switch
 

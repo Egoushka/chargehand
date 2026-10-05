@@ -100,6 +100,8 @@ public static class DrivenResult
 
         var pushed = handover.Status is HandoverStatus.Pushed or HandoverStatus.PrFailed;
         artifacts.Add(Inline("branch", "application/vnd.chargehand.branch+json", new { branch = handover.Branch, commit = handover.Commit, @base = input.BaseCommit, pushed }));
+        if (handover.Changes is { } changes)
+            artifacts.Add(Changes(changes, input.BaseCommit, handover.Commit));
         if (handover.PullRequest is { } pr)
             artifacts.Add(Inline("pull-request", "application/vnd.chargehand.pull-request+json", new { url = pr.Url, number = pr.Number, draft = true, head = handover.Branch }));
         if (handover.Verification is { } v)
@@ -167,6 +169,30 @@ public static class DrivenResult
         var questions = outcome.Tasks.Where(t => t.State != TaskState.Completed).Select(t => $"Task {t.Id}: {Snake(t.State.ToString()).Replace('_', ' ')}: {t.Detail ?? "no detail"}").ToList();
         return new ResultContract("result/v1", runId, "driven", traceId, chain, ResultStatus.Failed, message, [], [], [artifact], questions, 0.5, usage,
             new ResultError(ErrorCode.TasksIncomplete, message, false, action));
+    }
+
+    /// <summary>The <c>changes</c> artifact: every changed path with its line counts, and the diff. It is inline, so it stays within 64 KiB: the diff goes first
+    /// (<c>diff</c> null, <c>diff_truncated</c> true), then paths from the end; <c>files_total</c> keeps the real count.</summary>
+    private static Artifact Changes(ChangeSummary changes, string baseCommit, string? commit)
+    {
+        object Content(int files, bool withDiff) => new
+        {
+            @base = baseCommit,
+            commit,
+            files_total = changes.Files.Count,
+            files = changes.Files.Take(files).Select(f => new { path = f.Path, added = f.Added, removed = f.Removed, binary = f.Added is null && f.Removed is null }),
+            diff = withDiff ? changes.Diff : null,
+            diff_truncated = changes.DiffTruncated || (!withDiff && changes.Diff is not null),
+        };
+        bool Fits(object value) => Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(value, Json)) <= ResultAssembler.MaxInlineBytes;
+
+        var count = changes.Files.Count;
+        var content = Content(count, withDiff: true);
+        if (!Fits(content))
+            content = Content(count, withDiff: false);
+        while (!Fits(content) && count > 0)
+            content = Content(count = count * 3 / 4, withDiff: false);
+        return Inline("changes", "application/vnd.chargehand.changes+json", content);
     }
 
     private static Artifact Inline(string kind, string mediaType, object value)

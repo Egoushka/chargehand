@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Results;
 using Chargehand.Verification;
 
 namespace Chargehand.Tests;
@@ -154,6 +155,44 @@ public class DrivenResultTests
         Assert.True(pr.GetProperty("draft").GetBoolean());
         Assert.Equal(7, pr.GetProperty("number").GetInt32());
         Assert.Equal("https://example.test/o/r/pull/7", pr.GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public async Task The_changes_artifact_lists_each_path_with_its_line_counts_and_the_diff()
+    {
+        using var repo = new Repo();
+        var changes = new ChangeSummary([new FileChange("Retry.cs", 12, 3), new FileChange("logo.png", null, null)], "diff --git a/Retry.cs b/Retry.cs\n+retry\n", false);
+        var result = await Build(Input(repo, handover: Pushed(repo) with { Changes = changes }), AllSupported);
+        AssertValid(result);
+        var a = Artifact(result, "changes");
+        Assert.Equal((repo.Base, repo.Commit), (a.GetProperty("base").GetString(), a.GetProperty("commit").GetString()));
+        Assert.Equal(2, a.GetProperty("files_total").GetInt32());
+        var files = a.GetProperty("files").EnumerateArray().ToList();
+        Assert.Equal(("Retry.cs", 12, 3, false), (files[0].GetProperty("path").GetString(), files[0].GetProperty("added").GetInt32(), files[0].GetProperty("removed").GetInt32(), files[0].GetProperty("binary").GetBoolean()));
+        Assert.True(files[1].GetProperty("binary").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, files[1].GetProperty("added").ValueKind);
+        Assert.Equal(changes.Diff, a.GetProperty("diff").GetString());
+        Assert.False(a.GetProperty("diff_truncated").GetBoolean());
+
+        // No summary (an older handover, or none ran): no artifact.
+        Assert.DoesNotContain((await Build(Input(repo), AllSupported)).Artifacts, x => x.Kind == "changes");
+    }
+
+    [Fact]
+    public async Task A_changes_artifact_too_large_to_inline_drops_the_diff_then_paths_and_says_so()
+    {
+        using var repo = new Repo();
+        var many = Enumerable.Range(0, 3000).Select(i => new FileChange($"src/a/very/deep/directory/tree/that/goes/on/file{i:D5}.cs", i, 1)).ToList();
+        var changes = new ChangeSummary(many, new string('x', Handover.MaxChangesDiffBytes - 1) + "\n", true);
+        var result = await Build(Input(repo, handover: Pushed(repo) with { Changes = changes }), AllSupported);
+        AssertValid(result);
+        var content = result.Artifacts.Single(x => x.Kind == "changes").Content!;
+        Assert.InRange(Encoding.UTF8.GetByteCount(content), 1, ResultAssembler.MaxInlineBytes);
+        var a = JsonDocument.Parse(content).RootElement;
+        Assert.Equal(3000, a.GetProperty("files_total").GetInt32());
+        Assert.InRange(a.GetProperty("files").GetArrayLength(), 1, 2999);
+        Assert.Equal(JsonValueKind.Null, a.GetProperty("diff").ValueKind);
+        Assert.True(a.GetProperty("diff_truncated").GetBoolean());
     }
 
     [Fact]
