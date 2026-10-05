@@ -118,4 +118,17 @@ public class ContainerTemplateTests
         Assert.Equal(["--privileged", "x"], args.Skip(image + 1));
         Assert.DoesNotContain("--privileged", args.Take(image));
     }
+
+    [Fact]
+    public void The_workspace_helper_trusts_the_source_through_a_global_config_the_clone_s_child_process_reads()
+    {
+        // The source is a host directory owned by another user. `git clone` of a local path runs `git-upload-pack` as a child, which checks ownership on its
+        // own and does not see `-c safe.directory` (measured on a Linux host: "detected dubious ownership in repository at '/src/.git'"). A global config in
+        // the helper's writable /tmp is read by both; HOME must point there because the root filesystem is read-only.
+        var lines = ContainerTemplate.WorkspaceScript.Split('\n');
+        var home = Array.IndexOf(lines, "export HOME=/tmp");
+        var trust = Array.IndexOf(lines, "git config --global safe.directory '*'");
+        var clone = Array.FindIndex(lines, l => l.StartsWith("git clone ", StringComparison.Ordinal));
+        Assert.True(home >= 0 && home < trust && trust < clone, "HOME on /tmp, then the global trust, then the clone");
+    }
 }

@@ -107,11 +107,14 @@ public static partial class ContainerTemplate
     }
 
     /// <summary>The script the workspace helper runs; the branch and the commit reach it only as arguments (<c>$1</c>, <c>$2</c>), never spliced into its text.
-    /// <c>safe.directory</c> is needed because the read-only source belongs to another user; the clone gets no hooks (<c>--template=</c>) and its own commits
-    /// run none (<c>core.hooksPath</c>).</summary>
+    /// <c>safe.directory</c> is needed because the read-only source belongs to another user. It is a global config in the helper's tmpfs (the root filesystem is
+    /// read-only, so HOME moves to /tmp): <c>git clone</c> of a local path runs <c>git-upload-pack</c> as a child, which checks ownership itself and does not see
+    /// <c>-c</c> or <c>GIT_CONFIG_*</c> (measured on a Linux host). The clone gets no hooks (<c>--template=</c>) and its own commits run none (<c>core.hooksPath</c>).</summary>
     public const string WorkspaceScript =
         "set -e\n"
-        + "git -c safe.directory='*' clone --quiet --no-hardlinks --template= /src /work\n"
+        + "export HOME=/tmp\n"
+        + "git config --global safe.directory '*'\n"
+        + "git clone --quiet --no-hardlinks --template= /src /work\n"
         + "git -C /work checkout --quiet -b \"$1\" \"$2\"\n"
         + "git -C /work config user.name chargehand\n"
         + "git -C /work config user.email chargehand@localhost\n"

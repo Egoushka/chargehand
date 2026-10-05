@@ -309,6 +309,17 @@ public class RunnerTests
     }
 
     [Fact]
+    public async Task Removing_a_container_that_is_not_there_is_not_an_error()
+    {
+        // A task that fails before its container starts still cleans up by the container's fixed name; the runner answers 404 for a name it does
+        // not own or that is gone, and the client must not let that replace the failure that came first (DockerCliEngine's `rm -f` is silent too).
+        await using var r = await Start();
+        var client = new RunnerClient(r.Http);
+        await client.RemoveAsync("chargehand-run-not-started", default);
+        Assert.Empty(r.Engine.Calls);
+    }
+
+    [Fact]
     public async Task A_refusal_reaches_the_client_as_container_unavailable_with_an_action()
     {
         await using var r = await Start();
