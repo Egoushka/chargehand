@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A driven batch shows its tasks while they run (ADR 0039): the batch run publishes `container_started`, `session_progress` (tokens, turns and the `change` skill's step), `verify_finished`, `pushed`, `pr_opened` and `task_finished`, each with its `task_id`, so `GET /v1/runs/{batch}` and its events say more than `started`. Until now only `accepted`, `started` and `run_finished` were published, and a task's own run is unknown until it ends. `run-status/v1` gains two optional fields, `tokens` and `stage` (additive); the session driver writes turns and stage into `session-usage.json` beside the tokens.
+
 ### Changed
 
 - The first deployment of driven sessions on a VPS is recorded (ADR 0039, the driven guide, the roadmap; CHARGEHAND-156): a draft pull request on the fourth attempt, the four defects each attempt found, and what is still open (the credential gateway, the kept per-task output volume).

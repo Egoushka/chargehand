@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Chargehand.Containers;
+using Chargehand.Contracts;
 
 namespace Chargehand.Driven;
 
@@ -30,7 +31,9 @@ public sealed class EngineSessionVolumes(IOutVolumeEngine engine, string image) 
             return null;
         try
         {
-            return JsonSerializer.Deserialize<SessionUsage>(buffer.ToArray(), SessionCli.Json) is { Tokens: >= 0 } usage ? new TaskUsage(usage.Tokens, 0) : null;
+            return JsonSerializer.Deserialize<SessionUsage>(buffer.ToArray(), SessionCli.Json) is { Tokens: >= 0 } usage
+                ? new TaskUsage(usage.Tokens, 0, usage.Turns is >= 0 ? usage.Turns : null, Enum.TryParse<SessionStage>(usage.Stage, ignoreCase: true, out var stage) ? stage : null)
+                : null;
         }
         catch (JsonException)
         {

@@ -33,6 +33,21 @@ chargehand checks the branch itself and pushes only if every check passes:
 
 A green draft pull request is evidence that a command passed in a container, not that the change is right. The session can still edit the tests or the build script so the command passes; the `verification` artifact lists those paths.
 
+## Watching a batch
+
+While a batch runs, its own run (`GET /v1/runs/{batch}`, a `202` with `run-status/v1`, and `GET /v1/runs/{batch}/events`) carries each task's steps, every event with `task_id` and a `detail` line such as `task t1: 48200 tokens, 12 turns, stage write`:
+
+| Event | When | Fields |
+|---|---|---|
+| `container_started` | the task's session container is up | |
+| `session_progress` | the session's tally changed since the last poll (every 5 s) | `tokens` (input plus output so far), `turns` (assistant messages), `stage` (`research`, `write`, `test` or `review`: the step of the latest tool call that names one, the order `chargehand runs adherence` checks) |
+| `verify_finished` | chargehand's own test run ended, pass or fail | |
+| `pushed` | the branch is pushed | `branch` |
+| `pr_opened` | the draft pull request is open | `pr_url` |
+| `task_finished` | the task ended, after the batch's caps had their say | `branch` and `pr_url` when there are some, `tokens` in all; `detail` names the state |
+
+A task's own run id is known only when it ends, so `GET /v1/runs/{task}` is `404` until then; follow the batch. `turns` and `stage` come from the session image's driver: an image built before they existed reports `tokens` only.
+
 ## The result
 
 Each task has its own `result/v1` under its own run id (`GET /v1/runs/{id}`); the batch result lists them. Its claims are the session's, cited against the pushed commit and put through the same evidence resolver and [support check](support-and-signing.md) as any result. Artifacts: `branch`, `pull-request`, `verification` (chargehand's run), `session-tests` (the session's claim), `review` (the nested runs), `session-log` (a reference and a hash, never inline). A batch is `completed` only when every task ended in a draft pull request; otherwise it is `failed` with `tasks_incomplete` naming the tasks that did not.

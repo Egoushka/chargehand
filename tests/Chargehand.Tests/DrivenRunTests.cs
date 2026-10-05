@@ -29,6 +29,9 @@ public class DrivenRunTests
         public List<string> Calls { get; } = [];
         public List<ContainerSpec> Started { get; } = [];
         public bool HoldRunning { get; set; }
+        /// <summary>Each container answers running to this many inspections before it exits.</summary>
+        public int RunFor { get; set; }
+        private readonly Dictionary<string, int> _inspections = [];
         /// <summary>The start call is cancelled after docker made the container, as a cancel in flight does.</summary>
         public bool CancelOnStart { get; set; }
 
@@ -60,7 +63,10 @@ public class DrivenRunTests
         {
             bool running;
             lock (_gate)
-                running = HoldRunning && !_stopped.Contains(id);
+            {
+                _inspections[id] = _inspections.GetValueOrDefault(id) + 1;
+                running = (HoldRunning || _inspections[id] <= RunFor) && !_stopped.Contains(id);
+            }
             return Task.FromResult(running ? new ContainerState(ContainerStatus.Running, null, false) : new ContainerState(ContainerStatus.Exited, 0, false));
         }
 
@@ -131,6 +137,9 @@ public class DrivenRunTests
                 Inputs.Add(input);
                 number = Inputs.Count;
             }
+            input.Report?.Invoke(new HandoverEvent(RunEventKind.VerifyFinished, "tests passed"));
+            input.Report?.Invoke(new HandoverEvent(RunEventKind.Pushed, $"pushed {input.Branch}"));
+            input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, "draft pull request opened", $"https://example.test/o/r/pull/{number}"));
             return Task.FromResult(new HandoverOutcome(HandoverStatus.Pushed, "", null, input.Branch, Commit, new PullRequestRef($"https://example.test/o/r/pull/{number}", number),
                 new VerificationRecord(["npm", "test"], "detected", 0, "ok", false, TimeSpan.FromSeconds(3), true), ["a.txt"], [], []));
         }
@@ -232,6 +241,30 @@ public class DrivenRunTests
     }
 
     [Fact]
+    public async Task A_running_task_shows_on_the_batch_run_step_by_step()
+    {
+        var volumes = new FakeVolumes(_ => SessionStatus.Completed) { Usage = new TaskUsage(48_200, 0, 12, SessionStage.Write) };
+        using var rig = new Rig(volumes: volumes);
+        rig.Engine.RunFor = 3;
+        List<RunStatus> events = [];
+        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-11", Token, default, e => { lock (events) events.Add(e); });
+
+        var task = events.Where(e => e.TaskId == "t1").ToList();
+        Assert.All(task, e => Assert.Equal(("run-batch-11", RunState.Running), (e.RunId, e.Status)));
+        Assert.Equal([RunEventKind.ContainerStarted, RunEventKind.SessionProgress, RunEventKind.VerifyFinished, RunEventKind.Pushed, RunEventKind.PrOpened, RunEventKind.TaskFinished],
+            task.Select(e => e.Event!.Value));
+        var progress = task.Single(e => e.Event == RunEventKind.SessionProgress);     // the tally did not change between polls, so it is published once
+        Assert.Equal((48_200L, 12, SessionStage.Write), (progress.Tokens, progress.Turns, progress.Stage));
+        Assert.Contains("48200 tokens", progress.Detail);
+        Assert.Equal("https://example.test/o/r/pull/1", task.Single(e => e.Event == RunEventKind.PrOpened).PrUrl);
+        var finished = task.Single(e => e.Event == RunEventKind.TaskFinished);
+        Assert.Equal("https://example.test/o/r/pull/1", finished.PrUrl);
+        Assert.StartsWith("chargehand/", finished.Branch);
+        Assert.Contains("completed", finished.Detail);
+        Assert.Equal(RunEventKind.RunFinished, events[^1].Event);
+    }
+
+    [Fact]
     public async Task One_failed_task_makes_the_batch_tasks_incomplete_naming_it()
     {
         using var rig = new Rig(script: goal => goal == "Add a backoff" ? SessionStatus.Failed : SessionStatus.Completed);
@@ -253,7 +286,8 @@ public class DrivenRunTests
         using var rig = new Rig();
         rig.Engine.HoldRunning = true;
         using var cts = new CancellationTokenSource();
-        var running = rig.Run.RunAsync(Request("Add a retry", "Add a backoff"), "run-batch-3", Token, cts.Token, cancelledByCaller: () => true);
+        List<RunStatus> events = [];
+        var running = rig.Run.RunAsync(Request("Add a retry", "Add a backoff"), "run-batch-3", Token, cts.Token, e => { lock (events) events.Add(e); }, cancelledByCaller: () => true);
         while (rig.Engine.Started.Count < 2)
             await Task.Delay(5);
         await cts.CancelAsync();
@@ -262,6 +296,7 @@ public class DrivenRunTests
         Assert.Equal(ResultStatus.Failed, result.Status);
         Assert.Equal(ErrorCode.TasksIncomplete, result.Error!.Code);
         Assert.Equal(["cancelled", "cancelled"], BatchTasks(result).EnumerateArray().Select(t => t.GetProperty("status").GetString()));
+        Assert.Equal(["t1", "t2"], events.Where(e => e.Event == RunEventKind.TaskFinished).Select(e => e.TaskId!).Order());
         Assert.Empty(rig.Handover.Inputs);
         foreach (var spec in rig.Engine.Started)
         {

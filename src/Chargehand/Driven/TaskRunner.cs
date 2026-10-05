@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Containers;
@@ -50,11 +51,12 @@ public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, stri
 
 /// <summary>Runs one task of a batch to its end (ADR 0039): a workspace at the pinned commit, a session container on the batch network, then the handover (chargehand's own
 /// verification, the scan, the push, a draft pull request) and the task's own <c>result/v1</c> in the run log. A cancel signals the session and ends the task; it never reaches
-/// the handover, so nothing is pushed.</summary>
+/// the handover, so nothing is pushed. <paramref name="publish"/> gets the task's steps as events of the batch run: <c>container_started</c>, <c>session_progress</c> when the
+/// session's tally changes, and the handover's <c>verify_finished</c>, <c>pushed</c> and <c>pr_opened</c>.</summary>
 public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspace, ISessionVolumes volumes, IBranchHandover handover, IRunLog log, TaskTokenMinter mint,
     TaskRunnerSettings settings, IEvidenceResolver resolver,
     Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? supportCheck, Func<ResultContract, ResultContract>? sign,
-    TimeSpan? poll = null, TimeSpan? stopGrace = null) : ITaskRunner
+    TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null) : ITaskRunner
 {
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultUsagePoll = TimeSpan.FromSeconds(5);
@@ -98,7 +100,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             }
             container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
                 preset.MemoryMb, preset.Cpus, preset.Pids, ["session"]), ct);
-            var state = await WaitAsync(container, runId, preset, progress, ct);
+            Publish(task.Id, RunEventKind.ContainerStarted, "session container started");
+            var state = await WaitAsync(container, runId, task.Id, preset, progress, ct);
 
             await volumes.FetchOutputAsync(runId, outDirectory, ct);
             var session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, state.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, state.ExitCode, [], false);
@@ -110,7 +113,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             if (session.Status == SessionStatus.Completed && reportJson is not null && DrivenReport.Parse(reportJson) is { } report)
                 handed = await handover.RunAsync(new HandoverInput(runId, outDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, settings.BaseBranch,
                     Title(task.Goal), $"{report.Summary}\n\nTask: {task.Id}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify,
-                    [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote), ct);
+                    [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
+                    Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null })), ct);
 
             var scratchClone = Path.Combine(settings.ScratchRoot, runId);
             var traceId = ActivityTraceId.CreateRandom().ToHexString();
@@ -134,12 +138,13 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     }
 
     /// <summary>Waits for the container to end. A cancel interrupts the session, gives it a moment, then kills it, and rethrows; a session past its wall clock plus a margin is killed.</summary>
-    private async Task<ContainerState> WaitAsync(string container, string runId, DrivenPreset preset, IProgress<TaskUsage> progress, CancellationToken ct)
+    private async Task<ContainerState> WaitAsync(string container, string runId, string taskId, DrivenPreset preset, IProgress<TaskUsage> progress, CancellationToken ct)
     {
         var every = poll ?? DefaultPoll;
         var clock = Stopwatch.StartNew();
         var usageClock = Stopwatch.StartNew();
         long reported = 0;
+        TaskUsage? shown = null;
         try
         {
             while (true)
@@ -155,7 +160,13 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 if (usageClock.Elapsed >= (poll ?? DefaultUsagePoll))
                 {
                     usageClock.Restart();
-                    if (await ReadUsageQuietly(runId, ct) is { } usage && usage.Tokens > reported)
+                    var usage = await ReadUsageQuietly(runId, ct);
+                    if (usage is not null && usage != shown)
+                    {
+                        shown = usage;
+                        Publish(taskId, RunEventKind.SessionProgress, Describe(usage), s => s with { Tokens = usage.Tokens, Turns = usage.Turns, Stage = usage.Stage });
+                    }
+                    if (usage is not null && usage.Tokens > reported)
                     {
                         reported = usage.Tokens;
                         progress.Report(new TaskUsage(usage.Tokens, 0));
@@ -174,6 +185,22 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             throw;
         }
     }
+
+    private void Publish(string taskId, RunEventKind kind, string detail, Func<RunStatus, RunStatus>? with = null)
+    {
+        if (publish is null)
+            return;
+        var e = RunStatus.Of(settings.BatchId, RunState.Running, kind) with { TaskId = taskId, Detail = $"task {taskId}: {detail}" };
+        publish(with is null ? e : with(e));
+    }
+
+    private static string Describe(TaskUsage usage) =>
+        string.Join(", ", new[]
+        {
+            string.Create(CultureInfo.InvariantCulture, $"{usage.Tokens} tokens"),
+            usage.Turns is { } turns ? string.Create(CultureInfo.InvariantCulture, $"{turns} turns") : null,
+            usage.Stage is { } stage ? $"stage {stage.ToString().ToLowerInvariant()}" : null,
+        }.Where(p => p is not null));
 
     /// <summary>A poll that fails (the engine busy, a half-written file) is skipped: the final outcome still carries the real numbers.</summary>
     private async Task<TaskUsage?> ReadUsageQuietly(string runId, CancellationToken ct)

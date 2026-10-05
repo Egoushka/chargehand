@@ -27,6 +27,8 @@
     "branch": { "type": "string", "description": "Driven sessions: the pushed branch." },
     "pr_url": { "type": "string", "description": "Driven sessions: the draft pull request." },
     "usd_total": { "type": "number", "minimum": 0, "description": "Driven sessions: the batch's cost so far, where the credential is priced." },
-    "turns": { "type": "integer", "minimum": 0, "description": "Driven sessions: assistant messages so far in the task's session." }
+    "turns": { "type": "integer", "minimum": 0, "description": "Driven sessions: assistant messages so far in the task's session." },
+    "tokens": { "type": "integer", "minimum": 0, "description": "Driven sessions: input plus output tokens the task's session has used so far (session_progress), or in all (task_finished)." },
+    "stage": { "enum": ["research", "write", "test", "review"], "description": "Driven sessions, session_progress: the change skill's step the session is on, by its latest tool call; absent until a call names one." }
   }
 }
