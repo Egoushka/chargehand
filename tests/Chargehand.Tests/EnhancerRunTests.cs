@@ -25,11 +25,12 @@ public class EnhancerRunTests
         PromptEnhancer = new PromptEnhancerSettings("whetstone", 300),
     };
 
+    // A clock nobody advances: the deadline never fires, so a slow in-process server cannot turn into "no call reached it".
     private static async Task<(ResultContract Result, ScriptedRuntime Runtime)> RunAsync(string workerRoot, Profile profile, McpConnectionPool pool, RepositoryRef repo)
     {
         var runtime = new ScriptedRuntime(Runs.WorkerReply);
         var result = await new Orchestrator(profile, runtime, "2.0.16", Repo.Root, new JsonlRunLog(Path.Combine(workerRoot, "log.jsonl")), new Dictionary<string, int>(),
-                enhancer: PromptEnhancers.From(profile, pool))
+                enhancer: PromptEnhancers.From(profile, pool, new ManualTimeProvider()))
             .RunAsync(Runs.CheapRequest(repo), CancellationToken.None);
         return (result, runtime);
     }

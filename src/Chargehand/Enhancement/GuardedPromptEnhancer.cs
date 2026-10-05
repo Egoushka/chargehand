@@ -5,16 +5,18 @@ namespace Chargehand.Enhancement;
 /// failing or nonsensical answer becomes the original prompt with a reason; only the caller's own cancellation escapes.
 /// </summary>
 /// <param name="deadline">How long to wait for an answer, whether or not the enhancer honours its token (default 1.5 s).</param>
-public sealed class GuardedPromptEnhancer(IPromptEnhancer inner, TimeSpan? deadline = null) : IPromptEnhancer
+/// <param name="time">The clock the deadline runs on; tests pass one they advance by hand.</param>
+public sealed class GuardedPromptEnhancer(IPromptEnhancer inner, TimeSpan? deadline = null, TimeProvider? time = null) : IPromptEnhancer
 {
     public static readonly TimeSpan DefaultDeadline = TimeSpan.FromMilliseconds(1500);
 
     private readonly TimeSpan _deadline = deadline ?? DefaultDeadline;
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
 
     public async Task<Enhanced> EnhanceAsync(string prompt, EnhanceContext context, CancellationToken ct)
     {
-        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        budget.CancelAfter(_deadline);
+        using var expiry = new CancellationTokenSource(_deadline, _time);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct, expiry.Token);
         // Task.Run: an enhancer that throws or blocks before its first await must not escape the deadline either.
         var call = Task.Run(() => inner.EnhanceAsync(prompt, context, budget.Token), CancellationToken.None);
         try
@@ -46,8 +48,8 @@ public sealed class GuardedPromptEnhancer(IPromptEnhancer inner, TimeSpan? deadl
     /// <summary>Feedback is best effort: a failure here never reaches the run it reports on.</summary>
     public async Task FeedbackAsync(string requestId, EnhanceOutcome outcome, CancellationToken ct)
     {
-        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        budget.CancelAfter(_deadline);
+        using var expiry = new CancellationTokenSource(_deadline, _time);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct, expiry.Token);
         var call = Task.Run(() => inner.FeedbackAsync(requestId, outcome, budget.Token), CancellationToken.None);
         try
         {
