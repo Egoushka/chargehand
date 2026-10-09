@@ -124,4 +124,43 @@ public class BatchNetworkTests
         var id = "sha256:" + new string('a', 64);
         Assert.Contains(id, ContainerTemplate.EgressArgs(new EgressSpec("b1", id, "chargehand-net-b1", ["api.anthropic.com"])));
     }
+
+    private static readonly string TokenKey = new('a', 64);
+
+    [Fact]
+    public void A_model_endpoint_adds_flags_and_an_env_file_and_the_credential_is_never_an_argument()
+    {
+        var spec = new EgressSpec("b1", Image, "chargehand-net-b1", ["api.anthropic.com"], Gateway: new ModelGatewaySpec("real-credential-value", TokenKey));
+        var args = ContainerTemplate.EgressArgs(spec, "/tmp/env-file");
+        var list = args.ToList();
+        Assert.Equal("/tmp/env-file", list[list.IndexOf("--env-file") + 1]);
+        Assert.True(list.IndexOf("--env-file") < list.IndexOf(Image));                   // a docker flag, before the image
+        Assert.Equal(["--model-listen", "0.0.0.0:3129", "--model-host", "api.anthropic.com"], args.Skip(list.IndexOf("--model-listen")));
+        Assert.DoesNotContain(args, a => a.Contains("real-credential-value") || a.Contains(TokenKey));
+        Assert.Equal(["CHARGEHAND_EGRESS_MODEL_CREDENTIAL=real-credential-value", $"CHARGEHAND_EGRESS_TOKEN_KEY={TokenKey}"], ContainerTemplate.EgressEnvLines(spec.Gateway!));
+        Assert.DoesNotContain("--env-file", ContainerTemplate.EgressArgs(new EgressSpec("b1", Image, "chargehand-net-b1", ["api.anthropic.com"])));
+    }
+
+    [Theory]
+    [InlineData("a b", 64, 3129)]                      // credential with whitespace
+    [InlineData("", 64, 3129)]
+    [InlineData("x", 10, 3129)]                        // key not 64 hex
+    [InlineData("x", 64, 3128)]                        // the proxy's own port
+    [InlineData("x", 64, 80)]
+    public void A_bad_model_endpoint_is_refused_before_anything_starts(string credential, int keyLength, int port)
+    {
+        var spec = new EgressSpec("b1", Image, "chargehand-net-b1", ["api.anthropic.com"], Gateway: new ModelGatewaySpec(credential, new string('a', keyLength), Port: port));
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.EgressArgs(spec, "/tmp/env-file"));
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.EgressArgs(spec with { Gateway = new ModelGatewaySpec("x", TokenKey) }));   // and an env file is required
+    }
+
+    [Fact]
+    public async Task A_batch_with_a_gateway_tells_a_session_where_the_model_endpoint_is()
+    {
+        var engine = new RecordingEngine();
+        var net = await new BatchNetwork(engine).CreateAsync("b1", Image, ["api.anthropic.com"], default, gateway: new ModelGatewaySpec("real", TokenKey));
+        Assert.Equal("http://chargehand-egress-b1:3129", net.ModelUrl);
+        Assert.Equal(3129, engine.Egress!.Gateway!.Port);
+        Assert.Null((await new BatchNetwork(new RecordingEngine()).CreateAsync("b2", Image, ["api.anthropic.com"], default)).ModelUrl);
+    }
 }

@@ -16,6 +16,15 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
 
     public async Task<string> StartAsync(ContainerSpec spec, CancellationToken ct)
     {
+        var result = await RunWithEnvFileAsync(ContainerTemplate.EnvFileLines(spec.Env), envFile => ContainerTemplate.RunArgs(spec, envFile), ct);
+        if (result.ExitCode != 0)
+            throw Unavailable("docker run failed", result, spec.Env);
+        return result.Stdout.Trim();
+    }
+
+    /// <summary>Writes <paramref name="lines"/> to a private temporary env file, runs the docker call that names it, and deletes the file. The values never reach a command line.</summary>
+    private async Task<DockerResult> RunWithEnvFileAsync(IReadOnlyList<string> lines, Func<string, IReadOnlyList<string>> args, CancellationToken ct)
+    {
         var dir = Directory.CreateTempSubdirectory("chargehand-env-");
         try
         {
@@ -25,12 +34,9 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
             if (!OperatingSystem.IsWindows())
                 options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
             await using (var writer = new StreamWriter(new FileStream(envFile, options)))
-                foreach (var line in ContainerTemplate.EnvFileLines(spec.Env))
+                foreach (var line in lines)
                     await writer.WriteLineAsync(line.AsMemory(), ct);
-            var result = await RunAsync(ContainerTemplate.RunArgs(spec, envFile), ct);
-            if (result.ExitCode != 0)
-                throw Unavailable("docker run failed", result, spec.Env);
-            return result.Stdout.Trim();
+            return await RunAsync(args(envFile), ct);
         }
         finally
         {
@@ -148,9 +154,11 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
 
     public async Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct)
     {
-        var result = await RunAsync(ContainerTemplate.EgressArgs(spec), ct);
+        var result = spec.Gateway is { } gateway
+            ? await RunWithEnvFileAsync(ContainerTemplate.EgressEnvLines(gateway), envFile => ContainerTemplate.EgressArgs(spec, envFile), ct)
+            : await RunAsync(ContainerTemplate.EgressArgs(spec), ct);
         if (result.ExitCode != 0)
-            throw Unavailable("docker run of the egress proxy failed", result, null);
+            throw Unavailable("docker run of the egress proxy failed", result, spec.Gateway is { } g ? new Dictionary<string, string> { ["credential"] = g.Credential, ["key"] = g.TokenKey } : null);
         return result.Stdout.Trim();
     }
 

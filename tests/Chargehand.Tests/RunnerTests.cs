@@ -338,6 +338,23 @@ public class RunnerTests
     }
 
     [Fact]
+    public async Task An_egress_carries_the_model_endpoint_to_the_engine_and_only_to_the_models_own_host()
+    {
+        // The VPS reaches the engine through the runner, so the token exchange works only if the runner passes the credential on to the egress container.
+        await using var r = await Start();
+        var client = new RunnerClient(r.Http);
+        var key = new string('a', 64);
+        await client.StartEgressAsync(new EgressSpec("b1", "ignored-by-runner", "chargehand-net-b1", ["api.anthropic.com"], Gateway: new ModelGatewaySpec("real-credential", key)), default);
+        Assert.Equal(new ModelGatewaySpec("real-credential", key), r.Engine.Egress!.Gateway);
+
+        var refused = await Assert.ThrowsAsync<ChargehandException>(() => client.StartEgressAsync(
+            new EgressSpec("b2", "ignored-by-runner", "chargehand-net-b2", ["api.anthropic.com"], Gateway: new ModelGatewaySpec("real-credential", key, "evil.example")), default));
+        Assert.Contains("model endpoint", refused.Message);
+        Assert.DoesNotContain("real-credential", refused.Message);
+        Assert.Equal("b1", r.Engine.Egress.BatchId);   // the refused request reached no engine
+    }
+
+    [Fact]
     public async Task An_egress_without_forwards_still_starts()
     {
         await using var r = await Start();

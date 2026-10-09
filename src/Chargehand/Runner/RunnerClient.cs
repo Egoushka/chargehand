@@ -79,7 +79,8 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspace
     public Task RemoveNetworkAsync(string name, CancellationToken ct) => Send(HttpMethod.Delete, $"/networks/{Uri.EscapeDataString(name)}", null, ct);
 
     public async Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct) =>
-        (await Send<IdReply>(HttpMethod.Post, "/egress", new RunnerEgress(spec.BatchId, spec.Network, [.. spec.Allow], spec.Forwards is null ? null : [.. spec.Forwards]), ct)).Id;
+        (await Send<IdReply>(HttpMethod.Post, "/egress", new RunnerEgress(spec.BatchId, spec.Network, [.. spec.Allow], spec.Forwards is null ? null : [.. spec.Forwards],
+            spec.Gateway is { } g ? new RunnerModelGateway(g.Credential, g.TokenKey, g.Host, g.Port) : null), ct)).Id;
 
     public Task ConnectNetworkAsync(string container, string network, CancellationToken ct) => Send(HttpMethod.Post, "/connect", new RunnerConnect(container, network), ct);
 

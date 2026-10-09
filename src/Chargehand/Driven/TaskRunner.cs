@@ -5,6 +5,7 @@ using Chargehand.Budget;
 using Chargehand.Config;
 using Chargehand.Containers;
 using Chargehand.Contracts;
+using Chargehand.Egress;
 using Chargehand.Results;
 using Chargehand.RunLog;
 using Chargehand.Verification;
@@ -44,7 +45,9 @@ public delegate string TaskTokenMinter(TaskGrant grant);
 
 /// <param name="Repository">The request's repository; its commit is what a session's run token is limited to.</param>
 /// <param name="SourcePath">chargehand's own checkout of that commit: the workspace's read-only source and the handover's scratch clone source.</param>
-/// <param name="ModelEnvironment">The model credential as the session container's environment (the fallback delivery; recorded as such on the batch result).</param>
+/// <param name="ModelEnvironment">The real model credential by environment name. It is the session container's environment only when <paramref name="GatewayKey"/> is null (the fallback
+/// delivery, recorded as such on the batch result); always the list of values the handover scans for.</param>
+/// <param name="GatewayKey">Set, the egress container exchanges run tokens (ADR 0039, decision 9): a session gets a token minted with this key and the model endpoint's address, and no real credential.</param>
 /// <param name="McpUrl">The chargehand server's MCP address on the batch network; null: the session gets no research or review calls.</param>
 /// <param name="ModelBaseUrl">The session's <c>ANTHROPIC_BASE_URL</c> when it reaches the model through a gateway; null: Anthropic directly.</param>
 /// <param name="CallbackForwards">Some address the session uses is a forward on the egress container (plain HTTP), which must bypass the proxy.</param>
@@ -54,7 +57,7 @@ public delegate string TaskTokenMinter(TaskGrant grant);
 public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, string Image, string SourcePath, string BaseCommit, string RemoteUrl, string BaseBranch,
     BatchNetworkInfo Network, string? McpUrl, DrivenPreset Preset, TaskLimits Limits, bool Priced, IReadOnlyDictionary<string, string> ModelEnvironment, PushCredential Push,
     string ScratchRoot, string Model, string ClaudeVersion, bool AllowLocalRemote = false, string? ModelBaseUrl = null, bool CallbackForwards = false, DrivenOtlpRoute? Otlp = null,
-    IReadOnlyDictionary<string, ModelPrice>? Prices = null, bool UsageOnSpans = false);
+    IReadOnlyDictionary<string, ModelPrice>? Prices = null, bool UsageOnSpans = false, string? GatewayKey = null);
 
 /// <summary>Runs one task of a batch to its end (ADR 0039): a workspace at the pinned commit, a session container on the batch network, then the handover (chargehand's own
 /// verification, the scan, the push, a draft pull request) and the task's own <c>result/v1</c> in the run log. A cancel signals the session and ends the task; it never reaches
@@ -94,7 +97,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             await volumes.WriteTaskAsync(runId, new SessionTask(runId, task.Goal, branch, preset.MaxTurns, preset.MaxMinutes, preset.NoProgressMinutes * 60,
                 settings.Limits.MaxTokens, MaxUsd: settings.Limits.MaxUsd), ct);
 
-            Dictionary<string, string> env = new(settings.ModelEnvironment, StringComparer.Ordinal)
+            var gateway = settings.GatewayKey is not null && settings.Network.ModelUrl is not null;
+            Dictionary<string, string> env = new(gateway ? new Dictionary<string, string>() : settings.ModelEnvironment, StringComparer.Ordinal)
             {
                 ["HTTPS_PROXY"] = settings.Network.ProxyUrl(runId),
                 ["HTTP_PROXY"] = settings.Network.ProxyUrl(runId),
@@ -102,8 +106,15 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             };
             if (settings.ModelBaseUrl is { } modelBaseUrl)
                 env["ANTHROPIC_BASE_URL"] = modelBaseUrl;
-            if (settings.CallbackForwards)
-                // A forward is plain HTTP to the egress container; the proxy variables would send it to that same proxy, which answers CONNECT only.
+            if (gateway)
+            {
+                // The container holds a token that is worth nothing outside this run and this network; the real credential stays in the egress container.
+                env["ANTHROPIC_BASE_URL"] = settings.Network.ModelUrl!;
+                env["CLAUDE_CODE_OAUTH_TOKEN"] = ModelTokens.Mint(settings.GatewayKey!, runId, started.AddMinutes(preset.MaxMinutes + 15), settings.Limits.MaxTokens);
+                env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1";
+            }
+            if (settings.CallbackForwards || gateway)
+                // A forward and the model endpoint are plain HTTP to the egress container; the proxy variables would send them to that same proxy, which answers CONNECT only.
                 env["NO_PROXY"] = env["no_proxy"] = $"{settings.Network.ProxyHost},{ContainerTemplate.CallbackAlias}";
             if (settings.Otlp is { } otlp)
                 foreach (var (name, value) in otlp.Environment(settings.BatchId, task.Id, runId, span is null ? null : traceId))
