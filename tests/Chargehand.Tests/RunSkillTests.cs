@@ -28,6 +28,8 @@ public class RunSkillTests
     [Theory]
     [InlineData("\"driven\"")]                          // the preset
     [InlineData("max_parallel")]
+    [InlineData("max_tokens_total: 3000000")]           // a subscription server requires the token cap,
+    [InlineData("max_usd_total: 5")]                    // a priced one (API key, gateway key) the dollar cap
     [InlineData("Monitor")]
     [InlineData("chargehand watch")]
     [InlineData("chargehand cancel")]
