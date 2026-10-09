@@ -129,7 +129,7 @@ public static class OrchestrateTool
         var prefer = context.Services!.GetService<IHttpContextAccessor>()?.HttpContext?.Request.Headers["Prefer"].ToString() ?? "";
         try
         {
-            await run.Done.WaitAsync(prefer.Contains("wait=", StringComparison.Ordinal) ? ChargehandServer.Wait(prefer) : Timeout.InfiniteTimeSpan, ct);
+            await run.Done.WaitAsync(WaitFor(request, prefer), ct);
         }
         catch (TimeoutException)
         {
@@ -137,6 +137,11 @@ public static class OrchestrateTool
         }
         return run;
     }
+
+    /// <summary>Without <c>Prefer: wait</c> the call waits for the result, except a batch (a <c>driven</c> block): it runs for minutes or hours and a client cannot set the header
+    /// per call, so it gets the run id after the default wait, like <c>POST /v1/runs</c>.</summary>
+    internal static TimeSpan WaitFor(RunRequest request, string prefer) =>
+        prefer.Contains("wait=", StringComparison.Ordinal) ? ChargehandServer.Wait(prefer) : request.Driven is not null ? ChargehandServer.DefaultWait : Timeout.InfiniteTimeSpan;
 
     private static string Where(RunHandle run, string state) =>
         $"chargehand run {run.Id} {state}; GET /v1/runs/{run.Id} or `chargehand show {run.Id}` reads its result";
