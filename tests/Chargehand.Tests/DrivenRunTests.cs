@@ -28,6 +28,7 @@ public class DrivenRunTests
 
         public List<string> Calls { get; } = [];
         public List<ContainerSpec> Started { get; } = [];
+        public List<EgressSpec> Egresses { get; } = [];
         public bool HoldRunning { get; set; }
         /// <summary>Each container answers running to this many inspections before it exits.</summary>
         public int RunFor { get; set; }
@@ -79,7 +80,7 @@ public class DrivenRunTests
         public Task RemoveVolumeAsync(string name, CancellationToken ct) { Record($"volume-rm {name}"); return Task.CompletedTask; }
         public Task CreateNetworkAsync(string name, string batchId, CancellationToken ct) { Record($"network {name}"); return Task.CompletedTask; }
         public Task RemoveNetworkAsync(string name, CancellationToken ct) { Record($"network-rm {name}"); return Task.CompletedTask; }
-        public Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct) { Record($"egress {spec.BatchId} [{string.Join(' ', spec.Forwards ?? [])}]"); return Task.FromResult("egress-1"); }
+        public Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct) { lock (_gate) Egresses.Add(spec); Record($"egress {spec.BatchId} [{string.Join(' ', spec.Forwards ?? [])}]"); return Task.FromResult("egress-1"); }
         public Task ConnectNetworkAsync(string container, string network, CancellationToken ct) { Record($"connect {container} {network}"); return Task.CompletedTask; }
         public Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct) { Record($"prepare {spec.RunId} {spec.Branch} {spec.Commit}"); return Task.CompletedTask; }
     }
@@ -159,13 +160,14 @@ public class DrivenRunTests
         public DrivenRun Run { get; }
         public Profile Profile { get; }
 
-        public Rig(bool enabled = true, Func<string, SessionStatus>? script = null, string? mcpForward = null, string? dir = null, JsonlRunLog? log = null, FakeVolumes? volumes = null)
+        public Rig(bool enabled = true, Func<string, SessionStatus>? script = null, string? mcpForward = null, string? dir = null, JsonlRunLog? log = null, FakeVolumes? volumes = null,
+            string? modelUrl = null, bool apiKey = false)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
             {
-                ClaudeCode = new ClaudeCodeSettings("2.1.283", OauthTokenSecret: "claude-code-oauth-token"),
-                Driven = new DrivenSettings(enabled, MaxParallel: 2, Images: [Image], PushSecret: PushSecret, Network: new DrivenNetwork(McpForward: mcpForward)),
+                ClaudeCode = apiKey ? new ClaudeCodeSettings("2.1.283", ApiKeySecret: "gateway-key") : new ClaudeCodeSettings("2.1.283", OauthTokenSecret: "claude-code-oauth-token"),
+                Driven = new DrivenSettings(enabled, MaxParallel: 2, Images: [Image], PushSecret: PushSecret, Network: new DrivenNetwork(McpForward: mcpForward, ModelUrl: modelUrl)),
             };
             var services = enabled
                 ? new DrivenServices(Engine, Engine, volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed)), _ => throw new NotSupportedException("the handover is faked"), null,
@@ -184,7 +186,7 @@ public class DrivenRunTests
 
     private static RunRequest Request(params string[] goals) =>
         new("request/v1", "Run the tasks.", new RequestContext(false, "driven", Repository: new RepositoryRef("/srv/repo", Commit)),
-            Driven: new RequestDriven([.. goals.Select((g, i) => new DrivenTask($"t{i + 1}", Goal: g))], MaxTokensTotal: 10_000_000));
+            Driven: new RequestDriven([.. goals.Select((g, i) => new DrivenTask($"t{i + 1}", Goal: g))], MaxTokensTotal: 10_000_000, MaxUsdTotal: 5m));
 
     private static string Token(TaskGrant g) => $"tok-{g.RunId}";
 
@@ -358,6 +360,67 @@ public class DrivenRunTests
         var result = await withoutPush.RunAsync(Request("Add a retry"), "run-batch-5", Token, default);
         Assert.Equal(ErrorCode.CredentialUnavailable, result.Error!.Code);
         Assert.Empty(rig.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_gateway_url_gives_the_session_a_base_url_through_a_second_forward_and_the_key_it_was_issued()
+    {
+        using var rig = new Rig(mcpForward: "chargehand-host:4300", modelUrl: "http://gateway-host:4001/anthropic", apiKey: true);
+        var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-1", Token, default);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal("gateway_key", JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "driven-batch").Content!).RootElement.GetProperty("credential_delivery").GetString());
+        Assert.Contains("egress run-batch-1 [4300=chargehand-host:4300 4001=gateway-host:4001]", rig.Engine.Calls);
+        var spec = rig.Engine.Started.Single();
+        Assert.Equal("http://chargehand-driven:4001/anthropic", spec.Env["ANTHROPIC_BASE_URL"]);
+        Assert.Equal("value-of-gateway-key", spec.Env["ANTHROPIC_API_KEY"]);
+        Assert.DoesNotContain("CLAUDE_CODE_OAUTH_TOKEN", spec.Env.Keys);
+        Assert.Equal("chargehand-egress-run-batch-1,chargehand-driven", spec.Env["NO_PROXY"]);
+        // The key is among the values the diff scan looks for, like any model credential.
+        Assert.Contains("value-of-gateway-key", rig.Handover.Inputs.Single().Secrets!);
+    }
+
+    [Fact]
+    public async Task A_gateway_without_the_chargehand_forward_still_bypasses_the_proxy_for_the_forward()
+    {
+        using var rig = new Rig(modelUrl: "http://gateway-host:4001/anthropic", apiKey: true);
+        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-1", Token, default);
+
+        Assert.Contains("egress run-batch-1 [4001=gateway-host:4001]", rig.Engine.Calls);
+        var spec = rig.Engine.Started.Single();
+        Assert.Equal("chargehand-egress-run-batch-1,chargehand-driven", spec.Env["NO_PROXY"]);
+        Assert.DoesNotContain("CHARGEHAND_MCP_URL", spec.Env.Keys);
+    }
+
+    [Fact]
+    public async Task An_https_gateway_is_reached_through_the_proxy_so_its_host_joins_the_allowlist_and_no_forward_is_made()
+    {
+        using var rig = new Rig(modelUrl: "https://gateway.example/anthropic", apiKey: true);
+        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-1", Token, default);
+
+        var egress = rig.Engine.Egresses.Single();
+        Assert.Contains("gateway.example", egress.Allow);
+        Assert.Null(egress.Forwards);
+        Assert.Equal("https://gateway.example/anthropic", rig.Engine.Started.Single().Env["ANTHROPIC_BASE_URL"]);
+    }
+
+    [Theory]
+    [InlineData("http://gateway-host:4001/anthropic", false, "api_key_secret")]             // a subscription token is not a gateway key
+    [InlineData("gateway-host:4001", true, "http or https URL")]
+    [InlineData("ftp://gateway-host/anthropic", true, "http or https URL")]
+    [InlineData("http://user:pw@gateway-host:4001/anthropic", true, "credentials")]
+    [InlineData("http://gateway-host:4001/anthropic?key=x", true, "query")]
+    [InlineData("http://gateway-host:4300/anthropic", true, "port 4300")]                  // the chargehand forward listens there
+    public async Task A_gateway_url_that_cannot_work_is_refused_before_anything_is_created(string url, bool apiKey, string reason)
+    {
+        using var rig = new Rig(mcpForward: "chargehand-host:4300", modelUrl: url, apiKey: apiKey);
+        var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-1", Token, default);
+
+        Assert.Equal(ResultStatus.Failed, result.Status);
+        Assert.Equal(ErrorCode.InvalidRequest, result.Error!.Code);
+        Assert.Contains(reason, result.Error.Message, StringComparison.Ordinal);
+        Assert.Empty(rig.Engine.Started);
+        Assert.DoesNotContain(rig.Engine.Calls, c => c.StartsWith("network ", StringComparison.Ordinal));
     }
 
     [Fact]
