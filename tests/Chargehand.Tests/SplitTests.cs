@@ -107,6 +107,23 @@ public class SplitTests
         Assert.Equal(2, peak);
     }
 
+    /// <summary>A profile's max_parallel_nodes caps a run's concurrent workers below ADR 0011's 2, for a host short on memory.</summary>
+    [Fact]
+    public async Task Max_parallel_nodes_1_runs_one_node_at_a_time()
+    {
+        var plan = Enumerable.Range(1, 3).Select(i => new PlanNode($"n{i}", "G", [])).ToArray();
+        int running = 0, peak = 0;
+        await new GraphRunner(1).RunAsync(plan, async (node, upstream, fork, primed, ct) =>
+        {
+            primed?.SetResult(null);
+            peak = Math.Max(peak, Interlocked.Increment(ref running));
+            await Task.Delay(30, ct);
+            Interlocked.Decrement(ref running);
+            return Result(Contract(node.Id));
+        }, Failed, CancellationToken.None);
+        Assert.Equal(1, peak);
+    }
+
     [Fact]
     public void Merge_namespaces_evidence_sums_usage_and_validates()
     {

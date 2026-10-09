@@ -376,7 +376,7 @@ public sealed class Orchestrator(
         IReadOnlyList<NodeOutcome> outcomes;
         try
         {
-            outcomes = await new GraphRunner().RunAsync(plan, RunNode, Failed, ct);
+            outcomes = await new GraphRunner(Math.Clamp(profile.MaxParallelNodes, 1, 2)).RunAsync(plan, RunNode, Failed, ct);
         }
         finally
         {

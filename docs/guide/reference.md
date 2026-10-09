@@ -156,6 +156,7 @@ The profile is `profile/v1` JSON; `profiles/example.json` fills in most fields w
 | `default_preset` | `cheap` | `request/v1` requires `context.preset`, so each request names its own |
 | `intake_model` | unset: the runtime's default model | the model intake runs on |
 | `run_cap_usd` | 1.00 | hard cap per run in USD, divided evenly across a split's nodes |
+| `max_parallel_nodes` | 2 | worker nodes of one run that run at once (1 or 2); `serve` already runs one request at a time, so 1 means one worker process on the host |
 | `run_log` | see [Run log](#run-log) | the JSONL run log's path |
 | `telemetry` | unset | `otlp_endpoint`, `public_key_secret` and `secret_key_secret` send OTLP traces to Langfuse; `usage_on_spans` (default false) puts tokens and cost on call spans for calls no gateway records |
 | `prices` | empty: cost unknown | USD per 1M tokens per `provider/model`: `input`, `output`, `cache_read`, `cache_write` (with the provider's cache-write surcharge) |
