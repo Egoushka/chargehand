@@ -210,6 +210,17 @@ public class ServerTests
     [InlineData("respond-async, wait=600", 60)]
     public void Prefer_wait_is_read_and_capped(string? prefer, int seconds) => Assert.Equal(TimeSpan.FromSeconds(seconds), ChargehandServer.Wait(prefer));
 
+    [Theory]
+    [InlineData(false, "", -1)]        // a research or review call waits for its result
+    [InlineData(true, "", 10)]         // a batch runs for minutes or hours, and an MCP client cannot set Prefer per call: it gets the run id after the default wait
+    [InlineData(true, "wait=3", 3)]
+    [InlineData(false, "wait=3", 3)]
+    public void An_MCP_call_waits_for_the_result_unless_it_starts_a_batch(bool driven, string prefer, int seconds)
+    {
+        var request = driven ? new RunRequest("request/v1", "x", new RequestContext(false, "driven"), Driven: new RequestDriven([new DrivenTask("t1", Goal: "g")])) : Runs.DraftRequest();
+        Assert.Equal(seconds < 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(seconds), OrchestrateTool.WaitFor(request, prefer));
+    }
+
     internal static async Task WaitUntil(Func<Task<bool>> condition)
     {
         for (var i = 0; i < 200; i++)

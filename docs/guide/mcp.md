@@ -71,7 +71,7 @@ A call that carries a progress token gets one progress notification when the run
 chargehand run <run-id> started; GET /v1/runs/<run-id> or `chargehand show <run-id>` reads its result
 ```
 
-When the HTTP request of an MCP call carries `Prefer: wait=N` (N at most 60) and the run has not finished after N seconds, the call returns a tool error. Its first text block names the run and its routes; its second is the run's latest `run-status/v1`. The run goes on, and resending the request would start a second run. Without the header the call waits for the result. Over stdio there is no HTTP request, so no header.
+When the HTTP request of an MCP call carries `Prefer: wait=N` (N at most 60) and the run has not finished after N seconds, the call returns a tool error. Its first text block names the run and its routes; its second is the run's latest `run-status/v1`. The run goes on, and resending the request would start a second run. Without the header the call waits for the result, except a request with a `driven` block (a batch runs for minutes or hours, and a client cannot set the header per call): it waits 10 s, then answers as if the header said `wait=10`. Over stdio there is no HTTP request, so no header.
 
 ## From the package
 
