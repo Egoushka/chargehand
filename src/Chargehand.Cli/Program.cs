@@ -36,6 +36,11 @@ const string Usage = """
       runs adherence <stream.jsonl>...
                                    whether driven sessions kept to the change skill's steps, from their stored streams
       runs kill --all              removes every driven-session container and batch network by label (works with the server down)
+      watch <run-id> [--url <server>]
+                                   one line per event of a run on a server until its result; exit 0 completed, 1 failed, 3 needs input
+                                   (server: --url or CHARGEHAND_URL, key: CHARGEHAND_API_KEY, else the profile's http block)
+      cancel <run-id> [--url <server>]
+                                   asks the server to cancel a run
       show <run-id>                prints a run and its calls from the run log
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
       cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
@@ -71,6 +76,33 @@ if (argv is ["verify", .. var verifyArgs])
 // Reads stored session streams only (ADR 0039).
 if (argv is ["runs", "adherence", .. var adherenceArgs])
     return Chargehand.Driven.AdherenceCli.Run(adherenceArgs, Console.Out, Console.Error);
+// A client of a running server: it reads the profile only for what --url and the environment leave out.
+if (argv is ["watch" or "cancel", var watchRun, .. var watchOptions])
+{
+    using var stop = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    var (client, problem) = Chargehand.Watch.WatchCli.Connect(watchOptions, Environment.GetEnvironmentVariable, () =>
+    {
+        try
+        {
+            var p = Profile.Load(profilePath);
+            return p.Http is { } http ? ($"http://{(http.Listen is "0.0.0.0" or "::" ? "127.0.0.1" : http.Listen)}:{http.Port}", p.Secret(http.ApiKeySecret)) : null;
+        }
+        catch (Exception e) when (e is ChargehandException or InvalidOperationException)
+        {
+            return null;
+        }
+    });
+    if (client is null)
+    {
+        Console.Error.WriteLine(problem);
+        return 2;
+    }
+    using (client)
+        return argv[0] == "watch"
+            ? await Chargehand.Watch.WatchCli.WatchAsync(client, watchRun, Console.Out, Console.Error, stop.Token)
+            : await Chargehand.Watch.WatchCli.CancelAsync(client, watchRun, Console.Out, Console.Error, stop.Token);
+}
 // Profile-free too: the egress container of a driven-session batch holds an allowlist and nothing else (ADR 0039).
 if (argv is ["egress", .. var egressArgs])
 {
