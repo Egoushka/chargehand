@@ -29,6 +29,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 {
     public const string CredentialDelivery = "environment";
 
+    /// <summary>The containers hold a key the gateway issued for driven sessions (a budget, revocable), not the real credential.</summary>
+    public const string GatewayKeyDelivery = "gateway_key";
+
     private readonly SemaphoreSlim _global = new(Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4));
 
     public void Dispose() => _global.Dispose();
@@ -91,11 +94,19 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 ?? throw new ChargehandException(ErrorCode.CredentialUnavailable, "claude_code names no credential", "Set api_key_secret or oauth_token_secret.")),
         };
 
-        var checkout = await s.Checkout(request.Context.Repository!, request.Context.Preset, ct);
         var forward = settings.Network?.McpForward;
         var port = forward is null ? 0 : int.Parse(forward[(forward.LastIndexOf(':') + 1)..], CultureInfo.InvariantCulture);
-        var net = await new BatchNetwork(s.Engine).CreateAsync(runId, image, [.. (drivenPreset.Allow ?? []).Concat(settings.Network?.Allow ?? []).Distinct()], ct,
-            settings.Network?.Outside ?? BatchNetwork.DefaultOutside, forward is null ? null : [$"{port}={forward}"]);
+        var model = DrivenModelRoute.Parse(settings.Network?.ModelUrl, priced, forward is null ? null : port);
+
+        var checkout = await s.Checkout(request.Context.Repository!, request.Context.Preset, ct);
+        List<string> forwards = [];
+        if (forward is not null)
+            forwards.Add($"{port}={forward}");
+        if (model?.Forward is { } modelForward)
+            forwards.Add(modelForward);
+        var net = await new BatchNetwork(s.Engine).CreateAsync(runId, image,
+            [.. (drivenPreset.Allow ?? []).Concat(settings.Network?.Allow ?? []).Concat(model?.AllowHost is { } host ? new[] { host } : []).Distinct()], ct,
+            settings.Network?.Outside ?? BatchNetwork.DefaultOutside, forwards.Count == 0 ? null : forwards);
         BatchOutcome ran;
         try
         {
@@ -105,7 +116,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             var task = new TaskRunnerSettings(runId, request, image, checkout.Directory, checkout.Commit, checkout.RemoteUrl, checkout.BaseBranch, net,
                 forward is null ? null : $"{BatchNetworkInfo.ServiceUrl(port)}/v1/mcp", drivenPreset, limits.PerTask, priced, modelEnvironment, push,
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
-                Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1");
+                Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true);
             var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress);
             ran = await new BatchScheduler(runner).RunAsync(ready, limits, ct, o => progress?.Invoke(TaskFinished(runId, o)));
         }
@@ -116,7 +127,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
         // In request order: tasks that did not resolve were never started.
         var all = request.Driven.Tasks.Select(t => unresolved.FirstOrDefault(u => u.Id == t.Id) ?? ran.Tasks.First(o => o.Id == t.Id)).ToList();
-        return DrivenResult.BuildBatch(runId, traceId, "", new BatchOutcome(all, ran.Action), CredentialDelivery, priced, claude.Version);
+        return DrivenResult.BuildBatch(runId, traceId, "", new BatchOutcome(all, ran.Action), model is null ? CredentialDelivery : GatewayKeyDelivery, priced, claude.Version);
     }
 
     private static RunStatus TaskFinished(string runId, TaskOutcome o) =>

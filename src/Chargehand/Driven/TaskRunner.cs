@@ -45,9 +45,11 @@ public delegate string TaskTokenMinter(TaskGrant grant);
 /// <param name="SourcePath">chargehand's own checkout of that commit: the workspace's read-only source and the handover's scratch clone source.</param>
 /// <param name="ModelEnvironment">The model credential as the session container's environment (the fallback delivery; recorded as such on the batch result).</param>
 /// <param name="McpUrl">The chargehand server's MCP address on the batch network; null: the session gets no research or review calls.</param>
+/// <param name="ModelBaseUrl">The session's <c>ANTHROPIC_BASE_URL</c> when it reaches the model through a gateway; null: Anthropic directly.</param>
+/// <param name="CallbackForwards">Some address the session uses is a forward on the egress container (plain HTTP), which must bypass the proxy.</param>
 public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, string Image, string SourcePath, string BaseCommit, string RemoteUrl, string BaseBranch,
     BatchNetworkInfo Network, string? McpUrl, DrivenPreset Preset, TaskLimits Limits, bool Priced, IReadOnlyDictionary<string, string> ModelEnvironment, PushCredential Push,
-    string ScratchRoot, string Model, string ClaudeVersion, bool AllowLocalRemote = false);
+    string ScratchRoot, string Model, string ClaudeVersion, bool AllowLocalRemote = false, string? ModelBaseUrl = null, bool CallbackForwards = false);
 
 /// <summary>Runs one task of a batch to its end (ADR 0039): a workspace at the pinned commit, a session container on the batch network, then the handover (chargehand's own
 /// verification, the scan, the push, a draft pull request) and the task's own <c>result/v1</c> in the run log. A cancel signals the session and ends the task; it never reaches
@@ -87,14 +89,17 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 ["HTTP_PROXY"] = settings.Network.ProxyUrl(runId),
                 ["CHARGEHAND_RUN_ID"] = runId,
             };
+            if (settings.ModelBaseUrl is { } modelBaseUrl)
+                env["ANTHROPIC_BASE_URL"] = modelBaseUrl;
+            if (settings.CallbackForwards)
+                // A forward is plain HTTP to the egress container; the proxy variables would send it to that same proxy, which answers CONNECT only.
+                env["NO_PROXY"] = env["no_proxy"] = $"{settings.Network.ProxyHost},{ContainerTemplate.CallbackAlias}";
             if (settings.McpUrl is { } mcp)
             {
                 env["CHARGEHAND_MCP_URL"] = mcp;
                 // The token admits only this path and commit; /work is not it, so the session is told them.
                 env["CHARGEHAND_REPOSITORY_PATH"] = settings.SourcePath;
                 env["CHARGEHAND_BASE_COMMIT"] = settings.BaseCommit;
-                // The forward is plain HTTP to the egress container; the proxy variables would send it to that same proxy, which answers CONNECT only.
-                env["NO_PROXY"] = env["no_proxy"] = $"{settings.Network.ProxyHost},{ContainerTemplate.CallbackAlias}";
                 env["CHARGEHAND_RUN_TOKEN"] = mint(new TaskGrant(runId, settings.SourcePath, settings.BaseCommit, settings.Limits.MaxUsd, settings.Limits.MaxTokens,
                     started.AddMinutes(preset.MaxMinutes + 15)));
             }
