@@ -76,6 +76,32 @@ public class ConfigFileTests
         Assert.True(ProfileSchema.Evaluate(doc.RootElement).IsValid);
     }
 
+    [Theory]
+    [InlineData("""{"schema":"profile/v1","max_parallel_nodes":1}""", true)]
+    [InlineData("""{"schema":"profile/v1","max_parallel_nodes":0}""", false)]
+    [InlineData("""{"schema":"profile/v1","max_parallel_nodes":3}""", false)] // above ADR 0011's 2 per model
+    public void The_schema_bounds_max_parallel_nodes(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
+    [Fact]
+    public void Max_parallel_nodes_defaults_to_2_and_loads()
+    {
+        Assert.Equal(2, new Chargehand.Config.Profile("profile/v1").MaxParallelNodes);
+        var path = Path.Combine(Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, """{"schema":"profile/v1","max_parallel_nodes":1}""");
+        try
+        {
+            Assert.Equal(1, Chargehand.Config.Profile.Load(path).MaxParallelNodes);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     /// <summary>ADR 0026: every field but "schema" is now optional.</summary>
     [Fact]
     public void A_minimal_profile_with_only_the_schema_field_validates()
