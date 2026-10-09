@@ -21,8 +21,9 @@ request, and if chargehand fails, report the failure instead of taking over. cha
 ## 2. Hand over
 
 Call `orchestrate` with `request/v1`: `contract_version` = "request/v1", `text` = the prompt, `context.preset` = "driven", `context.interactive` = false,
-`context.repository` = { path: the repository root, commit: HEAD (hex sha) }, and `driven` = { tasks: [{ id: "t1", goal: the prompt }], max_parallel: 1 }.
-Add `max_tokens_total` or `max_usd_total` only if the user named a cap.
+`context.repository` = { path: the repository root, commit: HEAD (hex sha) }, and `driven` = { tasks: [{ id: "t1", goal: the prompt }], max_parallel: 1,
+max_tokens_total: 3000000, max_usd_total: 5 }. A server on a subscription needs the token cap and one on an API key or gateway key needs the dollar cap, and the
+skill cannot tell which, so it sends both; use the user's numbers instead if they named a cap, and say the caps in the hand-over line.
 
 The call returns after about 10 seconds. Normally it is a tool error whose first block says the run "is still running" and names it, and whose last block is
 `run-status/v1`: its `run_id` is the batch's id, and the run goes on. That error is expected, not a failure. Do not call `orchestrate` again for the same prompt:
