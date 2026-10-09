@@ -47,4 +47,41 @@ public class TelemetryTests
             Assert.Equal(0.000215m, cost.GetProperty("total").GetDecimal());
         });
     }
+    /// <summary>Under serve, a run starts inside a request's activity that the SDK does not record; a parent-based sampler
+    /// would then drop every run span. The run is its own trace instead.</summary>
+    [Fact]
+    public async Task A_run_under_an_unrecorded_ambient_activity_is_its_own_recorded_trace()
+    {
+        using var root = new TempDir();
+        var spans = new List<Activity>();
+        using var ambientSource = new ActivitySource("Test.Ambient");
+        using var ambientListener = new ActivityListener
+        {
+            ShouldListenTo = s => s.Name == "Test.Ambient",
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.PropagationData,
+        };
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = s => s.Name == "Chargehand",
+            // The OpenTelemetry SDK's default: follow a parent's sampled flag, record a root.
+            Sample = (ref ActivityCreationOptions<ActivityContext> o) =>
+                o.Parent == default || o.Parent.TraceFlags.HasFlag(ActivityTraceFlags.Recorded)
+                    ? ActivitySamplingResult.AllDataAndRecorded : ActivitySamplingResult.PropagationData,
+            ActivityStopped = a => { lock (spans) spans.Add(a); },
+        };
+        ActivitySource.AddActivityListener(ambientListener);
+        ActivitySource.AddActivityListener(listener);
+        using var ambient = ambientSource.StartActivity("request");
+        Assert.False(ambient!.Recorded);
+
+        var result = await new Orchestrator(Runs.Profile(root.Path), new ScriptedRuntime(Runs.DraftReply), "2.0.16", Repo.Root,
+            new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")), new Dictionary<string, int>()).RunAsync(Runs.DraftRequest(), CancellationToken.None);
+
+        Assert.Same(ambient, Activity.Current);
+        Activity run;
+        lock (spans)
+            run = spans.Single(a => a.OperationName == "chargehand.run" && a.TraceId.ToHexString() == result.TraceId);
+        Assert.True(run.Recorded);
+        Assert.Equal(default, run.ParentSpanId);
+    }
 }

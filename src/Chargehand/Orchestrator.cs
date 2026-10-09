@@ -55,6 +55,10 @@ public sealed class Orchestrator(
     {
         var started = DateTimeOffset.UtcNow;
         runId ??= NewRunId();
+        // A run is its own trace: under serve the ambient activity is the request's, which the SDK does not record, and a
+        // parent-based sampler would drop every span below it. The change to Activity.Current stays inside this method.
+        if (Activity.Current is { Recorded: false })
+            Activity.Current = null;
         using var run = Telemetry.Source.StartActivity("chargehand.run");
         var traceId = run?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
         run?.SetTag("langfuse.trace.name", "chargehand.run");
