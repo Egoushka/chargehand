@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-10-10
+
+The driven session image keeps the .NET CLI home and the NuGet cache on its volume.
+
 ### Changed
 
 - The session image keeps the .NET CLI home and the NuGet package cache on the volume (ADR 0039): `DOTNET_CLI_HOME=/work/.dotnet`, `NUGET_PACKAGES=/work/.nuget/packages`, so a restore of a real solution does not fill the tmpfs at `/home/session`. The image already had the .NET 10 SDK; its size does not change. The driven guide gains a `dotnet test` verification example and the NuGet hosts a restore needs in `driven.network.allow` (`api.nuget.org`, `globalcdn.nuget.org`).
@@ -658,7 +662,9 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.4...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.6...HEAD
+[0.8.6]: https://github.com/Egoushka/chargehand/compare/v0.8.5...v0.8.6
+[0.8.5]: https://github.com/Egoushka/chargehand/compare/v0.8.4...v0.8.5
 [0.8.4]: https://github.com/Egoushka/chargehand/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/Egoushka/chargehand/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/Egoushka/chargehand/compare/v0.8.1...v0.8.2
