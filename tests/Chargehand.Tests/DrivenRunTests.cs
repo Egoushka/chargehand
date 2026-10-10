@@ -493,6 +493,41 @@ public class DrivenRunTests
     }
 
     [Fact]
+    public async Task A_batch_under_an_unrecorded_ambient_activity_is_its_own_recorded_trace()
+    {
+        using var rig = new Rig();
+        var spans = new List<Activity>();
+        using var ambientSource = new ActivitySource("Test.DrivenAmbient");
+        using var ambientListener = new ActivityListener
+        {
+            ShouldListenTo = s => s.Name == "Test.DrivenAmbient",
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.PropagationData,
+        };
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = s => s.Name == "Chargehand",
+            // The OpenTelemetry SDK's default: follow a parent's sampled flag, record a root.
+            Sample = (ref ActivityCreationOptions<ActivityContext> o) =>
+                o.Parent == default || o.Parent.TraceFlags.HasFlag(ActivityTraceFlags.Recorded)
+                    ? ActivitySamplingResult.AllDataAndRecorded : ActivitySamplingResult.PropagationData,
+            ActivityStopped = a => { lock (spans) spans.Add(a); },
+        };
+        ActivitySource.AddActivityListener(ambientListener);
+        ActivitySource.AddActivityListener(listener);
+        using var ambient = ambientSource.StartActivity("request");
+
+        var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-26", Token, default);
+
+        Assert.Same(ambient, Activity.Current);
+        List<Activity> trace;
+        lock (spans)
+            trace = spans.Where(a => a.TraceId.ToHexString() == result.TraceId).ToList();
+        Assert.Equal(default, trace.Single(a => a.OperationName == "chargehand.driven.run").ParentSpanId);
+        Assert.Equal(["chargehand.driven.run", "chargehand.driven.session", "chargehand.driven.task"], trace.Select(a => a.OperationName).Order());
+        Assert.All(trace, a => Assert.True(a.Recorded));
+    }
+
+    [Fact]
     public async Task Session_spans_carry_usage_and_cost_only_when_the_profile_asks()
     {
         using var rig = new Rig(telemetry: new TelemetrySettings("http://127.0.0.1:1/api/public/otel", "pk", "sk"));

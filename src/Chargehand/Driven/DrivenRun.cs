@@ -40,6 +40,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         Func<bool>? cancelledByCaller = null)
     {
         var started = DateTimeOffset.UtcNow;
+        // As for an orchestrator run: under serve the request's activity is not recorded, and a parent-based sampler would drop the batch's spans.
+        if (Activity.Current is { Recorded: false })
+            Activity.Current = null;
         using var run = Telemetry.Source.StartActivity(DrivenTelemetry.RunSpan);
         var traceId = run?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
         run?.SetTag("langfuse.trace.name", DrivenTelemetry.RunSpan);
