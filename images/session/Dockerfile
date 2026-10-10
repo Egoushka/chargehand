@@ -33,8 +33,8 @@ COPY --from=build /out /opt/chargehand
 COPY plugins/chargehand /opt/chargehand-plugin
 # A new named volume mounted here takes this ownership on first use, so the non-root session can write it.
 RUN mkdir -p /work /out && chown 10001:10001 /work /out
-# The runner starts the container with a read-only root and a tmpfs at /home/session and /tmp: tool caches and Claude Code's own state go there.
-ENV HOME=/home/session DISABLE_AUTOUPDATER=1 DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+# The runner starts the container with a read-only root and a tmpfs at /home/session and /tmp: Claude Code's own state goes there. The .NET CLI home and the NuGet package cache sit under /work instead, on the volume: a restore of a real solution does not fit the tmpfs.
+ENV HOME=/home/session DISABLE_AUTOUPDATER=1 DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_CLI_HOME=/work/.dotnet NUGET_PACKAGES=/work/.nuget/packages CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 USER 10001
 WORKDIR /work
 # The runner passes the verb: `session` for a session, `verify-branch` for the fresh verification run.

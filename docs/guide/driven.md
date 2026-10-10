@@ -18,6 +18,8 @@ Driven sessions ([ADR 0039](../adr/0039-driven-writing-sessions.md)) run a list 
 
 A session's and the verification run's `/tmp` is a `noexec` tmpfs, so a repository whose tests write a script there and run it fail with `EACCES`. The template stays as it is; the repository names a directory under `/work` instead, in its verification command: `context.verify: ["sh","-c","mkdir -p /work/.tmp && export TMPDIR=/work/.tmp && npm ci && scripts/check.sh"]`. Measured on a TypeScript-on-Node repository: 3 of 217 tests failed on `spawn ... EACCES` with the default `/tmp`, 0 with `TMPDIR` in `/work`.
 
+A .NET repository needs no extra image: the session image is built on the .NET 10 SDK (its size is unchanged by this note), and `DOTNET_CLI_HOME` (`/work/.dotnet`) and `NUGET_PACKAGES` (`/work/.nuget/packages`) point at the volume, so a restore does not fill the tmpfs at `/home/session`. A restore needs the network: add `api.nuget.org` and `globalcdn.nuget.org` (the package CDN `api.nuget.org` may redirect to) to the profile's `driven.network.allow`; a repository with a private feed adds that host too. Verification command for a repository with a solution at the root: `context.verify: ["sh","-c","mkdir -p /work/.tmp && export TMPDIR=/work/.tmp && dotnet test --nologo"]`. An SDK newer than the image's (`global.json` with `rollForward: disable` on another feature band) fails the restore; the image carries the latest 10.0 SDK at build time.
+
 ## What happens after a session
 
 chargehand checks the branch itself and pushes only if every check passes:
