@@ -1,7 +1,10 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Chargehand.Budget;
 using Chargehand.Config;
+using Chargehand.Driven;
 using Chargehand.RunLog;
+using Chargehand.Runtime;
 
 namespace Chargehand.Tests;
 
@@ -47,6 +50,29 @@ public class TelemetryTests
             Assert.Equal(0.000215m, cost.GetProperty("total").GetDecimal());
         });
     }
+
+    [Fact]
+    public void A_driven_session_is_priced_under_whatever_provider_the_table_names_its_model()
+    {
+        var prices = new Dictionary<string, ModelPrice>
+        {
+            ["provider/claude-sonnet-5-5"] = new(3m, 15m, 0.3m, 3.75m),
+            ["provider/claude-haiku-4-5"] = new(1m, 5m, 0.1m, 1.25m),
+            ["a/claude-opus-5-5"] = new(5m, 25m, 0.5m, 6.25m),
+            ["b/claude-opus-5-5"] = new(6m, 25m, 0.5m, 6.25m),
+        };
+        Assert.Equal("provider/claude-sonnet-5-5", DrivenTelemetry.Find(prices, "claude-sonnet-5-5"));
+        Assert.Equal("provider/claude-haiku-4-5", DrivenTelemetry.Find(prices, "claude-haiku-4-5-20251001"));
+        Assert.Null(DrivenTelemetry.Find(prices, "claude-opus-5-5"));          // two providers, two prices: unknown, not a guess
+        Assert.Null(DrivenTelemetry.Find(prices, "claude-fable-5-1"));
+
+        // Model by model; one model without a price makes the whole cost unknown (ADR 0026).
+        var session = new SessionOutcome(SessionStatus.Completed, "", 3, 0, 0, 0, null, 0, [], true, Model: "claude-sonnet-5-5",
+            ModelUsage: new Dictionary<string, TokenCounts> { ["claude-sonnet-5-5"] = new(1_000_000, 0, 0, 0, 0), ["claude-haiku-4-5-20251001"] = new(0, 1_000_000, 0, 0, 0) });
+        Assert.Equal(8m, DrivenTelemetry.PriceUsd(prices, session));
+        Assert.Null(DrivenTelemetry.PriceUsd(prices, session with { ModelUsage = new Dictionary<string, TokenCounts> { ["claude-fable-5-1"] = new(1, 1, 0, 0, 0) } }));
+    }
+
     /// <summary>Under serve, a run starts inside a request's activity that the SDK does not record; a parent-based sampler
     /// would then drop every run span. The run is its own trace instead.</summary>
     [Fact]

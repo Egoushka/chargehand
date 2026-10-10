@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Chargehand.Containers;
+using Chargehand.Runtime;
 
 namespace Chargehand.Driven;
 
@@ -36,8 +37,12 @@ public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed }
 /// <param name="Reason">For a stall, its wire name; for a failure, a short cause.</param>
 /// <param name="BundleWritten">A bundle of the session's branch is in the output directory; the handover decides whether to use it.</param>
 /// <param name="StreamSha256">The SHA-256 of the stored stream (<c>stream.jsonl</c>, secrets redacted), so a result can cite the log without carrying it.</param>
+/// <param name="SessionId">Claude Code's session id, which its own telemetry carries as <c>session.id</c>.</param>
+/// <param name="Model">The model the session started on (the stream's <c>init</c>).</param>
+/// <param name="ModelUsage">Tokens per model from the stream's <c>result</c>: a session can call more than one model.</param>
 public sealed record SessionOutcome(SessionStatus Status, string Reason, int Turns, long InputTokens, long OutputTokens, long CacheReadTokens,
-    decimal? CostUsd, int? ExitCode, IReadOnlyList<string> Questions, bool BundleWritten, string? StreamSha256 = null);
+    decimal? CostUsd, int? ExitCode, IReadOnlyList<string> Questions, bool BundleWritten, string? StreamSha256 = null, long CacheWriteTokens = 0, string? SessionId = null,
+    string? Model = null, IReadOnlyDictionary<string, TokenCounts>? ModelUsage = null);
 
 /// <summary>Runs headless Claude Code on the <c>change</c> skill inside a session container (ADR 0039), watches its stream, ends it when it
 /// stalls or passes its token cap, and leaves three files in the output directory: <c>stream.jsonl</c> (secrets redacted), <c>chargehand.bundle</c>
@@ -155,7 +160,7 @@ public static partial class SessionDriver
             await stream.DisposeAsync();
             var streamHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(options.OutDirectory, "stream.jsonl"), ct)));
             var outcome = new SessionOutcome(status, reason, detector.Turns, tally.Input, tally.Output, tally.CacheRead, tally.CostUsd, process.ExitCode,
-                [.. questions.Select(q => Redact(q, options.Secrets))], bundle, streamHash);
+                [.. questions.Select(q => Redact(q, options.Secrets))], bundle, streamHash, tally.CacheWrite, tally.SessionId, tally.Model, tally.ModelUsage.Count == 0 ? null : tally.ModelUsage);
             await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "session-outcome.json"), Redact(JsonSerializer.Serialize(outcome, OutcomeJson), options.Secrets), ct);
             return outcome;
         }
@@ -291,7 +296,7 @@ public static partial class SessionDriver
     private sealed class Tally
     {
         private readonly Dictionary<string, (long In, long Out)> _perMessage = [];
-        private long _resultIn, _resultOut, _resultCache;
+        private long _resultIn, _resultOut, _resultCache, _resultCacheWrite;
 
         public List<string> Texts { get; } = [];
         public bool HasResult { get; private set; }
@@ -300,13 +305,22 @@ public static partial class SessionDriver
         public long Input => HasResult ? _resultIn : _perMessage.Values.Sum(v => v.In);
         public long Output => HasResult ? _resultOut : _perMessage.Values.Sum(v => v.Out);
         public long CacheRead => _resultCache;
+        public long CacheWrite => _resultCacheWrite;
+        public string? SessionId { get; private set; }
+        public string? Model { get; private set; }
+        public Dictionary<string, TokenCounts> ModelUsage { get; } = [];
 
         public void Add(JsonElement e)
         {
             if (e.ValueKind != JsonValueKind.Object || !e.TryGetProperty("type", out var type))
                 return;
+            if (e.TryGetProperty("session_id", out var sid) && sid.ValueKind == JsonValueKind.String)
+                SessionId = sid.GetString();
             switch (type.GetString())
             {
+                case "system" when e.TryGetProperty("subtype", out var sub) && sub.GetString() == "init" && e.TryGetProperty("model", out var model) && model.ValueKind == JsonValueKind.String:
+                    Model = model.GetString();
+                    break;
                 case "assistant" when e.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.Object:
                     if (m.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String && m.TryGetProperty("usage", out var u) && u.ValueKind == JsonValueKind.Object)
                         _perMessage[id.GetString()!] = (Long(u, "input_tokens"), Long(u, "output_tokens"));
@@ -325,7 +339,12 @@ public static partial class SessionDriver
                         _resultIn = Long(ru, "input_tokens");
                         _resultOut = Long(ru, "output_tokens");
                         _resultCache = Long(ru, "cache_read_input_tokens");
+                        _resultCacheWrite = Long(ru, "cache_creation_input_tokens");
                     }
+                    if (e.TryGetProperty("modelUsage", out var mu) && mu.ValueKind == JsonValueKind.Object)
+                        foreach (var p in mu.EnumerateObject().Where(p => p.Value.ValueKind == JsonValueKind.Object))
+                            ModelUsage[p.Name] = new TokenCounts(Long(p.Value, "inputTokens"), Long(p.Value, "outputTokens"), 0, Long(p.Value, "cacheReadInputTokens"),
+                                Long(p.Value, "cacheCreationInputTokens"));
                     if (e.TryGetProperty("result", out var result) && result.ValueKind == JsonValueKind.String && result.GetString() is { } r)
                         Texts.Add(r);
                     break;

@@ -40,7 +40,16 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         Func<bool>? cancelledByCaller = null)
     {
         var started = DateTimeOffset.UtcNow;
-        var traceId = ActivityTraceId.CreateRandom().ToHexString();
+        // As for an orchestrator run: under serve the request's activity is not recorded, and a parent-based sampler would drop the batch's spans.
+        if (Activity.Current is { Recorded: false })
+            Activity.Current = null;
+        using var run = Telemetry.Source.StartActivity(DrivenTelemetry.RunSpan);
+        var traceId = run?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
+        run?.SetTag("langfuse.trace.name", DrivenTelemetry.RunSpan);
+        run?.SetTag("chargehand.run_id", runId);
+        run?.SetTag("chargehand.preset", request.Context.Preset);
+        run?.SetTag("chargehand.repository", request.Context.Repository?.Path);
+        run?.SetTag("chargehand.driven.task_count", request.Driven?.Tasks.Count);
         var version = profile.ClaudeCode?.Version ?? "";
         var chain = new PromptChain([], new AsSent($"claude-code/{version}", "driven", "batch", started.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         await log.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId), ct);
@@ -51,7 +60,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         try
         {
             key = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
-            result = await RunBatchAsync(request, runId, traceId, mint, key is null ? null : r => ResultSignature.Sign(r, key), progress, ct);
+            result = await RunBatchAsync(request, runId, traceId, mint, key is null ? null : r => ResultSignature.Sign(r, key), progress, run, ct);
         }
         catch (Exception e) when (e is not OperationCanceledException || cancelledByCaller?.Invoke() == true)
         {
@@ -65,13 +74,17 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             result = ResultSignature.Sign(result, key);
             key.Dispose();
         }
+        run?.SetTag("chargehand.contract.status", JsonNamingPolicy.SnakeCaseLower.ConvertName(result.Status.ToString()));
+        run?.SetTag("chargehand.error.code", result.Error is { } failure ? JsonNamingPolicy.SnakeCaseLower.ConvertName(failure.Code.ToString()) : null);
+        if (result.Status != ResultStatus.Completed)
+            run?.SetStatus(ActivityStatusCode.Error, result.Error?.Message);
         await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, request.Context.Preset, null, null, result), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
     }
 
     private async Task<ResultContract> RunBatchAsync(RunRequest request, string runId, string traceId, TaskTokenMinter mint, Func<ResultContract, ResultContract>? sign,
-        Action<RunStatus>? progress, CancellationToken ct)
+        Action<RunStatus>? progress, Activity? span, CancellationToken ct)
     {
         var settings = profile.Driven ?? new DrivenSettings();
         // Throws when the profile has driven sessions off, so a refused request touches nothing else.
@@ -98,12 +111,19 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var port = forward is null ? 0 : int.Parse(forward[(forward.LastIndexOf(':') + 1)..], CultureInfo.InvariantCulture);
         var model = DrivenModelRoute.Parse(settings.Network?.ModelUrl, priced, forward is null ? null : port);
 
+        var otlp = DrivenOtlpRoute.Parse(settings.Network?.OtlpUrl,
+            new[] { forward is null ? (int?)null : port, model?.ForwardPort }.OfType<int>());
+
         var checkout = await s.Checkout(request.Context.Repository!, request.Context.Preset, ct);
+        span?.SetTag("chargehand.base_commit", checkout.Commit);
+        span?.SetTag("chargehand.credential_delivery", model is null ? CredentialDelivery : GatewayKeyDelivery);
         List<string> forwards = [];
         if (forward is not null)
             forwards.Add($"{port}={forward}");
         if (model?.Forward is { } modelForward)
             forwards.Add(modelForward);
+        if (otlp is not null)
+            forwards.Add(otlp.Forward);
         var net = await new BatchNetwork(s.Engine).CreateAsync(runId, image,
             [.. (drivenPreset.Allow ?? []).Concat(settings.Network?.Allow ?? []).Concat(model?.AllowHost is { } host ? new[] { host } : []).Distinct()], ct,
             settings.Network?.Outside ?? BatchNetwork.DefaultOutside, forwards.Count == 0 ? null : forwards);
@@ -116,7 +136,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             var task = new TaskRunnerSettings(runId, request, image, checkout.Directory, checkout.Commit, checkout.RemoteUrl, checkout.BaseBranch, net,
                 forward is null ? null : $"{BatchNetworkInfo.ServiceUrl(port)}/v1/mcp", drivenPreset, limits.PerTask, priced, modelEnvironment, push,
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
-                Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true);
+                Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true || otlp is not null, otlp,
+                profile.Prices, profile.Telemetry?.UsageOnSpans == true);
             var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress);
             ran = await new BatchScheduler(runner).RunAsync(ready, limits, ct, o => progress?.Invoke(TaskFinished(runId, o)));
         }
@@ -127,6 +148,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
         // In request order: tasks that did not resolve were never started.
         var all = request.Driven.Tasks.Select(t => unresolved.FirstOrDefault(u => u.Id == t.Id) ?? ran.Tasks.First(o => o.Id == t.Id)).ToList();
+        span?.SetTag("chargehand.driven.pr_urls", all.Select(o => o.PrUrl).OfType<string>().ToArray());
+        span?.SetTag("chargehand.driven.tokens", all.Sum(o => o.Tokens));
         return DrivenResult.BuildBatch(runId, traceId, "", new BatchOutcome(all, ran.Action), model is null ? CredentialDelivery : GatewayKeyDelivery, priced, claude.Version);
     }
 

@@ -14,6 +14,8 @@ public sealed record DrivenModelRoute(string? Forward, string? AllowHost, string
 {
     public bool Forwarded => Forward is not null;
 
+    public int? ForwardPort => Forward is null ? null : int.Parse(Forward[..Forward.IndexOf('=')], CultureInfo.InvariantCulture);
+
     /// <summary>Null when <paramref name="modelUrl"/> is not set. Throws <see cref="ChargehandException"/> for a URL that cannot work, before anything is created.</summary>
     public static DrivenModelRoute? Parse(string? modelUrl, bool priced, int? mcpPort)
     {

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
+using Chargehand.Budget;
 using Chargehand.Config;
 using Chargehand.Containers;
 using Chargehand.Contracts;
@@ -47,9 +48,13 @@ public delegate string TaskTokenMinter(TaskGrant grant);
 /// <param name="McpUrl">The chargehand server's MCP address on the batch network; null: the session gets no research or review calls.</param>
 /// <param name="ModelBaseUrl">The session's <c>ANTHROPIC_BASE_URL</c> when it reaches the model through a gateway; null: Anthropic directly.</param>
 /// <param name="CallbackForwards">Some address the session uses is a forward on the egress container (plain HTTP), which must bypass the proxy.</param>
+/// <param name="Otlp">Where the session's Claude Code exports its own logs and metrics; null: it exports nothing.</param>
+/// <param name="Prices">The profile's price table, for the session span's cost.</param>
+/// <param name="UsageOnSpans">The profile's <c>telemetry.usage_on_spans</c> (ADR 0021).</param>
 public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, string Image, string SourcePath, string BaseCommit, string RemoteUrl, string BaseBranch,
     BatchNetworkInfo Network, string? McpUrl, DrivenPreset Preset, TaskLimits Limits, bool Priced, IReadOnlyDictionary<string, string> ModelEnvironment, PushCredential Push,
-    string ScratchRoot, string Model, string ClaudeVersion, bool AllowLocalRemote = false, string? ModelBaseUrl = null, bool CallbackForwards = false);
+    string ScratchRoot, string Model, string ClaudeVersion, bool AllowLocalRemote = false, string? ModelBaseUrl = null, bool CallbackForwards = false, DrivenOtlpRoute? Otlp = null,
+    IReadOnlyDictionary<string, ModelPrice>? Prices = null, bool UsageOnSpans = false);
 
 /// <summary>Runs one task of a batch to its end (ADR 0039): a workspace at the pinned commit, a session container on the batch network, then the handover (chargehand's own
 /// verification, the scan, the push, a draft pull request) and the task's own <c>result/v1</c> in the run log. A cancel signals the session and ends the task; it never reaches
@@ -75,6 +80,12 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         var preset = settings.Preset;
         var outDirectory = Path.Combine(settings.ScratchRoot, "out", runId);
         string? container = null;
+        // A child of the batch's span: the task's result carries the batch's trace id, so it resolves in Langfuse.
+        using var span = Telemetry.Source.StartActivity(DrivenTelemetry.TaskSpan);
+        span?.SetTag("chargehand.run_id", runId);
+        span?.SetTag("chargehand.task.id", task.Id);
+        span?.SetTag("chargehand.task.ref", task.Ref);
+        var traceId = span?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
         try
         {
             Directory.CreateDirectory(outDirectory);
@@ -94,6 +105,9 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             if (settings.CallbackForwards)
                 // A forward is plain HTTP to the egress container; the proxy variables would send it to that same proxy, which answers CONNECT only.
                 env["NO_PROXY"] = env["no_proxy"] = $"{settings.Network.ProxyHost},{ContainerTemplate.CallbackAlias}";
+            if (settings.Otlp is { } otlp)
+                foreach (var (name, value) in otlp.Environment(settings.BatchId, task.Id, runId, span is null ? null : traceId))
+                    env[name] = value;
             if (settings.McpUrl is { } mcp)
             {
                 env["CHARGEHAND_MCP_URL"] = mcp;
@@ -106,10 +120,17 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
                 preset.MemoryMb, preset.Cpus, preset.Pids, ["session"]), ct);
             Publish(task.Id, RunEventKind.ContainerStarted, "session container started");
+            var sessionStarted = DateTimeOffset.UtcNow;
             var state = await WaitAsync(container, runId, task.Id, preset, progress, ct);
+            var sessionEnded = DateTimeOffset.UtcNow;
 
             await volumes.FetchOutputAsync(runId, outDirectory, ct);
             var session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, state.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, state.ExitCode, [], false);
+            using (var call = Telemetry.Source.StartActivity(DrivenTelemetry.SessionSpan, ActivityKind.Client, span?.Context ?? default, startTime: sessionStarted))
+            {
+                DrivenTelemetry.TagSession(call, session, settings.Prices ?? new Dictionary<string, ModelPrice>(), settings.UsageOnSpans);
+                call?.SetEndTime(sessionEnded.UtcDateTime);
+            }
             var reportFile = Path.Combine(outDirectory, "driven-report.json");
             var reportJson = File.Exists(reportFile) ? await File.ReadAllTextAsync(reportFile, ct) : null;
             progress.Report(new TaskUsage(session.InputTokens + session.OutputTokens, settings.Priced ? session.CostUsd ?? 0 : 0));
@@ -122,7 +143,6 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                     Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null })), ct);
 
             var scratchClone = Path.Combine(settings.ScratchRoot, runId);
-            var traceId = ActivityTraceId.CreateRandom().ToHexString();
             var children = (await log.ListAsync(new RunListQuery(Since: started, Limit: 200), ct)).Where(r => r.ParentRunId == runId).ToList();
             var result = await DrivenResult.BuildTaskAsync(new DrivenTaskInput(task.Id, runId, traceId, settings.Model, settings.ClaudeVersion, session, reportJson, handed, children,
                 Directory.Exists(scratchClone) ? scratchClone : settings.SourcePath, settings.BaseCommit, settings.Priced), resolver, supportCheck, ct);
@@ -130,7 +150,16 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 result = sign(result);
             await log.AppendAsync(new StartRecord(runId, started, traceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId), CancellationToken.None);
             await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, settings.Request.Context.Preset, null, null, result), CancellationToken.None);
-            return Outcome(task, runId, result, session, handed, settings.Priced);
+            var outcome = Outcome(task, runId, result, session, handed, settings.Priced);
+            Tag(span, outcome, session, started);
+            return outcome;
+        }
+        catch (Exception e)
+        {
+            span?.SetTag("chargehand.task.state", e is OperationCanceledException ? "cancelled" : "failed");
+            span?.SetTag("chargehand.error.code", e is OperationCanceledException ? "cancelled" : JsonNamingPolicy.SnakeCaseLower.ConvertName(ChargehandException.ErrorOf(e).Code.ToString()));
+            span?.SetStatus(ActivityStatusCode.Error);
+            throw;
         }
         finally
         {
@@ -246,6 +275,24 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         var pushed = handed?.Status is HandoverStatus.Pushed or HandoverStatus.PrFailed;
         return new TaskOutcome(task.Id, state, runId, state == TaskState.Completed ? null : result.Summary, result.Error?.Code,
             priced ? session.CostUsd ?? 0 : 0, session.InputTokens + session.OutputTokens, pushed ? handed!.Branch : null, handed?.PullRequest?.Url);
+    }
+
+    private static void Tag(Activity? span, TaskOutcome outcome, SessionOutcome session, DateTimeOffset started)
+    {
+        if (span is null)
+            return;
+        span.SetTag("chargehand.task.state", JsonNamingPolicy.SnakeCaseLower.ConvertName(outcome.State.ToString()));
+        span.SetTag("chargehand.error.code", outcome.Error is { } code ? JsonNamingPolicy.SnakeCaseLower.ConvertName(code.ToString()) : null);
+        span.SetTag("chargehand.task.detail", outcome.Detail);
+        span.SetTag("chargehand.branch", outcome.Branch);
+        span.SetTag("chargehand.pr_url", outcome.PrUrl);
+        span.SetTag("gen_ai.request.model", session.Model);
+        span.SetTag("chargehand.claude_code.session_id", session.SessionId);
+        span.SetTag("chargehand.session.turns", session.Turns);
+        span.SetTag("chargehand.task.tokens", outcome.Tokens);
+        span.SetTag("chargehand.task.wall_seconds", Math.Round((DateTimeOffset.UtcNow - started).TotalSeconds, 1));
+        if (outcome.State != TaskState.Completed)
+            span.SetStatus(ActivityStatusCode.Error, outcome.Detail);
     }
 
     private static string Title(string goal)

@@ -1,11 +1,14 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Chargehand.Budget;
 using Chargehand.Config;
 using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.RunLog;
+using Chargehand.Runtime;
 using Chargehand.Verification;
 
 namespace Chargehand.Tests;
@@ -114,7 +117,9 @@ public class DrivenRunTests
             lock (_goals)
                 goal = _goals[runId];
             var status = script(goal);
-            var outcome = new SessionOutcome(status, status == SessionStatus.Failed ? "session_error" : "", 9, 1000, 200, 0, null, 0, [], status == SessionStatus.Completed);
+            var outcome = new SessionOutcome(status, status == SessionStatus.Failed ? "session_error" : "", 9, 1000, 200, 4000, null, 0, [], status == SessionStatus.Completed,
+                CacheWriteTokens: 300, SessionId: $"cc-session-{runId}", Model: "claude-sonnet-5-5",
+                ModelUsage: new Dictionary<string, TokenCounts> { ["claude-sonnet-5-5"] = new(1000, 200, 0, 4000, 300) });
             File.WriteAllText(Path.Combine(directory, "session-outcome.json"),
                 JsonSerializer.Serialize(outcome, Snake));
             if (status == SessionStatus.Completed)
@@ -161,13 +166,16 @@ public class DrivenRunTests
         public Profile Profile { get; }
 
         public Rig(bool enabled = true, Func<string, SessionStatus>? script = null, string? mcpForward = null, string? dir = null, JsonlRunLog? log = null, FakeVolumes? volumes = null,
-            string? modelUrl = null, bool apiKey = false)
+            string? modelUrl = null, bool apiKey = false, string? otlpUrl = null, TelemetrySettings? telemetry = null)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
             {
                 ClaudeCode = apiKey ? new ClaudeCodeSettings("2.1.283", ApiKeySecret: "gateway-key") : new ClaudeCodeSettings("2.1.283", OauthTokenSecret: "claude-code-oauth-token"),
-                Driven = new DrivenSettings(enabled, MaxParallel: 2, Images: [Image], PushSecret: PushSecret, Network: new DrivenNetwork(McpForward: mcpForward, ModelUrl: modelUrl)),
+                Driven = new DrivenSettings(enabled, MaxParallel: 2, Images: [Image], PushSecret: PushSecret,
+                    Network: new DrivenNetwork(McpForward: mcpForward, ModelUrl: modelUrl, OtlpUrl: otlpUrl)),
+                Telemetry = telemetry,
+                Prices = new Dictionary<string, ModelPrice> { ["p/small"] = new(0.1m, 0.5m, 0.01m, 0.125m), ["provider/claude-sonnet-5-5"] = new(3m, 15m, 0.3m, 3.75m) },
             };
             var services = enabled
                 ? new DrivenServices(Engine, Engine, volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed)), _ => throw new NotSupportedException("the handover is faked"), null,
@@ -421,6 +429,182 @@ public class DrivenRunTests
         Assert.Contains(reason, result.Error.Message, StringComparison.Ordinal);
         Assert.Empty(rig.Engine.Started);
         Assert.DoesNotContain(rig.Engine.Calls, c => c.StartsWith("network ", StringComparison.Ordinal));
+    }
+
+    /// <summary>The spans of one batch run: other test classes run on the same source in parallel, so only this run's trace is kept.</summary>
+    private static async Task<(ResultContract Result, List<Activity> Spans)> Traced(Rig rig, RunRequest request, string runId)
+    {
+        var spans = new List<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = s => s.Name == "Chargehand",
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = a => { lock (spans) spans.Add(a); },
+        };
+        ActivitySource.AddActivityListener(listener);
+        var result = await rig.Run.RunAsync(request, runId, Token, default);
+        lock (spans)
+            return (result, spans.Where(a => a.TraceId.ToHexString() == result.TraceId).ToList());
+    }
+
+    [Fact]
+    public async Task A_batch_is_one_trace_a_run_span_a_span_per_task_and_the_session_as_a_generation_under_it()
+    {
+        using var rig = new Rig(telemetry: new TelemetrySettings("http://127.0.0.1:1/api/public/otel", "pk", "sk", UsageOnSpans: true));
+        var (result, spans) = await Traced(rig, Request("Add a retry", "Add a backoff"), "run-batch-20");
+
+        var run = spans.Single(s => s.OperationName == "chargehand.driven.run");
+        Assert.Null(run.Parent);
+        Assert.Equal(("run-batch-20", "driven", "/srv/repo", 2), ((string?)run.GetTagItem("chargehand.run_id"), (string?)run.GetTagItem("chargehand.preset"),
+            (string?)run.GetTagItem("chargehand.repository"), (int?)run.GetTagItem("chargehand.driven.task_count")));
+        Assert.Equal(Commit, run.GetTagItem("chargehand.base_commit"));
+        Assert.Equal("completed", run.GetTagItem("chargehand.contract.status"));
+        Assert.Equal("environment", run.GetTagItem("chargehand.credential_delivery"));
+        Assert.Equal(["https://example.test/o/r/pull/1", "https://example.test/o/r/pull/2"], ((string[])run.GetTagItem("chargehand.driven.pr_urls")!).Order());
+
+        var tasks = spans.Where(s => s.OperationName == "chargehand.driven.task").ToList();
+        Assert.Equal(2, tasks.Count);
+        Assert.All(tasks, t => Assert.Equal(run.SpanId, t.ParentSpanId));
+        foreach (var entry in BatchTasks(result).EnumerateArray())
+        {
+            var runId = entry.GetProperty("run_id").GetString()!;
+            var task = tasks.Single(t => (string?)t.GetTagItem("chargehand.run_id") == runId);
+            Assert.Equal(entry.GetProperty("id").GetString(), task.GetTagItem("chargehand.task.id"));
+            Assert.Equal("completed", task.GetTagItem("chargehand.task.state"));
+            Assert.Null(task.GetTagItem("chargehand.error.code"));
+            Assert.Equal($"chargehand/{runId}", task.GetTagItem("chargehand.branch"));
+            Assert.Equal(entry.GetProperty("pr_url").GetString(), task.GetTagItem("chargehand.pr_url"));
+            Assert.Equal(($"cc-session-{runId}", "claude-sonnet-5-5", 9), ((string?)task.GetTagItem("chargehand.claude_code.session_id"), (string?)task.GetTagItem("gen_ai.request.model"),
+                (int?)task.GetTagItem("chargehand.session.turns")));
+            Assert.NotNull(task.GetTagItem("chargehand.task.wall_seconds"));
+            // The task's own result/v1 carries the batch's trace id, so it resolves to this trace in Langfuse.
+            Assert.Equal(result.TraceId, (await rig.Log.ReadAsync(runId, default)).Run!.Result.TraceId);
+
+            var session = spans.Single(s => s.OperationName == "chargehand.driven.session" && s.ParentSpanId == task.SpanId);
+            Assert.Equal(ActivityKind.Client, session.Kind);
+            Assert.Equal($"cc-session-{runId}", session.GetTagItem("chargehand.claude_code.session_id"));
+            var usage = JsonDocument.Parse((string)session.GetTagItem("langfuse.observation.usage_details")!).RootElement;
+            Assert.Equal((1000, 200, 4000, 300), (usage.GetProperty("input").GetInt64(), usage.GetProperty("output").GetInt64(),
+                usage.GetProperty("cache_read_input_tokens").GetInt64(), usage.GetProperty("cache_creation_input_tokens").GetInt64()));
+            // The table's key is under its own provider prefix: 1000*3 + 200*15 + 4000*0.3 + 300*3.75 per million.
+            Assert.Equal(0.008325m, JsonDocument.Parse((string)session.GetTagItem("langfuse.observation.cost_details")!).RootElement.GetProperty("total").GetDecimal());
+        }
+        Assert.Equal(result.TraceId, (await rig.Log.ReadAsync("run-batch-20", default)).Run!.Result.TraceId);
+    }
+
+    [Fact]
+    public async Task A_batch_under_an_unrecorded_ambient_activity_is_its_own_recorded_trace()
+    {
+        using var rig = new Rig();
+        var spans = new List<Activity>();
+        using var ambientSource = new ActivitySource("Test.DrivenAmbient");
+        using var ambientListener = new ActivityListener
+        {
+            ShouldListenTo = s => s.Name == "Test.DrivenAmbient",
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.PropagationData,
+        };
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = s => s.Name == "Chargehand",
+            // The OpenTelemetry SDK's default: follow a parent's sampled flag, record a root.
+            Sample = (ref ActivityCreationOptions<ActivityContext> o) =>
+                o.Parent == default || o.Parent.TraceFlags.HasFlag(ActivityTraceFlags.Recorded)
+                    ? ActivitySamplingResult.AllDataAndRecorded : ActivitySamplingResult.PropagationData,
+            ActivityStopped = a => { lock (spans) spans.Add(a); },
+        };
+        ActivitySource.AddActivityListener(ambientListener);
+        ActivitySource.AddActivityListener(listener);
+        using var ambient = ambientSource.StartActivity("request");
+
+        var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-26", Token, default);
+
+        Assert.Same(ambient, Activity.Current);
+        List<Activity> trace;
+        lock (spans)
+            trace = spans.Where(a => a.TraceId.ToHexString() == result.TraceId).ToList();
+        Assert.Equal(default, trace.Single(a => a.OperationName == "chargehand.driven.run").ParentSpanId);
+        Assert.Equal(["chargehand.driven.run", "chargehand.driven.session", "chargehand.driven.task"], trace.Select(a => a.OperationName).Order());
+        Assert.All(trace, a => Assert.True(a.Recorded));
+    }
+
+    [Fact]
+    public async Task Session_spans_carry_usage_and_cost_only_when_the_profile_asks()
+    {
+        using var rig = new Rig(telemetry: new TelemetrySettings("http://127.0.0.1:1/api/public/otel", "pk", "sk"));
+        var (_, spans) = await Traced(rig, Request("Add a retry"), "run-batch-21");
+
+        var session = spans.Single(s => s.OperationName == "chargehand.driven.session");
+        Assert.Equal("claude-sonnet-5-5", session.GetTagItem("gen_ai.request.model"));
+        Assert.Null(session.GetTagItem("langfuse.observation.usage_details"));
+        Assert.Null(session.GetTagItem("langfuse.observation.cost_details"));
+    }
+
+    [Fact]
+    public async Task A_failed_task_marks_its_span_and_the_run_span_with_the_error()
+    {
+        using var rig = new Rig(script: g => g.Contains("impossible", StringComparison.Ordinal) ? SessionStatus.Failed : SessionStatus.Completed);
+        var (_, spans) = await Traced(rig, Request("Add a retry", "Do the impossible"), "run-batch-22");
+
+        var failed = spans.Single(s => s.OperationName == "chargehand.driven.task" && (string?)s.GetTagItem("chargehand.task.id") == "t2");
+        Assert.Equal("failed", failed.GetTagItem("chargehand.task.state"));
+        Assert.NotNull(failed.GetTagItem("chargehand.error.code"));
+        Assert.Null(failed.GetTagItem("chargehand.pr_url"));
+        Assert.Equal(ActivityStatusCode.Error, failed.Status);
+        var run = spans.Single(s => s.OperationName == "chargehand.driven.run");
+        Assert.Equal(("failed", "tasks_incomplete"), ((string?)run.GetTagItem("chargehand.contract.status"), (string?)run.GetTagItem("chargehand.error.code")));
+        Assert.Equal(["https://example.test/o/r/pull/1"], (string[])run.GetTagItem("chargehand.driven.pr_urls")!);
+    }
+
+    [Fact]
+    public async Task A_collector_url_turns_on_claude_codes_own_export_through_a_forward_tagged_with_the_batch_task_and_trace()
+    {
+        using var rig = new Rig(mcpForward: "chargehand-host:4300", otlpUrl: "http://collector-host:4318");
+        var (result, _) = await Traced(rig, Request("Add a retry"), "run-batch-23");
+
+        Assert.Contains("egress run-batch-23 [4300=chargehand-host:4300 4318=collector-host:4318]", rig.Engine.Calls);
+        var spec = rig.Engine.Started.Single();
+        Assert.Equal("1", spec.Env["CLAUDE_CODE_ENABLE_TELEMETRY"]);
+        Assert.Equal(("otlp", "otlp", "http/protobuf", "cumulative"), (spec.Env["OTEL_LOGS_EXPORTER"], spec.Env["OTEL_METRICS_EXPORTER"], spec.Env["OTEL_EXPORTER_OTLP_PROTOCOL"],
+            spec.Env["OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE"]));
+        Assert.Equal("http://chargehand-driven:4318", spec.Env["OTEL_EXPORTER_OTLP_ENDPOINT"]);
+        Assert.Equal($"chargehand.run_id=run-batch-23,chargehand.task_id=t1,chargehand.task_run_id={spec.RunId},chargehand.trace_id={result.TraceId}",
+            spec.Env["OTEL_RESOURCE_ATTRIBUTES"]);
+        Assert.Equal("chargehand-egress-run-batch-23,chargehand-driven", spec.Env["NO_PROXY"]);
+        // Prompts stay out of the logs, no header (so no secret) is set, and no traces go to a collector that has no pipeline for them.
+        Assert.DoesNotContain(spec.Env.Keys, k => k is "OTEL_LOG_USER_PROMPTS" or "OTEL_EXPORTER_OTLP_HEADERS" or "OTEL_TRACES_EXPORTER");
+    }
+
+    [Fact]
+    public async Task Without_a_collector_url_the_session_exports_nothing_of_its_own()
+    {
+        using var rig = new Rig();
+        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-24", Token, default);
+
+        Assert.DoesNotContain(rig.Engine.Started.Single().Env.Keys, k => k.StartsWith("OTEL_", StringComparison.Ordinal) || k == "CLAUDE_CODE_ENABLE_TELEMETRY");
+    }
+
+    [Theory]
+    [InlineData("https://collector.example", "absolute http URL")]                 // whether the exporter uses the proxy is unchecked
+    [InlineData("collector-host:4318", "absolute http URL")]
+    [InlineData("http://user:pw@collector-host:4318", "credentials")]
+    [InlineData("http://collector-host:4318?token=x", "query")]
+    [InlineData("http://collector-host:4300", "port 4300")]                        // the chargehand forward listens there
+    public async Task A_collector_url_that_cannot_work_is_refused_before_anything_is_created(string url, string reason)
+    {
+        using var rig = new Rig(mcpForward: "chargehand-host:4300", otlpUrl: url);
+        var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-25", Token, default);
+
+        Assert.Equal(ErrorCode.InvalidRequest, result.Error!.Code);
+        Assert.Contains(reason, result.Error.Message, StringComparison.Ordinal);
+        Assert.Empty(rig.Engine.Started);
+        Assert.DoesNotContain(rig.Engine.Calls, c => c.StartsWith("network ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_task_id_cannot_add_a_resource_attribute()
+    {
+        var env = new DrivenOtlpRoute("4318=collector-host:4318", "http://chargehand-driven:4318").Environment("run-1", "t1,chargehand.run_id=x", "run-2", null);
+        Assert.Equal("chargehand.run_id=run-1,chargehand.task_id=t1%2Cchargehand.run_id%3Dx,chargehand.task_run_id=run-2", env["OTEL_RESOURCE_ATTRIBUTES"]);
     }
 
     [Fact]

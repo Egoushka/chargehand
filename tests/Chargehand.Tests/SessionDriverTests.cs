@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Chargehand.Driven;
+using Chargehand.Runtime;
 
 namespace Chargehand.Tests;
 
@@ -8,6 +9,8 @@ namespace Chargehand.Tests;
 public class SessionDriverTests
 {
     private const string Canary = "canary-secret-value-123";
+
+    private static readonly JsonSerializerOptions Snake = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
     private static SessionTask Task(int noProgressSeconds = 60, long? maxTokens = null) =>
         new("run1", "Add a retry to the fetch client", "chargehand/run1", MaxTurns: 80, MaxMinutes: 5, NoProgressSeconds: noProgressSeconds, MaxTokens: maxTokens);
@@ -92,6 +95,35 @@ public class SessionDriverTests
         Assert.True(File.Exists(Path.Combine(w.Out, "session-outcome.json")));
         Assert.Contains("\"type\":\"result\"", File.ReadAllText(Path.Combine(w.Out, "stream.jsonl")));
         Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(w.Out, "stream.jsonl")))), outcome.StreamSha256);
+    }
+
+    [Fact]
+    public async Task The_outcome_names_the_session_its_model_and_the_tokens_of_each_model_it_called()
+    {
+        using var w = new Workspace();
+        var result = JsonSerializer.Serialize(new
+        {
+            type = "result",
+            session_id = "cc-1",
+            is_error = false,
+            result = "done",
+            total_cost_usd = 0.05,
+            usage = new { input_tokens = 150, output_tokens = 40, cache_read_input_tokens = 500, cache_creation_input_tokens = 70 },
+            modelUsage = new Dictionary<string, object>
+            {
+                ["claude-sonnet-5-5"] = new { inputTokens = 120, outputTokens = 30, cacheReadInputTokens = 500, cacheCreationInputTokens = 70, costUSD = 0.04 },
+                ["claude-haiku-5-5"] = new { inputTokens = 30, outputTokens = 10, cacheReadInputTokens = 0, cacheCreationInputTokens = 0, costUSD = 0.01 },
+            },
+        });
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit("""{"type":"system","subtype":"init","session_id":"cc-1","model":"claude-sonnet-5-5"}""", Assistant("m1", "hi"), result), Task()), default);
+
+        Assert.Equal(("cc-1", "claude-sonnet-5-5", 70L), (outcome.SessionId, outcome.Model, outcome.CacheWriteTokens));
+        Assert.Equal(new TokenCounts(120, 30, 0, 500, 70), outcome.ModelUsage!["claude-sonnet-5-5"]);
+        Assert.Equal(new TokenCounts(30, 10, 0, 0, 0), outcome.ModelUsage["claude-haiku-5-5"]);
+        // The host reads the outcome from the volume: the new fields survive the file, model ids as written.
+        var read = JsonSerializer.Deserialize<SessionOutcome>(File.ReadAllText(Path.Combine(w.Out, "session-outcome.json")), Snake)!;
+        Assert.Equal(outcome.ModelUsage["claude-haiku-5-5"], read.ModelUsage!["claude-haiku-5-5"]);
+        Assert.Equal("cc-1", read.SessionId);
     }
 
     [Fact]
