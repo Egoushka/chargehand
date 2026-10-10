@@ -7,10 +7,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Fixed
+## [0.8.5] - 2026-10-10
 
-- `chargehand runner` says which argument it rejected (ADR 0039, CHARGEHAND-152): the reason, with the value, on its own line before the usage (the usage names every flag, so alone it did not say which one was wrong, and the first deploy restart-looped on a tagged image reference). A valid command line with `--source-roots`, `--outside-networks` or `--forwards` empty now prints a note for each, since each starts fine and then silently refuses work (no workspace, no network join, no callback).
-- Cancelling a task whose container had already ended no longer fails (ADR 0039, CHARGEHAND-157): `docker kill` answered "is not running" (or "No such container"), the engine threw, and the cancel ended `container_unavailable` instead of `cancelled`. A signal to a container that is gone or ended is now a no-op; any other `kill` failure still throws. Found by the e2e script's new runner mode; the runner uses the same engine.
+Claude Code as an observer of driven sessions, and the model credential out of the session containers. `chargehand watch` and `cancel`, the `/chargehand:run` skill and a run id after 10 s let a Claude Code session hand a prompt to a driven batch and follow it. On the subscription the real token now stays in the batch's egress container (`token_exchange`); an API key can go through an operator's gateway (`model_url`). Additive; `driven.enabled` is still false by default.
 
 ### Added
 
@@ -25,6 +24,7 @@ All notable changes to this project are documented here. The format follows
 - `scripts/driven-e2e.sh` can run a batch through a real `chargehand runner` (`CHARGEHAND_E2E_RUNNER=runner`) and behind a `docker-socket-proxy` container with the deployment's flags (`proxy`), the way a VPS runs it (CHARGEHAND-157). The default `direct` is unchanged. A case asserts the proxy served the batch, and the runner's key joins the credential scan. Every earlier run used the server's own docker engine, so the runner path, where the first VPS batch found four defects, was untested.
 - A driven batch shows its tasks while they run (ADR 0039): the batch run publishes `container_started`, `session_progress` (tokens, turns and the `change` skill's step), `verify_finished`, `pushed`, `pr_opened` and `task_finished`, each with its `task_id`, so `GET /v1/runs/{batch}` and its events say more than `started`. Until now only `accepted`, `started` and `run_finished` were published, and a task's own run is unknown until it ends. `run-status/v1` gains two optional fields, `tokens` and `stage` (additive); the session driver writes turns and stage into `session-usage.json` beside the tokens.
 - A driven task's result carries a `changes` artifact (ADR 0039): each changed path with its added and removed line counts, and the unified diff cut at a line within 32 KiB, from chargehand's own clone of the bundle. Until now the changed paths only reached the pull request body as a count, so a client had to fetch the branch to see the change. A diff that looks like it carries a secret is left out; the paths and counts stay. The handover's git output cap now keeps a prefix instead of skipping a read that did not fit.
+- `max_parallel_nodes` in the profile (1 or 2, default 2) bounds how many worker nodes of one run execute at once; 1 means one `claude -p` worker on the host, for a machine short on memory.
 
 ### Changed
 
@@ -32,7 +32,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `chargehand runner` says which argument it rejected (ADR 0039, CHARGEHAND-152): the reason, with the value, on its own line before the usage (the usage names every flag, so alone it did not say which one was wrong, and the first deploy restart-looped on a tagged image reference). A valid command line with `--source-roots`, `--outside-networks` or `--forwards` empty now prints a note for each, since each starts fine and then silently refuses work (no workspace, no network join, no callback).
+- Cancelling a task whose container had already ended no longer fails (ADR 0039, CHARGEHAND-157): `docker kill` answered "is not running" (or "No such container"), the engine threw, and the cancel ended `container_unavailable` instead of `cancelled`. A signal to a container that is gone or ended is now a no-op; any other `kill` failure still throws. Found by the e2e script's new runner mode; the runner uses the same engine.
 - The server guide says that `repository_roots` must also cover `<worker_root>/.checkouts` for driven sessions (CHARGEHAND-155): a session's research and review calls name its own checkout, and without that root the server refuses them (`repository_not_allowed`), found on the first deploy.
+- A run under `serve` is its own trace again: it started inside the HTTP request's unrecorded activity, so the parent-based sampler dropped it and every span below, and no served run reached Langfuse.
 
 ## [0.8.4] - 2026-10-05
 
