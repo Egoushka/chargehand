@@ -142,7 +142,7 @@ public static class DrivenResult
 
     /// <summary>The batch's own result: completed when every task ended in a draft pull request, else failed <c>tasks_incomplete</c> naming the tasks that did not. Each task also has its
     /// own result under its own run id; this one lists them in the <c>driven-batch</c> artifact.</summary>
-    /// <param name="CredentialDelivery">How the model credential reached the containers (a substituted token through the gateway, or the real credential in the environment).</param>
+    /// <param name="CredentialDelivery">How the model credential reached the containers (<c>gateway</c>: a per-task token, the real credential only in the egress container; <c>environment</c>: the real credential in the session container's environment).</param>
     public static ResultContract BuildBatch(string runId, string traceId, string description, BatchOutcome outcome, string credentialDelivery, bool priced, string claudeVersion)
     {
         var chain = new PromptChain([], new AsSent($"claude-code/{claudeVersion}", "driven", "batch", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));

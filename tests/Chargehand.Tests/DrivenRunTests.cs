@@ -7,6 +7,7 @@ using Chargehand.Config;
 using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Egress;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Verification;
@@ -212,7 +213,7 @@ public class DrivenRunTests
         Assert.Equal(["t1", "t2"], tasks.Select(t => t.GetProperty("id").GetString()));
         Assert.Equal(["completed", "completed"], tasks.Select(t => t.GetProperty("status").GetString()));
         Assert.Equal(2, tasks.Select(t => t.GetProperty("pr_url").GetString()).Distinct().Count());
-        Assert.Equal("environment", JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "driven-batch").Content!).RootElement.GetProperty("credential_delivery").GetString());
+        Assert.Equal("token_exchange", JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "driven-batch").Content!).RootElement.GetProperty("credential_delivery").GetString());
 
         Assert.Equal(2, rig.Handover.Inputs.Count);
         Assert.All(rig.Handover.Inputs, i => Assert.Equal(Commit, i.BaseCommit));
@@ -225,7 +226,9 @@ public class DrivenRunTests
         {
             Assert.Equal(["session"], spec.Command);
             Assert.Equal("chargehand-net-run-batch-1", spec.Network);
-            Assert.Equal("value-of-claude-code-oauth-token", spec.Env["CLAUDE_CODE_OAUTH_TOKEN"]);
+            // Subscription mode goes through the egress container's model endpoint: the session holds a run token, not the credential (see the gateway tests below).
+            Assert.Equal("http://chargehand-egress-run-batch-1:3129", spec.Env["ANTHROPIC_BASE_URL"]);
+            Assert.NotEqual("value-of-claude-code-oauth-token", spec.Env["CLAUDE_CODE_OAUTH_TOKEN"]);
             Assert.Equal($"tok-{spec.RunId}", spec.Env["CHARGEHAND_RUN_TOKEN"]);
             Assert.Equal("http://chargehand-driven:4300/v1/mcp", spec.Env["CHARGEHAND_MCP_URL"]);
             Assert.Equal("chargehand-egress-run-batch-1,chargehand-driven", spec.Env["NO_PROXY"]);
@@ -248,6 +251,48 @@ public class DrivenRunTests
             Assert.Contains(entry.Run.Result.Artifacts, a => a.Kind == "pull-request");
         }
         Assert.Equal(ResultStatus.Completed, (await rig.Log.ReadAsync("run-batch-1", default)).Run!.Result.Status);
+    }
+
+    private const string RealCredential = "value-of-claude-code-oauth-token";
+
+    [Fact]
+    public async Task Credential_canary_absent_from_container_in_gateway_mode()
+    {
+        using var rig = new Rig(mcpForward: "chargehand-host:4300");
+        var result = await rig.Run.RunAsync(Request("Add a retry", "Add a backoff"), "run-batch-g", Token, default);
+
+        var egress = Assert.Single(rig.Engine.Egresses);
+        Assert.Equal(RealCredential, egress.Gateway!.Credential);                       // the one place the real credential goes: the egress container's env file
+        Assert.Equal(64, egress.Gateway.TokenKey.Length);
+        Assert.Equal(2, rig.Engine.Started.Count);
+        foreach (var spec in rig.Engine.Started)
+        {
+            Assert.DoesNotContain(spec.Env, kv => kv.Value.Contains(RealCredential));
+            Assert.DoesNotContain(spec.Env, kv => kv.Value.Contains(egress.Gateway.TokenKey));   // nor the key that mints tokens
+            Assert.Equal("1", spec.Env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]);
+            Assert.Equal("chargehand-egress-run-batch-g,chargehand-driven", spec.Env["NO_PROXY"]);                 // the model endpoint is plain HTTP, not for the CONNECT proxy
+            // The token is this run's, and the key the egress container holds accepts it, with the task's token cap.
+            var grant = ModelTokens.Validate(egress.Gateway.TokenKey, spec.Env["CLAUDE_CODE_OAUTH_TOKEN"], DateTimeOffset.UtcNow);
+            Assert.Equal(spec.RunId, grant!.RunId);
+            Assert.True(grant.MaxTokens > 0);
+        }
+        Assert.DoesNotContain(RealCredential, JsonSerializer.Serialize(result));
+        Assert.DoesNotContain(RealCredential, await File.ReadAllTextAsync(Path.Combine(rig.Dir.Path, "log.jsonl")));
+        Assert.DoesNotContain(RealCredential, string.Join('\n', rig.Engine.Calls));
+    }
+
+    [Fact]
+    public async Task An_api_key_is_still_delivered_in_the_environment_and_recorded_so()
+    {
+        using var rig = new Rig(apiKey: true);
+        var request = Request("Add a retry");
+        var result = await rig.Run.RunAsync(request with { Driven = request.Driven! with { MaxUsdTotal = 5m } }, "run-batch-k", Token, default);
+
+        Assert.Equal("environment", JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "driven-batch").Content!).RootElement.GetProperty("credential_delivery").GetString());
+        Assert.Null(Assert.Single(rig.Engine.Egresses).Gateway);
+        var spec = Assert.Single(rig.Engine.Started);
+        Assert.Equal("value-of-gateway-key", spec.Env["ANTHROPIC_API_KEY"]);
+        Assert.False(spec.Env.ContainsKey("ANTHROPIC_BASE_URL"));
     }
 
     [Fact]
@@ -459,7 +504,7 @@ public class DrivenRunTests
             (string?)run.GetTagItem("chargehand.repository"), (int?)run.GetTagItem("chargehand.driven.task_count")));
         Assert.Equal(Commit, run.GetTagItem("chargehand.base_commit"));
         Assert.Equal("completed", run.GetTagItem("chargehand.contract.status"));
-        Assert.Equal("environment", run.GetTagItem("chargehand.credential_delivery"));
+        Assert.Equal("token_exchange", run.GetTagItem("chargehand.credential_delivery"));
         Assert.Equal(["https://example.test/o/r/pull/1", "https://example.test/o/r/pull/2"], ((string[])run.GetTagItem("chargehand.driven.pr_urls")!).Order());
 
         var tasks = spans.Where(s => s.OperationName == "chargehand.driven.task").ToList();

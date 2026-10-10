@@ -72,7 +72,7 @@ public static partial class ContainerTemplate
 
     /// <summary>The arguments after <c>docker</c> for a batch's egress proxy: the server image, its <c>egress</c> verb, read-only, no capabilities,
     /// no mounts, on the batch's internal network only (the caller joins the outside network after it starts).</summary>
-    public static IReadOnlyList<string> EgressArgs(EgressSpec spec)
+    public static IReadOnlyList<string> EgressArgs(EgressSpec spec, string? envFile = null)
     {
         Check(RunIdPattern(), spec.BatchId, "batch id");
         Check(ImagePattern(), spec.Image, "image (must be name@sha256:<64 hex> or a local image id)");
@@ -83,6 +83,19 @@ public static partial class ContainerTemplate
         foreach (var forward in spec.Forwards ?? [])
             if (Chargehand.Egress.PortForward.Parse(forward) is null || Chargehand.Egress.PortForward.Parse(forward)!.ListenPort == spec.Port)
                 throw new ArgumentException($"invalid forward '{forward}' (listen-port=host:port, a named host, a port of 1024 or more, not the proxy's own)", nameof(spec));
+        if (spec.Gateway is { } gateway)
+        {
+            if (gateway.Port < 1024 || gateway.Port > 65535 || gateway.Port == spec.Port || (spec.Forwards ?? []).Any(f => Chargehand.Egress.PortForward.Parse(f)!.ListenPort == gateway.Port))
+                throw new ArgumentException("the model port must be 1024 to 65535 and not the proxy's or a forward's", nameof(spec));
+            if (gateway.TokenKey.Length != 64 || !gateway.TokenKey.All(Uri.IsHexDigit))
+                throw new ArgumentException("the token key must be 64 hex characters", nameof(spec));
+            if (gateway.Credential.Length == 0 || gateway.Credential.Any(c => char.IsControl(c) || char.IsWhiteSpace(c)))
+                throw new ArgumentException("the model credential is empty or has whitespace or a control character", nameof(spec));
+            if (Chargehand.Egress.ModelGateway.RefuseHost(gateway.Host) is { } refused)
+                throw new ArgumentException($"the model host is not acceptable: {refused}", nameof(spec));
+            if (string.IsNullOrWhiteSpace(envFile) || envFile.StartsWith('-'))
+                throw new ArgumentException("an egress container with a model endpoint needs an env file path", nameof(envFile));
+        }
         List<string> line =
         [
             "run", "--detach", "--init",
@@ -98,13 +111,20 @@ public static partial class ContainerTemplate
             "--cpus", "1",
             "--network", spec.Network,
             "--network-alias", CallbackAlias,
+            .. spec.Gateway is null ? (string[])[] : ["--env-file", envFile!],
             spec.Image,
             "egress", "--listen", $"0.0.0.0:{spec.Port.ToString(CultureInfo.InvariantCulture)}", "--allow", string.Join(',', spec.Allow),
         ];
         foreach (var forward in spec.Forwards ?? [])
             line.AddRange(["--forward", forward]);
+        if (spec.Gateway is { } model)
+            line.AddRange(["--model-listen", $"0.0.0.0:{model.Port.ToString(CultureInfo.InvariantCulture)}", "--model-host", model.Host]);
         return line;
     }
+
+    /// <summary>The egress container's env file lines: the model credential and the run-token key, for <see cref="EgressArgs"/>'s <c>--env-file</c>.</summary>
+    public static IReadOnlyList<string> EgressEnvLines(ModelGatewaySpec gateway) =>
+        [$"{Chargehand.Egress.EgressCli.CredentialVariable}={gateway.Credential}", $"{Chargehand.Egress.EgressCli.KeyVariable}={gateway.TokenKey}"];
 
     /// <summary>The script the workspace helper runs; the branch and the commit reach it only as arguments (<c>$1</c>, <c>$2</c>), never spliced into its text.
     /// <c>safe.directory</c> is needed because the read-only source belongs to another user. It is a global config in the helper's tmpfs (the root filesystem is

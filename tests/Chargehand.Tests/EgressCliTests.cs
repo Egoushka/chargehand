@@ -40,4 +40,32 @@ public class EgressCliTests
         Assert.Null(EgressCli.Parse(args, error));
         Assert.Contains("usage: chargehand egress", error.ToString());
     }
+
+    [Fact]
+    public void The_model_endpoint_has_a_default_host_and_takes_another()
+    {
+        var plain = EgressCli.Parse(["--listen", "0.0.0.0:3128", "--allow", "api.anthropic.com"], TextWriter.Null)!;
+        Assert.Null(plain.ModelListen);
+        var model = EgressCli.Parse(["--listen", "0.0.0.0:3128", "--allow", "api.anthropic.com", "--model-listen", "0.0.0.0:3129"], TextWriter.Null)!;
+        Assert.Equal(3129, model.ModelListen!.Port);
+        Assert.Equal("api.anthropic.com", model.ModelHost);
+        Assert.Equal("gateway.example.com", EgressCli.Parse(["--listen", "0.0.0.0:3128", "--allow", "x.com", "--model-listen", "0.0.0.0:3129", "--model-host", "gateway.example.com"], TextWriter.Null)!.ModelHost);
+    }
+
+    [Theory]
+    [InlineData("--model-host", "10.0.0.1")]
+    [InlineData("--model-host", "localhost")]
+    [InlineData("--model-listen", "nonsense")]
+    public void A_bad_model_option_is_a_usage_error(string flag, string value) =>
+        Assert.Null(EgressCli.Parse(["--listen", "0.0.0.0:3128", "--allow", "api.anthropic.com", flag, value], TextWriter.Null));
+
+    [Fact]
+    public async Task A_model_endpoint_without_its_secrets_in_the_environment_does_not_start()
+    {
+        Environment.SetEnvironmentVariable(EgressCli.CredentialVariable, null);
+        Environment.SetEnvironmentVariable(EgressCli.KeyVariable, null);
+        var error = new StringWriter();
+        Assert.Equal(2, await EgressCli.RunAsync(["--listen", "127.0.0.1:0", "--allow", "api.anthropic.com", "--model-listen", "127.0.0.1:0"], error, default));
+        Assert.Contains(EgressCli.CredentialVariable, error.ToString());
+    }
 }

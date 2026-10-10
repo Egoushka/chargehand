@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Chargehand.Containers;
+using Chargehand.Egress;
 
 namespace Chargehand.Tests;
 
@@ -87,6 +88,37 @@ public class EgressTests
         finally
         {
             await batchNetwork.RemoveAsync(net, default);
+        }
+    }
+
+    [DockerEgressFact]
+    public async Task The_model_endpoint_refuses_a_bad_token_and_forwards_a_good_one_to_the_api_host_with_the_credential_swapped()
+    {
+        const string fake = "fake-credential-for-the-egress-test-0123456789";
+        var engine = new DockerCliEngine();
+        var batch = "e" + Guid.NewGuid().ToString("N")[..8];
+        var gateway = new ModelGatewaySpec(fake, ModelTokens.NewKey());
+        var net = await new BatchNetwork(engine).CreateAsync(batch, EgressImage!, ["api.anthropic.com"], default, gateway: gateway);
+        try
+        {
+            var good = ModelTokens.Mint(gateway.TokenKey, "run-m", DateTimeOffset.UtcNow.AddMinutes(10), 0);
+            static string Post(string host, string token) =>
+                $"printf 'POST /v1/messages HTTP/1.1\\r\\nHost: x\\r\\nAuthorization: Bearer {token}\\r\\nContent-Type: application/json\\r\\nContent-Length: 2\\r\\nConnection: close\\r\\n\\r\\n{{}}' | nc -w 20 {host} 3129 | tr -d '\\r' | grep -E 'HTTP/1.1|message'; ";
+            var script = "sleep 4; echo BAD; " + Post(net.ProxyHost, "chm-bad.token") + "echo GOOD; " + Post(net.ProxyHost, good);
+            var (_, logs) = await RunSession(engine, net, batch, batch + "m", script);
+            var bad = logs[(logs.IndexOf("BAD", StringComparison.Ordinal))..logs.IndexOf("GOOD", StringComparison.Ordinal)];
+            var forwarded = logs[logs.IndexOf("GOOD", StringComparison.Ordinal)..];
+            Assert.Contains("HTTP/1.1 401", bad);
+            Assert.Contains("run token", bad);                                   // refused by the gateway itself
+            Assert.Contains("HTTP/1.1 401", forwarded);
+            Assert.DoesNotContain("run token", forwarded);                       // answered by the API host, which rejected the fake credential: the swap happened
+            Assert.DoesNotContain(fake, logs);
+            Assert.DoesNotContain(fake, await engine.LogsTailAsync(net.EgressContainer, 16384, default));
+            Assert.Contains("\"model_run\":\"run-m\"", await engine.LogsTailAsync(net.EgressContainer, 16384, default));
+        }
+        finally
+        {
+            await new BatchNetwork(engine).RemoveAsync(net, default);
         }
     }
 

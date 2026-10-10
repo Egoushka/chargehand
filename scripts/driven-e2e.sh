@@ -10,7 +10,8 @@
 #                             no dollar price is checked. Wins over CHARGEHAND_E2E_MODEL_KEY when both are set.
 #   CHARGEHAND_E2E_MODEL_KEY  the priced mode: an Anthropic API key with a low spend limit set in the console. It is read here, passed to the server
 #                             through the environment and never printed or written to a file.
-#   Either credential is searched for in every file the run made; the script fails if it shows up.
+#   Either credential is searched for in every file the run made (and, in subscription mode, in each session container's environment while it runs,
+#   where it must not be: the batch's egress container exchanges a per-task token for it); the script fails if it shows up.
 #   CHARGEHAND_E2E_IMAGE      the session image by digest, name@sha256:<64 hex> (build images/session/Dockerfile and push it to a registry,
 #                             so the digest exists; a local image id is not a digest).
 # env (optional):
@@ -61,7 +62,7 @@ claude_version=$(claude --version | awk '{print $1}')
 work=$(mktemp -d "${TMPDIR:-/tmp}/driven-e2e.XXXXXX")
 # The physical path: on macOS $TMPDIR is under /var, a symlink to /private/var, and the runner's source root must match the path the server reports.
 work=$(cd "$work" && pwd -P)
-server_pid=""; stub_pid=""; runner_pid=""
+server_pid=""; stub_pid=""; runner_pid=""; sampler_pid=""
 runner_mode=${CHARGEHAND_E2E_RUNNER:-direct}
 case $runner_mode in direct|runner|proxy) ;; *) echo "CHARGEHAND_E2E_RUNNER must be direct, runner or proxy" >&2; exit 2 ;; esac
 runner_port=${CHARGEHAND_E2E_RUNNER_PORT:-4393}
@@ -77,6 +78,7 @@ cleanup() {
   [ -n "$stub_pid" ] && kill "$stub_pid" 2>/dev/null || true
   [ -n "$runner_pid" ] && kill "$runner_pid" 2>/dev/null || true
   [ "$runner_mode" = proxy ] && docker rm -f "$proxy_name" >/dev/null 2>&1 || true
+  [ -n "$sampler_pid" ] && kill "$sampler_pid" 2>/dev/null || true
   # Whatever a failed case left behind: containers, volumes and batch networks carry chargehand's label.
   dotnet "$here/src/Chargehand.Cli/bin/Debug/net10.0/Chargehand.Cli.dll" runs kill --all >/dev/null 2>&1 || true
   # The output volumes of this script's runs (the stream is kept in one); other volumes that were there before are left alone.
@@ -296,6 +298,23 @@ await() { # run id, result file: waits for the final result
   return 1
 }
 
+# While the batches run: look at each session container's environment (the real subscription token must not be in it; with a gateway it holds the egress
+# container's address instead) and keep the egress container's log, which is gone with the batch. The token is read through a process substitution into
+# grep, so it is in no variable and no argument list.
+sampler() {
+  while :; do
+    for c in $(docker ps -q --filter name=^chargehand-run-); do
+      envs=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$c" 2>/dev/null) || continue
+      echo x >> "$work/sessions.seen"
+      case $envs in *ANTHROPIC_BASE_URL=http://chargehand-egress-*) echo x >> "$work/sessions.gateway" ;; esac
+      if [ -n "$oauth_item" ] && grep -qF -f <(security find-generic-password -s "$oauth_item" -w 2>/dev/null) <<<"$envs"; then echo x >> "$work/sessions.leak"; fi
+    done
+    for e in $(docker ps -q --filter name=^chargehand-egress-); do docker logs "$e" > "$work/egress-$e.log" 2>&1 || true; done
+    sleep 1
+  done
+}
+sampler & sampler_pid=$!
+
 # batch: three tasks, two can pass, one cannot (two tests that contradict each other; a model that edits them has dodged the task, which this case reports).
 export E2E_EASY="$easy_goal" E2E_UNSKIP="$unskip_goal" E2E_IMPOSSIBLE="$impossible_goal"
 if [ -n "${CHARGEHAND_E2E_TASKS:-}" ]; then tasks=$(cat "$CHARGEHAND_E2E_TASKS")
@@ -329,9 +348,11 @@ if [ "$has_impossible" = True ] && [ -s "$work/batch.json" ]; then
 fi
 check default_branch_untouched "$work/remote.git" "$([ "$(git -C "$work/remote.git" rev-parse main 2>/dev/null || echo none)" = "$main_before" ] &&
   [ "$(git -C "$work/remote.git" for-each-ref --format='%(refname)' refs/heads | grep -vc -e '^refs/heads/main$' -e '^refs/heads/chargehand/' || true)" = 0 ] && echo pass)"
-# gateway mode: the containers held the gateway's key, and the batch result says so.
-if [ -n "${CHARGEHAND_E2E_MODEL_URL:-}" ] && [ -s "$work/batch.json" ]; then
-  check credential_delivery_gateway_key "$work/batch.json" "$([ "$(field "$work/batch.json" "__import__('json').loads([a for a in d['artifacts'] if a['kind']=='driven-batch'][0]['content'])['credential_delivery']")" = gateway_key ] && echo pass)"
+# How the model credential reached the sessions: the gateway's key with a gateway, a per-task token (the real one only in the egress container) on the
+# subscription, the key itself otherwise. The batch result says which.
+if [ -s "$work/batch.json" ]; then
+  if [ -n "${CHARGEHAND_E2E_MODEL_URL:-}" ]; then expected_delivery=gateway_key; elif [ -n "$oauth_item" ]; then expected_delivery=token_exchange; else expected_delivery=environment; fi
+  check "credential_delivery_$expected_delivery" "$work/batch.json" "$([ "$(field "$work/batch.json" "__import__('json').loads([a for a in d['artifacts'] if a['kind']=='driven-batch'][0]['content'])['credential_delivery']")" = "$expected_delivery" ] && echo pass)"
 fi
 # proxy mode: the batch really went through the socket proxy (it logs every API call it forwards).
 if [ "$runner_mode" = proxy ]; then
@@ -380,6 +401,14 @@ check cancel_result "$work/cancel.json" "$({ [ "$(field "$work/cancel.json" "d['
 }
 check cancel_leaves_no_container "docker ps -a --filter label=chargehand.run" "$([ "$gone" = pass ] && echo pass)"
 check cancel_opens_no_pr "$work/prs.jsonl" "$([ "$(wc -l < "$work/prs.jsonl" | tr -d ' ')" = "$prs_before" ] && echo pass)"
+
+# the session containers: sampled while they ran. Subscription mode goes through the gateway, so none may hold the real token; API-key mode keeps it in the environment.
+kill "$sampler_pid" 2>/dev/null || true; sampler_pid=""
+check session_containers_sampled "$work/sessions.seen" "$([ -s "$work/sessions.seen" ] && echo pass)"
+if [ -n "$oauth_item" ]; then
+  check session_env_has_no_real_token "$work/sessions.leak" "$([ ! -e "$work/sessions.leak" ] && [ -s "$work/sessions.seen" ] && echo pass)"
+  check session_uses_the_gateway "$work/sessions.gateway" "$([ "$(wc -l < "$work/sessions.gateway" 2>/dev/null | tr -d ' ')" = "$(wc -l < "$work/sessions.seen" | tr -d ' ')" ] && echo pass)"
+fi
 
 # no credential in anything this script or the server wrote: the push token, and the model key (searched for, never printed).
 leak=""

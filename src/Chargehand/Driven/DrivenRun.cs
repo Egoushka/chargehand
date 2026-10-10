@@ -4,6 +4,7 @@ using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Containers;
 using Chargehand.Contracts;
+using Chargehand.Egress;
 using Chargehand.Results;
 using Chargehand.RunLog;
 using Chargehand.Signing;
@@ -24,10 +25,15 @@ public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Wo
 
 /// <summary>A request with a <c>driven</c> block, from start to the batch's result (ADR 0039): tasks resolved, the batch network up, tasks run under the batch's limits by
 /// <see cref="TaskRunner"/>, the network down, and one <c>result/v1</c> that lists the tasks. Every refusal (driven sessions off, no push credential, no image) is a failed
-/// result with a code, recorded like any run. The model credential reaches a container in its environment: the gateway exchange is not built, and the batch result says so.</summary>
+/// result with a code, recorded like any run. How the model credential reaches a session, recorded on the batch result: a subscription token goes only to the batch's egress container,
+/// which exchanges a per-task token for it (<c>token_exchange</c>); a key an operator's gateway issued is in the session's environment (<c>gateway_key</c>); a plain API key too
+/// (<c>environment</c>).</summary>
 public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory, DrivenServices? services) : IDisposable
 {
     public const string CredentialDelivery = "environment";
+
+    /// <summary>The real credential is only in the batch's egress container; a session holds a per-task token worth nothing outside its run and network.</summary>
+    public const string TokenExchangeDelivery = "token_exchange";
 
     /// <summary>The containers hold a key the gateway issued for driven sessions (a budget, revocable), not the real credential.</summary>
     public const string GatewayKeyDelivery = "gateway_key";
@@ -110,13 +116,16 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var forward = settings.Network?.McpForward;
         var port = forward is null ? 0 : int.Parse(forward[(forward.LastIndexOf(':') + 1)..], CultureInfo.InvariantCulture);
         var model = DrivenModelRoute.Parse(settings.Network?.ModelUrl, priced, forward is null ? null : port);
+        // A subscription token without a gateway of the operator's goes only to the batch's egress container, which exchanges a per-task token for it (ADR 0039,
+        // decision 9). An API key, or a key a gateway issued, stays in the session's environment: the exchange is measured on the subscription only.
+        var exchange = !priced && model is null ? new ModelGatewaySpec(modelEnvironment.Values.Single(), ModelTokens.NewKey()) : null;
 
         var otlp = DrivenOtlpRoute.Parse(settings.Network?.OtlpUrl,
             new[] { forward is null ? (int?)null : port, model?.ForwardPort }.OfType<int>());
 
         var checkout = await s.Checkout(request.Context.Repository!, request.Context.Preset, ct);
         span?.SetTag("chargehand.base_commit", checkout.Commit);
-        span?.SetTag("chargehand.credential_delivery", model is null ? CredentialDelivery : GatewayKeyDelivery);
+        span?.SetTag("chargehand.credential_delivery", Delivery(model, exchange));
         List<string> forwards = [];
         if (forward is not null)
             forwards.Add($"{port}={forward}");
@@ -126,7 +135,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             forwards.Add(otlp.Forward);
         var net = await new BatchNetwork(s.Engine).CreateAsync(runId, image,
             [.. (drivenPreset.Allow ?? []).Concat(settings.Network?.Allow ?? []).Concat(model?.AllowHost is { } host ? new[] { host } : []).Distinct()], ct,
-            settings.Network?.Outside ?? BatchNetwork.DefaultOutside, forwards.Count == 0 ? null : forwards);
+            settings.Network?.Outside ?? BatchNetwork.DefaultOutside, forwards.Count == 0 ? null : forwards, exchange);
         BatchOutcome ran;
         try
         {
@@ -137,7 +146,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 forward is null ? null : $"{BatchNetworkInfo.ServiceUrl(port)}/v1/mcp", drivenPreset, limits.PerTask, priced, modelEnvironment, push,
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true || otlp is not null, otlp,
-                profile.Prices, profile.Telemetry?.UsageOnSpans == true);
+                profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey);
             var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress);
             ran = await new BatchScheduler(runner).RunAsync(ready, limits, ct, o => progress?.Invoke(TaskFinished(runId, o)));
         }
@@ -150,7 +159,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var all = request.Driven.Tasks.Select(t => unresolved.FirstOrDefault(u => u.Id == t.Id) ?? ran.Tasks.First(o => o.Id == t.Id)).ToList();
         span?.SetTag("chargehand.driven.pr_urls", all.Select(o => o.PrUrl).OfType<string>().ToArray());
         span?.SetTag("chargehand.driven.tokens", all.Sum(o => o.Tokens));
-        return DrivenResult.BuildBatch(runId, traceId, "", new BatchOutcome(all, ran.Action), model is null ? CredentialDelivery : GatewayKeyDelivery, priced, claude.Version);
+        return DrivenResult.BuildBatch(runId, traceId, "", new BatchOutcome(all, ran.Action), Delivery(model, exchange), priced, claude.Version);
     }
 
     private static RunStatus TaskFinished(string runId, TaskOutcome o) =>
@@ -162,6 +171,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             Tokens = o.Tokens,
             Detail = $"task {o.Id}: {JsonNamingPolicy.SnakeCaseLower.ConvertName(o.State.ToString())}{(o.Detail is { } d ? $": {d}" : "")}",
         };
+
+    private static string Delivery(DrivenModelRoute? model, ModelGatewaySpec? exchange) =>
+        model is not null ? GatewayKeyDelivery : exchange is not null ? TokenExchangeDelivery : CredentialDelivery;
 
     private static string Resolve(DrivenServices s, string item)
     {

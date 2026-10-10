@@ -1,8 +1,12 @@
 namespace Chargehand.Containers;
 
 /// <param name="ProxyHost">The egress container's name, which the internal network's DNS resolves.</param>
-public sealed record BatchNetworkInfo(string Network, string EgressContainer, string ProxyHost, int ProxyPort)
+/// <param name="ModelPort">The port of the egress container's model endpoint; 0: it has none.</param>
+public sealed record BatchNetworkInfo(string Network, string EgressContainer, string ProxyHost, int ProxyPort, int ModelPort = 0)
 {
+    /// <summary>The value of a session container's <c>ANTHROPIC_BASE_URL</c> when the egress container exchanges run tokens; null: it does not.</summary>
+    public string? ModelUrl => ModelPort == 0 ? null : $"http://{ProxyHost}:{ModelPort}";
+
     /// <summary>The value of a session container's <c>HTTPS_PROXY</c>; the run id is the proxy log's label, not a credential.</summary>
     public string ProxyUrl(string runId) => $"http://{runId}:x@{ProxyHost}:{ProxyPort}";
 
@@ -20,13 +24,14 @@ public sealed class BatchNetwork(IContainerEngine engine)
 
     /// <param name="outsideNetwork">The network the egress container also joins: the way out to the registries, and to the chargehand server when that sits on a network of its own.</param>
     /// <param name="forwards">Operator-named forwards (<c>listen-port=host:port</c>), for reaching the chargehand server from the internal network.</param>
+    /// <param name="gateway">Set, the egress container also serves the model endpoint and holds the real credential (ADR 0039, decision 9).</param>
     public async Task<BatchNetworkInfo> CreateAsync(string batchId, string egressImage, IReadOnlyList<string> allow, CancellationToken ct, string outsideNetwork = DefaultOutside,
-        IReadOnlyList<string>? forwards = null)
+        IReadOnlyList<string>? forwards = null, ModelGatewaySpec? gateway = null)
     {
         var network = $"chargehand-net-{batchId}";
-        var spec = new EgressSpec(batchId, egressImage, network, allow, Forwards: forwards);
-        _ = ContainerTemplate.EgressArgs(spec); // validates every value before anything is created
-        var info = new BatchNetworkInfo(network, "", $"chargehand-egress-{batchId}", spec.Port);
+        var spec = new EgressSpec(batchId, egressImage, network, allow, Forwards: forwards, Gateway: gateway);
+        _ = ContainerTemplate.EgressArgs(spec, "env-file-placeholder"); // validates every value before anything is created
+        var info = new BatchNetworkInfo(network, "", $"chargehand-egress-{batchId}", spec.Port, gateway?.Port ?? 0);
         await engine.CreateNetworkAsync(network, batchId, ct);
         string? egress = null;
         try
