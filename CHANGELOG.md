@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The session image keeps the .NET CLI home and the NuGet package cache on the volume (ADR 0039): `DOTNET_CLI_HOME=/work/.dotnet`, `NUGET_PACKAGES=/work/.nuget/packages`, so a restore of a real solution does not fill the tmpfs at `/home/session`. The image already had the .NET 10 SDK; its size does not change. The driven guide gains a `dotnet test` verification example and the NuGet hosts a restore needs in `driven.network.allow` (`api.nuget.org`, `globalcdn.nuget.org`).
+
 ## [0.8.5] - 2026-10-10
 
 Claude Code as an observer of driven sessions, and the model credential out of the session containers. `chargehand watch` and `cancel`, the `/chargehand:run` skill and a run id after 10 s let a Claude Code session hand a prompt to a driven batch and follow it. On the subscription the real token now stays in the batch's egress container (`token_exchange`); an API key can go through an operator's gateway (`model_url`). Additive; `driven.enabled` is still false by default.
