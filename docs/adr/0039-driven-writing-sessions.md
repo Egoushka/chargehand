@@ -161,6 +161,10 @@ Four attempts, one defect each, none reachable from a Mac or from the fakes: (1)
 
 What the attempts also showed: a session that cannot make its research or review call stops and asks instead of skipping them (twice, as the skill says); a failure before a container starts used to be reported as the cleanup's error. Not changed by this: the model credential is still delivered in the container's environment until the credential gateway exists, so `driven.enabled` goes back to false after the smoke. Open: the per-task output volume is kept and nothing removes it.
 
+### Credential exchange built and measured (2026-10-10)
+
+Decision 9's preferred design is built: on the subscription, the batch's egress container holds the real token and exchanges a per-task token for it (`ModelGateway`, `ModelTokens`); sessions never see the real token (`credential_delivery: token_exchange`). The runner service carries the credential to the egress container and refuses any upstream but `api.anthropic.com`, so it works on the deployed path. One task through the runner and a socket proxy ended in a draft pull request with every check of `scripts/driven-e2e.sh` passing, including samples of the session containers' environments. An API key is not exchanged (untested through the swap) and stays in the environment, or goes through an operator's gateway (`driven.network.model_url`, `gateway_key`, measured the same day on a Bifrost key).
+
 ## Consequences
 
 - A shell exists again, in a container, running repository content and model output. The boundary is the container, its network

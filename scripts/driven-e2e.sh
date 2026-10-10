@@ -348,9 +348,11 @@ if [ "$has_impossible" = True ] && [ -s "$work/batch.json" ]; then
 fi
 check default_branch_untouched "$work/remote.git" "$([ "$(git -C "$work/remote.git" rev-parse main 2>/dev/null || echo none)" = "$main_before" ] &&
   [ "$(git -C "$work/remote.git" for-each-ref --format='%(refname)' refs/heads | grep -vc -e '^refs/heads/main$' -e '^refs/heads/chargehand/' || true)" = 0 ] && echo pass)"
-# gateway mode: the containers held the gateway's key, and the batch result says so.
-if [ -n "${CHARGEHAND_E2E_MODEL_URL:-}" ] && [ -s "$work/batch.json" ]; then
-  check credential_delivery_gateway_key "$work/batch.json" "$([ "$(field "$work/batch.json" "__import__('json').loads([a for a in d['artifacts'] if a['kind']=='driven-batch'][0]['content'])['credential_delivery']")" = gateway_key ] && echo pass)"
+# How the model credential reached the sessions: the gateway's key with a gateway, a per-task token (the real one only in the egress container) on the
+# subscription, the key itself otherwise. The batch result says which.
+if [ -s "$work/batch.json" ]; then
+  if [ -n "${CHARGEHAND_E2E_MODEL_URL:-}" ]; then expected_delivery=gateway_key; elif [ -n "$oauth_item" ]; then expected_delivery=token_exchange; else expected_delivery=environment; fi
+  check "credential_delivery_$expected_delivery" "$work/batch.json" "$([ "$(field "$work/batch.json" "__import__('json').loads([a for a in d['artifacts'] if a['kind']=='driven-batch'][0]['content'])['credential_delivery']")" = "$expected_delivery" ] && echo pass)"
 fi
 # proxy mode: the batch really went through the socket proxy (it logs every API call it forwards).
 if [ "$runner_mode" = proxy ]; then
