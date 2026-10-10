@@ -72,6 +72,26 @@ What the branch changes against its base, from chargehand's own clone of the bun
 
 An inline artifact holds at most 64 KiB: if the whole does not fit, the diff is left out first, then paths from the end of `files`. For the full diff, fetch the pushed branch.
 
+## Tracing a batch
+
+With the profile's `telemetry` block, a batch reaches the same Langfuse project as an orchestrator run ([ADR 0042](../adr/0042-driven-session-telemetry.md)), under the `trace_id` that the batch's `result/v1` and every task's carry:
+
+```
+chargehand.driven.run       run id, preset, repository, base commit, task count, credential delivery, status, error code, pull-request links, tokens
+└─ chargehand.driven.task   one per task: task id, its run id, state, error code, branch, pull-request URL, model, Claude Code session id, turns, tokens, wall seconds
+   └─ chargehand.driven.session   the session as one generation, container start to end: model, session id, and with usage_on_spans its usage and cost
+```
+
+A task that did not complete has error status on its span, and so does a batch that did not. On a subscription no gateway records the session's calls, so set `telemetry.usage_on_spans` ([ADR 0021](../adr/0021-usage-on-spans-without-a-gateway.md)): the session span then carries `usage_details` (input, output, cache read, cache write, summed over the models the session called) and `cost_details` from the profile's price table, model by model. The table may key a model under any provider (`provider/claude-sonnet-5-5` prices Claude Code's `claude-sonnet-5-5`); a model with no price leaves the cost unknown rather than zero. Claude Code's own list-price figure is beside it as `chargehand.claude_code.cost_usd`. Usage arrives when a session ends; while it runs, tokens are on the run's events.
+
+### Claude Code's own telemetry
+
+`driven.network.otlp_url` (`http://host:port` of an OTLP/HTTP collector as the egress container reaches it) turns on Claude Code's own export of logs and metrics from each session container: `CLAUDE_CODE_ENABLE_TELEMETRY=1`, OTLP over `http/protobuf`, cumulative metrics, and `OTEL_RESOURCE_ATTRIBUTES` with `chargehand.run_id` (the batch), `chargehand.task_id`, `chargehand.task_run_id` and `chargehand.trace_id`. It goes through a forward on the egress container, so its port must differ from `mcp_forward`'s and `model_url`'s. User prompts are not logged (`OTEL_LOG_USER_PROMPTS` is never set), no header is set, so the collector must accept the session unauthenticated on that network, and no traces are exported. Claude Code's events carry `session.id`, the value on the task span's `chargehand.claude_code.session_id`. An `https` collector, credentials or a query in the URL, or a port another forward uses is refused before anything is created.
+
+```json
+"driven": { "network": { "otlp_url": "http://collector-host:4318" } }
+```
+
 ## Limits and the kill switch
 
 `max_parallel` (default 2, never above 4), and two ceilings because a subscription has no dollar price: a **token** ceiling that binds in both credential modes, and a **dollar** ceiling that binds with an API key. A batch starts no task it could not afford, and stops running tasks that overshoot its cap by more than one task's cap. A rate-limited or unavailable subscription stops new starts and says how to switch the profile to an API key; nothing switches on its own. Every session also ends on no progress, a repeated identical tool call, too many turns, or a wall clock.
@@ -114,7 +134,8 @@ An `http` URL is reached through a second forward on the batch's egress containe
 - Deployment on the VPS, which is the maintainer's decision and not done by any agent (a compose change in the homelab repository), the session image's pull time there, and whether `--internal` isolates on that engine.
 - Whether a model keeps to the skill's steps over a long headless session or a real repository: the figures above are for tiny goals only.
 - The subscription's terms for unattended parallel use are unread; the maintainer accepted that risk.
+- Tracing ([ADR 0042](../adr/0042-driven-session-telemetry.md)) is checked by tests that listen on the span source with fake sessions, not yet in a live Langfuse or collector. The session span's model, session id and per-model usage come from the in-container driver, so they need a session image built from the release that added them; an older image leaves the model unknown and the cost with it.
 
 ## Configure it
 
-The profile's `driven` block (`schemas` and `profiles/profile.schema.json` document each key): `enabled` (default false), `max_parallel`, `max_parallel_total`, `images` (by digest), `network.allow`, `runner` (URL and the secret item for its key), `push_secret`, and `task_source` (how a tracker item id becomes a goal through a mapped MCP tool). `network.outside` and `network.mcp_forward` (`host:port` of the chargehand server as the egress container reaches it) let a session call chargehand for research and review. `images[0]` is the session image and the egress image. Keep `enabled` false in any shared profile. A request adds `driven: { tasks: [{id, ref | goal}], max_parallel, max_tokens_total | max_usd_total }` and `context.repository`.
+The profile's `driven` block (`schemas` and `profiles/profile.schema.json` document each key): `enabled` (default false), `max_parallel`, `max_parallel_total`, `images` (by digest), `network.allow`, `runner` (URL and the secret item for its key), `push_secret`, and `task_source` (how a tracker item id becomes a goal through a mapped MCP tool). `network.outside` and `network.mcp_forward` (`host:port` of the chargehand server as the egress container reaches it) let a session call chargehand for research and review. `network.otlp_url` turns on Claude Code's own telemetry (above). `images[0]` is the session image and the egress image. Keep `enabled` false in any shared profile. A request adds `driven: { tasks: [{id, ref | goal}], max_parallel, max_tokens_total | max_usd_total }` and `context.repository`.
