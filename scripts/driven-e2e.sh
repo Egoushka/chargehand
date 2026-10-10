@@ -14,6 +14,9 @@
 #   CHARGEHAND_E2E_IMAGE      the session image by digest, name@sha256:<64 hex> (build images/session/Dockerfile and push it to a registry,
 #                             so the digest exists; a local image id is not a digest).
 # env (optional):
+#   CHARGEHAND_E2E_MODEL_URL  priced mode only: an Anthropic-compatible gateway as the egress container reaches it (driven.network.model_url), e.g.
+#                             http://<host>:4001/anthropic; CHARGEHAND_E2E_MODEL_KEY is then the key that gateway issued for driven sessions, and the
+#                             batch result must say credential_delivery gateway_key
 #   CHARGEHAND_E2E_MAX_USD    priced mode: cap for the batch in dollars (default 5); the cancel case gets a fifth of it
 #   CHARGEHAND_E2E_MAX_TOKENS subscription mode: cap for the batch in input plus output tokens (default 4000000). A task is only started when the
 #                             preset's per-task cap (2000000) still fits, so values under that start nothing; the cancel case gets 2000000
@@ -46,6 +49,7 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 oauth_item=${CHARGEHAND_E2E_OAUTH_ITEM:-}
+if [ -n "${CHARGEHAND_E2E_MODEL_URL:-}" ] && [ -n "$oauth_item" ]; then echo "CHARGEHAND_E2E_MODEL_URL needs CHARGEHAND_E2E_MODEL_KEY: a subscription token cannot be used through a gateway" >&2; exit 2; fi
 if [ -z "$oauth_item" ]; then : "${CHARGEHAND_E2E_MODEL_KEY:?set CHARGEHAND_E2E_OAUTH_ITEM (subscription) or CHARGEHAND_E2E_MODEL_KEY (a capped Anthropic API key)}"; fi
 : "${CHARGEHAND_E2E_IMAGE:?set CHARGEHAND_E2E_IMAGE to the session image, name@sha256:<digest>}"
 case $CHARGEHAND_E2E_IMAGE in *@sha256:????????????????????????????????????????????????????????????????) ;; *) echo "CHARGEHAND_E2E_IMAGE must be name@sha256:<64 hex>" >&2; exit 2 ;; esac
@@ -238,9 +242,9 @@ echo "engine path: $runner_mode"
 # The profile: the model key and the push token are item names, never values; secrets come from the environment.
 # Subscription mode: the server's own secret chain asks the Keychain for the token, so it goes Keychain -> server -> container only.
 [ -n "$oauth_item" ] || export CHARGEHAND_E2E_MODEL_KEY
-python3 - "$work" "$port" "$claude_version" "$CHARGEHAND_E2E_IMAGE" "$oauth_item" "$([ "$runner_mode" = direct ] || echo "$runner_port")" <<'PY'
+python3 - "$work" "$port" "$claude_version" "$CHARGEHAND_E2E_IMAGE" "$oauth_item" "$([ "$runner_mode" = direct ] || echo "$runner_port")" "${CHARGEHAND_E2E_MODEL_URL:-}" <<'PY'
 import json, sys
-work, port, version, image, oauth_item, runner_port = sys.argv[1:7]
+work, port, version, image, oauth_item, runner_port, model_url = sys.argv[1:8]
 secrets = [{"env": True}] + ([{"command": ["security", "find-generic-password", "-s", "{item}", "-w"]}] if oauth_item else [])
 credential = {"oauth_token_secret": oauth_item} if oauth_item else {"api_key_secret": "chargehand-e2e-model-key"}
 profile = {"schema": "profile/v1", "runtime": "claude_code", "secrets": secrets,
@@ -250,6 +254,10 @@ profile = {"schema": "profile/v1", "runtime": "claude_code", "secrets": secrets,
   "http": {"port": int(port), "api_key_secret": "chargehand-e2e-server-key", "allowed_hosts": ["chargehand-driven"]},
   "driven": {"enabled": True, "max_parallel": 2, "images": [image], "push_secret": "chargehand-e2e-push-key",
              "network": {"mcp_forward": "host.docker.internal:" + port}}}
+if model_url:
+  profile["driven"]["network"]["model_url"] = model_url
+  # The server's own workers (the research and review a session asks for) use the same key, so they need the gateway too.
+  profile["claude_code"]["base_url"] = model_url
 if runner_port:
   profile["driven"]["runner"] = {"url": "http://127.0.0.1:" + runner_port, "api_key_secret": "chargehand-e2e-runner-key"}
 json.dump(profile, open(work + "/profile.json", "w"), indent=2)
@@ -321,6 +329,10 @@ if [ "$has_impossible" = True ] && [ -s "$work/batch.json" ]; then
 fi
 check default_branch_untouched "$work/remote.git" "$([ "$(git -C "$work/remote.git" rev-parse main 2>/dev/null || echo none)" = "$main_before" ] &&
   [ "$(git -C "$work/remote.git" for-each-ref --format='%(refname)' refs/heads | grep -vc -e '^refs/heads/main$' -e '^refs/heads/chargehand/' || true)" = 0 ] && echo pass)"
+# gateway mode: the containers held the gateway's key, and the batch result says so.
+if [ -n "${CHARGEHAND_E2E_MODEL_URL:-}" ] && [ -s "$work/batch.json" ]; then
+  check credential_delivery_gateway_key "$work/batch.json" "$([ "$(field "$work/batch.json" "__import__('json').loads([a for a in d['artifacts'] if a['kind']=='driven-batch'][0]['content'])['credential_delivery']")" = gateway_key ] && echo pass)"
+fi
 # proxy mode: the batch really went through the socket proxy (it logs every API call it forwards).
 if [ "$runner_mode" = proxy ]; then
   # The log is read into a variable first: `docker logs | grep -q` is killed by SIGPIPE once the log is long, and pipefail then reports a failure.
