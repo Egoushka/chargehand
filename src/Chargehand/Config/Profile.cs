@@ -37,7 +37,8 @@ public sealed record Profile(
     bool SupportCheck = true,
     SigningSettings? Signing = null,
     DrivenSettings? Driven = null,
-    PromptEnhancerSettings? PromptEnhancer = null)
+    PromptEnhancerSettings? PromptEnhancer = null,
+    int MaxParallelNodes = 2)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
