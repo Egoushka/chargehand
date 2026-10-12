@@ -16,9 +16,10 @@ public class CheckoutTests
         using var root = new TempDir();
         var repo = Runs.GitRepo(root.Path);
         Directory.CreateDirectory(Path.Combine(repo.Path, "sub"));
-        foreach (var name in new[] { "sub/.env", "x.env.local", ".env.example" })
+        Directory.CreateDirectory(Path.Combine(repo.Path, "stack"));
+        foreach (var name in new[] { "sub/.env", "x.env.local", ".env.example", "stack/.env.enc" })
             File.WriteAllText(Path.Combine(repo.Path, name), "TOKEN=placeholder\n");
-        repo = Runs.Commit(repo, "sub/.env", "x.env.local", ".env.example");
+        repo = Runs.Commit(repo, "sub/.env", "x.env.local", ".env.example", "stack/.env.enc");
         var runtime = new ScriptedRuntime(Runs.WorkerReply);
 
         var r = await Runs.Orchestrator(runtime, root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
@@ -30,6 +31,7 @@ public class CheckoutTests
         Assert.Contains("sub/.env", r.Summary, StringComparison.Ordinal);
         Assert.Contains("x.env.local", r.Summary, StringComparison.Ordinal);
         Assert.DoesNotContain(".env.example", r.Summary, StringComparison.Ordinal);
+        Assert.DoesNotContain(".env.enc", r.Summary, StringComparison.Ordinal);   // SOPS ciphertext, as GitOps repos track it
         Assert.Empty(runtime.Created);
     }
 
