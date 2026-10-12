@@ -54,7 +54,7 @@ public sealed class BatchStateStore(string directory)
         {
             try
             {
-                if (JsonSerializer.Deserialize<BatchState>(File.ReadAllText(file), ContractJson.Options) is { } state)
+                if (JsonSerializer.Deserialize<BatchState>(File.ReadAllText(file), ContractJson.Options) is { RunId: { Length: > 0 }, Tasks: not null, Request: not null } state)
                     states.Add(state);
             }
             catch (Exception e) when (e is JsonException or IOException)

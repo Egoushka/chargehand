@@ -29,8 +29,15 @@ public sealed class RunTokenService(byte[] key)
     /// <summary>A service whose key is kept in <paramref name="file"/> (created readable by its owner only), so tokens issued before a restart still validate after it.</summary>
     public static RunTokenService LoadOrCreate(string file)
     {
-        if (File.Exists(file) && Convert.FromHexString(File.ReadAllText(file).Trim()) is { Length: 32 } stored)
-            return new RunTokenService(stored);
+        try
+        {
+            if (File.Exists(file) && Convert.FromHexString(File.ReadAllText(file).Trim()) is { Length: 32 } stored)
+                return new RunTokenService(stored);
+        }
+        catch (Exception e) when (e is FormatException or IOException or UnauthorizedAccessException)
+        {
+            // A damaged or unreadable key file must not keep the server from starting: a new key only costs the tokens already issued.
+        }
         var key = RandomNumberGenerator.GetBytes(32);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(file))!);
         var temp = $"{file}.{Guid.NewGuid():N}.tmp";

@@ -99,6 +99,8 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         if (driven is null)
             return [];
         var open = await driven.UnfinishedAsync(ct);
+        // Swept before any batch starts, so a resource a resumed batch makes is never taken for a leftover.
+        var swept = await driven.SweepOrphansAsync(open, ct);
         foreach (var state in open)
         {
             var run = new RunHandle(state.RunId, stopping);
@@ -106,7 +108,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
             run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
             _ = Task.Run(() => Execute(run, state.Request, null, null, state), CancellationToken.None);
         }
-        return await driven.SweepOrphansAsync(open, ct);
+        return swept;
     }
 
     public RunHandle? Find(string runId) => _runs.GetValueOrDefault(runId);

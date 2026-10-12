@@ -1,4 +1,3 @@
-using Chargehand.Contracts;
 using Microsoft.Extensions.Hosting;
 
 namespace Chargehand.Server;
@@ -15,7 +14,7 @@ internal sealed class BatchResumer(RunService runs) : IHostedService
             if (swept.Count > 0)
                 Console.Error.WriteLine($"chargehand serve: removed {swept.Count} leftover containers, networks or volumes");
         }
-        catch (ChargehandException e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             Console.Error.WriteLine($"chargehand serve: could not take up interrupted batches: {e.Message}");
         }

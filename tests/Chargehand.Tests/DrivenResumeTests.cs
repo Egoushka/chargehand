@@ -1,6 +1,7 @@
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Server;
+using Chargehand.Verification;
 
 namespace Chargehand.Tests;
 
@@ -125,7 +126,7 @@ public class DrivenResumeTests
         var removed = await rig.Run.SweepOrphansAsync([kept], default);
 
         Assert.Equal(["chargehand-run-orphan", "chargehand-egress-run-old", "chargehand-prep-run-orphan", "chargehand-net-run-old", "chargehand-out-run-orphan"], removed);
-        Assert.Equal(["rm chargehand-run-orphan", "rm chargehand-egress-run-old", "rm chargehand-prep-run-orphan", "network-rm chargehand-net-run-old", "volume-rm chargehand-out-run-orphan"],
+        Assert.Equal(["list", "rm chargehand-run-orphan", "rm chargehand-egress-run-old", "rm chargehand-prep-run-orphan", "network-rm chargehand-net-run-old", "volume-rm chargehand-out-run-orphan"],
             rig.Engine.Calls);
     }
 
@@ -162,5 +163,68 @@ public class DrivenResumeTests
         store.Save(first with { Tasks = [first.Tasks[0] with { Phase = TaskPhase.Started, RunId = "run-x" }] });
         Assert.Equal("run-x", store.List().Single(s => s.RunId == "run-a").Tasks.Single().RunId);
         Assert.Single(Directory.GetFiles(dir.Path, "*.tmp"));
+    }
+
+    private sealed class CancelsWhenResolving(CancellationTokenSource stop) : IEvidenceResolver
+    {
+        public Task<IReadOnlyList<EvidenceFailure>> ResolveAsync(ResultContract contract, EvidenceScope scope, CancellationToken ct)
+        {
+            stop.Cancel();
+            return Task.FromResult<IReadOnlyList<EvidenceFailure>>([]);
+        }
+    }
+
+    [Fact]
+    public async Task A_task_that_finished_as_the_server_stopped_is_cleaned_up_and_saved_as_done()
+    {
+        using var stop = new CancellationTokenSource();
+        using var rig = new DrivenRunTests.Rig(durable: true, resolver: new CancelsWhenResolving(stop));
+        await rig.Run.RunAsync(Request("one"), BatchId, Token, stop.Token, null, () => false);
+
+        var runId = rig.Engine.Started.Single().RunId;
+        Assert.Contains($"rm cid-{runId}", rig.Engine.Calls);
+        Assert.Contains($"volume-rm chargehand-work-{runId}", rig.Engine.Calls);
+        var saved = Assert.Single(await rig.Restart().UnfinishedAsync(default)).Tasks.Single();
+        Assert.Equal(TaskPhase.HandedOver, saved.Phase);
+    }
+
+    [Fact]
+    public async Task Resuming_sweeps_before_it_starts_a_batch_and_a_failing_engine_keeps_the_server_up()
+    {
+        using var rig = new DrivenRunTests.Rig(durable: true);
+        var state = await StopMidBatch(rig);
+        rig.Engine.Release();
+        using var runs = new RunService(null!, "", CancellationToken.None, rig.Run);
+        var before = rig.Engine.Calls.Count;
+
+        await runs.ResumeAsync(default);
+        for (var i = 0; i < 400 && (await rig.Log.ReadAsync(state.RunId, default)).Run is null; i++)
+            await Task.Delay(25);
+
+        Assert.Equal("list", rig.Engine.Calls[before]);
+        Assert.Equal(ResultStatus.Completed, (await rig.Log.ReadAsync(state.RunId, default)).Run!.Result.Status);
+
+        rig.Engine.OnList = new InvalidOperationException("the runner is down");
+        using var failing = new RunService(null!, "", CancellationToken.None, rig.Run);
+        await new BatchResumer(failing).StartAsync(default);
+    }
+
+    [Fact]
+    public void Damaged_key_and_state_files_are_replaced_or_skipped_not_fatal()
+    {
+        using var dir = new TempDir();
+        foreach (var junk in new[] { "not hex at all", "abc" })
+        {
+            var file = dir.Write("k/run-token.key", junk);
+            var service = RunTokenService.LoadOrCreate(file);
+            var claims = new RunTokenClaims("run-1", "/srv/repo", Commit, null, 1000, DateTimeOffset.UtcNow.AddHours(1));
+            Assert.NotNull(service.Validate(service.Issue(claims, DateTimeOffset.UtcNow), DateTimeOffset.UtcNow));
+        }
+        dir.Write("s/run-empty.json", "{}");
+        dir.Write("s/run-blank.json", """{"run_id":""}""");
+        dir.Write("s/run-torn.json", "{\"run_id\":\"run-t");
+        var store = new BatchStateStore(Path.Combine(dir.Path, "s"));
+        store.Save(new BatchState("run-ok", DateTimeOffset.UtcNow, "t", Request("one"), null, [], []));
+        Assert.Equal("run-ok", Assert.Single(store.List()).RunId);
     }
 }

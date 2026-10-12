@@ -94,7 +94,14 @@ public class DrivenRunTests
         public Task KillAllAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> OwnsAsync(string id, CancellationToken ct) => throw new NotSupportedException();
         public Task<int> CountAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<EngineResources> ListAsync(CancellationToken ct) => Task.FromResult(Resources);
+        public Task<EngineResources> ListAsync(CancellationToken ct)
+        {
+            Record("list");
+            return OnList is null ? Task.FromResult(Resources) : throw OnList;
+        }
+
+        /// <summary>The engine fails when listed.</summary>
+        public Exception? OnList { get; set; }
         public Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct) => Task.FromResult("");
         public Task CreateVolumeAsync(string name, string runId, CancellationToken ct) { Record($"volume {name}"); return Task.CompletedTask; }
         public Task RemoveVolumeAsync(string name, CancellationToken ct) { Record($"volume-rm {name}"); return Task.CompletedTask; }
@@ -191,7 +198,7 @@ public class DrivenRunTests
         private readonly string? _state;
 
         public Rig(bool enabled = true, Func<string, SessionStatus>? script = null, string? mcpForward = null, string? dir = null, JsonlRunLog? log = null, FakeVolumes? volumes = null,
-            string? modelUrl = null, bool apiKey = false, string? otlpUrl = null, TelemetrySettings? telemetry = null, bool durable = false)
+            string? modelUrl = null, bool apiKey = false, string? otlpUrl = null, TelemetrySettings? telemetry = null, bool durable = false, IEvidenceResolver? resolver = null)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
@@ -205,7 +212,7 @@ public class DrivenRunTests
             Volumes = volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed));
             var services = enabled
                 ? new DrivenServices(Engine, Engine, Volumes, _ => throw new NotSupportedException("the handover is faked"), null,
-                    (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", Commit, "https://github.com/o/r.git", "main")), new NoEvidenceProblems(),
+                    (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", Commit, "https://github.com/o/r.git", "main")), resolver ?? new NoEvidenceProblems(),
                     name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1))
                 : null;
             _services = services;

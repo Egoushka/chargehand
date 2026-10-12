@@ -94,6 +94,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         var preset = settings.Preset;
         var outDirectory = Path.Combine(settings.ScratchRoot, "out", runId);
         string? container = null;
+        var ended = false;
         // A child of the batch's span: the task's result carries the batch's trace id, so it resolves in Langfuse.
         using var span = Telemetry.Source.StartActivity(DrivenTelemetry.TaskSpan);
         span?.SetTag("chargehand.run_id", runId);
@@ -182,6 +183,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, settings.Request.Context.Preset, null, null, result), CancellationToken.None);
             var outcome = Outcome(task, runId, result, session, handed, settings.Priced);
             journal?.Finish(outcome);
+            ended = true;
             Tag(span, outcome, session, started);
             return outcome;
         }
@@ -194,8 +196,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         }
         finally
         {
-            // A server that is stopping leaves the session as it is: the next process takes the task up (ADR 0043).
-            if (!Detaching)
+            // A server that is stopping leaves an unfinished task as it is: the next process takes it up (ADR 0043).
+            if (ended || !Detaching)
             {
                 // A start cancelled in flight can leave the container docker already made; the name is fixed, so remove it by name.
                 await engine.RemoveAsync(container ?? $"chargehand-{runId}", CancellationToken.None);

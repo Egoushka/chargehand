@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -61,6 +62,10 @@ public sealed class GitHubPullRequests(HttpClient http, string token) : IPullReq
         using (response)
         {
             var text = await response.Content.ReadAsStringAsync(ct);
+            // A handover repeated after a restart finds the pull request it opened before: return that one.
+            if (response.StatusCode == HttpStatusCode.UnprocessableEntity && text.Contains("already exists", StringComparison.OrdinalIgnoreCase)
+                && await FindOpenAsync(repo, head, ct) is { } existing)
+                return existing;
             if (!response.IsSuccessStatusCode)
                 throw new PullRequestException(Redact($"GitHub answered {(int)response.StatusCode}: {Message(text)}"));
             try
@@ -72,6 +77,29 @@ public sealed class GitHubPullRequests(HttpClient http, string token) : IPullReq
             {
                 throw new PullRequestException("GitHub answered with a body that is not a pull request");
             }
+        }
+    }
+
+    private async Task<PullRequestRef?> FindOpenAsync(RemoteRepository repo, string head, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+            $"repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Name)}/pulls?head={Uri.EscapeDataString($"{repo.Owner}:{head}")}&state=open");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("chargehand", "1"));
+        request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
+        try
+        {
+            using var response = await http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+                return null;
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            var first = doc.RootElement.EnumerateArray().FirstOrDefault();
+            return first.ValueKind == JsonValueKind.Object ? new PullRequestRef(first.GetProperty("html_url").GetString()!, first.GetProperty("number").GetInt32()) : null;
+        }
+        catch (Exception e) when (e is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return null;
         }
     }
 
