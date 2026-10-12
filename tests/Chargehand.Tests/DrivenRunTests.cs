@@ -358,6 +358,7 @@ public class DrivenRunTests
         var finished = task.Single(e => e.Event == RunEventKind.TaskFinished);
         Assert.Equal("https://example.test/o/r/pull/1", finished.PrUrl);
         Assert.StartsWith("chargehand/", finished.Branch);
+        Assert.Equal(finished.Branch, task.Single(e => e.Event == RunEventKind.ContainerStarted).Branch);   // a watcher maps the task to its session run from the start
         Assert.Contains("completed", finished.Detail);
         Assert.Equal(RunEventKind.RunFinished, events[^1].Event);
     }
