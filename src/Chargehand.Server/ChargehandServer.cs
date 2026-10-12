@@ -24,8 +24,10 @@ namespace Chargehand.Server;
 /// <param name="PresetsDirectory">Where presets live, to refuse an unknown preset before a run starts.</param>
 /// <param name="Listen">Address to bind; loopback unless the server runs on a private network (ADR 0024).</param>
 /// <param name="AllowedHosts">Host names accepted besides localhost and 127.0.0.1; required when Listen is not loopback.</param>
+/// <param name="MaxConcurrentRuns">Runs the server executes at once (a driven batch counts as one); the rest wait.</param>
+/// <param name="MaxSessionCalls">Research and review runs driven sessions may have executing at once, across all sessions.</param>
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
-    IReadOnlyList<string>? AllowedHosts = null);
+    IReadOnlyList<string>? AllowedHosts = null, int MaxConcurrentRuns = 1, int MaxSessionCalls = 2);
 
 /// <summary>
 /// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
@@ -64,7 +66,7 @@ public static partial class ChargehandServer
         builder.Services.AddHostFiltering(o => o.AllowedHosts = ["localhost", "127.0.0.1", .. hosts]);
         // OrchestrateTool reads the MCP call's Prefer header.
         builder.Services.AddHttpContextAccessor();
-        AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory, driven)
+        AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory, driven, settings.MaxConcurrentRuns, settings.MaxSessionCalls)
             // Hybrid: 2026-07-28 clients run stateless (tasks, input_required results); initialize clients get a session.
             .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients);
 
@@ -211,10 +213,11 @@ public static partial class ChargehandServer
     }
 
     /// <summary>What both hosts share: the run service, the tool, the tasks store and the instructions.</summary>
-    private static IMcpServerBuilder AddOrchestrate(IServiceCollection services, Orchestrator orchestrator, string presetsDirectory, Chargehand.Driven.DrivenRun? driven = null)
+    private static IMcpServerBuilder AddOrchestrate(IServiceCollection services, Orchestrator orchestrator, string presetsDirectory, Chargehand.Driven.DrivenRun? driven = null,
+        int maxConcurrentRuns = 1, int maxSessionCalls = 2)
     {
         services.AddSingleton(sp => new RunService(orchestrator, presetsDirectory,
-            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping, driven));
+            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping, driven, maxConcurrentRuns, maxSessionCalls));
         return services.AddMcpServer(o =>
             {
                 o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" };

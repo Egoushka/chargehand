@@ -42,7 +42,7 @@ A `models` map in the profile picks the models the presets' placeholders stand f
 
 - `inputSchema` is `request/v1` and `outputSchema` is `result/v1`. The result arrives in `structuredContent` and as JSON text.
 - An invalid request, an unknown preset or a caller block whose sha256 does not match comes back as a tool error whose text starts `invalid request/v1:`.
-- Runs execute one at a time. With 10 unfinished runs a new call fails with `10 runs are unfinished; retry later`.
+- Runs execute one at a time unless the profile raises `http.max_concurrent_runs`. With 10 unfinished runs a new call fails with `10 runs are unfinished; retry later`.
 - A run outlives its call. A cancelled call stops waiting and the run goes on; read it later with `chargehand show <run-id>` or, on a server, `GET /v1/runs/{id}`.
 
 ## Long runs as tasks
