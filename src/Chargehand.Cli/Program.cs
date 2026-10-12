@@ -57,6 +57,10 @@ const string Usage = """
       extensions check [--preset <name>] [--probe <query>]
                                    connects each mcp_servers entry, checks the memory mappings and the presets' services
                                    against the tools it lists; one line per item, exit 1 on a problem; --probe also runs one recall
+      init [<repo path>] [--profile <out path>] [--force]
+                                   reads a repository's marker files, prints its ecosystems, the proposed context.verify and the
+                                   package hosts the driven egress allowlist lacks, and writes a starter profile (never over a file without --force)
+      doctor [--profile <path>]    checks a setup, one ok/warn/fail line per check with the fix; exit 1 when a check fails
     prompts/ and presets/ come from the current directory when it has both (a checkout), else from the install; the
     run log is the profile's run_log, else runs/run-log.jsonl in a checkout, else a per-user file (README).
     """;
@@ -134,6 +138,15 @@ if (argv is ["verify-branch", .. var verifyBranchArgs])
     using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Driven.VerifyBranchCli.RunAsync(verifyBranchArgs, Console.Out, Console.Error, stop.Token);
+}
+// Profile-free: init writes the profile, and doctor reports one that does not load.
+if (argv is ["init", .. var initArgs])
+    return Chargehand.Onboarding.InitCli.Run(initArgs, Directory.GetCurrentDirectory(), profilePath, DrivenPresetAllow(), Console.Out, Console.Error);
+if (argv is ["doctor", .. var doctorArgs])
+{
+    using var stop = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Onboarding.DoctorCli.RunAsync(doctorArgs, profilePath, new Chargehand.Onboarding.SystemDoctorEnvironment(), DrivenPresetAllow(), Console.Out, Console.Error, stop.Token);
 }
 if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions" or "runs"))
 {
@@ -214,6 +227,20 @@ switch (argv)
     default:
         Console.Error.WriteLine(Usage);
         return 2;
+}
+
+/// <summary>The hosts presets/driven.yaml lets a session reach; none when the preset cannot be read (init and doctor then treat every package host as missing).</summary>
+IReadOnlyList<string> DrivenPresetAllow()
+{
+    var (installRoot, _) = InstallPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory, "");
+    try
+    {
+        return Preset.Load(Path.Combine(installRoot, "presets"), "driven").Driven?.Allow ?? [];
+    }
+    catch (Exception e) when (e is not OperationCanceledException)
+    {
+        return [];
+    }
 }
 
 async Task<int> Run()
