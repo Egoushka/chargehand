@@ -5,7 +5,7 @@ order: 10
 section: "Guides"
 ---
 
-Driven sessions ([ADR 0039](../adr/0039-driven-writing-sessions.md)) run a list of tasks as headless Claude Code sessions, one container each, following the [`change` skill](change.md), and end each in a pushed branch `chargehand/<run>` and a **draft** pull request. chargehand never merges and never enables auto-merge. **Status: a request with a `driven` block runs the batch, and `scripts/driven-e2e.sh` has run it with a real model on synthetic repositories and on a real TypeScript-on-Node repository; it is deployed on one VPS and has run there once, to a draft pull request; on the subscription the real model credential stays in the batch's egress container and a session holds a per-task token** (see "The model credential"). Keep `driven.enabled` false in a shared profile.
+Driven sessions ([ADR 0039](../adr/0039-driven-writing-sessions.md)) run a list of tasks as headless Claude Code sessions, one container each, following the [`change` skill](change.md), and end each in a pushed branch `chargehand/<run>` and a **draft** pull request. By default chargehand never merges and never enables auto-merge; on the repositories the profile opts in ([ADR 0046](../adr/0046-integrator-and-ci-fixer.md), "Merging by policy" below) it marks the pull request ready and merges it only through the repository's own required checks. **Status: a request with a `driven` block runs the batch, and `scripts/driven-e2e.sh` has run it with a real model on synthetic repositories and on a real TypeScript-on-Node repository; it is deployed on one VPS and has run there once, to a draft pull request; on the subscription the real model credential stays in the batch's egress container and a session holds a per-task token** (see "The model credential"). Keep `driven.enabled` false in a shared profile.
 
 ## How a task is isolated
 
@@ -36,6 +36,32 @@ chargehand checks the branch itself and pushes only if every check passes:
 
 A green draft pull request is evidence that a command passed in a container, not that the change is right. The session can still edit the tests or the build script so the command passes; the `verification` artifact lists those paths.
 
+## Merging by policy
+
+[ADR 0046](../adr/0046-integrator-and-ci-fixer.md). Off unless the profile has a `driven.integrator` block; with none, a task ends in a draft pull request and chargehand never touches it again. With one, chargehand acts on a finished task's pull request **as a GitHub App**, not with the push credential (which bypasses rulesets and so cannot enforce a policy). The App's JWT (RS256, signed with the key from the secret store) is exchanged for an installation token that is kept until shortly before it expires.
+
+| `driven.integrator.repositories["owner/repo"]` | what happens to the task's pull request |
+|---|---|
+| not listed | nothing: the draft is left alone |
+| `ask` | marked ready for review, one comment that the policy is ask, no merge |
+| `merge` | if behind its base, the branch is updated (`update-branch`); marked ready; then auto-merge with squash, pinned to the head commit, so GitHub merges once every required check and rule passes; if GitHub already calls it mergeable, a squash merge pinned the same way; on a conflict, one comment and no merge |
+
+`always_ask` is a list of repositories that are `ask` whatever else says, even one that `repositories` calls `merge` or does not list: put a repository whose merge deploys something there. A `[partial]` pull request is never touched. chargehand never bypasses a rule: it has no admin bypass and the App should not be on any ruleset's bypass list, so a ruleset that requires a review still waits for a person. A repository with no required checks merges as soon as GitHub calls it clean; list it as `merge` only after its rulesets require the checks that should gate it. The pull request's body says which of these applies.
+
+**CI fixer.** On a listed repository, chargehand then watches the pull request's required checks (every 30 s, for `ci_fix.wait_minutes`, default 20, and the task keeps its slot meanwhile). When one fails and none is still running, it starts a short session on the same branch, seeded from the last bundle, whose goal names the failing jobs and carries the end of each job's log (fetched with the App token; given as data). The session's fix goes through the same handover as any branch (secret scan, no CI configuration, chargehand's own tests, an ordinary push of the same branch), and the pull request updates. At most 3 attempts per pull request, never twice for the same failing jobs, `ci_fix.max_turns` (20) and `ci_fix.max_minutes` (15) each, and its spend counts toward the task's caps. The count lives on the pull request, in a hidden marker in the comment chargehand posts before each attempt, so a restart or a second batch cannot exceed it. When attempts run out, or the same jobs fail again, chargehand comments once and leaves the pull request to a person. `ci_fix.max_attempts: 0` turns the fixer off.
+
+The App needs contents and pull requests write, checks, actions and commit statuses read, and nothing else: no administration, no workflows, no webhook, and installation on only the repositories chargehand may merge into. Profile:
+
+```json
+{ "driven": { "integrator": {
+  "app_id": 123456, "installation_id": 7654321, "private_key_secret": "chargehand-app-key",
+  "repositories": { "owner/library": "merge", "owner/service": "ask" },
+  "always_ask": ["owner/infrastructure"],
+  "ci_fix": { "max_attempts": 3, "max_turns": 20, "max_minutes": 15, "wait_minutes": 20 } } } }
+```
+
+Not run against GitHub yet: the calls are checked against a fake host and recorded request shapes. The open points (rulesets and `isRequired`, `update-branch` on a draft, the job-log id) are listed in the ADR, and each fails without merging.
+
 ## Watching a batch
 
 While a batch runs, its own run (`GET /v1/runs/{batch}`, a `202` with `run-status/v1`, and `GET /v1/runs/{batch}/events`) carries each task's steps, every event with `task_id` and a `detail` line such as `task t1: 48200 tokens, 12 turns, stage write`:
@@ -49,6 +75,7 @@ While a batch runs, its own run (`GET /v1/runs/{batch}`, a `202` with `run-statu
 | `pr_opened` | the draft pull request is open | `pr_url` |
 | `task_finished` | the task ended, after the batch's caps had their say | `branch` and `pr_url` when there are some, `tokens` in all; `detail` names the state |
 | `governor` | one per decision the session's governor logged (below), published when the session ends | `detail`: mode, action, signal, rule, turn, and spend against the budget when priced |
+| `integrated` | a step of the integrator on an opted-in repository (below): marked ready, branch updated, auto-merge enabled, merged, a CI fix attempt started or pushed, or why it stopped | `detail`; `pr_url` and `branch` |
 
 A task's own run id is known only when it ends, so `GET /v1/runs/{task}` is `404` until then; follow the batch. `turns` and `stage` come from the session image's driver: an image built before they existed reports `tokens` only, and one built before `cache_read`, `cache_write` and `usd_estimate` omits those.
 
@@ -194,6 +221,6 @@ An `http` URL is reached through a second forward on the batch's egress containe
 
 ## Configure it
 
-The profile's `driven` block (`schemas` and `profiles/profile.schema.json` document each key): `enabled` (default false), `max_parallel`, `max_parallel_total`, `max_session_calls` (research and review runs executing at once across all sessions, default 2: with more sessions than slots, sessions wait on each other), `images` (by digest), `network.allow`, `limits` (see "Limits and the kill switch"), `runner` (URL and the secret item for its key), `push_secret`, and `task_source` (how a tracker item id becomes a goal through a mapped MCP tool). `network.outside` and `network.mcp_forward` (`host:port` of the chargehand server as the egress container reaches it) let a session call chargehand for research and review. `network.otlp_url` turns on Claude Code's own telemetry (above). `images[0]` is the session image and the egress image. Keep `enabled` false in any shared profile. A request adds `driven: { tasks: [{id, ref | goal, max_turns?, max_minutes?}], max_parallel, max_tokens_total | max_usd_total }` and `context.repository`.
+The profile's `driven` block (`schemas` and `profiles/profile.schema.json` document each key): `enabled` (default false), `max_parallel`, `max_parallel_total`, `max_session_calls` (research and review runs executing at once across all sessions, default 2: with more sessions than slots, sessions wait on each other), `images` (by digest), `network.allow`, `limits` (see "Limits and the kill switch"), `runner` (URL and the secret item for its key), `push_secret`, `integrator` (merge by policy and fix failing CI as a GitHub App, "Merging by policy" above), and `task_source` (how a tracker item id becomes a goal through a mapped MCP tool). `network.outside` and `network.mcp_forward` (`host:port` of the chargehand server as the egress container reaches it) let a session call chargehand for research and review. `network.otlp_url` turns on Claude Code's own telemetry (above). `images[0]` is the session image and the egress image. Keep `enabled` false in any shared profile. A request adds `driven: { tasks: [{id, ref | goal, max_turns?, max_minutes?}], max_parallel, max_tokens_total | max_usd_total }` and `context.repository`.
 
 `chargehand init <repo>` writes a starter `driven` block with the package hosts that repository needs in `network.allow`, and `chargehand doctor` checks the images, the runner, the secrets and that `network.allow` covers the repositories under `repository_roots` ([reference](reference.md#commands)).

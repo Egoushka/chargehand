@@ -188,6 +188,35 @@
             "wait_patterns": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Regular expressions for commands that wait on purpose (sleep, --watch, gh run watch by default): they count toward no repeat or failure rule." }
           }
         },
+        "integrator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["app_id", "installation_id", "private_key_secret"],
+          "description": "ADR 0046: for the repositories listed, chargehand marks a finished task's pull request ready and merges it through the repository's required checks, and has a short session fix a failing required check, acting as a GitHub App. Unset: draft pull requests only, never touched again.",
+          "properties": {
+            "app_id": { "type": "integer", "minimum": 1, "description": "The GitHub App's numeric id." },
+            "installation_id": { "type": "integer", "minimum": 1, "description": "The App's installation on the owner of the repositories." },
+            "private_key_secret": { "type": "string", "minLength": 1, "description": "Secret item holding the App's private key (PEM). Never logged, never inside a container." },
+            "repositories": {
+              "type": "object",
+              "propertyNames": { "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+              "additionalProperties": { "enum": ["merge", "ask"] },
+              "description": "Per owner/repo: merge (marked ready, then auto-merge with squash, so GitHub merges once the required checks pass) or ask (marked ready and commented on; a person merges). A repository not listed is off."
+            },
+            "always_ask": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" }, "description": "Repositories that are ask whatever else says: this list wins over merge and over a repository not listed." },
+            "ci_fix": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "The session that fixes a failing required check on the pull request's branch. A key left out keeps its default.",
+              "properties": {
+                "max_attempts": { "type": "integer", "minimum": 0, "maximum": 3, "description": "Fix sessions per pull request, and never two for the same failing jobs. Default 3; 0: no fixer." },
+                "max_turns": { "type": "integer", "minimum": 1, "description": "Turn limit of one fix session. Default 20." },
+                "max_minutes": { "type": "integer", "minimum": 1, "maximum": 120, "description": "Wall clock of one fix session. Default 15." },
+                "wait_minutes": { "type": "integer", "minimum": 1, "maximum": 240, "description": "How long chargehand watches the required checks of one head commit before it stops; the task holds its slot meanwhile. Default 20." }
+              }
+            }
+          }
+        },
         "network": { "type": "object", "additionalProperties": false, "properties": { "allow": { "type": "array", "items": { "type": "string", "minLength": 1 } }, "outside": { "type": "string", "minLength": 1, "description": "A network besides the default one that the batch's egress container joins: the one the chargehand server sits on." }, "mcp_forward": { "type": "string", "pattern": "^[^\\s:]+:[0-9]{1,5}$", "description": "host:port of the chargehand server as the egress container reaches it. Set, a session can call chargehand for research and review; unset, it cannot." }, "model_url": { "type": "string", "pattern": "^https?://[^\\s?#@]+$", "description": "An Anthropic-compatible gateway as the egress container reaches it: http://host:port/path through a forward, or https://host/path through the proxy. Set, a session gets claude_code.api_key_secret (the key the gateway issued, with a budget) and ANTHROPIC_BASE_URL instead of the real credential; unset, the real credential is in the container's environment." }, "otlp_url": { "type": "string", "pattern": "^http://[^\\s?#@]+$", "description": "An OTLP/HTTP collector as the egress container reaches it, http://host:port through a forward on a port no other forward uses. Set, each session's Claude Code exports its own logs and metrics there, tagged chargehand.run_id, chargehand.task_id, chargehand.task_run_id and chargehand.trace_id; unset, it exports nothing." } }, "description": "Hosts added to the preset's allowlist, and how a session reaches the chargehand server." },
         "runner": { "type": "object", "additionalProperties": false, "required": ["url", "api_key_secret"], "properties": { "url": { "type": "string", "minLength": 1 }, "api_key_secret": { "type": "string", "minLength": 1 } }, "description": "The runner service in front of the container engine. Absent: the server calls the engine itself (a laptop)." },
         "push_secret": { "type": "string", "minLength": 1, "description": "Secret item for the credential that pushes non-default branches and opens draft pull requests." },

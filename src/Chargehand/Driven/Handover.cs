@@ -24,9 +24,10 @@ public sealed record PushCredential(string Value, PushCredentialKind Kind = Push
 /// <param name="AllowLocalRemote">Accept a <c>file://</c> remote (tests); a real deployment pushes to https or ssh only.</param>
 /// <param name="Report">Told each step as it ends: <c>verify_finished</c>, <c>pushed</c>, <c>pr_opened</c>.</param>
 /// <param name="Partial">The session did not finish (ADR 0044): the tests are run and recorded, but a failing run, a timeout or a repository with no test command does not stop the push. A secret in the diff, a CI change and every other check still do.</param>
+/// <param name="PolicyNote">What the pull request body says chargehand does next (ADR 0046), for a repository that opted in to integration; null: the draft is not merged and chargehand will not merge it.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
-    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false);
+    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null);
 
 /// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
 public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
@@ -178,7 +179,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             return new(HandoverStatus.PrFailed, "the remote's owner and repository could not be read from its URL", ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes);
         try
         {
-            var pr = await pullRequests.CreateDraftAsync(repository, input.Branch, input.BaseBranch, input.Title, DescribeBody(input.Body, changed, verification, verificationPaths), ct);
+            var pr = await pullRequests.CreateDraftAsync(repository, input.Branch, input.BaseBranch, input.Title, DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote), ct);
             input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, "draft pull request opened", pr.Url));
             return new(HandoverStatus.Pushed, "", null, input.Branch, commit, pr, verification, changed, verificationPaths, [], changes);
         }
@@ -235,10 +236,10 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         && (url.StartsWith("https://", StringComparison.Ordinal) || url.StartsWith("ssh://", StringComparison.Ordinal) || ScpForm().IsMatch(url)
             || (allowLocal && url.StartsWith("file://", StringComparison.Ordinal)));
 
-    private static string DescribeBody(string body, List<string> changed, VerificationRecord? verification, IReadOnlyList<string> verificationPaths)
+    private static string DescribeBody(string body, List<string> changed, VerificationRecord? verification, IReadOnlyList<string> verificationPaths, string? policyNote)
     {
         var text = new StringBuilder(body.TrimEnd()).Append("\n\n---\n\n");
-        text.Append("Opened by chargehand as a draft; it is not merged and chargehand will not merge it.\n\n");
+        text.Append(policyNote ?? "Opened by chargehand as a draft; it is not merged and chargehand will not merge it.").Append("\n\n");
         text.Append(verification is null
             ? "Verification: no test command was found, so nothing was run.\n"
             : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Verification (chargehand's own run in a fresh container): `{string.Join(' ', verification.Argv)}` exited {verification.ExitCode} in {verification.Duration.TotalSeconds:0}s.\n"));

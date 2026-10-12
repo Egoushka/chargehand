@@ -63,10 +63,11 @@ public delegate string TaskTokenMinter(TaskGrant grant);
 /// <param name="Prices">The profile's price table, for the session span's cost.</param>
 /// <param name="UsageOnSpans">The profile's <c>telemetry.usage_on_spans</c> (ADR 0021).</param>
 /// <param name="Governor">The profile's <c>driven.governor</c> (ADR 0045); null: no governor in the sessions.</param>
+/// <param name="Integration">The profile's <c>driven.integrator</c> (ADR 0046): marks a finished task's pull request ready, merges it by policy and fixes failing CI; null: the draft is left alone.</param>
 public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, string Image, string SourcePath, string BaseCommit, string RemoteUrl, string BaseBranch,
     BatchNetworkInfo Network, string? McpUrl, DrivenPreset Preset, TaskLimits Limits, bool Priced, IReadOnlyDictionary<string, string> ModelEnvironment, PushCredential Push,
     string ScratchRoot, string Model, string ClaudeVersion, bool AllowLocalRemote = false, string? ModelBaseUrl = null, bool CallbackForwards = false, DrivenOtlpRoute? Otlp = null,
-    IReadOnlyDictionary<string, ModelPrice>? Prices = null, bool UsageOnSpans = false, string? GatewayKey = null, DrivenGovernor? Governor = null);
+    IReadOnlyDictionary<string, ModelPrice>? Prices = null, bool UsageOnSpans = false, string? GatewayKey = null, DrivenGovernor? Governor = null, Integrator? Integration = null);
 
 /// <summary>Runs one task of a batch to its end (ADR 0039): a workspace at the pinned commit, a session container on the batch network, then the handover (chargehand's own
 /// verification, the scan, the push, a draft pull request) and the task's own <c>result/v1</c> in the run log. A cancel signals the session and ends the task; it never reaches
@@ -264,11 +265,22 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 result = sign(result);
             await log.AppendAsync(new StartRecord(runId, started, traceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId, ProcessBoot.Id), CancellationToken.None);
             await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, settings.Request.Context.Preset, null, null, result), CancellationToken.None);
-            var outcome = Outcome(task, runId, result, total, handed, settings.Priced, partial, startFailure is null ? null : $"; continuation {continuation + 1} did not start");
+            var startNote = startFailure is null ? null : $"; continuation {continuation + 1} did not start";
+            (string? Detail, SessionOutcome? Spent) follow = (null, null);
+            if (FollowsUp(handed))
+            {
+                // A restart during the follow-up keeps this outcome rather than handing the task over again; the pull request itself holds the count of fix attempts (ADR 0046).
+                journal?.Finish(Outcome(task, runId, result, total, handed, settings.Priced, partial, startNote));
+                follow = await FollowUpAsync(task, handed!, Path.Combine(handoverRun.Item2, "chargehand.bundle"), best?.Commits ?? 0, branch, partial, total, containers, span, traceId, progress, ct);
+            }
+            var spent = follow.Spent ?? total;
+            var outcome = Outcome(task, runId, result, spent, handed, settings.Priced, partial, startNote);
+            if (follow.Detail is { } integration)
+                outcome = outcome with { Detail = outcome.Detail is { } before ? $"{before}; {integration}" : integration };
             journal?.Finish(outcome);
             ended = true;
             span?.SetTag("chargehand.task.continuations", continuation);
-            Tag(span, outcome, total, started);
+            Tag(span, outcome, spent, started);
             return outcome;
         }
         catch (Exception e)
@@ -295,6 +307,75 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                         await engine.RemoveVolumeAsync(RunnerNames.Out(run), CancellationToken.None);
                 }
             }
+        }
+    }
+
+    /// <summary>The task's pull request is on a repository the profile opted in to integration (ADR 0046).</summary>
+    private bool FollowsUp(HandoverOutcome? handed) =>
+        settings.Integration is { } integrator && handed?.PullRequest is not null && RemoteRepository.Parse(settings.RemoteUrl) is { } repository && integrator.Mode(repository) != IntegrationMode.Off;
+
+    /// <summary>After the handover, on an opted-in repository: mark the draft ready and merge it by policy, then watch its required checks and, when some fail, run short fix sessions on the same branch
+    /// seeded from the last bundle (<see cref="CiFixSession"/>). The pull request exists whatever happens here, so a GitHub error or a cancel ends in a line of detail, never in a failed task.</summary>
+    /// <returns>The line for the task outcome, and the usage of the fix sessions added to the task's (null: none ran).</returns>
+    private async Task<(string? Detail, SessionOutcome? Spent)> FollowUpAsync(ResolvedTask task, HandoverOutcome handed, string seedBundle, int seededCommits, string branch, bool partial, SessionOutcome total,
+        Dictionary<string, string?> containers, Activity? span, string traceId, IProgress<TaskUsage> progress, CancellationToken ct)
+    {
+        var integrator = settings.Integration!;
+        var pr = handed.PullRequest!;
+        var target = new IntegrationTarget(RemoteRepository.Parse(settings.RemoteUrl)!, pr.Number, branch, partial, task.Goal);
+        void Report(string detail) => Publish(task.Id, RunEventKind.Integrated, detail, s => s with { PrUrl = pr.Url, Branch = branch });
+        SessionOutcome? fixSum = null;
+        var fixes = 0;
+        var seed = seedBundle;
+
+        async Task<CiFixResult> Fix(CiFixRequest request, CancellationToken token)
+        {
+            var running = fixSum is null ? total : Total(fixSum, total);
+            var (tokensLeft, usdLeft) = Remaining(running);
+            if (tokensLeft <= 0 || usdLeft is <= 0)
+                return new CiFixResult(false, "the task's token or cost cap is spent");
+            if (!File.Exists(seed))
+                return new CiFixResult(false, "the branch's bundle is gone, so a session cannot start from it");
+            var fixRun = Orchestrator.NewRunId();
+            containers[fixRun] = null;
+            var outDirectory = Path.Combine(settings.ScratchRoot, "out", fixRun);
+            Directory.CreateDirectory(outDirectory);
+            var sessionStarted = DateTimeOffset.UtcNow;
+            var container = await StartSessionAsync(task, fixRun, branch, request.Goal, integrator.CiFix.Turns, integrator.CiFix.Minutes, (tokensLeft, usdLeft), running.UsdEstimate ?? 0, seed, sessionStarted,
+                $"session container started (CI fix attempt {request.Attempt} of {request.MaxAttempts})", span, traceId, token);
+            containers[fixRun] = container;
+            await WaitAsync(container, fixRun, task.Id, integrator.CiFix.Minutes, progress, sessionStarted, running, token);
+            await volumes.FetchOutputAsync(fixRun, outDirectory, token);
+            var session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, "no_outcome", 0, 0, 0, 0, null, null, [], false);
+            fixSum = fixSum is null ? session : Total(fixSum, session);
+            progress.Report(Capped(fixSum.InputTokens + fixSum.OutputTokens + total.InputTokens + total.OutputTokens, settings.Priced ? (fixSum.CostUsd ?? 0) + (total.CostUsd ?? 0) : 0, ended: true));
+            if (session is not { Status: SessionStatus.Completed, BundleWritten: true } || session.Commits <= seededCommits)
+                return new CiFixResult(false, session.Status == SessionStatus.Completed ? "the session made no new commit" : $"the session ended {StopReason(session)}");
+            var fixHandover = await handover.RunAsync(new HandoverInput(fixRun, outDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, settings.BaseBranch, Title(task.Goal),
+                $"CI fix attempt {request.Attempt}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
+                Report: e => { if (e.Kind != RunEventKind.PrOpened) Publish(task.Id, e.Kind, e.Detail, s => s with { Branch = e.Kind == RunEventKind.Pushed ? branch : null }); }), token);
+            if (fixHandover.Status == HandoverStatus.NotPushed)
+                return new CiFixResult(false, $"not pushed: {fixHandover.Reason}");
+            (seed, seededCommits) = (Path.Combine(outDirectory, "chargehand.bundle"), session.Commits);
+            fixes++;
+            return new CiFixResult(true, "chargehand's own tests passed and the commits are on the branch");
+        }
+
+        try
+        {
+            var first = await integrator.IntegrateAsync(target, Report, ct);
+            var detail = $"integration: {first.Detail}";
+            if (first.Action is IntegrationAction.Asked or IntegrationAction.AutoMergeEnabled)
+            {
+                var last = await integrator.FollowAsync(target, Fix, Report, ct);
+                detail += $"; {last.Detail}{(fixes > 0 ? string.Create(CultureInfo.InvariantCulture, $" ({fixes} CI fix attempt(s) pushed)") : "")}";
+            }
+            return (detail, fixSum is null ? null : Total(fixSum, total));
+        }
+        catch (Exception e) when (IsStartFailure(e, ct) || e is OperationCanceledException && ct.IsCancellationRequested)
+        {
+            Report($"integration ended early: {(e is OperationCanceledException ? "cancelled" : e.Message)}");
+            return ($"integration ended early: {(e is OperationCanceledException ? "cancelled" : e.Message)}", fixSum is null ? null : Total(fixSum, total));
         }
     }
 
@@ -467,7 +548,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     private Task<HandoverOutcome> HandOverAsync(ResolvedTask task, (string RunId, string OutDirectory) run, string branch, string title, string body, bool partial, CancellationToken ct) =>
         handover.RunAsync(new HandoverInput(run.RunId, run.OutDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, settings.BaseBranch,
             title, body, settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
-            Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial), ct);
+            Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
+            PolicyNote: RemoteRepository.Parse(settings.RemoteUrl) is { } repository ? settings.Integration?.Describe(repository, partial) : null), ct);
 
     private static SessionOutcome Total(SessionOutcome? earlier, SessionOutcome last)
     {
