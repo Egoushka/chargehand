@@ -282,6 +282,17 @@ public class DrivenResultTests
         AssertValid(result);
     }
 
+    [Fact]
+    public async Task A_session_that_ended_on_a_usage_limit_is_failed_rate_limited_and_retryable()
+    {
+        using var repo = new Repo();
+        var result = await Build(Input(repo, Session(SessionStatus.RateLimited, "rate_limited"), report: null, handover: null));
+        Assert.Equal(ResultStatus.Failed, result.Status);
+        Assert.Equal(ErrorCode.RateLimited, result.Error!.Code);
+        Assert.True(result.Error.Retryable);
+        AssertValid(result);
+    }
+
     [Theory]
     [InlineData(SessionStatus.Stalled, "no_progress", ErrorCode.SessionStalled)]
     [InlineData(SessionStatus.Stalled, "repeating", ErrorCode.SessionStalled)]

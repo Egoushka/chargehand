@@ -110,7 +110,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 await engine.CreateVolumeAsync(RunnerNames.Out(runId), runId, ct);
                 await workspace.PrepareWorkspaceAsync(new WorkspaceSpec(runId, settings.Image, settings.SourcePath, RunnerNames.Work(runId), branch, settings.BaseCommit), ct);
                 await volumes.WriteTaskAsync(runId, new SessionTask(runId, task.Goal, branch, preset.MaxTurns, preset.MaxMinutes, preset.NoProgressMinutes * 60,
-                    settings.Limits.MaxTokens, MaxUsd: settings.Limits.MaxUsd), ct);
+                    settings.Limits.MaxTokens, MaxUsd: settings.Limits.MaxUsd, Prices: settings.Prices), ct);
 
                 var gateway = settings.GatewayKey is not null && settings.Network.ModelUrl is not null;
                 Dictionary<string, string> env = new(gateway ? new Dictionary<string, string>() : settings.ModelEnvironment, StringComparer.Ordinal)
@@ -263,7 +263,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                     if (usage is not null && usage != shown)
                     {
                         shown = usage;
-                        Publish(taskId, RunEventKind.SessionProgress, Describe(usage), s => s with { Tokens = usage.Tokens, Turns = usage.Turns, Stage = usage.Stage });
+                        Publish(taskId, RunEventKind.SessionProgress, Describe(usage), s => s with { Tokens = usage.Tokens, Turns = usage.Turns, Stage = usage.Stage, UsdEstimate = usage.UsdEstimate, CacheRead = usage.CacheRead, CacheWrite = usage.CacheWrite });
                     }
                     if (usage is not null && usage.Tokens > reported)
                     {
@@ -299,6 +299,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             string.Create(CultureInfo.InvariantCulture, $"{usage.Tokens} tokens"),
             usage.Turns is { } turns ? string.Create(CultureInfo.InvariantCulture, $"{turns} turns") : null,
             usage.Stage is { } stage ? $"stage {stage.ToString().ToLowerInvariant()}" : null,
+            usage.UsdEstimate is { } estimate ? string.Create(CultureInfo.InvariantCulture, $"about ${estimate:0.00} estimated") : null,
         }.Where(p => p is not null));
 
     /// <summary>A poll that fails (the engine busy, a half-written file) is skipped: the final outcome still carries the real numbers.</summary>
@@ -339,7 +340,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         };
         var pushed = handed?.Status is HandoverStatus.Pushed or HandoverStatus.PrFailed;
         return new TaskOutcome(task.Id, state, runId, state == TaskState.Completed ? null : result.Summary, result.Error?.Code,
-            priced ? session.CostUsd ?? 0 : 0, session.InputTokens + session.OutputTokens, pushed ? handed!.Branch : null, handed?.PullRequest?.Url);
+            priced ? session.CostUsd ?? 0 : 0, session.InputTokens + session.OutputTokens, pushed ? handed!.Branch : null, handed?.PullRequest?.Url,
+            session.Status == SessionStatus.RateLimited ? session.RateLimitResetsAt : null);
     }
 
     private static void Tag(Activity? span, TaskOutcome outcome, SessionOutcome session, DateTimeOffset started)

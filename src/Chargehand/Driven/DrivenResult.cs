@@ -51,6 +51,10 @@ public static class DrivenResult
             case SessionStatus.Stalled:
                 return Failed(ErrorCode.SessionStalled, $"the session was stopped: {s.Reason.Replace('_', ' ')}",
                     "Send the task again with a narrower goal, or raise the driven preset's limits (max_minutes, no_progress_minutes, max_turns). The session log is in the session-log artifact.");
+            case SessionStatus.RateLimited:
+                return Result(ResultStatus.Failed, "the session ended on a usage or rate limit", questions: ["the session ended on a usage or rate limit"],
+                    error: new ResultError(ErrorCode.RateLimited, "the session ended on a usage or rate limit", ChargehandException.Retryable(ErrorCode.RateLimited),
+                        "Retry once the limit lifts. The batch holds its remaining tasks until then; a branch the session made before the limit is not pushed."));
             case SessionStatus.TokenCap:
                 return Failed(ErrorCode.CostCapReached, "the session reached its token cap and was stopped",
                     "Raise max_tokens_total in the request (and the preset's max_tokens), or give the task a narrower goal.");

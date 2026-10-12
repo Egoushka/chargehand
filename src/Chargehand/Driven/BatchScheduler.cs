@@ -6,10 +6,15 @@ namespace Chargehand.Driven;
 /// batch could still afford it. "Afford" reserves each running task's whole cap, so two tasks at 2000 tokens each against a 5000 cap leave no
 /// room for a third until they finish and their real spend replaces the reservation. A batch that ends up over its cap by more than one task's
 /// cap while tasks are still running has them cancelled; so has a task that reports more than its own cap (live usage reaches the scheduler while the task
-/// runs, so the caps bind before it ends). A rate-limited or unavailable provider stops new starts and says how to switch to an
+/// runs, so the caps bind before it ends). A task that ended on a usage or rate limit holds new starts until the limit lifts (its reset time, else a fixed backoff; a reset
+/// further off than <see cref="MaxPause"/> stops the batch instead); running tasks go on. An unavailable provider stops new starts and says how to switch to an
 /// API key; nothing switches by itself. A halt (the token) cancels what runs and starts nothing more.</summary>
-public sealed class BatchScheduler(ITaskRunner runner)
+/// <param name="backoff">How long a limit that names no reset holds new starts; <see cref="UsageLimit.DefaultBackoff"/> when null.</param>
+public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null)
 {
+    /// <summary>The longest wait for a limit to lift; past it the batch stops and the caller retries.</summary>
+    public static readonly TimeSpan MaxPause = TimeSpan.FromHours(6);
+
     public const string RateLimitedAction =
         "The subscription is rate limited or unavailable, so the rest of the batch was not started. Retry later, or switch the profile to an API key "
         + "(claude_code.api_key_secret in place of oauth_token_secret) and resend the tasks that did not finish.";
@@ -36,6 +41,7 @@ public sealed class BatchScheduler(ITaskRunner runner)
         ErrorCode? notStartedError = null;
         string? action = null;
         var overspent = false;
+        var pausedUntil = DateTimeOffset.MinValue;
         var next = 0;
 
         bool Fits()
@@ -90,7 +96,7 @@ public sealed class BatchScheduler(ITaskRunner runner)
         while (true)
         {
             // Start what fits, in order.
-            while (next < tasks.Count && notStartedReason is null && !ct.IsCancellationRequested && running.Count < limits.MaxParallel && Fits())
+            while (next < tasks.Count && notStartedReason is null && !ct.IsCancellationRequested && running.Count < limits.MaxParallel && DateTimeOffset.UtcNow >= pausedUntil && Fits())
             {
                 if (limits.Global is not null && !await limits.Global.WaitAsync(0, CancellationToken.None))
                     break;
@@ -154,7 +160,9 @@ public sealed class BatchScheduler(ITaskRunner runner)
                     outcome = outcome with { Error = ErrorCode.CostCapReached, Detail = "stopped: the batch's cap was exceeded" };
                 outcomes[index] = outcome;
                 onFinished?.Invoke(outcome);
-                if (outcome.Error is ErrorCode.RateLimited or ErrorCode.ProviderUnavailable && notStartedReason is null)
+                if (outcome.Error is ErrorCode.RateLimited && notStartedReason is null && LimitLifts(outcome) is { } lifts)
+                    pausedUntil = lifts > pausedUntil ? lifts : pausedUntil;
+                else if (outcome.Error is ErrorCode.RateLimited or ErrorCode.ProviderUnavailable && notStartedReason is null)
                 {
                     notStartedReason = "not started: the provider is rate limited or unavailable";
                     action = RateLimitedAction;
@@ -168,6 +176,14 @@ public sealed class BatchScheduler(ITaskRunner runner)
         for (var i = 0; i < tasks.Count; i++)
             outcomes[i] ??= new TaskOutcome(tasks[i].Id, TaskState.NotStarted, null, why.StartsWith("not started", StringComparison.Ordinal) ? why : $"not started: {why}", notStartedError);
         return new BatchOutcome([.. outcomes.Select(o => o!)], action);
+    }
+
+    /// <summary>When new starts may resume after a rate-limited task; null when that is further off than <see cref="MaxPause"/>.</summary>
+    private DateTimeOffset? LimitLifts(TaskOutcome outcome)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var lifts = outcome.RetryAfter ?? now + (backoff ?? UsageLimit.DefaultBackoff);
+        return lifts - now > MaxPause ? null : lifts;
     }
 
     private async Task<TaskOutcome> Execute(ResolvedTask task, IProgress<TaskUsage> progress, CancellationTokenSource cts)

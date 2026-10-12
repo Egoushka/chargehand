@@ -32,7 +32,8 @@ public sealed class EngineSessionVolumes(IOutVolumeEngine engine, string image) 
         try
         {
             return JsonSerializer.Deserialize<SessionUsage>(buffer.ToArray(), SessionCli.Json) is { Tokens: >= 0 } usage
-                ? new TaskUsage(usage.Tokens, 0, usage.Turns is >= 0 ? usage.Turns : null, Enum.TryParse<SessionStage>(usage.Stage, ignoreCase: true, out var stage) ? stage : null)
+                ? new TaskUsage(usage.Tokens, 0, usage.Turns is >= 0 ? usage.Turns : null, Enum.TryParse<SessionStage>(usage.Stage, ignoreCase: true, out var stage) ? stage : null,
+                    usage.CacheRead, usage.CacheWrite, usage.UsdEstimate)
                 : null;
         }
         catch (JsonException)

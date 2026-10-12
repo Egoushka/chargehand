@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Chargehand.Budget;
 using Chargehand.Driven;
 using Chargehand.Runtime;
 
@@ -215,6 +216,139 @@ public class SessionDriverTests
         Assert.Equal(135, seen.GetProperty("tokens").GetInt64());
         Assert.Equal(2, seen.GetProperty("turns").GetInt32());
         Assert.Equal("write", seen.GetProperty("stage").GetString());
+    }
+
+    private static readonly IReadOnlyDictionary<string, ModelPrice> Prices = new Dictionary<string, ModelPrice> { ["provider/claude-sonnet-5-5"] = new(3m, 15m, 0.3m, 3.75m) };
+
+    private static string Sonnet(string id, string usage) =>
+        JsonSerializer.Serialize(new { type = "assistant", message = new { id, model = "claude-sonnet-5-5", content = new[] { new { type = "text", text = "step" } }, usage = JsonDocument.Parse(usage).RootElement } });
+
+    /// <summary>Runs a session that holds after its messages until the usage file shows <paramref name="until"/>, copies the file, then ends with a result.</summary>
+    private static async Task<JsonElement> UsageSeen(Workspace w, SessionTask task, string until, params string[] messages)
+    {
+        var usage = Path.Combine(w.Out, "session-usage.json");
+        var script = Emit([Init, .. messages]) + $"\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do grep -q '{until}' '{usage}' 2>/dev/null && break; sleep 0.2; done\n"
+            + $"cp '{usage}' '{Path.Combine(w.Dir.Path, "seen.json")}'\n" + Emit(Result());
+        await SessionDriver.RunAsync(Options(w, script, task), default);
+        return JsonDocument.Parse(File.ReadAllText(Path.Combine(w.Dir.Path, "seen.json"))).RootElement.Clone();
+    }
+
+    [Fact]
+    public async Task The_usage_file_counts_cache_per_message_and_prices_it_by_model_before_the_result_arrives()
+    {
+        using var w = new Workspace();
+        var seen = await UsageSeen(w, Task() with { Prices = Prices }, "usd_estimate.: 0.04",
+            Sonnet("m1", """{"input_tokens":1000,"output_tokens":100,"cache_read_input_tokens":60000,"cache_creation_input_tokens":2000}"""),
+            Sonnet("m2", """{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":40000}"""));
+        Assert.Equal(1100, seen.GetProperty("tokens").GetInt64());
+        Assert.Equal(100_000, seen.GetProperty("cache_read").GetInt64());
+        Assert.Equal(2000, seen.GetProperty("cache_write").GetInt64());
+        // 1000 in at 3, 100 out at 15, 100000 cache reads at 0.3, 2000 cache writes at 3.75, per million.
+        Assert.Equal(0.042m, seen.GetProperty("usd_estimate").GetDecimal());
+    }
+
+    [Fact]
+    public async Task Without_prices_or_with_an_unpriced_model_the_estimate_is_null_not_zero()
+    {
+        using var w = new Workspace();
+        var message = Sonnet("m1", """{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":700}""");
+        var unpriced = await UsageSeen(w, Task(), "cache_read.: 700", message);
+        Assert.Equal(700, unpriced.GetProperty("cache_read").GetInt64());
+        Assert.Equal(JsonValueKind.Null, unpriced.GetProperty("usd_estimate").ValueKind);
+        using var other = new Workspace();
+        var unknown = await UsageSeen(other, Task() with { Prices = new Dictionary<string, ModelPrice> { ["p/other"] = new(1m, 1m, 1m, 1m) } }, "cache_read.: 700", message);
+        Assert.Equal(JsonValueKind.Null, unknown.GetProperty("usd_estimate").ValueKind);
+    }
+
+    [Fact]
+    public async Task The_outcome_keeps_the_estimate_and_the_per_message_cache_when_the_session_never_printed_a_result()
+    {
+        using var w = new Workspace();
+        var script = Emit(Init, Sonnet("m1", """{"input_tokens":1000,"output_tokens":100,"cache_read_input_tokens":60000}""")) + "\nexit 1";
+        var outcome = await SessionDriver.RunAsync(Options(w, script, Task() with { Prices = Prices }), default);
+        Assert.Equal((60_000L, 0.0225m), (outcome.CacheReadTokens, outcome.UsdEstimate));
+    }
+
+    [Fact]
+    public async Task A_result_that_says_usage_limit_reached_ends_the_session_rate_limited_with_its_reset_time()
+    {
+        using var w = new Workspace();
+        var result = JsonSerializer.Serialize(new { type = "result", is_error = true, result = "Claude AI usage limit reached|1760281200" });
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init, Assistant("m1", "hi"), result), Task()), default);
+        Assert.Equal((SessionStatus.RateLimited, "rate_limited"), (outcome.Status, outcome.Reason));
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1760281200), outcome.RateLimitResetsAt);
+        var read = JsonSerializer.Deserialize<SessionOutcome>(File.ReadAllText(Path.Combine(w.Out, "session-outcome.json")), Snake)!;
+        Assert.Equal(outcome.RateLimitResetsAt, read.RateLimitResetsAt);
+    }
+
+    [Fact]
+    public async Task A_result_with_a_429_error_is_rate_limited_without_a_reset_time_and_other_errors_still_fail()
+    {
+        using var w = new Workspace();
+        var limited = JsonSerializer.Serialize(new { type = "result", is_error = true, result = """API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your rate limit."}}""" });
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init, Assistant("m1", "hi"), limited), Task()), default);
+        Assert.Equal(SessionStatus.RateLimited, outcome.Status);
+        Assert.Null(outcome.RateLimitResetsAt);
+
+        using var other = new Workspace();
+        var broken = JsonSerializer.Serialize(new { type = "result", is_error = true, result = "API Error: 500 internal error" });
+        var failed = await SessionDriver.RunAsync(Options(other, Emit(Init, Assistant("m1", "hi"), broken), Task()), default);
+        Assert.Equal((SessionStatus.Failed, "session_error"), (failed.Status, failed.Reason));
+    }
+
+    [Theory]
+    [InlineData("Claude AI usage limit reached|1760281200", true, 1760281200L)]
+    [InlineData("5-hour usage limit reached", true, null)]
+    [InlineData("API Error: 429 Too Many Requests", true, null)]
+    [InlineData("""API Error: 429 {"type":"error"}""", true, null)]
+    [InlineData("request failed with status 429", true, null)]
+    [InlineData("HTTP 429", true, null)]
+    [InlineData("Rate limit exceeded", true, null)]
+    [InlineData("API Error: 500 internal error", false, null)]
+    [InlineData("the tests exceed the limit of 5 seconds", false, null)]
+    [InlineData("NullReferenceException at Retry.cs:line 429", false, null)]
+    [InlineData("Build failed: src/Client.cs(429,13): error CS1002", false, null)]
+    public void The_text_of_a_result_names_a_usage_or_rate_limit_and_maybe_when_it_lifts(string text, bool limited, long? resets)
+    {
+        Assert.Equal(limited, UsageLimit.Matches(text));
+        Assert.Equal(resets is { } r ? DateTimeOffset.FromUnixTimeSeconds(r) : null, UsageLimit.ResetsAt(text));
+    }
+
+    [Fact]
+    public void The_shared_rate_limit_check_does_not_learn_the_driven_only_usage_limit_wording()
+    {
+        Assert.False(ChargehandException.RateLimited("usage limit reached"));
+        Assert.True(ChargehandException.RateLimited("Rate limit exceeded"));
+    }
+
+    [Fact]
+    public async Task A_failed_session_whose_error_text_has_429_as_a_line_number_is_failed_not_rate_limited()
+    {
+        using var w = new Workspace();
+        var result = JsonSerializer.Serialize(new { type = "result", is_error = true, result = "Error: NullReferenceException at Retry.cs:line 429" });
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init, Assistant("m1", "hi"), result), Task()), default);
+        Assert.Equal(SessionStatus.Failed, outcome.Status);
+    }
+
+    [Fact]
+    public async Task A_message_whose_model_has_no_price_makes_the_estimate_partial_not_null()
+    {
+        using var w = new Workspace();
+        var other = JsonSerializer.Serialize(new { type = "assistant", message = new { id = "m2", model = "claude-fable-9", content = new[] { new { type = "text", text = "x" } }, usage = new { input_tokens = 500, output_tokens = 5 } } });
+        var seen = await UsageSeen(w, Task() with { Prices = Prices }, "usd_estimate_partial.: true",
+            Sonnet("m1", """{"input_tokens":1000,"output_tokens":100,"cache_read_input_tokens":60000,"cache_creation_input_tokens":2000}"""), other);
+        Assert.Equal(0.042m - 0.0420m + 0.0285m, seen.GetProperty("usd_estimate").GetDecimal());     // m1 alone: 3000 + 1500 + 18000 + 7500 per million
+        Assert.True(seen.GetProperty("usd_estimate_partial").GetBoolean());
+    }
+
+    [Fact]
+    public void A_task_without_prices_leaves_them_out_of_task_json_so_an_older_session_image_still_parses_it()
+    {
+        var plain = JsonSerializer.Serialize(Task(), SessionCli.Json);
+        Assert.DoesNotContain("prices", plain);
+        var priced = JsonSerializer.Serialize(Task() with { Prices = Prices }, SessionCli.Json);
+        Assert.Equal(Prices, JsonSerializer.Deserialize<SessionTask>(priced, SessionCli.Json)!.Prices);
+        Assert.Contains("\"cache_read\":0.3", priced);
     }
 
     [Fact]

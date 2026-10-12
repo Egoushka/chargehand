@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A driven session's spend is live and counts cache. The driver reads each assistant message's input, output, cache-read and cache-creation tokens and its model, prices them with the profile's price table (cache reads at the model's cache-read rate), and writes `cache_read`, `cache_write` and `usd_estimate` to `session-usage.json`. The `session_progress` event carries them (run-status/v1 gains optional `usd_estimate`, `cache_read`, `cache_write`; additive). `usd_estimate` is a dollar equivalent, not a bill: it exists on a subscription too, `usd` keeps meaning priced dollars, and nothing is capped on it yet. It is absent when the profile has no prices or a model has none. `task.json` gains an optional `prices` member (omitted when the profile has none), so rebuild the session image with the host.
+
+### Changed
+
+- A driven session that ends on a usage or rate limit (the result says "usage limit" or "rate limit", or shows a 429) is `rate_limited` and retryable, not `session_failed`. `ChargehandException.RateLimited` also matches "usage limit". The batch scheduler holds new starts until the reset time the result prints (`...limit reached|<unix seconds>`), else 15 minutes, and stops the batch if the reset is more than 6 hours away; running tasks go on. Before, the limit became `session_failed` and the scheduler never paused.
+
 ### Fixed
 
 - Cancelling a running driven batch (`POST /v1/runs/{id}/cancel`, `POST /v1/halt`) ends it `failed` with error code `cancelled` and the summary "cancelled by the caller: N of M tasks finished", not `tasks_incomplete`. Tasks that finished keep their outcome; a task the cancel stopped is `cancelled`, one it kept from starting is `not_started` with `cancelled` as its `error_code`. No schema change: `status` keeps its enum, as for a cancelled plain run.
