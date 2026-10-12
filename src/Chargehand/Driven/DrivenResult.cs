@@ -44,22 +44,37 @@ public static class DrivenResult
         ResultContract Failed(ErrorCode code, string message, string action, IReadOnlyList<string>? questions = null) =>
             Result(ResultStatus.Failed, message, questions: questions ?? [message], error: new ResultError(code, message, false, action));
 
+        // A partial handover (ADR 0044) leaves the work of an unfinished task on a branch: the result says where, and the task is still failed.
+        ResultContract Unfinished(ErrorCode code, string message, string action)
+        {
+            if (input.Handover is not { } partial)
+                return Failed(code, message, action);
+            AddHandoverArtifacts(artifacts, input, partial);
+            var where = partial.Status switch
+            {
+                HandoverStatus.Pushed => $"The unfinished work is on branch {partial.Branch} in a partial draft pull request ({partial.PullRequest?.Url}): read it, finish it by hand, or send the task again with a narrower goal.",
+                HandoverStatus.PrFailed => $"The unfinished work is pushed to branch {partial.Branch}, but the pull request could not be opened ({partial.Reason}). Open it by hand.",
+                _ => $"The unfinished work was not pushed ({partial.Reason}); the bundle is kept in the run's output volume. {action}",
+            };
+            return Failed(code, partial.Status == HandoverStatus.NotPushed ? message : $"{message}; its work is on a partial draft pull request", where);
+        }
+
         switch (s.Status)
         {
             case SessionStatus.NeedsInput:
                 return Result(ResultStatus.NeedsInput, "The session needs answers before it can continue.", questions: s.Questions.Count > 0 ? s.Questions : ["The session asked for input but named no question."]);
             case SessionStatus.Stalled:
-                return Failed(ErrorCode.SessionStalled, $"the session was stopped: {s.Reason.Replace('_', ' ')}",
+                return Unfinished(ErrorCode.SessionStalled, $"the session was stopped: {s.Reason.Replace('_', ' ')}",
                     "Send the task again with a narrower goal, or raise the driven preset's limits (max_minutes, no_progress_minutes, max_turns). The session log is in the session-log artifact.");
             case SessionStatus.RateLimited:
                 return Result(ResultStatus.Failed, "the session ended on a usage or rate limit", questions: ["the session ended on a usage or rate limit"],
                     error: new ResultError(ErrorCode.RateLimited, "the session ended on a usage or rate limit", ChargehandException.Retryable(ErrorCode.RateLimited),
                         "Retry once the limit lifts. The batch holds its remaining tasks until then; a branch the session made before the limit is not pushed."));
             case SessionStatus.TokenCap:
-                return Failed(ErrorCode.CostCapReached, "the session reached its token cap and was stopped",
+                return Unfinished(ErrorCode.CostCapReached, "the session reached its token cap and was stopped",
                     "Raise max_tokens_total in the request (and the preset's max_tokens), or give the task a narrower goal.");
             case SessionStatus.Failed:
-                return Failed(ErrorCode.SessionFailed, $"the session did not finish: {(s.Reason.Length > 0 ? s.Reason.Replace('_', ' ') : "it failed")}",
+                return Unfinished(ErrorCode.SessionFailed, $"the session did not finish: {(s.Reason.Length > 0 ? s.Reason.Replace('_', ' ') : "it failed")}",
                     "Read the session log (the session-log artifact) and send the task again.");
         }
 
@@ -102,6 +117,28 @@ public static class DrivenResult
         if (supportCheck is not null && contract.Claims.Count > 0)
             contract = await supportCheck(contract, scope, ct);
 
+        AddHandoverArtifacts(artifacts, input, handover);
+        if (report.TestsCommand is not null)
+            artifacts.Add(Inline("session-tests", "application/json", new { claimed_by = "session", command = report.TestsCommand, exit_code = report.TestsExitCode }));
+        contract = contract with { Artifacts = [.. artifacts] };
+
+        return handover.Status switch
+        {
+            HandoverStatus.Pushed => contract,
+            HandoverStatus.PrFailed => Reject(contract, ErrorCode.PrFailed, $"the pull request could not be opened ({handover.Reason}); the branch {handover.Branch} is pushed",
+                "The branch is pushed. Open the pull request by hand, or check the token's permission to open pull requests."),
+            _ => Reject(contract, handover.Error ?? ErrorCode.SessionFailed, handover.Reason, handover.Error switch
+            {
+                ErrorCode.VerificationFailed => "Read the verification artifact (output_tail), fix the change or the tests, and send the task again. Nothing was pushed.",
+                ErrorCode.PushRejected => "Check the push credential and that the branch name is free. Nothing was pushed; the bundle is kept in the run's output volume.",
+                _ => "Read the reason above and the session-log artifact, and send the task again. Nothing was pushed.",
+            }),
+        };
+    }
+
+    /// <summary>The branch, changes, pull-request and verification artifacts of a handover.</summary>
+    private static void AddHandoverArtifacts(List<Artifact> artifacts, DrivenTaskInput input, HandoverOutcome handover)
+    {
         var pushed = handover.Status is HandoverStatus.Pushed or HandoverStatus.PrFailed;
         artifacts.Add(Inline("branch", "application/vnd.chargehand.branch+json", new { branch = handover.Branch, commit = handover.Commit, @base = input.BaseCommit, pushed }));
         if (handover.Changes is { } changes)
@@ -123,22 +160,6 @@ public static class DrivenResult
                 output_tail = v.OutputTail,
                 changed_verification_paths = handover.ChangedVerificationPaths,
             }));
-        if (report.TestsCommand is not null)
-            artifacts.Add(Inline("session-tests", "application/json", new { claimed_by = "session", command = report.TestsCommand, exit_code = report.TestsExitCode }));
-        contract = contract with { Artifacts = [.. artifacts] };
-
-        return handover.Status switch
-        {
-            HandoverStatus.Pushed => contract,
-            HandoverStatus.PrFailed => Reject(contract, ErrorCode.PrFailed, $"the pull request could not be opened ({handover.Reason}); the branch {handover.Branch} is pushed",
-                "The branch is pushed. Open the pull request by hand, or check the token's permission to open pull requests."),
-            _ => Reject(contract, handover.Error ?? ErrorCode.SessionFailed, handover.Reason, handover.Error switch
-            {
-                ErrorCode.VerificationFailed => "Read the verification artifact (output_tail), fix the change or the tests, and send the task again. Nothing was pushed.",
-                ErrorCode.PushRejected => "Check the push credential and that the branch name is free. Nothing was pushed; the bundle is kept in the run's output volume.",
-                _ => "Read the reason above and the session-log artifact, and send the task again. Nothing was pushed.",
-            }),
-        };
     }
 
     private static ResultContract Reject(ResultContract contract, ErrorCode code, string message, string action) =>

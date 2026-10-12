@@ -42,6 +42,9 @@ public class DrivenRunTests
         /// <summary>The nth container started (1-based) stays running until <see cref="Release"/>; 0: none.</summary>
         public int HoldNth { get; set; }
         private readonly HashSet<string> _held = [];
+        /// <summary>Called with the number of the start (1-based) once it is recorded; what it returns is thrown.</summary>
+        public Func<int, Exception?>? OnStart { get; set; }
+
         /// <summary>Containers docker no longer knows.</summary>
         public HashSet<string> Gone { get; } = [];
         public EngineResources Resources { get; set; } = new([], [], []);
@@ -64,6 +67,11 @@ public class DrivenRunTests
                     _held.Add($"cid-{spec.RunId}");
             if (CancelOnStart)
                 throw new OperationCanceledException();
+            int number;
+            lock (_gate)
+                number = Started.Count;
+            if (OnStart?.Invoke(number) is { } failure)
+                throw failure;
             return Task.FromResult($"cid-{spec.RunId}");
         }
 
@@ -113,17 +121,20 @@ public class DrivenRunTests
     }
 
     /// <summary>Plays the session: the output volume holds an outcome for the task's goal, and a bundle and report when it completed.</summary>
-    internal sealed class FakeVolumes(Func<string, SessionStatus> script) : ISessionVolumes
+    internal sealed class FakeVolumes(Func<string, SessionStatus> script, Func<string, string, SessionOutcome?>? outcomes = null) : ISessionVolumes
     {
         private readonly Dictionary<string, string> _goals = [];
+
+        /// <summary>Every task file written, in order.</summary>
+        public List<SessionTask> Tasks { get; } = [];
+
+        /// <summary>Every seed bundle written: the run it went to and the file it came from.</summary>
+        public List<(string RunId, string Path)> Seeds { get; } = [];
 
         /// <summary>What the session's running tally says while it works; null: it has written none.</summary>
         public TaskUsage? Usage { get; set; }
 
         public int UsageReads;
-
-        /// <summary>The tasks written to the volumes, in order.</summary>
-        public List<SessionTask> Tasks { get; } = [];
 
         /// <summary>The session image is newer than the server: its outcome and report carry a member the server does not know.</summary>
         public bool NewerSession { get; set; }
@@ -147,6 +158,13 @@ public class DrivenRunTests
             return Task.CompletedTask;
         }
 
+        public Task WriteSeedAsync(string runId, string bundlePath, CancellationToken ct)
+        {
+            lock (_goals)
+                Seeds.Add((runId, bundlePath));
+            return Task.CompletedTask;
+        }
+
         public Task FetchOutputAsync(string runId, string directory, CancellationToken ct)
         {
             string goal;
@@ -155,17 +173,16 @@ public class DrivenRunTests
             if (NoOutput.Contains(runId))
                 return Task.CompletedTask;
             var status = script(goal);
-            var outcome = new SessionOutcome(status, status == SessionStatus.Failed ? "session_error" : "", 9, 1000, 200, 4000, null, 0, [], status == SessionStatus.Completed,
+            var outcome = outcomes?.Invoke(runId, goal) ?? new SessionOutcome(status, status == SessionStatus.Failed ? "session_error" : "", 9, 1000, 200, 4000, null, 0, [], status == SessionStatus.Completed,
                 CacheWriteTokens: 300, SessionId: $"cc-session-{runId}", Model: "claude-sonnet-5-5",
                 ModelUsage: new Dictionary<string, TokenCounts> { ["claude-sonnet-5-5"] = new(1000, 200, 0, 4000, 300) });
             var newer = NewerSession ? "\"added_later\":1," : "";
             File.WriteAllText(Path.Combine(directory, "session-outcome.json"),
                 "{" + newer + JsonSerializer.Serialize(outcome, Snake)[1..]);
-            if (status == SessionStatus.Completed)
-            {
+            if (outcome.Status == SessionStatus.Completed)
                 File.WriteAllText(Path.Combine(directory, "driven-report.json"), "{" + newer + Report[1..]);
+            if (outcome.BundleWritten)
                 File.WriteAllText(Path.Combine(directory, "chargehand.bundle"), "bundle");
-            }
             return Task.CompletedTask;
         }
     }
@@ -174,8 +191,14 @@ public class DrivenRunTests
     {
         public List<HandoverInput> Inputs { get; } = [];
 
+        /// <summary>For each handover, whether the bundle it was told to read was on disk.</summary>
+        public List<bool> BundleSeen { get; } = [];
+
         public Task<HandoverOutcome> RunAsync(HandoverInput input, CancellationToken ct)
         {
+            ct.ThrowIfCancellationRequested();
+            lock (Inputs)
+                BundleSeen.Add(File.Exists(Path.Combine(input.OutDirectory, "chargehand.bundle")));
             int number;
             lock (Inputs)
             {
@@ -209,7 +232,7 @@ public class DrivenRunTests
 
         public Rig(bool enabled = true, Func<string, SessionStatus>? script = null, string? mcpForward = null, string? dir = null, JsonlRunLog? log = null, FakeVolumes? volumes = null,
             string? modelUrl = null, bool apiKey = false, string? otlpUrl = null, TelemetrySettings? telemetry = null, bool durable = false, IEvidenceResolver? resolver = null,
-            DrivenLimits? limits = null)
+            DrivenLimits? limits = null, Func<string, string, SessionOutcome?>? outcomes = null)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
@@ -220,7 +243,7 @@ public class DrivenRunTests
                 Telemetry = telemetry,
                 Prices = new Dictionary<string, ModelPrice> { ["p/small"] = new(0.1m, 0.5m, 0.01m, 0.125m), ["provider/claude-sonnet-5-5"] = new(3m, 15m, 0.3m, 3.75m) },
             };
-            Volumes = volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed));
+            Volumes = volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed), outcomes);
             var services = enabled
                 ? new DrivenServices(Engine, Engine, Volumes, _ => throw new NotSupportedException("the handover is faked"), null,
                     (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", Commit, "https://github.com/o/r.git", "main")), resolver ?? new NoEvidenceProblems(),

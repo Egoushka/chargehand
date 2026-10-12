@@ -44,13 +44,21 @@ public sealed record RequestDriven(
     decimal? MaxUsdTotal = null,
     bool DraftPr = true);
 
-public sealed record DrivenTask(string Id, string? Ref = null, string? Goal = null);
+/// <param name="MaxTurns">Replaces the preset's <c>max_turns</c> for this task's sessions; null: the preset's.</param>
+/// <param name="MaxMinutes">Replaces the preset's <c>max_minutes</c> for this task's sessions; null: the preset's.</param>
+public sealed record DrivenTask(string Id, string? Ref = null, string? Goal = null, int? MaxTurns = null, int? MaxMinutes = null);
 
 /// <summary>The request rules JSON Schema cannot express.</summary>
 public static class DrivenRules
 {
     public static IReadOnlyList<string> Problems(RequestDriven driven) =>
-        driven.Tasks.GroupBy(t => t.Id).Where(g => g.Count() > 1).Select(g => $"task id '{g.Key}' is used more than once").ToList();
+        driven.Tasks.GroupBy(t => t.Id).Where(g => g.Count() > 1).Select(g => $"task id '{g.Key}' is used more than once")
+            .Concat(driven.Tasks.Where(t => t.MaxTurns is < 1 or > MaxTurnsCeiling).Select(t => $"task '{t.Id}': max_turns must be 1 to {MaxTurnsCeiling}"))
+            .Concat(driven.Tasks.Where(t => t.MaxMinutes is < 1 or > MaxMinutesCeiling).Select(t => $"task '{t.Id}': max_minutes must be 1 to {MaxMinutesCeiling}")).ToList();
+
+    public const int MaxTurnsCeiling = 1000;
+
+    public const int MaxMinutesCeiling = 480;
 
     /// <summary>All problems of a request that carries <c>driven</c>: duplicate task ids and a missing <c>context.repository</c>.</summary>
     public static IReadOnlyList<string> Problems(RunRequest request)

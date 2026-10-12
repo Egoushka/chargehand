@@ -50,7 +50,7 @@ public class HandoverTests
         public string Scratch => Path.Combine(Dir.Path, "scratch");
         public string BaseCommit { get; }
 
-        public Fixture(Action<string>? edit = null, bool commit = true, bool makeBundle = true, bool rejectAll = false, bool orphan = false, bool revert = false, Action<string>? afterBundle = null)
+        public Fixture(Action<string>? edit = null, bool commit = true, bool makeBundle = true, bool rejectAll = false, bool orphan = false, bool revert = false, Action<string>? afterBundle = null, Action<string>? thenEdit = null)
         {
             Directory.CreateDirectory(Source);
             Directory.CreateDirectory(Out);
@@ -79,6 +79,12 @@ public class HandoverTests
                 {
                     G(Work, "revert", "--no-edit", "HEAD");
                 }
+                if (thenEdit is not null)
+                {
+                    thenEdit(Work);
+                    G(Work, "add", "-A");
+                    G(Work, "commit", "-q", "-m", "chore: tidy");
+                }
             }
             if (makeBundle)
                 G(Work, "bundle", "create", Path.Combine(Out, "chargehand.bundle"), "chargehand/run1", "--not", "--remotes");
@@ -104,13 +110,15 @@ public class HandoverTests
         public void Dispose() => Dir.Dispose();
     }
 
-    private sealed class FakeVerifier(int exit = 0) : IBranchVerifier
+    private sealed class FakeVerifier(int exit = 0, Exception? failure = null) : IBranchVerifier
     {
         public List<BranchVerification> Calls { get; } = [];
 
         public Task<VerificationRecord> VerifyAsync(BranchVerification v, CancellationToken ct)
         {
             Calls.Add(v);
+            if (failure is not null)
+                throw failure;
             return Task.FromResult(new VerificationRecord(v.Argv, "detected", exit, exit == 0 ? "ok" : "1 failed", false, TimeSpan.FromSeconds(3), false));
         }
     }
@@ -207,6 +215,73 @@ public class HandoverTests
         Assert.Equal("", f.RemoteRef("refs/heads/chargehand/run1"));
         Assert.Empty(prs.Created);
         Assert.True(File.Exists(Path.Combine(f.Out, "chargehand.bundle")), "the bundle is kept for a person to look at");
+    }
+
+    [Fact]
+    public async Task A_partial_handover_records_red_verification_and_still_pushes_a_draft()
+    {
+        using var f = new Fixture();
+        var prs = new FakePullRequests();
+        var outcome = await new Handover(new FakeVerifier(exit: 1), prs).RunAsync(f.Input(with: i => i with { Partial = true }), default);
+
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        Assert.Equal(1, outcome.Verification!.ExitCode);
+        Assert.NotEqual("", f.RemoteRef("refs/heads/chargehand/run1"));
+        Assert.Contains("exited 1", Assert.Single(prs.Created).Body);
+    }
+
+    [Fact]
+    public async Task A_partial_handover_still_refuses_a_secret_and_pushes_without_a_test_command()
+    {
+        using var leaky = new Fixture(edit: w => File.WriteAllText(Path.Combine(w, "config.txt"), $"key = {AwsKey}\n"));
+        var refused = await new Handover(new FakeVerifier(), new FakePullRequests()).RunAsync(leaky.Input(with: i => i with { Partial = true }), default);
+        Assert.Equal(HandoverStatus.NotPushed, refused.Status);
+        Assert.Equal("", leaky.RemoteRef("refs/heads/chargehand/run1"));
+
+        using var untested = new Fixture(edit: w => File.Delete(Path.Combine(w, "package.json")));
+        var pushed = await new Handover(new FakeVerifier(), new FakePullRequests()).RunAsync(untested.Input(with: i => i with { Partial = true }), default);
+        Assert.Equal(HandoverStatus.Pushed, pushed.Status);
+        Assert.Null(pushed.Verification);
+    }
+
+    [Fact]
+    public async Task A_secret_a_commit_added_and_a_later_commit_removed_is_still_refused_because_the_history_is_pushed()
+    {
+        using var f = new Fixture(edit: w => File.WriteAllText(Path.Combine(w, "config.txt"), $"key = {AwsKey}\n"), thenEdit: w => File.Delete(Path.Combine(w, "config.txt")));
+        var prs = new FakePullRequests();
+        var outcome = await new Handover(new FakeVerifier(), prs).RunAsync(f.Input(), default);
+
+        Assert.Equal(HandoverStatus.NotPushed, outcome.Status);
+        Assert.Contains(outcome.Findings, x => x.Kind == "aws" && x.Path == "config.txt");
+        Assert.Equal("", f.RemoteRef("refs/heads/chargehand/run1"));
+        Assert.Empty(prs.Created);
+        Assert.DoesNotContain(AwsKey, JsonSerializer.Serialize(outcome));
+    }
+
+    [Fact]
+    public async Task A_secret_file_that_only_history_touched_is_refused()
+    {
+        using var f = new Fixture(edit: w => File.WriteAllText(Path.Combine(w, ".env"), "A=1\n"), thenEdit: w => File.Delete(Path.Combine(w, ".env")));
+        var outcome = await new Handover(new FakeVerifier(), new FakePullRequests()).RunAsync(f.Input(), default);
+
+        Assert.Equal(HandoverStatus.NotPushed, outcome.Status);
+        Assert.Contains(outcome.Findings, x => x.Kind == "secret-file" && x.Path == ".env");
+    }
+
+    [Fact]
+    public async Task A_verifier_that_throws_does_not_stop_a_partial_handover_but_does_stop_a_normal_one()
+    {
+        using var f = new Fixture();
+        var prs = new FakePullRequests();
+        var partial = await new Handover(new FakeVerifier(failure: new InvalidOperationException("the runner is full")), prs).RunAsync(f.Input(with: i => i with { Partial = true }), default);
+
+        Assert.Equal(HandoverStatus.Pushed, partial.Status);
+        Assert.Equal(-1, partial.Verification!.ExitCode);
+        Assert.Contains("the verification could not run: the runner is full", partial.Verification.OutputTail);
+        Assert.NotEqual("", f.RemoteRef("refs/heads/chargehand/run1"));
+        Assert.Contains("exited -1", Assert.Single(prs.Created).Body);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new Handover(new FakeVerifier(failure: new InvalidOperationException("the runner is full")), new FakePullRequests()).RunAsync(f.Input(), default));
     }
 
     [Fact]

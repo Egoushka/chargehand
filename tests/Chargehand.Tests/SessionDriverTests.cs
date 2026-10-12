@@ -180,6 +180,141 @@ public class SessionDriverTests
     }
 
     [Fact]
+    public async Task A_stopped_session_has_its_uncommitted_files_committed_to_the_branch_before_it_is_bundled()
+    {
+        using var w = new Workspace();
+        File.WriteAllText(Path.Combine(w.Work, "b.txt"), "changed");
+        File.WriteAllText(Path.Combine(w.Work, "new.txt"), "untracked");
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init) + "\nsleep 60", Task(noProgressSeconds: 1)), default);
+
+        Assert.Equal("no_progress", outcome.Reason);
+        Assert.Equal("WIP: session stopped by no_progress after 0 turns", w.Git("log", "-1", "--format=%s").Trim());
+        Assert.Equal("", w.Git("status", "--porcelain"));
+        Assert.Equal("changed", w.Git("show", "chargehand/run1:b.txt"));
+        Assert.Equal("untracked", w.Git("show", "chargehand/run1:new.txt"));
+        Assert.True(outcome.BundleWritten);
+        Assert.Equal(1, outcome.Commits);
+    }
+
+    [Fact]
+    public async Task A_stop_with_a_clean_tree_adds_no_commit_and_a_branch_the_session_never_made_is_created_for_the_files()
+    {
+        using var clean = new Workspace();
+        var cleanOutcome = await SessionDriver.RunAsync(Options(clean, Emit(Init) + "\nsleep 60", Task(noProgressSeconds: 1)), default);
+        Assert.Equal("feat: the change", clean.Git("log", "-1", "--format=%s").Trim());
+        Assert.Equal(0, cleanOutcome.Commits);
+
+        using var bare = new Workspace(commit: false);
+        File.WriteAllText(Path.Combine(bare.Work, "late.txt"), "written, never committed");
+        var outcome = await SessionDriver.RunAsync(Options(bare, Emit(Init) + "\nsleep 60", Task(noProgressSeconds: 1)), default);
+        Assert.True(outcome.BundleWritten);
+        Assert.Equal("written, never committed", bare.Git("show", "chargehand/run1:late.txt"));
+    }
+
+    [Fact]
+    public async Task Commits_are_counted_from_the_commit_the_workspace_started_at_not_from_what_a_remote_has()
+    {
+        using var w = new Workspace(commit: false);
+        // The base is on no remote here, as when the pinned commit is on no branch: `--not --remotes` would count it, and the session's own commit, as two.
+        var commit = "git checkout -q -b chargehand/run1 && echo b > b.txt && git add -A && git -c user.name=t -c user.email=t@example.test commit -q -m feat\n";
+        var outcome = await SessionDriver.RunAsync(Options(w, commit + Emit(Init, Assistant("m1", "done"), Result()), Task()), default);
+        Assert.Equal(1, outcome.Commits);
+
+        using var seeded = new Workspace(commit: false);
+        seeded.Git("checkout", "-q", "-b", "chargehand/run1");
+        File.WriteAllText(Path.Combine(seeded.Work, "b.txt"), "b");
+        seeded.Git("add", "-A");
+        seeded.Git("commit", "-q", "-m", "earlier session");
+        var seed = Path.Combine(seeded.Dir.Path, "seed.bundle");
+        seeded.Git("bundle", "create", seed, "chargehand/run1", "--not", "main");
+        seeded.Git("checkout", "-q", "-B", "chargehand/run1", "main");
+        File.Copy(seed, Path.Combine(seeded.Out, "seed.bundle"));
+        var next = await SessionDriver.RunAsync(Options(seeded, Emit(Init, Assistant("m1", "done"), Result()), Task()), default);
+        Assert.Equal(1, next.Commits);
+    }
+
+    [Fact]
+    public async Task Files_over_the_size_limit_stay_out_of_the_snapshot_and_the_commit_names_them()
+    {
+        using var w = new Workspace();
+        File.WriteAllBytes(Path.Combine(w.Work, "big.bin"), new byte[(int)SessionDriver.SnapshotMaxFileBytes + 1]);
+        File.WriteAllText(Path.Combine(w.Work, "small.txt"), "kept");
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init) + "\nsleep 60", Task(noProgressSeconds: 1)), default);
+
+        Assert.Equal("kept", w.Git("show", "chargehand/run1:small.txt"));
+        Assert.DoesNotContain("big.bin", w.Git("ls-tree", "-r", "--name-only", "chargehand/run1"));
+        Assert.Contains("big.bin", w.Git("log", "-1", "--format=%B"));
+        Assert.Equal("not committed (over 5 MiB): big.bin", outcome.SnapshotNote);
+    }
+
+    [Fact]
+    public async Task A_stale_index_lock_is_removed_and_a_live_one_skips_the_snapshot_with_a_note()
+    {
+        using var stale = new Workspace();
+        File.WriteAllText(Path.Combine(stale.Work, "late.txt"), "written");
+        File.WriteAllText(Path.Combine(stale.Work, ".git", "index.lock"), "");
+        var cleared = await SessionDriver.RunAsync(Options(stale, Emit(Init) + "\nsleep 60", Task(noProgressSeconds: 1)) with { GitRunning = () => false }, default);
+        Assert.False(File.Exists(Path.Combine(stale.Work, ".git", "index.lock")));
+        Assert.Equal("written", stale.Git("show", "chargehand/run1:late.txt"));
+        Assert.Null(cleared.SnapshotNote);
+
+        using var live = new Workspace();
+        File.WriteAllText(Path.Combine(live.Work, "late.txt"), "written");
+        File.WriteAllText(Path.Combine(live.Work, ".git", "index.lock"), "");
+        var skipped = await SessionDriver.RunAsync(Options(live, Emit(Init) + "\nsleep 60", Task(noProgressSeconds: 1)) with { GitRunning = () => true }, default);
+        Assert.True(File.Exists(Path.Combine(live.Work, ".git", "index.lock")));
+        Assert.Equal("feat: the change", live.Git("log", "-1", "--format=%s").Trim());
+        Assert.Contains("index.lock exists and a git process is running", skipped.SnapshotNote);
+        Assert.True(skipped.BundleWritten, "the commits the session made are still bundled");
+    }
+
+    [Fact]
+    public async Task A_git_that_hangs_skips_the_snapshot_instead_of_hanging_the_session()
+    {
+        using var w = new Workspace();
+        File.WriteAllText(Path.Combine(w.Work, "late.txt"), "written");
+        var sw = Stopwatch.StartNew();
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init) + "\nsleep 60", Task(noProgressSeconds: 1)) with { GitTimeout = TimeSpan.FromMilliseconds(1) }, default);
+
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(30), $"took {sw.Elapsed}");
+        Assert.Contains("timed out", outcome.SnapshotNote);
+        Assert.Equal("feat: the change", w.Git("log", "-1", "--format=%s").Trim());
+    }
+
+    [Fact]
+    public async Task A_session_that_finishes_on_its_own_gets_no_snapshot_commit()
+    {
+        using var w = new Workspace();
+        File.WriteAllText(Path.Combine(w.Work, "scratch.txt"), "left over");
+        await SessionDriver.RunAsync(Options(w, Emit(Init, Assistant("m1", "done"), Result()), Task()), default);
+        Assert.Equal("feat: the change", w.Git("log", "-1", "--format=%s").Trim());
+    }
+
+    [Fact]
+    public async Task A_continuation_starts_from_the_seed_bundle_of_the_previous_session()
+    {
+        // The previous session left a WIP commit on the branch and bundled it; the new workspace is the base on a fresh branch, as the workspace helper makes it.
+        using var w = new Workspace(commit: false);
+        w.Git("checkout", "-q", "-b", "chargehand/run1");
+        File.WriteAllText(Path.Combine(w.Work, "b.txt"), "b");
+        File.WriteAllText(Path.Combine(w.Work, "c.txt"), "from the first session");
+        w.Git("add", "-A");
+        w.Git("commit", "-q", "-m", "WIP: session stopped by turn_limit after 80 turns");
+        var seed = Path.Combine(w.Dir.Path, "seed.bundle");
+        w.Git("bundle", "create", seed, "chargehand/run1", "--not", "main");
+        w.Git("checkout", "-q", "-B", "chargehand/run1", "main");
+        Assert.False(File.Exists(Path.Combine(w.Work, "c.txt")));
+        File.Copy(seed, Path.Combine(w.Out, "seed.bundle"));
+
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init, Assistant("m1", "continuing"), Result()), Task()), default);
+
+        Assert.True(File.Exists(Path.Combine(w.Work, "c.txt")));
+        Assert.True(File.Exists(Path.Combine(w.Work, "b.txt")));
+        Assert.Equal("WIP: session stopped by turn_limit after 80 turns", w.Git("log", "-1", "--format=%s").Trim());
+        Assert.True(outcome.BundleWritten);
+    }
+
+    [Fact]
     public async Task Passing_the_token_cap_stops_the_session()
     {
         using var w = new Workspace();

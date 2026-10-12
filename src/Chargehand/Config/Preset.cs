@@ -43,7 +43,7 @@ public sealed record NodeKind(string Model, string OpencodeAgent, IReadOnlyList<
 
 /// <summary>The limits of a driven session's container (ADR 0039); null on a preset that does not run one.</summary>
 public sealed record DrivenPreset(int MaxMinutes = 45, int NoProgressMinutes = 10, int MaxTurns = 80, long? MaxTokens = null, int MemoryMb = 4096,
-    double Cpus = 2, int Pids = 512, IReadOnlyList<string>? Allow = null);
+    double Cpus = 2, int Pids = 512, IReadOnlyList<string>? Allow = null, int MaxContinuations = 2);
 
 /// <summary>A writing node's verification (ADR 0035): the test command's timeout and how many failed runs go back to the worker.</summary>
 public sealed record VerifySettings(int TimeoutSeconds = 600, int MaxFixRounds = 2);

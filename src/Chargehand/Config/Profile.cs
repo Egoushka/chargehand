@@ -415,7 +415,7 @@ public sealed record DrivenSettings(
 /// <summary>The preset's <c>driven</c> limits, set per server. A key left out keeps the preset's value; the preset's allowlist stays the preset's
 /// (<c>network.allow</c> adds hosts). Prompts and permissions are not here: they are what Prompt CI evaluates.</summary>
 public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes = null, int? MaxTurns = null, long? MaxTokens = null, int? MemoryMb = null,
-    double? Cpus = null, int? Pids = null)
+    double? Cpus = null, int? Pids = null, int? MaxContinuations = null)
 {
     public DrivenPreset Apply(DrivenPreset preset) => preset with
     {
@@ -426,6 +426,7 @@ public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes
         MemoryMb = MemoryMb ?? preset.MemoryMb,
         Cpus = Cpus ?? preset.Cpus,
         Pids = Pids ?? preset.Pids,
+        MaxContinuations = MaxContinuations ?? preset.MaxContinuations,
     };
 
     /// <summary>Throws an invalid_request error naming the key when a value is outside what the preset schema and the container template accept.</summary>
@@ -439,6 +440,7 @@ public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes
         if (MemoryMb is < 256 or > 65_536) problems.Add("memory_mb must be 256 to 65536");
         if (Cpus is < 0.1 or > 32) problems.Add("cpus must be 0.1 to 32");
         if (Pids is < 16 or > 4096) problems.Add("pids must be 16 to 4096");
+        if (MaxContinuations is < 0 or > 5) problems.Add("max_continuations must be 0 to 5");
         if (problems.Count > 0)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.limits: {string.Join("; ", problems)}", "Fix driven.limits in the profile; docs/guide/driven.md lists the keys.");
     }

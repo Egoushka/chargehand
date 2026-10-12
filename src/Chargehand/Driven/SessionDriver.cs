@@ -30,8 +30,10 @@ public sealed record SessionCommand(string File, IReadOnlyList<string> LeadingAr
 /// <param name="PromptText">Appended to Claude Code's system prompt.</param>
 /// <param name="McpUrl">The chargehand server's MCP address on the batch network, for the skill's research and review calls.</param>
 /// <param name="McpToken">The run-scoped token for it.</param>
+/// <param name="GitTimeout">How long one of the stop snapshot's git calls may run before it is killed and the snapshot skipped; null: 3 minutes.</param>
+/// <param name="GitRunning">Whether some git process is alive (a lock file may then be live); null: look at the process table.</param>
 public sealed record SessionOptions(string WorkDirectory, string OutDirectory, SessionTask Task, SessionCommand Command, IReadOnlyList<string> Secrets,
-    string PromptText, string? McpUrl, string? McpToken, string PluginDirectory = "/opt/chargehand-plugin");
+    string PromptText, string? McpUrl, string? McpToken, string PluginDirectory = "/opt/chargehand-plugin", TimeSpan? GitTimeout = null, Func<bool>? GitRunning = null);
 
 /// <summary>The running tally the session writes to <c>session-usage.json</c>: input plus output tokens so far, assistant messages so far, and the <c>change</c> skill's step of the
 /// latest tool call that names one (<see cref="Adherence.StageOf"/>). <c>CacheRead</c> and <c>CacheWrite</c> are summed over the assistant messages so far; <c>UsdEstimate</c> prices
@@ -51,13 +53,17 @@ public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed, Ra
 /// <param name="ModelUsage">Tokens per model from the stream's <c>result</c>: a session can call more than one model.</param>
 /// <param name="UsdEstimate">The session's dollar equivalent from its per-message tokens (see <see cref="SessionUsage"/>).</param>
 /// <param name="RateLimitResetsAt">For <see cref="SessionStatus.RateLimited"/>: when the limit lifts, if the result said.</param>
+/// <param name="Commits">Commits on the session's branch past the commit the workspace started at (the base), the seed's included; 0 with no bundle.</param>
+/// <param name="SnapshotNote">What the stop snapshot did not do: files left out for their size, or why nothing was committed; null when there is nothing to say.</param>
 public sealed record SessionOutcome(SessionStatus Status, string Reason, int Turns, long InputTokens, long OutputTokens, long CacheReadTokens,
     decimal? CostUsd, int? ExitCode, IReadOnlyList<string> Questions, bool BundleWritten, string? StreamSha256 = null, long CacheWriteTokens = 0, string? SessionId = null,
-    string? Model = null, IReadOnlyDictionary<string, TokenCounts>? ModelUsage = null, decimal? UsdEstimate = null, DateTimeOffset? RateLimitResetsAt = null, bool UsdEstimatePartial = false);
+    string? Model = null, IReadOnlyDictionary<string, TokenCounts>? ModelUsage = null, decimal? UsdEstimate = null, DateTimeOffset? RateLimitResetsAt = null, bool UsdEstimatePartial = false,
+    int Commits = 0, string? SnapshotNote = null);
 
 /// <summary>Runs headless Claude Code on the <c>change</c> skill inside a session container (ADR 0039), watches its stream, ends it when it
 /// stalls or passes its token cap, and leaves three files in the output directory: <c>stream.jsonl</c> (secrets redacted), <c>chargehand.bundle</c>
-/// (the session's branch) and <c>driven-report.json</c> (the report the session printed), plus <c>session-outcome.json</c>.</summary>
+/// (the session's branch) and <c>driven-report.json</c> (the report the session printed), plus <c>session-outcome.json</c>. A session that is stopped has its working tree
+/// committed to the branch first (a <c>WIP:</c> commit), so what it wrote is not lost; one that finds <c>seed.bundle</c> in the output directory starts from that branch (ADR 0044).</summary>
 public static partial class SessionDriver
 {
     private static readonly TimeSpan Grace = TimeSpan.FromSeconds(5);
@@ -93,6 +99,9 @@ public static partial class SessionDriver
     {
         Directory.CreateDirectory(options.OutDirectory);
         var task = options.Task;
+        // The commit the workspace starts at: what "commits made" is counted from, whether or not a seed moves the branch past it.
+        var start = (await Git(options.WorkDirectory, ["rev-parse", "--verify", "--quiet", "HEAD"], ct)) is { Exit: 0 } head ? head.Stdout.Trim() : null;
+        await SeedAsync(options, ct);
         var scratch = Directory.CreateTempSubdirectory("chargehand-session-");
         try
         {
@@ -161,7 +170,9 @@ public static partial class SessionDriver
             await reader;
             _ = await stderr;
 
+            var snapshotNote = stoppedBy.Cause is { } stopped ? await SnapshotAsync(options, stopped.Reason, detector.Turns, ct) : null;
             var bundle = await BundleAsync(options, ct);
+            var commits = bundle && start is not null ? await CommitsAsync(options, start, ct) : 0;
             var (report, questions) = Extract(tally);
             if (report is not null)
                 await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "driven-report.json"), Redact(report, options.Secrets), ct);
@@ -173,7 +184,7 @@ public static partial class SessionDriver
             var streamHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(options.OutDirectory, "stream.jsonl"), ct)));
             var outcome = new SessionOutcome(status, reason, detector.Turns, tally.Input, tally.Output, tally.CacheRead, tally.CostUsd, process.ExitCode,
                 [.. questions.Select(q => Redact(q, options.Secrets))], bundle, streamHash, tally.CacheWrite, tally.SessionId, tally.Model, tally.ModelUsage.Count == 0 ? null : tally.ModelUsage,
-                tally.UsdEstimate, status == SessionStatus.RateLimited ? UsageLimit.ResetsAt(tally.ResultText) : null, tally.UsdEstimatePartial);
+                tally.UsdEstimate, status == SessionStatus.RateLimited ? UsageLimit.ResetsAt(tally.ResultText) : null, tally.UsdEstimatePartial, commits, snapshotNote);
             await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "session-outcome.json"), Redact(JsonSerializer.Serialize(outcome, OutcomeJson), options.Secrets), ct);
             return outcome;
         }
@@ -226,21 +237,132 @@ public static partial class SessionDriver
     private static async Task<bool> BundleAsync(SessionOptions options, CancellationToken ct)
     {
         var branch = options.Task.Branch;
-        if (await Git(options.WorkDirectory, ["rev-parse", "--verify", "--quiet", $"refs/heads/{branch}"], ct) != 0)
+        if ((await Git(options.WorkDirectory, ["rev-parse", "--verify", "--quiet", $"refs/heads/{branch}"], ct)).Exit != 0)
             return false;
-        return await Git(options.WorkDirectory, ["bundle", "create", Path.Combine(options.OutDirectory, "chargehand.bundle"), branch, "--not", "--remotes"], ct) == 0;
+        return (await Git(options.WorkDirectory, ["bundle", "create", Path.Combine(options.OutDirectory, "chargehand.bundle"), branch, "--not", "--remotes"], ct)).Exit == 0;
     }
 
-    private static async Task<int> Git(string directory, IReadOnlyList<string> args, CancellationToken ct)
+    private static async Task<int> CommitsAsync(SessionOptions options, string start, CancellationToken ct)
+    {
+        var counted = await Git(options.WorkDirectory, ["rev-list", "--count", $"{start}..{options.Task.Branch}"], ct);
+        return counted.Exit == 0 && int.TryParse(counted.Stdout.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : 0;
+    }
+
+    /// <summary>A continuation session's workspace is the base commit on the task branch; the previous session's branch replaces it.</summary>
+    private static async Task SeedAsync(SessionOptions options, CancellationToken ct)
+    {
+        var seed = Path.Combine(options.OutDirectory, ContainerTemplate.SeedFile);
+        if (!File.Exists(seed))
+            return;
+        var fetch = await Git(options.WorkDirectory, ["-c", "fetch.fsckObjects=true", "-c", "core.hooksPath=/dev/null", "fetch", "--quiet", seed, $"refs/heads/{options.Task.Branch}"], ct);
+        if (fetch.Exit != 0 || (await Git(options.WorkDirectory, ["reset", "--quiet", "--hard", "FETCH_HEAD"], ct)).Exit != 0)
+            throw new InvalidOperationException($"the seed bundle does not apply to the workspace: {fetch.Stderr.Trim()}");
+    }
+
+    /// <summary>A file the stop snapshot leaves out: bigger than this is a build output or a download, not the session's work.</summary>
+    public const long SnapshotMaxFileBytes = 5L * 1024 * 1024;
+
+    private static readonly TimeSpan SnapshotGitTimeout = TimeSpan.FromMinutes(3);
+
+    /// <summary>Commits the working tree to the task branch (made if the session never made it) so a stopped session's files reach the bundle: the files over
+    /// <see cref="SnapshotMaxFileBytes"/> stay out and the commit message names them. Nothing to commit leaves the branch as it is. A git that hangs or fails, or an
+    /// <c>index.lock</c> a live git holds, skips the snapshot. A lock no git process holds is a killed session's leftover and is removed. The handover scans every commit's patch.</summary>
+    /// <returns>What was not done and why, for the handover's text; null when there is nothing to say.</returns>
+    private static async Task<string?> SnapshotAsync(SessionOptions options, string reason, int turns, CancellationToken ct)
+    {
+        var dir = options.WorkDirectory;
+        var branch = options.Task.Branch;
+        var timeout = options.GitTimeout ?? SnapshotGitTimeout;
+        Task<(int Exit, string Stdout, string Stderr)> G(params string[] args) => Git(dir, args, ct, timeout);
+        static string Skipped(string step, (int Exit, string Stdout, string Stderr) r) =>
+            $"the working tree was not committed: git {step} {(r.Exit == GitTimedOut ? "timed out" : "failed")}";
+
+        var gitLock = await G("rev-parse", "--git-path", "index.lock");
+        if (gitLock.Exit != 0)
+            return Skipped("rev-parse", gitLock);
+        var lockFile = Path.GetFullPath(gitLock.Stdout.Trim(), dir);
+        if (File.Exists(lockFile))
+        {
+            if ((options.GitRunning ?? AnyGitProcess)())
+                return "the working tree was not committed: .git/index.lock exists and a git process is running";
+            try
+            {
+                File.Delete(lockFile);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                return "the working tree was not committed: .git/index.lock exists and could not be removed";
+            }
+        }
+        var exists = await G("rev-parse", "--verify", "--quiet", $"refs/heads/{branch}");
+        if (exists.Exit == GitTimedOut)
+            return Skipped("rev-parse", exists);
+        if (exists.Exit != 0 && await G("checkout", "--quiet", "-b", branch) is { Exit: not 0 } made)
+            return Skipped("checkout", made);
+        var status = await G("status", "--porcelain");
+        if (status.Exit != 0)
+            return Skipped("status", status);
+        if (status.Stdout.Length == 0)
+            return null;
+        var added = await G("add", "-A");
+        if (added.Exit != 0)
+            return Skipped("add", added);
+
+        var staged = await G("diff", "--cached", "--name-only", "-z");
+        if (staged.Exit != 0)
+            return Skipped("diff", staged);
+        var large = staged.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries)
+            .Where(path => new FileInfo(Path.Combine(dir, path)) is { Exists: true } file && file.Length > SnapshotMaxFileBytes).ToList();
+        for (var i = 0; i < large.Count; i += 100)
+            if (await G(["--literal-pathspecs", "reset", "--quiet", "HEAD", "--", .. large.Skip(i).Take(100)]) is { Exit: not 0 } unstaged)
+                return Skipped("reset", unstaged);
+        var note = large.Count == 0 ? null : $"not committed (over {SnapshotMaxFileBytes / 1024 / 1024} MiB): {string.Join(", ", large)}";
+        if ((await G("diff", "--cached", "--quiet")).Exit == 0)
+            return note;
+        var message = new List<string> { "-m", $"WIP: session stopped by {reason} after {turns.ToString(CultureInfo.InvariantCulture)} turns" };
+        if (note is not null)
+            message.AddRange(["-m", note]);
+        var commit = await G(["-c", "core.hooksPath=/dev/null", "commit", "--quiet", "--no-verify", .. message]);
+        return commit.Exit == 0 ? note : Skipped("commit", commit);
+    }
+
+    private const int GitTimedOut = -1;
+
+    private static bool AnyGitProcess()
+    {
+        var running = Process.GetProcessesByName("git");
+        try
+        {
+            return running.Length > 0;
+        }
+        finally
+        {
+            foreach (var p in running)
+                p.Dispose();
+        }
+    }
+
+    private static async Task<(int Exit, string Stdout, string Stderr)> Git(string directory, IReadOnlyList<string> args, CancellationToken ct, TimeSpan? timeout = null)
     {
         var psi = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var a in args)
             psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;
-        _ = p.StandardOutput.ReadToEndAsync(ct);
-        _ = p.StandardError.ReadToEndAsync(ct);
-        await p.WaitForExitAsync(ct);
-        return p.ExitCode;
+        var stdout = p.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var stderr = p.StandardError.ReadToEndAsync(CancellationToken.None);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (timeout is { } limit)
+            deadline.CancelAfter(limit);
+        try
+        {
+            await p.WaitForExitAsync(deadline.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            p.Kill(entireProcessTree: true);
+            return (GitTimedOut, "", "git timed out");
+        }
+        return (p.ExitCode, await stdout, await stderr);
     }
 
     private static string Redact(string text, IReadOnlyList<string> secrets)

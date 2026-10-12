@@ -61,7 +61,9 @@
             "properties": {
               "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" },
               "ref": { "type": "string", "minLength": 1, "maxLength": 128, "description": "A tracker item id, resolved through the profile's task source." },
-              "goal": { "type": "string", "minLength": 1, "description": "Free text: what the change should do." }
+              "goal": { "type": "string", "minLength": 1, "description": "Free text: what the change should do." },
+              "max_turns": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Assistant messages after which a session of this task is stopped; replaces the preset's max_turns for this task." },
+              "max_minutes": { "type": "integer", "minimum": 1, "maximum": 480, "description": "Wall clock of one session of this task; replaces the preset's max_minutes for this task." }
             }
           }
         },

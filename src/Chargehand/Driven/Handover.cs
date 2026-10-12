@@ -23,9 +23,10 @@ public sealed record PushCredential(string Value, PushCredentialKind Kind = Push
 /// <param name="AllowNoTests">Push a branch of a repository with no test command; off by default.</param>
 /// <param name="AllowLocalRemote">Accept a <c>file://</c> remote (tests); a real deployment pushes to https or ssh only.</param>
 /// <param name="Report">Told each step as it ends: <c>verify_finished</c>, <c>pushed</c>, <c>pr_opened</c>.</param>
+/// <param name="Partial">The session did not finish (ADR 0044): the tests are run and recorded, but a failing run, a timeout or a repository with no test command does not stop the push. A secret in the diff, a CI change and every other check still do.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
-    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null);
+    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false);
 
 /// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
 public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
@@ -120,6 +121,15 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         var findings = DiffScan.Scan(diff.Stdout, secrets, changed);
         if (findings.Count > 0)
             return Refuse($"the diff looks like it carries a secret ({string.Join(", ", findings.Select(f => $"{f.Kind} in {f.Path}"))}); nothing was pushed", ErrorCode.SessionFailed, changed: changed, findings: findings, commit: commit);
+        // The branch is pushed with its history: a secret a commit added and a later commit removed is on the remote all the same.
+        var history = await Git.RunAsync(scratch, env, ["log", "-m", "-p", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--format=", $"{input.BaseCommit}..{commit}"], GitTimeout, ct, MaxDiffBytes);
+        if (history.Truncated)
+            return Refuse("the branch's history is too large to scan", ErrorCode.SessionFailed, changed: changed, commit: commit);
+        var touched = (await Git.RunAsync(scratch, env, ["log", "-m", "--name-only", "-z", "--no-renames", "--format=", $"{input.BaseCommit}..{commit}"], GitTimeout, ct, MaxDiffBytes))
+            .Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries).Select(n => n.Trim('\n')).Where(n => n.Length > 0).Distinct().ToList();
+        var historyFindings = DiffScan.Scan(history.Stdout, secrets, touched);
+        if (historyFindings.Count > 0)
+            return Refuse($"a commit of the branch looks like it carries a secret ({string.Join(", ", historyFindings.Select(f => $"{f.Kind} in {f.Path}"))}); nothing was pushed", ErrorCode.SessionFailed, changed: changed, findings: historyFindings, commit: commit);
         var unified = await Git.RunAsync(scratch, env, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", input.BaseCommit, commit], GitTimeout, ct, MaxChangesDiffBytes);
         changes = changes with { Diff = CutAtLine(Redact(unified.Stdout, secrets), unified.Truncated, out var cut), DiffTruncated = cut };
         var ci = DiffScan.CiPaths(changed);
@@ -134,17 +144,26 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         IReadOnlyList<string> verificationPaths = ChangeRun.VerificationPaths(changed, plan);
         if (plan is null)
         {
-            if (!input.AllowNoTests)
+            if (!input.AllowNoTests && !input.Partial)
                 return Refuse("no test command found for this repository; chargehand does not push a change it cannot test (name one in the request's context.verify)", ErrorCode.VerificationFailed, changed: changed, commit: commit);
         }
         else
         {
-            var raw = await verifier.VerifyAsync(new BranchVerification(input.RunId, bundle, input.Branch, plan.Argv, input.VerifyTimeout ?? TimeSpan.FromMinutes(10)), ct);
+            VerificationRecord raw;
+            try
+            {
+                raw = await verifier.VerifyAsync(new BranchVerification(input.RunId, bundle, input.Branch, plan.Argv, input.VerifyTimeout ?? TimeSpan.FromMinutes(10)), ct);
+            }
+            catch (Exception e) when (input.Partial && e is not OperationCanceledException)
+            {
+                // The work is kept whether or not the tests could run; say that they did not.
+                raw = new VerificationRecord(plan.Argv, plan.Source, -1, $"the verification could not run: {e.Message}", false, TimeSpan.Zero, false);
+            }
             verification = raw with { Source = plan.Source, OutputTail = Redact(raw.OutputTail, secrets) };
             var passed = verification.ExitCode == 0 && !verification.TimedOut;
             input.Report?.Invoke(new HandoverEvent(RunEventKind.VerifyFinished, string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"tests {(passed ? "passed" : verification.TimedOut ? "timed out" : $"failed (exit {verification.ExitCode})")} in {verification.Duration.TotalSeconds:0}s: {string.Join(' ', verification.Argv)}")));
-            if (verification.ExitCode != 0 || verification.TimedOut)
+            if ((verification.ExitCode != 0 || verification.TimedOut) && !input.Partial)
                 return Refuse(verification.TimedOut ? "the tests timed out in chargehand's own verification" : $"the tests failed in chargehand's own verification (exit {verification.ExitCode})", ErrorCode.VerificationFailed,
                     verification, changed, verificationPaths: verificationPaths, commit: commit);
         }
