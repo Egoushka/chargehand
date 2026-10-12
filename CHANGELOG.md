@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A driven session's research and review calls are no longer refused with "10 runs are unfinished": only top-level runs count toward that cap, and session calls are bounded by `driven.max_session_calls`. A waiting `orchestrate` call sends an MCP progress notification every 30 seconds (queued or running), so a client's 300-second idle timeout no longer aborts a call that waits for a slot. The tool description, the `run` and `change` skills and the session prompt say the request/v1 fields are the tool's top-level arguments; sessions had wrapped them in a `request` object and got a schema error.
+
 ## [0.8.7] - 2026-10-12
 
 How many runs and session calls execute at once is a profile setting.

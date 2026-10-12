@@ -41,7 +41,7 @@ branch and goes to step 9, recording the step and the error with its action.
 
 ## 2. Research
 
-Call `orchestrate` with `request/v1`: `contract_version` = "request/v1", `text` = "Answer without changing anything:
+Call `orchestrate` with the request/v1 fields as its top-level arguments (no `request` wrapper): `contract_version` = "request/v1", `text` = "Answer without changing anything:
 which files, functions and tests does this change touch, and how do they work today? The change: " followed by the
 goal (the research preset is read-only; a goal sent as is reads as an edit request and fails), `context.preset` =
 "default", `context.repository` = { path: the repository root, commit: the base commit (hex sha) },
@@ -83,7 +83,7 @@ One commit with a Conventional Commit message that describes the change.
 Diff input: `git diff <base>..HEAD`. If it is longer than 60000 characters, keep the first 60000 characters and
 append the line `[diff truncated at 60000 characters]`.
 
-Run step 5 before this step. Call `orchestrate` with `request/v1`: `contract_version` = "request/v1", `text` = "Review the change against its
+Run step 5 before this step. Call `orchestrate` with the request/v1 fields as its top-level arguments (no `request` wrapper): `contract_version` = "request/v1", `text` = "Review the change against its
 goal.", `context.preset` = "review", so preset "review" runs, `context.repository` = { path, commit: HEAD (hex sha) },
 `context.interactive` = false, the budget as in step 2, and `inputs`:
 `[{ "id": "goal", "kind": "goal", "text": <goal> }, { "id": "diff", "kind": "diff", "text": <diff input> },

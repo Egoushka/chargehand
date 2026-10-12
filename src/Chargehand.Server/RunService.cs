@@ -14,7 +14,7 @@ namespace Chargehand.Server;
 public sealed class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping, DrivenRun? driven = null,
     int maxConcurrentRuns = 1, int maxSessionCalls = 2) : IDisposable
 {
-    /// <summary>Unfinished runs held at most; beyond it a new run is refused (HTTP 429).</summary>
+    /// <summary>Unfinished top-level runs held at most; beyond it a new run is refused (HTTP 429). A session's research and review runs do not count: the child gate and the session count bound them.</summary>
     public const int MaxUnfinished = 10;
 
     private readonly SemaphoreSlim _gate = new(Math.Max(1, maxConcurrentRuns), Math.Max(1, maxConcurrentRuns));
@@ -78,14 +78,14 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         return bad.Count > 0 ? (null, bad) : (request, []);
     }
 
-    /// <summary>Queues a run, or returns null when <see cref="MaxUnfinished"/> runs are unfinished.</summary>
+    /// <summary>Queues a run, or returns null when <see cref="MaxUnfinished"/> top-level runs are unfinished (a run with <paramref name="chargeTo"/> is never refused).</summary>
     /// <param name="chargeTo">The parent run whose token started this one: it runs on the child gate and its cost goes to that run's ledger.</param>
     public RunHandle? Start(RunRequest request, string? parentRunId = null, string? chargeTo = null)
     {
         // ponytail: count-then-add is not atomic; two racing calls can exceed the bound by one.
-        if (_runs.Count >= MaxUnfinished)
+        if (chargeTo is null && _runs.Values.Count(r => !r.IsChild) >= MaxUnfinished)
             return null;
-        var run = new RunHandle(Orchestrator.NewRunId(), stopping);
+        var run = new RunHandle(Orchestrator.NewRunId(), stopping) { IsChild = chargeTo is not null };
         _runs[run.Id] = run;
         run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
         _ = Task.Run(() => Execute(run, request, parentRunId, chargeTo));
@@ -143,6 +143,9 @@ public sealed class RunHandle(string id, CancellationToken stopping) : IDisposab
     private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public string Id => id;
+
+    /// <summary>Started through a session's run token: it runs on the child gate.</summary>
+    public bool IsChild { get; init; }
 
     /// <summary>Cancelled by the server's shutdown or by <see cref="CancelByCaller"/>.</summary>
     public CancellationToken Token => _cancel.Token;

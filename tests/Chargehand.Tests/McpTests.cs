@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Chargehand.Contracts;
+using Chargehand.Driven;
 using Chargehand.Server;
 using ModelContextProtocol;
 using ModelContextProtocol.Client;
@@ -103,6 +104,63 @@ public class McpTests
         runtime.Hold.SetResult();
         var result = Result(await call);
         Assert.Contains($"/v1/runs/{result.TaskId}", messages.First(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_tool_description_says_the_arguments_are_not_wrapped_in_a_request_object()
+    {
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
+        await using var client = await Connect(s);
+        var tool = Assert.Single(await client.ListToolsAsync());
+        Assert.Contains("not wrapped in a \"request\" object", tool.Description, StringComparison.Ordinal);
+        Assert.Contains("no `request` wrapper", SessionCli.DefaultPrompt, StringComparison.Ordinal);
+        var wrapped = await client.CallToolAsync(OrchestrateTool.Name, new Dictionary<string, object?> { ["request"] = Args(Runs.DraftRequest()) });
+        Assert.True(wrapped.IsError);
+    }
+
+    [Fact]
+    public async Task A_session_call_is_accepted_when_the_unfinished_cap_is_full_of_top_level_runs()
+    {
+        var runtime = new ScriptedRuntime(Runs.WorkerReply) { Hold = new() };
+        await using var s = await TestServer.StartAsync(runtime);
+        for (var i = 0; i < RunService.MaxUnfinished; i++)
+            Assert.Equal(System.Net.HttpStatusCode.Accepted, (await s.PostAsync(Runs.DraftRequest(), waitSeconds: 0)).StatusCode);
+        var repo = Runs.GitRepo(s.WorkerRoot);
+        var token = s.Tokens.Issue(new RunTokenClaims("run-parent", repo.Path, repo.Commit, null, null, DateTimeOffset.UtcNow.AddHours(1)), DateTimeOffset.UtcNow);
+        await using var client = await Connect(s, bearer: token);
+        var messages = new ConcurrentQueue<string>();
+        var request = new RunRequest("request/v1", "What does the README say?", new RequestContext(false, "default", Repository: repo));
+        var call = client.CallToolAsync(OrchestrateTool.Name, Args(request).ToDictionary(a => a.Key, a => (object?)a.Value),
+            new Progress<ProgressNotificationValue>(p => messages.Enqueue(p.Message!))).AsTask();
+
+        await ServerTests.WaitUntil(() => Task.FromResult(!messages.IsEmpty || call.IsCompleted));
+        Assert.False(call.IsCompleted);
+        runtime.Hold.SetResult();
+        Assert.Equal(ResultStatus.Completed, Result(await call).Status);
+    }
+
+    [Fact]
+    public async Task A_waiting_call_sends_progress_at_an_interval_saying_whether_it_is_queued_or_running()
+    {
+        var runtime = new ScriptedRuntime(Runs.DraftReply) { Hold = new() };
+        await using var s = await TestServer.StartAsync(runtime);
+        await using var client = await Connect(s);
+        var messages = new ConcurrentQueue<string>();
+        var before = OrchestrateTool.ProgressInterval;
+        OrchestrateTool.ProgressInterval = TimeSpan.FromMilliseconds(100);
+        try
+        {
+            var call = client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value),
+                new Progress<ProgressNotificationValue>(p => messages.Enqueue(p.Message!))).AsTask();
+            await ServerTests.WaitUntil(() => Task.FromResult(messages.Any(m => m.Contains(" is queued;", StringComparison.Ordinal) || m.Contains(" is running;", StringComparison.Ordinal))));
+            Assert.False(call.IsCompleted);
+            runtime.Hold.SetResult();
+            Result(await call);
+        }
+        finally
+        {
+            OrchestrateTool.ProgressInterval = before;
+        }
     }
 
     [Fact]

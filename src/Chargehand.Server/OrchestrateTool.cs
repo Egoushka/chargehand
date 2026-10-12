@@ -24,6 +24,9 @@ public static class OrchestrateTool
 {
     public const string Name = "orchestrate";
 
+    /// <summary>How often a waiting call sends progress: a client aborts a call that is silent for 300 s.</summary>
+    internal static TimeSpan ProgressInterval = TimeSpan.FromSeconds(30);
+
     private const string AnswersKey = "answers";
 
     public static McpServerTool Create()
@@ -32,7 +35,8 @@ public static class OrchestrateTool
         {
             Name = Name,
             Description = "Run a request through chargehand: intake turns it into a Task Spec, coding-agent workers (OpenCode or Claude Code) answer it, and the result "
-                        + "comes back as result/v1 with evidence for every claim. Arguments are a request/v1 document.",
+                        + "comes back as result/v1 with evidence for every claim. The arguments are the request/v1 fields themselves: contract_version, text and context at the top level, "
+                        + "not wrapped in a \"request\" object.",
             UseStructuredContent = true,
             OutputSchema = Schema(ContractSchemas.Result),
         });
@@ -129,13 +133,37 @@ public static class OrchestrateTool
         var prefer = context.Services!.GetService<IHttpContextAccessor>()?.HttpContext?.Request.Headers["Prefer"].ToString() ?? "";
         try
         {
-            await run.Done.WaitAsync(WaitFor(request, prefer), ct);
+            await WaitWithProgress(context, run, WaitFor(request, prefer), ct);
         }
         catch (TimeoutException)
         {
             // Prefer: wait ran out; the caller answers with the run's status.
         }
         return run;
+    }
+
+    /// <summary>Waits for the run, telling a client that sent a progress token every <see cref="ProgressInterval"/> whether it is queued or running. Throws <see cref="TimeoutException"/> after <paramref name="wait"/>.</summary>
+    private static async Task WaitWithProgress(RequestContext<CallToolRequestParams> context, RunHandle run, TimeSpan wait, CancellationToken ct)
+    {
+        if (context.Params?.ProgressToken is not { } token)
+        {
+            await run.Done.WaitAsync(wait, ct);
+            return;
+        }
+        var started = DateTime.UtcNow;
+        for (var beat = 1; ; beat++)
+        {
+            var left = wait == Timeout.InfiniteTimeSpan ? ProgressInterval : wait - (DateTime.UtcNow - started);
+            try
+            {
+                await run.Done.WaitAsync(left < ProgressInterval ? left : ProgressInterval, ct);
+                return;
+            }
+            catch (TimeoutException) when (wait == Timeout.InfiniteTimeSpan || DateTime.UtcNow - started < wait)
+            {
+                await context.Server.NotifyProgressAsync(token, new ProgressNotificationValue { Progress = beat, Message = Where(run, run.Latest.Status == RunState.Queued ? "is queued" : "is running") }, cancellationToken: ct);
+            }
+        }
     }
 
     /// <summary>Without <c>Prefer: wait</c> the call waits for the result, except a batch (a <c>driven</c> block): it runs for minutes or hours and a client cannot set the header

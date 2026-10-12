@@ -21,7 +21,7 @@ public static class SessionCli
         Follow the /chargehand:change steps as written, with these changes:
         - Where a step would ask the user something, stop working and print a line `NEEDS_INPUT:` followed by the questions, one per line. Then finish.
         - The branch named in the environment variable CHARGEHAND_BRANCH already exists and is checked out: use it instead of choosing a `change/<slug>` name.
-        - Research and review call `orchestrate` with context.repository = {path: $CHARGEHAND_REPOSITORY_PATH, commit: $CHARGEHAND_BASE_COMMIT} (never /work or HEAD; the review's
+        - Research and review call `orchestrate` with contract_version, text and context as top-level arguments (no `request` wrapper), and context.repository = {path: $CHARGEHAND_REPOSITORY_PATH, commit: $CHARGEHAND_BASE_COMMIT} (never /work or HEAD; the review's
           diff is `git diff $CHARGEHAND_BASE_COMMIT..HEAD`). Never skip research or review: if a call is refused, fix it from the error; if chargehand stays unreachable, `NEEDS_INPUT:`.
         - Order: research, write, run the tests, then review; never review before the tests ran. If the goal cannot be met, still write your best attempt and run the tests, then
           finish saying why it cannot be done. Never stop after research alone and never edit a test to make it pass.
