@@ -59,7 +59,7 @@ From a terminal, or from a Claude Code session's Monitor tool, `chargehand watch
 
 ## The result
 
-Each task has its own `result/v1` under its own run id (`GET /v1/runs/{id}`); the batch result lists them. Its claims are the session's, cited against the pushed commit and put through the same evidence resolver and [support check](support-and-signing.md) as any result. Artifacts: `branch`, `pull-request`, `verification` (chargehand's run), `session-tests` (the session's claim), `review` (the nested runs), `session-log` (a reference and a hash, never inline). A task whose branch was fetched and changes something also has `changes` (below). A batch is `completed` only when every task ended in a draft pull request; otherwise it is `failed` with `tasks_incomplete` naming the tasks that did not.
+Each task has its own `result/v1` under its own run id (`GET /v1/runs/{id}`); the batch result lists them. Its claims are the session's, cited against the pushed commit and put through the same evidence resolver and [support check](support-and-signing.md) as any result. Artifacts: `branch`, `pull-request`, `verification` (chargehand's run), `session-tests` (the session's claim), `review` (the nested runs), `session-log` (a reference and a hash, never inline). A task whose branch was fetched and changes something also has `changes` (below). A batch is `completed` only when every task ended in a draft pull request; otherwise it is `failed` with `tasks_incomplete` naming the tasks that did not. A batch the caller cancelled (`POST /v1/runs/{id}/cancel`, `POST /v1/halt`) before it finished is `failed` with `cancelled` and the summary `cancelled by the caller: N of M tasks finished`; tasks that finished keep their outcome in the `driven-batch` artifact, running ones are `cancelled` and ones not yet started are `not_started` with error code `cancelled`.
 
 ### The `changes` artifact
 
@@ -99,7 +99,7 @@ A task that did not complete has error status on its span, and so does a batch t
 
 `max_parallel` (default 2, never above 4), and two ceilings because a subscription has no dollar price: a **token** ceiling that binds in both credential modes, and a **dollar** ceiling that binds with an API key. A batch starts no task it could not afford, and stops running tasks that overshoot its cap by more than one task's cap. A rate-limited or unavailable subscription stops new starts and says how to switch the profile to an API key; nothing switches on its own. Every session also ends on no progress, a repeated identical tool call, too many turns, or a wall clock.
 
-`POST /v1/runs/{id}/cancel` cancels a run; `POST /v1/halt` cancels every run and refuses new ones until `POST /v1/resume`; `GET /v1/runs` lists runs with state, cost, branch and pull-request link. `chargehand runs kill --all` removes the containers by label with no server. Cancel never pushes.
+`POST /v1/runs/{id}/cancel` cancels a run; `POST /v1/halt` cancels every run and refuses new ones until `POST /v1/resume`; `GET /v1/runs` lists runs with state, cost, branch and pull-request link. `chargehand runs kill --all` removes the containers by label with no server. Cancel never pushes. The cancelled batch's result says `cancelled`, not `tasks_incomplete`.
 
 ## Try it end to end
 

@@ -72,7 +72,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         try
         {
             key = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
-            result = await RunBatchAsync(request, runId, started, traceId, mint, key is null ? null : r => ResultSignature.Sign(r, key), progress, run, resume, Detaching, ct);
+            result = await RunBatchAsync(request, runId, started, traceId, mint, key is null ? null : r => ResultSignature.Sign(r, key), progress, run, resume, Detaching, () => cancelledByCaller?.Invoke() == true, ct);
         }
         catch (Exception e) when (e is not OperationCanceledException || cancelledByCaller?.Invoke() == true)
         {
@@ -156,7 +156,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         IdAfter(name, "chargehand-egress-") ?? IdAfter(name, "chargehand-prep-") ?? IdAfter(name, "chargehand-xfer-") ?? IdAfter(name, "chargehand-");
 
     private async Task<ResultContract> RunBatchAsync(RunRequest request, string runId, DateTimeOffset started, string traceId, TaskTokenMinter mint, Func<ResultContract, ResultContract>? sign,
-        Action<RunStatus>? progress, Activity? span, BatchState? resume, Func<bool> detaching, CancellationToken ct)
+        Action<RunStatus>? progress, Activity? span, BatchState? resume, Func<bool> detaching, Func<bool> cancelledByCaller, CancellationToken ct)
     {
         var settings = profile.Driven ?? new DrivenSettings();
         // Throws when the profile has driven sessions off, so a refused request touches nothing else.
@@ -238,7 +238,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var all = request.Driven.Tasks.Select(t => unresolved.FirstOrDefault(u => u.Id == t.Id) ?? ran.Tasks.First(o => o.Id == t.Id)).ToList();
         span?.SetTag("chargehand.driven.pr_urls", all.Select(o => o.PrUrl).OfType<string>().ToArray());
         span?.SetTag("chargehand.driven.tokens", all.Sum(o => o.Tokens));
-        return DrivenResult.BuildBatch(runId, traceId, "", new BatchOutcome(all, ran.Action), Delivery(model, exchange), priced, claude.Version);
+        return DrivenResult.BuildBatch(runId, traceId, "", new BatchOutcome(all, ran.Action), Delivery(model, exchange), priced, claude.Version,
+            cancelledByCaller: ct.IsCancellationRequested && cancelledByCaller());
     }
 
     private static RunStatus TaskFinished(string runId, TaskOutcome o) =>

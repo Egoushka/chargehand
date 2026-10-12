@@ -393,7 +393,8 @@ public class DrivenRunTests
         var result = await running;
 
         Assert.Equal(ResultStatus.Failed, result.Status);
-        Assert.Equal(ErrorCode.TasksIncomplete, result.Error!.Code);
+        Assert.Equal(ErrorCode.Cancelled, result.Error!.Code);
+        Assert.Equal("cancelled by the caller: 0 of 2 tasks finished", result.Summary);
         Assert.Equal(["cancelled", "cancelled"], BatchTasks(result).EnumerateArray().Select(t => t.GetProperty("status").GetString()));
         Assert.Equal(["t1", "t2"], events.Where(e => e.Event == RunEventKind.TaskFinished).Select(e => e.TaskId!).Order());
         Assert.Empty(rig.Handover.Inputs);
@@ -404,6 +405,78 @@ public class DrivenRunTests
             Assert.Contains($"rm cid-{spec.RunId}", rig.Engine.Calls);
         }
         Assert.Contains("network-rm chargehand-net-run-batch-3", rig.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_cancel_keeps_the_outcome_of_a_task_that_finished_and_reports_the_cancelled_batch_as_cancelled()
+    {
+        using var rig = new Rig();
+        rig.Engine.HoldNth = 2;
+        using var cts = new CancellationTokenSource();
+        var running = rig.Run.RunAsync(Request("Add a retry", "Add a backoff"), "run-batch-4", Token, cts.Token, cancelledByCaller: () => true);
+        while (rig.Handover.Inputs.Count < 1)
+            await Task.Delay(5);
+        await cts.CancelAsync();
+        var result = await running;
+
+        Assert.Equal(ResultStatus.Failed, result.Status);
+        Assert.Equal(ErrorCode.Cancelled, result.Error!.Code);
+        Assert.Equal("cancelled by the caller: 1 of 2 tasks finished", result.Summary);
+        Assert.Contains("t2", result.Error.Action);
+        var rows = BatchTasks(result).EnumerateArray().ToList();
+        Assert.Equal(["completed", "cancelled"], rows.Select(t => t.GetProperty("status").GetString()));
+        Assert.NotNull(rows[0].GetProperty("pr_url").GetString());
+    }
+
+    [Fact]
+    public async Task Tasks_a_cancel_stopped_before_they_started_are_not_started_with_the_cancelled_code()
+    {
+        using var rig = new Rig();
+        rig.Engine.HoldRunning = true;
+        using var cts = new CancellationTokenSource();
+        var request = Request("Add a retry", "Add a backoff");
+        request = request with { Driven = request.Driven! with { MaxParallel = 1 } };
+        var running = rig.Run.RunAsync(request, "run-batch-5", Token, cts.Token, cancelledByCaller: () => true);
+        while (rig.Engine.Started.Count < 1)
+            await Task.Delay(5);
+        await cts.CancelAsync();
+        var result = await running;
+
+        Assert.Equal(ErrorCode.Cancelled, result.Error!.Code);
+        Assert.Equal("cancelled by the caller: 0 of 2 tasks finished", result.Summary);
+        var rows = BatchTasks(result).EnumerateArray().ToList();
+        Assert.Equal(["cancelled", "not_started"], rows.Select(t => t.GetProperty("status").GetString()));
+        Assert.Equal("cancelled", rows[1].GetProperty("error_code").GetString());
+        Assert.Single(rig.Engine.Started);
+    }
+
+    [Fact]
+    public async Task A_cancel_over_http_ends_a_running_batch_failed_with_cancelled()
+    {
+        Rig? rig = null;
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), driven: (root, log) => (rig = new Rig(mcpForward: "chargehand-host:4300", dir: root, log: log)).Run);
+        rig!.Engine.HoldRunning = true;
+        var started = await s.PostAsync(JsonContent.Create(Request("Add a retry", "Add a backoff"), options: ContractJson.Options), waitSeconds: 0);
+        var id = (await started.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("run_id").GetString();
+        while (rig.Engine.Started.Count < 2)
+            await Task.Delay(5);
+
+        var cancel = await s.Http.PostAsync($"/v1/runs/{id}/cancel", null);
+        Assert.Equal(HttpStatusCode.Accepted, cancel.StatusCode);
+        JsonElement done = default;
+        for (var i = 0; i < 200 && done.ValueKind != JsonValueKind.Object; i++)
+        {
+            var get = await s.Http.GetAsync($"/v1/runs/{id}");
+            if (get.StatusCode == HttpStatusCode.OK)
+                done = await get.Content.ReadFromJsonAsync<JsonElement>();
+            else
+                await Task.Delay(50);
+        }
+
+        Assert.Equal("failed", done.GetProperty("status").GetString());
+        Assert.Equal("cancelled", done.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal("cancelled by the caller: 0 of 2 tasks finished", done.GetProperty("summary").GetString());
+        Assert.Empty(ContractSchemas.Validate(ContractSchemas.Result, done));
     }
 
     [Fact]

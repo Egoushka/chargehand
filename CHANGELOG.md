@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Cancelling a running driven batch (`POST /v1/runs/{id}/cancel`, `POST /v1/halt`) ends it `failed` with error code `cancelled` and the summary "cancelled by the caller: N of M tasks finished", not `tasks_incomplete`. Tasks that finished keep their outcome; a task the cancel stopped is `cancelled`, one it kept from starting is `not_started` with `cancelled` as its `error_code`. No schema change: `status` keeps its enum, as for a cancelled plain run.
+
 ## [0.8.8] - 2026-10-12
 
 Driven batches survive a server restart, and sessions' research and review calls stop failing under load.

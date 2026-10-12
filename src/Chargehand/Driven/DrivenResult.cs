@@ -140,10 +140,13 @@ public static class DrivenResult
     private static ResultContract Reject(ResultContract contract, ErrorCode code, string message, string action) =>
         contract with { Status = ResultStatus.Failed, Summary = message, Confidence = 0, Error = new ResultError(code, message, false, action) };
 
-    /// <summary>The batch's own result: completed when every task ended in a draft pull request, else failed <c>tasks_incomplete</c> naming the tasks that did not. Each task also has its
+    /// <summary>The batch's own result: completed when every task ended in a draft pull request, else failed <c>tasks_incomplete</c> naming the tasks that did not; failed
+    /// <c>cancelled</c> when the caller cancelled the batch before it finished (the same code as any cancelled run, <c>status</c> keeps its enum). Each task also has its
     /// own result under its own run id; this one lists them in the <c>driven-batch</c> artifact.</summary>
+    /// <param name="cancelledByCaller">The caller (not a shutdown) cancelled the batch.</param>
     /// <param name="CredentialDelivery">How the model credential reached the containers (<c>gateway</c>: a per-task token, the real credential only in the egress container; <c>environment</c>: the real credential in the session container's environment).</param>
-    public static ResultContract BuildBatch(string runId, string traceId, string description, BatchOutcome outcome, string credentialDelivery, bool priced, string claudeVersion)
+    public static ResultContract BuildBatch(string runId, string traceId, string description, BatchOutcome outcome, string credentialDelivery, bool priced, string claudeVersion,
+        bool cancelledByCaller = false)
     {
         var chain = new PromptChain([], new AsSent($"claude-code/{claudeVersion}", "driven", "batch", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         var rows = outcome.Tasks.Select(t => new
@@ -166,9 +169,16 @@ public static class DrivenResult
         var message = $"{incomplete.Count} of {outcome.Tasks.Count} tasks did not produce a pull request";
         var action = $"Tasks that did not finish: {string.Join(", ", incomplete)}. Read each task's own result under its run id, fix what it names and send those tasks again."
             + (outcome.Action is null ? "" : $" {outcome.Action}");
+        var code = ErrorCode.TasksIncomplete;
+        if (cancelledByCaller)
+        {
+            message = $"cancelled by the caller: {outcome.Tasks.Count - incomplete.Count} of {outcome.Tasks.Count} tasks finished";
+            action = $"Tasks that did not finish: {string.Join(", ", incomplete)}; nothing from them was pushed. Send those tasks again if they are still wanted.";
+            code = ErrorCode.Cancelled;
+        }
         var questions = outcome.Tasks.Where(t => t.State != TaskState.Completed).Select(t => $"Task {t.Id}: {Snake(t.State.ToString()).Replace('_', ' ')}: {t.Detail ?? "no detail"}").ToList();
         return new ResultContract("result/v1", runId, "driven", traceId, chain, ResultStatus.Failed, message, [], [], [artifact], questions, 0.5, usage,
-            new ResultError(ErrorCode.TasksIncomplete, message, false, action));
+            new ResultError(code, message, false, action));
     }
 
     /// <summary>The <c>changes</c> artifact: every changed path with its line counts, and the diff. It is inline, so it stays within 64 KiB: the diff goes first
