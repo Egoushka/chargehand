@@ -74,6 +74,25 @@ public class ProfileTests
     }
 
     [Fact]
+    public void Driven_admission_loads_and_leaves_out_what_it_defaults()
+    {
+        using var dir = new TempDir();
+        var admission = Profile.Load(dir.Write("local.json", """{"schema":"profile/v1","driven":{"admission":{"max_load_per_cpu":1.5}}}""")).Driven!.Admission!;
+        Assert.Equal(new DrivenAdmission(1024, 1.5), admission);
+        Assert.Equal(new DrivenAdmission(2048), Profile.Load(dir.Write("reserve.json", """{"schema":"profile/v1","driven":{"admission":{"reserve_mb":2048}}}""")).Driven!.Admission);
+    }
+
+    [Theory]
+    [InlineData("""{"reserve_mb":-1}""")]
+    [InlineData("""{"max_load_per_cpu":0}""")]
+    public void A_driven_admission_setting_that_cannot_work_is_refused(string admission)
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("local.json", $$$"""{"schema":"profile/v1","driven":{"admission":{{{admission}}}}}""");
+        Assert.Equal(ErrorCode.InvalidRequest, Assert.Throws<ChargehandException>(() => Profile.Load(path)).Code);
+    }
+
+    [Fact]
     public void Default_worker_root_is_outside_home()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

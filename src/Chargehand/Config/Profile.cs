@@ -83,6 +83,7 @@ public sealed record Profile(
             enhancer.Validate(servers);
         profile.Driven?.Limits?.Validate();
         profile.Driven?.Governor?.Validate();
+        profile.Driven?.Admission?.Validate();
         return profile;
     }
 
@@ -403,6 +404,7 @@ public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string L
 /// sessions than this, a session's call waits for a slot.</param>
 /// <param name="Limits">Operational limits that replace the driven preset's: tuning them needs no Prompt CI run, which gates the preset file.</param>
 /// <param name="Governor">ADR 0045's governor; null: the defaults of <see cref="DrivenGovernor"/> (observe).</param>
+/// <param name="Admission">What the host must have free before a task starts; null: the defaults of <see cref="DrivenAdmission"/>.</param>
 public sealed record DrivenSettings(
     bool Enabled = false,
     int MaxParallel = 2,
@@ -414,7 +416,25 @@ public sealed record DrivenSettings(
     DrivenTaskSource? TaskSource = null,
     int MaxSessionCalls = 2,
     DrivenLimits? Limits = null,
-    DrivenGovernor? Governor = null);
+    DrivenGovernor? Governor = null,
+    DrivenAdmission? Admission = null);
+
+/// <summary>When the host has room for another session (ADR 0045). A task starts only if available memory minus <c>ReserveMb</c> covers its container's memory limit;
+/// a running task is never stopped for it.</summary>
+/// <param name="ReserveMb">Memory left for everything else on the host.</param>
+/// <param name="MaxLoadPerCpu">A one-minute load per processor above this holds new starts; null: no load rule.</param>
+public sealed record DrivenAdmission(int ReserveMb = 1024, double? MaxLoadPerCpu = null)
+{
+    /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
+    internal void Validate()
+    {
+        var problems = new List<string>();
+        if (ReserveMb < 0) problems.Add("reserve_mb must be at least 0");
+        if (MaxLoadPerCpu is <= 0) problems.Add("max_load_per_cpu must be above 0");
+        if (problems.Count > 0)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.admission: {string.Join("; ", problems)}", "Fix driven.admission in the profile; docs/guide/driven.md lists the keys.");
+    }
+}
 
 /// <summary>The governor's settings for every session (ADR 0045). Profile keys, not preset keys, for the reason <see cref="DrivenLimits"/> gives. Each threshold left out keeps
 /// <see cref="SessionGovernor"/>'s default.</summary>

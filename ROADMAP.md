@@ -58,7 +58,7 @@ maintainer's approval and a new session-image digest.
 5. · **Driven limits move to the profile**: out of `presets/driven.yaml`, so a limit change no longer starts the
    model-backed gate of up to two hours; and `task.json` skips unknown members, so a new host does not kill an older
    session image. Needs: nothing. Land the `task.json` half before 3.
-6. · **Admission by free memory and load**: the runner serves `GET /host`; the scheduler admits a task only when its
+6. ▶ **Admission by free memory and load**: the runner serves `GET /host`; the scheduler admits a task only when its
    memory limit is free; sessions get swap equal to memory. Needs: nothing in code; the runner redeploys.
 7. · **A cancelled batch reports `cancelled`**: new status values (additive) and an owner record on resume. Needs:
    nothing.
