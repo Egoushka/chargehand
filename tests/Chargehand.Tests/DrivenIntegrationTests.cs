@@ -1,0 +1,190 @@
+using System.Text.Json;
+using Chargehand.Config;
+using Chargehand.Contracts;
+using Chargehand.Driven;
+
+namespace Chargehand.Tests;
+
+/// <summary>ADR 0046 in a batch: a finished task's pull request is marked ready and merged by policy on an opted-in repository, a CI failure starts a fix session on the same branch, and a repository
+/// that is not opted in is not touched. The sessions are scripted by the fake output volume and GitHub by <see cref="FakeIntegrationHost"/>; nothing starts a container or reaches a network.</summary>
+public class DrivenIntegrationTests
+{
+    private const string Commit = "abc1234def5678abc1234def5678abc1234def56";
+    private const string BatchId = "run-batch-i";
+
+    private static string Token(TaskGrant g) => $"tok-{g.RunId}";
+
+    private static RunRequest One(string goal = "Add a retry") =>
+        new("request/v1", "Run the tasks.", new RequestContext(false, "driven", Repository: new RepositoryRef("/srv/repo", Commit)),
+            Driven: new RequestDriven([new DrivenTask("t1", Goal: goal)], MaxParallel: 1, MaxTokensTotal: 10_000_000, MaxUsdTotal: 5m));
+
+    private static DrivenIntegrator Config(string mode = "merge", string[]? alwaysAsk = null, string repository = "o/r") =>
+        new(1, 2, "app-key", new Dictionary<string, string> { [repository] = mode }, alwaysAsk);
+
+    private static SessionOutcome Done(int commits) => new(SessionStatus.Completed, "", 30, 1000, 200, 4000, null, 0, [], true, Commits: commits);
+
+    private static JsonElement Row(ResultContract result) =>
+        JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "driven-batch").Content!).RootElement.GetProperty("tasks").EnumerateArray().Single();
+
+    private static FakeIntegrationHost Host(bool mergedOnceEnabled = true)
+    {
+        var host = new FakeIntegrationHost();
+        host.Script = h => h.Calls.Any(c => c.StartsWith("auto-merge", StringComparison.Ordinal)) && mergedOnceEnabled ? h.Current with { Merged = true } : h.Current;
+        return host;
+    }
+
+    [Fact]
+    public async Task A_finished_task_on_a_merge_repository_is_marked_ready_and_auto_merged_and_the_run_says_so()
+    {
+        var host = Host();
+        using var rig = new DrivenRunTests.Rig(integrator: Config(), integration: host);
+        List<RunStatus> events = [];
+
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default, events.Add);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal(["get", "behind main " + rig.Handover.Inputs[0].Branch, "ready", "get", "auto-merge aaaaaaa1", "get"], host.Calls);
+        var told = events.Where(e => e.Event == RunEventKind.Integrated).Select(e => e.Detail).ToList();
+        Assert.Equal("task t1: marked ready for review", told[0]);
+        Assert.Contains(told, d => d!.StartsWith("task t1: auto-merge (squash) enabled for aaaaaaa;", StringComparison.Ordinal));
+        Assert.Equal("task t1: merged", told[^1]);
+        Assert.All(events.Where(e => e.Event == RunEventKind.Integrated), e => Assert.Equal("t1", e.TaskId));
+        var row = Row(result);
+        Assert.Equal("completed", row.GetProperty("status").GetString());
+        Assert.StartsWith("integration: auto-merge (squash) enabled", row.GetProperty("detail").GetString());
+        Assert.EndsWith("; merged", row.GetProperty("detail").GetString());
+        // The pull request body says what happens to it.
+        Assert.Contains("enable auto-merge", rig.Handover.Inputs[0].PolicyNote);
+    }
+
+    [Fact]
+    public async Task A_repository_that_is_not_opted_in_is_not_touched_and_its_body_stays_draft_only()
+    {
+        var host = Host();
+        using var rig = new DrivenRunTests.Rig(integrator: Config(repository: "o/other"), integration: host);
+
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Empty(host.Calls);
+        Assert.Null(rig.Handover.Inputs[0].PolicyNote);
+        Assert.Equal(JsonValueKind.Null, Row(result).GetProperty("detail").ValueKind);
+    }
+
+    [Fact]
+    public async Task With_no_integrator_block_nothing_changes_even_if_a_host_is_supplied()
+    {
+        var host = Host();
+        using var rig = new DrivenRunTests.Rig(integration: host);
+
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Empty(host.Calls);
+        Assert.Null(rig.Handover.Inputs[0].PolicyNote);
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.DoesNotContain(rig.Engine.Calls, c => c.Contains("fix", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task A_partial_draft_is_never_touched_even_on_a_merge_repository()
+    {
+        var host = Host();
+        using var rig = new DrivenRunTests.Rig(integrator: Config(), integration: host,
+            outcomes: (_, _) => new SessionOutcome(SessionStatus.TokenCap, "token_cap", 80, 1000, 200, 4000, null, 0, [], true, Commits: 3));
+
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.True(Assert.Single(rig.Handover.Inputs).Partial);
+        Assert.Null(rig.Handover.Inputs[0].PolicyNote);
+        Assert.Empty(host.Calls);
+        Assert.Equal("failed", Row(result).GetProperty("status").GetString());
+        Assert.Contains("integration: partial result: the pull request stays a draft and is never merged", Row(result).GetProperty("detail").GetString());
+    }
+
+    [Fact]
+    public async Task An_always_ask_repository_is_marked_ready_and_commented_on_and_never_merged()
+    {
+        var host = new FakeIntegrationHost();
+        host.Script = h => h.Current with { Checks = [new CheckStatus("build", true, CheckOutcome.Passed, 900)] };
+        using var rig = new DrivenRunTests.Rig(integrator: Config("merge", ["o/r"]), integration: host);
+
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Contains("ready", host.Calls);
+        Assert.Contains("comment", host.Calls);
+        Assert.DoesNotContain(host.Calls, c => c.StartsWith("auto-merge", StringComparison.Ordinal) || c.StartsWith("merge ", StringComparison.Ordinal));
+        Assert.Contains("left for a person", Row(result).GetProperty("detail").GetString());
+        Assert.Contains("asks first", rig.Handover.Inputs[0].PolicyNote);
+    }
+
+    [Fact]
+    public async Task A_GitHub_error_does_not_fail_a_task_whose_pull_request_is_open()
+    {
+        var host = new FakeIntegrationHost { ReadFails = new IntegrationException("GitHub answered 502") };
+        using var rig = new DrivenRunTests.Rig(integrator: Config(), integration: host);
+
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Contains("integration stopped: GitHub answered 502", Row(result).GetProperty("detail").GetString());
+    }
+
+    [Fact]
+    public async Task A_failing_required_check_starts_a_fix_session_on_the_same_branch_seeded_from_the_last_bundle_and_its_push_is_the_second_handover()
+    {
+        var host = new FakeIntegrationHost();
+        host.Logs[900] = "FAILED Retry.Tests: expected 3 but got 2";
+        using var rig = new DrivenRunTests.Rig(integrator: Config(), integration: host,
+            outcomes: (_, goal) => goal.StartsWith("Fix the failing CI checks", StringComparison.Ordinal) ? Done(5) : Done(4));
+        // The fix is "pushed" when the second handover has run; the pretend CI then passes and GitHub merges.
+        host.Script = h =>
+        {
+            var fixedOnce = rig.Handover.Inputs.Count >= 2;
+            return h.Current with { HeadSha = fixedOnce ? "head1" : "head0", Merged = fixedOnce, Checks = [new CheckStatus("build", true, fixedOnce ? CheckOutcome.Passed : CheckOutcome.Failed, 900)] };
+        };
+        List<RunStatus> events = [];
+
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default, events.Add);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        var (first, second) = (rig.Engine.Started[0].RunId, rig.Engine.Started[1].RunId);
+        Assert.Equal(2, rig.Engine.Started.Count);
+        var task = rig.Volumes.Tasks[1];
+        Assert.Equal($"chargehand/{first}", task.Branch);
+        Assert.StartsWith($"Fix the failing CI checks on branch chargehand/{first}. This is fix attempt 1 of 3", task.Goal);
+        Assert.Contains("Add a retry", task.Goal);
+        Assert.Contains("- build\n```text\nFAILED Retry.Tests: expected 3 but got 2\n```", task.Goal);
+        Assert.Equal((20, 15), (task.MaxTurns, task.MaxMinutes));
+        var seed = Assert.Single(rig.Volumes.Seeds);
+        Assert.Equal(second, seed.RunId);
+        Assert.EndsWith(Path.Combine("out", first, "chargehand.bundle"), seed.Path);
+        // The fix goes through the same handover: its own tests, the same branch, not partial, the work of the fix session.
+        Assert.Equal(2, rig.Handover.Inputs.Count);
+        Assert.Equal((rig.Handover.Inputs[0].Branch, second, false), (rig.Handover.Inputs[1].Branch, rig.Handover.Inputs[1].RunId, rig.Handover.Inputs[1].Partial));
+        // The attempt is on the pull request, and the fix session's tokens are the task's.
+        Assert.Contains(host.Comments, c => c.Contains("chargehand-ci-fix attempt=1", StringComparison.Ordinal));
+        var row = Row(result);
+        Assert.Equal(2400, row.GetProperty("tokens").GetInt64());
+        Assert.Contains("(1 CI fix attempt(s) pushed)", row.GetProperty("detail").GetString());
+        Assert.Contains(events, e => e.Event == RunEventKind.ContainerStarted && e.Detail == "task t1: session container started (CI fix attempt 1 of 3)");
+        Assert.Single(events, e => e.Event == RunEventKind.PrOpened);
+        // Both sessions' containers are cleaned up.
+        Assert.Contains($"rm cid-{first}", rig.Engine.Calls);
+        Assert.Contains($"rm cid-{second}", rig.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_fix_session_that_ends_without_a_commit_pushes_nothing_and_the_task_still_completes()
+    {
+        var host = new FakeIntegrationHost();
+        host.Script = h => h.Current with { Checks = [new CheckStatus("build", true, CheckOutcome.Failed, 900)] };
+        using var rig = new DrivenRunTests.Rig(integrator: Config(), integration: host,
+            outcomes: (_, _) => Done(4));
+
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal(2, rig.Engine.Started.Count);
+        Assert.Single(rig.Handover.Inputs);
+        Assert.Contains("pushed nothing: the session made no new commit", Row(result).GetProperty("detail").GetString());
+    }
+}

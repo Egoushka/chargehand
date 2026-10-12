@@ -332,7 +332,18 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     return new Chargehand.Driven.DrivenRun(profile, runLog, root, new Chargehand.Driven.DrivenServices(engine, workspace, volumes,
         push => new Chargehand.Driven.GitHubPullRequests(new HttpClient { BaseAddress = new Uri(Environment.GetEnvironmentVariable("CHARGEHAND_E2E_GITHUB_API") ?? "https://api.github.com/") }, push.Value),
         driven.TaskSource is { } source ? new Chargehand.Mcp.McpTaskSource(source, mcpPool) : null,
-        orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck, Host: hostSource), stateDirectory);
+        orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck, Host: hostSource,
+        Integration: IntegrationHost(driven)), stateDirectory);
+}
+
+// The App's token source lives as long as the process, so a token is fetched once an hour at most (ADR 0046). The key is read from the secret store only when a token is needed.
+Chargehand.Driven.IIntegrationHost? IntegrationHost(Chargehand.Config.DrivenSettings driven)
+{
+    if (driven.Integrator is not { } integrator)
+        return null;
+    var api = new HttpClient { BaseAddress = new Uri(Environment.GetEnvironmentVariable("CHARGEHAND_E2E_GITHUB_API") ?? "https://api.github.com/") };
+    return new Chargehand.Driven.GitHubIntegrationHost(api,
+        new Chargehand.Driven.GitHubInstallationTokens(api, integrator.AppId, integrator.InstallationId, () => profile.Secret(integrator.PrivateKeySecret), TimeProvider.System));
 }
 
 async Task<int> Serve()

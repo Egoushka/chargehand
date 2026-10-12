@@ -84,6 +84,7 @@ public sealed record Profile(
         profile.Driven?.Limits?.Validate();
         profile.Driven?.Governor?.Validate();
         profile.Driven?.Admission?.Validate();
+        profile.Driven?.Integrator?.Validate();
         return profile;
     }
 
@@ -405,6 +406,7 @@ public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string L
 /// <param name="Limits">Operational limits that replace the driven preset's: tuning them needs no Prompt CI run, which gates the preset file.</param>
 /// <param name="Governor">ADR 0045's governor; null: the defaults of <see cref="DrivenGovernor"/> (observe).</param>
 /// <param name="Admission">What the host must have free before a task starts; null: the defaults of <see cref="DrivenAdmission"/>.</param>
+/// <param name="Integrator">ADR 0046: merge by policy and fix failing CI as a GitHub App; null: draft pull requests only, as before.</param>
 public sealed record DrivenSettings(
     bool Enabled = false,
     int MaxParallel = 2,
@@ -417,7 +419,8 @@ public sealed record DrivenSettings(
     int MaxSessionCalls = 2,
     DrivenLimits? Limits = null,
     DrivenGovernor? Governor = null,
-    DrivenAdmission? Admission = null);
+    DrivenAdmission? Admission = null,
+    DrivenIntegrator? Integrator = null);
 
 /// <summary>When the host has room for another session (ADR 0045). A task starts only if available memory minus <c>ReserveMb</c> covers its container's memory limit;
 /// a running task is never stopped for it.</summary>

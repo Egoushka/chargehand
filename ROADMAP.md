@@ -69,7 +69,7 @@ maintainer's approval and a new session-image digest.
 10. · **Shared services**: first an environment note in the prompt (what the container has, how to run the tests);
     then a build and test service with warm caches, JDK and Gradle verification, and a code-index mount scoped to the
     base commit. Needs: 6, and a runner ADR. **Maintainer** approves the server change.
-11. · **Integrator and CI fixer** behind a GitHub App credential: update the branch, merge by policy through required
+11. ▶ **Integrator and CI fixer** (ADR 0046, in review; built and tested against a fake GitHub host, not yet run against GitHub) behind a GitHub App credential: update the branch, merge by policy through required
     checks and `--auto`, and a short session that fixes a small CI failure (at most 3 attempts, one per failing-job
     set). Supersedes ADR 0039 decision 2 and ADR 0015 for repositories that opt in; a repository the maintainer lists
     (the one that deploys his servers) always asks. Needs: 3 and a new ADR. **Maintainer** creates the GitHub App and

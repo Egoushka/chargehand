@@ -97,6 +97,19 @@ public class ConfigFileTests
         Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
     }
 
+    [Theory]
+    [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2,"private_key_secret":"app-key","repositories":{"o/r":"merge","o/s":"ask"},"always_ask":["o/servers"],"ci_fix":{"max_attempts":3,"max_turns":20,"max_minutes":15,"wait_minutes":20}}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2}}}""", false)] // the key's secret item is required
+    [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2,"private_key_secret":"k","repositories":{"o/r":"yes"}}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2,"private_key_secret":"k","repositories":{"not-a-repo":"merge"}}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2,"private_key_secret":"k","ci_fix":{"max_attempts":4}}}}""", false)] // three attempts at most
+    [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2,"private_key_secret":"k","token":"x"}}}""", false)] // no credential in the profile
+    public void The_schema_checks_the_integrator(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
     [Fact]
     public void Max_parallel_nodes_defaults_to_2_and_loads()
     {
