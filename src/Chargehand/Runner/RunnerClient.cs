@@ -2,12 +2,13 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Chargehand.Containers;
 using Chargehand.Contracts;
+using Chargehand.Driven;
 
 namespace Chargehand.Runner;
 
 /// <summary>An <see cref="IContainerEngine"/> over the runner's HTTP API (ADR 0039), for a server that must not hold the container engine's
 /// socket. The <see cref="HttpClient"/> carries the base address and the bearer key.</summary>
-public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine
+public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine, IHostSource
 {
     public async Task<string> StartAsync(ContainerSpec spec, CancellationToken ct)
     {
@@ -103,6 +104,19 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspace
     {
         var reply = await Send<RunnerResources>(HttpMethod.Get, "/resources", null, ct);
         return new EngineResources(reply.Containers, reply.Networks, reply.Volumes);
+    }
+
+    /// <summary>The runner's host snapshot. A runner older than <c>GET /host</c> answers 404: null, which the scheduler reads as "unknown".</summary>
+    public async Task<HostSnapshot?> ReadAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await Send<HostSnapshot>(HttpMethod.Get, "/host", null, ct);
+        }
+        catch (ChargehandException e) when (e.Message.Contains("404", StringComparison.Ordinal))
+        {
+            return null;
+        }
     }
 
     private sealed record IdReply(string Id);

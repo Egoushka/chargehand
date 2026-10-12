@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Containers;
+using Chargehand.Driven;
 using Chargehand.Runner;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -26,7 +27,8 @@ public static class RunnerServer
 {
     private const long MaxSeedBytes = 128L * 1024 * 1024;
 
-    public static WebApplication Create(RunnerSettings settings, IContainerEngine engine)
+    /// <param name="host">What <c>GET /host</c> reports; null: this machine's <c>/proc</c>. In a container that is the host's unless the engine hides it (lxcfs, a user namespace).</param>
+    public static WebApplication Create(RunnerSettings settings, IContainerEngine engine, IHostSource? host = null)
     {
         var address = IPAddress.Parse(settings.Listen);
         IReadOnlyList<string> hosts = settings.AllowedHosts ?? [];
@@ -164,6 +166,8 @@ public static class RunnerServer
             await engine.KillAllAsync(ct);
             return Ok(new { });
         }));
+
+        app.MapGet("/host", (CancellationToken ct) => Guard(async () => Ok(await (host ?? new HostProbe()).ReadAsync(ct) ?? new HostSnapshot(null, null, null, null, null, null))));
 
         app.MapGet("/count", (HttpContext ctx, CancellationToken ct) => Guard(async () => Ok(new { count = await engine.CountAsync(ct) })));
 

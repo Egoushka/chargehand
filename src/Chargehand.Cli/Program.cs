@@ -285,17 +285,18 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         return new Chargehand.Driven.DrivenRun(profile, runLog, root, null);
     Chargehand.Containers.IContainerEngine engine;
     Chargehand.Containers.IWorkspaceEngine workspace;
+    Chargehand.Driven.IHostSource hostSource;
     if (driven.Runner is { } runner)
     {
         var http = new HttpClient { BaseAddress = new Uri(runner.Url) };
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", profile.Secret(runner.ApiKeySecret));
         var client = new Chargehand.Runner.RunnerClient(http);
-        (engine, workspace) = (client, client);
+        (engine, workspace, hostSource) = (client, client, client);
     }
     else
     {
         var docker = new Chargehand.Containers.DockerCliEngine();
-        (engine, workspace) = (docker, docker);
+        (engine, workspace, hostSource) = (docker, docker, new Chargehand.Driven.HostProbe());
     }
     // Both engines move files through a volume with a helper started from the session image; without an image no batch starts anyway.
     Chargehand.Driven.ISessionVolumes volumes = engine is Chargehand.Containers.IOutVolumeEngine files && driven.Images is { Count: > 0 } images
@@ -304,7 +305,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     return new Chargehand.Driven.DrivenRun(profile, runLog, root, new Chargehand.Driven.DrivenServices(engine, workspace, volumes,
         push => new Chargehand.Driven.GitHubPullRequests(new HttpClient { BaseAddress = new Uri(Environment.GetEnvironmentVariable("CHARGEHAND_E2E_GITHUB_API") ?? "https://api.github.com/") }, push.Value),
         driven.TaskSource is { } source ? new Chargehand.Mcp.McpTaskSource(source, mcpPool) : null,
-        orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck), stateDirectory);
+        orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck, Host: hostSource), stateDirectory);
 }
 
 async Task<int> Serve()

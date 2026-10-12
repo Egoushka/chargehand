@@ -24,6 +24,7 @@ public class ContainerTemplateTests
         Assert.Equal("10001:10001", After("--user"));
         Assert.Equal("512", After("--pids-limit"));
         Assert.Equal("4096m", After("--memory"));
+        Assert.Equal("8192m", After("--memory-swap"));
         Assert.Equal("2", After("--cpus"));
         Assert.Equal("net-batch-1", After("--network"));
         Assert.Equal("chargehand.run=run-1", After("--label"));

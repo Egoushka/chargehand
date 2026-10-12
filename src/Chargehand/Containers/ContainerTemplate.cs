@@ -58,6 +58,7 @@ public static partial class ContainerTemplate
             "--user", spec.User,
             "--pids-limit", spec.Pids.ToString(CultureInfo.InvariantCulture),
             "--memory", $"{spec.MemoryMb.ToString(CultureInfo.InvariantCulture)}m",
+            "--memory-swap", $"{(2 * spec.MemoryMb).ToString(CultureInfo.InvariantCulture)}m",
             "--cpus", spec.Cpus.ToString("0.##", CultureInfo.InvariantCulture),
             "--network", spec.Network,
             "-v", $"{spec.WorkVolume}:/work",

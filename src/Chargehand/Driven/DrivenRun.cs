@@ -17,11 +17,12 @@ public sealed record DrivenCheckout(string Directory, string Commit, string Remo
 
 /// <summary>What a batch needs from the outside world; the CLI builds it from the profile when driven sessions are on, a test supplies fakes.</summary>
 /// <param name="Secret">Resolves a secret item by name (the profile's sources).</param>
+/// <param name="Host">Where admission reads the host's free memory and load (the runner, or this machine); null: tasks start by count only.</param>
 /// <param name="HandoverFor">The handover of a batch; null: <see cref="Handover"/> with a <see cref="ContainerVerifier"/> on <see cref="Engine"/> and <see cref="PullRequestsFor"/>.</param>
 public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Workspace, ISessionVolumes Volumes, Func<PushCredential, IPullRequests> PullRequestsFor, ITaskSource? TaskSource,
     Func<RepositoryRef, string, CancellationToken, Task<DrivenCheckout>> Checkout, IEvidenceResolver Resolver, Func<string, string> Secret,
     Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? SupportCheck = null, Func<ContainerVerifierSettings, PushCredential, IBranchHandover>? HandoverFor = null,
-    TimeSpan? Poll = null);
+    TimeSpan? Poll = null, IHostSource? Host = null);
 
 /// <summary>A request with a <c>driven</c> block, from start to the batch's result (ADR 0039): tasks resolved, the batch network up, tasks run under the batch's limits by
 /// <see cref="TaskRunner"/>, the network down, and one <c>result/v1</c> that lists the tasks. Every refusal (driven sessions off, no push credential, no image) is a failed
@@ -42,7 +43,15 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     private readonly SemaphoreSlim _global = new(Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4));
 
-    public void Dispose() => _global.Dispose();
+    private readonly HostAdmission? _admission = services?.Host is { } host
+        ? new HostAdmission(host, profile.Driven?.Admission ?? new DrivenAdmission(), log: message => Console.Error.WriteLine($"chargehand: {message}"))
+        : null;
+
+    public void Dispose()
+    {
+        _global.Dispose();
+        _admission?.Dispose();
+    }
 
     /// <param name="resume">The saved state of a batch a restart interrupted: the batch carries on from it under the same run id (ADR 0043).</param>
     public async Task<ResultContract> RunAsync(RunRequest request, string runId, TaskTokenMinter mint, CancellationToken ct, Action<RunStatus>? progress = null,
@@ -222,13 +231,13 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true || otlp is not null, otlp,
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey, settings.Governor ?? new DrivenGovernor());
             var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress, journal: journal, detaching: detaching);
-            ran = await new BatchScheduler(runner).RunAsync(ready, limits, ct, o =>
+            ran = await new BatchScheduler(runner, admission: _admission, taskMemoryMb: drivenPreset.MemoryMb).RunAsync(ready, limits, ct, o =>
             {
                 if (detaching())
                     return;
                 journal?.Finish(o);
                 progress?.Invoke(TaskFinished(runId, o));
-            });
+            }, (id, why) => progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.SessionProgress) with { TaskId = id, Detail = $"task {id}: {why}" }));
         }
         finally
         {

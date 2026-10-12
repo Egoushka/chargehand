@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using Chargehand.Containers;
+using Chargehand.Contracts;
+using Chargehand.Driven;
 using Chargehand.Runner;
 using Chargehand.Server;
 
@@ -387,6 +389,41 @@ public class RunnerTests
         var e = Assert.Throws<InvalidOperationException>(() => RunnerServer.Create(
             new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage), Listen: "0.0.0.0"), new FakeEngine()));
         Assert.Contains("allowed_hosts", e.Message);
+    }
+
+    private sealed class FixedHost(HostSnapshot? snapshot) : IHostSource
+    {
+        public Task<HostSnapshot?> ReadAsync(CancellationToken ct) => Task.FromResult(snapshot);
+    }
+
+    private sealed class StatusHandler(HttpStatusCode status) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent("""{"error":"not found"}""", Encoding.UTF8, "application/json") });
+    }
+
+    [Fact]
+    public async Task The_host_route_serves_the_snapshot_to_the_client_and_needs_the_key()
+    {
+        var snapshot = new HostSnapshot(2300, 16000, 2048, 1500, 0.75, 8);
+        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage)), new FakeEngine(), new FixedHost(snapshot));
+        await app.StartAsync();
+        var address = new Uri(app.Urls.First());
+        using var http = Runner.Authorized(address, Key);
+        using var anonymous = new HttpClient { BaseAddress = address };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/host")).StatusCode);
+        Assert.Contains("\"available_mb\":2300", await http.GetStringAsync("/host"));
+        Assert.Equal(snapshot, await new RunnerClient(http).ReadAsync(default));
+        await app.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task A_runner_without_the_host_route_is_unknown_to_the_client_not_an_error()
+    {
+        using var http = new HttpClient(new StatusHandler(HttpStatusCode.NotFound)) { BaseAddress = new Uri("http://runner.test") };
+        Assert.Null(await new RunnerClient(http).ReadAsync(default));
+        using var refused = new HttpClient(new StatusHandler(HttpStatusCode.Forbidden)) { BaseAddress = new Uri("http://runner.test") };
+        await Assert.ThrowsAsync<ChargehandException>(() => new RunnerClient(refused).ReadAsync(default));
     }
 
     [Fact]
