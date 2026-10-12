@@ -50,7 +50,8 @@ public sealed class AllowlistProxy(AllowlistMatcher matcher, Func<string, Cancel
                 }, CancellationToken.None);
             }
         }
-        catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException) { }
+        // Stop() can land between the cancellation check and the accept: then the accept throws "Not listening".
+        catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException || (e is InvalidOperationException && ct.IsCancellationRequested)) { }
     }
 
     private async Task Handle(TcpClient client, CancellationToken ct)
