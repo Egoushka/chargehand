@@ -5,7 +5,8 @@
 # The workflow is off until the maintainer sets the repository variable SELF_REVIEW=true, once a run of this script
 # on the runner completes.
 #
-# usage: scripts/self-review.sh <base> <head>   (the diff is base...head: head's changes since the merge base)
+# usage: scripts/self-review.sh <base> <head>   (the diff is base...head: head's changes since the merge base; the request
+#        is built by scripts/review-request.sh, which .github/workflows/review.yml uses too)
 # env: CHARGEHAND_PROFILE  profile for the run (this script requires one; its models map is optional, as an unmapped
 #                          placeholder model runs on the runtime's default model)
 #      CHARGEHAND_RUNTIME  optional, names the worker runtime. Order (ADR 0026, ADR 0032): the profile's runtime field,
@@ -17,7 +18,6 @@
 # _work/chargehand/chargehand); a profile without repository_roots allows worker_root and the directory the script
 # runs in.
 set -euo pipefail
-export LC_ALL=C.UTF-8 # ${#diff} below counts characters, not bytes
 
 base=${1:?base commit}
 head=${2:?head commit}
@@ -29,17 +29,11 @@ fi
 
 cd "$(git rev-parse --show-toplevel)"
 head=$(git rev-parse --verify "$head^{commit}")
-# Parameter expansion, not a pipe into head: under pipefail a closed pipe would fail the script.
-diff=$(git diff "$base...$head")
-if [ "${#diff}" -gt 60000 ]; then
-  diff="${diff:0:60000}"$'\n[diff truncated at 60000 characters]'
-fi
-goal=$(git log --format=%B -n1 "$head")
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+git diff "$base...$head" > "$work/diff.txt"
+git log --format=%B -n1 "$head" > "$work/goal.txt"
 
 dotnet build -v q -c Release src/Chargehand.Cli >&2
-jq -n --arg repo "$PWD" --arg commit "$head" --arg diff "$diff" --arg goal "$goal" '{
-  contract_version: "request/v1", text: "Review the change against its goal.",
-  context: { interactive: false, preset: "review", repository: { path: $repo, commit: $commit } },
-  inputs: [ {id: "goal", kind: "goal", text: $goal}, {id: "diff", kind: "diff", text: $diff},
-            {id: "tests", kind: "test-output", text: "CI runs the tests separately."} ] }' |
+scripts/review-request.sh "$PWD" "$head" "$work/goal.txt" "$work/diff.txt" |
   dotnet src/Chargehand.Cli/bin/Release/net10.0/Chargehand.Cli.dll run

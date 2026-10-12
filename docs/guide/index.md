@@ -58,6 +58,7 @@ Sources: [README](../../README.md#how-a-run-works), [ADR 0009](../adr/0009-resul
 - [Support checking and signed results](support-and-signing.md): each claim checked against the text it cites, and results signed and verified offline.
 - [Memory and services](memory-and-services.md): recall from MCP memory servers, retain only claims whose citations resolved, and give a preset's workers read-only MCP tools.
 - [The change command](change.md): `/chargehand:change` in Claude Code.
+- [Review pull requests with a workflow](review-workflow.md): a reusable GitHub Actions workflow that has a chargehand server review a repository's pull requests and keeps one comment up to date.
 - [Prompt CI](prompt-ci.md): how prompt and preset changes get gated.
 - [Reference](reference.md): commands, presets, contracts, profile fields, environment variables.
 - [Architecture decisions](decisions.md): every ADR and what it decides.

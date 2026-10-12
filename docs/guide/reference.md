@@ -187,6 +187,7 @@ Scripts and CI read a few more:
 
 | variable | where | effect |
 |---|---|---|
+| `REVIEW_PRESET`, `REVIEW_MAX_FINDINGS`, `REVIEW_TIMEOUT_SECONDS`, `REVIEW_POLL_SECONDS`, `REVIEW_WAIT_SECONDS`, `CHARGEHAND_URL` | `scripts/review-*.sh`, `.github/workflows/review.yml` | the preset, findings listed, wait for the result, poll interval, first call's wait, and the server for the reusable review workflow ([guide](review-workflow.md)); the workflow sets them from its inputs |
 | `HEAD` | `scripts/prompt-ci.sh` | the commit to evaluate; default the pull request's head |
 | `PROMPT_CI_RUNTIME`, `PROMPT_CI_PROFILE_<RUNTIME>` | the eval runner | its default runtime, and one eval profile per runtime |
 | `SELF_REVIEW_PROFILE` | the eval runner, `.github/workflows/self-review.yml` | the profile for reviews of this repository's own pull requests |
