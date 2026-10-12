@@ -339,6 +339,21 @@ public class DrivenRunTests
     }
 
     [Fact]
+    public async Task The_progress_event_carries_the_cache_counts_and_the_dollar_estimate_even_on_a_subscription()
+    {
+        var volumes = new FakeVolumes(_ => SessionStatus.Completed) { Usage = new TaskUsage(48_200, 0, 12, SessionStage.Write, 3_500_000, 90_000, 1.75m, true) };
+        using var rig = new Rig(volumes: volumes);
+        rig.Engine.RunFor = 3;
+        List<RunStatus> events = [];
+        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-12", Token, default, e => { lock (events) events.Add(e); });
+
+        var progress = events.Single(e => e.Event == RunEventKind.SessionProgress);
+        Assert.Equal((1.75m, 3_500_000L, 90_000L, null), (progress.UsdEstimate, progress.CacheRead, progress.CacheWrite, progress.Usd));     // usd stays the priced figure
+        Assert.Contains("about $1.75 estimated (partial)", progress.Detail);
+        Assert.True(progress.UsdEstimatePartial);
+    }
+
+    [Fact]
     public async Task A_running_task_shows_on_the_batch_run_step_by_step()
     {
         var volumes = new FakeVolumes(_ => SessionStatus.Completed) { Usage = new TaskUsage(48_200, 0, 12, SessionStage.Write) };
@@ -354,6 +369,7 @@ public class DrivenRunTests
         var progress = task.Single(e => e.Event == RunEventKind.SessionProgress);     // the tally did not change between polls, so it is published once
         Assert.Equal((48_200L, 12, SessionStage.Write), (progress.Tokens, progress.Turns, progress.Stage));
         Assert.Contains("48200 tokens", progress.Detail);
+        Assert.Equal((null, null, null), (progress.UsdEstimate, progress.CacheRead, progress.CacheWrite));     // an older image reports none of these
         Assert.Equal("https://example.test/o/r/pull/1", task.Single(e => e.Event == RunEventKind.PrOpened).PrUrl);
         var finished = task.Single(e => e.Event == RunEventKind.TaskFinished);
         Assert.Equal("https://example.test/o/r/pull/1", finished.PrUrl);
@@ -377,6 +393,18 @@ public class DrivenRunTests
         Assert.Equal("session_failed", tasks[1].GetProperty("error_code").GetString());
         Assert.Single(rig.Handover.Inputs);                                  // the failed session was never handed over
         Assert.Contains("network-rm chargehand-net-run-batch-2", rig.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_session_that_ended_on_a_usage_limit_is_a_rate_limited_task_not_a_session_failure()
+    {
+        using var rig = new Rig(script: goal => goal == "Add a backoff" ? SessionStatus.RateLimited : SessionStatus.Completed);
+        var result = await rig.Run.RunAsync(Request("Add a retry", "Add a backoff"), "run-batch-2b", Token, default);
+
+        var tasks = BatchTasks(result).EnumerateArray().ToList();
+        Assert.Equal(["completed", "failed"], tasks.Select(t => t.GetProperty("status").GetString()));
+        Assert.Equal("rate_limited", tasks[1].GetProperty("error_code").GetString());
+        Assert.Single(rig.Handover.Inputs);
     }
 
     [Fact]

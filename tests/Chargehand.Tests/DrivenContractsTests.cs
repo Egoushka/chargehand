@@ -109,6 +109,17 @@ public class DrivenContractsTests
     }
 
     [Fact]
+    public void A_session_progress_event_carries_the_cache_counts_and_a_dollar_estimate_beside_usd()
+    {
+        const string json = """{"contract_version":"run-status/v1","run_id":"r","status":"running","event":"session_progress","task_id":"t1","tokens":48200,"cache_read":3500000,"cache_write":90000,"usd_estimate":1.75}""";
+        using var doc = JsonDocument.Parse(json);
+        Assert.Empty(ContractSchemas.Validate(ContractSchemas.RunStatus, doc.RootElement));
+        var typed = JsonSerializer.Deserialize<RunStatus>(json, ContractJson.Options)!;
+        Assert.Equal((1.75m, 3_500_000L, 90_000L, null), (typed.UsdEstimate, typed.CacheRead, typed.CacheWrite, typed.Usd));
+        Assert.Contains("\"usd_estimate\":1.75", JsonSerializer.Serialize(typed, ContractJson.Options));
+    }
+
+    [Fact]
     public void A_session_progress_event_carries_tokens_and_a_stage()
     {
         const string json = """{"contract_version":"run-status/v1","run_id":"r","status":"running","event":"session_progress","task_id":"t1","tokens":48200,"turns":12,"stage":"write"}""";

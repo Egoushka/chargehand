@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Chargehand.Budget;
 using Chargehand.Containers;
 using Chargehand.Runtime;
 
@@ -12,8 +14,11 @@ namespace Chargehand.Driven;
 /// <param name="Branch">The branch the skill is told to use, <c>chargehand/&lt;run&gt;</c>.</param>
 /// <param name="MaxTokens">Input plus output tokens the session may use; counted from the stream, so it binds with a subscription too.</param>
 /// <param name="MaxUsd">Passed to <c>--max-budget-usd</c>; only meaningful where the credential is priced.</param>
+/// <param name="Prices">The profile's price table, for the dollar-equivalent estimate in <c>session-usage.json</c>; left out of the file when null, so a profile without prices still
+/// starts an older session image.</param>
 public sealed record SessionTask(string RunId, string Goal, string Branch, int MaxTurns, int MaxMinutes, int NoProgressSeconds,
-    long? MaxTokens = null, string? Model = null, decimal? MaxUsd = null);
+    long? MaxTokens = null, string? Model = null, decimal? MaxUsd = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, ModelPrice>? Prices = null);
 
 /// <summary>How to start Claude Code: the program and arguments that go before its own (a test runs a script as <c>sh script</c>).</summary>
 public sealed record SessionCommand(string File, IReadOnlyList<string> LeadingArgs)
@@ -29,10 +34,14 @@ public sealed record SessionOptions(string WorkDirectory, string OutDirectory, S
     string PromptText, string? McpUrl, string? McpToken, string PluginDirectory = "/opt/chargehand-plugin");
 
 /// <summary>The running tally the session writes to <c>session-usage.json</c>: input plus output tokens so far, assistant messages so far, and the <c>change</c> skill's step of the
-/// latest tool call that names one (<see cref="Adherence.StageOf"/>). Dollars are not known until the stream's <c>result</c>.</summary>
-public sealed record SessionUsage(long Tokens, int? Turns = null, string? Stage = null);
+/// latest tool call that names one (<see cref="Adherence.StageOf"/>). <c>CacheRead</c> and <c>CacheWrite</c> are summed over the assistant messages so far; <c>UsdEstimate</c> prices
+/// all four token classes with the task's price table, cache reads at the cache-read rate. It is a dollar equivalent, not a bill, so it exists on a subscription too; null
+/// when the task carries no prices or no message could be priced; if only some could, it sums those and <c>UsdEstimatePartial</c> is true. The real dollars (<c>total_cost_usd</c>) arrive only in the stream's <c>result</c>.</summary>
+public sealed record SessionUsage(long Tokens, int? Turns = null, string? Stage = null, long? CacheRead = null, long? CacheWrite = null, decimal? UsdEstimate = null,
+    bool UsdEstimatePartial = false);
 
-public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed }
+/// <summary><c>RateLimited</c>: the session ended on a usage or rate limit, so the provider, not the task, is why it stopped.</summary>
+public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed, RateLimited }
 
 /// <param name="Reason">For a stall, its wire name; for a failure, a short cause.</param>
 /// <param name="BundleWritten">A bundle of the session's branch is in the output directory; the handover decides whether to use it.</param>
@@ -40,9 +49,11 @@ public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed }
 /// <param name="SessionId">Claude Code's session id, which its own telemetry carries as <c>session.id</c>.</param>
 /// <param name="Model">The model the session started on (the stream's <c>init</c>).</param>
 /// <param name="ModelUsage">Tokens per model from the stream's <c>result</c>: a session can call more than one model.</param>
+/// <param name="UsdEstimate">The session's dollar equivalent from its per-message tokens (see <see cref="SessionUsage"/>).</param>
+/// <param name="RateLimitResetsAt">For <see cref="SessionStatus.RateLimited"/>: when the limit lifts, if the result said.</param>
 public sealed record SessionOutcome(SessionStatus Status, string Reason, int Turns, long InputTokens, long OutputTokens, long CacheReadTokens,
     decimal? CostUsd, int? ExitCode, IReadOnlyList<string> Questions, bool BundleWritten, string? StreamSha256 = null, long CacheWriteTokens = 0, string? SessionId = null,
-    string? Model = null, IReadOnlyDictionary<string, TokenCounts>? ModelUsage = null);
+    string? Model = null, IReadOnlyDictionary<string, TokenCounts>? ModelUsage = null, decimal? UsdEstimate = null, DateTimeOffset? RateLimitResetsAt = null, bool UsdEstimatePartial = false);
 
 /// <summary>Runs headless Claude Code on the <c>change</c> skill inside a session container (ADR 0039), watches its stream, ends it when it
 /// stalls or passes its token cap, and leaves three files in the output directory: <c>stream.jsonl</c> (secrets redacted), <c>chargehand.bundle</c>
@@ -104,7 +115,7 @@ public static partial class SessionDriver
 
             var started = DateTimeOffset.UtcNow;
             var detector = new StallDetector(TimeSpan.FromSeconds(task.NoProgressSeconds), 5, task.MaxTurns, TimeSpan.FromMinutes(task.MaxMinutes), started);
-            var tally = new Tally();
+            var tally = new Tally(task.Prices);
             SessionUsage? lastUsage = null;
             string? stage = null;
             using var process = Process.Start(psi) ?? throw new InvalidOperationException("could not start Claude Code");
@@ -127,7 +138,7 @@ public static partial class SessionDriver
                     detector.OnEvent(e, now);
                     tally.Add(e);
                     stage = Adherence.StageOf(e) ?? stage;
-                    WriteUsage(options.OutDirectory, new SessionUsage(tally.Input + tally.Output, detector.Turns, stage), ref lastUsage);
+                    WriteUsage(options.OutDirectory, new SessionUsage(tally.Input + tally.Output, detector.Turns, stage, tally.CacheRead, tally.CacheWrite, tally.UsdEstimate, tally.UsdEstimatePartial), ref lastUsage);
                     if (task.MaxTokens is { } cap && tally.Input + tally.Output >= cap && stoppedBy.Set(SessionStatus.TokenCap, "token_cap"))
                         Interrupt(process);
                 }
@@ -154,13 +165,15 @@ public static partial class SessionDriver
             var (report, questions) = Extract(tally);
             if (report is not null)
                 await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "driven-report.json"), Redact(report, options.Secrets), ct);
+            var rateLimited = tally.ResultIsError && UsageLimit.Matches(tally.ResultText);
             var status = stoppedBy.Cause?.Status
-                ?? (questions.Count > 0 ? SessionStatus.NeedsInput : tally.HasResult && !tally.ResultIsError ? SessionStatus.Completed : SessionStatus.Failed);
-            var reason = stoppedBy.Cause?.Reason ?? (status == SessionStatus.Failed ? (tally.HasResult ? "session_error" : "no_result") : "");
+                ?? (rateLimited ? SessionStatus.RateLimited : questions.Count > 0 ? SessionStatus.NeedsInput : tally.HasResult && !tally.ResultIsError ? SessionStatus.Completed : SessionStatus.Failed);
+            var reason = stoppedBy.Cause?.Reason ?? (status == SessionStatus.RateLimited ? "rate_limited" : status == SessionStatus.Failed ? (tally.HasResult ? "session_error" : "no_result") : "");
             await stream.DisposeAsync();
             var streamHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(options.OutDirectory, "stream.jsonl"), ct)));
             var outcome = new SessionOutcome(status, reason, detector.Turns, tally.Input, tally.Output, tally.CacheRead, tally.CostUsd, process.ExitCode,
-                [.. questions.Select(q => Redact(q, options.Secrets))], bundle, streamHash, tally.CacheWrite, tally.SessionId, tally.Model, tally.ModelUsage.Count == 0 ? null : tally.ModelUsage);
+                [.. questions.Select(q => Redact(q, options.Secrets))], bundle, streamHash, tally.CacheWrite, tally.SessionId, tally.Model, tally.ModelUsage.Count == 0 ? null : tally.ModelUsage,
+                tally.UsdEstimate, status == SessionStatus.RateLimited ? UsageLimit.ResetsAt(tally.ResultText) : null, tally.UsdEstimatePartial);
             await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "session-outcome.json"), Redact(JsonSerializer.Serialize(outcome, OutcomeJson), options.Secrets), ct);
             return outcome;
         }
@@ -292,23 +305,53 @@ public static partial class SessionDriver
         }
     }
 
-    /// <summary>Running totals from the stream: per-message tokens while it runs (so a cap can bite), the <c>result</c> event's totals at the end.</summary>
-    private sealed class Tally
+    /// <summary>Running totals from the stream: per-message tokens while it runs (so a cap can bite), the <c>result</c> event's totals at the end. Each assistant message's usage
+    /// carries its model and cache counts, so the cache totals and the dollar estimate are live too.</summary>
+    private sealed class Tally(IReadOnlyDictionary<string, ModelPrice>? prices = null)
     {
-        private readonly Dictionary<string, (long In, long Out)> _perMessage = [];
+        private readonly Dictionary<string, (string? Model, TokenCounts Tokens)> _perMessage = [];
         private long _resultIn, _resultOut, _resultCache, _resultCacheWrite;
 
         public List<string> Texts { get; } = [];
         public bool HasResult { get; private set; }
         public bool ResultIsError { get; private set; }
+        public string? ResultText { get; private set; }
         public decimal? CostUsd { get; private set; }
-        public long Input => HasResult ? _resultIn : _perMessage.Values.Sum(v => v.In);
-        public long Output => HasResult ? _resultOut : _perMessage.Values.Sum(v => v.Out);
-        public long CacheRead => _resultCache;
-        public long CacheWrite => _resultCacheWrite;
+        public long Input => HasResult ? _resultIn : _perMessage.Values.Sum(v => v.Tokens.Input);
+        public long Output => HasResult ? _resultOut : _perMessage.Values.Sum(v => v.Tokens.Output);
+        public long CacheRead => HasResult ? _resultCache : _perMessage.Values.Sum(v => v.Tokens.CacheRead);
+        public long CacheWrite => HasResult ? _resultCacheWrite : _perMessage.Values.Sum(v => v.Tokens.CacheWrite);
         public string? SessionId { get; private set; }
         public string? Model { get; private set; }
         public Dictionary<string, TokenCounts> ModelUsage { get; } = [];
+
+        /// <summary>The per-message tokens priced with the task's table, model by model; null without a table or when no message could be priced (unknown, never 0).</summary>
+        public decimal? UsdEstimate => Estimate().Usd;
+
+        /// <summary>Some message's model had no price, so <see cref="UsdEstimate"/> sums only the others.</summary>
+        public bool UsdEstimatePartial => Estimate().Partial;
+
+        private (decimal? Usd, bool Partial) Estimate()
+        {
+            if (prices is null)
+                return (null, false);
+            var table = new PriceTable(prices);
+            decimal total = 0;
+            var any = false;
+            var partial = false;
+            foreach (var group in _perMessage.Values.GroupBy(v => v.Model ?? Model))
+            {
+                var sum = new TokenCounts(group.Sum(v => v.Tokens.Input), group.Sum(v => v.Tokens.Output), 0, group.Sum(v => v.Tokens.CacheRead), group.Sum(v => v.Tokens.CacheWrite));
+                if (group.Key is { } model && DrivenTelemetry.Find(prices, model) is { } key && table.PriceUsd(key, sum) is { } usd)
+                {
+                    total += usd;
+                    any = true;
+                }
+                else
+                    partial = true;
+            }
+            return any ? (total, partial) : (null, false);
+        }
 
         public void Add(JsonElement e)
         {
@@ -323,7 +366,12 @@ public static partial class SessionDriver
                     break;
                 case "assistant" when e.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.Object:
                     if (m.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String && m.TryGetProperty("usage", out var u) && u.ValueKind == JsonValueKind.Object)
-                        _perMessage[id.GetString()!] = (Long(u, "input_tokens"), Long(u, "output_tokens"));
+                    {
+                        var counts = new TokenCounts(Long(u, "input_tokens"), Long(u, "output_tokens"), 0, Long(u, "cache_read_input_tokens"), Long(u, "cache_creation_input_tokens"));
+                        // A message with no usage (Claude Code's synthetic error messages) has no price and nothing to count.
+                        if (counts.Input + counts.Output + counts.CacheRead + counts.CacheWrite > 0)
+                            _perMessage[id.GetString()!] = (m.TryGetProperty("model", out var mm) && mm.ValueKind == JsonValueKind.String ? mm.GetString() : null, counts);
+                    }
                     if (m.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array)
                         foreach (var block in content.EnumerateArray())
                             if (block.ValueKind == JsonValueKind.Object && block.TryGetProperty("type", out var t) && t.GetString() == "text" && block.TryGetProperty("text", out var text) && text.GetString() is { } s)
@@ -346,7 +394,10 @@ public static partial class SessionDriver
                             ModelUsage[p.Name] = new TokenCounts(Long(p.Value, "inputTokens"), Long(p.Value, "outputTokens"), 0, Long(p.Value, "cacheReadInputTokens"),
                                 Long(p.Value, "cacheCreationInputTokens"));
                     if (e.TryGetProperty("result", out var result) && result.ValueKind == JsonValueKind.String && result.GetString() is { } r)
+                    {
+                        ResultText = r;
                         Texts.Add(r);
+                    }
                     break;
             }
         }

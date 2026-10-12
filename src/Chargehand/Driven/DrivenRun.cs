@@ -238,7 +238,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var all = request.Driven.Tasks.Select(t => unresolved.FirstOrDefault(u => u.Id == t.Id) ?? ran.Tasks.First(o => o.Id == t.Id)).ToList();
         span?.SetTag("chargehand.driven.pr_urls", all.Select(o => o.PrUrl).OfType<string>().ToArray());
         span?.SetTag("chargehand.driven.tokens", all.Sum(o => o.Tokens));
-        return DrivenResult.BuildBatch(runId, traceId, "", new BatchOutcome(all, ran.Action), Delivery(model, exchange), priced, claude.Version,
+        return DrivenResult.BuildBatch(runId, traceId, "", new BatchOutcome(all, ran.Action, ran.Error), Delivery(model, exchange), priced, claude.Version,
             cancelledByCaller: ct.IsCancellationRequested && cancelledByCaller());
     }
 

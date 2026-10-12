@@ -51,6 +51,10 @@ public static class DrivenResult
             case SessionStatus.Stalled:
                 return Failed(ErrorCode.SessionStalled, $"the session was stopped: {s.Reason.Replace('_', ' ')}",
                     "Send the task again with a narrower goal, or raise the driven preset's limits (max_minutes, no_progress_minutes, max_turns). The session log is in the session-log artifact.");
+            case SessionStatus.RateLimited:
+                return Result(ResultStatus.Failed, "the session ended on a usage or rate limit", questions: ["the session ended on a usage or rate limit"],
+                    error: new ResultError(ErrorCode.RateLimited, "the session ended on a usage or rate limit", ChargehandException.Retryable(ErrorCode.RateLimited),
+                        "Retry once the limit lifts. The batch holds its remaining tasks until then; a branch the session made before the limit is not pushed."));
             case SessionStatus.TokenCap:
                 return Failed(ErrorCode.CostCapReached, "the session reached its token cap and was stopped",
                     "Raise max_tokens_total in the request (and the preset's max_tokens), or give the task a narrower goal.");
@@ -176,9 +180,14 @@ public static class DrivenResult
             action = $"Tasks that did not finish: {string.Join(", ", incomplete)}; nothing from them was pushed. Send those tasks again if they are still wanted.";
             code = ErrorCode.Cancelled;
         }
+        else if (outcome.Error == ErrorCode.RateLimited)
+        {
+            message = $"the provider's usage or rate limit stopped the batch: {outcome.Tasks.Count - incomplete.Count} of {outcome.Tasks.Count} tasks finished";
+            code = ErrorCode.RateLimited;
+        }
         var questions = outcome.Tasks.Where(t => t.State != TaskState.Completed).Select(t => $"Task {t.Id}: {Snake(t.State.ToString()).Replace('_', ' ')}: {t.Detail ?? "no detail"}").ToList();
         return new ResultContract("result/v1", runId, "driven", traceId, chain, ResultStatus.Failed, message, [], [], [artifact], questions, 0.5, usage,
-            new ResultError(code, message, false, action));
+            new ResultError(code, message, ChargehandException.Retryable(code), action));
     }
 
     /// <summary>The <c>changes</c> artifact: every changed path with its line counts, and the diff. It is inline, so it stays within 64 KiB: the diff goes first

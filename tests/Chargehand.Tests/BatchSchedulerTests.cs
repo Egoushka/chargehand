@@ -197,11 +197,139 @@ public class BatchSchedulerTests
         Assert.All(outcome.Tasks, t => Assert.Equal(ErrorCode.CostCapReached, t.Error));
     }
 
-    [Theory]
-    [InlineData(ErrorCode.RateLimited)]
-    [InlineData(ErrorCode.ProviderUnavailable)]
-    public async Task Rate_limited_subscription_stops_the_batch_without_fallback(ErrorCode code)
+    [Fact]
+    public async Task A_rate_limited_task_holds_new_starts_until_its_reset_time_and_running_tasks_go_on()
     {
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMilliseconds(100)).RunAsync(Tasks(3), Limits(parallel: 2), default);
+        await runner.WaitStarted(2);
+        var resets = DateTimeOffset.UtcNow.AddMilliseconds(1200);
+        runner.Pending["t1"].TrySetResult(new TaskOutcome("t1", TaskState.Failed, "run-t1", "limit", ErrorCode.RateLimited, RetryAfter: resets));
+        await Task.Delay(500);
+        Assert.Equal(["t1", "t2"], runner.Started);           // t3 waits for the reset, although a slot is free
+        runner.Finish("t2");
+        await runner.WaitStarted(3);
+        Assert.True(DateTimeOffset.UtcNow >= resets);
+        runner.Finish("t3");
+        var outcome = await batch;
+        Assert.Equal([TaskState.Failed, TaskState.Completed, TaskState.Completed], outcome.Tasks.Select(t => t.State));
+        Assert.Null(outcome.Action);
+    }
+
+    [Fact]
+    public async Task A_rate_limit_that_names_no_reset_holds_new_starts_for_the_fixed_backoff()
+    {
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMilliseconds(1000)).RunAsync(Tasks(2), Limits(parallel: 1), default);
+        await runner.WaitStarted(1);
+        var limited = DateTimeOffset.UtcNow;
+        runner.Finish("t1", TaskState.Failed, error: ErrorCode.RateLimited);
+        await Task.Delay(400);
+        Assert.Equal(["t1"], runner.Started);
+        await runner.WaitStarted(2);
+        Assert.True(DateTimeOffset.UtcNow - limited >= TimeSpan.FromMilliseconds(950));
+        runner.Finish("t2");
+        Assert.True((await batch).Tasks[1].State == TaskState.Completed);
+    }
+
+    [Fact]
+    public async Task A_reset_time_already_past_still_pauses_for_the_backoff()
+    {
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMilliseconds(900)).RunAsync(Tasks(2), Limits(parallel: 1), default);
+        await runner.WaitStarted(1);
+        var limited = DateTimeOffset.UtcNow;
+        runner.Pending["t1"].TrySetResult(new TaskOutcome("t1", TaskState.Failed, "run-t1", "limit", ErrorCode.RateLimited, RetryAfter: limited.AddHours(-1)));
+        await Task.Delay(400);
+        Assert.Equal(["t1"], runner.Started);
+        await runner.WaitStarted(2);
+        Assert.True(DateTimeOffset.UtcNow - limited >= TimeSpan.FromMilliseconds(850));
+        runner.Finish("t2");
+        await batch;
+    }
+
+    [Fact]
+    public async Task A_reset_sooner_than_the_backoff_waits_for_the_backoff()
+    {
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMilliseconds(900)).RunAsync(Tasks(2), Limits(parallel: 1), default);
+        await runner.WaitStarted(1);
+        var limited = DateTimeOffset.UtcNow;
+        runner.Pending["t1"].TrySetResult(new TaskOutcome("t1", TaskState.Failed, "run-t1", "limit", ErrorCode.RateLimited, RetryAfter: limited.AddMilliseconds(100)));
+        await runner.WaitStarted(2);
+        Assert.True(DateTimeOffset.UtcNow - limited >= TimeSpan.FromMilliseconds(850));
+        runner.Finish("t2");
+        await batch;
+    }
+
+    [Fact]
+    public async Task Two_rate_limits_in_a_row_with_no_task_completing_between_end_the_batch_rate_limited_and_the_rest_not_started()
+    {
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMilliseconds(200)).RunAsync(Tasks(4), Limits(parallel: 1), default);
+        await runner.WaitStarted(1);
+        runner.Finish("t1", TaskState.Failed, error: ErrorCode.RateLimited);
+        await runner.WaitStarted(2);
+        runner.Finish("t2", TaskState.Failed, error: ErrorCode.RateLimited);
+        var outcome = await batch;
+        Assert.Equal(["t1", "t2"], runner.Started);
+        Assert.Equal(ErrorCode.RateLimited, outcome.Error);
+        Assert.Equal([TaskState.Failed, TaskState.Failed, TaskState.NotStarted, TaskState.NotStarted], outcome.Tasks.Select(t => t.State));
+        Assert.All(outcome.Tasks.Skip(2), t => Assert.Equal(ErrorCode.RateLimited, t.Error));
+        Assert.All(outcome.Tasks.Skip(2), t => Assert.Contains("rate", t.Detail, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task A_task_that_completes_between_two_rate_limits_resets_the_count()
+    {
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMilliseconds(150)).RunAsync(Tasks(4), Limits(parallel: 1), default);
+        await runner.WaitStarted(1);
+        runner.Finish("t1", TaskState.Failed, error: ErrorCode.RateLimited);
+        await runner.WaitStarted(2);
+        runner.Finish("t2");
+        await runner.WaitStarted(3);
+        runner.Finish("t3", TaskState.Failed, error: ErrorCode.RateLimited);
+        await runner.WaitStarted(4);
+        runner.Finish("t4");
+        var outcome = await batch;
+        Assert.Null(outcome.Error);
+        Assert.Equal([TaskState.Failed, TaskState.Completed, TaskState.Failed, TaskState.Completed], outcome.Tasks.Select(t => t.State));
+    }
+
+    [Fact]
+    public async Task A_rate_limit_that_lifts_later_than_the_longest_pause_stops_the_batch_and_says_how_to_switch()
+    {
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner).RunAsync(Tasks(2), Limits(parallel: 1), default);
+        await runner.WaitStarted(1);
+        runner.Pending["t1"].TrySetResult(new TaskOutcome("t1", TaskState.Failed, "run-t1", "limit", ErrorCode.RateLimited, RetryAfter: DateTimeOffset.UtcNow.AddHours(7)));
+        var outcome = await batch;
+        Assert.Equal(["t1"], runner.Started);
+        Assert.Equal(TaskState.NotStarted, outcome.Tasks[1].State);
+        Assert.Contains("api_key_secret", outcome.Action);
+        Assert.Equal(ErrorCode.RateLimited, outcome.Error);
+    }
+
+    [Fact]
+    public async Task A_halt_during_a_rate_limit_pause_ends_the_batch()
+    {
+        var runner = new ScriptedRunner();
+        using var halt = new CancellationTokenSource();
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMinutes(15)).RunAsync(Tasks(2), Limits(parallel: 1), halt.Token);
+        await runner.WaitStarted(1);
+        runner.Finish("t1", TaskState.Failed, error: ErrorCode.RateLimited);
+        await Task.Delay(300);
+        await halt.CancelAsync();
+        var outcome = await batch.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(TaskState.NotStarted, outcome.Tasks[1].State);
+        Assert.Contains("cancel", outcome.Tasks[1].Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task An_unavailable_provider_stops_the_batch_without_fallback()
+    {
+        const ErrorCode code = ErrorCode.ProviderUnavailable;
         var runner = new ScriptedRunner();
         var batch = new BatchScheduler(runner).RunAsync(Tasks(4), Limits(parallel: 2), default);
         await runner.WaitStarted(2);
