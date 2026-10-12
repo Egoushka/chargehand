@@ -67,7 +67,7 @@ public class ConfigFileTests
     }
 
     // JsonSchema.FromText registers the schema globally by its base URI; loading the same file twice throws.
-    private static readonly JsonSchema ProfileSchema = JsonSchema.FromText(File.ReadAllText(Repo.Path("profiles", "profile.schema.json")));
+    internal static readonly JsonSchema ProfileSchema = JsonSchema.FromText(File.ReadAllText(Repo.Path("profiles", "profile.schema.json")));
 
     [Fact]
     public void Example_profile_validates()

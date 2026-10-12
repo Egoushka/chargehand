@@ -56,6 +56,17 @@ To use a server you run yourself, start it with `scripts/opencode-serve.sh <open
 
 With no credential set, workers use the CLI's own login. To use another credential, set one of `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`); setting both is an error. Without a `claude_code` block, chargehand picks the mode from what its secret sources resolve, by default your environment: `ANTHROPIC_API_KEY` alone selects per-token API billing, `CLAUDE_CODE_OAUTH_TOKEN` alone your subscription, and neither the CLI's login. An API key left in your shell therefore switches the workers to API billing. A `claude_code` block in the profile (`version`, `binary`, and at most one of `api_key_secret` or `oauth_token_secret`) overrides that ([ADR 0020](../adr/0020-claude-code-runtime-adapter.md)).
 
+## Onboard another repository
+
+`init` reads a repository's marker files and writes a starter profile; `doctor` then checks the setup:
+
+```bash
+dotnet run --project src/Chargehand.Cli -- init /path/to/repo --profile profiles/local.json
+dotnet run --project src/Chargehand.Cli -- doctor
+```
+
+`init` prints the ecosystems it found, the proposed test command (send it as `context.verify`) and the package hosts a driven session needs that the preset does not allow, and lists what is left for you: the session image digest, the secret items (names only are written) and a model credential. It never overwrites a file without `--force`. `doctor` prints one `ok`, `warn` or `fail` line per check with the fix, and exits 1 when one fails. Details: [reference](reference.md#commands).
+
 ## Allow the repository
 
 A request names a repository and a commit. chargehand clones the repository at that commit under `worker_root` and runs the worker in the clone, so the worker reads the commit and never your working tree. Uncommitted and ignored files do not reach it.

@@ -101,6 +101,8 @@ otherwise from the ones the build copies next to the binary. The run log is the 
 | `eval seed\|push\|gate` | Prompt CI: propose items, push them to Langfuse, gate a change |
 | `prompts sync` | mirrors prompt blocks to Langfuse |
 | `extensions check [--preset <name>] [--probe <query>]` | checks the profile's MCP servers, memory mappings and the presets' services against the tools each server lists |
+| `init [<repo path>] [--profile <out>] [--force]` | reads a repository's marker files and writes a starter profile with the proposed test command and the package hosts to allow |
+| `doctor [--profile <path>]` | one ok/warn/fail line per setup check (profile, server, runner, images, secrets, roots, egress, model credential), each with its fix |
 
 Prompt CI runs on its own for a pull request that changes `prompts/` or `presets/`: `.github/workflows/prompt-ci.yml`
 hands it to a self-hosted runner, which posts the commit status. A fork's pull request or a preset change waits for an
