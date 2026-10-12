@@ -131,8 +131,8 @@ A failed `result/v1` carries `error`: a fixed `code`, the `message`, `retryable`
 | `session_stalled` | a driven session ended on no progress, a repeated tool call, too many turns or its wall clock | yes |
 | `push_rejected` | the remote refused `chargehand/<run>`, or the remote is not an https or ssh URL | no |
 | `pr_failed` | the branch was pushed but the draft pull request did not open; the result names the branch | yes |
-| `cancelled` | a run was cancelled (`POST /v1/runs/{id}/cancel` or `POST /v1/halt`); nothing is pushed | no |
-| `tasks_incomplete` | a driven batch ended with at least one task that has no draft pull request; the result names them | no |
+| `cancelled` | a run or a driven batch was cancelled (`POST /v1/runs/{id}/cancel` or `POST /v1/halt`); nothing more is pushed | no |
+| `tasks_incomplete` | a driven batch ended with at least one task that has no draft pull request, and was not cancelled; the result names them | no |
 | `internal` | anything else | no |
 
 Over HTTP, a request the server refuses before a run exists stays a `400` with `errors` ([ADR 0022](../adr/0022-error-codes-in-result-v1.md)).

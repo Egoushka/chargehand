@@ -163,6 +163,8 @@ public sealed class BatchScheduler(ITaskRunner runner)
         }
 
         var why = notStartedReason ?? (ct.IsCancellationRequested ? "not started: the batch was cancelled" : "not started");
+        if (notStartedReason is null && ct.IsCancellationRequested)
+            notStartedError = ErrorCode.Cancelled;
         for (var i = 0; i < tasks.Count; i++)
             outcomes[i] ??= new TaskOutcome(tasks[i].Id, TaskState.NotStarted, null, why.StartsWith("not started", StringComparison.Ordinal) ? why : $"not started: {why}", notStartedError);
         return new BatchOutcome([.. outcomes.Select(o => o!)], action);
@@ -176,7 +178,7 @@ public sealed class BatchScheduler(ITaskRunner runner)
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            return new TaskOutcome(task.Id, TaskState.Cancelled, null, "cancelled");
+            return new TaskOutcome(task.Id, TaskState.Cancelled, null, "cancelled", ErrorCode.Cancelled);
         }
         catch (Exception e)
         {
