@@ -51,12 +51,23 @@ public class ModelGatewayTests
         {
             Upstream = new FakeUpstream(answer);
             Gateway = new ModelGateway(Key, Real, "api.example.test", Upstream, () => Clock, e => { lock (Log) Log.Add(e); });
-            var probe = new TcpListener(IPAddress.Loopback, 0);
-            probe.Start();
-            var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-            probe.Stop();
-            Url = $"http://127.0.0.1:{port}";
-            Gateway.Start(Url + "/");
+            // A probed port can be taken by a parallel test before Start binds it: try another.
+            for (var attempt = 1; ; attempt++)
+            {
+                var probe = new TcpListener(IPAddress.Loopback, 0);
+                probe.Start();
+                var port = ((IPEndPoint)probe.LocalEndpoint).Port;
+                probe.Stop();
+                Url = $"http://127.0.0.1:{port}";
+                try
+                {
+                    Gateway.Start(Url + "/");
+                    break;
+                }
+                catch (HttpListenerException) when (attempt < 5)
+                {
+                }
+            }
         }
 
         public static string Token(string run = "run-a", long cap = 0, int minutes = 30) => ModelTokens.Mint(Key, run, Now.AddMinutes(minutes), cap);
