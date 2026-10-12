@@ -58,6 +58,7 @@ public class ProfileTests
         Assert.Equal(4m, governor.ToSession(null, null, 0).BudgetUsd);
         Assert.Equal(3m, governor.ToSession("S", 3m, 0).BudgetUsd);
         Assert.Equal(GovernorMode.Off, Profile.Load(dir.Write("off.json", """{"schema":"profile/v1","driven":{"governor":{"mode":"off"}}}""")).Driven!.Governor!.Mode);
+        Assert.Equal(GovernorMode.Enforce, Profile.Load(dir.Write("enforce.json", """{"schema":"profile/v1","driven":{"governor":{"mode":"enforce"}}}""")).Driven!.Governor!.Mode);
     }
 
     [Theory]

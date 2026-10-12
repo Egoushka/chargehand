@@ -16,6 +16,9 @@ public class EngineSessionVolumesTests
         public Dictionary<string, byte[]> Files { get; } = [];
         public List<OutFileSpec> Specs { get; } = [];
 
+        /// <summary>A refusal message by file name, thrown as the runner client throws it; null: the file is served.</summary>
+        public Func<string, string?>? Refuse { get; init; }
+
         public Task WriteOutFileAsync(OutFileSpec spec, ReadOnlyMemory<byte> content, CancellationToken ct)
         {
             Specs.Add(spec);
@@ -26,6 +29,8 @@ public class EngineSessionVolumesTests
         public async Task<bool> ReadOutFileAsync(OutFileSpec spec, Stream destination, CancellationToken ct)
         {
             Specs.Add(spec);
+            if (Refuse?.Invoke(spec.Name) is { } refusal)
+                throw new ChargehandException(ErrorCode.ContainerUnavailable, refusal);
             if (!Files.TryGetValue(spec.Name, out var bytes))
                 return false;
             await destination.WriteAsync(bytes, ct);
@@ -59,7 +64,38 @@ public class EngineSessionVolumesTests
         Assert.Equal(new byte[] { 0, 1, 2, 255 }, File.ReadAllBytes(System.IO.Path.Combine(dir.Path, "chargehand.bundle")));
         Assert.Equal("{}", File.ReadAllText(System.IO.Path.Combine(dir.Path, "session-outcome.json")));
         Assert.False(File.Exists(System.IO.Path.Combine(dir.Path, "driven-report.json")));
-        Assert.Equal(["chargehand.bundle", "driven-report.json", "session-outcome.json"], engine.Specs.Select(s => s.Name).Order());     // the usage file is a poll, not an output
+        Assert.Equal(["chargehand.bundle", "driven-report.json", "handoff.json", "progress.md", "session-outcome.json"], engine.Specs.Select(s => s.Name).Order());     // the usage file is a poll, not an output
+    }
+
+    [Fact]
+    public async Task A_stopped_sessions_handoff_files_come_out_with_the_rest()
+    {
+        var engine = new FakeOut();
+        engine.Files["handoff.json"] = """{"version":1}"""u8.ToArray();
+        engine.Files["progress.md"] = "# Handoff"u8.ToArray();
+        using var dir = new TempDir();
+        await new EngineSessionVolumes(engine, Image).FetchOutputAsync("run1", dir.Path, default);
+
+        Assert.Equal("""{"version":1}""", File.ReadAllText(System.IO.Path.Combine(dir.Path, "handoff.json")));
+        Assert.Equal("# Handoff", File.ReadAllText(System.IO.Path.Combine(dir.Path, "progress.md")));
+    }
+
+    [Fact]
+    public async Task A_runner_that_refuses_the_handoff_names_costs_the_task_nothing_but_a_refused_bundle_still_fails()
+    {
+        var engine = new FakeOut { Refuse = name => name is "handoff.json" or "progress.md" ? $"the runner refused GET /out/run1/{name}?image=x: 403 the runner reads only chargehand.bundle, driven-report.json, session-outcome.json, session-usage.json" : null };
+        engine.Files["chargehand.bundle"] = [1, 2];
+        using var dir = new TempDir();
+        await new EngineSessionVolumes(engine, Image).FetchOutputAsync("run1", dir.Path, default);       // handoff.json and progress.md are refused: skipped
+
+        Assert.Equal(new byte[] { 1, 2 }, File.ReadAllBytes(System.IO.Path.Combine(dir.Path, "chargehand.bundle")));
+        Assert.False(File.Exists(System.IO.Path.Combine(dir.Path, "handoff.json")));
+        Assert.False(File.Exists(System.IO.Path.Combine(dir.Path, "progress.md")));
+
+        var refusesBundle = new FakeOut { Refuse = name => name == "chargehand.bundle" ? "the runner refused GET /out/run1/chargehand.bundle: 403 nope" : null };
+        await Assert.ThrowsAsync<ChargehandException>(() => new EngineSessionVolumes(refusesBundle, Image).FetchOutputAsync("run1", dir.Path, default));
+        var unreachable = new FakeOut { Refuse = name => name == "handoff.json" ? "the runner could not be reached: connection refused" : null };
+        await Assert.ThrowsAsync<ChargehandException>(() => new EngineSessionVolumes(unreachable, Image).FetchOutputAsync("run1", dir.Path, default));
     }
 
     [Fact]

@@ -139,6 +139,7 @@ public static partial class SessionDriver
             var started = DateTimeOffset.UtcNow;
             var detector = new StallDetector(TimeSpan.FromSeconds(task.NoProgressSeconds), 5, task.MaxTurns, TimeSpan.FromMinutes(task.MaxMinutes), started);
             var tally = new Tally(task.Prices);
+            var trace = new SessionTrace();
             SessionUsage? lastUsage = null;
             string? stage = null;
             using var process = Process.Start(psi) ?? throw new InvalidOperationException("could not start Claude Code");
@@ -159,6 +160,13 @@ public static partial class SessionDriver
                 await governorGate.WaitAsync(CancellationToken.None);
                 try
                 {
+                    // In enforce mode the strongest decision (a stop over a checkpoint) ends the session if nothing else has; only that one is logged as acted on.
+                    if (task.Governor is { Mode: GovernorMode.Enforce } && made.Where(d => Governor.StopReason(d) is not null).OrderByDescending(d => d.Action).FirstOrDefault() is { } acting
+                        && stoppedBy.Set(SessionStatus.Stalled, Governor.StopReason(acting)!))
+                    {
+                        made = [.. made.Select(d => d == acting ? d with { Acted = true } : d)];
+                        Interrupt(process);
+                    }
                     foreach (var d in made)
                     {
                         if (decisions.Count < MaxGovernorDecisions)
@@ -186,6 +194,7 @@ public static partial class SessionDriver
                     var now = DateTimeOffset.UtcNow;
                     detector.OnEvent(e, now);
                     tally.Add(e);
+                    trace.OnEvent(e);
                     stage = Adherence.StageOf(e) ?? stage;
                     if (governor is not null)
                     {
@@ -242,6 +251,8 @@ public static partial class SessionDriver
             }
 
             var snapshotNote = stoppedBy.Cause is { } stopped ? await SnapshotAsync(options, stopped.Reason, detector.Turns, ct) : null;
+            if (stoppedBy.Cause is { } stoppedFor)
+                await WriteHandoffAsync(options, start, stoppedFor.Reason, detector.Turns, trace, ct);
             var bundle = await BundleAsync(options, ct);
             var commits = bundle && start is not null ? await CommitsAsync(options, start, ct) : 0;
             var (report, questions) = Extract(tally);
@@ -336,6 +347,35 @@ public static partial class SessionDriver
     {
         var counted = await Git(options.WorkDirectory, ["rev-list", "--count", $"{start}..{options.Task.Branch}"], ct);
         return counted.Exit == 0 && int.TryParse(counted.Stdout.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : 0;
+    }
+
+    /// <summary>Writes <see cref="ContainerTemplate.HandoffFile"/> and <see cref="ContainerTemplate.ProgressFile"/> after a stop (ADR 0045), from git and the stream with no model call: the
+    /// commit the workspace started at and the branch's head, the commit subjects and changed paths between them, and what <paramref name="trace"/> kept. A git call that fails
+    /// leaves its facts out; a file that cannot be written only means the next session starts without it.</summary>
+    private static async Task WriteHandoffAsync(SessionOptions options, string? start, string reason, int turns, SessionTrace trace, CancellationToken ct)
+    {
+        var timeout = options.GitTimeout ?? SnapshotGitTimeout;
+        async Task<string?> Read(params string[] args) => await Git(options.WorkDirectory, args, ct, timeout) is { Exit: 0 } r ? r.Stdout : null;
+        var head = (await Read("rev-parse", "--verify", "--quiet", $"refs/heads/{options.Task.Branch}") ?? await Read("rev-parse", "--verify", "--quiet", "HEAD"))?.Trim();
+        List<string> commits = [];
+        List<ChangedPath> changes = [];
+        if (start is not null && head is not null)
+        {
+            commits = [.. (await Read("log", "--reverse", "--format=%s", $"{start}..{head}") ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+            foreach (var row in (await Read("diff", "--numstat", "--no-renames", "-z", start, head) ?? "").Split('\0', StringSplitOptions.RemoveEmptyEntries))
+                if (row.Split('\t', 3) is [var added, var removed, var path])
+                    changes.Add(new ChangedPath(path, long.TryParse(added, NumberStyles.None, CultureInfo.InvariantCulture, out var a) ? a : 0,
+                        long.TryParse(removed, NumberStyles.None, CultureInfo.InvariantCulture, out var r) ? r : 0));
+        }
+        var files = HandoffBuilder.Build(new HandoffFacts(reason, turns, start, head, commits, changes, trace.LastTest, trace.Steps, trace.Todos, trace.Calls), options.Secrets);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, ContainerTemplate.HandoffFile), Redact(files.Json, options.Secrets), ct);
+            await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, ContainerTemplate.ProgressFile), Redact(files.Markdown, options.Secrets), ct);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     /// <summary>A continuation session's workspace is the base commit on the task branch; the previous session's branch replaces it.</summary>
@@ -455,7 +495,7 @@ public static partial class SessionDriver
         return (p.ExitCode, await stdout, await stderr);
     }
 
-    private static string Redact(string text, IReadOnlyList<string> secrets)
+    internal static string Redact(string text, IReadOnlyList<string> secrets)
     {
         foreach (var secret in secrets)
             if (secret.Length >= 8)

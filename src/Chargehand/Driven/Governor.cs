@@ -6,9 +6,10 @@ using System.Text.RegularExpressions;
 
 namespace Chargehand.Driven;
 
-/// <summary>What the governor does with its decisions: <c>off</c> makes none, <c>observe</c> logs them to <c>governor.jsonl</c> and acts on none (ADR 0045's first release).</summary>
+/// <summary>What the governor does with its decisions: <c>off</c> makes none, <c>observe</c> logs them to <c>governor.jsonl</c> and acts on none (ADR 0045's first release),
+/// <c>enforce</c> also stops the session on a checkpoint or a stop.</summary>
 [JsonConverter(typeof(SnakeCaseEnum<GovernorMode>))]
-public enum GovernorMode { Off, Observe }
+public enum GovernorMode { Off, Observe, Enforce }
 
 /// <summary>The rungs of ADR 0045's ladder. A warn has no channel into the session yet (the driver closes its stdin), so it is only logged.</summary>
 [JsonConverter(typeof(SnakeCaseEnum<GovernorAction>))]
@@ -60,7 +61,8 @@ public sealed record SessionGovernor(
     public static IReadOnlyList<string> DefaultWaitPatterns { get; } = [@"(^|[\s;&|])sleep\s", @"--watch\b", @"\bgh run watch\b"];
 }
 
-/// <summary>One line of <c>governor.jsonl</c>: what fired, the rung it reached and why, and where the session stood. <c>Acted</c> is false in <c>observe</c> mode.</summary>
+/// <summary>One line of <c>governor.jsonl</c>: what fired, the rung it reached and why, and where the session stood. <c>Acted</c> is true only for the decision that stopped the
+/// session in <c>enforce</c> mode.</summary>
 /// <param name="Rule">Why this rung: <c>first_hit</c>, <c>same_signal_again</c>, <c>second_signal</c>, <c>context_size</c>, <c>spend_checkpoint</c> or <c>spend_stop</c>.</param>
 /// <param name="Values">The signal's measurements, for judging afterwards whether the decision was right.</param>
 public sealed record GovernorDecision(DateTimeOffset At, int Turn, GovernorMode Mode, GovernorAction Action, string Signal, string Rule, IReadOnlyDictionary<string, string> Values,
@@ -73,6 +75,21 @@ public sealed record GovernorDecision(DateTimeOffset At, int Turn, GovernorMode 
 public sealed partial class Governor
 {
     private const int MaxValueLength = 200;
+
+    /// <summary>The stop reasons of an enforced decision, as they appear in the session outcome. The three checkpoints continue (<see cref="StallDetector.ContinuableReasons"/>); a
+    /// spent budget does not.</summary>
+    public const string CheckpointStuck = "checkpoint_stuck";
+    public const string CheckpointContext = "checkpoint_context";
+    public const string CheckpointSpend = "checkpoint_spend";
+    public const string BudgetSpent = "budget_spent";
+
+    /// <summary>The stop reason a decision leads to in <c>enforce</c> mode; null for a warn, which stays a log line.</summary>
+    public static string? StopReason(GovernorDecision d) => d.Action switch
+    {
+        GovernorAction.Stop => BudgetSpent,
+        GovernorAction.Checkpoint => d.Signal switch { "spend" => CheckpointSpend, "context_size" => CheckpointContext, _ => CheckpointStuck },
+        _ => null,
+    };
 
     private readonly SessionGovernor _settings;
     private readonly Regex[] _probes;

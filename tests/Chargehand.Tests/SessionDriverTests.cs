@@ -10,6 +10,7 @@ namespace Chargehand.Tests;
 public class SessionDriverTests
 {
     private const string Canary = "canary-secret-value-123";
+    private static readonly string AwsKey = "AKIA" + "IOSFODNN7EXAMPLE";
 
     private static readonly JsonSerializerOptions Snake = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
@@ -559,6 +560,7 @@ public class SessionDriverTests
         Assert.Equal(2, outcome.Governor!.Count);
         Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(w.Out, SessionDriver.GovernorFile)))), outcome.GovernorLogSha256);
         Assert.Contains("\"governor_log_sha256\"", File.ReadAllText(Path.Combine(w.Out, "session-outcome.json")));
+        Assert.False(File.Exists(Path.Combine(w.Out, "handoff.json")));       // nothing stopped it, so no handoff
     }
 
     [Fact]
@@ -572,5 +574,106 @@ public class SessionDriverTests
             Assert.Null(outcome.Governor);
             Assert.Null(outcome.GovernorLogSha256);
         }
+    }
+
+    private static string FailingFourTimes(string command) =>
+        Emit([Init, .. Enumerable.Range(1, 4).SelectMany(i => new[] { ToolCall($"c{i}", command), ToolResult($"c{i}", "make: *** [all] Error 1") })]) + "\nsleep 60";
+
+    private static List<JsonElement> GovernorLines(Workspace w) =>
+        [.. File.ReadAllLines(Path.Combine(w.Out, SessionDriver.GovernorFile)).Select(l => JsonDocument.Parse(l).RootElement)];
+
+    [Fact]
+    public async Task In_enforce_mode_a_checkpoint_ends_the_session_as_checkpoint_stuck_and_only_that_decision_is_acted_on()
+    {
+        using var w = new Workspace();
+        var sw = Stopwatch.StartNew();
+        var outcome = await SessionDriver.RunAsync(Options(w, FailingFourTimes("make"), Task() with { Governor = new SessionGovernor(GovernorMode.Enforce, SizeClass: "M") }), default);
+
+        Assert.Equal((SessionStatus.Stalled, "checkpoint_stuck"), (outcome.Status, outcome.Reason));
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(30), $"took {sw.Elapsed}");
+        var lines = GovernorLines(w);
+        Assert.Equal([("warn", false), ("checkpoint", true)], lines.Select(l => (l.GetProperty("action").GetString()!, l.GetProperty("acted").GetBoolean())));
+        Assert.Equal("enforce", lines[1].GetProperty("mode").GetString());
+        Assert.Equal([false, true], outcome.Governor!.Select(d => d.Acted));
+        Assert.True(File.Exists(Path.Combine(w.Out, "handoff.json")));
+        Assert.Contains("stopped by checkpoint stuck", File.ReadAllText(Path.Combine(w.Out, "progress.md")));
+    }
+
+    [Fact]
+    public async Task In_enforce_mode_the_checkpoint_reason_follows_the_signal()
+    {
+        using var w = new Workspace();
+        var script = Emit(Init, Sonnet("m1", """{"input_tokens":200000,"output_tokens":10}""")) + "\nsleep 60";
+        var context = await SessionDriver.RunAsync(Options(w, script, Task() with { Governor = new SessionGovernor(GovernorMode.Enforce) }), default);
+        Assert.Equal((SessionStatus.Stalled, "checkpoint_context"), (context.Status, context.Reason));
+
+        using var spend = new Workspace();
+        var priced = Emit(Init, Sonnet("m1", """{"input_tokens":10,"output_tokens":200000}""")) + "\nsleep 60";      // 3.00 dollar equivalent
+        var outcome = await SessionDriver.RunAsync(Options(spend, priced, Task() with { Prices = Prices, Governor = new SessionGovernor(GovernorMode.Enforce, BudgetUsd: 3.3m) }), default);
+        Assert.Equal((SessionStatus.Stalled, "checkpoint_spend"), (outcome.Status, outcome.Reason));
+        Assert.Equal([("checkpoint", true)], GovernorLines(spend).Select(l => (l.GetProperty("action").GetString()!, l.GetProperty("acted").GetBoolean())));
+    }
+
+    [Fact]
+    public async Task In_enforce_mode_a_spent_budget_ends_the_session_as_budget_spent_and_the_stop_outranks_the_checkpoint_beside_it()
+    {
+        using var w = new Workspace();
+        var script = Emit(Init, Sonnet("m1", """{"input_tokens":10,"output_tokens":200000}""")) + "\nsleep 60";
+        var outcome = await SessionDriver.RunAsync(Options(w, script, Task() with { Prices = Prices, Governor = new SessionGovernor(GovernorMode.Enforce, BudgetUsd: 2m) }), default);
+
+        Assert.Equal((SessionStatus.Stalled, "budget_spent"), (outcome.Status, outcome.Reason));
+        Assert.True(outcome.BundleWritten);
+        Assert.Equal([("checkpoint", false), ("stop", true)], GovernorLines(w).Select(l => (l.GetProperty("action").GetString()!, l.GetProperty("acted").GetBoolean())));
+    }
+
+    [Fact]
+    public async Task A_stopped_session_leaves_a_handoff_built_from_git_and_the_stream_with_secrets_redacted_and_a_secret_looking_call_dropped()
+    {
+        using var w = new Workspace();
+        File.WriteAllText(Path.Combine(w.Work, "new.txt"), "untracked");
+        var todos = new { todos = new[] { new { content = "finish the retry", status = "in_progress", activeForm = "Finishing" } } };
+        var todo = JsonSerializer.Serialize(new { type = "assistant", message = new { id = "m-todo", content = new object[] { new { type = "tool_use", id = "todo1", name = "TodoWrite", input = todos } } } });
+        var script = Emit(Init, ToolCall("t1", "dotnet test"), ToolResult("t1", "Exit code 1\nFailed!"), ToolCall("c1", $"make CANARY={Canary}"), ToolResult("c1", "ok"),
+            ToolCall("k1", $"echo {AwsKey}"), ToolResult("k1", "ok"), todo) + "\nsleep 60";
+        var outcome = await SessionDriver.RunAsync(Options(w, script, Task(noProgressSeconds: 1)), default);
+
+        Assert.Equal("no_progress", outcome.Reason);
+        var json = File.ReadAllText(Path.Combine(w.Out, "handoff.json"));
+        var progress = File.ReadAllText(Path.Combine(w.Out, "progress.md"));
+        Assert.DoesNotContain(Canary, json + progress);
+        Assert.DoesNotContain(AwsKey, json + progress);
+        var doc = JsonDocument.Parse(json).RootElement;
+        Assert.Equal("no_progress", doc.GetProperty("reason").GetString());
+        Assert.Equal(w.Git("rev-parse", "chargehand/run1").Trim(), doc.GetProperty("head_commit").GetString());
+        Assert.Equal(w.Git("rev-parse", "HEAD~1").Trim(), doc.GetProperty("base_commit").GetString());
+        Assert.Equal(["WIP: session stopped by no_progress after 4 turns"], doc.GetProperty("commits").EnumerateArray().Select(c => c.GetString()));
+        Assert.Equal("new.txt", doc.GetProperty("changes")[0].GetProperty("path").GetString());
+        Assert.Equal(("dotnet test", 1, true), (doc.GetProperty("last_test").GetProperty("command").GetString(), doc.GetProperty("last_test").GetProperty("exit_code").GetInt32(), doc.GetProperty("last_test").GetProperty("is_error").GetBoolean()));
+        Assert.Equal("finish the retry", doc.GetProperty("todos")[0].GetProperty("text").GetString());
+        Assert.Equal(["dotnet test", "make CANARY=[redacted]"], doc.GetProperty("calls").EnumerateArray().Where(c => c.GetProperty("name").GetString() == "Bash").Select(c => c.GetProperty("arguments").GetProperty("command").GetString()));
+        Assert.Equal([("aws", "tool call 3")], doc.GetProperty("findings").EnumerateArray().Select(f => (f.GetProperty("kind").GetString()!, f.GetProperty("item").GetString()!)));
+        Assert.Contains("- new.txt (+1 -0)", progress);
+        Assert.Contains("matched a secret pattern", progress);
+    }
+
+    [Fact]
+    public async Task Every_stop_the_driver_makes_writes_a_handoff_the_turn_limit_included()
+    {
+        using var w = new Workspace();
+        var script = Emit(Init, Assistant("m1", "one"), Assistant("m2", "two"), Assistant("m3", "three")) + "\nsleep 60";
+        var outcome = await SessionDriver.RunAsync(Options(w, script, Task() with { MaxTurns = 1 }), default);
+
+        Assert.Equal("turn_limit", outcome.Reason);
+        Assert.Equal("turn_limit", JsonDocument.Parse(File.ReadAllText(Path.Combine(w.Out, "handoff.json"))).RootElement.GetProperty("reason").GetString());
+        Assert.StartsWith("# Handoff from the previous session", File.ReadAllText(Path.Combine(w.Out, "progress.md")));
+    }
+
+    [Fact]
+    public async Task A_session_that_finishes_on_its_own_leaves_no_handoff()
+    {
+        using var w = new Workspace();
+        await SessionDriver.RunAsync(Options(w, Emit(Init, Assistant("m1", "done"), Result()), Task()), default);
+        Assert.False(File.Exists(Path.Combine(w.Out, "handoff.json")));
+        Assert.False(File.Exists(Path.Combine(w.Out, "progress.md")));
     }
 }

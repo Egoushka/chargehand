@@ -174,7 +174,7 @@
           "additionalProperties": false,
           "description": "ADR 0045's governor in each session: deterministic stuck and spend signals with a warn-then-checkpoint ladder, logged to governor.jsonl. Profile keys because a change to presets/driven.yaml needs Prompt CI. A key left out keeps its default.",
           "properties": {
-            "mode": { "enum": ["off", "observe"], "description": "observe (default): decisions are logged and none acted on; off: no governor." },
+            "mode": { "enum": ["off", "observe", "enforce"], "description": "observe (default): decisions are logged and none acted on; enforce: a checkpoint or a stop also ends the session, which leaves a handoff for the next one (a checkpoint continues, a spent budget is salvaged as a partial draft pull request); off: no governor." },
             "budgets": { "type": "object", "additionalProperties": false, "properties": { "S": { "type": "number", "exclusiveMinimum": 0 }, "M": { "type": "number", "exclusiveMinimum": 0 }, "L": { "type": "number", "exclusiveMinimum": 0 } }, "description": "Flat budget per size class in the dollar equivalent (tokens priced with prices, also on a subscription). Defaults S 1.5, M 4, L 10." },
             "repeat_calls": { "type": "integer", "minimum": 1, "description": "Identical action and observation pairs in a row that fire repeated_call. Default 4." },
             "repeat_failures": { "type": "integer", "minimum": 1, "description": "Failures of one identical action that fire repeated_failure. Default 3." },

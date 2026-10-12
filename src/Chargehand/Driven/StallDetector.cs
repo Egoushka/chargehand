@@ -31,8 +31,9 @@ public sealed class StallDetector
     public int Turns => _messages.Count;
 
     /// <summary>The stops after which the work so far is carried on in a new session (ADR 0044): the session ran out of room, not of ideas. The one list; another stop reason that
-    /// should continue is added here.</summary>
-    public static IReadOnlyList<string> ContinuableReasons { get; } = [Wire(StallReason.TurnLimit), Wire(StallReason.WallClock)];
+    /// should continue is added here. A governor checkpoint (ADR 0045) is a stop for a fresh session; a spent budget is not.</summary>
+    public static IReadOnlyList<string> ContinuableReasons { get; } =
+        [Wire(StallReason.TurnLimit), Wire(StallReason.WallClock), Governor.CheckpointStuck, Governor.CheckpointContext, Governor.CheckpointSpend];
 
     public static bool Continuable(string reason) => ContinuableReasons.Contains(reason);
 

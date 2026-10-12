@@ -21,7 +21,15 @@ public sealed class EngineSessionVolumes(IOutVolumeEngine engine, string image) 
             var path = Path.Combine(directory, name);
             bool found;
             await using (var file = new FileStream(path, FileMode.Create, FileAccess.Write))
-                found = await engine.ReadOutFileAsync(Spec(runId, name), file, ct);
+                try
+                {
+                    found = await engine.ReadOutFileAsync(Spec(runId, name), file, ct);
+                }
+                // A runner older than the handoff files refuses their names; a task must not fail for a file it can do without.
+                catch (ChargehandException e) when (ContainerTemplate.OptionalOutFiles.Contains(name) && e.Message.Contains(": 403 ", StringComparison.Ordinal))
+                {
+                    found = false;
+                }
             if (!found)
                 File.Delete(path);
         }

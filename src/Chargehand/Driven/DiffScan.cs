@@ -35,18 +35,25 @@ public static partial class DiffScan
             }
             if (line.Length == 0 || line[0] != '+')
                 continue;
-            var added = line[1..];
-            foreach (var (kind, pattern) in Patterns)
-                if (pattern.IsMatch(added))
-                    findings.Add(new ScanFinding(kind, current));
-            foreach (var literal in literals)
-                if (literal.Length >= 8 && added.Contains(literal, StringComparison.Ordinal))
-                    findings.Add(new ScanFinding("credential-literal", current));
+            foreach (var kind in ScanText(line[1..], literals))
+                findings.Add(new ScanFinding(kind, current));
         }
         foreach (var path in paths)
             if (SecretFile().IsMatch(path) && !ExampleFile().IsMatch(path))
                 findings.Add(new ScanFinding("secret-file", path));
         return [.. findings];
+    }
+
+    /// <summary>The names of the patterns (and <c>credential-literal</c>) that free text matches, for text that is not a diff, such as a handoff's items; never the matched text.</summary>
+    public static IReadOnlyList<string> ScanText(string text, IReadOnlyList<string> literals)
+    {
+        var kinds = new List<string>();
+        foreach (var (kind, pattern) in Patterns)
+            if (pattern.IsMatch(text))
+                kinds.Add(kind);
+        if (literals.Any(literal => literal.Length >= 8 && text.Contains(literal, StringComparison.Ordinal)))
+            kinds.Add("credential-literal");
+        return kinds;
     }
 
     /// <summary>The changed paths that configure a CI system. Pushing a branch that changes them can run them, with the repository's secrets, so
