@@ -48,6 +48,7 @@ While a batch runs, its own run (`GET /v1/runs/{batch}`, a `202` with `run-statu
 | `pushed` | the branch is pushed | `branch` |
 | `pr_opened` | the draft pull request is open | `pr_url` |
 | `task_finished` | the task ended, after the batch's caps had their say | `branch` and `pr_url` when there are some, `tokens` in all; `detail` names the state |
+| `governor` | one per decision the session's governor logged (below), published when the session ends | `detail`: mode, action, signal, rule, turn, and spend against the budget when priced |
 
 A task's own run id is known only when it ends, so `GET /v1/runs/{task}` is `404` until then; follow the batch. `turns` and `stage` come from the session image's driver: an image built before they existed reports `tokens` only, and one built before `cache_read`, `cache_write` and `usd_estimate` omits those.
 
@@ -61,7 +62,7 @@ From a terminal, or from a Claude Code session's Monitor tool, `chargehand watch
 
 ## The result
 
-Each task has its own `result/v1` under its own run id (`GET /v1/runs/{id}`); the batch result lists them. Its claims are the session's, cited against the pushed commit and put through the same evidence resolver and [support check](support-and-signing.md) as any result. Artifacts: `branch`, `pull-request`, `verification` (chargehand's run), `session-tests` (the session's claim), `review` (the nested runs), `session-log` (a reference and a hash, never inline). A task whose branch was fetched and changes something also has `changes` (below). A batch is `completed` only when every task ended in a draft pull request; otherwise it is `failed` with `tasks_incomplete` naming the tasks that did not. A batch the caller cancelled (`POST /v1/runs/{id}/cancel`, `POST /v1/halt`) before it finished is `failed` with `cancelled` and the summary `cancelled by the caller: N of M tasks finished`; tasks that finished keep their outcome in the `driven-batch` artifact, running ones are `cancelled` and ones not yet started are `not_started` with error code `cancelled`.
+Each task has its own `result/v1` under its own run id (`GET /v1/runs/{id}`); the batch result lists them. Its claims are the session's, cited against the pushed commit and put through the same evidence resolver and [support check](support-and-signing.md) as any result. Artifacts: `branch`, `pull-request`, `verification` (chargehand's run), `session-tests` (the session's claim), `review` (the nested runs), `session-log` (a reference and a hash, never inline), `governor-log` (the same, for `governor.jsonl`, when a governor ran). A task whose branch was fetched and changes something also has `changes` (below). A batch is `completed` only when every task ended in a draft pull request; otherwise it is `failed` with `tasks_incomplete` naming the tasks that did not. A batch the caller cancelled (`POST /v1/runs/{id}/cancel`, `POST /v1/halt`) before it finished is `failed` with `cancelled` and the summary `cancelled by the caller: N of M tasks finished`; tasks that finished keep their outcome in the `driven-batch` artifact, running ones are `cancelled` and ones not yet started are `not_started` with error code `cancelled`.
 
 ### The `changes` artifact
 
@@ -106,6 +107,14 @@ A task that did not complete has error status on its span, and so does a batch t
 ```json
 { "driven": { "limits": { "max_minutes": 90, "max_turns": 200, "memory_mb": 8192 } } }
 ```
+
+**The governor ([ADR 0045](../adr/0045-governed-sessions.md)), observe mode.** The driver in each session runs a governor that reads the stream and decides, with no model call, when the session is stuck or over budget. Stuck signals: the same tool call with the same output 4 times in a row (`repeated_call`), one identical action failing 3 times (`repeated_failure`), A-B-A-B-A-B (`alternation`), 8 failing calls in a row (`failing_calls`), more than 10 commands that only ask what the container has (`environment_probing`: `which`, `--version`, `uname`, `ls /usr`, ...), and the diff against the base commit (tracked files, added plus removed lines, measured every 30 s when a turn has passed) unchanged for 40 turns (`no_diff_growth`). The first hit of a signal is a `warn`; the same signal again 10 or more turns later, or a second signal while one is warned, is a `checkpoint`. A message whose context (input, cache read, cache write) passes 160,000 tokens is a checkpoint, and so is spend at 85% of the task's budget; 100% is a `stop`. Commands that wait on purpose (`sleep`, `--watch`, `gh run watch`) count toward no rule. Spend is `usd_estimate` plus what the task's earlier sessions spent; the budget is the request's `tasks[].budget_usd`, else the flat budget of its `size` (S, M or L, default M: 1.5, 4 and 10 dollar equivalents, overridable in `driven.governor.budgets`). Without a price table there is no spend rule. This release only observes: every decision goes to `governor.jsonl` in the output volume (secrets redacted, values cut at 200 characters), the outcome file carries the first 50, the task result has a `governor-log` artifact and the run has `governor` events; nothing is stopped and no warning reaches the session. The log is what tells whether the rules stop good work before any of it acts. `driven.governor` in the profile sets `mode` (`observe` or `off`) and every threshold; it needs a session image built from this release (an older one ignores it).
+
+```json
+{ "driven": { "governor": { "mode": "observe", "budgets": { "M": 5 }, "no_growth_turns": 60 } } }
+```
+
+A session that ends on a usage or rate limit after committing work is handed over as a `[partial]` draft pull request, like a stopped one; the task stays `rate_limited` and retryable.
 
 **Version skew.** The server and the session image are deployed separately, so one runs ahead of the other for a while. The session reads `task.json`, and the server reads `session-usage.json`, `session-outcome.json` and `driven-report.json`, ignoring members they do not know: a field added on either side never stops a session.
 

@@ -220,7 +220,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 forward is null ? null : $"{BatchNetworkInfo.ServiceUrl(port)}/v1/mcp", drivenPreset, limits.PerTask, priced, modelEnvironment, push,
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true || otlp is not null, otlp,
-                profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey);
+                profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey, settings.Governor ?? new DrivenGovernor());
             var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress, journal: journal, detaching: detaching);
             ran = await new BatchScheduler(runner).RunAsync(ready, limits, ct, o =>
             {
@@ -247,7 +247,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     private static ResolvedTask Resumed(RunRequest request, TaskEntry entry)
     {
         var asked = request.Driven?.Tasks.FirstOrDefault(t => t.Id == entry.Id);
-        return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes);
+        return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, asked?.Size, asked?.BudgetUsd);
     }
 
     private static RunStatus TaskFinished(string runId, TaskOutcome o) =>

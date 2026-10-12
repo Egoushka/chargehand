@@ -18,7 +18,9 @@ public sealed record TaskLimits(long MaxTokens, decimal? MaxUsd);
 
 /// <param name="MaxTurns">The request's per-task override of the preset's turn limit; null: the preset's.</param>
 /// <param name="MaxMinutes">The same for the session's wall clock.</param>
-public sealed record ResolvedTask(string Id, string? Ref, string Goal, int? MaxTurns = null, int? MaxMinutes = null);
+/// <param name="Size">The request's size class for the governor's budget; null: M.</param>
+/// <param name="BudgetUsd">The request's own budget for the task, in place of the size class's.</param>
+public sealed record ResolvedTask(string Id, string? Ref, string Goal, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null);
 
 /// <summary>Runs one task to its end: the container, the session, the handover. It reports usage as it goes and stops when cancelled.</summary>
 public interface ITaskRunner

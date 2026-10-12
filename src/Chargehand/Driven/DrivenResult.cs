@@ -37,18 +37,20 @@ public static class DrivenResult
             artifacts.Add(Inline("review", "application/json", new { runs = input.Children.Select(c => new { run_id = c.RunId, preset = c.Preset, status = Snake(c.Status.ToString()) }) }));
         if (s.StreamSha256 is { } streamHash)
             artifacts.Add(new Artifact("session-log", "application/jsonl", streamHash, Uri: $"volume:{RunnerNames.Out(input.RunId)}/stream.jsonl"));
+        if (s.GovernorLogSha256 is { } governorHash)
+            artifacts.Add(new Artifact("governor-log", "application/jsonl", governorHash, Uri: $"volume:{RunnerNames.Out(input.RunId)}/{SessionDriver.GovernorFile}"));
 
         ResultContract Result(ResultStatus status, string summary, IReadOnlyList<Claim>? claims = null, IReadOnlyList<Evidence>? evidence = null, IReadOnlyList<string>? questions = null,
             double confidence = 0, ResultError? error = null) =>
             new("result/v1", input.RunId, "session", input.TraceId, chain, status, summary, claims ?? [], evidence ?? [], [.. artifacts], questions ?? [], confidence, usage, error);
-        ResultContract Failed(ErrorCode code, string message, string action, IReadOnlyList<string>? questions = null) =>
-            Result(ResultStatus.Failed, message, questions: questions ?? [message], error: new ResultError(code, message, false, action));
+        ResultContract Failed(ErrorCode code, string message, string action, IReadOnlyList<string>? questions = null, bool retryable = false) =>
+            Result(ResultStatus.Failed, message, questions: questions ?? [message], error: new ResultError(code, message, retryable, action));
 
         // A partial handover (ADR 0044) leaves the work of an unfinished task on a branch: the result says where, and the task is still failed.
-        ResultContract Unfinished(ErrorCode code, string message, string action)
+        ResultContract Unfinished(ErrorCode code, string message, string action, bool retryable = false)
         {
             if (input.Handover is not { } partial)
-                return Failed(code, message, action);
+                return Failed(code, message, action, retryable: retryable);
             AddHandoverArtifacts(artifacts, input, partial);
             var where = partial.Status switch
             {
@@ -56,7 +58,7 @@ public static class DrivenResult
                 HandoverStatus.PrFailed => $"The unfinished work is pushed to branch {partial.Branch}, but the pull request could not be opened ({partial.Reason}). Open it by hand.",
                 _ => $"The unfinished work was not pushed ({partial.Reason}); the bundle is kept in the run's output volume. {action}",
             };
-            return Failed(code, partial.Status == HandoverStatus.NotPushed ? message : $"{message}; its work is on a partial draft pull request", where);
+            return Failed(code, partial.Status == HandoverStatus.NotPushed ? message : $"{message}; its work is on a partial draft pull request", where, retryable: retryable);
         }
 
         switch (s.Status)
@@ -67,9 +69,8 @@ public static class DrivenResult
                 return Unfinished(ErrorCode.SessionStalled, $"the session was stopped: {s.Reason.Replace('_', ' ')}",
                     "Send the task again with a narrower goal, or raise the driven preset's limits (max_minutes, no_progress_minutes, max_turns). The session log is in the session-log artifact.");
             case SessionStatus.RateLimited:
-                return Result(ResultStatus.Failed, "the session ended on a usage or rate limit", questions: ["the session ended on a usage or rate limit"],
-                    error: new ResultError(ErrorCode.RateLimited, "the session ended on a usage or rate limit", ChargehandException.Retryable(ErrorCode.RateLimited),
-                        "Retry once the limit lifts. The batch holds its remaining tasks until then; a branch the session made before the limit is not pushed."));
+                return Unfinished(ErrorCode.RateLimited, "the session ended on a usage or rate limit",
+                    "Retry once the limit lifts. The batch holds its remaining tasks until then.", ChargehandException.Retryable(ErrorCode.RateLimited));
             case SessionStatus.TokenCap:
                 return Unfinished(ErrorCode.CostCapReached, "the session reached its token cap and was stopped",
                     "Raise max_tokens_total in the request (and the preset's max_tokens), or give the task a narrower goal.");

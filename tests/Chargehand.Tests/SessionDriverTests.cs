@@ -534,4 +534,43 @@ public class SessionDriverTests
         Assert.Equal("http://chargehand.internal:4300/v1/mcp", server.GetProperty("url").GetString());
         Assert.Equal("Bearer run-token-1", server.GetProperty("headers").GetProperty("Authorization").GetString());
     }
+
+    private static string ToolCall(string id, string command) =>
+        JsonSerializer.Serialize(new { type = "assistant", message = new { id = $"m-{id}", content = new object[] { new { type = "tool_use", id, name = "Bash", input = new { command } } } } });
+
+    private static string ToolResult(string id, string output) =>
+        JsonSerializer.Serialize(new { type = "user", message = new { role = "user", content = new object[] { new { type = "tool_result", tool_use_id = id, content = output, is_error = true } } } });
+
+    [Fact]
+    public async Task A_governed_session_logs_its_decisions_redacted_and_acts_on_none_in_observe_mode()
+    {
+        using var w = new Workspace();
+        var command = $"make CANARY={Canary}";
+        var script = Emit([Init, .. Enumerable.Range(1, 4).SelectMany(i => new[] { ToolCall($"c{i}", command), ToolResult($"c{i}", "make: *** [all] Error 1") }), Result()]);
+        var outcome = await SessionDriver.RunAsync(Options(w, script, Task() with { Governor = new SessionGovernor(SizeClass: "M") }), default);
+
+        Assert.Equal(SessionStatus.Completed, outcome.Status);
+        var log = File.ReadAllText(Path.Combine(w.Out, SessionDriver.GovernorFile));
+        Assert.DoesNotContain(Canary, log);
+        var lines = log.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        // The third failure warns (repeated_failure); the fourth identical pair is a second signal, so a checkpoint.
+        Assert.Equal(["warn", "checkpoint"], lines.Select(l => JsonDocument.Parse(l).RootElement.GetProperty("action").GetString()));
+        Assert.All(lines, l => Assert.False(JsonDocument.Parse(l).RootElement.GetProperty("acted").GetBoolean()));
+        Assert.Equal(2, outcome.Governor!.Count);
+        Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(w.Out, SessionDriver.GovernorFile)))), outcome.GovernorLogSha256);
+        Assert.Contains("\"governor_log_sha256\"", File.ReadAllText(Path.Combine(w.Out, "session-outcome.json")));
+    }
+
+    [Fact]
+    public async Task A_session_with_the_governor_off_or_absent_writes_no_log()
+    {
+        foreach (var governor in new[] { null, new SessionGovernor(GovernorMode.Off) })
+        {
+            using var w = new Workspace();
+            var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init, ToolCall("c1", "make"), ToolResult("c1", "x"), Result()), Task() with { Governor = governor }), default);
+            Assert.False(File.Exists(Path.Combine(w.Out, SessionDriver.GovernorFile)));
+            Assert.Null(outcome.Governor);
+            Assert.Null(outcome.GovernorLogSha256);
+        }
+    }
 }
