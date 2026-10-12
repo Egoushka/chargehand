@@ -109,6 +109,7 @@ public class DrivenContinuationTests
     [Theory]
     [InlineData(SessionStatus.Stalled, "no_progress")]
     [InlineData(SessionStatus.Stalled, "repeating")]
+    [InlineData(SessionStatus.Stalled, "budget_spent")]
     [InlineData(SessionStatus.TokenCap, "token_cap")]
     [InlineData(SessionStatus.Failed, "session_error")]
     [InlineData(SessionStatus.RateLimited, "rate_limited")]
@@ -483,11 +484,83 @@ public class DrivenContinuationTests
         Assert.Equal(2, new DrivenLimits().Apply(new DrivenPreset()).MaxContinuations);
     }
 
+    private const string Progress = "# Handoff from the previous session\n\nThe session was stopped by checkpoint stuck after 37 turns.\n\n- [x] research\n- [ ] test\n";
+
+    [Theory]
+    [InlineData("checkpoint_stuck")]
+    [InlineData("checkpoint_context")]
+    [InlineData("checkpoint_spend")]
+    public async Task A_governor_checkpoint_continues_in_a_fresh_session_whose_prompt_carries_the_handoff_and_offers_the_earlier_commits(string reason)
+    {
+        using var rig = new DrivenRunTests.Rig(outcomes: (_, goal) => IsContinuation(goal) ? Done() : Stopped(SessionStatus.Stalled, reason));
+        rig.Volumes.Progress = (_, goal) => IsContinuation(goal) ? null : Progress;
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal(2, rig.Engine.Started.Count);
+        var first = rig.Volumes.Tasks[0].Goal;
+        var goal = rig.Volumes.Tasks[1].Goal;
+        Assert.DoesNotContain("handoff", first, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains($"stopped by {reason.Replace('_', ' ')} after 80 turns", goal);
+        Assert.Contains("offered, not required", goal);
+        Assert.Contains($"git reset --hard {Commit}", goal);
+        Assert.EndsWith(Progress.TrimEnd(), goal);
+        Assert.False(Assert.Single(rig.Handover.Inputs).Partial);
+    }
+
+    [Fact]
+    public async Task A_continuation_without_a_handoff_keeps_the_plain_prompt()
+    {
+        using var rig = new DrivenRunTests.Rig(outcomes: (_, goal) => IsContinuation(goal) ? Done() : Stopped(SessionStatus.Stalled, "checkpoint_stuck"));
+        await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.EndsWith("do not redo finished work, finish the task, run the tests, and end with the same report block.", rig.Volumes.Tasks[1].Goal);
+        Assert.DoesNotContain("offered, not required", rig.Volumes.Tasks[1].Goal);
+    }
+
+    [Fact]
+    public async Task A_long_handoff_is_cut_in_the_prompt_and_in_a_partial_pull_requests_body()
+    {
+        var long_ = Progress + new string('z', 20_000);
+        using var rig = new DrivenRunTests.Rig(outcomes: (_, goal) => Progressing(goal));
+        rig.Volumes.Progress = (run, _) => long_;
+        await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.All(rig.Volumes.Tasks.Skip(1), t => Assert.Contains("[handoff truncated]", t.Goal));
+        Assert.All(rig.Volumes.Tasks.Skip(1), t => Assert.True(t.Goal.Length < 9500, $"{t.Goal.Length}"));
+        var handover = Assert.Single(rig.Handover.Inputs);
+        Assert.True(handover.Partial);
+        Assert.Contains("[handoff truncated]", handover.Body);
+        Assert.True(handover.Body.Length < 7500, $"{handover.Body.Length}");
+    }
+
+    [Fact]
+    public async Task A_partial_pull_requests_body_carries_the_last_sessions_progress()
+    {
+        using var rig = new DrivenRunTests.Rig(outcomes: (_, _) => Stopped(SessionStatus.Stalled, "budget_spent"));
+        rig.Volumes.Progress = (run, _) => $"# Handoff from the previous session\n\nprogress of {run}\n";
+        await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Single(rig.Engine.Started);       // a spent budget never continues
+        var handover = Assert.Single(rig.Handover.Inputs);
+        Assert.True(handover.Partial);
+        Assert.Contains("was stopped by budget spent after 80 turns", handover.Body);
+        Assert.Contains($"progress of {rig.Engine.Started[0].RunId}", handover.Body);
+    }
+
+    [Fact]
+    public async Task A_partial_pull_request_from_a_session_that_left_no_handoff_has_no_handoff_section()
+    {
+        using var rig = new DrivenRunTests.Rig(outcomes: (_, _) => Stopped(SessionStatus.Stalled, "no_progress"));
+        await rig.Run.RunAsync(One(), BatchId, Token, default);
+        Assert.DoesNotContain("---", Assert.Single(rig.Handover.Inputs).Body);
+    }
+
     [Fact]
     public void The_stop_reasons_that_continue_are_listed_in_one_place()
     {
-        Assert.Equal(["turn_limit", "wall_clock"], StallDetector.ContinuableReasons);
-        foreach (var reason in (string[])["no_progress", "repeating", "token_cap", "out_of_memory"])
+        Assert.Equal(["turn_limit", "wall_clock", "checkpoint_stuck", "checkpoint_context", "checkpoint_spend"], StallDetector.ContinuableReasons);
+        foreach (var reason in (string[])["no_progress", "repeating", "token_cap", "out_of_memory", "budget_spent"])
             Assert.False(StallDetector.Continuable(reason));
     }
 

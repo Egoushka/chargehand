@@ -181,8 +181,17 @@ public static partial class ContainerTemplate
     /// <summary>The files chargehand writes into a session's output volume.</summary>
     public static readonly IReadOnlyList<string> OutFilesIn = ["task.json", SeedFile];
 
-    /// <summary>The files chargehand reads out of it: the bundle, the report, the outcome and the running token tally. Nothing else leaves the volume.</summary>
-    public static readonly IReadOnlyList<string> OutFilesOut = ["chargehand.bundle", "driven-report.json", "session-outcome.json", UsageFile];
+    /// <summary>The files chargehand reads out of it: the bundle, the report, the outcome, the running token tally and the handoff of a stopped session. Nothing else leaves the volume.</summary>
+    public static readonly IReadOnlyList<string> OutFilesOut = ["chargehand.bundle", "driven-report.json", "session-outcome.json", UsageFile, HandoffFile, ProgressFile];
+
+    /// <summary>What a stopped session leaves for the next one (ADR 0045): the facts as JSON and as the text that goes into the next prompt. A runner older than these names refuses to
+    /// read them, so the server treats both as optional.</summary>
+    public const string HandoffFile = "handoff.json";
+
+    public const string ProgressFile = "progress.md";
+
+    /// <summary>The files of <see cref="OutFilesOut"/> that may be missing from the volume and that an older runner may refuse.</summary>
+    public static readonly IReadOnlyList<string> OptionalOutFiles = [HandoffFile, ProgressFile];
 
     /// <summary>The session's running token tally, rewritten while it works; the host polls it so the caps bind before the task ends.</summary>
     public const string UsageFile = "session-usage.json";

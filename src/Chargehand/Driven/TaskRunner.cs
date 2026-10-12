@@ -23,7 +23,8 @@ public interface ISessionVolumes
     /// <summary>Puts the previous session's bundle into the volume as <c>seed.bundle</c>; the continuation session starts its branch from it (ADR 0044).</summary>
     Task WriteSeedAsync(string runId, string bundlePath, CancellationToken ct);
 
-    /// <summary>Copies <c>chargehand.bundle</c>, <c>driven-report.json</c> and <c>session-outcome.json</c> (each only if it exists) from the volume into <paramref name="directory"/>.</summary>
+    /// <summary>Copies <c>chargehand.bundle</c>, <c>driven-report.json</c>, <c>session-outcome.json</c> and a stopped session's <c>handoff.json</c> and <c>progress.md</c> (each only if it exists;
+    /// a runner too old to know the last two is not an error) from the volume into <paramref name="directory"/>.</summary>
     Task FetchOutputAsync(string runId, string directory, CancellationToken ct);
 
     /// <summary>The session's running tally while it works; null if it has not written one yet or the file is unreadable.</summary>
@@ -199,7 +200,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
 
                 // The branch so far goes into a new session on the same branch name; the old container and workspace are not needed any more.
                 continuation++;
-                goal = ContinuationGoal(task.Goal, continuation, session);
+                goal = ContinuationGoal(task.Goal, continuation, session, ReadProgress(outDirectory));
                 startDetail = $"session container started (continuation {continuation} of {preset.MaxContinuations}, previous stopped by {session.Reason})";
                 seed = Path.Combine(outDirectory, "chargehand.bundle");
                 prior = total;
@@ -252,7 +253,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             else if (partial)
             {
                 await RestoreBundleAsync(handoverRun.Item1, ct);
-                handed = await HandOverAsync(task, handoverRun, branch, $"[partial] {Title(task.Goal)}", PartialBody(task, session, total, continuation, startFailure), partial: true, ct);
+                handed = await HandOverAsync(task, handoverRun, branch, $"[partial] {Title(task.Goal)}", PartialBody(task, session, total, continuation, startFailure, ReadProgress(outDirectory)), partial: true, ct);
             }
 
             var scratchClone = Path.Combine(settings.ScratchRoot, handoverRun.Item1);
@@ -324,7 +325,27 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     private static string StopReason(SessionOutcome session) =>
         session.Reason.Length > 0 ? session.Reason : JsonNamingPolicy.SnakeCaseLower.ConvertName(session.Status.ToString());
 
-    private static string PartialBody(ResolvedTask task, SessionOutcome last, SessionOutcome total, int continuation, string? startFailure)
+    /// <summary>How much of a handoff goes into a continuation's prompt, and how much into a partial pull request's body.</summary>
+    private const int ProgressInGoal = 8000;
+    private const int ProgressInBody = 6000;
+
+    /// <summary>The <c>progress.md</c> a stopped session left, or null: an older session image writes none, and a session that was not stopped by the driver has none.</summary>
+    private static string? ReadProgress(string directory)
+    {
+        var file = Path.Combine(directory, ContainerTemplate.ProgressFile);
+        try
+        {
+            return File.Exists(file) && File.ReadAllText(file).Trim() is { Length: > 0 } text ? text : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
+    private static string Truncated(string text, int max) => text.Length <= max ? text : text[..max].TrimEnd() + "\n\n[handoff truncated]";
+
+    private static string PartialBody(ResolvedTask task, SessionOutcome last, SessionOutcome total, int continuation, string? startFailure, string? progress)
     {
         var body = new StringBuilder(string.Create(CultureInfo.InvariantCulture,
             $"Partial result: the session {(last.Status == SessionStatus.NeedsInput ? "stopped to ask a question" : $"was stopped by {StopReason(last).Replace('_', ' ')}")} after {total.Turns} turns and did not finish. This is unfinished work, kept so it is not lost; read it before anything else.\n\nTask: {task.Id}"))
@@ -335,6 +356,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             body.Append("\n\nA further session could not be started: ").Append(startFailure).Append('.');
         if (last.SnapshotNote is { Length: > 0 } note)
             body.Append("\n\nNot everything the session wrote is on this branch: ").Append(note).Append('.');
+        if (progress is not null)
+            body.Append("\n\n---\n\n").Append(Truncated(progress, ProgressInBody));
         return body.ToString();
     }
 
@@ -426,9 +449,17 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         return string.Create(CultureInfo.InvariantCulture, $"governor {mode}{JsonNamingPolicy.SnakeCaseLower.ConvertName(d.Action.ToString())} on {d.Signal} ({d.Rule.Replace('_', ' ')}) at turn {d.Turn}{spend}");
     }
 
-    private string ContinuationGoal(string goal, int number, SessionOutcome previous) =>
-        $"{goal}\n\nContinuation {number} of {settings.Preset.MaxContinuations}. A previous session was stopped by {previous.Reason.Replace('_', ' ')} after {previous.Turns} turns; its work is on this branch "
-        + $"(the last commit, 'WIP: ...'). Read `git log` and `git diff {settings.BaseCommit}..HEAD` first, do not redo finished work, finish the task, run the tests, and end with the same report block.";
+    /// <summary>With a handoff (ADR 0045) the earlier commits are offered, not required: the handoff may show the approach failed, and then the session starts again from the base commit.</summary>
+    private string ContinuationGoal(string goal, int number, SessionOutcome previous, string? progress)
+    {
+        var head = $"{goal}\n\nContinuation {number} of {settings.Preset.MaxContinuations}. A previous session was stopped by {previous.Reason.Replace('_', ' ')} after {previous.Turns} turns; its work is on this branch "
+            + "(the last commit, 'WIP: ...'). ";
+        return progress is null
+            ? head + $"Read `git log` and `git diff {settings.BaseCommit}..HEAD` first, do not redo finished work, finish the task, run the tests, and end with the same report block."
+            : head + $"The handoff below says where it stood. Read it, then `git log` and `git diff {settings.BaseCommit}..HEAD`. Those commits are offered, not required: keep what works and do not redo it, "
+                + $"but if the handoff shows the approach failed, run `git reset --hard {settings.BaseCommit}` and take another approach. Finish the task, run the tests, and end with the same report block.\n\n"
+                + Truncated(progress, ProgressInGoal);
+    }
 
     private static string ContinuationNote(int continuation) =>
         continuation == 0 ? "" : string.Create(CultureInfo.InvariantCulture, $"\n\nThe task ran {continuation} continuation session(s) on this branch after earlier ones were stopped.");

@@ -77,7 +77,8 @@ public static partial class Adherence
         return stage;
     }
 
-    private static string? Step(JsonElement block)
+    /// <summary>The step (research, write, test or review) one <c>tool_use</c> block belongs to; null when it names none.</summary>
+    internal static string? Step(JsonElement block)
     {
         var name = block.GetPropertyOrNull("name")?.GetString() ?? "";
         var input = block.GetPropertyOrNull("input");

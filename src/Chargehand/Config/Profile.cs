@@ -438,7 +438,7 @@ public sealed record DrivenAdmission(int ReserveMb = 1024, double? MaxLoadPerCpu
 
 /// <summary>The governor's settings for every session (ADR 0045). Profile keys, not preset keys, for the reason <see cref="DrivenLimits"/> gives. Each threshold left out keeps
 /// <see cref="SessionGovernor"/>'s default.</summary>
-/// <param name="Mode"><c>off</c> or <c>observe</c> (the default: decisions are logged, none acted on).</param>
+/// <param name="Mode"><c>off</c>, <c>observe</c> (the default: decisions are logged, none acted on) or <c>enforce</c> (a checkpoint or a stop ends the session).</param>
 /// <param name="Budgets">The flat budget per size class (S, M, L) in the dollar equivalent, until enough history exists for a percentile.</param>
 public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IReadOnlyDictionary<string, decimal>? Budgets = null, int? RepeatCalls = null,
     int? RepeatFailures = null, int? FailingCalls = null, int? ProbeCommands = null, int? NoGrowthTurns = null, int? RewarnTurns = null, long? ContextTokens = null,

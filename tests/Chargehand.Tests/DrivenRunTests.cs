@@ -142,6 +142,9 @@ public class DrivenRunTests
         /// <summary>Runs whose output volume holds nothing.</summary>
         public HashSet<string> NoOutput { get; } = [];
 
+        /// <summary>The <c>progress.md</c> a session leaves, from its run id and goal; null: it leaves none.</summary>
+        public Func<string, string, string?>? Progress { get; set; }
+
         public Task<TaskUsage?> ReadUsageAsync(string runId, CancellationToken ct)
         {
             Interlocked.Increment(ref UsageReads);
@@ -183,6 +186,8 @@ public class DrivenRunTests
                 File.WriteAllText(Path.Combine(directory, "driven-report.json"), "{" + newer + Report[1..]);
             if (outcome.BundleWritten)
                 File.WriteAllText(Path.Combine(directory, "chargehand.bundle"), "bundle");
+            if (Progress?.Invoke(runId, goal) is { } progress)
+                File.WriteAllText(Path.Combine(directory, "progress.md"), progress);
             return Task.CompletedTask;
         }
     }
