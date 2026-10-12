@@ -341,7 +341,7 @@ public class DrivenRunTests
     [Fact]
     public async Task The_progress_event_carries_the_cache_counts_and_the_dollar_estimate_even_on_a_subscription()
     {
-        var volumes = new FakeVolumes(_ => SessionStatus.Completed) { Usage = new TaskUsage(48_200, 0, 12, SessionStage.Write, 3_500_000, 90_000, 1.75m) };
+        var volumes = new FakeVolumes(_ => SessionStatus.Completed) { Usage = new TaskUsage(48_200, 0, 12, SessionStage.Write, 3_500_000, 90_000, 1.75m, true) };
         using var rig = new Rig(volumes: volumes);
         rig.Engine.RunFor = 3;
         List<RunStatus> events = [];
@@ -349,7 +349,8 @@ public class DrivenRunTests
 
         var progress = events.Single(e => e.Event == RunEventKind.SessionProgress);
         Assert.Equal((1.75m, 3_500_000L, 90_000L, null), (progress.UsdEstimate, progress.CacheRead, progress.CacheWrite, progress.Usd));     // usd stays the priced figure
-        Assert.Contains("about $1.75 estimated", progress.Detail);
+        Assert.Contains("about $1.75 estimated (partial)", progress.Detail);
+        Assert.True(progress.UsdEstimatePartial);
     }
 
     [Fact]

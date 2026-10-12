@@ -31,6 +31,7 @@
     "tokens": { "type": "integer", "minimum": 0, "description": "Driven sessions: input plus output tokens the task's session has used so far (session_progress), or in all (task_finished)." },
     "stage": { "enum": ["research", "write", "test", "review"], "description": "Driven sessions, session_progress: the change skill's step the session is on, by its latest tool call; absent until a call names one." },
     "usd_estimate": { "type": "number", "minimum": 0, "description": "Driven sessions, session_progress: the session's dollar equivalent so far, from the profile's price table (input, output, cache write and cache read priced apart). An estimate, not a bill, and present on a subscription too; absent without prices or when a model has none." },
+    "usd_estimate_partial": { "type": "boolean", "description": "Driven sessions, session_progress: true when some message's model had no price, so usd_estimate sums only the priced ones; absent otherwise." },
     "cache_read": { "type": "integer", "minimum": 0, "description": "Driven sessions, session_progress: cache-read tokens the task's session has used so far." },
     "cache_write": { "type": "integer", "minimum": 0, "description": "Driven sessions, session_progress: cache-creation tokens the task's session has used so far." }
   }

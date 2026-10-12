@@ -19,6 +19,10 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null)
         "The subscription is rate limited or unavailable, so the rest of the batch was not started. Retry later, or switch the profile to an API key "
         + "(claude_code.api_key_secret in place of oauth_token_secret) and resend the tasks that did not finish.";
 
+    public const string RepeatedLimitAction =
+        "The provider's usage or rate limit was hit twice in a row with no task finishing in between, so the rest of the batch was not started. "
+        + "Resend the tasks that did not finish once the limit lifts.";
+
     private sealed class Running(TaskLimits limits, CancellationTokenSource cts)
     {
         public TaskLimits Limits { get; } = limits;
@@ -42,6 +46,8 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null)
         string? action = null;
         var overspent = false;
         var pausedUntil = DateTimeOffset.MinValue;
+        var limits429 = 0;
+        var limitStop = false;
         var next = 0;
 
         bool Fits()
@@ -160,9 +166,30 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null)
                     outcome = outcome with { Error = ErrorCode.CostCapReached, Detail = "stopped: the batch's cap was exceeded" };
                 outcomes[index] = outcome;
                 onFinished?.Invoke(outcome);
-                if (outcome.Error is ErrorCode.RateLimited && notStartedReason is null && LimitLifts(outcome) is { } lifts)
-                    pausedUntil = lifts > pausedUntil ? lifts : pausedUntil;
-                else if (outcome.Error is ErrorCode.RateLimited or ErrorCode.ProviderUnavailable && notStartedReason is null)
+                if (outcome.State == TaskState.Completed)
+                    limits429 = 0;
+                if (outcome.Error is ErrorCode.RateLimited && notStartedReason is null)
+                {
+                    // One limit pauses; a second with no task finished since means the pause did not help, so the batch ends and is resent after the reset.
+                    if (++limits429 >= 2)
+                    {
+                        notStartedReason = "not started: the provider's rate limit was hit twice in a row";
+                        action = RepeatedLimitAction;
+                    }
+                    else if (LimitLifts(outcome) is { } lifts)
+                        pausedUntil = lifts > pausedUntil ? lifts : pausedUntil;
+                    else
+                    {
+                        notStartedReason = "not started: the provider is rate limited until later than the batch will wait";
+                        action = RateLimitedAction;
+                    }
+                    if (notStartedReason is not null)
+                    {
+                        notStartedError = ErrorCode.RateLimited;
+                        limitStop = true;
+                    }
+                }
+                else if (outcome.Error is ErrorCode.ProviderUnavailable && notStartedReason is null)
                 {
                     notStartedReason = "not started: the provider is rate limited or unavailable";
                     action = RateLimitedAction;
@@ -175,14 +202,16 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null)
             notStartedError = ErrorCode.Cancelled;
         for (var i = 0; i < tasks.Count; i++)
             outcomes[i] ??= new TaskOutcome(tasks[i].Id, TaskState.NotStarted, null, why.StartsWith("not started", StringComparison.Ordinal) ? why : $"not started: {why}", notStartedError);
-        return new BatchOutcome([.. outcomes.Select(o => o!)], action);
+        return new BatchOutcome([.. outcomes.Select(o => o!)], action, limitStop ? ErrorCode.RateLimited : null);
     }
 
-    /// <summary>When new starts may resume after a rate-limited task; null when that is further off than <see cref="MaxPause"/>.</summary>
+    /// <summary>When new starts may resume after a rate-limited task: its reset time, but never sooner than the backoff (a reset that is unparsed, already past or too
+    /// optimistic must not burn the batch); null when that is further off than <see cref="MaxPause"/>.</summary>
     private DateTimeOffset? LimitLifts(TaskOutcome outcome)
     {
         var now = DateTimeOffset.UtcNow;
-        var lifts = outcome.RetryAfter ?? now + (backoff ?? UsageLimit.DefaultBackoff);
+        var floor = now + (backoff ?? UsageLimit.DefaultBackoff);
+        var lifts = outcome.RetryAfter is { } reset && reset > floor ? reset : floor;
         return lifts - now > MaxPause ? null : lifts;
     }
 

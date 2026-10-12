@@ -36,8 +36,9 @@ public sealed record SessionOptions(string WorkDirectory, string OutDirectory, S
 /// <summary>The running tally the session writes to <c>session-usage.json</c>: input plus output tokens so far, assistant messages so far, and the <c>change</c> skill's step of the
 /// latest tool call that names one (<see cref="Adherence.StageOf"/>). <c>CacheRead</c> and <c>CacheWrite</c> are summed over the assistant messages so far; <c>UsdEstimate</c> prices
 /// all four token classes with the task's price table, cache reads at the cache-read rate. It is a dollar equivalent, not a bill, so it exists on a subscription too; null
-/// when the task carries no prices or a model has none. The real dollars (<c>total_cost_usd</c>) arrive only in the stream's <c>result</c>.</summary>
-public sealed record SessionUsage(long Tokens, int? Turns = null, string? Stage = null, long? CacheRead = null, long? CacheWrite = null, decimal? UsdEstimate = null);
+/// when the task carries no prices or no message could be priced; if only some could, it sums those and <c>UsdEstimatePartial</c> is true. The real dollars (<c>total_cost_usd</c>) arrive only in the stream's <c>result</c>.</summary>
+public sealed record SessionUsage(long Tokens, int? Turns = null, string? Stage = null, long? CacheRead = null, long? CacheWrite = null, decimal? UsdEstimate = null,
+    bool UsdEstimatePartial = false);
 
 /// <summary><c>RateLimited</c>: the session ended on a usage or rate limit, so the provider, not the task, is why it stopped.</summary>
 public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed, RateLimited }
@@ -52,7 +53,7 @@ public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed, Ra
 /// <param name="RateLimitResetsAt">For <see cref="SessionStatus.RateLimited"/>: when the limit lifts, if the result said.</param>
 public sealed record SessionOutcome(SessionStatus Status, string Reason, int Turns, long InputTokens, long OutputTokens, long CacheReadTokens,
     decimal? CostUsd, int? ExitCode, IReadOnlyList<string> Questions, bool BundleWritten, string? StreamSha256 = null, long CacheWriteTokens = 0, string? SessionId = null,
-    string? Model = null, IReadOnlyDictionary<string, TokenCounts>? ModelUsage = null, decimal? UsdEstimate = null, DateTimeOffset? RateLimitResetsAt = null);
+    string? Model = null, IReadOnlyDictionary<string, TokenCounts>? ModelUsage = null, decimal? UsdEstimate = null, DateTimeOffset? RateLimitResetsAt = null, bool UsdEstimatePartial = false);
 
 /// <summary>Runs headless Claude Code on the <c>change</c> skill inside a session container (ADR 0039), watches its stream, ends it when it
 /// stalls or passes its token cap, and leaves three files in the output directory: <c>stream.jsonl</c> (secrets redacted), <c>chargehand.bundle</c>
@@ -137,7 +138,7 @@ public static partial class SessionDriver
                     detector.OnEvent(e, now);
                     tally.Add(e);
                     stage = Adherence.StageOf(e) ?? stage;
-                    WriteUsage(options.OutDirectory, new SessionUsage(tally.Input + tally.Output, detector.Turns, stage, tally.CacheRead, tally.CacheWrite, tally.UsdEstimate), ref lastUsage);
+                    WriteUsage(options.OutDirectory, new SessionUsage(tally.Input + tally.Output, detector.Turns, stage, tally.CacheRead, tally.CacheWrite, tally.UsdEstimate, tally.UsdEstimatePartial), ref lastUsage);
                     if (task.MaxTokens is { } cap && tally.Input + tally.Output >= cap && stoppedBy.Set(SessionStatus.TokenCap, "token_cap"))
                         Interrupt(process);
                 }
@@ -164,7 +165,7 @@ public static partial class SessionDriver
             var (report, questions) = Extract(tally);
             if (report is not null)
                 await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "driven-report.json"), Redact(report, options.Secrets), ct);
-            var rateLimited = tally.ResultIsError && ChargehandException.RateLimited(tally.ResultText);
+            var rateLimited = tally.ResultIsError && UsageLimit.Matches(tally.ResultText);
             var status = stoppedBy.Cause?.Status
                 ?? (rateLimited ? SessionStatus.RateLimited : questions.Count > 0 ? SessionStatus.NeedsInput : tally.HasResult && !tally.ResultIsError ? SessionStatus.Completed : SessionStatus.Failed);
             var reason = stoppedBy.Cause?.Reason ?? (status == SessionStatus.RateLimited ? "rate_limited" : status == SessionStatus.Failed ? (tally.HasResult ? "session_error" : "no_result") : "");
@@ -172,7 +173,7 @@ public static partial class SessionDriver
             var streamHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(options.OutDirectory, "stream.jsonl"), ct)));
             var outcome = new SessionOutcome(status, reason, detector.Turns, tally.Input, tally.Output, tally.CacheRead, tally.CostUsd, process.ExitCode,
                 [.. questions.Select(q => Redact(q, options.Secrets))], bundle, streamHash, tally.CacheWrite, tally.SessionId, tally.Model, tally.ModelUsage.Count == 0 ? null : tally.ModelUsage,
-                tally.UsdEstimate, status == SessionStatus.RateLimited ? UsageLimit.ResetsAt(tally.ResultText) : null);
+                tally.UsdEstimate, status == SessionStatus.RateLimited ? UsageLimit.ResetsAt(tally.ResultText) : null, tally.UsdEstimatePartial);
             await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "session-outcome.json"), Redact(JsonSerializer.Serialize(outcome, OutcomeJson), options.Secrets), ct);
             return outcome;
         }
@@ -324,26 +325,32 @@ public static partial class SessionDriver
         public string? Model { get; private set; }
         public Dictionary<string, TokenCounts> ModelUsage { get; } = [];
 
-        /// <summary>The per-message tokens priced with the task's table, model by model; null without a table or when a model has no price (unknown, never 0).</summary>
-        public decimal? UsdEstimate
+        /// <summary>The per-message tokens priced with the task's table, model by model; null without a table or when no message could be priced (unknown, never 0).</summary>
+        public decimal? UsdEstimate => Estimate().Usd;
+
+        /// <summary>Some message's model had no price, so <see cref="UsdEstimate"/> sums only the others.</summary>
+        public bool UsdEstimatePartial => Estimate().Partial;
+
+        private (decimal? Usd, bool Partial) Estimate()
         {
-            get
+            if (prices is null)
+                return (null, false);
+            var table = new PriceTable(prices);
+            decimal total = 0;
+            var any = false;
+            var partial = false;
+            foreach (var group in _perMessage.Values.GroupBy(v => v.Model ?? Model))
             {
-                if (prices is null || _perMessage.Count == 0)
-                    return null;
-                var table = new PriceTable(prices);
-                decimal total = 0;
-                foreach (var group in _perMessage.Values.GroupBy(v => v.Model ?? Model))
+                var sum = new TokenCounts(group.Sum(v => v.Tokens.Input), group.Sum(v => v.Tokens.Output), 0, group.Sum(v => v.Tokens.CacheRead), group.Sum(v => v.Tokens.CacheWrite));
+                if (group.Key is { } model && DrivenTelemetry.Find(prices, model) is { } key && table.PriceUsd(key, sum) is { } usd)
                 {
-                    if (group.Key is not { } model || DrivenTelemetry.Find(prices, model) is not { } key)
-                        return null;
-                    var sum = new TokenCounts(group.Sum(v => v.Tokens.Input), group.Sum(v => v.Tokens.Output), 0, group.Sum(v => v.Tokens.CacheRead), group.Sum(v => v.Tokens.CacheWrite));
-                    if (table.PriceUsd(key, sum) is not { } usd)
-                        return null;
                     total += usd;
+                    any = true;
                 }
-                return total;
+                else
+                    partial = true;
             }
+            return any ? (total, partial) : (null, false);
         }
 
         public void Add(JsonElement e)

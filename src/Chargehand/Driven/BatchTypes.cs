@@ -11,7 +11,7 @@ public sealed record TaskOutcome(string Id, TaskState State, string? RunId = nul
 
 /// <summary>What a running task has used so far, cumulative, and where its session is: turns and stage are known only while it runs, from the session's tally. <c>Usd</c> is
 /// priced dollars (an API key only); <c>UsdEstimate</c> is the session's dollar equivalent from the price table, also on a subscription, and binds nothing.</summary>
-public sealed record TaskUsage(long Tokens, decimal Usd, int? Turns = null, SessionStage? Stage = null, long? CacheRead = null, long? CacheWrite = null, decimal? UsdEstimate = null);
+public sealed record TaskUsage(long Tokens, decimal Usd, int? Turns = null, SessionStage? Stage = null, long? CacheRead = null, long? CacheWrite = null, decimal? UsdEstimate = null, bool UsdEstimatePartial = false);
 
 /// <summary>The most one task may use. Tokens bind in both credential modes; <c>MaxUsd</c> is null where the credential is not priced.</summary>
 public sealed record TaskLimits(long MaxTokens, decimal? MaxUsd);
@@ -40,7 +40,8 @@ public sealed class TaskSourceException(string message) : Exception(message);
 public sealed record BatchLimits(int MaxParallel, long? MaxTokensTotal, decimal? MaxUsdTotal, TaskLimits PerTask, SemaphoreSlim? Global = null);
 
 /// <param name="Action">What the caller should do about a stop the batch could not fix by itself (a rate-limited subscription); null otherwise.</param>
-public sealed record BatchOutcome(IReadOnlyList<TaskOutcome> Tasks, string? Action)
+/// <param name="Error">Set when the batch stopped starting tasks because of the provider's usage or rate limit (<see cref="ErrorCode.RateLimited"/>): the batch is retryable after the reset.</param>
+public sealed record BatchOutcome(IReadOnlyList<TaskOutcome> Tasks, string? Action, ErrorCode? Error = null)
 {
     public bool AllCompleted => Tasks.All(t => t.State == TaskState.Completed);
 

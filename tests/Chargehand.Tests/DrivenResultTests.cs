@@ -283,6 +283,24 @@ public class DrivenResultTests
     }
 
     [Fact]
+    public void A_batch_that_stopped_on_rate_limits_is_failed_rate_limited_and_retryable_with_the_rest_not_started()
+    {
+        var outcome = new BatchOutcome(
+        [
+            new TaskOutcome("t1", TaskState.Failed, "r1", "limit", ErrorCode.RateLimited),
+            new TaskOutcome("t2", TaskState.Failed, "r2", "limit", ErrorCode.RateLimited),
+            new TaskOutcome("t3", TaskState.NotStarted, null, "not started: the usage limit was hit twice in a row", ErrorCode.RateLimited),
+        ], null, ErrorCode.RateLimited);
+        var result = DrivenResult.BuildBatch("run-batch", new string('0', 32), "Three changes", outcome, "env", priced: false, "2.1.283");
+        Assert.Equal(ResultStatus.Failed, result.Status);
+        Assert.Equal(ErrorCode.RateLimited, result.Error!.Code);
+        Assert.True(result.Error.Retryable);
+        Assert.Contains("t3", result.Error.Action);
+        Assert.Contains("not_started", result.Artifacts.Single(a => a.Kind == "driven-batch").Content!.ToString());
+        AssertValid(result);
+    }
+
+    [Fact]
     public async Task A_session_that_ended_on_a_usage_limit_is_failed_rate_limited_and_retryable()
     {
         using var repo = new Repo();

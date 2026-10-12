@@ -73,8 +73,8 @@ public class EngineSessionVolumesTests
         Assert.Equal("session-usage.json", engine.Specs.Last().Name);
         engine.Files["session-usage.json"] = """{"tokens": 4300, "turns": 7, "stage": "test"}"""u8.ToArray();
         Assert.Equal(new TaskUsage(4300, 0, 7, SessionStage.Test), await volumes.ReadUsageAsync("run1", default));
-        engine.Files["session-usage.json"] = """{"tokens": 4350, "cache_read": 90000, "cache_write": 1200, "usd_estimate": 0.31}"""u8.ToArray();
-        Assert.Equal(new TaskUsage(4350, 0, CacheRead: 90000, CacheWrite: 1200, UsdEstimate: 0.31m), await volumes.ReadUsageAsync("run1", default));
+        engine.Files["session-usage.json"] = """{"tokens": 4350, "cache_read": 90000, "cache_write": 1200, "usd_estimate": 0.31, "usd_estimate_partial": true}"""u8.ToArray();
+        Assert.Equal(new TaskUsage(4350, 0, CacheRead: 90000, CacheWrite: 1200, UsdEstimate: 0.31m, UsdEstimatePartial: true), await volumes.ReadUsageAsync("run1", default));
         engine.Files["session-usage.json"] = """{"tokens": 4400, "stage": "deploy"}"""u8.ToArray();
         Assert.Equal(new TaskUsage(4400, 0), await volumes.ReadUsageAsync("run1", default));     // a stage it does not know is left out, the tokens still count
         engine.Files["session-usage.json"] = """{"tokens": 42"""u8.ToArray();

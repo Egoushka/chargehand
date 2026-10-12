@@ -337,7 +337,7 @@ public class SessionDriverTests
         var other = JsonSerializer.Serialize(new { type = "assistant", message = new { id = "m2", model = "claude-fable-9", content = new[] { new { type = "text", text = "x" } }, usage = new { input_tokens = 500, output_tokens = 5 } } });
         var seen = await UsageSeen(w, Task() with { Prices = Prices }, "usd_estimate_partial.: true",
             Sonnet("m1", """{"input_tokens":1000,"output_tokens":100,"cache_read_input_tokens":60000,"cache_creation_input_tokens":2000}"""), other);
-        Assert.Equal(0.042m - 0.0420m + 0.0285m, seen.GetProperty("usd_estimate").GetDecimal());     // m1 alone: 3000 + 1500 + 18000 + 7500 per million
+        Assert.Equal(0.03m, seen.GetProperty("usd_estimate").GetDecimal());     // m1 alone: 3000 + 1500 + 18000 + 7500 per million
         Assert.True(seen.GetProperty("usd_estimate_partial").GetBoolean());
     }
 

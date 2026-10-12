@@ -24,7 +24,8 @@ public sealed record RunStatus(
     SessionStage? Stage = null,
     decimal? UsdEstimate = null,
     long? CacheRead = null,
-    long? CacheWrite = null)
+    long? CacheWrite = null,
+    bool? UsdEstimatePartial = null)
 {
     public static RunStatus Of(string runId, RunState status, RunEventKind? kind = null) => new("run-status/v1", runId, status, kind, DateTimeOffset.UtcNow);
 

@@ -263,7 +263,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                     if (usage is not null && usage != shown)
                     {
                         shown = usage;
-                        Publish(taskId, RunEventKind.SessionProgress, Describe(usage), s => s with { Tokens = usage.Tokens, Turns = usage.Turns, Stage = usage.Stage, UsdEstimate = usage.UsdEstimate, CacheRead = usage.CacheRead, CacheWrite = usage.CacheWrite });
+                        Publish(taskId, RunEventKind.SessionProgress, Describe(usage), s => s with { Tokens = usage.Tokens, Turns = usage.Turns, Stage = usage.Stage, UsdEstimate = usage.UsdEstimate, CacheRead = usage.CacheRead, CacheWrite = usage.CacheWrite, UsdEstimatePartial = usage.UsdEstimatePartial ? true : null });
                     }
                     if (usage is not null && usage.Tokens > reported)
                     {
@@ -299,7 +299,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             string.Create(CultureInfo.InvariantCulture, $"{usage.Tokens} tokens"),
             usage.Turns is { } turns ? string.Create(CultureInfo.InvariantCulture, $"{turns} turns") : null,
             usage.Stage is { } stage ? $"stage {stage.ToString().ToLowerInvariant()}" : null,
-            usage.UsdEstimate is { } estimate ? string.Create(CultureInfo.InvariantCulture, $"about ${estimate:0.00} estimated") : null,
+            usage.UsdEstimate is { } estimate ? string.Create(CultureInfo.InvariantCulture, $"about ${estimate:0.00} estimated{(usage.UsdEstimatePartial ? " (partial)" : "")}") : null,
         }.Where(p => p is not null));
 
     /// <summary>A poll that fails (the engine busy, a half-written file) is skipped: the final outcome still carries the real numbers.</summary>

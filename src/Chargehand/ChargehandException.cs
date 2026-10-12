@@ -22,7 +22,7 @@ public partial class ChargehandException(ErrorCode code, string message, string?
         ? c.Error
         : new ChargehandException(RateLimited(e.Message) ? ErrorCode.RateLimited : ErrorCode.Internal, e.Message).Error;
 
-    /// <summary>A gateway or provider rate limit, as relayed by OpenCode ("Rate limit exceeded") or Claude Code (rate_limit_error, 429, "usage limit reached").</summary>
+    /// <summary>A gateway or provider rate limit, as relayed by OpenCode ("Rate limit exceeded") or Claude Code (rate_limit_error, 429).</summary>
     public static bool RateLimited(string? message) => message is not null && RateLimitText().IsMatch(message);
 
     /// <summary>
@@ -37,7 +37,7 @@ public partial class ChargehandException(ErrorCode code, string message, string?
         return Spend().Replace(text, "${k}[redacted]");
     }
 
-    [GeneratedRegex(@"rate[ _]limit|usage[ _]limit|\b429\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"rate[ _]limit|\b429\b", RegexOptions.IgnoreCase)]
     private static partial Regex RateLimitText();
 
     [GeneratedRegex(@"(?<![A-Za-z0-9_])sk-[^\s)""',]+")]
