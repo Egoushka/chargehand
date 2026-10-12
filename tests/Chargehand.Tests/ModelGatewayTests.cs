@@ -245,7 +245,8 @@ public class ModelTokensTests
         var token = ModelTokens.Mint(key, "run-a", Now.AddMinutes(10), 0);
         Assert.Null(ModelTokens.Validate(ModelTokens.NewKey(), token, Now));
         Assert.Null(ModelTokens.Validate(key, token, Now.AddMinutes(10)));
-        Assert.Null(ModelTokens.Validate(key, token[..^2] + (token[^1] == 'A' ? "BB" : "AA"), Now));
+        // The last base64url character carries two ignored bits, so tamper with the one before it.
+        Assert.Null(ModelTokens.Validate(key, token[..^2] + (token[^2] == 'A' ? 'B' : 'A') + token[^1], Now));
         var other = ModelTokens.Mint(key, "run-b", Now.AddMinutes(10), 0);
         Assert.Null(ModelTokens.Validate(key, other.Split('.')[0] + "." + token.Split('.')[1], Now));   // one token's body with another's mac
         foreach (var bad in new[] { null, "", "chm-", "chm-.", "sk-ant-x", new string('x', 600), "chm-!!!.!!!" })
