@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.8] - 2026-10-12
+
+Driven batches survive a server restart, and sessions' research and review calls stop failing under load.
+
+### Added
+
+- A driven batch survives a chargehand server restart (a deploy or an OOM) (ADR 0043). Its state is saved next to the run log and the run-token key persists, so on start the server resumes each unfinished batch under the same run id: it re-attaches to sessions still running, hands over ones that finished, re-runs a task whose container is gone, and schedules pending tasks. A graceful stop leaves sessions running instead of killing them. Leftover `chargehand-*` containers, networks and volumes no saved batch owns are removed at start. A handover repeated after a crash finds the draft PR it already opened.
+
 ### Fixed
 
 - A driven session's research and review calls are no longer refused with "10 runs are unfinished": only top-level runs count toward that cap, and session calls are bounded by `driven.max_session_calls`. A waiting `orchestrate` call sends an MCP progress notification every 30 seconds (queued or running), so a client's 300-second idle timeout no longer aborts a call that waits for a slot. The tool description, the `run` and `change` skills and the session prompt say the request/v1 fields are the tool's top-level arguments; sessions had wrapped them in a `request` object and got a schema error.
@@ -674,7 +682,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.7...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.8...HEAD
+[0.8.8]: https://github.com/Egoushka/chargehand/compare/v0.8.7...v0.8.8
 [0.8.7]: https://github.com/Egoushka/chargehand/compare/v0.8.6...v0.8.7
 [0.8.6]: https://github.com/Egoushka/chargehand/compare/v0.8.5...v0.8.6
 [0.8.5]: https://github.com/Egoushka/chargehand/compare/v0.8.4...v0.8.5
