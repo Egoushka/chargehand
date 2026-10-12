@@ -336,6 +336,39 @@ public class DrivenResultTests
     }
 
     [Fact]
+    public async Task A_stopped_task_handed_over_as_partial_names_its_branch_and_pull_request_and_does_not_say_send_it_again()
+    {
+        using var repo = new Repo();
+        var result = await Build(Input(repo, Session(SessionStatus.Stalled, "turn_limit"), report: null, handover: Pushed(repo)));
+
+        Assert.Equal(ResultStatus.Failed, result.Status);
+        Assert.Equal(ErrorCode.SessionStalled, result.Error!.Code);
+        Assert.Contains("partial draft pull request", result.Error.Message);
+        Assert.Contains("https://example.test/o/r/pull/7", result.Error.Action);
+        Assert.DoesNotContain("Send the task again with", result.Error.Action);
+        Assert.Equal("chargehand/run1", Artifact(result, "branch").GetProperty("branch").GetString());
+        Assert.True(Artifact(result, "branch").GetProperty("pushed").GetBoolean());
+        Assert.Equal("https://example.test/o/r/pull/7", Artifact(result, "pull-request").GetProperty("url").GetString());
+        Assert.Contains(result.Artifacts, a => a.Kind == "verification");
+        AssertValid(result);
+    }
+
+    [Fact]
+    public async Task A_stopped_task_whose_partial_handover_was_refused_says_so_and_keeps_the_original_advice()
+    {
+        using var repo = new Repo();
+        var refused = new HandoverOutcome(HandoverStatus.NotPushed, "the diff looks like it carries a secret (aws in a.txt); nothing was pushed", ErrorCode.SessionFailed, "chargehand/run1", repo.Commit, null, null, ["a.txt"], [], []);
+        var result = await Build(Input(repo, Session(SessionStatus.TokenCap, "token_cap"), report: null, handover: refused));
+
+        Assert.Equal(ErrorCode.CostCapReached, result.Error!.Code);
+        Assert.Contains("was not pushed", result.Error.Action);
+        Assert.Contains("Raise max_tokens_total", result.Error.Action);
+        Assert.False(Artifact(result, "branch").GetProperty("pushed").GetBoolean());
+        Assert.DoesNotContain(result.Artifacts, a => a.Kind == "pull-request");
+        AssertValid(result);
+    }
+
+    [Fact]
     public async Task A_finished_session_with_no_usable_report_is_invalid_result()
     {
         using var repo = new Repo();

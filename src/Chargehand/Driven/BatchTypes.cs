@@ -16,7 +16,9 @@ public sealed record TaskUsage(long Tokens, decimal Usd, int? Turns = null, Sess
 /// <summary>The most one task may use. Tokens bind in both credential modes; <c>MaxUsd</c> is null where the credential is not priced.</summary>
 public sealed record TaskLimits(long MaxTokens, decimal? MaxUsd);
 
-public sealed record ResolvedTask(string Id, string? Ref, string Goal);
+/// <param name="MaxTurns">The request's per-task override of the preset's turn limit; null: the preset's.</param>
+/// <param name="MaxMinutes">The same for the session's wall clock.</param>
+public sealed record ResolvedTask(string Id, string? Ref, string Goal, int? MaxTurns = null, int? MaxMinutes = null);
 
 /// <summary>Runs one task to its end: the container, the session, the handover. It reports usage as it goes and stops when cancelled.</summary>
 public interface ITaskRunner

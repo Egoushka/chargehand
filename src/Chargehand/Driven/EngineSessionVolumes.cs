@@ -11,6 +11,9 @@ public sealed class EngineSessionVolumes(IOutVolumeEngine engine, string image) 
     public Task WriteTaskAsync(string runId, SessionTask task, CancellationToken ct) =>
         engine.WriteOutFileAsync(Spec(runId, "task.json"), JsonSerializer.SerializeToUtf8Bytes(task, SessionCli.Json), ct);
 
+    public async Task WriteSeedAsync(string runId, string bundlePath, CancellationToken ct) =>
+        await engine.WriteOutFileAsync(Spec(runId, ContainerTemplate.SeedFile), await File.ReadAllBytesAsync(bundlePath, ct), ct);
+
     public async Task FetchOutputAsync(string runId, string directory, CancellationToken ct)
     {
         foreach (var name in ContainerTemplate.OutFilesOut.Where(n => n != ContainerTemplate.UsageFile))

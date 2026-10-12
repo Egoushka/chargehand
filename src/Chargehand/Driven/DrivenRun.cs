@@ -162,7 +162,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         // Throws when the profile has driven sessions off, so a refused request touches nothing else.
         var (ready, unresolved) = resume is null
             ? await DrivenBatch.PrepareAsync(request, settings, services?.TaskSource, ct)
-            : ([.. resume.Tasks.Select(t => new ResolvedTask(t.Id, t.Ref, t.Goal))], resume.Unresolved);
+            : ([.. resume.Tasks.Select(t => Resumed(request, t))], resume.Unresolved);
         var s = services ?? throw new ChargehandException(ErrorCode.ContainerUnavailable, "driven sessions are on, but no container engine is set up for them", "Check driven.runner in the profile, or install Docker.");
         var claude = profile.ClaudeCode ?? throw new ChargehandException(ErrorCode.InvalidRequest, "driven sessions need a claude_code block in the profile", "Add claude_code with an api_key_secret or an oauth_token_secret.");
         var image = settings.Images is { Count: > 0 } images ? images[0] : throw new ChargehandException(ErrorCode.InvalidRequest, "driven.images is empty", "List the session image by digest in driven.images.");
@@ -242,6 +242,12 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         span?.SetTag("chargehand.driven.tokens", all.Sum(o => o.Tokens));
         return DrivenResult.BuildBatch(runId, traceId, "", new BatchOutcome(all, ran.Action, ran.Error), Delivery(model, exchange), priced, claude.Version,
             cancelledByCaller: ct.IsCancellationRequested && cancelledByCaller());
+    }
+
+    private static ResolvedTask Resumed(RunRequest request, TaskEntry entry)
+    {
+        var asked = request.Driven?.Tasks.FirstOrDefault(t => t.Id == entry.Id);
+        return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes);
     }
 
     private static RunStatus TaskFinished(string runId, TaskOutcome o) =>

@@ -24,6 +24,8 @@ public sealed record RunnerSettings(int Port, string ApiKey, RunnerPolicy Policy
 /// carry chargehand's label or prefix, so it is safe on an engine that other stacks share.</summary>
 public static class RunnerServer
 {
+    private const long MaxSeedBytes = 128L * 1024 * 1024;
+
     public static WebApplication Create(RunnerSettings settings, IContainerEngine engine)
     {
         var address = IPAddress.Parse(settings.Listen);
@@ -87,6 +89,9 @@ public static class RunnerServer
                 return Refuse(refusal);
             var spec = new OutFileSpec(runId, image, RunnerPolicy.OutPrefix + runId, name);
             _ = ContainerTemplate.OutFileArgs(spec, write: true);
+            // A seed is a bundle, far over the 64 KiB the other calls get.
+            if (name == ContainerTemplate.SeedFile && ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+                limit.MaxRequestBodySize = MaxSeedBytes;
             using var body = new MemoryStream();
             await ctx.Request.Body.CopyToAsync(body, ct);
             await volumes.WriteOutFileAsync(spec, body.ToArray(), ct);

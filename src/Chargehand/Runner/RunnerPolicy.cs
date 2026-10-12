@@ -50,7 +50,7 @@ public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressIma
             : "the source is not under one of the runner's source roots";
     }
 
-    /// <summary>A file helper touches one run's output volume: a listed image and a fixed name, <c>task.json</c> in and the three result files out, whatever the caller asks.</summary>
+    /// <summary>A file helper touches one run's output volume: a listed image and a fixed name, <c>task.json</c> and <c>seed.bundle</c> in and the result files out, whatever the caller asks.</summary>
     public string? RefuseOutFile(string image, string name, bool write)
     {
         if (!Images.Contains(image, StringComparer.Ordinal))

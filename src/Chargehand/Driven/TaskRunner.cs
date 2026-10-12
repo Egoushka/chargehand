@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Chargehand.Budget;
 using Chargehand.Config;
@@ -8,6 +9,7 @@ using Chargehand.Contracts;
 using Chargehand.Egress;
 using Chargehand.Results;
 using Chargehand.RunLog;
+using Chargehand.Runtime;
 using Chargehand.Verification;
 
 namespace Chargehand.Driven;
@@ -17,6 +19,9 @@ namespace Chargehand.Driven;
 public interface ISessionVolumes
 {
     Task WriteTaskAsync(string runId, SessionTask task, CancellationToken ct);
+
+    /// <summary>Puts the previous session's bundle into the volume as <c>seed.bundle</c>; the continuation session starts its branch from it (ADR 0044).</summary>
+    Task WriteSeedAsync(string runId, string bundlePath, CancellationToken ct);
 
     /// <summary>Copies <c>chargehand.bundle</c>, <c>driven-report.json</c> and <c>session-outcome.json</c> (each only if it exists) from the volume into <paramref name="directory"/>.</summary>
     Task FetchOutputAsync(string runId, string directory, CancellationToken ct);
@@ -32,6 +37,8 @@ public sealed class UnavailableSessionVolumes : ISessionVolumes
         "Set driven.runner in the profile, or install Docker, and list the session image in driven.images (docs/guide/driven.md).");
 
     public Task WriteTaskAsync(string runId, SessionTask task, CancellationToken ct) => throw Unavailable();
+
+    public Task WriteSeedAsync(string runId, string bundlePath, CancellationToken ct) => throw Unavailable();
 
     public Task FetchOutputAsync(string runId, string directory, CancellationToken ct) => throw Unavailable();
 
@@ -76,24 +83,50 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
 
     private static readonly JsonSerializerOptions OutcomeJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
+    private sealed record BestRun(string RunId, string OutDirectory, int Commits);
+
     public async Task<TaskOutcome> RunAsync(ResolvedTask task, IProgress<TaskUsage> progress, CancellationToken ct)
     {
         var entry = journal?.Entry(task.Id);
         if (entry is { Phase: TaskPhase.HandedOver or TaskPhase.Failed, Outcome: { } done })
             return done;
         var resumed = entry is { Phase: TaskPhase.Started or TaskPhase.Finished, RunId: not null } ? entry : null;
+        string? restartSeed = null;
         if (resumed is not null && await GoneWithoutOutputAsync(resumed, ct))
         {
-            // Nothing to take up: begin again under a new run id and branch, and clear what the old attempt left.
+            // Nothing to take up. A continuation that never started is started again from the previous session's bundle (ADR 0044); any other task begins again
+            // under a new run id and branch. The old attempt's leftovers are cleared either way.
             await RemoveRunAsync(resumed.RunId!, resumed.Container);
-            resumed = null;
+            restartSeed = resumed.Continuation > 0 && resumed.Runs is { Count: > 1 } known ? await RestoreBundleAsync(known[^2], ct) : null;
+            if (restartSeed is null)
+                resumed = null;
         }
+        var attach = resumed is not null && restartSeed is null;
         var runId = resumed?.RunId ?? Orchestrator.NewRunId();
         var branch = resumed?.Branch ?? $"chargehand/{runId}";
         var started = resumed?.Started ?? DateTimeOffset.UtcNow;
         var preset = settings.Preset;
+        var maxTurns = task.MaxTurns ?? preset.MaxTurns;
+        var maxMinutes = task.MaxMinutes ?? preset.MaxMinutes;
+        // Sessions after the first (ADR 0044): the earlier ones' usage added up, and each one's run id, the first one's first (the branch is named after it).
+        var continuation = resumed?.Continuation ?? 0;
+        var prior = resumed?.Prior;
+        List<string> runs = [.. resumed?.Runs ?? [runId]];
+        if (restartSeed is not null)
+        {
+            // The same session again under a new run id: the name of the one that never started is not reused.
+            runId = Orchestrator.NewRunId();
+            runs[^1] = runId;
+            var (again, allRuns) = (runId, runs.ToList());
+            journal?.Update(task.Id, e => e with { RunId = again, Runs = allRuns, Container = null });
+        }
+        var best = resumed?.Best is { } kept ? new BestRun(kept.RunId, Path.Combine(settings.ScratchRoot, "out", kept.RunId), kept.Commits) : null;
+        var containers = new Dictionary<string, string?>();
         var outDirectory = Path.Combine(settings.ScratchRoot, "out", runId);
-        string? container = null;
+        string? seed = restartSeed;
+        var goal = resumed?.SessionGoal ?? task.Goal;
+        var startDetail = resumed?.StartDetail ?? "session container started";
+        string? startFailure = null;
         var ended = false;
         // A child of the batch's span: the task's result carries the batch's trace id, so it resolves in Langfuse.
         using var span = Telemetry.Source.StartActivity(DrivenTelemetry.TaskSpan);
@@ -105,86 +138,133 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         {
             Directory.CreateDirectory(outDirectory);
             if (resumed is null)
+                journal?.Update(task.Id, e => e with
+                {
+                    Phase = TaskPhase.Started,
+                    RunId = runId,
+                    Branch = branch,
+                    Started = started,
+                    Container = null,
+                    Continuation = 0,
+                    Prior = null,
+                    Runs = [runId],
+                    SessionStarted = DateTimeOffset.UtcNow,
+                    Best = null,
+                    SessionGoal = null,
+                    StartDetail = null
+                });
+            containers[runId] = null;
+            string container;
+            DateTimeOffset sessionStarted;
+            if (attach)
             {
-                journal?.Update(task.Id, e => e with { Phase = TaskPhase.Started, RunId = runId, Branch = branch, Started = started, Container = null });
-                await engine.CreateVolumeAsync(RunnerNames.Out(runId), runId, ct);
-                await workspace.PrepareWorkspaceAsync(new WorkspaceSpec(runId, settings.Image, settings.SourcePath, RunnerNames.Work(runId), branch, settings.BaseCommit), ct);
-                await volumes.WriteTaskAsync(runId, new SessionTask(runId, task.Goal, branch, preset.MaxTurns, preset.MaxMinutes, preset.NoProgressMinutes * 60,
-                    settings.Limits.MaxTokens, MaxUsd: settings.Limits.MaxUsd, Prices: settings.Prices), ct);
-
-                var gateway = settings.GatewayKey is not null && settings.Network.ModelUrl is not null;
-                Dictionary<string, string> env = new(gateway ? new Dictionary<string, string>() : settings.ModelEnvironment, StringComparer.Ordinal)
-                {
-                    ["HTTPS_PROXY"] = settings.Network.ProxyUrl(runId),
-                    ["HTTP_PROXY"] = settings.Network.ProxyUrl(runId),
-                    ["CHARGEHAND_RUN_ID"] = runId,
-                };
-                if (settings.ModelBaseUrl is { } modelBaseUrl)
-                    env["ANTHROPIC_BASE_URL"] = modelBaseUrl;
-                if (gateway)
-                {
-                    // The container holds a token that is worth nothing outside this run and this network; the real credential stays in the egress container.
-                    env["ANTHROPIC_BASE_URL"] = settings.Network.ModelUrl!;
-                    env["CLAUDE_CODE_OAUTH_TOKEN"] = ModelTokens.Mint(settings.GatewayKey!, runId, started.AddMinutes(preset.MaxMinutes + 15), settings.Limits.MaxTokens);
-                    env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1";
-                }
-                if (settings.CallbackForwards || gateway)
-                    // A forward and the model endpoint are plain HTTP to the egress container; the proxy variables would send them to that same proxy, which answers CONNECT only.
-                    env["NO_PROXY"] = env["no_proxy"] = $"{settings.Network.ProxyHost},{ContainerTemplate.CallbackAlias}";
-                if (settings.Otlp is { } otlp)
-                    foreach (var (name, value) in otlp.Environment(settings.BatchId, task.Id, runId, span is null ? null : traceId))
-                        env[name] = value;
-                if (settings.McpUrl is { } mcp)
-                {
-                    env["CHARGEHAND_MCP_URL"] = mcp;
-                    // The token admits only this path and commit; /work is not it, so the session is told them.
-                    env["CHARGEHAND_REPOSITORY_PATH"] = settings.SourcePath;
-                    env["CHARGEHAND_BASE_COMMIT"] = settings.BaseCommit;
-                    env["CHARGEHAND_RUN_TOKEN"] = mint(new TaskGrant(runId, settings.SourcePath, settings.BaseCommit, settings.Limits.MaxUsd, settings.Limits.MaxTokens,
-                        started.AddMinutes(preset.MaxMinutes + 15)));
-                }
-                container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
-                    preset.MemoryMb, preset.Cpus, preset.Pids, ["session"]), ct);
-                journal?.Update(task.Id, e => e with { Container = container });
-                Publish(task.Id, RunEventKind.ContainerStarted, "session container started", s => s with { Branch = branch });
+                container = resumed!.Container ?? $"chargehand-{runId}";
+                sessionStarted = resumed.SessionStarted ?? resumed.Started ?? DateTimeOffset.UtcNow;
             }
             else
-                container = resumed.Container ?? $"chargehand-{runId}";
-            var sessionStarted = resumed?.Started ?? DateTimeOffset.UtcNow;
-            var state = await WaitAsync(container!, runId, task.Id, preset, progress, sessionStarted, ct);
-            var sessionEnded = DateTimeOffset.UtcNow;
-
-            await volumes.FetchOutputAsync(runId, outDirectory, ct);
-            journal?.Update(task.Id, e => e with { Phase = TaskPhase.Finished });
-            var session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, state.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, state.ExitCode, [], false);
-            using (var call = Telemetry.Source.StartActivity(DrivenTelemetry.SessionSpan, ActivityKind.Client, span?.Context ?? default, startTime: sessionStarted))
             {
-                DrivenTelemetry.TagSession(call, session, settings.Prices ?? new Dictionary<string, ModelPrice>(), settings.UsageOnSpans);
-                call?.SetEndTime(sessionEnded.UtcDateTime);
+                sessionStarted = DateTimeOffset.UtcNow;
+                journal?.Update(task.Id, e => e with { SessionStarted = sessionStarted });
+                container = await StartSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, Remaining(prior), seed, sessionStarted, startDetail, span, traceId, ct);
             }
-            var reportFile = Path.Combine(outDirectory, "driven-report.json");
-            var reportJson = File.Exists(reportFile) ? await File.ReadAllTextAsync(reportFile, ct) : null;
-            progress.Report(new TaskUsage(session.InputTokens + session.OutputTokens, settings.Priced ? session.CostUsd ?? 0 : 0));
+            containers[runId] = container;
+            SessionOutcome session;
+            string? reportJson;
+            SessionOutcome total;
+            while (true)
+            {
+                var seeded = best?.Commits ?? 0;
+                var state = await WaitAsync(container, runId, task.Id, maxMinutes, progress, sessionStarted, prior, ct);
+                var sessionEnded = DateTimeOffset.UtcNow;
 
+                await volumes.FetchOutputAsync(runId, outDirectory, ct);
+                journal?.Update(task.Id, e => e with { Phase = TaskPhase.Finished });
+                session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, state.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, state.ExitCode, [], false);
+                using (var call = Telemetry.Source.StartActivity(DrivenTelemetry.SessionSpan, ActivityKind.Client, span?.Context ?? default, startTime: sessionStarted))
+                {
+                    DrivenTelemetry.TagSession(call, session, settings.Prices ?? new Dictionary<string, ModelPrice>(), settings.UsageOnSpans);
+                    call?.SetEndTime(sessionEnded.UtcDateTime);
+                }
+                var reportFile = Path.Combine(outDirectory, "driven-report.json");
+                reportJson = File.Exists(reportFile) ? await File.ReadAllTextAsync(reportFile, ct) : null;
+                total = Total(prior, session);
+                progress.Report(Capped(total.InputTokens + total.OutputTokens, settings.Priced ? total.CostUsd ?? 0 : 0, ended: true));
+                if (session.BundleWritten && session.Commits > 0)
+                    best = new BestRun(runId, outDirectory, session.Commits);
+                if (!Continues(session, continuation, total, best, seeded))
+                    break;
+
+                // The branch so far goes into a new session on the same branch name; the old container and workspace are not needed any more.
+                continuation++;
+                goal = ContinuationGoal(task.Goal, continuation, session);
+                startDetail = $"session container started (continuation {continuation} of {preset.MaxContinuations}, previous stopped by {session.Reason})";
+                seed = Path.Combine(outDirectory, "chargehand.bundle");
+                prior = total;
+                await RemoveSessionAsync(runId, container, CancellationToken.None);
+                var (previousRun, previousOut) = (runId, outDirectory);
+                runId = Orchestrator.NewRunId();
+                runs.Add(runId);
+                outDirectory = Path.Combine(settings.ScratchRoot, "out", runId);
+                Directory.CreateDirectory(outDirectory);
+                containers[runId] = null;
+                var (next, allRuns, count, earlier, seedBundle, sessionGoal, detail) = (runId, runs.ToList(), continuation, total, new BestBundle(best!.RunId, best.Commits), goal, startDetail);
+                journal?.Update(task.Id, e => e with
+                {
+                    Phase = TaskPhase.Started,
+                    RunId = next,
+                    Container = null,
+                    Continuation = count,
+                    Prior = earlier,
+                    Runs = allRuns,
+                    SessionStarted = DateTimeOffset.UtcNow,
+                    Best = seedBundle,
+                    SessionGoal = sessionGoal,
+                    StartDetail = detail
+                });
+                try
+                {
+                    sessionStarted = DateTimeOffset.UtcNow;
+                    container = await StartSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, Remaining(prior), seed, sessionStarted, startDetail, span, traceId, ct);
+                }
+                catch (Exception e) when (IsStartFailure(e, ct))
+                {
+                    // The work so far is on the previous session's bundle: carry on with it as if that session were the last (it is, now).
+                    startFailure = $"continuation {continuation} could not be started: {e.Message}";
+                    continuation--;
+                    runs.RemoveAt(runs.Count - 1);
+                    (runId, outDirectory) = (previousRun, previousOut);
+                    var (back, backRuns, backCount) = (runId, runs.ToList(), continuation);
+                    journal?.Update(task.Id, x => x with { Phase = TaskPhase.Finished, RunId = back, Container = null, Continuation = backCount, Runs = backRuns });
+                    break;
+                }
+                containers[runId] = container;
+            }
+
+            var finished = session.Status == SessionStatus.Completed && reportJson is not null && DrivenReport.Parse(reportJson) is not null;
+            var partial = !finished && best is not null && (Salvageable(session) || session.Status == SessionStatus.NeedsInput || best.RunId != runId);
+            var handoverRun = partial ? (best!.RunId, best.OutDirectory) : (runId, outDirectory);
             HandoverOutcome? handed = null;
-            if (session.Status == SessionStatus.Completed && reportJson is not null && DrivenReport.Parse(reportJson) is { } report)
-                handed = await handover.RunAsync(new HandoverInput(runId, outDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, settings.BaseBranch,
-                    Title(task.Goal), $"{report.Summary}\n\nTask: {task.Id}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify,
-                    [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
-                    Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null })), ct);
+            if (finished)
+                handed = await HandOverAsync(task, handoverRun, branch, Title(task.Goal), $"{DrivenReport.Parse(reportJson!)!.Summary}\n\nTask: {task.Id}{ContinuationNote(continuation)}", partial: false, ct);
+            else if (partial)
+            {
+                await RestoreBundleAsync(handoverRun.Item1, ct);
+                handed = await HandOverAsync(task, handoverRun, branch, $"[partial] {Title(task.Goal)}", PartialBody(task, session, total, continuation, startFailure), partial: true, ct);
+            }
 
-            var scratchClone = Path.Combine(settings.ScratchRoot, runId);
-            var children = (await log.ListAsync(new RunListQuery(Since: started, Limit: 200), ct)).Where(r => r.ParentRunId == runId).ToList();
-            var result = await DrivenResult.BuildTaskAsync(new DrivenTaskInput(task.Id, runId, traceId, settings.Model, settings.ClaudeVersion, session, reportJson, handed, children,
+            var scratchClone = Path.Combine(settings.ScratchRoot, handoverRun.Item1);
+            var children = (await log.ListAsync(new RunListQuery(Since: started, Limit: 200), ct)).Where(r => r.ParentRunId is { } parent && runs.Contains(parent)).ToList();
+            var result = await DrivenResult.BuildTaskAsync(new DrivenTaskInput(task.Id, runId, traceId, settings.Model, settings.ClaudeVersion, total, reportJson, handed, children,
                 Directory.Exists(scratchClone) ? scratchClone : settings.SourcePath, settings.BaseCommit, settings.Priced), resolver, supportCheck, ct);
             if (sign is not null)
                 result = sign(result);
             await log.AppendAsync(new StartRecord(runId, started, traceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId, ProcessBoot.Id), CancellationToken.None);
             await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, settings.Request.Context.Preset, null, null, result), CancellationToken.None);
-            var outcome = Outcome(task, runId, result, session, handed, settings.Priced);
+            var outcome = Outcome(task, runId, result, total, handed, settings.Priced, partial, startFailure is null ? null : $"; continuation {continuation + 1} did not start");
             journal?.Finish(outcome);
             ended = true;
-            Tag(span, outcome, session, started);
+            span?.SetTag("chargehand.task.continuations", continuation);
+            Tag(span, outcome, total, started);
             return outcome;
         }
         catch (Exception e)
@@ -200,12 +280,178 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             if (ended || !Detaching)
             {
                 // A start cancelled in flight can leave the container docker already made; the name is fixed, so remove it by name.
-                await engine.RemoveAsync(container ?? $"chargehand-{runId}", CancellationToken.None);
-                await engine.RemoveVolumeAsync(RunnerNames.Work(runId), CancellationToken.None);
-                DeleteQuietly(outDirectory);
-                DeleteQuietly(Path.Combine(settings.ScratchRoot, runId));
+                containers.TryAdd(runId, null);
+                foreach (var (run, name) in containers)
+                {
+                    await RemoveSessionAsync(run, name, CancellationToken.None);
+                    DeleteQuietly(Path.Combine(settings.ScratchRoot, "out", run));
+                    DeleteQuietly(Path.Combine(settings.ScratchRoot, run));
+                    // The last session's output volume and the one the handover read stay, as they always have; an earlier session's is no use once a later one has its bundle.
+                    if (run != runId && run != best?.RunId)
+                        await engine.RemoveVolumeAsync(RunnerNames.Out(run), CancellationToken.None);
+                }
             }
         }
+    }
+
+    /// <summary>A continuation's start that failed for a reason outside the task (the runner is full or unreachable, the seed was refused, the call timed out) must not cost the work
+    /// the earlier sessions left. A cancel by the caller or a stopping server is not one.</summary>
+    private static bool IsStartFailure(Exception e, CancellationToken ct) =>
+        e is ChargehandException or HttpRequestException or IOException || (e is TaskCanceledException && !ct.IsCancellationRequested);
+
+    /// <summary>The bundle of an earlier session on the host: the file the task kept, or else read again from that session's output volume (a restart may have cleared the scratch directory).</summary>
+    private async Task<string?> RestoreBundleAsync(string run, CancellationToken ct)
+    {
+        var directory = Path.Combine(settings.ScratchRoot, "out", run);
+        var bundle = Path.Combine(directory, "chargehand.bundle");
+        if (File.Exists(bundle))
+            return bundle;
+        Directory.CreateDirectory(directory);
+        try
+        {
+            await volumes.FetchOutputAsync(run, directory, ct);
+        }
+        catch (ChargehandException)
+        {
+            return null;
+        }
+        return File.Exists(bundle) ? bundle : null;
+    }
+
+    private static string StopReason(SessionOutcome session) =>
+        session.Reason.Length > 0 ? session.Reason : JsonNamingPolicy.SnakeCaseLower.ConvertName(session.Status.ToString());
+
+    private static string PartialBody(ResolvedTask task, SessionOutcome last, SessionOutcome total, int continuation, string? startFailure)
+    {
+        var body = new StringBuilder(string.Create(CultureInfo.InvariantCulture,
+            $"Partial result: the session {(last.Status == SessionStatus.NeedsInput ? "stopped to ask a question" : $"was stopped by {StopReason(last).Replace('_', ' ')}")} after {total.Turns} turns and did not finish. This is unfinished work, kept so it is not lost; read it before anything else.\n\nTask: {task.Id}"))
+            .Append(ContinuationNote(continuation));
+        if (last.Status == SessionStatus.NeedsInput && last.Questions.Count > 0)
+            body.Append("\n\nQuestions for you:\n").AppendJoin('\n', last.Questions.Select(q => $"- {q}"));
+        if (startFailure is not null)
+            body.Append("\n\nA further session could not be started: ").Append(startFailure).Append('.');
+        if (last.SnapshotNote is { Length: > 0 } note)
+            body.Append("\n\nNot everything the session wrote is on this branch: ").Append(note).Append('.');
+        return body.ToString();
+    }
+
+    /// <summary>The task's usage as the scheduler sees it. The session's driver stops at the cap, so the tally it leaves, and the final sum, are a little over: once the session has
+    /// <paramref name="ended"/>, or while it is within a tenth of the cap, the report is held at the cap, because a report past it has the scheduler cancel the task during the wind-down
+    /// and the handover with it. A runaway tally further over is reported as it is, and the scheduler stops the task.</summary>
+    private TaskUsage Capped(long tokens, decimal usd, bool ended)
+    {
+        var (maxTokens, maxUsd) = (settings.Limits.MaxTokens, settings.Limits.MaxUsd);
+        return new TaskUsage(ended || tokens <= maxTokens + maxTokens / 10 ? Math.Min(tokens, maxTokens) : tokens,
+            maxUsd is { } cap && (ended || usd <= cap + cap / 10) ? Math.Min(usd, cap) : usd);
+    }
+
+    /// <summary>The session's container, workspace and task file, up to the container's start.</summary>
+    private async Task<string> StartSessionAsync(ResolvedTask task, string runId, string branch, string goal, int maxTurns, int maxMinutes, (long Tokens, decimal? Usd) left, string? seed,
+        DateTimeOffset sessionStarted, string detail, Activity? span, string traceId, CancellationToken ct)
+    {
+        var preset = settings.Preset;
+        await engine.CreateVolumeAsync(RunnerNames.Out(runId), runId, ct);
+        await workspace.PrepareWorkspaceAsync(new WorkspaceSpec(runId, settings.Image, settings.SourcePath, RunnerNames.Work(runId), branch, settings.BaseCommit), ct);
+        if (seed is not null)
+            await volumes.WriteSeedAsync(runId, seed, ct);
+        await volumes.WriteTaskAsync(runId, new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices), ct);
+
+        var gateway = settings.GatewayKey is not null && settings.Network.ModelUrl is not null;
+        Dictionary<string, string> env = new(gateway ? new Dictionary<string, string>() : settings.ModelEnvironment, StringComparer.Ordinal)
+        {
+            ["HTTPS_PROXY"] = settings.Network.ProxyUrl(runId),
+            ["HTTP_PROXY"] = settings.Network.ProxyUrl(runId),
+            ["CHARGEHAND_RUN_ID"] = runId,
+        };
+        if (settings.ModelBaseUrl is { } modelBaseUrl)
+            env["ANTHROPIC_BASE_URL"] = modelBaseUrl;
+        if (gateway)
+        {
+            // The container holds a token that is worth nothing outside this run and this network; the real credential stays in the egress container.
+            env["ANTHROPIC_BASE_URL"] = settings.Network.ModelUrl!;
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = ModelTokens.Mint(settings.GatewayKey!, runId, sessionStarted.AddMinutes(maxMinutes + 15), left.Tokens);
+            env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1";
+        }
+        if (settings.CallbackForwards || gateway)
+            // A forward and the model endpoint are plain HTTP to the egress container; the proxy variables would send them to that same proxy, which answers CONNECT only.
+            env["NO_PROXY"] = env["no_proxy"] = $"{settings.Network.ProxyHost},{ContainerTemplate.CallbackAlias}";
+        if (settings.Otlp is { } otlp)
+            foreach (var (name, value) in otlp.Environment(settings.BatchId, task.Id, runId, span is null ? null : traceId))
+                env[name] = value;
+        if (settings.McpUrl is { } mcp)
+        {
+            env["CHARGEHAND_MCP_URL"] = mcp;
+            // The token admits only this path and commit; /work is not it, so the session is told them.
+            env["CHARGEHAND_REPOSITORY_PATH"] = settings.SourcePath;
+            env["CHARGEHAND_BASE_COMMIT"] = settings.BaseCommit;
+            env["CHARGEHAND_RUN_TOKEN"] = mint(new TaskGrant(runId, settings.SourcePath, settings.BaseCommit, left.Usd, left.Tokens, sessionStarted.AddMinutes(maxMinutes + 15)));
+        }
+        var container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
+            preset.MemoryMb, preset.Cpus, preset.Pids, ["session"]), ct);
+        journal?.Update(task.Id, e => e with { Container = container });
+        Publish(task.Id, RunEventKind.ContainerStarted, detail, s => s with { Branch = branch });
+        return container;
+    }
+
+    /// <summary>What is left of the task's caps once the earlier sessions have spent theirs (ADR 0044): the caps are the task's, not each session's.</summary>
+    private (long Tokens, decimal? Usd) Remaining(SessionOutcome? prior) =>
+        (settings.Limits.MaxTokens - (prior is null ? 0 : prior.InputTokens + prior.OutputTokens),
+            settings.Limits.MaxUsd is { } cap ? cap - (prior?.CostUsd ?? 0) : null);
+
+    /// <summary>A session stopped by the turn limit or the wall clock (<see cref="StallDetector.ContinuableReasons"/>) with work on its branch gets another, while continuations and the task's caps
+    /// last and the session added a commit past the one it was seeded with. Not a stall for no progress or a repeated call (it would loop again), not the token cap, not a question for a person.</summary>
+    private bool Continues(SessionOutcome session, int continuation, SessionOutcome total, BestRun? best, int seeded)
+    {
+        if (session is not { Status: SessionStatus.Stalled, BundleWritten: true, Commits: > 0 } || !StallDetector.Continuable(session.Reason) || best is null
+            || continuation >= settings.Preset.MaxContinuations || session.Commits <= seeded)
+            return false;
+        var (tokens, usd) = Remaining(total);
+        return tokens > 0 && usd is not <= 0;
+    }
+
+    /// <summary>A session that did not finish but left commits is handed over as a partial draft pull request; a question for a person, or a session that ended without its work, is not.</summary>
+    private static bool Salvageable(SessionOutcome session) =>
+        session.Status is SessionStatus.Stalled or SessionStatus.TokenCap || (session.Status == SessionStatus.Failed && session.Reason != "out_of_memory");
+
+    private string ContinuationGoal(string goal, int number, SessionOutcome previous) =>
+        $"{goal}\n\nContinuation {number} of {settings.Preset.MaxContinuations}. A previous session was stopped by {previous.Reason.Replace('_', ' ')} after {previous.Turns} turns; its work is on this branch "
+        + $"(the last commit, 'WIP: ...'). Read `git log` and `git diff {settings.BaseCommit}..HEAD` first, do not redo finished work, finish the task, run the tests, and end with the same report block.";
+
+    private static string ContinuationNote(int continuation) =>
+        continuation == 0 ? "" : string.Create(CultureInfo.InvariantCulture, $"\n\nThe task ran {continuation} continuation session(s) on this branch after earlier ones were stopped.");
+
+    private Task<HandoverOutcome> HandOverAsync(ResolvedTask task, (string RunId, string OutDirectory) run, string branch, string title, string body, bool partial, CancellationToken ct) =>
+        handover.RunAsync(new HandoverInput(run.RunId, run.OutDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, settings.BaseBranch,
+            title, body, settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
+            Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial), ct);
+
+    private static SessionOutcome Total(SessionOutcome? earlier, SessionOutcome last)
+    {
+        if (earlier is null)
+            return last;
+        Dictionary<string, TokenCounts> models = new(earlier.ModelUsage ?? new Dictionary<string, TokenCounts>());
+        foreach (var (name, now) in last.ModelUsage ?? new Dictionary<string, TokenCounts>())
+            models[name] = models.TryGetValue(name, out var before)
+                ? new TokenCounts(before.Input + now.Input, before.Output + now.Output, before.Reasoning + now.Reasoning, before.CacheRead + now.CacheRead, before.CacheWrite + now.CacheWrite)
+                : now;
+        return last with
+        {
+            Turns = earlier.Turns + last.Turns,
+            InputTokens = earlier.InputTokens + last.InputTokens,
+            OutputTokens = earlier.OutputTokens + last.OutputTokens,
+            CacheReadTokens = earlier.CacheReadTokens + last.CacheReadTokens,
+            CacheWriteTokens = earlier.CacheWriteTokens + last.CacheWriteTokens,
+            CostUsd = earlier.CostUsd is null && last.CostUsd is null ? null : (earlier.CostUsd ?? 0) + (last.CostUsd ?? 0),
+            UsdEstimate = earlier.UsdEstimate is null && last.UsdEstimate is null ? null : (earlier.UsdEstimate ?? 0) + (last.UsdEstimate ?? 0),
+            UsdEstimatePartial = earlier.UsdEstimatePartial || last.UsdEstimatePartial,
+            ModelUsage = models.Count == 0 ? null : models,
+        };
+    }
+
+    private async Task RemoveSessionAsync(string runId, string? container, CancellationToken ct)
+    {
+        await engine.RemoveAsync(container ?? $"chargehand-{runId}", ct);
+        await engine.RemoveVolumeAsync(RunnerNames.Work(runId), ct);
     }
 
     private bool Detaching => detaching?.Invoke() == true;
@@ -238,12 +484,16 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     }
 
     /// <summary>Waits for the container to end. A cancel interrupts the session, gives it a moment, then kills it, and rethrows; a session past its wall clock plus a margin is killed.</summary>
-    private async Task<ContainerState> WaitAsync(string container, string runId, string taskId, DrivenPreset preset, IProgress<TaskUsage> progress, DateTimeOffset since, CancellationToken ct)
+    private async Task<ContainerState> WaitAsync(string container, string runId, string taskId, int maxMinutes, IProgress<TaskUsage> progress, DateTimeOffset since, SessionOutcome? prior, CancellationToken ct)
     {
         var every = poll ?? DefaultPoll;
         var usageClock = Stopwatch.StartNew();
         long reported = 0;
         TaskUsage? shown = null;
+        // A continuation's tally starts at zero; the task's numbers are the earlier sessions' plus it.
+        var earlierTokens = prior is null ? 0 : prior.InputTokens + prior.OutputTokens;
+        var earlierUsd = settings.Priced ? prior?.CostUsd ?? 0 : 0;
+        var earlierTurns = prior?.Turns ?? 0;
         try
         {
             while (true)
@@ -251,7 +501,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 var state = await engine.InspectAsync(container, ct);
                 if (state.Status != ContainerStatus.Running)
                     return state;
-                if (DateTimeOffset.UtcNow - since > TimeSpan.FromMinutes(preset.MaxMinutes) + WallClockSlack)
+                if (DateTimeOffset.UtcNow - since > TimeSpan.FromMinutes(maxMinutes) + WallClockSlack)
                 {
                     await engine.SignalAsync(container, "SIGKILL", CancellationToken.None);
                     return await engine.InspectAsync(container, CancellationToken.None);
@@ -263,12 +513,24 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                     if (usage is not null && usage != shown)
                     {
                         shown = usage;
-                        Publish(taskId, RunEventKind.SessionProgress, Describe(usage), s => s with { Tokens = usage.Tokens, Turns = usage.Turns, Stage = usage.Stage, UsdEstimate = usage.UsdEstimate, CacheRead = usage.CacheRead, CacheWrite = usage.CacheWrite, UsdEstimatePartial = usage.UsdEstimatePartial ? true : null });
+                        {
+                            var whole = usage with
+                            {
+                                Tokens = earlierTokens + usage.Tokens,
+                                Usd = earlierUsd,
+                                Turns = usage.Turns is { } turns ? earlierTurns + turns : null,
+                                UsdEstimate = usage.UsdEstimate is { } estimate ? estimate + (prior?.UsdEstimate ?? 0) : null,
+                                CacheRead = usage.CacheRead is { } read ? read + (prior?.CacheReadTokens ?? 0) : null,
+                                CacheWrite = usage.CacheWrite is { } write ? write + (prior?.CacheWriteTokens ?? 0) : null,
+                                UsdEstimatePartial = usage.UsdEstimatePartial || prior is { UsdEstimatePartial: true }
+                            };
+                            Publish(taskId, RunEventKind.SessionProgress, Describe(whole), s => s with { Tokens = whole.Tokens, Turns = whole.Turns, Stage = whole.Stage, UsdEstimate = whole.UsdEstimate, CacheRead = whole.CacheRead, CacheWrite = whole.CacheWrite, UsdEstimatePartial = whole.UsdEstimatePartial ? true : null });
+                        }
                     }
                     if (usage is not null && usage.Tokens > reported)
                     {
                         reported = usage.Tokens;
-                        progress.Report(new TaskUsage(usage.Tokens, 0));
+                        progress.Report(Capped(earlierTokens + usage.Tokens, earlierUsd, ended: false));
                     }
                 }
                 await Task.Delay(every, ct);
@@ -330,7 +592,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         }
     }
 
-    private static TaskOutcome Outcome(ResolvedTask task, string runId, ResultContract result, SessionOutcome session, HandoverOutcome? handed, bool priced)
+    private static TaskOutcome Outcome(ResolvedTask task, string runId, ResultContract result, SessionOutcome session, HandoverOutcome? handed, bool priced, bool partial, string? partialNote)
     {
         var state = result.Status switch
         {
@@ -339,7 +601,12 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             _ => TaskState.Failed,
         };
         var pushed = handed?.Status is HandoverStatus.Pushed or HandoverStatus.PrFailed;
-        return new TaskOutcome(task.Id, state, runId, state == TaskState.Completed ? null : result.Summary, result.Error?.Code,
+        var detail = state == TaskState.Completed ? null
+            : !partial || handed is null ? result.Summary
+            : session.Status == SessionStatus.NeedsInput ? $"partial: needs input ({string.Join("; ", session.Questions)}); {(pushed ? handed.PullRequest is null ? "branch pushed, pull request failed" : "draft PR opened" : $"not handed over: {handed.Reason}")}{partialNote}"
+            : pushed ? $"partial: stopped by {StopReason(session)}; {(handed.PullRequest is null ? "branch pushed, pull request failed" : "draft PR opened")}{partialNote}"
+            : $"partial: stopped by {StopReason(session)}; not handed over: {handed.Reason}{partialNote}";
+        return new TaskOutcome(task.Id, state, runId, detail, result.Error?.Code,
             priced ? session.CostUsd ?? 0 : 0, session.InputTokens + session.OutputTokens, pushed ? handed!.Branch : null, handed?.PullRequest?.Url,
             session.Status == SessionStatus.RateLimited ? session.RateLimitResetsAt : null);
     }

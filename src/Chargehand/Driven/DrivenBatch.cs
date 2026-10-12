@@ -30,12 +30,12 @@ public static class DrivenBatch
         {
             if (task.Goal is { Length: > 0 } goal)
             {
-                ready.Add(new ResolvedTask(task.Id, task.Ref, goal));
+                ready.Add(new ResolvedTask(task.Id, task.Ref, goal, task.MaxTurns, task.MaxMinutes));
                 continue;
             }
             try
             {
-                ready.Add(new ResolvedTask(task.Id, task.Ref, await source!.ResolveAsync(task.Ref!, ct)));
+                ready.Add(new ResolvedTask(task.Id, task.Ref, await source!.ResolveAsync(task.Ref!, ct), task.MaxTurns, task.MaxMinutes));
             }
             catch (TaskSourceException e)
             {

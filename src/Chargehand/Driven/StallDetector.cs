@@ -30,6 +30,12 @@ public sealed class StallDetector
     /// <summary>Distinct assistant messages seen; one message streamed as several events counts once.</summary>
     public int Turns => _messages.Count;
 
+    /// <summary>The stops after which the work so far is carried on in a new session (ADR 0044): the session ran out of room, not of ideas. The one list; another stop reason that
+    /// should continue is added here.</summary>
+    public static IReadOnlyList<string> ContinuableReasons { get; } = [Wire(StallReason.TurnLimit), Wire(StallReason.WallClock)];
+
+    public static bool Continuable(string reason) => ContinuableReasons.Contains(reason);
+
     public static string Wire(StallReason reason) => reason switch
     {
         StallReason.NoProgress => "no_progress",

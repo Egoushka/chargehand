@@ -7,8 +7,19 @@ namespace Chargehand.Driven;
 /// <c>HandedOver</c>: a pull request opened; <c>Failed</c>: ended without one. The last two carry the task's outcome.</summary>
 public enum TaskPhase { Pending, Started, Finished, HandedOver, Failed }
 
+/// <param name="Continuation">How many continuation sessions have started (ADR 0044); <c>RunId</c> and <c>Container</c> are then the latest session's.</param>
+/// <param name="Prior">The earlier sessions' usage added up; null before the first continuation.</param>
+/// <param name="Runs">Run ids of all the task's sessions, the first one's first.</param>
+/// <param name="SessionStarted">When the latest session started: its wall clock counts from here, while <c>Started</c> is the task's.</param>
+/// <param name="Best">The latest session whose bundle holds commits: what a continuation is seeded from and a partial handover hands over.</param>
+/// <param name="SessionGoal">The latest session's prompt when it is a continuation's (the goal plus the note); null: the task's goal.</param>
+/// <param name="StartDetail">The <c>container_started</c> text of a continuation, kept so a continuation redone after a restart says the same.</param>
 public sealed record TaskEntry(string Id, string? Ref, string Goal, TaskPhase Phase = TaskPhase.Pending, string? RunId = null, string? Branch = null, string? Container = null,
-    DateTimeOffset? Started = null, TaskOutcome? Outcome = null);
+    DateTimeOffset? Started = null, TaskOutcome? Outcome = null, int Continuation = 0, SessionOutcome? Prior = null, IReadOnlyList<string>? Runs = null, DateTimeOffset? SessionStarted = null,
+    BestBundle? Best = null, string? SessionGoal = null, string? StartDetail = null);
+
+/// <param name="Commits">Commits past the base the bundle holds; a continuation has to add to them to go on.</param>
+public sealed record BestBundle(string RunId, int Commits);
 
 /// <summary>What a restarted server needs to carry on a driven batch (ADR 0043): the request, the tasks as resolved, each task's phase, and the key of the batch's model-token exchange.
 /// The names of the batch's network and egress container follow from <paramref name="RunId"/>; the real model credential is never kept, the profile supplies it again.</summary>
@@ -16,8 +27,8 @@ public sealed record TaskEntry(string Id, string? Ref, string Goal, TaskPhase Ph
 /// <param name="Unresolved">Tasks that did not resolve to a goal: final from the start.</param>
 public sealed record BatchState(string RunId, DateTimeOffset Started, string TraceId, RunRequest Request, string? TokenKey, IReadOnlyList<TaskEntry> Tasks, IReadOnlyList<TaskOutcome> Unresolved)
 {
-    /// <summary>Every run id the batch's resources can carry: the batch's own and its tasks'.</summary>
-    public IEnumerable<string> RunIds => Tasks.Select(t => t.RunId).OfType<string>().Prepend(RunId);
+    /// <summary>Every run id the batch's resources can carry: the batch's own and its tasks', every session of a task included (an earlier session's output volume holds the bundle a restart may need).</summary>
+    public IEnumerable<string> RunIds => Tasks.Select(t => t.RunId).OfType<string>().Concat(Tasks.SelectMany(t => t.Runs ?? [])).Prepend(RunId);
 }
 
 /// <summary>One JSON file per unfinished driven batch, next to the run log (ADR 0043). A write goes to a temporary file that is flushed to disk and then renamed over the old one,

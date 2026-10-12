@@ -129,12 +129,15 @@ public static partial class ContainerTemplate
     /// <summary>The script the workspace helper runs; the branch and the commit reach it only as arguments (<c>$1</c>, <c>$2</c>), never spliced into its text.
     /// <c>safe.directory</c> is needed because the read-only source belongs to another user. It is a global config in the helper's tmpfs (the root filesystem is
     /// read-only, so HOME moves to /tmp): <c>git clone</c> of a local path runs <c>git-upload-pack</c> as a child, which checks ownership itself and does not see
-    /// <c>-c</c> or <c>GIT_CONFIG_*</c> (measured on a Linux host). The clone gets no hooks (<c>--template=</c>) and its own commits run none (<c>core.hooksPath</c>).</summary>
+    /// <c>-c</c> or <c>GIT_CONFIG_*</c> (measured on a Linux host). The clone gets no hooks (<c>--template=</c>) and its own commits run none (<c>core.hooksPath</c>). The session image keeps the .NET CLI home and
+    /// the NuGet package cache in /work (<c>DOTNET_CLI_HOME</c>, <c>NUGET_PACKAGES</c>): they are excluded here, so the stop snapshot's <c>git add -A</c> does not commit them.</summary>
     public const string WorkspaceScript =
         "set -e\n"
         + "export HOME=/tmp\n"
         + "git config --global safe.directory '*'\n"
         + "git clone --quiet --no-hardlinks --template= /src /work\n"
+        + "mkdir -p /work/.git/info\n"
+        + "printf '%s\\n' '/.dotnet/' '/.nuget/' >> /work/.git/info/exclude\n"
         + "git -C /work checkout --quiet -b \"$1\" \"$2\"\n"
         + "git -C /work config user.name chargehand\n"
         + "git -C /work config user.email chargehand@localhost\n"
@@ -171,8 +174,11 @@ public static partial class ContainerTemplate
         ];
     }
 
+    /// <summary>The previous session's bundle, which a continuation session starts from (ADR 0044).</summary>
+    public const string SeedFile = "seed.bundle";
+
     /// <summary>The files chargehand writes into a session's output volume.</summary>
-    public static readonly IReadOnlyList<string> OutFilesIn = ["task.json"];
+    public static readonly IReadOnlyList<string> OutFilesIn = ["task.json", SeedFile];
 
     /// <summary>The files chargehand reads out of it: the bundle, the report, the outcome and the running token tally. Nothing else leaves the volume.</summary>
     public static readonly IReadOnlyList<string> OutFilesOut = ["chargehand.bundle", "driven-report.json", "session-outcome.json", UsageFile];

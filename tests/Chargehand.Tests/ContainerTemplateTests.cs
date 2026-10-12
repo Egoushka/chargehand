@@ -131,4 +131,42 @@ public class ContainerTemplateTests
         var clone = Array.FindIndex(lines, l => l.StartsWith("git clone ", StringComparison.Ordinal));
         Assert.True(home >= 0 && home < trust && trust < clone, "HOME on /tmp, then the global trust, then the clone");
     }
+
+    [Fact]
+    public void The_workspace_helper_keeps_the_images_tool_caches_out_of_the_clone_s_status()
+    {
+        // The session image puts the .NET CLI home and the NuGet cache in /work; a snapshot commit with `git add -A` must not take them. The script runs here with its paths pointed at temporary directories.
+        using var dir = new TempDir();
+        var (source, work, home) = (Path.Combine(dir.Path, "src"), Path.Combine(dir.Path, "work"), Path.Combine(dir.Path, "home"));
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(home);
+        string Run(string where, params string[] args)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(args[0]) { WorkingDirectory = where, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var a in args.Skip(1))
+                psi.ArgumentList.Add(a);
+            psi.Environment["GIT_CONFIG_GLOBAL"] = Path.Combine(home, ".gitconfig");
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            var output = p.StandardOutput.ReadToEnd();
+            var error = p.StandardError.ReadToEnd();
+            p.WaitForExit();
+            Assert.True(p.ExitCode == 0, error);
+            return output;
+        }
+        Run(source, "git", "init", "-q", "-b", "main");
+        File.WriteAllText(Path.Combine(source, "a.txt"), "a");
+        Run(source, "git", "add", "-A");
+        Run(source, "git", "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "base");
+        var commit = Run(source, "git", "rev-parse", "HEAD").Trim();
+        var script = ContainerTemplate.WorkspaceScript.Replace("/src", source).Replace("/work", work).Replace("export HOME=/tmp", $"export HOME={home}");
+        Run(dir.Path, "sh", "-c", script, "prepare", "chargehand/run1", commit);
+
+        Directory.CreateDirectory(Path.Combine(work, ".dotnet", "sdk"));
+        File.WriteAllText(Path.Combine(work, ".dotnet", "sdk", "x"), "cache");
+        Directory.CreateDirectory(Path.Combine(work, ".nuget", "packages", "p"));
+        File.WriteAllText(Path.Combine(work, ".nuget", "packages", "p", "y"), "cache");
+        File.WriteAllText(Path.Combine(work, "z.txt"), "work");
+
+        Assert.Equal("?? z.txt", Run(work, "git", "status", "--porcelain").Trim());
+    }
 }
