@@ -154,6 +154,8 @@ public static class OrchestrateTool
         for (var beat = 1; ; beat++)
         {
             var left = wait == Timeout.InfiniteTimeSpan ? ProgressInterval : wait - (DateTime.UtcNow - started);
+            if (left < TimeSpan.Zero)
+                left = TimeSpan.Zero;
             try
             {
                 await run.Done.WaitAsync(left < ProgressInterval ? left : ProgressInterval, ct);
