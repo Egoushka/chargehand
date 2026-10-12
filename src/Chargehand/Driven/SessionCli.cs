@@ -11,7 +11,8 @@ public static class SessionCli
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        // The server and the session image deploy separately: a field one side learned first must not stop the other (task.json, session-usage.json).
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
     };
 
     /// <summary>Appended to Claude Code's system prompt. It lives in code, in the trusted build, so a pull request cannot change how the

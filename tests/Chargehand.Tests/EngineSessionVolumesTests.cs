@@ -77,6 +77,8 @@ public class EngineSessionVolumesTests
         Assert.Equal(new TaskUsage(4350, 0, CacheRead: 90000, CacheWrite: 1200, UsdEstimate: 0.31m, UsdEstimatePartial: true), await volumes.ReadUsageAsync("run1", default));
         engine.Files["session-usage.json"] = """{"tokens": 4400, "stage": "deploy"}"""u8.ToArray();
         Assert.Equal(new TaskUsage(4400, 0), await volumes.ReadUsageAsync("run1", default));     // a stage it does not know is left out, the tokens still count
+        engine.Files["session-usage.json"] = """{"tokens": 4350, "turns": 8, "added_later": {"x": 1}}"""u8.ToArray();
+        Assert.Equal(new TaskUsage(4350, 0, 8, null), await volumes.ReadUsageAsync("run1", default));      // a member a newer session image wrote does not hide the tally
         engine.Files["session-usage.json"] = """{"tokens": 42"""u8.ToArray();
         Assert.Null(await volumes.ReadUsageAsync("run1", default));
         engine.Files["session-usage.json"] = """{"tokens": -5}"""u8.ToArray();

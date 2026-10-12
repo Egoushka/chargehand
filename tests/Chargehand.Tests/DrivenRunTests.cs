@@ -122,6 +122,12 @@ public class DrivenRunTests
 
         public int UsageReads;
 
+        /// <summary>The tasks written to the volumes, in order.</summary>
+        public List<SessionTask> Tasks { get; } = [];
+
+        /// <summary>The session image is newer than the server: its outcome and report carry a member the server does not know.</summary>
+        public bool NewerSession { get; set; }
+
         /// <summary>Runs whose output volume holds nothing.</summary>
         public HashSet<string> NoOutput { get; } = [];
 
@@ -134,7 +140,10 @@ public class DrivenRunTests
         public Task WriteTaskAsync(string runId, SessionTask task, CancellationToken ct)
         {
             lock (_goals)
+            {
                 _goals[runId] = task.Goal;
+                Tasks.Add(task);
+            }
             return Task.CompletedTask;
         }
 
@@ -149,11 +158,12 @@ public class DrivenRunTests
             var outcome = new SessionOutcome(status, status == SessionStatus.Failed ? "session_error" : "", 9, 1000, 200, 4000, null, 0, [], status == SessionStatus.Completed,
                 CacheWriteTokens: 300, SessionId: $"cc-session-{runId}", Model: "claude-sonnet-5-5",
                 ModelUsage: new Dictionary<string, TokenCounts> { ["claude-sonnet-5-5"] = new(1000, 200, 0, 4000, 300) });
+            var newer = NewerSession ? "\"added_later\":1," : "";
             File.WriteAllText(Path.Combine(directory, "session-outcome.json"),
-                JsonSerializer.Serialize(outcome, Snake));
+                "{" + newer + JsonSerializer.Serialize(outcome, Snake)[1..]);
             if (status == SessionStatus.Completed)
             {
-                File.WriteAllText(Path.Combine(directory, "driven-report.json"), Report);
+                File.WriteAllText(Path.Combine(directory, "driven-report.json"), "{" + newer + Report[1..]);
                 File.WriteAllText(Path.Combine(directory, "chargehand.bundle"), "bundle");
             }
             return Task.CompletedTask;
@@ -198,14 +208,15 @@ public class DrivenRunTests
         private readonly string? _state;
 
         public Rig(bool enabled = true, Func<string, SessionStatus>? script = null, string? mcpForward = null, string? dir = null, JsonlRunLog? log = null, FakeVolumes? volumes = null,
-            string? modelUrl = null, bool apiKey = false, string? otlpUrl = null, TelemetrySettings? telemetry = null, bool durable = false, IEvidenceResolver? resolver = null)
+            string? modelUrl = null, bool apiKey = false, string? otlpUrl = null, TelemetrySettings? telemetry = null, bool durable = false, IEvidenceResolver? resolver = null,
+            DrivenLimits? limits = null)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
             {
                 ClaudeCode = apiKey ? new ClaudeCodeSettings("2.1.283", ApiKeySecret: "gateway-key") : new ClaudeCodeSettings("2.1.283", OauthTokenSecret: "claude-code-oauth-token"),
                 Driven = new DrivenSettings(enabled, MaxParallel: 2, Images: [Image], PushSecret: PushSecret,
-                    Network: new DrivenNetwork(McpForward: mcpForward, ModelUrl: modelUrl, OtlpUrl: otlpUrl)),
+                    Network: new DrivenNetwork(McpForward: mcpForward, ModelUrl: modelUrl, OtlpUrl: otlpUrl), Limits: limits),
                 Telemetry = telemetry,
                 Prices = new Dictionary<string, ModelPrice> { ["p/small"] = new(0.1m, 0.5m, 0.01m, 0.125m), ["provider/claude-sonnet-5-5"] = new(3m, 15m, 0.3m, 3.75m) },
             };
@@ -294,6 +305,44 @@ public class DrivenRunTests
             Assert.Contains(entry.Run.Result.Artifacts, a => a.Kind == "pull-request");
         }
         Assert.Equal(ResultStatus.Completed, (await rig.Log.ReadAsync("run-batch-1", default)).Run!.Result.Status);
+    }
+
+    [Fact]
+    public async Task The_profiles_limits_replace_the_presets_and_a_key_left_out_keeps_the_preset_value()
+    {
+        var preset = Preset.Load(Path.Combine(Repo.Root, "presets"), "driven").Driven!;
+        var volumes = new FakeVolumes(_ => SessionStatus.Completed);
+        using var rig = new Rig(volumes: volumes, limits: new DrivenLimits(MaxMinutes: 90, MaxTurns: 200, MemoryMb: 8192, Cpus: 4));
+        var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-limits", Token, default);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        var task = volumes.Tasks.Single();
+        Assert.Equal((200, 90, preset.NoProgressMinutes * 60), (task.MaxTurns, task.MaxMinutes, task.NoProgressSeconds));
+        var spec = rig.Engine.Started.Single();
+        Assert.Equal((8192, 4d, preset.Pids), (spec.MemoryMb, spec.Cpus, spec.Pids));
+    }
+
+    [Fact]
+    public async Task Without_profile_limits_the_presets_apply()
+    {
+        var preset = Preset.Load(Path.Combine(Repo.Root, "presets"), "driven").Driven!;
+        var volumes = new FakeVolumes(_ => SessionStatus.Completed);
+        using var rig = new Rig(volumes: volumes);
+        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-nolimits", Token, default);
+
+        Assert.Equal((preset.MaxTurns, preset.MaxMinutes), (volumes.Tasks.Single().MaxTurns, volumes.Tasks.Single().MaxMinutes));
+        Assert.Equal(preset.MemoryMb, rig.Engine.Started.Single().MemoryMb);
+    }
+
+    [Fact]
+    public async Task A_session_image_newer_than_the_server_does_not_lose_its_outcome_or_report()
+    {
+        using var rig = new Rig(volumes: new FakeVolumes(_ => SessionStatus.Completed) { NewerSession = true });
+        var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-newer", Token, default);
+
+        var task = BatchTasks(result).EnumerateArray().Single();
+        Assert.Equal("completed", task.GetProperty("status").GetString());      // the outcome and the report parsed, so the handover ran
+        Assert.Single(rig.Handover.Inputs);
     }
 
     private const string RealCredential = "value-of-claude-code-oauth-token";

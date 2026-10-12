@@ -94,6 +94,13 @@ public class DrivenResultTests
         Assert.Equal(("npm test", 0), (report.TestsCommand, report.TestsExitCode));
     }
 
+    [Fact]
+    public void A_report_with_members_a_newer_session_added_still_parses()
+    {
+        var report = DrivenReport.Parse("{\"added_later\":[1]," + Report[1..].Replace("\"exit_code\":0", "\"exit_code\":0,\"duration\":3", StringComparison.Ordinal));
+        Assert.Equal(("Added a retry.", 2, "npm test", 0), (report!.Summary, report.Claims.Count, report.TestsCommand, report.TestsExitCode));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("not json")]

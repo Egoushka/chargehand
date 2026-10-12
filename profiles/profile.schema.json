@@ -145,6 +145,20 @@
         "max_parallel_total": { "type": "integer", "minimum": 1, "maximum": 8, "description": "Tasks running at once across batches. Default 4." },
         "max_session_calls": { "type": "integer", "minimum": 1, "maximum": 8, "description": "Research and review runs that sessions may have executing at once, across all sessions. Default 2; with more sessions than this, a session's call waits for a slot." },
         "images": { "type": "array", "items": { "type": "string", "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$" }, "description": "Session images by digest; nothing else may run." },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Operational limits of a session's container, replacing the same keys of the driven preset's driven block (a key left out keeps the preset's value). Tuned here because a change to presets/driven.yaml needs Prompt CI; prompts and permissions stay in the preset.",
+          "properties": {
+            "max_minutes": { "type": "integer", "minimum": 1, "description": "Wall clock for one task's session." },
+            "no_progress_minutes": { "type": "integer", "minimum": 1, "description": "No stream event for this long ends the session as stalled." },
+            "max_turns": { "type": "integer", "minimum": 1, "description": "Assistant messages after which the session ends as stalled." },
+            "max_tokens": { "type": "integer", "minimum": 1, "description": "Input plus output tokens for one task." },
+            "memory_mb": { "type": "integer", "minimum": 256, "maximum": 65536 },
+            "cpus": { "type": "number", "minimum": 0.1, "maximum": 32 },
+            "pids": { "type": "integer", "minimum": 16, "maximum": 4096 }
+          }
+        },
         "network": { "type": "object", "additionalProperties": false, "properties": { "allow": { "type": "array", "items": { "type": "string", "minLength": 1 } }, "outside": { "type": "string", "minLength": 1, "description": "A network besides the default one that the batch's egress container joins: the one the chargehand server sits on." }, "mcp_forward": { "type": "string", "pattern": "^[^\\s:]+:[0-9]{1,5}$", "description": "host:port of the chargehand server as the egress container reaches it. Set, a session can call chargehand for research and review; unset, it cannot." }, "model_url": { "type": "string", "pattern": "^https?://[^\\s?#@]+$", "description": "An Anthropic-compatible gateway as the egress container reaches it: http://host:port/path through a forward, or https://host/path through the proxy. Set, a session gets claude_code.api_key_secret (the key the gateway issued, with a budget) and ANTHROPIC_BASE_URL instead of the real credential; unset, the real credential is in the container's environment." }, "otlp_url": { "type": "string", "pattern": "^http://[^\\s?#@]+$", "description": "An OTLP/HTTP collector as the egress container reaches it, http://host:port through a forward on a port no other forward uses. Set, each session's Claude Code exports its own logs and metrics there, tagged chargehand.run_id, chargehand.task_id, chargehand.task_run_id and chargehand.trace_id; unset, it exports nothing." } }, "description": "Hosts added to the preset's allowlist, and how a session reaches the chargehand server." },
         "runner": { "type": "object", "additionalProperties": false, "required": ["url", "api_key_secret"], "properties": { "url": { "type": "string", "minLength": 1 }, "api_key_secret": { "type": "string", "minLength": 1 } }, "description": "The runner service in front of the container engine. Absent: the server calls the engine itself (a laptop)." },
         "push_secret": { "type": "string", "minLength": 1, "description": "Secret item for the credential that pushes non-default branches and opens draft pull requests." },
