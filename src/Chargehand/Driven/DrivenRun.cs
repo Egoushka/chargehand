@@ -63,8 +63,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         run?.SetTag("chargehand.driven.task_count", request.Driven?.Tasks.Count);
         var version = profile.ClaudeCode?.Version ?? "";
         var chain = new PromptChain([], new AsSent($"claude-code/{version}", "driven", "batch", started.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
-        if (resume is null)
-            await log.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId), ct);
+        // A resumed batch is written again so the log names the process that runs it now.
+        await log.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId, BootId: ProcessBoot.Id), ct);
         progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Started));
 
         ResultContract result;
