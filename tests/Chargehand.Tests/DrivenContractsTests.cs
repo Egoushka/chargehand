@@ -146,6 +146,18 @@ public class DrivenContractsTests
     }
 
     [Fact]
+    public void Run_and_session_call_concurrency_default_to_one_and_two_and_load_from_the_profile()
+    {
+        var defaults = LoadProfile("""{"schema":"profile/v1","http":{"api_key_secret":"k"},"driven":{"enabled":true}}""");
+        Assert.Equal(1, defaults.Http!.MaxConcurrentRuns);
+        Assert.Equal(2, defaults.Driven!.MaxSessionCalls);
+
+        var raised = LoadProfile("""{"schema":"profile/v1","http":{"api_key_secret":"k","max_concurrent_runs":3},"driven":{"enabled":true,"max_session_calls":6}}""");
+        Assert.Equal(3, raised.Http!.MaxConcurrentRuns);
+        Assert.Equal(6, raised.Driven!.MaxSessionCalls);
+    }
+
+    [Fact]
     public void The_driven_preset_loads_with_its_session_limits()
     {
         var preset = Preset.Load(Repo_.Path("presets"), "driven");

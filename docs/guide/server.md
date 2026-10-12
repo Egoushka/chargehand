@@ -88,7 +88,7 @@ A driven session ([ADR 0039](../adr/0039-driven-writing-sessions.md)) calls char
 
 ## Runs and the run log
 
-Runs outlive the request that started them and execute one at a time; the server holds at most 10 unfinished runs. The server and the CLI share the run log when they use the same file: `chargehand show` reads runs started over HTTP and MCP, and `GET /v1/runs/{id}` reads runs started from the CLI. A server restart leaves unfinished runs `lost`, and their callers resend ([ADR 0018](../adr/0018-callable-interface-http-mcp-run-store.md)).
+Runs outlive the request that started them and execute one at a time unless `http.max_concurrent_runs` raises it (a driven batch counts as one run; its sessions' research and review calls have their own limit, `driven.max_session_calls`); the server holds at most 10 unfinished runs. The server and the CLI share the run log when they use the same file: `chargehand show` reads runs started over HTTP and MCP, and `GET /v1/runs/{id}` reads runs started from the CLI. A server restart leaves unfinished runs `lost`, and their callers resend ([ADR 0018](../adr/0018-callable-interface-http-mcp-run-store.md)).
 
 ## Container image
 

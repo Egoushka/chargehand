@@ -387,12 +387,17 @@ public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecr
 
 /// <summary>chargehand serve (ADR 0018): a port, and the secret-store item holding the API key callers send. Listen and
 /// AllowedHosts open it beyond loopback, for a private network only (ADR 0024).</summary>
-public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null);
+/// <param name="MaxConcurrentRuns">Runs executing at once; 1 (the default) runs them one at a time, as ADR 0011's per-model limit assumes.
+/// Raise it only when the model's rate limit allows: every run's workers draw on it.</param>
+public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null,
+    int MaxConcurrentRuns = 1);
 
 /// <summary>Driven writing sessions (ADR 0039). Off unless <c>Enabled</c>: a shell runs in a container only when the profile opts in.</summary>
 /// <param name="Images">Session images by digest (<c>name@sha256:...</c>); a repository may pick one of these by name, never another.</param>
 /// <param name="Network">Hosts added to the preset's allowlist.</param>
 /// <param name="PushSecret">The secret item holding the credential that pushes non-default branches and opens draft pull requests.</param>
+/// <param name="MaxSessionCalls">Research and review runs that sessions may have executing at once, across all sessions (default 2). With more
+/// sessions than this, a session's call waits for a slot.</param>
 public sealed record DrivenSettings(
     bool Enabled = false,
     int MaxParallel = 2,
@@ -401,7 +406,8 @@ public sealed record DrivenSettings(
     DrivenNetwork? Network = null,
     DrivenRunner? Runner = null,
     string? PushSecret = null,
-    DrivenTaskSource? TaskSource = null);
+    DrivenTaskSource? TaskSource = null,
+    int MaxSessionCalls = 2);
 
 /// <param name="Outside">A network besides the default one that the batch's egress container joins: the one the chargehand server sits on.</param>
 /// <param name="McpForward"><c>host:port</c> of the chargehand server as the egress container reaches it. Set, a session can call chargehand for research and review through a forward on its batch network; unset, it cannot.</param>

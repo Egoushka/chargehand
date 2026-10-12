@@ -316,7 +316,7 @@ async Task<int> Serve()
     var (runtime, runtimeVersion) = await Connect();
     var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
-        http.Listen, http.AllowedHosts), orchestrator, runLog, DrivenRunFor(orchestrator));
+        http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2), orchestrator, runLog, DrivenRunFor(orchestrator));
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp)");
     await app.WaitForShutdownAsync(ct);

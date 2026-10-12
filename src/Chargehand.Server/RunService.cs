@@ -7,20 +7,21 @@ using Chargehand.Driven;
 namespace Chargehand.Server;
 
 /// <summary>
-/// Runs requests in the background, one at a time: ADR 0011 allows 2 concurrent nodes per model, and a split already
-/// uses both. A run outlives the HTTP or MCP call that started it. Start and run records live in the run log, which
+/// Runs requests in the background, one at a time unless the profile raises <c>http.max_concurrent_runs</c>: ADR 0011
+/// allows 2 concurrent nodes per model, and a split already uses both. A run outlives the HTTP or MCP call that started it. Start and run records live in the run log, which
 /// the CLI shares (ADR 0018); events live here only while the run is unfinished.
 /// </summary>
-public sealed class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping, DrivenRun? driven = null) : IDisposable
+public sealed class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping, DrivenRun? driven = null,
+    int maxConcurrentRuns = 1, int maxSessionCalls = 2) : IDisposable
 {
     /// <summary>Unfinished runs held at most; beyond it a new run is refused (HTTP 429).</summary>
     public const int MaxUnfinished = 10;
 
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SemaphoreSlim _gate = new(Math.Max(1, maxConcurrentRuns), Math.Max(1, maxConcurrentRuns));
 
     /// <summary>Runs a driven session starts through its token (research, review) use this gate, not the main one: the batch that holds the main gate
-    /// is waiting for them, so sharing it would deadlock (ADR 0039).</summary>
-    private readonly SemaphoreSlim _childGate = new(2, 2);
+    /// is waiting for them, so sharing it would deadlock (ADR 0039). Its size is <c>driven.max_session_calls</c>, shared by every session.</summary>
+    private readonly SemaphoreSlim _childGate = new(Math.Max(1, maxSessionCalls), Math.Max(1, maxSessionCalls));
     private readonly ConcurrentDictionary<string, RunHandle> _runs = new();
 
     public void Dispose()
