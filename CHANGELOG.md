@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-10-12
+
+How many runs and session calls execute at once is a profile setting.
+
+### Added
+
+- `http.max_concurrent_runs` (default 1) sizes the gate that executed every run one at a time, so a second driven batch no longer waits for the first when it is raised; `driven.max_session_calls` (default 2) sizes the gate for driven sessions' research and review runs, which was fixed at 2 for all sessions together. Observed on the VPS with four sessions in one batch: each research call waited about four minutes for a slot. Defaults keep the old behaviour; raise them only as far as the model's rate limit allows (ADR 0011).
+
 ## [0.8.6] - 2026-10-10
 
 The driven session image keeps the .NET CLI home and the NuGet cache on its volume.
@@ -662,7 +670,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.6...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.7...HEAD
+[0.8.7]: https://github.com/Egoushka/chargehand/compare/v0.8.6...v0.8.7
 [0.8.6]: https://github.com/Egoushka/chargehand/compare/v0.8.5...v0.8.6
 [0.8.5]: https://github.com/Egoushka/chargehand/compare/v0.8.4...v0.8.5
 [0.8.4]: https://github.com/Egoushka/chargehand/compare/v0.8.3...v0.8.4
