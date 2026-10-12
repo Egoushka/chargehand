@@ -46,7 +46,9 @@ public sealed record RequestDriven(
 
 /// <param name="MaxTurns">Replaces the preset's <c>max_turns</c> for this task's sessions; null: the preset's.</param>
 /// <param name="MaxMinutes">Replaces the preset's <c>max_minutes</c> for this task's sessions; null: the preset's.</param>
-public sealed record DrivenTask(string Id, string? Ref = null, string? Goal = null, int? MaxTurns = null, int? MaxMinutes = null);
+/// <param name="Size">S, M or L: the size class whose budget the governor holds the task to (ADR 0045); null: M.</param>
+/// <param name="BudgetUsd">The task's own budget in the governor's dollar equivalent, in place of its size class's.</param>
+public sealed record DrivenTask(string Id, string? Ref = null, string? Goal = null, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null);
 
 /// <summary>The request rules JSON Schema cannot express.</summary>
 public static class DrivenRules
@@ -54,7 +56,9 @@ public static class DrivenRules
     public static IReadOnlyList<string> Problems(RequestDriven driven) =>
         driven.Tasks.GroupBy(t => t.Id).Where(g => g.Count() > 1).Select(g => $"task id '{g.Key}' is used more than once")
             .Concat(driven.Tasks.Where(t => t.MaxTurns is < 1 or > MaxTurnsCeiling).Select(t => $"task '{t.Id}': max_turns must be 1 to {MaxTurnsCeiling}"))
-            .Concat(driven.Tasks.Where(t => t.MaxMinutes is < 1 or > MaxMinutesCeiling).Select(t => $"task '{t.Id}': max_minutes must be 1 to {MaxMinutesCeiling}")).ToList();
+            .Concat(driven.Tasks.Where(t => t.MaxMinutes is < 1 or > MaxMinutesCeiling).Select(t => $"task '{t.Id}': max_minutes must be 1 to {MaxMinutesCeiling}"))
+            .Concat(driven.Tasks.Where(t => t.Size is not (null or "S" or "M" or "L")).Select(t => $"task '{t.Id}': size must be S, M or L"))
+            .Concat(driven.Tasks.Where(t => t.BudgetUsd is <= 0).Select(t => $"task '{t.Id}': budget_usd must be above 0")).ToList();
 
     public const int MaxTurnsCeiling = 1000;
 

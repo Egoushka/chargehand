@@ -318,6 +318,30 @@ public class DrivenResultTests
         AssertValid(result);
     }
 
+    [Fact]
+    public async Task A_rate_limited_session_with_commits_is_handed_over_as_partial_and_stays_retryable()
+    {
+        using var repo = new Repo();
+        var result = await Build(Input(repo, Session(SessionStatus.RateLimited, "rate_limited"), report: null, handover: Pushed(repo)));
+        Assert.Equal(ErrorCode.RateLimited, result.Error!.Code);
+        Assert.True(result.Error.Retryable);
+        Assert.Contains("partial draft pull request", result.Error.Message);
+        Assert.Contains("https://example.test/o/r/pull/7", result.Error.Action);
+        AssertValid(result);
+    }
+
+    [Fact]
+    public async Task A_governed_session_points_at_its_governor_log_in_the_output_volume()
+    {
+        using var repo = new Repo();
+        var result = await Build(Input(repo, Session() with { GovernorLogSha256 = new string('b', 64) }));
+        var log = result.Artifacts.Single(a => a.Kind == "governor-log");
+        Assert.Null(log.Content);
+        Assert.Equal("volume:chargehand-out-run1/governor.jsonl", log.Uri);
+        Assert.Equal(new string('b', 64), log.Sha256);
+        AssertValid(result);
+    }
+
     [Theory]
     [InlineData(SessionStatus.Stalled, "no_progress", ErrorCode.SessionStalled)]
     [InlineData(SessionStatus.Stalled, "repeating", ErrorCode.SessionStalled)]

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Driven;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 
@@ -44,6 +45,31 @@ public class ProfileTests
     {
         using var dir = new TempDir();
         var path = dir.Write("local.json", $$$"""{"schema":"profile/v1","driven":{"limits":{{{limits}}}}}""");
+        Assert.Equal(ErrorCode.InvalidRequest, Assert.Throws<ChargehandException>(() => Profile.Load(path)).Code);
+    }
+
+    [Fact]
+    public void Driven_governor_loads_and_a_session_gets_its_size_class_budget_and_the_defaults_it_left_out()
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("local.json", """{"schema":"profile/v1","driven":{"governor":{"mode":"observe","budgets":{"S":1,"L":20},"repeat_calls":6}}}""");
+        var governor = Profile.Load(path).Driven!.Governor!;
+        Assert.Equal(new SessionGovernor(BudgetUsd: 20m, PriorUsd: 0.5m, SizeClass: "L", RepeatCalls: 6), governor.ToSession("L", null, 0.5m));
+        Assert.Equal(4m, governor.ToSession(null, null, 0).BudgetUsd);
+        Assert.Equal(3m, governor.ToSession("S", 3m, 0).BudgetUsd);
+        Assert.Equal(GovernorMode.Off, Profile.Load(dir.Write("off.json", """{"schema":"profile/v1","driven":{"governor":{"mode":"off"}}}""")).Driven!.Governor!.Mode);
+    }
+
+    [Theory]
+    [InlineData("""{"repeat_calls":0}""")]
+    [InlineData("""{"checkpoint_at":1.5}""")]
+    [InlineData("""{"budgets":{"XL":3}}""")]
+    [InlineData("""{"budgets":{"M":0}}""")]
+    [InlineData("""{"wait_patterns":["("]}""")]
+    public void A_driven_governor_setting_that_cannot_work_is_refused(string governor)
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("local.json", $$$"""{"schema":"profile/v1","driven":{"governor":{{{governor}}}}}""");
         Assert.Equal(ErrorCode.InvalidRequest, Assert.Throws<ChargehandException>(() => Profile.Load(path)).Code);
     }
 

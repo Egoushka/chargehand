@@ -13,7 +13,7 @@
       "enum": ["queued", "running", "lost", "completed", "needs_input", "failed", "denied"],
       "description": "queued and running: not finished. lost: the process that ran it ended before it finished. The rest mirror result/v1's status."
     },
-    "event": { "enum": ["accepted", "started", "intake", "node_started", "node_finished", "run_finished", "container_started", "session_progress", "verify_finished", "pushed", "pr_opened", "task_finished"] },
+    "event": { "enum": ["accepted", "started", "intake", "node_started", "node_finished", "run_finished", "container_started", "session_progress", "verify_finished", "pushed", "pr_opened", "task_finished", "governor"] },
     "at": { "type": "string", "format": "date-time" },
     "action": { "type": "string", "description": "intake: the action intake chose; absent when intake stopped the request itself." },
     "executed_action": { "type": "string", "description": "intake: the action that runs; absent for a stop." },

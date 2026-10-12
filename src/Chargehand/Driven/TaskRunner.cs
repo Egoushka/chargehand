@@ -61,10 +61,11 @@ public delegate string TaskTokenMinter(TaskGrant grant);
 /// <param name="Otlp">Where the session's Claude Code exports its own logs and metrics; null: it exports nothing.</param>
 /// <param name="Prices">The profile's price table, for the session span's cost.</param>
 /// <param name="UsageOnSpans">The profile's <c>telemetry.usage_on_spans</c> (ADR 0021).</param>
+/// <param name="Governor">The profile's <c>driven.governor</c> (ADR 0045); null: no governor in the sessions.</param>
 public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, string Image, string SourcePath, string BaseCommit, string RemoteUrl, string BaseBranch,
     BatchNetworkInfo Network, string? McpUrl, DrivenPreset Preset, TaskLimits Limits, bool Priced, IReadOnlyDictionary<string, string> ModelEnvironment, PushCredential Push,
     string ScratchRoot, string Model, string ClaudeVersion, bool AllowLocalRemote = false, string? ModelBaseUrl = null, bool CallbackForwards = false, DrivenOtlpRoute? Otlp = null,
-    IReadOnlyDictionary<string, ModelPrice>? Prices = null, bool UsageOnSpans = false, string? GatewayKey = null);
+    IReadOnlyDictionary<string, ModelPrice>? Prices = null, bool UsageOnSpans = false, string? GatewayKey = null, DrivenGovernor? Governor = null);
 
 /// <summary>Runs one task of a batch to its end (ADR 0039): a workspace at the pinned commit, a session container on the batch network, then the handover (chargehand's own
 /// verification, the scan, the push, a draft pull request) and the task's own <c>result/v1</c> in the run log. A cancel signals the session and ends the task; it never reaches
@@ -165,7 +166,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             {
                 sessionStarted = DateTimeOffset.UtcNow;
                 journal?.Update(task.Id, e => e with { SessionStarted = sessionStarted });
-                container = await StartSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, Remaining(prior), seed, sessionStarted, startDetail, span, traceId, ct);
+                container = await StartSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, Remaining(prior), prior?.UsdEstimate ?? 0, seed, sessionStarted, startDetail, span, traceId, ct);
             }
             containers[runId] = container;
             SessionOutcome session;
@@ -180,6 +181,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 await volumes.FetchOutputAsync(runId, outDirectory, ct);
                 journal?.Update(task.Id, e => e with { Phase = TaskPhase.Finished });
                 session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, state.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, state.ExitCode, [], false);
+                foreach (var d in session.Governor ?? [])
+                    Publish(task.Id, RunEventKind.Governor, Describe(d));
                 using (var call = Telemetry.Source.StartActivity(DrivenTelemetry.SessionSpan, ActivityKind.Client, span?.Context ?? default, startTime: sessionStarted))
                 {
                     DrivenTelemetry.TagSession(call, session, settings.Prices ?? new Dictionary<string, ModelPrice>(), settings.UsageOnSpans);
@@ -224,7 +227,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 try
                 {
                     sessionStarted = DateTimeOffset.UtcNow;
-                    container = await StartSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, Remaining(prior), seed, sessionStarted, startDetail, span, traceId, ct);
+                    container = await StartSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, Remaining(prior), prior?.UsdEstimate ?? 0, seed, sessionStarted, startDetail, span, traceId, ct);
                 }
                 catch (Exception e) when (IsStartFailure(e, ct))
                 {
@@ -346,15 +349,16 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     }
 
     /// <summary>The session's container, workspace and task file, up to the container's start.</summary>
-    private async Task<string> StartSessionAsync(ResolvedTask task, string runId, string branch, string goal, int maxTurns, int maxMinutes, (long Tokens, decimal? Usd) left, string? seed,
-        DateTimeOffset sessionStarted, string detail, Activity? span, string traceId, CancellationToken ct)
+    private async Task<string> StartSessionAsync(ResolvedTask task, string runId, string branch, string goal, int maxTurns, int maxMinutes, (long Tokens, decimal? Usd) left, decimal spentUsd,
+        string? seed, DateTimeOffset sessionStarted, string detail, Activity? span, string traceId, CancellationToken ct)
     {
         var preset = settings.Preset;
         await engine.CreateVolumeAsync(RunnerNames.Out(runId), runId, ct);
         await workspace.PrepareWorkspaceAsync(new WorkspaceSpec(runId, settings.Image, settings.SourcePath, RunnerNames.Work(runId), branch, settings.BaseCommit), ct);
         if (seed is not null)
             await volumes.WriteSeedAsync(runId, seed, ct);
-        await volumes.WriteTaskAsync(runId, new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices), ct);
+        await volumes.WriteTaskAsync(runId, new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices,
+            Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd)), ct);
 
         var gateway = settings.GatewayKey is not null && settings.Network.ModelUrl is not null;
         Dictionary<string, string> env = new(gateway ? new Dictionary<string, string>() : settings.ModelEnvironment, StringComparer.Ordinal)
@@ -409,9 +413,18 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         return tokens > 0 && usd is not <= 0;
     }
 
-    /// <summary>A session that did not finish but left commits is handed over as a partial draft pull request; a question for a person, or a session that ended without its work, is not.</summary>
+    /// <summary>A session that did not finish but left commits is handed over as a partial draft pull request, a rate-limited one too (ADR 0045: its work is not lost while the
+    /// limit lasts); a question for a person, or a session that ended without its work, is not.</summary>
     private static bool Salvageable(SessionOutcome session) =>
-        session.Status is SessionStatus.Stalled or SessionStatus.TokenCap || (session.Status == SessionStatus.Failed && session.Reason != "out_of_memory");
+        session.Status is SessionStatus.Stalled or SessionStatus.TokenCap or SessionStatus.RateLimited || (session.Status == SessionStatus.Failed && session.Reason != "out_of_memory");
+
+    /// <summary>A governor decision as a run event's detail: what it would do, the signal and the rule, the turn, and the spend against the budget when known.</summary>
+    internal static string Describe(GovernorDecision d)
+    {
+        var spend = d.SpendUsd is { } usd && d.BudgetUsd is { } budget ? string.Create(CultureInfo.InvariantCulture, $", spend {usd:0.00} of {budget:0.00}") : "";
+        var mode = d.Acted ? "" : $"{JsonNamingPolicy.SnakeCaseLower.ConvertName(d.Mode.ToString())}: ";
+        return string.Create(CultureInfo.InvariantCulture, $"governor {mode}{JsonNamingPolicy.SnakeCaseLower.ConvertName(d.Action.ToString())} on {d.Signal} ({d.Rule.Replace('_', ' ')}) at turn {d.Turn}{spend}");
+    }
 
     private string ContinuationGoal(string goal, int number, SessionOutcome previous) =>
         $"{goal}\n\nContinuation {number} of {settings.Preset.MaxContinuations}. A previous session was stopped by {previous.Reason.Replace('_', ' ')} after {previous.Turns} turns; its work is on this branch "

@@ -16,9 +16,11 @@ namespace Chargehand.Driven;
 /// <param name="MaxUsd">Passed to <c>--max-budget-usd</c>; only meaningful where the credential is priced.</param>
 /// <param name="Prices">The profile's price table, for the dollar-equivalent estimate in <c>session-usage.json</c>; left out of the file when null, so a profile without prices still
 /// starts an older session image.</param>
+/// <param name="Governor">ADR 0045's governor for this session; null or <c>off</c>: none.</param>
 public sealed record SessionTask(string RunId, string Goal, string Branch, int MaxTurns, int MaxMinutes, int NoProgressSeconds,
     long? MaxTokens = null, string? Model = null, decimal? MaxUsd = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, ModelPrice>? Prices = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, ModelPrice>? Prices = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SessionGovernor? Governor = null);
 
 /// <summary>How to start Claude Code: the program and arguments that go before its own (a test runs a script as <c>sh script</c>).</summary>
 public sealed record SessionCommand(string File, IReadOnlyList<string> LeadingArgs)
@@ -55,10 +57,12 @@ public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed, Ra
 /// <param name="RateLimitResetsAt">For <see cref="SessionStatus.RateLimited"/>: when the limit lifts, if the result said.</param>
 /// <param name="Commits">Commits on the session's branch past the commit the workspace started at (the base), the seed's included; 0 with no bundle.</param>
 /// <param name="SnapshotNote">What the stop snapshot did not do: files left out for their size, or why nothing was committed; null when there is nothing to say.</param>
+/// <param name="Governor">The governor's decisions (ADR 0045), the first <see cref="SessionDriver.MaxGovernorDecisions"/>; null when no governor ran. <c>governor.jsonl</c> has them all.</param>
+/// <param name="GovernorLogSha256">The SHA-256 of <c>governor.jsonl</c>; null when no governor ran.</param>
 public sealed record SessionOutcome(SessionStatus Status, string Reason, int Turns, long InputTokens, long OutputTokens, long CacheReadTokens,
     decimal? CostUsd, int? ExitCode, IReadOnlyList<string> Questions, bool BundleWritten, string? StreamSha256 = null, long CacheWriteTokens = 0, string? SessionId = null,
     string? Model = null, IReadOnlyDictionary<string, TokenCounts>? ModelUsage = null, decimal? UsdEstimate = null, DateTimeOffset? RateLimitResetsAt = null, bool UsdEstimatePartial = false,
-    int Commits = 0, string? SnapshotNote = null);
+    int Commits = 0, string? SnapshotNote = null, IReadOnlyList<GovernorDecision>? Governor = null, string? GovernorLogSha256 = null);
 
 /// <summary>Runs headless Claude Code on the <c>change</c> skill inside a session container (ADR 0039), watches its stream, ends it when it
 /// stalls or passes its token cap, and leaves three files in the output directory: <c>stream.jsonl</c> (secrets redacted), <c>chargehand.bundle</c>
@@ -67,6 +71,16 @@ public sealed record SessionOutcome(SessionStatus Status, string Reason, int Tur
 public static partial class SessionDriver
 {
     private static readonly TimeSpan Grace = TimeSpan.FromSeconds(5);
+
+    /// <summary>How often the driver measures the branch's diff for the governor's no-growth rule; a measure is taken only when a turn has passed since the last.</summary>
+    private static readonly TimeSpan DiffEvery = TimeSpan.FromSeconds(30);
+
+    /// <summary>The governor decisions <c>session-outcome.json</c> carries; the log file has every one.</summary>
+    public const int MaxGovernorDecisions = 50;
+
+    public const string GovernorFile = "governor.jsonl";
+
+    private static readonly JsonSerializerOptions LineJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
     private static readonly JsonSerializerOptions OutcomeJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower, WriteIndented = true };
 
@@ -132,6 +146,32 @@ public static partial class SessionDriver
             var stderr = process.StandardError.ReadToEndAsync(ct);
             await using var stream = new StreamWriter(new FileStream(Path.Combine(options.OutDirectory, "stream.jsonl"), FileMode.Create, FileAccess.Write), new UTF8Encoding(false));
             var stoppedBy = new StopCause();
+            var governor = task.Governor is { Mode: not GovernorMode.Off } governed ? new Governor(governed) : null;
+            await using var governorLog = governor is null ? null
+                : new StreamWriter(new FileStream(Path.Combine(options.OutDirectory, GovernorFile), FileMode.Create, FileAccess.Write), new UTF8Encoding(false));
+            var decisions = new List<GovernorDecision>();
+            decimal? spentSoFar = null;
+            var governorGate = new SemaphoreSlim(1, 1);
+            async Task Govern(IReadOnlyList<GovernorDecision> made)
+            {
+                if (governorLog is null || made.Count == 0)
+                    return;
+                await governorGate.WaitAsync(CancellationToken.None);
+                try
+                {
+                    foreach (var d in made)
+                    {
+                        if (decisions.Count < MaxGovernorDecisions)
+                            decisions.Add(d);
+                        await governorLog.WriteLineAsync(Redact(JsonSerializer.Serialize(d, LineJson), options.Secrets));
+                    }
+                    await governorLog.FlushAsync(CancellationToken.None);
+                }
+                finally
+                {
+                    governorGate.Release();
+                }
+            }
 
             var reader = Task.Run(async () =>
             {
@@ -147,6 +187,16 @@ public static partial class SessionDriver
                     detector.OnEvent(e, now);
                     tally.Add(e);
                     stage = Adherence.StageOf(e) ?? stage;
+                    if (governor is not null)
+                    {
+                        IReadOnlyList<GovernorDecision> made;
+                        lock (governor)
+                        {
+                            spentSoFar = tally.UsdEstimate;
+                            made = governor.OnEvent(e, detector.Turns, spentSoFar, now);
+                        }
+                        await Govern(made);
+                    }
                     WriteUsage(options.OutDirectory, new SessionUsage(tally.Input + tally.Output, detector.Turns, stage, tally.CacheRead, tally.CacheWrite, tally.UsdEstimate, tally.UsdEstimatePartial), ref lastUsage);
                     if (task.MaxTokens is { } cap && tally.Input + tally.Output >= cap && stoppedBy.Set(SessionStatus.TokenCap, "token_cap"))
                         Interrupt(process);
@@ -155,12 +205,25 @@ public static partial class SessionDriver
 
             using var watch = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
             var exit = process.WaitForExitAsync(ct);
+            Task? measuring = null;
+            var measuredAt = (Turn: 0, At: started);
             while (!exit.IsCompleted)
             {
                 var tick = watch.WaitForNextTickAsync(ct).AsTask();
                 await Task.WhenAny(exit, tick);
                 if (exit.IsCompleted)
                     break;
+                if (governor is not null && start is not null && measuring is not { IsCompleted: false } && detector.Turns > measuredAt.Turn
+                    && DateTimeOffset.UtcNow - measuredAt.At >= DiffEvery)
+                {
+                    measuredAt = (detector.Turns, DateTimeOffset.UtcNow);
+                    var turn = measuredAt.Turn;
+                    measuring = MeasureAsync(options.WorkDirectory, start, lines =>
+                    {
+                        lock (governor)
+                            return governor.OnDiff(lines, turn, spentSoFar, DateTimeOffset.UtcNow);
+                    }, Govern, ct);
+                }
                 if (detector.Check(DateTimeOffset.UtcNow) is { } stall && stoppedBy.Set(SessionStatus.Stalled, StallDetector.Wire(stall)))
                     Interrupt(process);
                 if (stoppedBy.Cause is not null && !exit.IsCompleted && DateTimeOffset.UtcNow - stoppedBy.At > Grace)
@@ -169,6 +232,14 @@ public static partial class SessionDriver
             await exit;
             await reader;
             _ = await stderr;
+            if (measuring is not null)
+                await measuring;
+            string? governorHash = null;
+            if (governorLog is not null)
+            {
+                await governorLog.DisposeAsync();
+                governorHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(options.OutDirectory, GovernorFile), ct)));
+            }
 
             var snapshotNote = stoppedBy.Cause is { } stopped ? await SnapshotAsync(options, stopped.Reason, detector.Turns, ct) : null;
             var bundle = await BundleAsync(options, ct);
@@ -184,7 +255,8 @@ public static partial class SessionDriver
             var streamHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(options.OutDirectory, "stream.jsonl"), ct)));
             var outcome = new SessionOutcome(status, reason, detector.Turns, tally.Input, tally.Output, tally.CacheRead, tally.CostUsd, process.ExitCode,
                 [.. questions.Select(q => Redact(q, options.Secrets))], bundle, streamHash, tally.CacheWrite, tally.SessionId, tally.Model, tally.ModelUsage.Count == 0 ? null : tally.ModelUsage,
-                tally.UsdEstimate, status == SessionStatus.RateLimited ? UsageLimit.ResetsAt(tally.ResultText) : null, tally.UsdEstimatePartial, commits, snapshotNote);
+                tally.UsdEstimate, status == SessionStatus.RateLimited ? UsageLimit.ResetsAt(tally.ResultText) : null, tally.UsdEstimatePartial, commits, snapshotNote,
+                governor is null ? null : decisions, governorHash);
             await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "session-outcome.json"), Redact(JsonSerializer.Serialize(outcome, OutcomeJson), options.Secrets), ct);
             return outcome;
         }
@@ -210,6 +282,24 @@ public static partial class SessionDriver
         catch (IOException)
         {
         }
+    }
+
+    /// <summary>Feeds the governor the branch's added plus removed lines against the commit the workspace started at, tracked files only. <c>--no-optional-locks</c> keeps the
+    /// measure from taking the index lock the session's own git may need; a git that fails or hangs only skips this measure.</summary>
+    private static async Task MeasureAsync(string work, string start, Func<long, IReadOnlyList<GovernorDecision>> onDiff, Func<IReadOnlyList<GovernorDecision>, Task> govern,
+        CancellationToken ct)
+    {
+        var diff = await Git(work, ["--no-optional-locks", "diff", "--numstat", start], ct, TimeSpan.FromSeconds(20));
+        if (diff.Exit != 0)
+            return;
+        long lines = 0;
+        foreach (var row in diff.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var cells = row.Split('\t');
+            if (cells.Length >= 2 && long.TryParse(cells[0], NumberStyles.None, CultureInfo.InvariantCulture, out var added) && long.TryParse(cells[1], NumberStyles.None, CultureInfo.InvariantCulture, out var removed))
+                lines += added + removed;
+        }
+        await govern(onDiff(lines));
     }
 
     private static async Task WritePrivate(string path, string text, CancellationToken ct)

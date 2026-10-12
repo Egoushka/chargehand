@@ -111,6 +111,7 @@ public class DrivenContinuationTests
     [InlineData(SessionStatus.Stalled, "repeating")]
     [InlineData(SessionStatus.TokenCap, "token_cap")]
     [InlineData(SessionStatus.Failed, "session_error")]
+    [InlineData(SessionStatus.RateLimited, "rate_limited")]
     public async Task Other_stops_do_not_continue_but_their_commits_are_handed_over_as_partial(SessionStatus status, string reason)
     {
         using var rig = new DrivenRunTests.Rig(outcomes: (_, _) => Stopped(status, reason));
@@ -120,6 +121,29 @@ public class DrivenContinuationTests
         Assert.Empty(rig.Volumes.Seeds);
         Assert.True(Assert.Single(rig.Handover.Inputs).Partial);
         Assert.Equal($"partial: stopped by {reason}; draft PR opened", Row(result).GetProperty("detail").GetString());
+    }
+
+    [Fact]
+    public async Task Each_session_gets_the_governor_with_the_tasks_budget_and_the_earlier_sessions_spend_and_its_decisions_become_events()
+    {
+        var warn = new GovernorDecision(DateTimeOffset.UtcNow, 7, GovernorMode.Observe, GovernorAction.Warn, "repeated_call", "first_hit", new Dictionary<string, string>(), 1.2m, 10m, "L");
+        using var rig = new DrivenRunTests.Rig(outcomes: (_, goal) => IsContinuation(goal)
+            ? Done() with { UsdEstimate = 0.5m }
+            : Stopped(SessionStatus.Stalled, "turn_limit") with { UsdEstimate = 1.25m, Governor = [warn] });
+        List<RunStatus> events = [];
+        await rig.Run.RunAsync(Request(new DrivenTask("t1", Goal: "one", Size: "L")), BatchId, Token, default, events.Add);
+
+        Assert.Equal(new SessionGovernor(BudgetUsd: 10m, PriorUsd: 0m, SizeClass: "L"), rig.Volumes.Tasks[0].Governor);
+        Assert.Equal(new SessionGovernor(BudgetUsd: 10m, PriorUsd: 1.25m, SizeClass: "L"), rig.Volumes.Tasks[1].Governor);
+        Assert.Contains(events, e => e.Event == RunEventKind.Governor && e.Detail == "task t1: governor observe: warn on repeated_call (first hit) at turn 7, spend 1.20 of 10.00");
+    }
+
+    [Fact]
+    public async Task A_tasks_own_budget_replaces_its_size_class_budget()
+    {
+        using var rig = new DrivenRunTests.Rig();
+        await rig.Run.RunAsync(Request(new DrivenTask("t1", Goal: "one", BudgetUsd: 2.5m)), BatchId, Token, default);
+        Assert.Equal((2.5m, "M"), (rig.Volumes.Tasks[0].Governor!.BudgetUsd, rig.Volumes.Tasks[0].Governor!.SizeClass));
     }
 
     [Fact]
@@ -186,6 +210,15 @@ public class DrivenContinuationTests
         var byGoal = rig.Volumes.Tasks.ToDictionary(t => t.Goal);
         Assert.Equal((5, 7), (byGoal["one"].MaxTurns, byGoal["one"].MaxMinutes));
         Assert.Equal((80, 45), (byGoal["two"].MaxTurns, byGoal["two"].MaxMinutes));
+    }
+
+    [Fact]
+    public void A_size_other_than_s_m_or_l_or_a_budget_not_above_zero_is_a_problem_and_the_schema_says_so()
+    {
+        var request = Request(new DrivenTask("t1", Goal: "one", Size: "XL"), new DrivenTask("t2", Goal: "two", BudgetUsd: 0m), new DrivenTask("t3", Goal: "three", Size: "S", BudgetUsd: 1m));
+        Assert.Equal(["task 't1': size must be S, M or L", "task 't2': budget_usd must be above 0"], DrivenRules.Problems(request.Driven!));
+        Assert.NotEmpty(ContractSchemas.Validate(ContractSchemas.Request, JsonSerializer.SerializeToElement(Request(new DrivenTask("t1", Goal: "one", Size: "XL")), ContractJson.Options)));
+        Assert.Empty(ContractSchemas.Validate(ContractSchemas.Request, JsonSerializer.SerializeToElement(Request(new DrivenTask("t3", Goal: "three", Size: "S", BudgetUsd: 1m)), ContractJson.Options)));
     }
 
     [Fact]

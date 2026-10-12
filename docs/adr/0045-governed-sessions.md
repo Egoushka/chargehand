@@ -74,6 +74,8 @@ The governor and the handoff live in the session image: the new behaviour needs 
 
 Two assumptions are UNKNOWN and are tested first. (1) A warn needs a way to speak to a running session; the driver starts `claude -p` and closes stdin (`SessionDriver.cs:63,111`). `--input-format stream-json` may allow it. If not, a warn is only logged and the first rung that acts is the checkpoint. (2) Whether Claude Code emits a rate-limit event on a mid-session 429 and what it carries is unconfirmed; until a spike shows it, classification relies on the result text and the gateway's 429.
 
+Update (step 3, the governor in observe mode): a first spike on (1) was inconclusive, because the local Claude Code login had expired; it showed only that each `stream-json` user message on stdin gets its own `result`, so a warn could at least be queued as the next turn. Whether it reaches a turn already running is still UNKNOWN. The governor ships observing only, so nothing depends on the answer yet.
+
 New `task.json` members break an older session image, because the parser rejects unknown members (`Driven/SessionCli.cs:11-15`). The first governor change ships the lenient parse, or moves in one release with the image digest bump.
 
 ## Reopen if

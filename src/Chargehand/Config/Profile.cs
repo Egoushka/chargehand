@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Chargehand.Budget;
 using Chargehand.Contracts;
+using Chargehand.Driven;
 using Chargehand.Memory;
 using Chargehand.Runtime;
 using Chargehand.Sandbox;
@@ -81,6 +82,7 @@ public sealed record Profile(
         if (profile.PromptEnhancer is { } enhancer)
             enhancer.Validate(servers);
         profile.Driven?.Limits?.Validate();
+        profile.Driven?.Governor?.Validate();
         return profile;
     }
 
@@ -400,6 +402,7 @@ public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string L
 /// <param name="MaxSessionCalls">Research and review runs that sessions may have executing at once, across all sessions (default 2). With more
 /// sessions than this, a session's call waits for a slot.</param>
 /// <param name="Limits">Operational limits that replace the driven preset's: tuning them needs no Prompt CI run, which gates the preset file.</param>
+/// <param name="Governor">ADR 0045's governor; null: the defaults of <see cref="DrivenGovernor"/> (observe).</param>
 public sealed record DrivenSettings(
     bool Enabled = false,
     int MaxParallel = 2,
@@ -410,7 +413,55 @@ public sealed record DrivenSettings(
     string? PushSecret = null,
     DrivenTaskSource? TaskSource = null,
     int MaxSessionCalls = 2,
-    DrivenLimits? Limits = null);
+    DrivenLimits? Limits = null,
+    DrivenGovernor? Governor = null);
+
+/// <summary>The governor's settings for every session (ADR 0045). Profile keys, not preset keys, for the reason <see cref="DrivenLimits"/> gives. Each threshold left out keeps
+/// <see cref="SessionGovernor"/>'s default.</summary>
+/// <param name="Mode"><c>off</c> or <c>observe</c> (the default: decisions are logged, none acted on).</param>
+/// <param name="Budgets">The flat budget per size class (S, M, L) in the dollar equivalent, until enough history exists for a percentile.</param>
+public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IReadOnlyDictionary<string, decimal>? Budgets = null, int? RepeatCalls = null,
+    int? RepeatFailures = null, int? FailingCalls = null, int? ProbeCommands = null, int? NoGrowthTurns = null, int? RewarnTurns = null, long? ContextTokens = null,
+    decimal? CheckpointAt = null, IReadOnlyList<string>? ProbePatterns = null, IReadOnlyList<string>? WaitPatterns = null)
+{
+    public static IReadOnlyDictionary<string, decimal> DefaultBudgets { get; } = new Dictionary<string, decimal> { ["S"] = 1.5m, ["M"] = 4m, ["L"] = 10m };
+
+    /// <summary>The settings a session of a task gets: its own budget, else its size class's (M when it names none), and what earlier sessions of the task spent.</summary>
+    public SessionGovernor ToSession(string? size, decimal? taskBudget, decimal priorUsd)
+    {
+        var sizeClass = size ?? "M";
+        var d = new SessionGovernor();
+        return new SessionGovernor(Mode, taskBudget ?? (Budgets ?? DefaultBudgets).GetValueOrDefault(sizeClass, DefaultBudgets[sizeClass]), priorUsd, sizeClass,
+            RepeatCalls ?? d.RepeatCalls, RepeatFailures ?? d.RepeatFailures, FailingCalls ?? d.FailingCalls, ProbeCommands ?? d.ProbeCommands, NoGrowthTurns ?? d.NoGrowthTurns,
+            RewarnTurns ?? d.RewarnTurns, ContextTokens ?? d.ContextTokens, CheckpointAt ?? d.CheckpointAt, ProbePatterns, WaitPatterns);
+    }
+
+    /// <summary>Throws an invalid_request error naming the key when a value cannot work: a count below 1, a share outside (0, 1], a budget not above 0, a pattern that does not compile.</summary>
+    internal void Validate()
+    {
+        var problems = new List<string>();
+        foreach (var (key, value) in new (string, long?)[] { ("repeat_calls", RepeatCalls), ("repeat_failures", RepeatFailures), ("failing_calls", FailingCalls),
+            ("probe_commands", ProbeCommands), ("no_growth_turns", NoGrowthTurns), ("rewarn_turns", RewarnTurns), ("context_tokens", ContextTokens) })
+            if (value is < 1)
+                problems.Add($"{key} must be at least 1");
+        if (CheckpointAt is <= 0 or > 1)
+            problems.Add("checkpoint_at must be above 0 and at most 1");
+        foreach (var (size, budget) in Budgets ?? new Dictionary<string, decimal>())
+            if (size is not ("S" or "M" or "L") || budget <= 0)
+                problems.Add($"budgets.{size} must be one of S, M, L with a value above 0");
+        foreach (var pattern in (ProbePatterns ?? []).Concat(WaitPatterns ?? []))
+            try
+            {
+                _ = new Regex(pattern);
+            }
+            catch (ArgumentException)
+            {
+                problems.Add($"pattern '{pattern}' is not a regular expression");
+            }
+        if (problems.Count > 0)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.governor: {string.Join("; ", problems)}", "Fix driven.governor in the profile; docs/guide/driven.md lists the keys.");
+    }
+}
 
 /// <summary>The preset's <c>driven</c> limits, set per server. A key left out keeps the preset's value; the preset's allowlist stays the preset's
 /// (<c>network.allow</c> adds hosts). Prompts and permissions are not here: they are what Prompt CI evaluates.</summary>
