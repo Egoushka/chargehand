@@ -99,6 +99,12 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspace
 
     public async Task<int> CountAsync(CancellationToken ct) => (await Send<CountReply>(HttpMethod.Get, "/count", null, ct)).Count;
 
+    public async Task<EngineResources> ListAsync(CancellationToken ct)
+    {
+        var reply = await Send<RunnerResources>(HttpMethod.Get, "/resources", null, ct);
+        return new EngineResources(reply.Containers, reply.Networks, reply.Volumes);
+    }
+
     private sealed record IdReply(string Id);
 
     private sealed record LogsReply(string Logs);

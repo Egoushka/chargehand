@@ -1,0 +1,104 @@
+using System.Text.Json;
+using Chargehand.Contracts;
+
+namespace Chargehand.Driven;
+
+/// <summary>Where a task of a batch stands (ADR 0043). <c>Started</c>: the run id, branch and container are fixed; <c>Finished</c>: the session ended and its output was read, the handover may be partial;
+/// <c>HandedOver</c>: a pull request opened; <c>Failed</c>: ended without one. The last two carry the task's outcome.</summary>
+public enum TaskPhase { Pending, Started, Finished, HandedOver, Failed }
+
+public sealed record TaskEntry(string Id, string? Ref, string Goal, TaskPhase Phase = TaskPhase.Pending, string? RunId = null, string? Branch = null, string? Container = null,
+    DateTimeOffset? Started = null, TaskOutcome? Outcome = null);
+
+/// <summary>What a restarted server needs to carry on a driven batch (ADR 0043): the request, the tasks as resolved, each task's phase, and the key of the batch's model-token exchange.
+/// The names of the batch's network and egress container follow from <paramref name="RunId"/>; the real model credential is never kept, the profile supplies it again.</summary>
+/// <param name="TokenKey">The egress container's key for run tokens; null when the batch has no token exchange.</param>
+/// <param name="Unresolved">Tasks that did not resolve to a goal: final from the start.</param>
+public sealed record BatchState(string RunId, DateTimeOffset Started, string TraceId, RunRequest Request, string? TokenKey, IReadOnlyList<TaskEntry> Tasks, IReadOnlyList<TaskOutcome> Unresolved)
+{
+    /// <summary>Every run id the batch's resources can carry: the batch's own and its tasks'.</summary>
+    public IEnumerable<string> RunIds => Tasks.Select(t => t.RunId).OfType<string>().Prepend(RunId);
+}
+
+/// <summary>One JSON file per unfinished driven batch, next to the run log (ADR 0043). A write goes to a temporary file that is flushed to disk and then renamed over the old one,
+/// so a crash leaves the previous state or the new one, never half of it. The file holds the batch's token key, so it is created readable by its owner only.</summary>
+public sealed class BatchStateStore(string directory)
+{
+    private const string Extension = ".json";
+
+    public void Save(BatchState state)
+    {
+        Directory.CreateDirectory(directory);
+        var target = PathOf(state.RunId);
+        var temp = $"{target}.{Guid.NewGuid():N}.tmp";
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
+        if (!OperatingSystem.IsWindows())
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        using (var file = new FileStream(temp, options))
+        {
+            JsonSerializer.Serialize(file, state, ContractJson.Options);
+            file.Flush(flushToDisk: true);
+        }
+        File.Move(temp, target, overwrite: true);
+    }
+
+    public void Delete(string runId) => File.Delete(PathOf(runId));
+
+    /// <summary>The states on disk. A file that cannot be read is skipped: the batch it belonged to stays <c>lost</c>, as before.</summary>
+    public IReadOnlyList<BatchState> List()
+    {
+        if (!Directory.Exists(directory))
+            return [];
+        List<BatchState> states = [];
+        foreach (var file in Directory.EnumerateFiles(directory, "*" + Extension))
+        {
+            try
+            {
+                if (JsonSerializer.Deserialize<BatchState>(File.ReadAllText(file), ContractJson.Options) is { } state)
+                    states.Add(state);
+            }
+            catch (Exception e) when (e is JsonException or IOException)
+            {
+            }
+        }
+        return states;
+    }
+
+    private string PathOf(string runId) => Path.Combine(directory, runId + Extension);
+}
+
+/// <summary>A running batch's state, saved at each change. Tasks run in parallel, so changes are made one at a time.</summary>
+public sealed class BatchJournal
+{
+    private readonly BatchStateStore _store;
+    private readonly object _gate = new();
+    private BatchState _state;
+
+    public BatchJournal(BatchStateStore store, BatchState state)
+    {
+        _store = store;
+        _state = state;
+        Save();
+    }
+
+    public TaskEntry? Entry(string taskId)
+    {
+        lock (_gate)
+            return _state.Tasks.FirstOrDefault(t => t.Id == taskId);
+    }
+
+    public void Update(string taskId, Func<TaskEntry, TaskEntry> change)
+    {
+        lock (_gate)
+        {
+            _state = _state with { Tasks = [.. _state.Tasks.Select(t => t.Id == taskId ? change(t) : t)] };
+            Save();
+        }
+    }
+
+    /// <summary>Records a task's end, which the batch's scheduler reached after its caps had their say.</summary>
+    public void Finish(TaskOutcome outcome) =>
+        Update(outcome.Id, t => t with { Phase = outcome.State == TaskState.Completed ? TaskPhase.HandedOver : TaskPhase.Failed, Outcome = outcome });
+
+    private void Save() => _store.Save(_state);
+}

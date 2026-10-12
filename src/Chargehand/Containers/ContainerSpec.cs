@@ -112,4 +112,9 @@ public interface IContainerEngine
 
     /// <summary>How many labelled containers exist, running or not.</summary>
     Task<int> CountAsync(CancellationToken ct);
+
+    /// <summary>The names of every labelled container, network and volume: what a restarted server sweeps for leftovers (ADR 0043).</summary>
+    Task<EngineResources> ListAsync(CancellationToken ct);
 }
+
+public sealed record EngineResources(IReadOnlyList<string> Containers, IReadOnlyList<string> Networks, IReadOnlyList<string> Volumes);

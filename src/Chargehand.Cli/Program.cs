@@ -279,6 +279,8 @@ async Task<int> EvalScoreClaims(string claimsFile, IReadOnlyList<string> options
 /// <summary>Driven sessions (ADR 0039): null while the profile has them off, so nothing about containers is read or connected.</summary>
 Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
 {
+    // Batch state and the run-token key sit next to the run log (ADR 0043).
+    var stateDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches");
     if (profile.Driven is not { Enabled: true } driven)
         return new Chargehand.Driven.DrivenRun(profile, runLog, root, null);
     Chargehand.Containers.IContainerEngine engine;
@@ -302,7 +304,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     return new Chargehand.Driven.DrivenRun(profile, runLog, root, new Chargehand.Driven.DrivenServices(engine, workspace, volumes,
         push => new Chargehand.Driven.GitHubPullRequests(new HttpClient { BaseAddress = new Uri(Environment.GetEnvironmentVariable("CHARGEHAND_E2E_GITHUB_API") ?? "https://api.github.com/") }, push.Value),
         driven.TaskSource is { } source ? new Chargehand.Mcp.McpTaskSource(source, mcpPool) : null,
-        orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck));
+        orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck), stateDirectory);
 }
 
 async Task<int> Serve()
@@ -316,7 +318,8 @@ async Task<int> Serve()
     var (runtime, runtimeVersion) = await Connect();
     var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
-        http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2), orchestrator, runLog, DrivenRunFor(orchestrator));
+        http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
+        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches")), orchestrator, runLog, DrivenRunFor(orchestrator));
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp)");
     await app.WaitForShutdownAsync(ct);

@@ -10,6 +10,7 @@ public class RunsCliTests
     {
         public bool Killed { get; private set; }
         public Task<int> CountAsync(CancellationToken ct) => Task.FromResult(count);
+        public Task<EngineResources> ListAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task KillAllAsync(CancellationToken ct) { Killed = true; return failure is null ? Task.CompletedTask : throw failure; }
         public Task<string> StartAsync(ContainerSpec spec, CancellationToken ct) => throw new NotSupportedException();
         public Task SignalAsync(string id, string signal, CancellationToken ct) => throw new NotSupportedException();

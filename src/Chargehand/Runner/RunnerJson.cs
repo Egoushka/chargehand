@@ -26,6 +26,8 @@ public sealed record RunnerModelGateway(string Credential, string TokenKey, stri
 /// <summary>A workspace to prepare; the runner builds the helper's command line from <see cref="Chargehand.Containers.ContainerTemplate.WorkspaceArgs"/>.</summary>
 public sealed record RunnerWorkspace(string RunId, string Image, string SourcePath, string WorkVolume, string Branch, string Commit);
 
+public sealed record RunnerResources(List<string> Containers, List<string> Networks, List<string> Volumes);
+
 public sealed record RunnerInspect(string Status, int? ExitCode, bool OomKilled);
 
 public static class RunnerJson
