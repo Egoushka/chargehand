@@ -245,7 +245,7 @@ public static partial class ChargehandServer
             return RunStatus.Of(id, RunStatus.StateOf(done.Result.Status), RunEventKind.RunFinished) with { Result = done.Result };
         if (entry.Start is not { } start)
             return null;
-        return start.Pid != Environment.ProcessId && start.OwnerAlive()
+        return start.OwnerAlive()
             ? RunStatus.Of(id, RunState.Running) with { Detail = $"running in process {start.Pid}" }
             : RunStatus.Of(id, RunState.Lost, RunEventKind.RunFinished) with { Detail = "the process that ran it ended before it finished" };
     }

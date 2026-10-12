@@ -56,7 +56,7 @@ public sealed class JsonlRunLog(string path) : IRunLog
         var data = await ReadAllAsync(ct);
         var finished = data.Runs.GroupBy(r => r.RunId).ToDictionary(g => g.Key, g => g.Last());
         var rows = new List<RunSummary>();
-        foreach (var start in data.Starts.GroupBy(s => s.RunId).Select(g => g.First()))
+        foreach (var start in data.Starts.GroupBy(s => s.RunId).Select(g => g.Last()))
         {
             if (query.Since is { } since && start.Started < since)
                 continue;

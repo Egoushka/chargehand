@@ -1,5 +1,6 @@
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.RunLog;
 using Chargehand.Server;
 using Chargehand.Verification;
 
@@ -203,6 +204,10 @@ public class DrivenResumeTests
 
         Assert.Equal("list", rig.Engine.Calls[before]);
         Assert.Equal(ResultStatus.Completed, (await rig.Log.ReadAsync(state.RunId, default)).Run!.Result.Status);
+        // The first start came from before the stop; the resume writes its own, so the log names the process that finished the batch.
+        var starts = (await rig.Log.ReadAllAsync(default)).Starts.Where(s => s.RunId == state.RunId).ToList();
+        Assert.Equal(2, starts.Count);
+        Assert.Equal(ProcessBoot.Id, starts[^1].BootId);
 
         rig.Engine.OnList = new InvalidOperationException("the runner is down");
         using var failing = new RunService(null!, "", CancellationToken.None, rig.Run);

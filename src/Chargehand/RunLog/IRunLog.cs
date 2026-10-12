@@ -32,12 +32,18 @@ public sealed record RunEntry(StartRecord? Start, RunRecord? Run, IReadOnlyList<
 
 /// <summary>Written when a run starts: the request as received and the process that runs it.</summary>
 /// <param name="ParentRunId">The run this one resends with answers (MCP input_required), if any.</param>
-public sealed record StartRecord(string RunId, DateTimeOffset Started, string TraceId, RunRequest Request, int Pid, string? ParentRunId = null)
+/// <param name="BootId">The <see cref="ProcessBoot.Id"/> of the writing process; null on a record from before it existed. A pid alone repeats (a container's server is pid 1 every time).</param>
+public sealed record StartRecord(string RunId, DateTimeOffset Started, string TraceId, RunRequest Request, int Pid, string? ParentRunId = null, string? BootId = null)
 {
     /// <summary>Whether the process that runs it still exists; without a run record, a dead owner means a lost run.</summary>
     public bool OwnerAlive()
     {
-        // ponytail: a reused pid reads as alive; record a process start time too if that ever matters.
+        if (BootId == ProcessBoot.Id)
+            return true;
+        // No boot id: written before it existed, by a process that cannot be told from a later one with the same pid.
+        if (BootId is null || Pid == Environment.ProcessId)
+            return false;
+        // ponytail: another process's reused pid still reads as alive (a CLI run); the boot id fixes this process's own restarts.
         try
         {
             using var p = Process.GetProcessById(Pid);
@@ -48,6 +54,12 @@ public sealed record StartRecord(string RunId, DateTimeOffset Started, string Tr
             return false;
         }
     }
+}
+
+/// <summary>A value that differs for every process start, so a record can tell its writer from a later process with the same pid.</summary>
+public static class ProcessBoot
+{
+    public static string Id { get; } = Guid.NewGuid().ToString("N");
 }
 
 /// <param name="Tokens">Null for calls whose usage OpenCode does not report (intake via generate).</param>

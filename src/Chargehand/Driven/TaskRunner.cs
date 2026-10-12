@@ -179,7 +179,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 Directory.Exists(scratchClone) ? scratchClone : settings.SourcePath, settings.BaseCommit, settings.Priced), resolver, supportCheck, ct);
             if (sign is not null)
                 result = sign(result);
-            await log.AppendAsync(new StartRecord(runId, started, traceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId), CancellationToken.None);
+            await log.AppendAsync(new StartRecord(runId, started, traceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId, ProcessBoot.Id), CancellationToken.None);
             await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, settings.Request.Context.Preset, null, null, result), CancellationToken.None);
             var outcome = Outcome(task, runId, result, session, handed, settings.Priced);
             journal?.Finish(outcome);

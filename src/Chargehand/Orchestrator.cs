@@ -64,7 +64,7 @@ public sealed class Orchestrator(
         run?.SetTag("langfuse.trace.name", "chargehand.run");
         run?.SetTag("chargehand.run_id", runId);
         var extensions = new ExtensionsCollector();
-        await runLog.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId, parentRunId), ct);
+        await runLog.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId, parentRunId, ProcessBoot.Id), ct);
         progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Started));
 
         var registry = new PromptRegistry(Path.Combine(rootDirectory, "prompts"));
@@ -244,7 +244,7 @@ public sealed class Orchestrator(
         var error = Cancelled();
         var result = new ResultContract("result/v1", runId, "run", traceId, chain, ResultStatus.Failed, "The run was cancelled before it started.", [], [], [],
             [error.Message], 0, new Usage(0, 0, 0, 0, 0), error);
-        await runLog.AppendAsync(new StartRecord(runId, now, traceId, request, Environment.ProcessId, parentRunId), CancellationToken.None);
+        await runLog.AppendAsync(new StartRecord(runId, now, traceId, request, Environment.ProcessId, parentRunId, ProcessBoot.Id), CancellationToken.None);
         await runLog.AppendAsync(new RunRecord(runId, now, now, request.Context.Preset, null, null, result), CancellationToken.None);
         progress?.Invoke(RunStatus.Of(runId, RunState.Failed, RunEventKind.RunFinished) with { Result = result });
         return result;

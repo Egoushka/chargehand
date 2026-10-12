@@ -186,12 +186,27 @@ public class ServerTests
     public async Task A_run_whose_process_ended_reads_as_lost_and_an_unknown_one_as_missing()
     {
         await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
-        await s.Log.AppendAsync(new StartRecord("run-dead", DateTimeOffset.UtcNow, new string('0', 32), Runs.DraftRequest(), int.MaxValue), CancellationToken.None);
+        await s.Log.AppendAsync(new StartRecord("run-dead", DateTimeOffset.UtcNow, new string('0', 32), Runs.DraftRequest(), int.MaxValue, BootId: "earlier-boot"), CancellationToken.None);
 
         var lost = await s.Http.GetAsync("/v1/runs/run-dead");
         Assert.Equal(HttpStatusCode.Gone, lost.StatusCode);
         Assert.Equal("lost", (await Body(lost)).GetProperty("status").GetString());
         Assert.Equal(HttpStatusCode.NotFound, (await s.Http.GetAsync("/v1/runs/run-none")).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_run_from_an_earlier_boot_with_this_pid_is_lost_in_the_list_and_the_get_alike_and_one_from_this_boot_is_running()
+    {
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
+        await s.Log.AppendAsync(new StartRecord("run-old", DateTimeOffset.UtcNow, new string('0', 32), Runs.DraftRequest(), Environment.ProcessId, BootId: "earlier-boot"), CancellationToken.None);
+        await s.Log.AppendAsync(new StartRecord("run-now", DateTimeOffset.UtcNow, new string('0', 32), Runs.DraftRequest(), Environment.ProcessId, BootId: ProcessBoot.Id), CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.Gone, (await s.Http.GetAsync("/v1/runs/run-old")).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await s.Http.GetAsync("/v1/runs/run-now")).StatusCode);
+        var list = await Body(await s.Http.GetAsync("/v1/runs"));
+        var states = list.GetProperty("runs").EnumerateArray().ToDictionary(r => r.GetProperty("run_id").GetString()!, r => r.GetProperty("status").GetString());
+        Assert.Equal("lost", states["run-old"]);
+        Assert.Equal("running", states["run-now"]);
     }
 
     [Fact]
