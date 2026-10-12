@@ -146,7 +146,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
                     preset.MemoryMb, preset.Cpus, preset.Pids, ["session"]), ct);
                 journal?.Update(task.Id, e => e with { Container = container });
-                Publish(task.Id, RunEventKind.ContainerStarted, "session container started");
+                Publish(task.Id, RunEventKind.ContainerStarted, "session container started", s => s with { Branch = branch });
             }
             else
                 container = resumed.Container ?? $"chargehand-{runId}";
