@@ -86,6 +86,17 @@ public class ConfigFileTests
         Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
     }
 
+    [Theory]
+    [InlineData("""{"schema":"profile/v1","driven":{"limits":{"max_minutes":90,"max_turns":200,"max_tokens":3000000,"memory_mb":8192,"cpus":4,"pids":1024,"no_progress_minutes":15}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","driven":{"limits":{"max_minutes":0}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"limits":{"memory_mb":128}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"limits":{"allow":["example.org"]}}}""", false)] // the allowlist stays the preset's
+    public void The_schema_checks_driven_limits(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
     [Fact]
     public void Max_parallel_nodes_defaults_to_2_and_loads()
     {

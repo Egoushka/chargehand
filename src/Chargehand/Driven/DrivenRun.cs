@@ -168,6 +168,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var image = settings.Images is { Count: > 0 } images ? images[0] : throw new ChargehandException(ErrorCode.InvalidRequest, "driven.images is empty", "List the session image by digest in driven.images.");
         var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), request.Context.Preset);
         var drivenPreset = preset.Driven ?? throw new ChargehandException(ErrorCode.InvalidRequest, $"preset '{preset.Name}' has no driven block", "Use the driven preset for a batch.");
+        if (settings.Limits is { } profileLimits)
+            drivenPreset = profileLimits.Apply(drivenPreset);
         var (_, kind) = Orchestrator.AnswerKind(preset);
 
         var priced = claude.ApiKeySecret is not null;

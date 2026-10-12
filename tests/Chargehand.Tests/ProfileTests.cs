@@ -26,6 +26,28 @@ public class ProfileTests
     }
 
     [Fact]
+    public void Driven_limits_load_and_override_only_the_keys_they_set()
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("local.json", """{"schema":"profile/v1","driven":{"enabled":true,"limits":{"max_minutes":90,"memory_mb":8192}}}""");
+        var limits = Profile.Load(path).Driven!.Limits!;
+        var merged = limits.Apply(new DrivenPreset(MaxMinutes: 45, MaxTurns: 80, MemoryMb: 4096, Cpus: 2));
+        Assert.Equal((90, 80, 8192, 2d), (merged.MaxMinutes, merged.MaxTurns, merged.MemoryMb, merged.Cpus));
+    }
+
+    [Theory]
+    [InlineData("""{"max_minutes":0}""")]
+    [InlineData("""{"memory_mb":128}""")]
+    [InlineData("""{"cpus":64}""")]
+    [InlineData("""{"pids":4}""")]
+    public void Driven_limits_outside_the_containers_bounds_are_refused(string limits)
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("local.json", $$$"""{"schema":"profile/v1","driven":{"limits":{{{limits}}}}}""");
+        Assert.Equal(ErrorCode.InvalidRequest, Assert.Throws<ChargehandException>(() => Profile.Load(path)).Code);
+    }
+
+    [Fact]
     public void Default_worker_root_is_outside_home()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

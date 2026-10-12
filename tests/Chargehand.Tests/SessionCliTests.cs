@@ -13,8 +13,15 @@ public class SessionCliTests
         Assert.Equal(new SessionTask("run1", "Add a retry", "chargehand/run1", 80, 45, 600, 2_000_000, "claude-sonnet-5-5", 3.5m), task);
     }
 
+    [Fact]
+    public void A_member_a_newer_server_added_is_ignored()
+    {
+        using var dir = new TempDir();
+        var file = dir.Write("task.json", """{"run_id":"run1","goal":"Add a retry","branch":"chargehand/run1","max_turns":80,"max_minutes":45,"no_progress_seconds":600,"max_continuations":2,"nested":{"a":[1]}}""");
+        Assert.Equal(new SessionTask("run1", "Add a retry", "chargehand/run1", 80, 45, 600), SessionCli.ReadTask(file));
+    }
+
     [Theory]
-    [InlineData("""{"run_id":"run1","goal":"g","branch":"chargehand/run1","max_turns":80,"max_minutes":45,"no_progress_seconds":600,"extra":1}""")]   // unknown field
     [InlineData("""{"run_id":"run1","goal":"","branch":"chargehand/run1","max_turns":80,"max_minutes":45,"no_progress_seconds":600}""")]             // empty goal
     [InlineData("""{"run_id":"run1","goal":"g","branch":"main","max_turns":80,"max_minutes":45,"no_progress_seconds":600}""")]                     // not a chargehand/ branch
     [InlineData("""{"run_id":"run1","goal":"g","branch":"chargehand/run1","max_turns":0,"max_minutes":45,"no_progress_seconds":600}""")]            // no turns

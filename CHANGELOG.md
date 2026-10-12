@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - A driven session's spend is live and counts cache. The driver reads each assistant message's input, output, cache-read and cache-creation tokens and its model, prices them with the profile's price table (cache reads at the model's cache-read rate), and writes `cache_read`, `cache_write` and `usd_estimate` to `session-usage.json`. The `session_progress` event carries them (run-status/v1 gains optional `usd_estimate`, `cache_read`, `cache_write`; additive). `usd_estimate` is a dollar equivalent, not a bill: it exists on a subscription too, `usd` keeps meaning priced dollars, and nothing is capped on it yet. It is absent when the profile has no prices or no message could be priced. `task.json` gains an optional `prices` member (omitted when the profile has none), so rebuild the session image with the host.
+- `driven.limits` in the profile (ADR 0039): `max_minutes`, `no_progress_minutes`, `max_turns`, `max_tokens`, `memory_mb`, `cpus` and `pids` override the same keys of the driven preset's `driven` block, key by key. A change to `presets/driven.yaml` is gated by the Prompt CI cell `driven/session` (the owner's approval and a model-backed run of up to two hours), which is too heavy for tuning a wall clock; the preset keeps the node kind's model, permissions and budget and the egress allowlist. Values are checked against the container's bounds when the profile loads. Additive; unset, the preset applies as before.
 
 ### Changed
 
@@ -23,6 +24,7 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - Cancelling a running driven batch (`POST /v1/runs/{id}/cancel`, `POST /v1/halt`) ends it `failed` with error code `cancelled` and the summary "cancelled by the caller: N of M tasks finished", not `tasks_incomplete`. Tasks that finished keep their outcome; a task the cancel stopped is `cancelled`, one it kept from starting is `not_started` with `cancelled` as its `error_code`. No schema change: `status` keeps its enum, as for a cancelled plain run.
+- A driven session no longer dies on a `task.json` member it does not know, and the server no longer drops a session's `session-usage.json` for one: server and session image are deployed separately, so a field added on either side reached the other as a strict-parse error. Both ignore unknown members now (`session-outcome.json` and `driven-report.json` already did).
 
 ## [0.8.8] - 2026-10-12
 
