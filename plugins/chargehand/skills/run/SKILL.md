@@ -20,7 +20,7 @@ request, and if chargehand fails, report the failure instead of taking over. cha
 
 ## 2. Hand over
 
-Call `orchestrate` with `request/v1`: `contract_version` = "request/v1", `text` = the prompt, `context.preset` = "driven", `context.interactive` = false,
+Call `orchestrate` with the request/v1 fields as its top-level arguments (no `request` wrapper): `contract_version` = "request/v1", `text` = the prompt, `context.preset` = "driven", `context.interactive` = false,
 `context.repository` = { path: the repository root, commit: HEAD (hex sha) }, and `driven` = { tasks: [{ id: "t1", goal: the prompt }], max_parallel: 1,
 max_tokens_total: 3000000, max_usd_total: 5 }. A server on a subscription needs the token cap and one on an API key or gateway key needs the dollar cap, and the
 skill cannot tell which, so it sends both; use the user's numbers instead if they named a cap, and say the caps in the hand-over line.
