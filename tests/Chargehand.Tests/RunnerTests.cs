@@ -26,6 +26,7 @@ public class RunnerTests
         public Task SignalAsync(string id, string signal, CancellationToken ct) { Calls.Add($"signal {id} {signal}"); return Task.CompletedTask; }
         public Task<ContainerState> InspectAsync(string id, CancellationToken ct) { Calls.Add($"inspect {id}"); return Task.FromResult(new ContainerState(ContainerStatus.Exited, 3, true)); }
         public Task RemoveAsync(string id, CancellationToken ct) { Calls.Add($"rm {id}"); return Task.CompletedTask; }
+        public Task<EngineResources> ListAsync(CancellationToken ct) { Calls.Add("list"); return Task.FromResult(new EngineResources(["chargehand-run1"], ["chargehand-net-b1"], ["chargehand-work-run1"])); }
         public Task KillAllAsync(CancellationToken ct) { Calls.Add("kill-all"); return Task.CompletedTask; }
         public Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct) { Calls.Add($"logs {id}"); return Task.FromResult("the logs"); }
         public Task CreateVolumeAsync(string name, string runId, CancellationToken ct) { Calls.Add($"volume {name} {runId}"); return Task.CompletedTask; }
@@ -303,9 +304,13 @@ public class RunnerTests
         var egress = await client.StartEgressAsync(new EgressSpec("b1", "ignored-by-runner", "chargehand-net-b1", ["api.anthropic.com"]), default);
         await client.ConnectNetworkAsync(egress, "bridge", default);
         await client.KillAllAsync(default);
+        var listed = await client.ListAsync(default);
+        Assert.Equal(["chargehand-run1"], listed.Containers);
+        Assert.Equal(["chargehand-net-b1"], listed.Networks);
+        Assert.Equal(["chargehand-work-run1"], listed.Volumes);
         Assert.Equal(spec.Env, r.Engine.Started!.Env);
         Assert.Equal(["network chargehand-net-b1 b1", "volume chargehand-work-run1 run1", "volume chargehand-out-run1 run1", "start", "inspect ours1", "logs ours1",
-            "signal ours1 SIGINT", "rm ours1", "volume-rm chargehand-work-run1", "network-rm chargehand-net-b1", "egress", "connect ours1 bridge", "kill-all"], r.Engine.Calls);
+            "signal ours1 SIGINT", "rm ours1", "volume-rm chargehand-work-run1", "network-rm chargehand-net-b1", "egress", "connect ours1 bridge", "kill-all", "list"], r.Engine.Calls);
     }
 
     [Fact]

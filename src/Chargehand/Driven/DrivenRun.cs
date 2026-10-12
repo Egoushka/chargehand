@@ -28,7 +28,7 @@ public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Wo
 /// result with a code, recorded like any run. How the model credential reaches a session, recorded on the batch result: a subscription token goes only to the batch's egress container,
 /// which exchanges a per-task token for it (<c>token_exchange</c>); a key an operator's gateway issued is in the session's environment (<c>gateway_key</c>); a plain API key too
 /// (<c>environment</c>).</summary>
-public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory, DrivenServices? services) : IDisposable
+public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory, DrivenServices? services, string? stateDirectory = null) : IDisposable
 {
     public const string CredentialDelivery = "environment";
 
@@ -38,19 +38,24 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     /// <summary>The containers hold a key the gateway issued for driven sessions (a budget, revocable), not the real credential.</summary>
     public const string GatewayKeyDelivery = "gateway_key";
 
+    private readonly BatchStateStore? _store = stateDirectory is null ? null : new BatchStateStore(stateDirectory);
+
     private readonly SemaphoreSlim _global = new(Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4));
 
     public void Dispose() => _global.Dispose();
 
+    /// <param name="resume">The saved state of a batch a restart interrupted: the batch carries on from it under the same run id (ADR 0043).</param>
     public async Task<ResultContract> RunAsync(RunRequest request, string runId, TaskTokenMinter mint, CancellationToken ct, Action<RunStatus>? progress = null,
-        Func<bool>? cancelledByCaller = null)
+        Func<bool>? cancelledByCaller = null, BatchState? resume = null)
     {
-        var started = DateTimeOffset.UtcNow;
+        var started = resume?.Started ?? DateTimeOffset.UtcNow;
+        // A server that is stopping, as against a caller who cancels, leaves the batch for the next process to carry on; only when its state is saved.
+        bool Detaching() => _store is not null && ct.IsCancellationRequested && cancelledByCaller?.Invoke() != true;
         // As for an orchestrator run: under serve the request's activity is not recorded, and a parent-based sampler would drop the batch's spans.
         if (Activity.Current is { Recorded: false })
             Activity.Current = null;
         using var run = Telemetry.Source.StartActivity(DrivenTelemetry.RunSpan);
-        var traceId = run?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
+        var traceId = resume?.TraceId ?? run?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
         run?.SetTag("langfuse.trace.name", DrivenTelemetry.RunSpan);
         run?.SetTag("chargehand.run_id", runId);
         run?.SetTag("chargehand.preset", request.Context.Preset);
@@ -58,7 +63,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         run?.SetTag("chargehand.driven.task_count", request.Driven?.Tasks.Count);
         var version = profile.ClaudeCode?.Version ?? "";
         var chain = new PromptChain([], new AsSent($"claude-code/{version}", "driven", "batch", started.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
-        await log.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId), ct);
+        if (resume is null)
+            await log.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId), ct);
         progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Started));
 
         ResultContract result;
@@ -66,7 +72,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         try
         {
             key = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
-            result = await RunBatchAsync(request, runId, traceId, mint, key is null ? null : r => ResultSignature.Sign(r, key), progress, run, ct);
+            result = await RunBatchAsync(request, runId, started, traceId, mint, key is null ? null : r => ResultSignature.Sign(r, key), progress, run, resume, Detaching, ct);
         }
         catch (Exception e) when (e is not OperationCanceledException || cancelledByCaller?.Invoke() == true)
         {
@@ -74,6 +80,11 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 ? new ResultError(ErrorCode.Cancelled, "the run was cancelled", false, "Start the batch again if it is still wanted; nothing was pushed.")
                 : ChargehandException.ErrorOf(e);
             result = new ResultContract("result/v1", runId, "driven", traceId, chain, ResultStatus.Failed, error.Message, [], [], [], [error.Message], 0, new Usage(0, 0, 0, 0, 0), error);
+        }
+        if (Detaching())
+        {
+            key?.Dispose();
+            return result;
         }
         if (key is not null)
         {
@@ -85,16 +96,73 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         if (result.Status != ResultStatus.Completed)
             run?.SetStatus(ActivityStatusCode.Error, result.Error?.Message);
         await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, request.Context.Preset, null, null, result), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
+        _store?.Delete(runId);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
     }
 
-    private async Task<ResultContract> RunBatchAsync(RunRequest request, string runId, string traceId, TaskTokenMinter mint, Func<ResultContract, ResultContract>? sign,
-        Action<RunStatus>? progress, Activity? span, CancellationToken ct)
+    /// <summary>The batches a restart interrupted: saved state with no run record (ADR 0043). State whose run record exists is a leftover and is deleted.</summary>
+    public async Task<IReadOnlyList<BatchState>> UnfinishedAsync(CancellationToken ct)
+    {
+        if (_store is null || services is null)
+            return [];
+        List<BatchState> open = [];
+        foreach (var state in _store.List())
+        {
+            if ((await log.ReadAsync(state.RunId, ct)).Run is not null)
+                _store.Delete(state.RunId);
+            else
+                open.Add(state);
+        }
+        return open;
+    }
+
+    /// <summary>Removes chargehand's containers, networks and volumes that belong to no batch in <paramref name="resumed"/>: what a crash or a restart left behind. The engine's
+    /// label keeps it to chargehand's own; the name must carry chargehand's prefix too.</summary>
+    /// <returns>The names removed.</returns>
+    public async Task<IReadOnlyList<string>> SweepOrphansAsync(IEnumerable<BatchState> resumed, CancellationToken ct)
+    {
+        if (services is null)
+            return [];
+        var known = resumed.SelectMany(b => b.RunIds).ToHashSet(StringComparer.Ordinal);
+        var listed = await services.Engine.ListAsync(ct);
+        List<string> removed = [];
+        async Task Sweep(IEnumerable<string> names, Func<string, string?> idOf, Func<string, Task> remove)
+        {
+            foreach (var name in names)
+            {
+                if (idOf(name) is not { } id || known.Contains(id))
+                    continue;
+                try
+                {
+                    await remove(name);
+                    removed.Add(name);
+                }
+                catch (ChargehandException)
+                {
+                    // One resource the engine will not release must not keep the rest from being swept.
+                }
+            }
+        }
+        await Sweep(listed.Containers, ContainerRunId, name => services.Engine.RemoveAsync(name, ct));
+        await Sweep(listed.Networks, name => IdAfter(name, "chargehand-net-"), name => services.Engine.RemoveNetworkAsync(name, ct));
+        await Sweep(listed.Volumes, name => IdAfter(name, "chargehand-work-") ?? IdAfter(name, "chargehand-out-"), name => services.Engine.RemoveVolumeAsync(name, ct));
+        return removed;
+    }
+
+    private static string? IdAfter(string name, string prefix) => name.StartsWith(prefix, StringComparison.Ordinal) ? name[prefix.Length..] : null;
+
+    private static string? ContainerRunId(string name) =>
+        IdAfter(name, "chargehand-egress-") ?? IdAfter(name, "chargehand-prep-") ?? IdAfter(name, "chargehand-xfer-") ?? IdAfter(name, "chargehand-");
+
+    private async Task<ResultContract> RunBatchAsync(RunRequest request, string runId, DateTimeOffset started, string traceId, TaskTokenMinter mint, Func<ResultContract, ResultContract>? sign,
+        Action<RunStatus>? progress, Activity? span, BatchState? resume, Func<bool> detaching, CancellationToken ct)
     {
         var settings = profile.Driven ?? new DrivenSettings();
         // Throws when the profile has driven sessions off, so a refused request touches nothing else.
-        var (ready, unresolved) = await DrivenBatch.PrepareAsync(request, settings, services?.TaskSource, ct);
+        var (ready, unresolved) = resume is null
+            ? await DrivenBatch.PrepareAsync(request, settings, services?.TaskSource, ct)
+            : ([.. resume.Tasks.Select(t => new ResolvedTask(t.Id, t.Ref, t.Goal))], resume.Unresolved);
         var s = services ?? throw new ChargehandException(ErrorCode.ContainerUnavailable, "driven sessions are on, but no container engine is set up for them", "Check driven.runner in the profile, or install Docker.");
         var claude = profile.ClaudeCode ?? throw new ChargehandException(ErrorCode.InvalidRequest, "driven sessions need a claude_code block in the profile", "Add claude_code with an api_key_secret or an oauth_token_secret.");
         var image = settings.Images is { Count: > 0 } images ? images[0] : throw new ChargehandException(ErrorCode.InvalidRequest, "driven.images is empty", "List the session image by digest in driven.images.");
@@ -118,7 +186,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var model = DrivenModelRoute.Parse(settings.Network?.ModelUrl, priced, forward is null ? null : port);
         // A subscription token without a gateway of the operator's goes only to the batch's egress container, which exchanges a per-task token for it (ADR 0039,
         // decision 9). An API key, or a key a gateway issued, stays in the session's environment: the exchange is measured on the subscription only.
-        var exchange = !priced && model is null ? new ModelGatewaySpec(modelEnvironment.Values.Single(), ModelTokens.NewKey()) : null;
+        var exchange = !priced && model is null ? new ModelGatewaySpec(modelEnvironment.Values.Single(), resume?.TokenKey ?? ModelTokens.NewKey()) : null;
+        var journal = _store is null ? null : new BatchJournal(_store, resume ?? new BatchState(runId, started, traceId, request, exchange?.TokenKey,
+            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal))], unresolved));
 
         var otlp = DrivenOtlpRoute.Parse(settings.Network?.OtlpUrl,
             new[] { forward is null ? (int?)null : port, model?.ForwardPort }.OfType<int>());
@@ -133,9 +203,11 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             forwards.Add(modelForward);
         if (otlp is not null)
             forwards.Add(otlp.Forward);
-        var net = await new BatchNetwork(s.Engine).CreateAsync(runId, image,
-            [.. (drivenPreset.Allow ?? []).Concat(settings.Network?.Allow ?? []).Concat(model?.AllowHost is { } host ? new[] { host } : []).Distinct()], ct,
-            settings.Network?.Outside ?? BatchNetwork.DefaultOutside, forwards.Count == 0 ? null : forwards, exchange);
+        IReadOnlyList<string> allow = [.. (drivenPreset.Allow ?? []).Concat(settings.Network?.Allow ?? []).Concat(model?.AllowHost is { } host ? new[] { host } : []).Distinct()];
+        var batchNetwork = new BatchNetwork(s.Engine);
+        var net = resume is null
+            ? await batchNetwork.CreateAsync(runId, image, allow, ct, settings.Network?.Outside ?? BatchNetwork.DefaultOutside, forwards.Count == 0 ? null : forwards, exchange)
+            : await batchNetwork.EnsureAsync(runId, image, allow, ct, settings.Network?.Outside ?? BatchNetwork.DefaultOutside, forwards.Count == 0 ? null : forwards, exchange);
         BatchOutcome ran;
         try
         {
@@ -147,12 +219,19 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true || otlp is not null, otlp,
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey);
-            var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress);
-            ran = await new BatchScheduler(runner).RunAsync(ready, limits, ct, o => progress?.Invoke(TaskFinished(runId, o)));
+            var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress, journal: journal, detaching: detaching);
+            ran = await new BatchScheduler(runner).RunAsync(ready, limits, ct, o =>
+            {
+                if (detaching())
+                    return;
+                journal?.Finish(o);
+                progress?.Invoke(TaskFinished(runId, o));
+            });
         }
         finally
         {
-            await new BatchNetwork(s.Engine).RemoveAsync(net, CancellationToken.None);
+            if (!detaching())
+                await new BatchNetwork(s.Engine).RemoveAsync(net, CancellationToken.None);
         }
 
         // In request order: tasks that did not resolve were never started.

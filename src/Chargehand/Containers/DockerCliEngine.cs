@@ -123,6 +123,20 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
         return listed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
     }
 
+    public async Task<EngineResources> ListAsync(CancellationToken ct)
+    {
+        async Task<IReadOnlyList<string>> Names(params string[] args)
+        {
+            var listed = await RunAsync(args, ct);
+            Require(listed, $"docker {args[0]} failed");
+            return [.. listed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(ContainerTemplate.IsPlainName)];
+        }
+        var label = $"label={ContainerTemplate.RunLabel}";
+        return new EngineResources(await Names("ps", "-a", "--filter", label, "--format", "{{.Names}}"),
+            await Names("network", "ls", "--filter", label, "--format", "{{.Name}}"),
+            await Names("volume", "ls", "--filter", label, "--format", "{{.Name}}"));
+    }
+
     public async Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct)
     {
         var args = ContainerTemplate.WorkspaceArgs(spec);

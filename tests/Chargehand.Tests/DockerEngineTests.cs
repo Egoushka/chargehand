@@ -114,6 +114,19 @@ public class DockerEngineTests
     }
 
     [Fact]
+    public async Task List_asks_for_the_labelled_containers_networks_and_volumes_by_name()
+    {
+        using var dir = new TempDir();
+        var (docker, log) = FakeDocker(dir, "case \"$1\" in ps) printf 'chargehand-run-a\\n';; network) printf 'chargehand-net-b\\n';; volume) printf 'chargehand-work-a\\n';; esac");
+        var listed = await Engine(docker).ListAsync(default);
+        Assert.Equal(["chargehand-run-a"], listed.Containers);
+        Assert.Equal(["chargehand-net-b"], listed.Networks);
+        Assert.Equal(["chargehand-work-a"], listed.Volumes);
+        Assert.Equal(["ps -a --filter label=chargehand.run --format {{.Names}}", "network ls --filter label=chargehand.run --format {{.Name}}", "volume ls --filter label=chargehand.run --format {{.Name}}"],
+            File.ReadAllLines(log));
+    }
+
+    [Fact]
     public async Task Kill_all_with_nothing_running_removes_nothing()
     {
         using var dir = new TempDir();

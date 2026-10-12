@@ -62,11 +62,12 @@ public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, stri
 /// <summary>Runs one task of a batch to its end (ADR 0039): a workspace at the pinned commit, a session container on the batch network, then the handover (chargehand's own
 /// verification, the scan, the push, a draft pull request) and the task's own <c>result/v1</c> in the run log. A cancel signals the session and ends the task; it never reaches
 /// the handover, so nothing is pushed. <paramref name="publish"/> gets the task's steps as events of the batch run: <c>container_started</c>, <c>session_progress</c> when the
-/// session's tally changes, and the handover's <c>verify_finished</c>, <c>pushed</c> and <c>pr_opened</c>.</summary>
+/// session's tally changes, and the handover's <c>verify_finished</c>, <c>pushed</c> and <c>pr_opened</c>. With a <paramref name="journal"/> the task's progress is saved, and a task it shows as begun is taken up where it
+/// stood after a server restart (ADR 0043). <paramref name="detaching"/> says the server is stopping rather than the run being cancelled: the session container is then left running for the next process.</summary>
 public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspace, ISessionVolumes volumes, IBranchHandover handover, IRunLog log, TaskTokenMinter mint,
     TaskRunnerSettings settings, IEvidenceResolver resolver,
     Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? supportCheck, Func<ResultContract, ResultContract>? sign,
-    TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null) : ITaskRunner
+    TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, BatchJournal? journal = null, Func<bool>? detaching = null) : ITaskRunner
 {
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultUsagePoll = TimeSpan.FromSeconds(5);
@@ -77,12 +78,23 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
 
     public async Task<TaskOutcome> RunAsync(ResolvedTask task, IProgress<TaskUsage> progress, CancellationToken ct)
     {
-        var runId = Orchestrator.NewRunId();
-        var branch = $"chargehand/{runId}";
-        var started = DateTimeOffset.UtcNow;
+        var entry = journal?.Entry(task.Id);
+        if (entry is { Phase: TaskPhase.HandedOver or TaskPhase.Failed, Outcome: { } done })
+            return done;
+        var resumed = entry is { Phase: TaskPhase.Started or TaskPhase.Finished, RunId: not null } ? entry : null;
+        if (resumed is not null && await GoneWithoutOutputAsync(resumed, ct))
+        {
+            // Nothing to take up: begin again under a new run id and branch, and clear what the old attempt left.
+            await RemoveRunAsync(resumed.RunId!, resumed.Container);
+            resumed = null;
+        }
+        var runId = resumed?.RunId ?? Orchestrator.NewRunId();
+        var branch = resumed?.Branch ?? $"chargehand/{runId}";
+        var started = resumed?.Started ?? DateTimeOffset.UtcNow;
         var preset = settings.Preset;
         var outDirectory = Path.Combine(settings.ScratchRoot, "out", runId);
         string? container = null;
+        var ended = false;
         // A child of the batch's span: the task's result carries the batch's trace id, so it resolves in Langfuse.
         using var span = Telemetry.Source.StartActivity(DrivenTelemetry.TaskSpan);
         span?.SetTag("chargehand.run_id", runId);
@@ -92,50 +104,58 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         try
         {
             Directory.CreateDirectory(outDirectory);
-            await engine.CreateVolumeAsync(RunnerNames.Out(runId), runId, ct);
-            await workspace.PrepareWorkspaceAsync(new WorkspaceSpec(runId, settings.Image, settings.SourcePath, RunnerNames.Work(runId), branch, settings.BaseCommit), ct);
-            await volumes.WriteTaskAsync(runId, new SessionTask(runId, task.Goal, branch, preset.MaxTurns, preset.MaxMinutes, preset.NoProgressMinutes * 60,
-                settings.Limits.MaxTokens, MaxUsd: settings.Limits.MaxUsd), ct);
+            if (resumed is null)
+            {
+                journal?.Update(task.Id, e => e with { Phase = TaskPhase.Started, RunId = runId, Branch = branch, Started = started, Container = null });
+                await engine.CreateVolumeAsync(RunnerNames.Out(runId), runId, ct);
+                await workspace.PrepareWorkspaceAsync(new WorkspaceSpec(runId, settings.Image, settings.SourcePath, RunnerNames.Work(runId), branch, settings.BaseCommit), ct);
+                await volumes.WriteTaskAsync(runId, new SessionTask(runId, task.Goal, branch, preset.MaxTurns, preset.MaxMinutes, preset.NoProgressMinutes * 60,
+                    settings.Limits.MaxTokens, MaxUsd: settings.Limits.MaxUsd), ct);
 
-            var gateway = settings.GatewayKey is not null && settings.Network.ModelUrl is not null;
-            Dictionary<string, string> env = new(gateway ? new Dictionary<string, string>() : settings.ModelEnvironment, StringComparer.Ordinal)
-            {
-                ["HTTPS_PROXY"] = settings.Network.ProxyUrl(runId),
-                ["HTTP_PROXY"] = settings.Network.ProxyUrl(runId),
-                ["CHARGEHAND_RUN_ID"] = runId,
-            };
-            if (settings.ModelBaseUrl is { } modelBaseUrl)
-                env["ANTHROPIC_BASE_URL"] = modelBaseUrl;
-            if (gateway)
-            {
-                // The container holds a token that is worth nothing outside this run and this network; the real credential stays in the egress container.
-                env["ANTHROPIC_BASE_URL"] = settings.Network.ModelUrl!;
-                env["CLAUDE_CODE_OAUTH_TOKEN"] = ModelTokens.Mint(settings.GatewayKey!, runId, started.AddMinutes(preset.MaxMinutes + 15), settings.Limits.MaxTokens);
-                env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1";
+                var gateway = settings.GatewayKey is not null && settings.Network.ModelUrl is not null;
+                Dictionary<string, string> env = new(gateway ? new Dictionary<string, string>() : settings.ModelEnvironment, StringComparer.Ordinal)
+                {
+                    ["HTTPS_PROXY"] = settings.Network.ProxyUrl(runId),
+                    ["HTTP_PROXY"] = settings.Network.ProxyUrl(runId),
+                    ["CHARGEHAND_RUN_ID"] = runId,
+                };
+                if (settings.ModelBaseUrl is { } modelBaseUrl)
+                    env["ANTHROPIC_BASE_URL"] = modelBaseUrl;
+                if (gateway)
+                {
+                    // The container holds a token that is worth nothing outside this run and this network; the real credential stays in the egress container.
+                    env["ANTHROPIC_BASE_URL"] = settings.Network.ModelUrl!;
+                    env["CLAUDE_CODE_OAUTH_TOKEN"] = ModelTokens.Mint(settings.GatewayKey!, runId, started.AddMinutes(preset.MaxMinutes + 15), settings.Limits.MaxTokens);
+                    env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1";
+                }
+                if (settings.CallbackForwards || gateway)
+                    // A forward and the model endpoint are plain HTTP to the egress container; the proxy variables would send them to that same proxy, which answers CONNECT only.
+                    env["NO_PROXY"] = env["no_proxy"] = $"{settings.Network.ProxyHost},{ContainerTemplate.CallbackAlias}";
+                if (settings.Otlp is { } otlp)
+                    foreach (var (name, value) in otlp.Environment(settings.BatchId, task.Id, runId, span is null ? null : traceId))
+                        env[name] = value;
+                if (settings.McpUrl is { } mcp)
+                {
+                    env["CHARGEHAND_MCP_URL"] = mcp;
+                    // The token admits only this path and commit; /work is not it, so the session is told them.
+                    env["CHARGEHAND_REPOSITORY_PATH"] = settings.SourcePath;
+                    env["CHARGEHAND_BASE_COMMIT"] = settings.BaseCommit;
+                    env["CHARGEHAND_RUN_TOKEN"] = mint(new TaskGrant(runId, settings.SourcePath, settings.BaseCommit, settings.Limits.MaxUsd, settings.Limits.MaxTokens,
+                        started.AddMinutes(preset.MaxMinutes + 15)));
+                }
+                container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
+                    preset.MemoryMb, preset.Cpus, preset.Pids, ["session"]), ct);
+                journal?.Update(task.Id, e => e with { Container = container });
+                Publish(task.Id, RunEventKind.ContainerStarted, "session container started");
             }
-            if (settings.CallbackForwards || gateway)
-                // A forward and the model endpoint are plain HTTP to the egress container; the proxy variables would send them to that same proxy, which answers CONNECT only.
-                env["NO_PROXY"] = env["no_proxy"] = $"{settings.Network.ProxyHost},{ContainerTemplate.CallbackAlias}";
-            if (settings.Otlp is { } otlp)
-                foreach (var (name, value) in otlp.Environment(settings.BatchId, task.Id, runId, span is null ? null : traceId))
-                    env[name] = value;
-            if (settings.McpUrl is { } mcp)
-            {
-                env["CHARGEHAND_MCP_URL"] = mcp;
-                // The token admits only this path and commit; /work is not it, so the session is told them.
-                env["CHARGEHAND_REPOSITORY_PATH"] = settings.SourcePath;
-                env["CHARGEHAND_BASE_COMMIT"] = settings.BaseCommit;
-                env["CHARGEHAND_RUN_TOKEN"] = mint(new TaskGrant(runId, settings.SourcePath, settings.BaseCommit, settings.Limits.MaxUsd, settings.Limits.MaxTokens,
-                    started.AddMinutes(preset.MaxMinutes + 15)));
-            }
-            container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
-                preset.MemoryMb, preset.Cpus, preset.Pids, ["session"]), ct);
-            Publish(task.Id, RunEventKind.ContainerStarted, "session container started");
-            var sessionStarted = DateTimeOffset.UtcNow;
-            var state = await WaitAsync(container, runId, task.Id, preset, progress, ct);
+            else
+                container = resumed.Container ?? $"chargehand-{runId}";
+            var sessionStarted = resumed?.Started ?? DateTimeOffset.UtcNow;
+            var state = await WaitAsync(container!, runId, task.Id, preset, progress, sessionStarted, ct);
             var sessionEnded = DateTimeOffset.UtcNow;
 
             await volumes.FetchOutputAsync(runId, outDirectory, ct);
+            journal?.Update(task.Id, e => e with { Phase = TaskPhase.Finished });
             var session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, state.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, state.ExitCode, [], false);
             using (var call = Telemetry.Source.StartActivity(DrivenTelemetry.SessionSpan, ActivityKind.Client, span?.Context ?? default, startTime: sessionStarted))
             {
@@ -162,6 +182,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             await log.AppendAsync(new StartRecord(runId, started, traceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId), CancellationToken.None);
             await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, settings.Request.Context.Preset, null, null, result), CancellationToken.None);
             var outcome = Outcome(task, runId, result, session, handed, settings.Priced);
+            journal?.Finish(outcome);
+            ended = true;
             Tag(span, outcome, session, started);
             return outcome;
         }
@@ -174,19 +196,51 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         }
         finally
         {
-            // A start cancelled in flight can leave the container docker already made; the name is fixed, so remove it by name.
-            await engine.RemoveAsync(container ?? $"chargehand-{runId}", CancellationToken.None);
-            await engine.RemoveVolumeAsync(RunnerNames.Work(runId), CancellationToken.None);
-            DeleteQuietly(outDirectory);
-            DeleteQuietly(Path.Combine(settings.ScratchRoot, runId));
+            // A server that is stopping leaves an unfinished task as it is: the next process takes it up (ADR 0043).
+            if (ended || !Detaching)
+            {
+                // A start cancelled in flight can leave the container docker already made; the name is fixed, so remove it by name.
+                await engine.RemoveAsync(container ?? $"chargehand-{runId}", CancellationToken.None);
+                await engine.RemoveVolumeAsync(RunnerNames.Work(runId), CancellationToken.None);
+                DeleteQuietly(outDirectory);
+                DeleteQuietly(Path.Combine(settings.ScratchRoot, runId));
+            }
         }
     }
 
+    private bool Detaching => detaching?.Invoke() == true;
+
+    /// <summary>A task begun before a restart whose container is gone and whose output volume holds no outcome: there is nothing to take up.</summary>
+    private async Task<bool> GoneWithoutOutputAsync(TaskEntry entry, CancellationToken ct)
+    {
+        if ((await engine.InspectAsync(entry.Container ?? $"chargehand-{entry.RunId}", ct)).Status != ContainerStatus.Missing)
+            return false;
+        var directory = Path.Combine(settings.ScratchRoot, "out", entry.RunId!);
+        Directory.CreateDirectory(directory);
+        try
+        {
+            await volumes.FetchOutputAsync(entry.RunId!, directory, ct);
+        }
+        catch (ChargehandException)
+        {
+            return true;
+        }
+        return !File.Exists(Path.Combine(directory, "session-outcome.json"));
+    }
+
+    private async Task RemoveRunAsync(string runId, string? container)
+    {
+        await engine.RemoveAsync(container ?? $"chargehand-{runId}", CancellationToken.None);
+        await engine.RemoveVolumeAsync(RunnerNames.Work(runId), CancellationToken.None);
+        await engine.RemoveVolumeAsync(RunnerNames.Out(runId), CancellationToken.None);
+        DeleteQuietly(Path.Combine(settings.ScratchRoot, "out", runId));
+        DeleteQuietly(Path.Combine(settings.ScratchRoot, runId));
+    }
+
     /// <summary>Waits for the container to end. A cancel interrupts the session, gives it a moment, then kills it, and rethrows; a session past its wall clock plus a margin is killed.</summary>
-    private async Task<ContainerState> WaitAsync(string container, string runId, string taskId, DrivenPreset preset, IProgress<TaskUsage> progress, CancellationToken ct)
+    private async Task<ContainerState> WaitAsync(string container, string runId, string taskId, DrivenPreset preset, IProgress<TaskUsage> progress, DateTimeOffset since, CancellationToken ct)
     {
         var every = poll ?? DefaultPoll;
-        var clock = Stopwatch.StartNew();
         var usageClock = Stopwatch.StartNew();
         long reported = 0;
         TaskUsage? shown = null;
@@ -197,7 +251,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 var state = await engine.InspectAsync(container, ct);
                 if (state.Status != ContainerStatus.Running)
                     return state;
-                if (clock.Elapsed > TimeSpan.FromMinutes(preset.MaxMinutes) + WallClockSlack)
+                if (DateTimeOffset.UtcNow - since > TimeSpan.FromMinutes(preset.MaxMinutes) + WallClockSlack)
                 {
                     await engine.SignalAsync(container, "SIGKILL", CancellationToken.None);
                     return await engine.InspectAsync(container, CancellationToken.None);
@@ -220,7 +274,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 await Task.Delay(every, ct);
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (!Detaching)
         {
             await engine.SignalAsync(container, "SIGINT", CancellationToken.None);
             var grace = Stopwatch.StartNew();

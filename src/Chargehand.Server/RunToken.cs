@@ -12,7 +12,7 @@ namespace Chargehand.Server;
 public sealed record RunTokenClaims(string RunId, string RepositoryPath, string Commit, decimal? MaxUsd, long? MaxTokens, DateTimeOffset Expires);
 
 /// <summary>Issues and checks run-scoped tokens: <c>chr1.&lt;payload&gt;.&lt;signature&gt;</c>, an HMAC-SHA256 over the payload with a key only this server
-/// holds. A token is not stored; it dies when it expires or the server restarts (the batch it belongs to dies with the server then too).</summary>
+/// holds. A token is not stored; it dies when it expires, or when the server restarts without a key file (<see cref="LoadOrCreate"/> keeps the key, so a batch's sessions go on across a restart, ADR 0043).</summary>
 public sealed class RunTokenService(byte[] key)
 {
     public const string Prefix = "chr1";
@@ -24,6 +24,33 @@ public sealed class RunTokenService(byte[] key)
     /// <summary>A service with a fresh random key.</summary>
     public RunTokenService() : this(RandomNumberGenerator.GetBytes(32))
     {
+    }
+
+    /// <summary>A service whose key is kept in <paramref name="file"/> (created readable by its owner only), so tokens issued before a restart still validate after it.</summary>
+    public static RunTokenService LoadOrCreate(string file)
+    {
+        try
+        {
+            if (File.Exists(file) && Convert.FromHexString(File.ReadAllText(file).Trim()) is { Length: 32 } stored)
+                return new RunTokenService(stored);
+        }
+        catch (Exception e) when (e is FormatException or IOException or UnauthorizedAccessException)
+        {
+            // A damaged or unreadable key file must not keep the server from starting: a new key only costs the tokens already issued.
+        }
+        var key = RandomNumberGenerator.GetBytes(32);
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(file))!);
+        var temp = $"{file}.{Guid.NewGuid():N}.tmp";
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
+        if (!OperatingSystem.IsWindows())
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        using (var stream = new FileStream(temp, options))
+        {
+            stream.Write(Encoding.ASCII.GetBytes(Convert.ToHexString(key)));
+            stream.Flush(flushToDisk: true);
+        }
+        File.Move(temp, file, overwrite: true);
+        return new RunTokenService(key);
     }
 
     public string Issue(RunTokenClaims claims, DateTimeOffset now)

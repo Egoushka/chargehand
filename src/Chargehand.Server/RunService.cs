@@ -12,7 +12,7 @@ namespace Chargehand.Server;
 /// the CLI shares (ADR 0018); events live here only while the run is unfinished.
 /// </summary>
 public sealed class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping, DrivenRun? driven = null,
-    int maxConcurrentRuns = 1, int maxSessionCalls = 2) : IDisposable
+    int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null) : IDisposable
 {
     /// <summary>Unfinished top-level runs held at most; beyond it a new run is refused (HTTP 429). A session's research and review runs do not count: the child gate and the session count bound them.</summary>
     public const int MaxUnfinished = 10;
@@ -31,7 +31,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         driven?.Dispose();
     }
 
-    public RunTokenService Tokens { get; } = new();
+    public RunTokenService Tokens { get; } = stateDirectory is null ? new() : RunTokenService.LoadOrCreate(Path.Combine(stateDirectory, "run-token.key"));
 
     public RunTokenLedger Ledger { get; } = new();
 
@@ -92,9 +92,28 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         return run;
     }
 
+    /// <summary>Takes up the driven batches a restart interrupted, under their own run ids, then sweeps what no batch owns (ADR 0043). Each resumed batch holds a slot of the main gate
+    /// and counts as unfinished, as before the restart. Returns the names the sweep removed.</summary>
+    public async Task<IReadOnlyList<string>> ResumeAsync(CancellationToken ct)
+    {
+        if (driven is null)
+            return [];
+        var open = await driven.UnfinishedAsync(ct);
+        // Swept before any batch starts, so a resource a resumed batch makes is never taken for a leftover.
+        var swept = await driven.SweepOrphansAsync(open, ct);
+        foreach (var state in open)
+        {
+            var run = new RunHandle(state.RunId, stopping);
+            _runs[run.Id] = run;
+            run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
+            _ = Task.Run(() => Execute(run, state.Request, null, null, state), CancellationToken.None);
+        }
+        return swept;
+    }
+
     public RunHandle? Find(string runId) => _runs.GetValueOrDefault(runId);
 
-    private async Task Execute(RunHandle run, RunRequest request, string? parentRunId, string? chargeTo)
+    private async Task Execute(RunHandle run, RunRequest request, string? parentRunId, string? chargeTo, BatchState? resume = null)
     {
         var gate = chargeTo is null ? _gate : _childGate;
         try
@@ -104,7 +123,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
             {
                 // A batch holds one slot of the main gate and schedules its own tasks (ADR 0039); without a driven setup the orchestrator refuses the request.
                 var result = request.Driven is not null && driven is not null
-                    ? await driven.RunAsync(request, run.Id, MintToken, run.Token, run.Publish, () => run.CancelledByCaller)
+                    ? await driven.RunAsync(request, run.Id, MintToken, run.Token, run.Publish, () => run.CancelledByCaller, resume)
                     : await orchestrator.RunAsync(request, run.Token, run.Id, run.Publish, parentRunId, () => run.CancelledByCaller);
                 if (chargeTo is not null)
                     Ledger.Charge(chargeTo, result.Usage.Usd ?? 0, result.Usage.Input + result.Usage.Output);

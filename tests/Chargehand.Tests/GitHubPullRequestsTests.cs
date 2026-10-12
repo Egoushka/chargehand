@@ -38,6 +38,30 @@ public class GitHubPullRequestsTests
         Assert.DoesNotContain("the-token", body);
     }
 
+    private sealed class Sequence : HttpMessageHandler
+    {
+        public List<(HttpMethod Method, string Url)> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Requests.Add((request.Method, request.RequestUri!.ToString()));
+            return Task.FromResult(request.Method == HttpMethod.Post
+                ? new HttpResponseMessage(HttpStatusCode.UnprocessableEntity) { Content = new StringContent("""{"message":"Validation Failed","errors":[{"message":"A pull request already exists for o:chargehand/run1."}]}""") }
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""[{"html_url":"https://example.test/o/r/pull/3","number":3}]""") });
+        }
+    }
+
+    [Fact]
+    public async Task A_pull_request_that_already_exists_is_returned_not_failed()
+    {
+        var handler = new Sequence();
+        var pr = await new GitHubPullRequests(new HttpClient(handler) { BaseAddress = new Uri("https://api.example.test/") }, "the-token")
+            .CreateDraftAsync(new RemoteRepository("o", "r"), "chargehand/run1", "main", "Add a retry", "Body", default);
+
+        Assert.Equal(new PullRequestRef("https://example.test/o/r/pull/3", 3), pr);
+        Assert.Equal("https://api.example.test/repos/o/r/pulls?head=o%3Achargehand%2Frun1&state=open", handler.Requests[1].Url);
+    }
+
     [Fact]
     public void The_client_can_open_a_draft_and_do_nothing_else()
     {

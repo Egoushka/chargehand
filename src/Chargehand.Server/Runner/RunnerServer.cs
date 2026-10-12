@@ -162,6 +162,12 @@ public static class RunnerServer
 
         app.MapGet("/count", (HttpContext ctx, CancellationToken ct) => Guard(async () => Ok(new { count = await engine.CountAsync(ct) })));
 
+        app.MapGet("/resources", (HttpContext ctx, CancellationToken ct) => Guard(async () =>
+        {
+            var listed = await engine.ListAsync(ct);
+            return Ok(new RunnerResources([.. listed.Containers], [.. listed.Networks], [.. listed.Volumes]));
+        }));
+
         app.MapPost("/volumes", (HttpContext ctx, CancellationToken ct) => Guard(async () =>
         {
             var volume = await Body<RunnerVolume>(ctx, ct);

@@ -1,3 +1,5 @@
+using Chargehand.Contracts;
+
 namespace Chargehand.Containers;
 
 /// <param name="ProxyHost">The egress container's name, which the internal network's DNS resolves.</param>
@@ -25,14 +27,37 @@ public sealed class BatchNetwork(IContainerEngine engine)
     /// <param name="outsideNetwork">The network the egress container also joins: the way out to the registries, and to the chargehand server when that sits on a network of its own.</param>
     /// <param name="forwards">Operator-named forwards (<c>listen-port=host:port</c>), for reaching the chargehand server from the internal network.</param>
     /// <param name="gateway">Set, the egress container also serves the model endpoint and holds the real credential (ADR 0039, decision 9).</param>
-    public async Task<BatchNetworkInfo> CreateAsync(string batchId, string egressImage, IReadOnlyList<string> allow, CancellationToken ct, string outsideNetwork = DefaultOutside,
+    public Task<BatchNetworkInfo> CreateAsync(string batchId, string egressImage, IReadOnlyList<string> allow, CancellationToken ct, string outsideNetwork = DefaultOutside,
+        IReadOnlyList<string>? forwards = null, ModelGatewaySpec? gateway = null) =>
+        BuildAsync(batchId, egressImage, allow, outsideNetwork, forwards, gateway, resume: false, ct);
+
+    /// <summary>The batch's network after a server restart (ADR 0043): kept as it is when the egress container still runs, otherwise the egress container is made again on the network
+    /// (made too if it is gone) with the batch's own key, so the run tokens that sessions already hold still work. Session containers keep their attachment to the network.</summary>
+    public async Task<BatchNetworkInfo> EnsureAsync(string batchId, string egressImage, IReadOnlyList<string> allow, CancellationToken ct, string outsideNetwork = DefaultOutside,
         IReadOnlyList<string>? forwards = null, ModelGatewaySpec? gateway = null)
+    {
+        var egress = $"chargehand-egress-{batchId}";
+        if ((await engine.InspectAsync(egress, ct)).Status == ContainerStatus.Running)
+            return new BatchNetworkInfo($"chargehand-net-{batchId}", egress, egress, new EgressSpec(batchId, egressImage, "", allow).Port, gateway?.Port ?? 0);
+        await engine.RemoveAsync(egress, ct);
+        return await BuildAsync(batchId, egressImage, allow, outsideNetwork, forwards, gateway, resume: true, ct);
+    }
+
+    private async Task<BatchNetworkInfo> BuildAsync(string batchId, string egressImage, IReadOnlyList<string> allow, string outsideNetwork,
+        IReadOnlyList<string>? forwards, ModelGatewaySpec? gateway, bool resume, CancellationToken ct)
     {
         var network = $"chargehand-net-{batchId}";
         var spec = new EgressSpec(batchId, egressImage, network, allow, Forwards: forwards, Gateway: gateway);
         _ = ContainerTemplate.EgressArgs(spec, "env-file-placeholder"); // validates every value before anything is created
         var info = new BatchNetworkInfo(network, "", $"chargehand-egress-{batchId}", spec.Port, gateway?.Port ?? 0);
-        await engine.CreateNetworkAsync(network, batchId, ct);
+        try
+        {
+            await engine.CreateNetworkAsync(network, batchId, ct);
+        }
+        catch (ChargehandException) when (resume)
+        {
+            // Still there from before the restart; if it is not, the egress start below fails on it.
+        }
         string? egress = null;
         try
         {

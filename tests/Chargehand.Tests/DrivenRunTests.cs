@@ -25,7 +25,7 @@ public class DrivenRunTests
 
     private static readonly JsonSerializerOptions Snake = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
-    private sealed class FakeEngine : IContainerEngine, IWorkspaceEngine
+    internal sealed class FakeEngine : IContainerEngine, IWorkspaceEngine
     {
         private readonly object _gate = new();
         private readonly HashSet<string> _stopped = [];
@@ -39,6 +39,14 @@ public class DrivenRunTests
         private readonly Dictionary<string, int> _inspections = [];
         /// <summary>The start call is cancelled after docker made the container, as a cancel in flight does.</summary>
         public bool CancelOnStart { get; set; }
+        /// <summary>The nth container started (1-based) stays running until <see cref="Release"/>; 0: none.</summary>
+        public int HoldNth { get; set; }
+        private readonly HashSet<string> _held = [];
+        /// <summary>Containers docker no longer knows.</summary>
+        public HashSet<string> Gone { get; } = [];
+        public EngineResources Resources { get; set; } = new([], [], []);
+
+        public void Release() { lock (_gate) _held.Clear(); }
 
         private void Record(string call)
         {
@@ -51,6 +59,9 @@ public class DrivenRunTests
             lock (_gate)
                 Started.Add(spec);
             Record($"start {spec.RunId}");
+            lock (_gate)
+                if (Started.Count == HoldNth)
+                    _held.Add($"cid-{spec.RunId}");
             if (CancelOnStart)
                 throw new OperationCanceledException();
             return Task.FromResult($"cid-{spec.RunId}");
@@ -69,6 +80,10 @@ public class DrivenRunTests
             bool running;
             lock (_gate)
             {
+                if (Gone.Contains(id))
+                    return Task.FromResult(new ContainerState(ContainerStatus.Missing, null, false));
+                if (_held.Contains(id) && !_stopped.Contains(id))
+                    return Task.FromResult(new ContainerState(ContainerStatus.Running, null, false));
                 _inspections[id] = _inspections.GetValueOrDefault(id) + 1;
                 running = (HoldRunning || _inspections[id] <= RunFor) && !_stopped.Contains(id);
             }
@@ -79,6 +94,14 @@ public class DrivenRunTests
         public Task KillAllAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> OwnsAsync(string id, CancellationToken ct) => throw new NotSupportedException();
         public Task<int> CountAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<EngineResources> ListAsync(CancellationToken ct)
+        {
+            Record("list");
+            return OnList is null ? Task.FromResult(Resources) : throw OnList;
+        }
+
+        /// <summary>The engine fails when listed.</summary>
+        public Exception? OnList { get; set; }
         public Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct) => Task.FromResult("");
         public Task CreateVolumeAsync(string name, string runId, CancellationToken ct) { Record($"volume {name}"); return Task.CompletedTask; }
         public Task RemoveVolumeAsync(string name, CancellationToken ct) { Record($"volume-rm {name}"); return Task.CompletedTask; }
@@ -90,7 +113,7 @@ public class DrivenRunTests
     }
 
     /// <summary>Plays the session: the output volume holds an outcome for the task's goal, and a bundle and report when it completed.</summary>
-    private sealed class FakeVolumes(Func<string, SessionStatus> script) : ISessionVolumes
+    internal sealed class FakeVolumes(Func<string, SessionStatus> script) : ISessionVolumes
     {
         private readonly Dictionary<string, string> _goals = [];
 
@@ -98,6 +121,9 @@ public class DrivenRunTests
         public TaskUsage? Usage { get; set; }
 
         public int UsageReads;
+
+        /// <summary>Runs whose output volume holds nothing.</summary>
+        public HashSet<string> NoOutput { get; } = [];
 
         public Task<TaskUsage?> ReadUsageAsync(string runId, CancellationToken ct)
         {
@@ -117,6 +143,8 @@ public class DrivenRunTests
             string goal;
             lock (_goals)
                 goal = _goals[runId];
+            if (NoOutput.Contains(runId))
+                return Task.CompletedTask;
             var status = script(goal);
             var outcome = new SessionOutcome(status, status == SessionStatus.Failed ? "session_error" : "", 9, 1000, 200, 4000, null, 0, [], status == SessionStatus.Completed,
                 CacheWriteTokens: 300, SessionId: $"cc-session-{runId}", Model: "claude-sonnet-5-5",
@@ -132,7 +160,7 @@ public class DrivenRunTests
         }
     }
 
-    private sealed class FakeHandover : IBranchHandover
+    internal sealed class FakeHandover : IBranchHandover
     {
         public List<HandoverInput> Inputs { get; } = [];
 
@@ -152,22 +180,25 @@ public class DrivenRunTests
         }
     }
 
-    private sealed class NoEvidenceProblems : IEvidenceResolver
+    internal sealed class NoEvidenceProblems : IEvidenceResolver
     {
         public Task<IReadOnlyList<EvidenceFailure>> ResolveAsync(ResultContract contract, EvidenceScope scope, CancellationToken ct) => Task.FromResult<IReadOnlyList<EvidenceFailure>>([]);
     }
 
-    private sealed class Rig : IDisposable
+    internal sealed class Rig : IDisposable
     {
         public TempDir Dir { get; } = new();
         public FakeEngine Engine { get; } = new();
         public FakeHandover Handover { get; } = new();
         public JsonlRunLog Log { get; }
-        public DrivenRun Run { get; }
+        public DrivenRun Run { get; private set; }
+        public FakeVolumes Volumes { get; }
         public Profile Profile { get; }
+        private readonly DrivenServices? _services;
+        private readonly string? _state;
 
         public Rig(bool enabled = true, Func<string, SessionStatus>? script = null, string? mcpForward = null, string? dir = null, JsonlRunLog? log = null, FakeVolumes? volumes = null,
-            string? modelUrl = null, bool apiKey = false, string? otlpUrl = null, TelemetrySettings? telemetry = null)
+            string? modelUrl = null, bool apiKey = false, string? otlpUrl = null, TelemetrySettings? telemetry = null, bool durable = false, IEvidenceResolver? resolver = null)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
@@ -178,12 +209,24 @@ public class DrivenRunTests
                 Telemetry = telemetry,
                 Prices = new Dictionary<string, ModelPrice> { ["p/small"] = new(0.1m, 0.5m, 0.01m, 0.125m), ["provider/claude-sonnet-5-5"] = new(3m, 15m, 0.3m, 3.75m) },
             };
+            Volumes = volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed));
             var services = enabled
-                ? new DrivenServices(Engine, Engine, volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed)), _ => throw new NotSupportedException("the handover is faked"), null,
-                    (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", Commit, "https://github.com/o/r.git", "main")), new NoEvidenceProblems(),
+                ? new DrivenServices(Engine, Engine, Volumes, _ => throw new NotSupportedException("the handover is faked"), null,
+                    (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", Commit, "https://github.com/o/r.git", "main")), resolver ?? new NoEvidenceProblems(),
                     name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1))
                 : null;
-            Run = new DrivenRun(Profile, Log, Repo.Root, services);
+            _services = services;
+            _state = durable ? Path.Combine(Dir.Path, "batches") : null;
+            Run = new DrivenRun(Profile, Log, Repo.Root, services, _state);
+        }
+
+        public string StateDirectory => _state!;
+
+        /// <summary>A new server process on the same run log, state directory and container engine.</summary>
+        public DrivenRun Restart()
+        {
+            Run.Dispose();
+            return Run = new DrivenRun(Profile, Log, Repo.Root, _services, _state);
         }
 
         public void Dispose()

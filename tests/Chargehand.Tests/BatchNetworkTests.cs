@@ -27,6 +27,7 @@ public class BatchNetworkTests
         public Task<string> StartAsync(ContainerSpec spec, CancellationToken ct) => throw new NotSupportedException();
         public Task SignalAsync(string id, string signal, CancellationToken ct) => throw new NotSupportedException();
         public Task<ContainerState> InspectAsync(string id, CancellationToken ct) => throw new NotSupportedException();
+        public Task<EngineResources> ListAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task KillAllAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct) => throw new NotSupportedException();
         public Task CreateVolumeAsync(string name, string runId, CancellationToken ct) => throw new NotSupportedException();

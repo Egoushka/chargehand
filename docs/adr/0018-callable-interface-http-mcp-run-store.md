@@ -74,7 +74,7 @@ such a request with `needs_input`.
 ## Consequences
 
 The CLI and both surfaces share one run log: `chargehand show` reads HTTP and MCP runs, and `GET /v1/runs/{id}` reads
-CLI runs. A server restart leaves unfinished runs `lost`, and their callers resend. A CLI run next to the server can
+CLI runs. A server restart leaves unfinished runs `lost`, and their callers resend; a driven batch is the exception and carries on ([ADR 0043](0043-driven-batches-survive-a-server-restart.md)). A CLI run next to the server can
 exceed ADR 0011's two nodes per model. Every future run keeps its request, so eval sets can grow from real traffic
 (ADR 0019).
 
@@ -90,6 +90,6 @@ unchanged.
 
 ## Reopen if
 
-Callers need runs to survive a restart (then durable execution, ADR 0002); a scan of the run log per request becomes
+Callers need runs other than driven batches to survive a restart (then durable execution, ADR 0002); a scan of the run log per request becomes
 slow; the SDK composes tasks with `input_required` results; a second program caller needs a node kind other than
 `draft`.
