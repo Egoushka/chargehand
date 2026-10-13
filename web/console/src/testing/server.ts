@@ -1,11 +1,15 @@
 // A fake server for tests: answers the routes the console calls from the fixtures, and records what was asked.
 import { vi } from 'vitest';
+import type { AccountsBody } from '../api/accounts';
 import type { BatchBody } from '../api/batch';
 import type { InboxBody } from '../api/inbox';
+import type { IntakeBody } from '../api/intake';
 import type { OverviewBody } from '../api/overview';
 import type { PullsBody } from '../api/pulls';
+import type { RepositoriesBody } from '../api/repositories';
 import type { SystemBody } from '../api/system';
 import type { Me, RunSummary } from '../api/types';
+import * as adm from './admin';
 import * as fx from './fixtures';
 
 export interface Scenario {
@@ -17,6 +21,9 @@ export interface Scenario {
   batches?: Record<string, BatchBody>;
   pulls?: PullsBody;
   system?: SystemBody | null;
+  intake?: IntakeBody;
+  repositories?: RepositoriesBody;
+  accounts?: AccountsBody;
   /** Answers by exact path (before the query), replacing the defaults: `[status, body, headers]`. */
   replies?: Record<string, [number, unknown, Record<string, string>?]>;
   /** A route that never answers: for a loading state. */
@@ -62,8 +69,13 @@ export function serveApi(scenario: Scenario = {}) {
       return Promise.resolve(
         scenario.system === null
           ? json({ errors: ['owner only'] }, 403)
-          : json(scenario.system ?? fx.system(now)),
+          : json(scenario.system ?? adm.systemFull(now)),
       );
+    if (path === '/v1/intake') return Promise.resolve(json(scenario.intake ?? adm.intake({}, now)));
+    if (path === '/v1/repositories')
+      return Promise.resolve(json(scenario.repositories ?? adm.repositories(now)));
+    if (path === '/v1/accounts')
+      return Promise.resolve(json(scenario.accounts ?? adm.accounts(now)));
     if (path === '/v1/runs' && (init?.method ?? 'GET') === 'GET')
       return Promise.resolve(json({ runs: scenario.runs ?? [] }));
     if (path === '/v1/runs' && method === 'POST')

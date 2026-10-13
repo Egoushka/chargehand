@@ -1,5 +1,6 @@
 // The API as the browser sees it: answered in the browser from the test fixtures, so a smoke test needs no server and no network.
 import type { Page } from '@playwright/test';
+import * as adm from '../src/testing/admin';
 import * as fx from '../src/testing/fixtures';
 import * as st from '../src/testing/start';
 
@@ -62,7 +63,17 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
       case '/v1/system':
         return options.account
           ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })
-          : route.fulfill({ json: fx.system(now) });
+          : route.fulfill({ json: adm.systemFull(now) });
+      case '/v1/intake':
+        return options.account
+          ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })
+          : route.fulfill({ json: adm.intake({}, now) });
+      case '/v1/accounts':
+        return options.account
+          ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })
+          : route.fulfill({ json: adm.accounts(now) });
+      case '/v1/analytics':
+        return route.fulfill({ json: adm.repositoryHistory(now) });
       case '/v1/runs':
         if (request.method() === 'POST')
           return route.fulfill({

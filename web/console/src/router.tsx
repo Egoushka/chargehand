@@ -6,12 +6,16 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router';
 import { ApiError, Unauthorized } from './api/client';
+import { Accounts } from './screens/accounts/Accounts';
+import { Intake } from './screens/intake/Intake';
 import { NeedsYou } from './screens/needs-you/NeedsYou';
 import { Overview } from './screens/overview/Overview';
 import { Placeholder } from './screens/Placeholder';
+import { Repositories } from './screens/repositories/Repositories';
 import { RunDetail } from './screens/run/RunDetail';
 import { Runs } from './screens/runs/Runs';
 import { Start } from './screens/start/Start';
+import { System } from './screens/system/System';
 import { Root } from './shell/Root';
 import { SCREENS, type ScreenPath } from './shell/screens';
 
@@ -38,10 +42,10 @@ const routeTree = rootRoute.addChildren([
   child('new', Start),
   child('analytics', placeholder('/analytics')),
   child('learning', placeholder('/learning')),
-  child('intake', placeholder('/intake')),
-  child('repositories', placeholder('/repositories')),
-  child('accounts', placeholder('/accounts')),
-  child('system', placeholder('/system')),
+  child('intake', Intake),
+  child('repositories', Repositories),
+  child('accounts', Accounts),
+  child('system', System),
 ]);
 
 /** The server serves the console at the base path Vite was built with (/console/). */

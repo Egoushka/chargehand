@@ -1,0 +1,5 @@
+/* System: the profile text. Panels, tables, meters, pills and badges are the design system's. */
+.system-profile {
+  max-height: 320px;
+  overflow: auto;
+}
