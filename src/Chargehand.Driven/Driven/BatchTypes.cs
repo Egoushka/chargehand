@@ -31,8 +31,12 @@ public sealed record ResolvedTask(string Id, string? Ref, string Goal, int? MaxT
 /// <summary>A finished task a later one starts from (ADR 0049): its last session, whose output volume holds the bundle of its branch, and the branch and pull request it ended in.</summary>
 public sealed record UpstreamWork(string Id, string RunId, string Branch, string? PrUrl);
 
-/// <summary>The earlier task a task continues: its last session (whose output volume may hold a handoff) and the work it kept; null: it made no commits, so the new task starts from the base commit.</summary>
-public sealed record ContinuedFrom(string LastRun, KeptWork? Kept);
+/// <summary>The earlier task a task continues: its last session (whose output volume may hold a handoff) and the work it kept; null: it made no commits, so the new task starts from the base commit.
+/// <paramref name="Pushed"/> is set instead when the earlier task finished and its branch is on the remote with a pull request open (a review round, ADR 0051): the new task starts from that branch as the remote has it.</summary>
+public sealed record ContinuedFrom(string LastRun, KeptWork? Kept, PushedWork? Pushed = null);
+
+/// <summary>A finished task's branch, as its <c>branch</c> artifact records it: <paramref name="Base"/> is the commit the task started at, which a continuation has to start at too.</summary>
+public sealed record PushedWork(string Branch, string Base);
 
 /// <summary>What an unfinished task leaves for a later one, as the <c>kept-work</c> artifact of its result (ADR 0045). The bundle is in the output volume of <paramref name="BundleRun"/>.</summary>
 /// <param name="Branch">The task branch, <c>chargehand/&lt;first run id&gt;</c>; a continuation uses the same name, because the bundle holds that ref.</param>

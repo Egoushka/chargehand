@@ -48,6 +48,15 @@ public class IntakeGoalTests
         Assert.Contains("Issue body:\n(empty)", IntakeGoal.Issue("octo/repo", Issue(body: "  \n"), null, null));
     }
 
+    [Fact]
+    public void A_review_comment_names_who_said_it_and_where_and_stays_one_bullet()
+    {
+        Assert.Equal("review comment by alice on src/Retry.cs line 12: Use a constant.\n  Not a literal.", IntakeGoal.ReviewAnswer("alice", "src/Retry.cs", 12, " Use a constant.\r\nNot a literal.\n"));
+        Assert.Equal("review comment by alice on README.md: Reword.", IntakeGoal.ReviewAnswer("alice", "README.md", null, "Reword."));
+        Assert.Equal("comment by bob: @chargehand go on", IntakeGoal.ReviewAnswer("bob", null, null, "@chargehand go on"));
+        Assert.Equal(IntakeGoal.MaxComment + " [cut]".Length, IntakeGoal.ReviewAnswer("a", null, null, new string('x', 5000)).Length - "comment by a: ".Length);
+    }
+
     [Theory]
     [InlineData("size:S", "S")]
     [InlineData("SIZE:l", "L")]

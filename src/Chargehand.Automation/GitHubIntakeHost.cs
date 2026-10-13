@@ -34,6 +34,21 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
         [.. (await PagesAsync($"{RepoPath(repository)}/issues/comments?sort=created&direction=asc&since={Uri.EscapeDataString(since.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture))}",
             "the comments", ct)).Select(c => Parse(() => new IntakeComment(Long(c, "id"), IssueNumber(c), Login(c, "user"), Text(c, "body") ?? "", Time(c, "updated_at"))))];
 
+    public async Task<IntakePull> GetPullAsync(string repository, int number, CancellationToken ct)
+    {
+        using var doc = JsonDocument.Parse(await SendAsync(HttpMethod.Get, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}", null, "the pull request", ct));
+        return Parse(() => new IntakePull(number, doc.RootElement.GetProperty("head").GetProperty("ref").GetString() ?? "", FullName(doc.RootElement.GetProperty("head")),
+            FullName(doc.RootElement.GetProperty("base")) ?? repository, Text(doc.RootElement, "state") == "open"));
+    }
+
+    public async Task<IReadOnlyList<ReviewComment>> ReviewCommentsSinceAsync(string repository, DateTimeOffset since, CancellationToken ct) =>
+        [.. (await PagesAsync($"{RepoPath(repository)}/pulls/comments?sort=created&direction=asc&since={Uri.EscapeDataString(since.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture))}",
+            "the review comments", ct)).Select(c => Parse(() => new ReviewComment(Long(c, "id"), IssueNumber(c, "pull_request_url"), Login(c, "user"), Text(c, "body") ?? "", Text(c, "path") ?? "",
+            OptionalInt(c, "line") ?? OptionalInt(c, "original_line"), c.TryGetProperty("in_reply_to_id", out var reply) && reply.ValueKind == JsonValueKind.Number, Time(c, "updated_at"))))];
+
+    public async Task<IReadOnlyList<string>> CommentBodiesAsync(string repository, int number, CancellationToken ct) =>
+        [.. (await PagesAsync($"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", "the conversation", ct)).Select(c => Text(c, "body") ?? "")];
+
     public async Task<long> CommentAsync(string repository, int number, string body, CancellationToken ct)
     {
         using var doc = JsonDocument.Parse(await SendAsync(HttpMethod.Post, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", new { body }, "the comment", ct));
@@ -59,10 +74,14 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
     private static IntakeIssue Issue(JsonElement e) => Parse(() => new IntakeIssue(e.GetProperty("number").GetInt32(), Text(e, "title") ?? "", Text(e, "body") ?? "", Login(e, "user"),
         e.TryGetProperty("pull_request", out var pr) && pr.ValueKind == JsonValueKind.Object, [.. e.GetProperty("labels").EnumerateArray().Select(l => Text(l, "name") ?? "")], Time(e, "updated_at")));
 
-    /// <summary>The number in an issue comment's <c>issue_url</c> (<c>.../issues/12</c>).</summary>
-    private static int IssueNumber(JsonElement comment)
+    private static string? FullName(JsonElement side) => side.TryGetProperty("repo", out var repo) && repo.ValueKind == JsonValueKind.Object ? Text(repo, "full_name") : null;
+
+    private static int? OptionalInt(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
+
+    /// <summary>The number at the end of a comment's <c>issue_url</c> (<c>.../issues/12</c>) or <c>pull_request_url</c> (<c>.../pulls/12</c>).</summary>
+    private static int IssueNumber(JsonElement comment, string member = "issue_url")
     {
-        var url = Text(comment, "issue_url") ?? "";
+        var url = Text(comment, member) ?? "";
         return int.TryParse(url[(url.LastIndexOf('/') + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : throw new IntakeException("GitHub answered a comment with no issue");
     }
 

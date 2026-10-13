@@ -15,6 +15,16 @@ public sealed record IntakeIssue(int Number, string Title, string Body, string A
 /// <param name="Author">The login of the comment's author.</param>
 public sealed record IntakeComment(long Id, int IssueNumber, string Author, string Body, DateTimeOffset UpdatedAt);
 
+/// <param name="HeadBranch">The pull request's head branch.</param>
+/// <param name="HeadRepository">The repository the head branch is in (<c>owner/repo</c>); null when it is gone (a deleted fork).</param>
+/// <param name="BaseRepository">The repository the pull request is against.</param>
+public sealed record IntakePull(int Number, string HeadBranch, string? HeadRepository, string BaseRepository, bool Open);
+
+/// <summary>An inline comment of a review, on a line of a file of a pull request.</summary>
+/// <param name="Line">The line it is on in the head commit, else the line it was made on; null when the review comment is on the file as a whole.</param>
+/// <param name="IsReply">It answers another comment of a thread.</param>
+public sealed record ReviewComment(long Id, int PullNumber, string Author, string Body, string Path, int? Line, bool IsReply, DateTimeOffset UpdatedAt);
+
 /// <param name="Id">The event's id: a label applied again is a new event, so it can trigger again.</param>
 /// <param name="Actor">The login of the person who applied the label.</param>
 public sealed record LabelEvent(long Id, string Actor);
@@ -32,6 +42,14 @@ public interface IIntakeHost
 
     /// <summary>The issue and pull request comments of a repository updated at or after <paramref name="since"/>, oldest first.</summary>
     Task<IReadOnlyList<IntakeComment>> CommentsSinceAsync(string repository, DateTimeOffset since, CancellationToken ct);
+
+    Task<IntakePull> GetPullAsync(string repository, int number, CancellationToken ct);
+
+    /// <summary>The inline review comments of a repository's pull requests updated at or after <paramref name="since"/>, oldest first.</summary>
+    Task<IReadOnlyList<ReviewComment>> ReviewCommentsSinceAsync(string repository, DateTimeOffset since, CancellationToken ct);
+
+    /// <summary>The bodies of an issue's or pull request's conversation comments, oldest first: where the hidden markers of fix attempts and review rounds are.</summary>
+    Task<IReadOnlyList<string>> CommentBodiesAsync(string repository, int number, CancellationToken ct);
 
     /// <returns>The new comment's id.</returns>
     Task<long> CommentAsync(string repository, int number, string body, CancellationToken ct);

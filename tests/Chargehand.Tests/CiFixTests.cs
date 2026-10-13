@@ -59,6 +59,46 @@ public class CiFixTests
     }
 
     [Fact]
+    public void A_review_round_leaves_a_marker_that_counts_as_an_attempt_and_names_its_comments()
+    {
+        var build = CiFixPolicy.JobsKey(["build"]);
+        var comments = new[] { FixMarker.Attempt(new FixAttempt(1, build)), $"x\n{FixMarker.ReviewRound(2, ["r31", "c40"])}", "<!-- chargehand-review-round attempt=3 comments=31 -->", "<!-- chargehand-review-round attempt=3 comments=r1,,c2 -->" };
+
+        Assert.Equal([new FixAttempt(1, build), new FixAttempt(2, FixMarker.ReviewKey)], FixMarker.Parse(comments));
+        Assert.Equal(["c40", "r31"], FixMarker.ReviewedComments(comments).Order(StringComparer.Ordinal));
+        Assert.Empty(FixMarker.ReviewedComments([FixMarker.Attempt(new FixAttempt(1, build))]));
+    }
+
+    [Fact]
+    public void Review_rounds_use_up_the_same_cap_as_fix_attempts_and_never_match_a_failing_set()
+    {
+        var a = new FixAttempt(1, CiFixPolicy.JobsKey(["a"]));
+        var rounds = new[] { a, new FixAttempt(2, FixMarker.ReviewKey), new FixAttempt(3, FixMarker.ReviewKey) };
+
+        var capped = CiFixPolicy.Decide(rounds, ["b"], false, 3);
+        Assert.Equal(CiFixAction.GiveUp, capped.Action);
+        Assert.Contains("3 of 3", capped.Reason);
+        Assert.Equal((CiFixAction.Fix, 3), (CiFixPolicy.Decide(rounds[..2], ["b"], false, 3).Action, CiFixPolicy.Decide(rounds[..2], ["b"], false, 3).Attempt));
+        Assert.Equal(CiFixAction.Fix, CiFixPolicy.Decide([new FixAttempt(1, FixMarker.ReviewKey)], ["review"], false, 3).Action);
+    }
+
+    [Fact]
+    public async Task Review_rounds_the_pull_request_records_count_against_the_fixer_after_a_restart()
+    {
+        var ci = new Ci { FailingAfter = _ => ["job-9"] };
+        var host = HostFor(ci);
+        host.Comments.Add(FixMarker.Attempt(new FixAttempt(1, CiFixPolicy.JobsKey(["job-1"]))));
+        host.Comments.Add(FixMarker.ReviewRound(2, ["r31"]));
+        host.Comments.Add(FixMarker.ReviewRound(3, ["c40"]));
+
+        var result = await Make(host).FollowAsync(Target(), ci.Session(), _ => { }, default);
+
+        Assert.Equal(IntegrationAction.NeedsAttention, result.Action);
+        Assert.Empty(ci.Requests);
+        Assert.Contains("3 of 3", result.Detail);
+    }
+
+    [Fact]
     public void The_goal_carries_the_failing_job_names_and_the_ends_of_their_logs_as_data()
     {
         var long_ = new string('x', 6000) + "\nTHE END";
