@@ -106,7 +106,7 @@ public class GateTests
     {
         var cells = EvalCell.Load(Repo.Path("evals", "cells.json"));
         var (affected, uncovered) = EvalRunner.Affected(cells, ["prompts/preset/cheap.md", "prompts/preset/default.md", "src/Chargehand/Orchestrator.cs"]);
-        Assert.Equal(["cheap/worker", "review/worker", "design/worker", "release-notes/worker", "code/writer", "driven/session", "draft/draft", "intake"], cells.Select(c => c.Name));
+        Assert.Equal(["cheap/worker"], affected.Select(c => c.Name));
         Assert.Equal(["prompts/preset/default.md"], uncovered);
     }
 
