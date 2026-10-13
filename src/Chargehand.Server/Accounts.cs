@@ -156,6 +156,8 @@ public static class AccountPolicy
 
     public static AccountRefusal? Refusal(AccountSettings account, RunRequest request, int unfinished, ActorSpend day, ActorSpend month, DateTimeOffset now)
     {
+        if (AccountCredentials.Refusal(account) is { } noCredential)
+            return new("model_credential_missing", noCredential, StatusCodes.Status403Forbidden);
         if (request.Driven is not null && !account.Driven)
             return new("driven_not_allowed", $"account '{account.Name}' may not start a batch (a driven block)", StatusCodes.Status403Forbidden);
         if (account.Repositories is { Count: > 0 } roots)

@@ -39,6 +39,10 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
 
     public string Version { get; }
 
+    /// <summary>A runtime of its own over the same CLI and pin but another credential and endpoint (an account's, ADR 0052): its own sessions, and no sight of this one's key.</summary>
+    public ClaudeCodeWorkerRuntime WithCredential(ClaudeCodeCredential credential, Uri? baseUrl) =>
+        new(_binary, credential, Version["claude-code/".Length..], baseUrl) { ConfigRoot = ConfigRoot };
+
     /// <summary>Where the per-turn MCP config directories go: the system temp directory, never a session's checkout.</summary>
     internal string ConfigRoot { get; set; } = Path.GetTempPath();
 
