@@ -514,6 +514,29 @@ export function systemFull(now = Date.now()): SystemBody {
         max_load_per_cpu: 0.9,
       },
     },
+    runners: [
+      {
+        name: 'local',
+        host: 'http://runner-a.example.test:4301',
+        reachable: true,
+        elapsed_ms: 38,
+        draining: false,
+        running: 3,
+        max_sessions: 4,
+        container_count: 11,
+      },
+      {
+        name: 'second',
+        host: 'http://runner-b.example.test:4301',
+        reachable: true,
+        elapsed_ms: 52,
+        draining: true,
+        draining_reason: 'host update',
+        running: 1,
+        max_sessions: 2,
+        container_count: 2,
+      },
+    ],
     images: [
       {
         reference:

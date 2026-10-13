@@ -384,11 +384,55 @@ public class ConsoleViewsTests
             Assert.False(runner.GetProperty("reachable").GetBoolean());
             Assert.Contains("could not be reached", runner.GetProperty("error").GetString(), StringComparison.Ordinal);
             Assert.Equal(0, runner.GetProperty("containers").GetArrayLength());
+            var only = (await ConsoleRig.Get(down.Owner, "/v1/system")).GetProperty("runners").EnumerateArray().Single();
+            Assert.Equal(("default", false), (only.GetProperty("name").GetString(), only.GetProperty("reachable").GetBoolean()));
         }
         await using var off = await ConsoleRig.StartAsync();
-        var none = (await ConsoleRig.Get(off.Owner, "/v1/system")).GetProperty("runner");
+        var offBody = await ConsoleRig.Get(off.Owner, "/v1/system");
+        var none = offBody.GetProperty("runner");
         Assert.False(none.GetProperty("configured").GetBoolean());
         Assert.False(none.TryGetProperty("reachable", out _));
+        Assert.Equal(0, offBody.GetProperty("runners").GetArrayLength());
+    }
+
+    private sealed class DownHost : IHostSource
+    {
+        public Task<HostSnapshot?> ReadAsync(CancellationToken ct) => throw new HttpRequestException("connection refused");
+    }
+
+    [Fact]
+    public async Task System_reports_every_runner_from_the_pool_with_its_draining_state()
+    {
+        var box = new DrivenRunTests.FakeEngine { Resources = new(["chargehand-run-a", "chargehand-run-b"], [], []) };
+        var laptop = new DrivenRunTests.FakeEngine();
+        var boxEntry = new DrivenRunnerEntry("box", "http://box.internal:4310/path?token=abc", "runner-key-item", MaxSessions: 3);
+        var laptopEntry = new DrivenRunnerEntry("laptop", "http://laptop.internal:4310", "runner-key-item");
+        var drainingEntry = new DrivenRunnerEntry("spare", "http://spare.internal:4310", "runner-key-item");
+        var spare = new DrivenRunTests.FakeEngine();
+        await using var rig = await ConsoleRig.StartAsync(profile: root => SecretProfile(root) with { Driven = SecretProfile(root).Driven! with { Runner = null, Runners = [boxEntry, laptopEntry, drainingEntry] } },
+            services: _ => Services(box) with
+            {
+                Runners =
+                [
+                    new RunnerSite(boxEntry, box, box, new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed), new FixedHost(new HostSnapshot(8000, 16000, null, null, 0.5, 4, State: "ok"))),
+                    new RunnerSite(laptopEntry, laptop, laptop, new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed), new DownHost()),
+                    new RunnerSite(drainingEntry, spare, spare, new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed),
+                        new FixedHost(new HostSnapshot(8000, 16000, null, null, 0.5, 4, State: HostSnapshot.Draining, StateReason: "host update"))),
+                ],
+            });
+
+        var text = await ConsoleRig.Text(rig.Owner, "/v1/system");
+        var runners = JsonSerializer.Deserialize<JsonElement>(text).GetProperty("runners").EnumerateArray().ToDictionary(r => r.GetProperty("name").GetString()!);
+
+        Assert.Equal(["box", "laptop", "spare"], runners.Keys);
+        Assert.Equal(("http://box.internal:4310", true, false, 0, 3, 2), (runners["box"].GetProperty("host").GetString(), runners["box"].GetProperty("reachable").GetBoolean(),
+            runners["box"].GetProperty("draining").GetBoolean(), runners["box"].GetProperty("running").GetInt32(), runners["box"].GetProperty("max_sessions").GetInt32(), runners["box"].GetProperty("container_count").GetInt32()));
+        Assert.False(runners["laptop"].GetProperty("reachable").GetBoolean());
+        Assert.Contains("connection refused", runners["laptop"].GetProperty("error").GetString(), StringComparison.Ordinal);
+        Assert.False(runners["laptop"].TryGetProperty("container_count", out _));
+        Assert.Equal((true, "host update"), (runners["spare"].GetProperty("draining").GetBoolean(), runners["spare"].GetProperty("draining_reason").GetString()));
+        foreach (var secret in new[] { "runner-key-item", "token=abc", "/path" })
+            Assert.DoesNotContain(secret, text, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -228,6 +228,16 @@ test.describe('desktop only', () => {
               container_count: null,
               host_snapshot: null,
             },
+            runners: [
+              {
+                name: 'local',
+                host: 'http://runner-a.example.test:4301',
+                reachable: false,
+                error: 'no answer within 3 s',
+                max_sessions: 4,
+              },
+              ...(adm.systemFull().runners ?? []).slice(1),
+            ],
           },
         },
       },
@@ -241,6 +251,9 @@ test.describe('desktop only', () => {
 
     await page.goto('/console/system');
     await expect(page.getByText('The runner does not answer')).toBeVisible();
+    const runners = page.getByRole('table', { name: 'Runners' });
+    await expect(runners.getByText('unreachable')).toBeVisible();
+    await expect(runners.getByText('draining')).toBeVisible();
     await settle(page);
     await shot(page, 'system-runner-down');
     expect(await violations(page)).toEqual([]);

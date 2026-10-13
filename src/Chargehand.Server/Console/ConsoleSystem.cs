@@ -42,11 +42,17 @@ public sealed record RunnerBody(bool Configured, string? Host, bool? Reachable, 
 /// <summary>The host that runs the session containers, as admission reads it (ADR 0045). <c>FreeAfterReserveMb</c> is available memory less <c>driven.admission.reserve_mb</c>.</summary>
 public sealed record HostBody(long? AvailableMb, long? TotalMb, long? SwapTotalMb, long? SwapFreeMb, double? Load1, int? Cpus, long? FreeAfterReserveMb, int ReserveMb, double? MaxLoadPerCpu);
 
+/// <summary>One runner the profile lists (ADR 0058), from the pool's last probe: an answer younger than five seconds is reused, and a runner that did not answer is not asked again until its back-off ends.</summary>
+/// <param name="Reachable">The runner answered <c>GET /host</c>; null when driven sessions are off.</param>
+/// <param name="Draining">The runner said it takes no new session; null when it did not answer or does not report a state.</param>
+/// <param name="Running">Sessions of this server admitted there; null with one runner, which does not count them.</param>
+public sealed record RunnerStatusBody(string Name, string? Host, bool? Reachable, string? Error, long? ElapsedMs, bool? Draining, string? DrainingReason, int? Running, int? MaxSessions, int? ContainerCount);
+
 public sealed record ImageBody(string Reference, string Name, string? Digest, bool Pinned);
 
-/// <summary><c>system/v1</c>: version, the redacted profile, presets, the runner and its live containers, and the pinned images. Owner only.</summary>
+/// <summary><c>system/v1</c>: version, the redacted profile, presets, the first runner and its live containers, every runner's state, and the pinned images. Owner only.</summary>
 public sealed record SystemBody(string ContractVersion, DateTimeOffset GeneratedAt, string Version, DateTimeOffset StartedAt, bool Halted, int Unfinished, ProfileView? Profile, IReadOnlyList<PresetBody> Presets,
-    RunnerBody Runner, IReadOnlyList<ImageBody> Images, IReadOnlyList<string> NotRecorded);
+    RunnerBody Runner, IReadOnlyList<RunnerStatusBody> Runners, IReadOnlyList<ImageBody> Images, IReadOnlyList<string> NotRecorded);
 
 internal static class ConsoleSystem
 {
@@ -72,10 +78,11 @@ internal static class ConsoleSystem
 
     public static async Task<SystemBody> BuildAsync(ConsoleContext c, CancellationToken ct)
     {
-        var runner = await RunnerAsync(c, ct);
+        var (runner, snapshot) = await RunnerAsync(c, ct);
+        var runners = await RunnersAsync(c, runner, snapshot, ct);
         var images = (c.Profile?.Driven?.Images ?? []).Select(Image).ToList();
         return new SystemBody(Contract, c.Now, Version, Process.GetCurrentProcess().StartTime.ToUniversalTime(), c.Runs.Halted, c.Runs.Held.Count(r => !r.IsChild), c.Profile is null ? null : View(c.Profile),
-            Presets(c), runner, images, NotRecorded);
+            Presets(c), runner, runners, images, NotRecorded);
     }
 
     internal static ImageBody Image(string reference)
@@ -103,13 +110,13 @@ internal static class ConsoleSystem
         return presets;
     }
 
-    private static async Task<RunnerBody> RunnerAsync(ConsoleContext c, CancellationToken ct)
+    private static async Task<(RunnerBody Runner, HostSnapshot? Snapshot)> RunnerAsync(ConsoleContext c, CancellationToken ct)
     {
         var driven = c.Driven;
         var runner = c.Profile?.Driven?.ResolvedRunners() is { Count: > 0 } runners ? runners[0] : null;
         var host = runner is null ? null : HostOf(runner.Url);
         if (driven?.Engine is not { } engine)
-            return new RunnerBody(runner is not null, host, null, null, null, null, [], [], [], null);
+            return (new RunnerBody(runner is not null, host, null, null, null, null, [], [], [], null), null);
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
         limit.CancelAfter(Probe);
         var clock = Stopwatch.StartNew();
@@ -122,14 +129,55 @@ internal static class ConsoleSystem
         }
         catch (Exception e) when (e is ChargehandException or OperationCanceledException or HttpRequestException or IOException)
         {
-            return new RunnerBody(runner is not null, host, false, e is OperationCanceledException ? $"no answer within {Probe.TotalSeconds:0} s" : e.Message, clock.ElapsedMilliseconds, null, [], [], [], await HostAsync(c, ct));
+            var failed = await ReadHostAsync(c, ct);
+            return (new RunnerBody(runner is not null, host, false, e is OperationCanceledException ? $"no answer within {Probe.TotalSeconds:0} s" : e.Message, clock.ElapsedMilliseconds, null, [], [], [],
+                HostOf(c, failed)), failed);
         }
         var live = driven.LiveBatches();
-        return new RunnerBody(runner is not null, host, true, null, clock.ElapsedMilliseconds, count, [.. resources.Containers.Order(StringComparer.Ordinal).Select(n => Container(n, live))],
-            [.. resources.Networks.Order(StringComparer.Ordinal)], [.. resources.Volumes.Order(StringComparer.Ordinal)], await HostAsync(c, ct));
+        var snapshot = await ReadHostAsync(c, ct);
+        return (new RunnerBody(runner is not null, host, true, null, clock.ElapsedMilliseconds, count, [.. resources.Containers.Order(StringComparer.Ordinal).Select(n => Container(n, live))],
+            [.. resources.Networks.Order(StringComparer.Ordinal)], [.. resources.Volumes.Order(StringComparer.Ordinal)], HostOf(c, snapshot)), snapshot);
     }
 
-    internal static async Task<HostBody?> HostAsync(ConsoleContext c, CancellationToken ct)
+    /// <summary>Every runner the profile lists. With several the pool's probe state is read, and a runner that answered is asked for its container count; with one, <paramref name="first"/> is reused.</summary>
+    private static async Task<IReadOnlyList<RunnerStatusBody>> RunnersAsync(ConsoleContext c, RunnerBody first, HostSnapshot? snapshot, CancellationToken ct)
+    {
+        var configured = c.Profile?.Driven?.ResolvedRunners() ?? [];
+        if (c.Driven?.Pool is { } pool)
+        {
+            var statuses = await pool.StatusAsync(ct);
+            return await Task.WhenAll(statuses.Select(async s => new RunnerStatusBody(s.Site.Name, HostOf(s.Site.Config.Url), s.Reachable, s.Why, s.ElapsedMs, s.Reachable ? s.Snapshot?.State is null ? null : s.Snapshot.IsDraining : null,
+                s.Reachable && s.Snapshot?.IsDraining == true ? s.Snapshot.StateReason : null, s.Running, s.Site.Config.MaxSessions, s.Reachable ? await CountAsync(s.Site.Engine, ct) : null)));
+        }
+        return [.. configured.Select((r, i) => i == 0 && c.Driven?.Engine is not null
+            ? new RunnerStatusBody(r.Name, HostOf(r.Url), first.Reachable, first.Error, first.ElapsedMs, snapshot?.State is null ? null : snapshot.IsDraining, snapshot?.IsDraining == true ? snapshot.StateReason : null, null,
+                r.MaxSessions, first.ContainerCount)
+            : new RunnerStatusBody(r.Name, HostOf(r.Url), null, null, null, null, null, null, r.MaxSessions, null))];
+    }
+
+    private static async Task<int?> CountAsync(IContainerEngine engine, CancellationToken ct)
+    {
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        limit.CancelAfter(Probe);
+        try
+        {
+            return await engine.CountAsync(limit.Token);
+        }
+        catch (Exception e) when (e is ChargehandException or OperationCanceledException or HttpRequestException or IOException)
+        {
+            return null;
+        }
+    }
+
+    internal static async Task<HostBody?> HostAsync(ConsoleContext c, CancellationToken ct) => HostOf(c, await ReadHostAsync(c, ct));
+
+    private static HostBody? HostOf(ConsoleContext c, HostSnapshot? s)
+    {
+        var admission = c.Profile?.Driven?.Admission ?? new DrivenAdmission();
+        return s is null ? null : new HostBody(s.AvailableMb, s.TotalMb, s.SwapTotalMb, s.SwapFreeMb, s.Load1, s.Cpus, s.AvailableMb - admission.ReserveMb, admission.ReserveMb, admission.MaxLoadPerCpu);
+    }
+
+    private static async Task<HostSnapshot?> ReadHostAsync(ConsoleContext c, CancellationToken ct)
     {
         if (c.Driven?.Host is not { } source)
             return null;
@@ -137,12 +185,9 @@ internal static class ConsoleSystem
         limit.CancelAfter(Probe);
         try
         {
-            var admission = c.Profile?.Driven?.Admission ?? new DrivenAdmission();
-            return await source.ReadAsync(limit.Token) is { } s
-                ? new HostBody(s.AvailableMb, s.TotalMb, s.SwapTotalMb, s.SwapFreeMb, s.Load1, s.Cpus, s.AvailableMb - admission.ReserveMb, admission.ReserveMb, admission.MaxLoadPerCpu)
-                : null;
+            return await source.ReadAsync(limit.Token);
         }
-        catch (Exception e) when (e is ChargehandException or OperationCanceledException or HttpRequestException or IOException)
+        catch (Exception e) when (e is ChargehandException or OperationCanceledException or HttpRequestException or IOException or JsonException)
         {
             return null;
         }

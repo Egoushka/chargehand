@@ -30,6 +30,8 @@ import {
   imageRows,
   presetRows,
   profileText,
+  type RunnerView,
+  runnerStatusView,
   runnerView,
   uptime,
 } from './model';
@@ -284,7 +286,17 @@ function PresetsPanel({ data }: { data: SystemBody }) {
 function RunnersPanel({ data }: { data: SystemBody }) {
   const phone = useIsPhone();
   const runners: ProfileRunner[] = data.profile?.driven?.runners ?? [];
-  const probe = runnerView(data.runner);
+  // A server older than `runners` probes only the first runner.
+  const view = (name: string, index: number) =>
+    runnerStatusView(
+      data.runners?.find((r) => r.name === name),
+      data.runners ? undefined : index === 0 ? data.runner : undefined,
+    );
+  const sessions = (runner: ProfileRunner) => {
+    const running = data.runners?.find((r) => r.name === runner.name)?.running;
+    if (running == null) return runner.max_sessions ?? DASH;
+    return `${running} / ${runner.max_sessions ?? '∞'}`;
+  };
   return (
     <Panel title="Runners" count={runners.length} flush style={cssVars({ '--o': 5 })}>
       {runners.length === 0 ? (
@@ -311,11 +323,7 @@ function RunnersPanel({ data }: { data: SystemBody }) {
                   {runner.host ?? 'local engine'} · {runner.platform}
                 </div>
               </div>
-              {index === 0 ? (
-                <StatusPill status={probe.status} label={probe.short} bare />
-              ) : (
-                <span className="dim small">not probed</span>
-              )}
+              <RunnerPill view={view(runner.name, index)} />
             </li>
           ))}
         </ul>
@@ -328,7 +336,7 @@ function RunnersPanel({ data }: { data: SystemBody }) {
               <HeadCell>Platform</HeadCell>
               <HeadCell num>Weight</HeadCell>
               <HeadCell num>Sessions</HeadCell>
-              <HeadCell>Reachable</HeadCell>
+              <HeadCell>State</HeadCell>
             </TableHead>
             {runners.map((runner, index) => (
               <TableRow key={runner.name}>
@@ -338,13 +346,9 @@ function RunnersPanel({ data }: { data: SystemBody }) {
                 </Cell>
                 <Cell>{runner.platform}</Cell>
                 <Cell num>{runner.weight}</Cell>
-                <Cell num>{runner.max_sessions ?? DASH}</Cell>
+                <Cell num>{sessions(runner)}</Cell>
                 <Cell>
-                  {index === 0 ? (
-                    <StatusPill status={probe.status} label={probe.short} bare />
-                  ) : (
-                    <span className="dim">not probed</span>
-                  )}
+                  <RunnerPill view={view(runner.name, index)} />
                 </Cell>
               </TableRow>
             ))}
@@ -352,10 +356,18 @@ function RunnersPanel({ data }: { data: SystemBody }) {
         </ScrollBox>
       )}
       <p className="pad dim small sep-top">
-        The server probes the first runner on each read; the others are used by the scheduler and
-        are not probed here. Whether a runner is draining is not served.
+        State is the scheduler's last probe of each runner, asked again when older than five
+        seconds; a runner that does not answer is not asked again until its back-off ends.
       </p>
     </Panel>
+  );
+}
+
+function RunnerPill({ view }: { view: RunnerView }) {
+  return (
+    <span title={view.text}>
+      <StatusPill status={view.status} label={view.short} bare />
+    </span>
   );
 }
 

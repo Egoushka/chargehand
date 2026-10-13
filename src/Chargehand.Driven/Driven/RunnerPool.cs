@@ -3,6 +3,9 @@ using Chargehand.Config;
 
 namespace Chargehand.Driven;
 
+/// <summary>A runner as <see cref="RunnerPool.StatusAsync"/> reports it: whether it answered, why not, its last host figures and the sessions this server runs there.</summary>
+public sealed record RunnerStatus(RunnerSite Site, bool Reachable, string? Why, HostSnapshot? Snapshot, int Running, long ElapsedMs);
+
 /// <summary>Picks a runner for each task (ADR 0058). A runner is eligible when it answered <c>GET /host</c> within <see cref="ProbeTimeout"/> (an answer is reused for <see cref="HealthTtl"/>; a
 /// runner that did not answer is skipped for 15 seconds, then 30, doubling to 2 minutes), is not draining, has a session slot under its <c>max_sessions</c>, and passes the memory and load rule of
 /// ADR 0045 against its own host's figures. Of the eligible runners the one with the most free memory, times its weight, wins; equal scores go to the one listed first, and a runner that
@@ -74,6 +77,27 @@ public sealed class RunnerPool : IAdmission, IDisposable
         if (Find(runner) is { } state)
             lock (state)
                 Down(state, why);
+    }
+
+    /// <summary>Each runner as admission last saw it, asked again only where its answer is older than <see cref="HealthTtl"/> and it is not skipped; never sweeps. For the console.</summary>
+    public async Task<IReadOnlyList<RunnerStatus>> StatusAsync(CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            List<RunnerStatus> statuses = [];
+            foreach (var state in _states)
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                var probe = await ProbeAsync(state, ct, sweep: false);
+                statuses.Add(new RunnerStatus(state.Site, probe.Healthy, probe.Why, probe.Snapshot, state.Admission.Running, clock.ElapsedMilliseconds));
+            }
+            return statuses;
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     public async Task<AdmissionDecision> TryAdmitAsync(int requestMb, string? runner, CancellationToken ct)
@@ -170,7 +194,7 @@ public sealed class RunnerPool : IAdmission, IDisposable
 
     private State? Find(string name) => _states.FirstOrDefault(s => s.Site.Name == name);
 
-    private async Task<Probe> ProbeAsync(State state, CancellationToken ct)
+    private async Task<Probe> ProbeAsync(State state, CancellationToken ct, bool sweep = true)
     {
         var now = _time.GetUtcNow();
         if (now < state.DownUntil)
@@ -194,9 +218,9 @@ public sealed class RunnerPool : IAdmission, IDisposable
                     throw new TimeoutException($"no answer in {_probeTimeout.TotalSeconds:0.#} s");
                 }
             }
-            if (state.NeedsSweep && Sweep is { } sweep)
+            if (sweep && state.NeedsSweep && Sweep is { } sweeper)
             {
-                await sweep(state.Site, ct);
+                await sweeper(state.Site, ct);
                 state.NeedsSweep = false;
             }
         }
