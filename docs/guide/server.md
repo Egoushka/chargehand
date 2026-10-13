@@ -92,7 +92,7 @@ Runs outlive the request that started them and execute one at a time unless `htt
 
 ## Container image
 
-A tag `v<Version>` publishes `ghcr.io/<owner>/chargehand:<Version>` through [release.yml](../../.github/workflows/release.yml), which first checks the tag against `Directory.Build.props` and the changelog. There is no `latest` tag and no image per commit: a deployment pins an exact version ([ADR 0024](../adr/0024-server-on-a-private-network-and-release-images.md)).
+[Install with Docker Compose](install.md) runs these images from a ready compose file (`deploy/compose/`). A tag `v<Version>` publishes `ghcr.io/<owner>/chargehand:<Version>` through [release.yml](../../.github/workflows/release.yml), which first checks the tag against `Directory.Build.props` and the changelog. There is no `latest` tag and no image per commit: a deployment pins an exact version ([ADR 0024](../adr/0024-server-on-a-private-network-and-release-images.md)).
 
 ```bash
 docker run -p <private-ip>:4300:4300 -v <dir-with-profile.json>:/config:ro -e CHARGEHAND_API_KEY=... \
