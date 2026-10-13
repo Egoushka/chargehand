@@ -1,3 +1,5 @@
+using Chargehand.Kernel;
+
 namespace Chargehand.Driven;
 
 /// <summary>Reads back, through the forge, what became of the pull requests chargehand opened (ADR 0045): merged with the head chargehand left, merged after edits, closed unmerged, still open. It writes

@@ -35,8 +35,8 @@ core with state machines, actors, in-process events.
 
 Option 3, built beside the current projects and filled by porting:
 
-- `src/Shared/Chargehand.Kernel`: types every module shares; stays a few hundred lines. `src/Chargehand.Contracts`
-  stays the published wire contract.
+- `src/Shared/Chargehand.Kernel`: types every module shares (`ChargehandException` among them); stays a few hundred lines.
+  `src/Chargehand.Contracts` stays the published wire contract, layer 0; the Kernel sits on it, layer 1.
 - `src/Modules/Chargehand.Modules.*`: 17 feature modules (Ledger, Accounts, Memory, Journal; Runners, Sessions,
   Gateway; Tasks, Handover, Oversight; Batches, Research; Intake, Console, Evaluation, Onboarding, Watch).
   `src/Runtimes/Chargehand.Runtimes.*`: the Claude Code and OpenCode adapters.

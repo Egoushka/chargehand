@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Chargehand.Containers;
 using Chargehand.Driven;
+using Chargehand.Kernel;
 using Chargehand.Runner;
 
 namespace Chargehand.Tests;

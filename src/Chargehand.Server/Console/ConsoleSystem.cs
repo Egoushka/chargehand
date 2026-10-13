@@ -4,6 +4,7 @@ using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Containers;
 using Chargehand.Driven;
+using Chargehand.Kernel;
 
 namespace Chargehand.Server;
 

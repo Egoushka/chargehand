@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
 namespace Chargehand.Config;
 

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 using Chargehand.Onboarding;
 
 namespace Chargehand.Bench;
@@ -191,7 +192,7 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
                     failed += await Report($"{task.Id}: the {(expectPass ? "guard passes" : "acceptance fails")} on the pin", result.Passed == expectPass, result) ? 0 : 1;
                 }
             }
-            catch (Exception e) when (e is BenchException or Chargehand.ChargehandException)
+            catch (Exception e) when (e is BenchException or ChargehandException)
             {
                 await output.WriteLineAsync($"FAIL {repo.Name}: {e.Message}");
                 failed++;
@@ -240,7 +241,7 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
                 await output.WriteLineAsync($"stopped; the partial results are in {options.OutDirectory}. A batch already started keeps running on the server (chargehand cancel <run-id>).");
                 return 1;
             }
-            catch (Exception e) when (e is BenchException or Chargehand.ChargehandException or HttpRequestException or IOException)
+            catch (Exception e) when (e is BenchException or ChargehandException or HttpRequestException or IOException)
             {
                 await output.WriteLineAsync($"{repo.Name}: {e.Message}");
                 done.AddRange(mine.Select(t => NotRun(repo, t, e.Message)));
@@ -375,7 +376,7 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
             var timeout = task.Acceptance.TimeoutMinutes is { } m ? TimeSpan.FromMinutes(m) : options.Environment.AcceptanceTimeout;
             return await acceptance!.RunAsync(new AcceptanceRequest(task.Id, directory, branch, repo.Commit, TaskSetLoader.AcceptanceArgv(set, task, repo), timeout, image, options.Environment.Allow), ct);
         }
-        catch (Exception e) when (e is BenchException or Chargehand.ChargehandException)
+        catch (Exception e) when (e is BenchException or ChargehandException)
         {
             // A check that could not run is not a pass; the tail says why.
             return new AcceptanceResult(false, -1, false, 0, e.Message);

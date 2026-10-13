@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Intake;
+using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Plans;
 using Chargehand.Prompts;

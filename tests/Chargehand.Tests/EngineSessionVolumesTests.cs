@@ -3,6 +3,7 @@ using System.Text.Json;
 using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Kernel;
 
 namespace Chargehand.Tests;
 

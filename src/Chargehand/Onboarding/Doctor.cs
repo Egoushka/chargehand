@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Chargehand.Config;
+using Chargehand.Kernel;
 using Chargehand.Runtime;
 
 namespace Chargehand.Onboarding;
