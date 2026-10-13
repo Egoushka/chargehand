@@ -449,6 +449,20 @@ Chargehand.Automation.GitHubIntake? GitHubIntake()
     return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, integrator: new Chargehand.Driven.IntegratorPolicy(driven.Integrator));
 }
 
+// The console's account view says whether a credential's secret item resolves, never its value.
+bool SecretResolves(string item)
+{
+    try
+    {
+        _ = profile.Secret(item);
+        return true;
+    }
+    catch (InvalidOperationException)
+    {
+        return false;
+    }
+}
+
 async Task<int> Serve()
 {
     if (profile.Http is not { } http)
@@ -474,7 +488,9 @@ async Task<int> Serve()
     var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer(), runtimeFor: runtimeFor);
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
-        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui), orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake());
+        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
+        Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json")),
+        orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", UI /ui/, console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);

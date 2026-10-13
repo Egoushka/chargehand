@@ -33,9 +33,13 @@ namespace Chargehand.Server;
 /// <param name="AccountKeysFile">The file that holds their keys, as salted hashes; null: no account key opens anything.</param>
 /// <param name="Clock">The time the accounts' day and month windows are cut by; null: the system's.</param>
 /// <param name="Ui">Serve the web UI at /ui/ (ADR 0054) and the operator console at /console/ (ADR 0056).</param>
+/// <param name="Profile">The profile, for the console's read routes (CHARGEHAND-209): the owner's <c>system</c> and <c>repositories</c> views and intake's settings. Null: those views are empty.</param>
+/// <param name="SecretPresent">Whether a secret item resolves, for an account's credential state; null: it is not known.</param>
+/// <param name="IntakeStatePath">Intake's state file (<c>intake/github.json</c>) for <c>GET /v1/intake</c>; null: none.</param>
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
     IReadOnlyList<string>? AllowedHosts = null, int MaxConcurrentRuns = 1, int MaxSessionCalls = 2, string? StateDirectory = null,
-    IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null, bool Ui = false);
+    IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null, bool Ui = false,
+    Profile? Profile = null, Func<string, bool>? SecretPresent = null, string? IntakeStatePath = null);
 
 /// <summary>
 /// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
@@ -179,6 +183,8 @@ public static partial class ChargehandServer
             WebUi.Map(app);
             WebConsole.Map(app);
         }
+
+        ConsoleRoutes.Map(app, settings, log, driven);
 
         app.MapGet("/v1/accounts/me", async (HttpContext ctx, RunService runs) =>
             Json(await AccountStanding.ReadAsync(Principal.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
@@ -328,7 +334,7 @@ public static partial class ChargehandServer
     internal static TimeSpan Wait(string? prefer) =>
         PreferWait().Match(prefer ?? "") is { Success: true } m ? TimeSpan.FromSeconds(Math.Min(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), MaxWaitSeconds)) : DefaultWait;
 
-    private static object Problem(string message) => new { errors = new[] { message } };
+    internal static object Problem(string message) => new { errors = new[] { message } };
 
     /// <summary>The refusal as the response: its status, the code and the window in the body, and when the window resets as Retry-After.</summary>
     private static IResult Refused(HttpContext ctx, AccountRefusal refusal)
@@ -345,10 +351,10 @@ public static partial class ChargehandServer
         ctx.User = new ClaimsPrincipal(new ClaimsIdentity([new System.Security.Claims.Claim(ClaimTypes.NameIdentifier, who.Name)], "chargehand"));
     }
 
-    private static IResult? OwnerOnly(HttpContext ctx) =>
+    internal static IResult? OwnerOnly(HttpContext ctx) =>
         Principal.Of(ctx) is { IsOwner: false } ? Json(Problem("only the owner's key may do that"), StatusCodes.Status403Forbidden) : null;
 
-    private static IResult Json(object value, int status) => HttpResults.Json(value, ContractJson.Options, statusCode: status);
+    internal static IResult Json(object value, int status) => HttpResults.Json(value, ContractJson.Options, statusCode: status);
 
     private static async IAsyncEnumerable<SseItem<string>> Sse(IAsyncEnumerable<RunStatus> events)
     {
