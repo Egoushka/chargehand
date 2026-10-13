@@ -8,6 +8,7 @@ using Chargehand.Contracts;
 using Chargehand.Egress;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Results;
 using Chargehand.RunLog;
@@ -69,6 +70,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     private readonly BatchStateStore? _store = stateDirectory is null ? null : new BatchStateStore(stateDirectory);
 
+    /// <summary>The journal of the batches' side effects (ADR 0061), opened with the first batch; it sits in the state directory beside the batch state files.</summary>
+    private readonly Lazy<Task<DrivenJournal>>? _steps = stateDirectory is null ? null : new(() => DrivenJournal.OpenAsync(stateDirectory));
+
     private readonly int _maxParallelTotal = Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4);
 
     private readonly SemaphoreSlim _global = new(Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4));
@@ -100,6 +104,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     {
         _global.Dispose();
         (_admission as IDisposable)?.Dispose();
+        if (_steps is { IsValueCreated: true, Value.IsCompletedSuccessfully: true })
+            _steps.Value.Result.Dispose();
     }
 
     /// <summary>The runners a batch may use: those the services hold, else the one engine they hold as the runner named <see cref="DrivenSettings.DefaultRunnerName"/>.</summary>
@@ -200,6 +206,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         if (result.Status != ResultStatus.Completed)
             run?.SetStatus(ActivityStatusCode.Error, result.Error?.Message);
         await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, request.Context.Preset, null, null, result, Actor: actor), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
+        await ForgetStepsAsync(runId);
         _store?.Delete(runId);
         _pauses.TryRemove(runId, out _);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
@@ -301,11 +308,30 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         foreach (var state in _store.List())
         {
             if ((await log.ReadAsync(state.RunId, ct)).Run is not null)
+            {
+                await ForgetStepsAsync(state.RunId);
                 _store.Delete(state.RunId);
+            }
             else
                 open.Add(state);
         }
         return open;
+    }
+
+    /// <summary>Drops a finished batch's steps from the journal. It goes before the batch's state file does: a crash between the two leaves a state file whose run record exists, which the next start
+    /// deletes and forgets again. A journal that cannot be written does not fail a batch that has its run record.</summary>
+    private async Task ForgetStepsAsync(string runId)
+    {
+        if (_steps is null)
+            return;
+        try
+        {
+            await (await _steps.Value).ForgetAsync(runId);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            Console.Error.WriteLine($"chargehand: the step journal could not forget batch {runId}: {e.Message}");
+        }
     }
 
     /// <summary>Removes chargehand's containers, networks and volumes that belong to no batch in <paramref name="resumed"/>: what a crash or a restart left behind, on every runner (ADR 0058). The engine's
@@ -463,6 +489,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             progress?.Invoke(report ? e with { Runner = runner, Detail = e.Event == RunEventKind.ContainerStarted && e.Detail is { } detail ? $"{detail} on runner '{runner}'" : e.Detail } : e);
         };
         Func<string?, ISessionVolumes> volumesOf = name => (sites.FirstOrDefault(x => x.Name == name) ?? sites[0]).Volumes;
+        // The workspace helper and the writes into an output volume are recorded steps in the batch's flow (ADR 0061).
+        var steps = _steps is null ? null : await _steps.Value;
         async Task<SiteBatch> BuildAsync(SiteRoute route)
         {
             var site = route.Site;
@@ -493,7 +521,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", route.Model?.BaseUrl, route.Forward is not null || route.Model?.Forwarded == true || route.Otlp is not null, route.Otlp,
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, route.Exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor, RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge));
-            var runner = new TaskRunner(site.Engine, site.Workspace, site.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheckFor?.Invoke(actor), sign, s.Poll, publish: Stamp(site.Name), journal: journal,
+            var runner = new TaskRunner(site.Engine, steps is null ? site.Workspace : new JournaledWorkspaceEngine(site.Workspace, site.Engine, steps, runId),
+                steps is null ? site.Volumes : new JournaledSessionVolumes(site.Volumes, steps, runId), handover, log, mint, task, s.Resolver, s.SupportCheckFor?.Invoke(actor), sign, s.Poll, publish: Stamp(site.Name), journal: journal,
                 detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf, outageGrace: s.OutageGrace, records: records, control: ControlOf(runId));
             return new SiteBatch(site, net, runner);
         }
