@@ -43,14 +43,14 @@ openssl rand -hex 32     # one per key below
 |---|---|
 | `CHARGEHAND_API_KEY` | bearer key for every route. Required; compose refuses to start without it |
 | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` | the worker's credential. Exactly one. An API key bills per token; the token uses your subscription |
-| `CHARGEHAND_IMAGE` | server and runner image, a release tag. Defaults to 0.8.8 |
+| `CHARGEHAND_IMAGE` | server and runner image, a release tag. Defaults to 0.9.0 |
 
 Driven mode adds `CHARGEHAND_RUNNER_KEY`, `CHARGEHAND_PUSH_TOKEN`, `CHARGEHAND_SESSION_IMAGE` and `CHARGEHAND_WORK_DIR` (see step 3). Each variable is documented in `.env.example`. The compose file hands each service only what it reads: the runner never gets the model credential.
 
 **Pin by digest.** A tag can move; a digest cannot. After choosing a [release](https://github.com/Egoushka/chargehand/releases):
 
 ```bash
-./pin-digests.sh 0.8.8
+./pin-digests.sh 0.9.0
 ```
 
 It rewrites `CHARGEHAND_IMAGE` to `tag@sha256:...`, sets `CHARGEHAND_SESSION_IMAGE`, and replaces the session image in `profile.json`. The runner starts only images given by digest, so in driven mode the session image must be pinned and the value in `.env` and in `driven.images` must be the same; the script keeps them so. Run it again for each upgrade.
@@ -82,7 +82,7 @@ With a different path, set `CHARGEHAND_WORK_DIR` to it and make `worker_root` in
 docker compose run --rm --no-deps chargehand init /srv/chargehand/repos/<repo> --profile /tmp/init.json
 ```
 
-Copy from its output: the test command, which you send as `context.verify` in each driven request, and the hosts it lists as "added to `driven.network.allow`", which go into `profile.json` under `driven.network.allow` (`doctor` fails the setup until they are there). Leave the rest of your `profile.json` as it is: the starter profile's paths are the container's, which the template already sets. `init` and `doctor` ship in the first release after 0.8.8; before that, run them from a clone with `dotnet run --project src/Chargehand.Cli -- init ...` ([quickstart](quickstart.md#onboard-another-repository)).
+Copy from its output: the test command, which you send as `context.verify` in each driven request, and the hosts it lists as "added to `driven.network.allow`", which go into `profile.json` under `driven.network.allow` (`doctor` fails the setup until they are there). Leave the rest of your `profile.json` as it is: the starter profile's paths are the container's, which the template already sets. `init` and `doctor` ship from 0.9.0 on.
 
 ## 5. Bring it up
 
@@ -157,7 +157,7 @@ The runner reaches the engine through `tecnativa/docker-socket-proxy`, pinned by
 | `dubious ownership` or `permission denied` on a checkout | the checkout is not owned by uid 1654: clone it as in step 3, or `chown -R 1654:1654` it |
 | the server restarts in a loop | read `docker compose logs chargehand`: no model credential in `.env`, or an invalid profile |
 | the runner exits at start with a usage line | a missing `CHARGEHAND_RUNNER_KEY`, or a session image given as a tag |
-| `runtime_version_mismatch` | the profile's `claude_code.version` differs from the image's pinned one (2.1.283 in 0.8.8); leave the block out |
+| `runtime_version_mismatch` | the profile's `claude_code.version` differs from the image's pinned one (2.1.283 in 0.9.0); leave the block out |
 | a batch ends `container_unavailable` | the engine is unreachable from the runner: `docker compose logs docker-proxy`; check `DOCKER_SOCKET` |
 
 ## What has been checked
