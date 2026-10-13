@@ -35,7 +35,7 @@ What stays from 0054: the repository is public, the page holds a bearer key that
   - nothing younger than 14 days: each direct pin was chosen that way, `min-release-age=14` in `.npmrc` holds it for every transitive package when the lockfile changes, and Dependabot's `cooldown` is 14 days;
   - Dependabot (npm, weekly, minor and patch grouped) proposes updates; a major version is its own pull request;
   - no CDN, no remote script, font or style; the Node base image in the Dockerfile is pinned by digest, and its version must equal `.nvmrc` (CI checks);
-  - few direct dependencies (4 runtime packages at the foundation, 9 since the amendment below); each new one is argued in the pull request that adds it.
+  - few direct dependencies (4 runtime packages at the foundation, 9 after the first amendment below, 10 after the second); each new one is argued in the pull request that adds it.
 - **`/ui/` stays until the console reaches parity,** then goes with its `Ui/` folder and tests. Parity means: the runs list with its filters, a run with its live events, claims, tasks and artifacts, cancel, start a run or batch, learning, spend against caps, halt and resume. Until then `/ui/` takes bug fixes only. Both paths are behind `http.ui`.
 - **Today's console is the foundation:** the router with a placeholder for each planned screen (overview, runs, run, needs you, new, analytics, learning, intake, repositories, accounts, system), a typed client for the routes that exist (`/v1/runs`, `/v1/runs/{id}`, `/v1/runs/{id}/events`, `/v1/accounts/me`, `/v1/learn`, halt and resume), sign-in, and the runs table. Types are written by hand from `schemas/`; generating them is a follow-up.
 
@@ -58,6 +58,15 @@ The owner approved the console's visual design (a design system and 74 boards), 
 - **A person's choices stay in this browser.** Theme, row density, the rail's width and which notices to raise are kept in `localStorage` (not secret); the key stays in `sessionStorage` as before.
 - **Browser notifications are an addition on a secure page.** The Notification API needs https or localhost. The console asks once, from a click, shows a notice on the page for each event, and raises a browser notification (same title) only while the page is in the background. On plain http it does nothing and says so.
 - **Only what the server can do is offered.** The server has no route to merge a pull request, retry a task or answer except by starting a batch, so Needs you offers Open PR and Open run, and answers a question with the request the inbox item carries (`POST /v1/runs`, a driven task with `continue_from` and `answers`).
+
+## Amendment, 2026-10-13: uPlot for the time series
+
+Analytics draws spend, tokens and the cache-read share over time, in up to a few hundred buckets stacked by up to eight groups. That is the one place a chart library earns its size; every other chart (pass rate and its Wilson interval, budgets against p80 spend, the duration bins, the governor's rate per mode) is a few SVG elements and stays SVG.
+
+- **Added: `uplot` 1.6.32** (exact; released March 2025, so far over the 14-day floor; MIT; no dependencies). It is 51 KB (22 KB gzipped) as a minified script and 1.9 KB of stylesheet; with the two screens the script grows by 104 KB (38 KB gzipped) and the stylesheet by 8 KB (2 KB gzipped). Runtime packages go from 9 to 10.
+- **Why uPlot and not a larger library:** it draws on one canvas, it is small, and it writes no `<style>` element and no `style` attribute in markup (the plot's own sizes are set through the style object model), so `style-src 'self'` holds; its stylesheet is a file of this origin. The end-to-end tests fail on a policy violation and check that no style element exists. It has no tooltip or legend of the design system's, so the console draws both in HTML (and a table of the same numbers) and turns uPlot's own legend and cursor line off.
+- **Colours stay tokens.** A canvas cannot use `var(--chart-1)`, so the console reads the token's computed value from the stylesheet whenever the theme changes and hands that to uPlot; a test fails when a chart or screen file holds a literal colour.
+- **The dollar figure is an equivalent.** Spend on Analytics is `usd_estimate` (the tokens priced, also on a subscription), marked `≈`; a task that could not be priced is counted apart and never shown as zero.
 
 ## Reopen if
 
