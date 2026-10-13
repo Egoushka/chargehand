@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Work that starts without a caller: intake from GitHub issues and comments. References Driven; neither Core nor Driven may reference it (ADR 0047, ADR 0049). -->
+  <!-- Work that starts without a caller: intake from GitHub issues and comments. References Driven; neither Core nor Driven may reference it (ADR 0047, ADR 0051). -->
   <PropertyGroup>
     <PackageId>Chargehand.Automation</PackageId>
     <IsPackable>false</IsPackable>

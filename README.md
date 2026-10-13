@@ -46,7 +46,9 @@ workers read-only tools from a server. `chargehand extensions check` verifies th
 
 ## Quick start
 
-You need the .NET 10 SDK and one worker runtime.
+To run the server from the release images instead, with Docker Compose and no .NET SDK, see
+[Install with Docker Compose](docs/guide/install.md) (`deploy/compose/`). To run from a clone, you need the .NET 10 SDK
+and one worker runtime.
 
 1. Copy `profiles/example.json` to `profiles/local.json` and fill in your gateway, models, prices and secret-store
    item names. Profiles reference secrets by item name and never hold them.
@@ -224,7 +226,7 @@ chargehand call, and a run makes up to four (one research, up to three reviews).
 | `src/Chargehand.OpenCode` | OpenCode V2 client and worker-runtime adapter |
 | `src/Chargehand.ClaudeCode` | Claude Code worker-runtime adapter |
 | `src/Chargehand.Mcp` | MCP client: one connection per profile `mcp_servers` entry (Streamable HTTP, SSE or stdio), secret placeholders |
-| `src/Chargehand.Automation` | work that starts without a caller: GitHub intake from issue labels and mentions (references Driven; [ADR 0049](docs/adr/0049-intake-from-github.md)) |
+| `src/Chargehand.Automation` | work that starts without a caller: GitHub intake from issue labels and mentions (references Driven; [ADR 0051](docs/adr/0051-intake-from-github.md)) |
 | `src/Chargehand.Server` | HTTP interface and MCP server |
 | `src/Chargehand.Cli` | CLI entry point, packed as the `Chargehand` dnx tool and MCP server |
 | `.mcp/server.json` | MCP Registry entry, packed into the tool; the pack stamps the version over `0.0.0` |

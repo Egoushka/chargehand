@@ -74,6 +74,7 @@
         "usd": { "type": ["number", "null"], "minimum": 0, "description": "Priced by the orchestrator's own table, cache-write surcharge included. Null: unknown cost (ADR 0026), a priced call's model had no price entry." }
       }
     },
+    "actor": { "type": "string", "minLength": 1, "description": "The account that started the run (ADR 0050): owner for the server's single key. Absent for a run started from the CLI. Inside the signed content." },
     "signature": {
       "type": "object",
       "description": "ES256 (ECDSA P-256, SHA-256, IEEE P1363) over the RFC 8785 canonical form of this object without this member (ADR 0036). It says who produced the JSON, not that it is true.",

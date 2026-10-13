@@ -5,7 +5,7 @@ using Chargehand.Server;
 
 namespace Chargehand.Tests;
 
-/// <summary>ADR 0049: the server runs intake while it runs, and a trigger becomes an ordinary run of that server.</summary>
+/// <summary>ADR 0051: the server runs intake while it runs, and a trigger becomes an ordinary run of that server.</summary>
 public class IntakeServerTests
 {
     [Fact]

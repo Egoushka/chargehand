@@ -1,0 +1,19 @@
+{
+  "schema": "profile/v1",
+  "runtime": "claude_code",
+  "secrets": [{ "env": true }],
+  "models": {
+    "provider/worker-model": "anthropic/sonnet",
+    "provider/critic-model": "anthropic/sonnet",
+    "provider/small-model": "anthropic/haiku"
+  },
+  "worker_root": "/srv/chargehand/work",
+  "repository_roots": ["/srv/chargehand/repos"],
+  "run_log": "runs/run-log.jsonl",
+  "http": {
+    "listen": "0.0.0.0",
+    "port": 4300,
+    "api_key_secret": "chargehand-api-key",
+    "allowed_hosts": ["chargehand"]
+  }
+}

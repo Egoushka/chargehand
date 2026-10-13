@@ -3,7 +3,7 @@ using Chargehand.Contracts;
 
 namespace Chargehand.Tests;
 
-/// <summary>ADR 0049: the issue's text is fenced as untrusted, cut, and cannot close its own fence.</summary>
+/// <summary>ADR 0051: the issue's text is fenced as untrusted, cut, and cannot close its own fence.</summary>
 public class IntakeGoalTests
 {
     private static IntakeIssue Issue(string title = "Add a retry", string body = "body") => IntakeRig.Issue(7, title, body);
