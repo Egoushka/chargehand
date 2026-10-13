@@ -77,9 +77,11 @@ public static partial class Doctor
         CheckModelCredential(profile, env, results);
         if (profile.Http is { } http)
             results.Add(await CheckServerAsync(profile, http, env, ct));
-        if (profile.Driven?.Runner is { } runner)
-            results.Add(await CheckRunnerAsync(profile, runner, env, ct));
+        var runners = profile.Driven?.ResolvedRunners() ?? [];
+        foreach (var runner in runners)
+            results.Add(await CheckRunnerAsync(profile, runner, runners.Count == 1 && !profile.Driven!.NamesRunners ? "runner" : $"runner {runner.Name}", env, ct));
         CheckImages(profile.Driven, results);
+        CheckPlatforms(profile.Driven, results);
         CheckSecrets(profile, env, results);
         CheckRoots(profile, env, results);
         CheckEgress(profile, env, presetAllow, results);
@@ -152,11 +154,24 @@ public static partial class Doctor
         return Judge("server", url.ToString(), await env.ProbeServerAsync(profile, http, ct), http.ApiKeySecret, "start it with chargehand serve, and check http.listen and http.port");
     }
 
-    private static async Task<CheckResult> CheckRunnerAsync(Profile profile, DrivenRunner runner, IDoctorEnvironment env, CancellationToken ct)
+    private static async Task<CheckResult> CheckRunnerAsync(Profile profile, DrivenRunnerEntry runner, string name, IDoctorEnvironment env, CancellationToken ct)
     {
         if (!env.SecretResolves(profile, runner.ApiKeySecret))
-            return new(CheckStatus.Warn, "runner", $"not probed: the key item {runner.ApiKeySecret} does not resolve", "see the secret line below");
-        return Judge("runner", runner.Url, await env.ProbeRunnerAsync(profile, runner, ct), runner.ApiKeySecret, "start it with chargehand runner, and check driven.runner.url");
+            return new(CheckStatus.Warn, name, $"not probed: the key item {runner.ApiKeySecret} does not resolve", "see the secret line below");
+        return Judge(name, runner.Url, await env.ProbeRunnerAsync(profile, new DrivenRunner(runner.Url, runner.ApiKeySecret), ct), runner.ApiKeySecret,
+            $"start it with chargehand runner, and check {(profile.Driven!.NamesRunners ? $"driven.runners.{runner.Name}.url" : "driven.runner.url")}");
+    }
+
+    /// <summary>A runner of another architecture than amd64 starts the image as written unless <c>driven.image_variants</c> names one for it (ADR 0058); doctor cannot read a registry, so it says what applies.</summary>
+    private static void CheckPlatforms(DrivenSettings? driven, List<CheckResult> results)
+    {
+        foreach (var runner in (driven?.ResolvedRunners() ?? []).Where(r => r.Platform != DrivenRunnerEntry.DefaultPlatform))
+        {
+            var mapped = (driven!.Images ?? []).Where(i => driven.ImageFor(i, runner.Platform) != i).ToList();
+            results.Add(mapped.Count > 0
+                ? new(CheckStatus.Ok, $"runner {runner.Name} images", $"{runner.Platform}: {mapped.Count} of {driven.Images!.Count} driven.images have a variant for it")
+                : new(CheckStatus.Ok, $"runner {runner.Name} images", $"{runner.Platform}: driven.images are used as written, so they must be multi-platform (an index digest); otherwise add driven.image_variants"));
+        }
     }
 
     private static CheckResult Judge(string name, string where, ProbeOutcome outcome, string keyItem, string unreachableFix) => outcome switch
@@ -206,8 +221,8 @@ public static partial class Doctor
         {
             if (driven.PushSecret is { } push)
                 uses.Add((push, "driven.push_secret", driven.Enabled));
-            if (driven.Runner is { } runner)
-                uses.Add((runner.ApiKeySecret, "driven.runner.api_key_secret", driven.Enabled));
+            foreach (var runner in driven.ResolvedRunners())
+                uses.Add((runner.ApiKeySecret, driven.NamesRunners ? $"driven.runners.{runner.Name}.api_key_secret" : "driven.runner.api_key_secret", driven.Enabled));
             if (driven.Forge?.TokenSecret is { } forgeToken)
                 uses.Add((forgeToken, "driven.forge.token_secret", driven.Enabled));
         }
