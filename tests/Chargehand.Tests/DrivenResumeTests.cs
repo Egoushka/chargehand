@@ -30,11 +30,11 @@ public class DrivenResumeTests
     }
 
     /// <summary>Three tasks one at a time: t1 handed over, t2's container running, t3 not started; then the server stops.</summary>
-    private static async Task<BatchState> StopMidBatch(DrivenRunTests.Rig rig)
+    private static async Task<BatchState> StopMidBatch(DrivenRunTests.Rig rig, string? actor = null)
     {
         rig.Engine.HoldNth = 2;
         using var stop = new CancellationTokenSource();
-        var first = rig.Run.RunAsync(Request("one", "two", "three"), BatchId, Token, stop.Token, null, () => false);
+        var first = rig.Run.RunAsync(Request("one", "two", "three"), BatchId, Token, stop.Token, null, () => false, actor: actor);
         await Until(() => rig.Engine.Started.Count == 2 && rig.Handover.Inputs.Count == 1);
         await stop.CancelAsync();
         await first;
@@ -81,6 +81,29 @@ public class DrivenResumeTests
         Assert.Equal(ResultStatus.Completed, (await rig.Log.ReadAsync(BatchId, default)).Run!.Result.Status);
         Assert.Empty(Directory.GetFiles(rig.StateDirectory, "*.json"));
         Assert.Contains("network-rm chargehand-net-run-batch-r", rig.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_batch_and_its_tasks_carry_the_account_and_a_resumed_batch_keeps_it()
+    {
+        using var rig = new DrivenRunTests.Rig(durable: true);
+        var state = await StopMidBatch(rig, "alice");
+        Assert.Equal("alice", state.Actor);
+        Assert.Equal("alice", (await rig.Log.ReadAsync(BatchId, default)).Start!.Actor);
+
+        rig.Engine.Release();
+        // The server resumes it without naming anyone: the saved state does.
+        var result = await rig.Run.RunAsync(state.Request, state.RunId, Token, default, null, () => false, state);
+
+        Assert.Equal("alice", result.Actor);
+        var entry = await rig.Log.ReadAsync(BatchId, default);
+        Assert.Equal(("alice", "alice"), (entry.Start!.Actor, entry.Run!.Actor));
+        Assert.Equal("alice", entry.Run.Result.Actor);
+        foreach (var started in rig.Engine.Started)
+        {
+            var task = await rig.Log.ReadAsync(started.RunId, default);
+            Assert.Equal(("alice", "alice", "alice"), (task.Start!.Actor, task.Run!.Actor, task.Run.Result.Actor));
+        }
     }
 
     [Fact]

@@ -9,7 +9,8 @@ namespace Chargehand.Server;
 /// <summary>What a driven session's token allows (ADR 0039): calls on one repository at one commit, capped in dollars and tokens, until it expires.</summary>
 /// <param name="RunId">The batch task's run; runs the session starts record it as their parent, and their spend is charged to it.</param>
 /// <param name="MaxUsd">Null: no dollar cap (a subscription has none).</param>
-public sealed record RunTokenClaims(string RunId, string RepositoryPath, string Commit, decimal? MaxUsd, long? MaxTokens, DateTimeOffset Expires);
+/// <param name="Actor">The account that started the batch (ADR 0050); the runs the session starts belong to it. Null on a token from before accounts: the owner.</param>
+public sealed record RunTokenClaims(string RunId, string RepositoryPath, string Commit, decimal? MaxUsd, long? MaxTokens, DateTimeOffset Expires, string? Actor = null);
 
 /// <summary>Issues and checks run-scoped tokens: <c>chr1.&lt;payload&gt;.&lt;signature&gt;</c>, an HMAC-SHA256 over the payload with a key only this server
 /// holds. A token is not stored; it dies when it expires, or when the server restarts without a key file (<see cref="LoadOrCreate"/> keeps the key, so a batch's sessions go on across a restart, ADR 0043).</summary>

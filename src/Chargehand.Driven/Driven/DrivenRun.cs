@@ -56,9 +56,11 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     }
 
     /// <param name="resume">The saved state of a batch a restart interrupted: the batch carries on from it under the same run id (ADR 0043).</param>
+    /// <param name="actor">The account that started the batch (ADR 0050); a resumed batch keeps the one its state saved.</param>
     public async Task<ResultContract> RunAsync(RunRequest request, string runId, TaskTokenMinter mint, CancellationToken ct, Action<RunStatus>? progress = null,
-        Func<bool>? cancelledByCaller = null, BatchState? resume = null)
+        Func<bool>? cancelledByCaller = null, BatchState? resume = null, string? actor = null)
     {
+        actor ??= resume?.Actor;
         var started = resume?.Started ?? DateTimeOffset.UtcNow;
         // A server that is stopping, as against a caller who cancels, leaves the batch for the next process to carry on; only when its state is saved.
         bool Detaching() => _store is not null && ct.IsCancellationRequested && cancelledByCaller?.Invoke() != true;
@@ -75,7 +77,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var version = profile.ClaudeCode?.Version ?? "";
         var chain = new PromptChain([], new AsSent($"claude-code/{version}", "driven", "batch", started.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         // A resumed batch is written again so the log names the process that runs it now.
-        await log.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId, BootId: ProcessBoot.Id), ct);
+        await log.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId, BootId: ProcessBoot.Id, Actor: actor), ct);
         progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Started));
 
         ResultContract result;
@@ -83,7 +85,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         try
         {
             key = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
-            result = await RunBatchAsync(request, runId, started, traceId, mint, key is null ? null : r => ResultSignature.Sign(r, key), progress, run, resume, Detaching, () => cancelledByCaller?.Invoke() == true, ct);
+            result = await RunBatchAsync(request, runId, started, traceId, mint, key is null ? null : r => ResultSignature.Sign(r, key), progress, run, resume, Detaching, () => cancelledByCaller?.Invoke() == true, ct, actor);
         }
         catch (Exception e) when (e is not OperationCanceledException || cancelledByCaller?.Invoke() == true)
         {
@@ -97,6 +99,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             key?.Dispose();
             return result;
         }
+        result = result with { Actor = actor };
         if (key is not null)
         {
             result = ResultSignature.Sign(result, key);
@@ -106,7 +109,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         run?.SetTag("chargehand.error.code", result.Error is { } failure ? JsonNamingPolicy.SnakeCaseLower.ConvertName(failure.Code.ToString()) : null);
         if (result.Status != ResultStatus.Completed)
             run?.SetStatus(ActivityStatusCode.Error, result.Error?.Message);
-        await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, request.Context.Preset, null, null, result), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
+        await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, request.Context.Preset, null, null, result, Actor: actor), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
         _store?.Delete(runId);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
@@ -186,7 +189,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         IdAfter(name, "chargehand-egress-") ?? ServiceBatch(name) ?? IdAfter(name, "chargehand-prep-") ?? IdAfter(name, "chargehand-xfer-") ?? IdAfter(name, "chargehand-");
 
     private async Task<ResultContract> RunBatchAsync(RunRequest request, string runId, DateTimeOffset started, string traceId, TaskTokenMinter mint, Func<ResultContract, ResultContract>? sign,
-        Action<RunStatus>? progress, Activity? span, BatchState? resume, Func<bool> detaching, Func<bool> cancelledByCaller, CancellationToken ct)
+        Action<RunStatus>? progress, Activity? span, BatchState? resume, Func<bool> detaching, Func<bool> cancelledByCaller, CancellationToken ct, string? actor = null)
     {
         var settings = profile.Driven ?? new DrivenSettings();
         // Throws when the profile has driven sessions off, so a refused request touches nothing else.
@@ -228,7 +231,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Plan) with { Detail = plan.Describe() });
         }
         var journal = _store is null ? null : new BatchJournal(_store, resume ?? new BatchState(runId, started, traceId, request, exchange?.TokenKey,
-            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From, DependsOn: t.DependsOn, Size: t.Size, SplitFrom: t.SplitFrom))], unresolved, plan));
+            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From, DependsOn: t.DependsOn, Size: t.Size, SplitFrom: t.SplitFrom))], unresolved, plan, actor));
 
         var otlp = DrivenOtlpRoute.Parse(settings.Network?.OtlpUrl,
             new[] { forward is null ? (int?)null : port, model?.ForwardPort }.OfType<int>());
@@ -277,7 +280,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 forward is null ? null : $"{BatchNetworkInfo.ServiceUrl(port)}/v1/mcp", drivenPreset, limits.PerTask, priced, modelEnvironment, push,
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true || otlp is not null, otlp,
-                profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared);
+                profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor);
             var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress, journal: journal, detaching: detaching, stacker: s.Stacker);
             ran = await new BatchScheduler(runner, admission: _admission, taskMemoryMb: drivenPreset.MemoryMb).RunAsync(ready, limits, ct, o =>
             {

@@ -1,6 +1,6 @@
 ---
 title: "Run the HTTP server"
-description: "chargehand serve: the profile's http block, the bearer key, binding and allowed hosts, each route with its status codes, and the release image."
+description: "chargehand serve: the profile's http block, the bearer key and named accounts with caps, binding and allowed hosts, each route with its status codes, and the release image."
 order: 4
 section: "Guides"
 ---
@@ -33,6 +33,55 @@ Every route, `/v1/mcp` included, requires `Authorization: Bearer <key>`. That ho
 
 The key is the secret item that `http.api_key_secret` names, resolved through the profile's `secrets` sources in order. With no `secrets` list, chargehand reads the item from the environment, upper-cased with `-` turned into `_`: `chargehand-api-key` reads `CHARGEHAND_API_KEY`. A `command` source runs an argv template instead, such as the macOS Keychain lookup in `profiles/example.json`. The `secrets` list replaces `secret_store` ([changelog 0.4.0](../../CHANGELOG.md#040---2026-09-29)).
 
+## Accounts and named keys
+
+The key above is the **owner**: every route, every run, no caps. To give someone else a key of their own, declare an account in the profile and make it a key ([ADR 0050](../adr/0050-accounts-and-named-api-keys.md)). This is for one self-hosted server and a handful of callers, not a hosted service.
+
+```json
+{
+  "http": {
+    "port": 4300,
+    "api_key_secret": "chargehand-api-key",
+    "accounts": [
+      { "name": "alice", "max_usd_per_day": 5, "max_usd_per_month": 60, "max_tokens_per_day": 2000000, "max_concurrent_runs": 2 },
+      { "name": "ci", "max_concurrent_runs": 1, "driven": true, "repositories": ["/srv/chargehand/repos/app"] }
+    ]
+  }
+}
+```
+
+```bash
+chargehand accounts add alice --label laptop    # prints the key once: chk1.<id>.<secret>
+chargehand accounts list                        # accounts, caps, key ids and states; never a key
+chargehand accounts revoke <key-id>             # stops working at once, no restart
+```
+
+The caller sends the key as `Authorization: Bearer chk1...` on every route, `/v1/mcp` included. chargehand stores a salted SHA-256 of the secret half in `accounts.json` beside the run log (readable by its owner only), so a lost key cannot be read back: revoke it and add another. A key whose account is gone from the profile, an unknown key and a revoked key all get `401`. Run `accounts` where the server's run log is (in the container, its `/app/runs` volume, which must persist).
+
+| field | meaning |
+|---|---|
+| `name` | lowercase letters, digits, hyphens; `owner` is reserved. Recorded as `actor` |
+| `max_usd_per_day`, `max_usd_per_month` | dollars the account's runs may cost in the UTC day or calendar month, by their results' `usage`. A subscription run has no price and adds none: pair it with a token cap |
+| `max_tokens_per_day`, `max_tokens_per_month` | input plus output tokens in the same windows |
+| `max_concurrent_runs` | unfinished runs (queued or running) at once |
+| `driven` | may start a batch; default `false`, because a batch pushes branches and opens pull requests with the server's credential |
+| `repositories` | absolute directories; `context.repository.path` must be one of them or below it, and every request must name a repository. Absent: any the server allows |
+
+The single `api_key_secret` keeps working unchanged as the `owner` account, with no migration.
+
+**What an account sees.** Every run records `actor`, the account's name, on its start and run records, its `result/v1`, its events and its `run-summary/v1` (the owner's runs say `owner`, as do batches started by GitHub intake; a CLI run has none, and a record from before accounts is the owner's). An account lists, reads, streams and cancels only its own runs; another's run is `404`. `POST /v1/halt` and `/v1/resume` are the owner's (`403` otherwise). The owner sees every run. A driven session's run token carries the account of its batch, so its research and review calls belong to that account and it can read only that account's runs. A batch may `continue_from` only a run of its own account.
+
+**Caps** are checked when a run is requested, against the account's spend in the window: finished runs by their result's usage, a run still going by its calls so far, a batch once. When a cap is reached the request is refused with `429` and a `Retry-After` for the end of the window:
+
+```json
+{ "errors": ["the daily dollar cap of $5.00 is used up ($5.20 spent, 0 remaining); it resets at 2026-10-16T00:00:00Z"],
+  "error": { "code": "budget_exceeded", "window": "day", "unit": "usd", "limit": 5, "spent": 5.2, "remaining": 0, "resets_at": "2026-10-16T00:00:00+00:00" } }
+```
+
+A request that is admitted has its `budget_usd` (for a batch also `max_usd_total` and `max_tokens_total`) cut to what the tightest window has left. `concurrency_exceeded` is `429`; `driven_not_allowed`, `repository_not_allowed` and `continue_not_allowed` are `403`, in the same body. Over MCP the tool error starts with the code. A run already underway can overshoot a cap by its own budget.
+
+**Not isolated.** Accounts share the worker runtime and its credential, the model's rate limit, the checkouts, the memory providers (a fact one account's run retained can be recalled by another), and for batches the runner, the container engine, the push credential and the package caches. Separate runners and networks per account are CHARGEHAND-202.
+
 ## Binding and allowed hosts
 
 | field | default | meaning |
@@ -40,7 +89,8 @@ The key is the secret item that `http.api_key_secret` names, resolved through th
 | `http.port` | `4300` | TCP port |
 | `http.listen` | `127.0.0.1` | IP address to bind |
 | `http.allowed_hosts` | none | host names accepted besides `localhost` and `127.0.0.1` |
-| `http.api_key_secret` | required | the secret item that holds the bearer key |
+| `http.api_key_secret` | required | the secret item that holds the bearer key (the `owner`) |
+| `http.accounts` | none | named accounts with their own keys and caps, see above |
 
 The server compares each request's `Host` header with `localhost`, `127.0.0.1` and `allowed_hosts`, and answers any other host with `400`. That check guards against DNS rebinding. When `listen` is not loopback, the server refuses to start unless `allowed_hosts` names at least one host, because beyond loopback the check must name the server. Bind a private network only ([ADR 0024](../adr/0024-server-on-a-private-network-and-release-images.md)). The server sends no CORS headers and caps request bodies at 1 MB.
 
@@ -59,7 +109,7 @@ With no `repository_roots`, `serve` allows repositories under `worker_root` only
 | `GET /v1/runs/{id}/events` | server-sent events for the run; `404` for an unknown id |
 | `/v1/mcp` | MCP over Streamable HTTP, see [the MCP page](mcp.md) |
 
-Every route answers `401` without the key and `400` for a host it does not accept. [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs) covers `200`, `202`, `400`, `401`, `404`, `410` and `429` on these routes.
+Every route answers `401` without a valid key and `400` for a host it does not accept. With accounts, the run routes answer for the caller's own runs (see [accounts](#accounts-and-named-keys)). [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs) covers `200`, `202`, `400`, `401`, `404`, `410` and `429` on these routes.
 
 ### POST /v1/runs
 

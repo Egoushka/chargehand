@@ -81,6 +81,7 @@ public sealed record Profile(
                 "Fix memory in the profile; docs/guide/reference.md lists the fields.");
         if (profile.PromptEnhancer is { } enhancer)
             enhancer.Validate(servers);
+        profile.Http?.Validate();
         profile.Driven?.Limits?.Validate();
         profile.Driven?.Governor?.Validate();
         profile.Driven?.Admission?.Validate();
@@ -398,8 +399,47 @@ public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecr
 /// AllowedHosts open it beyond loopback, for a private network only (ADR 0024).</summary>
 /// <param name="MaxConcurrentRuns">Runs executing at once; 1 (the default) runs them one at a time, as ADR 0011's per-model limit assumes.
 /// Raise it only when the model's rate limit allows: every run's workers draw on it.</param>
+/// <param name="Accounts">Accounts besides the implicit <c>owner</c> that <c>ApiKeySecret</c> opens (ADR 0050); their keys come from <c>chargehand accounts add</c>.</param>
 public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null,
-    int MaxConcurrentRuns = 1);
+    int MaxConcurrentRuns = 1, IReadOnlyList<AccountSettings>? Accounts = null)
+{
+    /// <summary>Throws an invalid_request error naming the key when an account cannot work.</summary>
+    internal void Validate()
+    {
+        var problems = new List<string>();
+        foreach (var account in Accounts ?? [])
+            problems.AddRange(account.Problems().Select(p => $"accounts.{account.Name}: {p}"));
+        problems.AddRange((Accounts ?? []).GroupBy(a => a.Name).Where(g => g.Count() > 1).Select(g => $"accounts: name '{g.Key}' is used more than once"));
+        if (problems.Count > 0)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"http: {string.Join("; ", problems)}", "Fix http.accounts in the profile; docs/guide/server.md lists the keys.");
+    }
+}
+
+/// <summary>A caller of the server besides the owner (ADR 0050). It sees and cancels only its own runs. Every cap left out is no cap; a window is a UTC calendar day or month.</summary>
+/// <param name="Name">Lowercase letters, digits and hyphens; <c>owner</c> is the implicit account of <c>api_key_secret</c> and cannot be declared.</param>
+/// <param name="MaxUsdPerDay">Dollars the account's runs may cost in a UTC day, by the results' usage (priced runs only; a subscription run counts tokens).</param>
+/// <param name="MaxConcurrentRuns">Runs of this account that are unfinished at once (queued or running).</param>
+/// <param name="Driven">Whether the account may start a batch (a request with a <c>driven</c> block): a batch pushes branches and opens pull requests with the server's credential.</param>
+/// <param name="Repositories">Directories the account's runs may name as <c>context.repository.path</c>, itself or below; null: any the server allows.</param>
+public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, decimal? MaxUsdPerMonth = null, long? MaxTokensPerDay = null, long? MaxTokensPerMonth = null,
+    int? MaxConcurrentRuns = null, bool Driven = false, IReadOnlyList<string>? Repositories = null)
+{
+    public const string Owner = "owner";
+
+    public static bool ValidName(string name) => Regex.IsMatch(name, "^[a-z][a-z0-9-]{0,31}$");
+
+    internal IEnumerable<string> Problems()
+    {
+        if (!ValidName(Name)) yield return "name must be lowercase letters, digits and hyphens, starting with a letter, at most 32 characters";
+        if (Name == Owner) yield return "owner is the account of api_key_secret; pick another name";
+        if (MaxUsdPerDay is <= 0) yield return "max_usd_per_day must be above 0";
+        if (MaxUsdPerMonth is <= 0) yield return "max_usd_per_month must be above 0";
+        if (MaxTokensPerDay is <= 0) yield return "max_tokens_per_day must be above 0";
+        if (MaxTokensPerMonth is <= 0) yield return "max_tokens_per_month must be above 0";
+        if (MaxConcurrentRuns is < 1) yield return "max_concurrent_runs must be at least 1";
+        if (Repositories?.Any(r => !Path.IsPathRooted(r)) == true) yield return "repositories must be absolute paths";
+    }
+}
 
 /// <summary>Driven writing sessions (ADR 0039). Off unless <c>Enabled</c>: a shell runs in a container only when the profile opts in.</summary>
 /// <param name="Images">Session images by digest (<c>name@sha256:...</c>); a repository may pick one of these by name, never another.</param>
