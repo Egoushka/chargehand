@@ -28,19 +28,23 @@ public sealed partial record RemoteRepository(string Owner, string Name, ForgeKi
     private static partial Regex Scp();
 }
 
-public sealed record PullRequestRef(string Url, int Number);
+/// <param name="Reused">The host already had an open request for the branch (a handover repeated, or a task continued on its branch), so none was opened.</param>
+public sealed record PullRequestRef(string Url, int Number, bool Reused = false);
 
 public sealed class PullRequestException(string message) : Exception(message);
 
-/// <summary>Opens pull requests or merge requests; it can open a draft and nothing else (ADR 0039).</summary>
+/// <summary>Opens pull requests or merge requests, as a draft, and edits the title and body of one it opened (ADR 0039). It cannot merge, approve, close or change whether a request is a draft.</summary>
 public interface IPullRequests
 {
     /// <exception cref="PullRequestException">The host refused, or could not be reached.</exception>
     Task<PullRequestRef> CreateDraftAsync(RemoteRepository repo, string head, string @base, string title, string body, CancellationToken ct);
+
+    /// <exception cref="PullRequestException">The host refused, or could not be reached.</exception>
+    Task EditAsync(RemoteRepository repo, int number, string title, string body, CancellationToken ct);
 }
 
-/// <summary>The one thing chargehand does on GitHub: <c>POST /repos/{owner}/{repo}/pulls</c> with <c>draft: true</c>. This class has no method that merges,
-/// enables auto-merge, edits, approves or closes; <c>GitHubPullRequestsTests</c> fails if one appears.</summary>
+/// <summary>What chargehand does on GitHub with the push credential: <c>POST /repos/{owner}/{repo}/pulls</c> with <c>draft: true</c>, and <c>PATCH</c> of the title and body of that pull request. This class has no
+/// method that merges, enables auto-merge, approves or closes; <c>GitHubPullRequestsTests</c> fails if one appears.</summary>
 public sealed class GitHubPullRequests(HttpClient http, string token) : IPullRequests
 {
     public async Task<PullRequestRef> CreateDraftAsync(RemoteRepository repo, string head, string @base, string title, string body, CancellationToken ct)
@@ -68,7 +72,7 @@ public sealed class GitHubPullRequests(HttpClient http, string token) : IPullReq
             // A handover repeated after a restart finds the pull request it opened before: return that one.
             if (response.StatusCode == HttpStatusCode.UnprocessableEntity && text.Contains("already exists", StringComparison.OrdinalIgnoreCase)
                 && await FindOpenAsync(repo, head, ct) is { } existing)
-                return existing;
+                return existing with { Reused = true };
             if (!response.IsSuccessStatusCode)
                 throw new PullRequestException(Redact($"GitHub answered {(int)response.StatusCode}: {Message(text)}"));
             try
@@ -80,6 +84,28 @@ public sealed class GitHubPullRequests(HttpClient http, string token) : IPullReq
             {
                 throw new PullRequestException("GitHub answered with a body that is not a pull request");
             }
+        }
+    }
+
+    public async Task EditAsync(RemoteRepository repo, int number, string title, string body, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Name)}/pulls/{number.ToString(System.Globalization.CultureInfo.InvariantCulture)}")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new { title, body }), Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        request.Headers.UserAgent.Add(new ProductInfoHeaderValue("chargehand", "1"));
+        request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
+        try
+        {
+            using var response = await http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+                throw new PullRequestException(Redact($"GitHub answered {(int)response.StatusCode}: {Message(await response.Content.ReadAsStringAsync(ct))}"));
+        }
+        catch (HttpRequestException e)
+        {
+            throw new PullRequestException(Redact($"the pull request could not be edited: {e.Message}"));
         }
     }
 

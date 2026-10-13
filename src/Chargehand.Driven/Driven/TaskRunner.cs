@@ -583,7 +583,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         handover.RunAsync(new HandoverInput(run.RunId, run.OutDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, settings.BaseBranch,
             title, body, settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
             Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
-            Goal: task.Goal, PolicyNote: settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null), ct);
+            Goal: task.Goal, UpdateReused: !partial, PolicyNote: settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null), ct);
 
     private static SessionOutcome Total(SessionOutcome? earlier, SessionOutcome last)
     {

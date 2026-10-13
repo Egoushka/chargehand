@@ -123,15 +123,68 @@ public class HandoverTests
         }
     }
 
-    private sealed class FakePullRequests(Exception? failure = null) : IPullRequests
+    private sealed class FakePullRequests(Exception? failure = null, bool reused = false, Exception? editFailure = null) : IPullRequests
     {
         public List<(string Head, string Base, string Title, string Body)> Created { get; } = [];
+
+        public List<(int Number, string Title, string Body)> Edited { get; } = [];
 
         public Task<PullRequestRef> CreateDraftAsync(RemoteRepository repo, string head, string @base, string title, string body, CancellationToken ct)
         {
             Created.Add((head, @base, title, body));
-            return failure is null ? Task.FromResult(new PullRequestRef("https://example.test/o/r/pull/9", 9)) : throw failure;
+            return failure is null ? Task.FromResult(new PullRequestRef("https://example.test/o/r/pull/9", 9, reused)) : throw failure;
         }
+
+        public Task EditAsync(RemoteRepository repo, int number, string title, string body, CancellationToken ct)
+        {
+            Edited.Add((number, title, body));
+            return editFailure is null ? Task.CompletedTask : throw editFailure;
+        }
+    }
+
+    [Fact]
+    public async Task A_finished_task_retitles_the_pull_request_an_earlier_partial_one_left_for_the_branch()
+    {
+        using var f = new Fixture();
+        var prs = new FakePullRequests(reused: true);
+        List<HandoverEvent> seen = [];
+
+        var outcome = await new Handover(new FakeVerifier(), prs).RunAsync(f.Input(with: i => i with { UpdateReused = true, Title = "Add a retry", Body = "Done.", Report = seen.Add }), default);
+
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        var (number, title, body) = Assert.Single(prs.Edited);
+        Assert.Equal((9, "Add a retry"), (number, title));
+        Assert.Equal(Assert.Single(prs.Created).Body, body);
+        Assert.Contains("Done.", body);
+        Assert.Equal("draft pull request reused and its title and body updated", seen.Single(e => e.Kind == RunEventKind.PrOpened).Detail);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    public async Task A_pull_request_is_edited_only_when_it_was_reused_and_the_handover_asks_for_it(bool reused, bool update)
+    {
+        using var f = new Fixture();
+        var prs = new FakePullRequests(reused: reused);
+
+        await new Handover(new FakeVerifier(), prs).RunAsync(f.Input(with: i => i with { UpdateReused = update }), default);
+
+        Assert.Empty(prs.Edited);
+    }
+
+    [Fact]
+    public async Task A_title_that_cannot_be_updated_does_not_fail_a_handover_whose_branch_is_pushed()
+    {
+        using var f = new Fixture();
+        var prs = new FakePullRequests(reused: true, editFailure: new PullRequestException("GitHub answered 403: Resource not accessible"));
+        List<HandoverEvent> seen = [];
+
+        var outcome = await new Handover(new FakeVerifier(), prs).RunAsync(f.Input(with: i => i with { UpdateReused = true, Report = seen.Add }), default);
+
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        Assert.NotNull(outcome.PullRequest);
+        Assert.Contains("could not be updated: GitHub answered 403", seen.Single(e => e.Kind == RunEventKind.PrOpened).Detail);
     }
 
     [Fact]

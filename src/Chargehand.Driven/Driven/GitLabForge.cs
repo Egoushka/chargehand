@@ -42,7 +42,7 @@ public sealed partial class GitLabForge(HttpClient http, string token) : IForge
             var text = await response.Content.ReadAsStringAsync(ct);
             // A handover repeated after a restart finds the merge request it opened before: return that one.
             if (response.StatusCode == HttpStatusCode.Conflict && text.Contains("already exists", StringComparison.OrdinalIgnoreCase) && await FindOpenAsync(repo, head, ct) is { } existing)
-                return existing;
+                return existing with { Reused = true };
             if (!response.IsSuccessStatusCode)
                 throw new PullRequestException(Redact($"GitLab answered {(int)response.StatusCode}: {Message(text)}"));
             try
@@ -54,6 +54,25 @@ public sealed partial class GitLabForge(HttpClient http, string token) : IForge
             {
                 throw new PullRequestException("GitLab answered with a body that is not a merge request");
             }
+        }
+    }
+
+    /// <summary>Sets the title and description; a request that is a draft stays one, because the title is what makes it so.</summary>
+    public async Task EditAsync(RemoteRepository repo, int number, string title, string body, CancellationToken ct)
+    {
+        try
+        {
+            using var current = JsonDocument.Parse(await RestAsync(HttpMethod.Get, MergeRequestPath(repo, number), null, "the merge request's title", ct));
+            var isDraft = current.RootElement.TryGetProperty("title", out var t) && DraftPrefix().IsMatch(t.GetString() ?? "");
+            await RestAsync(HttpMethod.Put, MergeRequestPath(repo, number), new { title = isDraft && !DraftPrefix().IsMatch(title) ? $"Draft: {title}" : title, description = body }, "the edit", ct);
+        }
+        catch (IntegrationException e)
+        {
+            throw new PullRequestException(e.Message);
+        }
+        catch (JsonException)
+        {
+            throw new PullRequestException("GitLab answered with a body that is not a merge request");
         }
     }
 

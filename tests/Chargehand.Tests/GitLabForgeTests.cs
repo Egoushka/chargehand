@@ -96,7 +96,7 @@ public class GitLabForgeTests
             : Json("""[{"web_url":"https://gitlab.example.test/group/sub/project/-/merge_requests/3","iid":3}]"""));
         var mr = await Forge(handler).CreateDraftAsync(Repo, "chargehand/run1", "main", "Add a retry", "Body", default);
 
-        Assert.Equal(new PullRequestRef("https://gitlab.example.test/group/sub/project/-/merge_requests/3", 3), mr);
+        Assert.Equal(new PullRequestRef("https://gitlab.example.test/group/sub/project/-/merge_requests/3", 3, Reused: true), mr);
         Assert.Equal((HttpMethod.Get, $"{Api}{Project}/merge_requests?source_branch=chargehand%2Frun1&state=opened", Token), (handler.Requests[1].Method, handler.Requests[1].Url, handler.Requests[1].Token));
     }
 
@@ -110,6 +110,32 @@ public class GitLabForgeTests
         var handler = new Canned((_, _) => Json(body.Replace("the-token", Token, StringComparison.Ordinal), status));
         var e = await Assert.ThrowsAsync<PullRequestException>(() => Forge(handler).CreateDraftAsync(Repo, "b", "main", "t", "b", default));
         Assert.Contains($"GitLab answered {(int)status}", e.Message);
+        Assert.DoesNotContain(Token, e.Message);
+    }
+
+    [Theory]
+    [InlineData("Draft: [partial] Add a retry", "Add a retry", "Draft: Add a retry")]
+    [InlineData("Draft: [partial] Add a retry", "Draft: Add a retry", "Draft: Add a retry")]
+    [InlineData("Add a retry", "Add a retry", "Add a retry")]
+    public async Task An_edit_sets_the_title_and_description_and_keeps_a_draft_a_draft(string current, string title, string sent)
+    {
+        var handler = new Canned((request, _) => Json(request.Method == HttpMethod.Get ? MergeRequest(title: current, draft: current.StartsWith("Draft", StringComparison.Ordinal)) : "{}"));
+        await Forge(handler).EditAsync(Repo, 7, title, "Done.", default);
+
+        Assert.Equal([(HttpMethod.Get, $"{Project}/merge_requests/7"), (HttpMethod.Put, $"{Project}/merge_requests/7")], handler.Requests.Select(r => (r.Method, Path(r))).ToArray());
+        Assert.Equal((Token, null), (handler.Requests[1].Token, handler.Requests[1].Authorization));
+        using var doc = JsonDocument.Parse(handler.Requests[1].Body!);
+        Assert.Equal(["title", "description"], doc.RootElement.EnumerateObject().Select(p => p.Name).ToArray());
+        Assert.Equal((sent, "Done."), (doc.RootElement.GetProperty("title").GetString(), doc.RootElement.GetProperty("description").GetString()));
+    }
+
+    [Fact]
+    public async Task A_refused_edit_is_a_pull_request_exception_without_the_token()
+    {
+        var handler = new Canned((_, _) => Json($$"""{"message":"403 Forbidden {{Token}}"}""", HttpStatusCode.Forbidden));
+        var e = await Assert.ThrowsAsync<PullRequestException>(() => Forge(handler).EditAsync(Repo, 7, "t", "b", default));
+
+        Assert.Contains("GitLab answered 403", e.Message);
         Assert.DoesNotContain(Token, e.Message);
     }
 

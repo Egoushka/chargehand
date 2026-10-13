@@ -55,6 +55,8 @@ public class DrivenIntegrationTests
         Assert.EndsWith("; merged", row.GetProperty("detail").GetString());
         // The pull request body says what happens to it.
         Assert.Contains("enable auto-merge", rig.Handover.Inputs[0].PolicyNote);
+        // A finished task replaces the title and body of a pull request an earlier, partial one left for the branch.
+        Assert.True(rig.Handover.Inputs[0].UpdateReused);
     }
 
     [Fact]
@@ -94,6 +96,7 @@ public class DrivenIntegrationTests
         var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
 
         Assert.True(Assert.Single(rig.Handover.Inputs).Partial);
+        Assert.False(rig.Handover.Inputs[0].UpdateReused);
         Assert.Null(rig.Handover.Inputs[0].PolicyNote);
         Assert.Empty(host.Calls);
         Assert.Equal("failed", Row(result).GetProperty("status").GetString());
@@ -194,6 +197,8 @@ public class DrivenIntegrationTests
         public string Name => "GitLab";
 
         public Task<PullRequestRef> CreateDraftAsync(RemoteRepository repo, string head, string @base, string title, string body, CancellationToken ct) => throw new NotSupportedException("the handover is faked");
+
+        public Task EditAsync(RemoteRepository repo, int number, string title, string body, CancellationToken ct) => throw new NotSupportedException("the handover is faked");
 
         public Task<PrSnapshot> GetAsync(RemoteRepository repository, int number, CancellationToken ct) => inner.GetAsync(repository, number, ct);
 

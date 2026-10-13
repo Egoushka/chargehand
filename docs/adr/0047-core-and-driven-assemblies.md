@@ -33,7 +33,7 @@ Option 2.
 |---|---|---|
 | Agent runtime | `IWorkerRuntime` (Core) | exists; OpenCode and Claude Code implement it |
 | Task source | `ITaskSource` (Core) | exists; `McpTaskSource` implements it |
-| Forge (pull and merge requests) | `IForge` (Driven): `IPullRequests` opens a draft, `IIntegrationHost` reads state, marks ready, comments, updates the branch and merges pinned to a head commit | exists; GitHub (two classes, two credentials) and GitLab (`GitLabForge`, one token) implement it, chosen by the remote's host or `driven.forge`. Provisional until a third forge shows what else it needs |
+| Forge (pull and merge requests) | `IForge` (Driven): `IPullRequests` opens a draft and edits its title and body, `IIntegrationHost` reads state, marks ready, comments, updates the branch and merges pinned to a head commit | exists; GitHub (two classes, two credentials) and GitLab (`GitLabForge`, one token) implement it, chosen by the remote's host or `driven.forge`. Provisional until a third forge shows what else it needs |
 | Notifier | none | does not exist yet |
 
 Everything else is `internal` or documented as unstable. Many types are still `public` in the code; narrowing them is not part of a change that must not alter behavior, and no type outside the table carries a stability promise.
