@@ -28,8 +28,9 @@ public sealed record TaskLimits(long MaxTokens, decimal? MaxUsd);
 /// <param name="SplitFrom">Set when the planning step made this task out of a larger one (ADR 0049): the id of that task, which the chain's last link keeps.</param>
 /// <param name="SizeFrom"><c>plan</c> when <paramref name="Size"/> is the planning step's estimate; null: the caller's (or no size at all). The learning record says which.</param>
 /// <param name="Runner">The runner the task runs on (ADR 0058): set from the batch state for a task a restart took up, so it stays where its session is, and by the scheduler when it places a new one.</param>
+/// <param name="Title">The request's title for the task's pull request; null: <see cref="PullRequestTitle.FromGoal"/> makes one.</param>
 public sealed record ResolvedTask(string Id, string? Ref, string Goal, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null, ContinuedFrom? From = null,
-    IReadOnlyList<string>? DependsOn = null, IReadOnlyList<UpstreamWork>? Upstream = null, string? SplitFrom = null, string? SizeFrom = null, string? Runner = null);
+    IReadOnlyList<string>? DependsOn = null, IReadOnlyList<UpstreamWork>? Upstream = null, string? SplitFrom = null, string? SizeFrom = null, string? Runner = null, string? Title = null);
 
 /// <summary>A finished task a later one starts from (ADR 0049): its last session, whose output volume holds the bundle of its branch, and the branch and pull request it ended in.</summary>
 /// <param name="Runner">The runner whose engine holds that session's output volume (ADR 0058); null: the only one.</param>

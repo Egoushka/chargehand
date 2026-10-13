@@ -63,7 +63,7 @@ public sealed class ContinuationSource(IRunLog log)
                 : $"\n\nIts work so far is on this branch, {kept.Commits} commit(s) past {kept.Base} (the last may be 'WIP: ...'). Read `git log` and `git diff {kept.Base}..HEAD` first, keep what works, "
                     + "do not redo finished work, finish the task, run the tests, and end with the same report block.");
         var runner = row.TryGetProperty("runner", out var ranOn) && ranOn.ValueKind == JsonValueKind.String ? ranOn.GetString() : null;
-        return new ResolvedTask(task.Id, null, goal.ToString(), task.MaxTurns, task.MaxMinutes, task.Size, task.BudgetUsd, new ContinuedFrom(lastRun!, kept, pushed, runner));
+        return new ResolvedTask(task.Id, null, goal.ToString(), task.MaxTurns, task.MaxMinutes, task.Size, task.BudgetUsd, new ContinuedFrom(lastRun!, kept, pushed, runner), Title: task.Title);
     }
 
     /// <summary>The branch of a task that pushed it, from the <c>branch</c> artifact of its result; null when it has none or cannot be read.</summary>

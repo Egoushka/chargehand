@@ -62,6 +62,7 @@
               "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" },
               "ref": { "type": "string", "minLength": 1, "maxLength": 128, "description": "A tracker item id, resolved through the profile's task source." },
               "goal": { "type": "string", "minLength": 1, "description": "Free text: what the change should do." },
+              "title": { "type": "string", "minLength": 1, "maxLength": 200, "description": "The title of the task's pull request, one line (the server refuses a line break). Left out, the title is the goal's first sentence cut at a word to 72 characters, without its closing punctuation. The pull request body holds the whole goal either way." },
               "max_turns": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Assistant messages after which a session of this task is stopped; replaces the preset's max_turns for this task." },
               "max_minutes": { "type": "integer", "minimum": 1, "maximum": 480, "description": "Wall clock of one session of this task; replaces the preset's max_minutes for this task." },
               "size": { "enum": ["S", "M", "L"], "description": "The task's size class: the governor holds it to that class's budget (ADR 0045). Default M." },

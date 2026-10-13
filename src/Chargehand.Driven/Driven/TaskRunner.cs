@@ -299,11 +299,11 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             var handoverRun = partial ? (best!.RunId, best.OutDirectory) : (runId, outDirectory);
             HandoverOutcome? handed = null;
             if (finished)
-                handed = await HandOverAsync(task, handoverRun, branch, Title(task.Goal), $"{DrivenReport.Parse(reportJson!)!.Summary}\n\nTask: {task.Id}{ContinuationNote(continuation)}", partial: false, stack, ct);
+                handed = await HandOverAsync(task, handoverRun, branch, PullRequestTitle.Of(task.Title, task.Goal), $"{DrivenReport.Parse(reportJson!)!.Summary}\n\nTask: {task.Id}{ContinuationNote(continuation)}{GoalSection(task.Goal)}", partial: false, stack, ct);
             else if (partial)
             {
                 await RestoreBundleAsync(handoverRun.Item1, ct);
-                handed = await HandOverAsync(task, handoverRun, branch, $"[partial] {Title(task.Goal)}", PartialBody(task, session, total, continuation, startFailure, ReadProgress(outDirectory)), partial: true, stack, ct);
+                handed = await HandOverAsync(task, handoverRun, branch, $"[partial] {PullRequestTitle.Of(task.Title, task.Goal)}", PartialBody(task, session, total, continuation, startFailure, ReadProgress(outDirectory)), partial: true, stack, ct);
             }
 
             lastHead = handed is { Status: HandoverStatus.Pushed or HandoverStatus.PrFailed } ? handed.Commit : null;
@@ -426,7 +426,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             progress.Report(Capped(fixSum.InputTokens + fixSum.OutputTokens + total.InputTokens + total.OutputTokens, settings.Priced ? (fixSum.CostUsd ?? 0) + (total.CostUsd ?? 0) : 0, ended: true));
             if (session is not { Status: SessionStatus.Completed, BundleWritten: true } || session.Commits <= seededCommits)
                 return new CiFixResult(false, session.Status == SessionStatus.Completed ? "the session made no new commit" : $"the session ended {StopReason(session)}");
-            var fixHandover = await handover.RunAsync(new HandoverInput(fixRun, outDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, settings.BaseBranch, Title(task.Goal),
+            var fixHandover = await handover.RunAsync(new HandoverInput(fixRun, outDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, settings.BaseBranch, PullRequestTitle.Of(task.Title, task.Goal),
                 $"CI fix attempt {request.Attempt}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
                 Report: e => { if (e.Kind != RunEventKind.PrOpened) Publish(task.Id, e.Kind, e.Detail, s => s with { Branch = e.Kind == RunEventKind.Pushed ? branch : null }); }), token);
             if (fixHandover.Status == HandoverStatus.NotPushed)
@@ -594,6 +594,11 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         }
     }
 
+    private const int GoalInBody = 12000;
+
+    /// <summary>The whole goal, for the pull request body: the title is only its first sentence.</summary>
+    private static string GoalSection(string goal) => "\n\nGoal:\n\n" + (goal.Length <= GoalInBody ? goal.Trim() : goal[..GoalInBody].TrimEnd() + "\n[goal truncated]");
+
     private static string Truncated(string text, int max) => text.Length <= max ? text : text[..max].TrimEnd() + "\n\n[handoff truncated]";
 
     private static string PartialBody(ResolvedTask task, SessionOutcome last, SessionOutcome total, int continuation, string? startFailure, string? progress)
@@ -607,6 +612,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             body.Append("\n\nA further session could not be started: ").Append(startFailure).Append('.');
         if (last.SnapshotNote is { Length: > 0 } note)
             body.Append("\n\nNot everything the session wrote is on this branch: ").Append(note).Append('.');
+        body.Append(GoalSection(task.Goal));
         if (progress is not null)
             body.Append("\n\n---\n\n").Append(Truncated(progress, ProgressInBody));
         return body.ToString();
@@ -1073,12 +1079,6 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         span.SetTag("chargehand.task.wall_seconds", Math.Round((DateTimeOffset.UtcNow - started).TotalSeconds, 1));
         if (outcome.State != TaskState.Completed)
             span.SetStatus(ActivityStatusCode.Error, outcome.Detail);
-    }
-
-    private static string Title(string goal)
-    {
-        var line = goal.Split('\n', 2)[0].Trim();
-        return line.Length > 72 ? line[..72].TrimEnd() : line;
     }
 
     private static void DeleteQuietly(string directory)
