@@ -1,0 +1,114 @@
+/* The task view, in the drawer and as a page. */
+.task {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.task[data-mode="drawer"] {
+  height: 100%;
+}
+
+.task__head {
+  display: grid;
+  flex: none;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.task__id {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+
+.task__body {
+  display: grid;
+  flex: 1;
+  gap: var(--space-5);
+  align-content: start;
+  min-height: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.task[data-mode="page"] .task__body {
+  overflow: visible;
+}
+
+.task__foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* What the person or the session wrote, set apart from the screen's own words. */
+.quote {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+@media (max-width: 767px) {
+  .quote {
+    font-size: 15px;
+    line-height: 22px;
+  }
+}
+
+.task__goal {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.task__summary {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.task__facts {
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.fact {
+  display: grid;
+  gap: 2px;
+}
+
+.task__files {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.task__events {
+  max-height: 260px;
+}
+
+.card__sent {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--ok-text);
+}
+
+.page-task {
+  max-width: 880px;
+}

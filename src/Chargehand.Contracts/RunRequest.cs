@@ -53,8 +53,9 @@ public sealed record RequestDriven(
 /// <param name="Answers">Answers to the questions an earlier session of the task named by <paramref name="ContinueFrom"/> asked; they go into the goal verbatim (ADR 0045).</param>
 /// <param name="ContinueFrom">An earlier batch's task that ended <c>needs_input</c> or stopped with work kept: this task starts from that task's branch and takes its goal, so it needs neither <c>goal</c> nor <c>ref</c>.</param>
 /// <param name="DependsOn">Ids of tasks of this batch that must end <c>completed</c> first; the task starts from their branches (ADR 0049). Null or empty: independent.</param>
+/// <param name="Title">The title of the task's pull request, one line; null: the goal's first sentence, cut to 72 characters. The pull request body holds the whole goal either way.</param>
 public sealed record DrivenTask(string Id, string? Ref = null, string? Goal = null, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null,
-    IReadOnlyList<string>? Answers = null, ContinueFrom? ContinueFrom = null, IReadOnlyList<string>? DependsOn = null);
+    IReadOnlyList<string>? Answers = null, ContinueFrom? ContinueFrom = null, IReadOnlyList<string>? DependsOn = null, string? Title = null);
 
 /// <param name="RunId">The earlier batch's run id.</param>
 /// <param name="TaskId">The task's id in that batch.</param>
@@ -69,6 +70,8 @@ public static class DrivenRules
             .Concat(driven.Tasks.Where(t => t.MaxMinutes is < 1 or > MaxMinutesCeiling).Select(t => $"task '{t.Id}': max_minutes must be 1 to {MaxMinutesCeiling}"))
             .Concat(driven.Tasks.Where(t => t.Size is not (null or "S" or "M" or "L")).Select(t => $"task '{t.Id}': size must be S, M or L"))
             .Concat(driven.Tasks.Where(t => t.BudgetUsd is <= 0).Select(t => $"task '{t.Id}': budget_usd must be above 0"))
+            .Concat(driven.Tasks.Where(t => t.Title is not null && (string.IsNullOrWhiteSpace(t.Title) || t.Title.Length > MaxTitleLength || t.Title.AsSpan().ContainsAny('\r', '\n')))
+                .Select(t => $"task '{t.Id}': title must be one line of 1 to {MaxTitleLength} characters"))
             .Concat(driven.Tasks.Where(t => t.Answers is not null && t.ContinueFrom is null).Select(t => $"task '{t.Id}': answers need continue_from"))
             .Concat(driven.Tasks.Where(t => t.ContinueFrom is not null && (t.Goal is not null || t.Ref is not null)).Select(t => $"task '{t.Id}': continue_from takes the earlier task's goal; leave out goal and ref"))
             .Concat(driven.Tasks.Where(t => t.Answers?.Any(string.IsNullOrWhiteSpace) == true).Select(t => $"task '{t.Id}': answers must not be empty"))
@@ -134,6 +137,8 @@ public static class DrivenRules
     public const int MaxTurnsCeiling = 1000;
 
     public const int MaxMinutesCeiling = 480;
+
+    public const int MaxTitleLength = 200;
 
     /// <summary>All problems of a request that carries <c>driven</c>: duplicate task ids and a missing <c>context.repository</c>.</summary>
     public static IReadOnlyList<string> Problems(RunRequest request)

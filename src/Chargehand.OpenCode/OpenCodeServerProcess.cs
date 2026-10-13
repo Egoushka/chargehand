@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
 namespace Chargehand.OpenCode;
 

@@ -2,6 +2,7 @@ using Chargehand.Automation;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 
 namespace Chargehand.Tests;
@@ -10,6 +11,7 @@ namespace Chargehand.Tests;
 internal sealed class FakeGitHub : IIntakeHost
 {
     private long _next = 1000;
+    private readonly HashSet<int> _pullQueued = [];
 
     public List<IntakeIssue> Issues { get; } = [];
 
@@ -49,6 +51,40 @@ internal sealed class FakeGitHub : IIntakeHost
 
     public Task<IReadOnlyList<IntakeComment>> CommentsSinceAsync(string repository, DateTimeOffset since, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<IntakeComment>>([.. Comments.Where(c => c.UpdatedAt >= since)]);
+
+    public Dictionary<int, IntakePull> Pulls { get; } = [];
+
+    public List<ReviewComment> ReviewComments { get; } = [];
+
+    public int PullReads { get; private set; }
+
+    /// <summary>A pull request GitHub answers 500 for once the first reads (the queueing) are done.</summary>
+    public int? PullFails { get; set; }
+
+    public Task<IntakePull> GetPullAsync(string repository, int number, CancellationToken ct)
+    {
+        PullReads++;
+        if (PullFails == number && PullReads > 1 && _pullQueued.Contains(number))
+            throw new IntakeException("GitHub answered 500 to the pull request", 500);
+        _pullQueued.Add(number);
+        return Task.FromResult(Pulls.TryGetValue(number, out var pull) ? pull : throw new IntakeException("GitHub answered 404 to the pull request", 404));
+    }
+
+    public Task<IReadOnlyList<ReviewComment>> ReviewCommentsSinceAsync(string repository, DateTimeOffset since, CancellationToken ct)
+    {
+        Check(repository);
+        return Task.FromResult<IReadOnlyList<ReviewComment>>([.. ReviewComments.Where(c => c.UpdatedAt >= since)]);
+    }
+
+    public Task<IReadOnlyList<string>> CommentBodiesAsync(string repository, int number, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<string>>([.. Comments.Where(c => c.IssueNumber == number).OrderBy(c => c.Id).Select(c => c.Body)]);
+
+    public long AddReview(int pull, string author, string body, string path, int? line, bool reply, DateTimeOffset at)
+    {
+        var id = _next++;
+        ReviewComments.Add(new ReviewComment(id, pull, author, body, path, line, reply, at));
+        return id;
+    }
 
     public Task<long> CommentAsync(string repository, int number, string body, CancellationToken ct)
     {
@@ -108,6 +144,26 @@ internal sealed class FakeRunLog : IRunLog
         _runs[run] = new RunRecord(run, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "driven", null, null,
             DrivenResult.BuildBatch(run, "trace", "", new BatchOutcome([new TaskOutcome("t", TaskState.NeedsInput)], null), "environment", false, "1.0") with { OpenQuestions = questions });
 
+    /// <summary>The own run of a task, as the driver writes it: a child of its batch, with the branch it pushed.</summary>
+    public void TaskRun(string run, string batch, string branch, string summary = "Added the retry.")
+    {
+        _starts[run] = new StartRecord(run, DateTimeOffset.UtcNow, "trace", Runs.DraftRequest(), Environment.ProcessId, batch, ProcessBoot.Id);
+        var result = DrivenResult.BuildBatch(run, "trace", "", new BatchOutcome([IntakeRig.Pr()], null), "environment", false, "1.0");
+        _runs[run] = new RunRecord(run, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "driven", null, null, result with
+        {
+            Summary = summary,
+            Artifacts = [Inline("branch", new { branch, commit = "def5678", @base = "abc1234def5678abc1234def5678abc1234def56", pushed = true })],
+        });
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions SnakeCase = new() { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower };
+
+    private static Artifact Inline(string kind, object value)
+    {
+        var content = System.Text.Json.JsonSerializer.Serialize(value, SnakeCase);
+        return new Artifact(kind, "application/json", Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(content))), Content: content);
+    }
+
     public void Forget(string run) => _starts.Remove(run);
 
     public Task AppendAsync(StartRecord record, CancellationToken ct) => Task.CompletedTask;
@@ -118,7 +174,20 @@ internal sealed class FakeRunLog : IRunLog
 
     public Task<RunEntry> ReadAsync(string runId, CancellationToken ct) => Task.FromResult(new RunEntry(_starts.GetValueOrDefault(runId), _runs.GetValueOrDefault(runId), []));
 
-    public Task<IReadOnlyList<RunSummary>> ListAsync(RunListQuery query, CancellationToken ct) => throw new NotSupportedException();
+    public Task<IReadOnlyList<RunSummary>> ListAsync(RunListQuery query, CancellationToken ct) => Task.FromResult<IReadOnlyList<RunSummary>>([.. _starts.Values.Select(start =>
+    {
+        _runs.TryGetValue(start.RunId, out var run);
+        return new RunSummary("run-summary/v1", start.RunId, run is null ? RunState.Running : RunStatus.StateOf(run.Result.Status), start.Request.Context.Preset, start.Started, start.ParentRunId,
+            Branch: Branch(run?.Result));
+    }).OrderByDescending(r => r.StartedAt).Take(query.Limit)]);
+
+    private static string? Branch(ResultContract? result)
+    {
+        if (result?.Artifacts.FirstOrDefault(a => a.Kind == "branch")?.Content is not { } content)
+            return null;
+        using var doc = System.Text.Json.JsonDocument.Parse(content);
+        return doc.RootElement.GetProperty("branch").GetString();
+    }
 }
 
 /// <summary>Intake wired to fakes, with its state in a file so a restart can be tried.</summary>
@@ -159,6 +228,9 @@ internal sealed class IntakeRig : IDisposable
 
     private string StatePath => Path.Combine(_dir.Path, "intake", "github.json");
 
+    /// <summary>The state file itself, for a test that checks what is written to disk.</summary>
+    public string StateFile => StatePath;
+
     public IntakeState State => IntakeState.Load(StatePath);
 
     private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy);
@@ -187,6 +259,22 @@ internal sealed class IntakeRig : IDisposable
         var issue = Issue(number, title, updated: Now);
         GitHub.Issues.Add(issue);
         return issue;
+    }
+
+    /// <summary>A pull request chargehand opened for <paramref name="branch"/> (a task's pull request), open and in the repository itself.</summary>
+    public IntakePull Pull(int number, string branch = "chargehand/task-run", bool open = true, string? headRepository = null)
+    {
+        var pull = new IntakePull(number, branch, headRepository ?? Repo, Repo, open);
+        GitHub.Pulls[number] = pull;
+        GitHub.Issues.RemoveAll(i => i.Number == number);
+        GitHub.Issues.Add(new IntakeIssue(number, "A pull request", "", "chargehand[bot]", true, [], Now));
+        return pull;
+    }
+
+    public long Review(int pull, string author, string body, string path = "src/Retry.cs", int? line = 12, bool reply = false)
+    {
+        Time.Advance(TimeSpan.FromSeconds(1));
+        return GitHub.AddReview(pull, author, body, path, line, reply, Now);
     }
 
     public long Comment(int issue, string author, string body)

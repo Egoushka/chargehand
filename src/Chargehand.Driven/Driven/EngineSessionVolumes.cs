@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Chargehand.Containers;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
 namespace Chargehand.Driven;
 
@@ -51,6 +52,14 @@ public sealed class EngineSessionVolumes(IOutVolumeEngine engine, string image) 
         {
             return null;
         }
+    }
+
+    public async Task<byte[]?> ReadTranscriptTailAsync(string runId, int maxBytes, CancellationToken ct)
+    {
+        if (engine is not IOutTailEngine tailer)
+            return null;
+        using var buffer = new MemoryStream();
+        return await tailer.ReadOutTailAsync(Spec(runId, ContainerTemplate.TranscriptFile), Math.Clamp(maxBytes, 1, ContainerTemplate.MaxTailBytes), buffer, ct) ? buffer.ToArray() : null;
     }
 
     private OutFileSpec Spec(string runId, string name) => new(runId, image, RunnerNames.Out(runId), name);

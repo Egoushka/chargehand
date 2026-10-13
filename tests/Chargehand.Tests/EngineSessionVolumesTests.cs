@@ -3,6 +3,7 @@ using System.Text.Json;
 using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Kernel;
 
 namespace Chargehand.Tests;
 
@@ -64,7 +65,7 @@ public class EngineSessionVolumesTests
         Assert.Equal(new byte[] { 0, 1, 2, 255 }, File.ReadAllBytes(System.IO.Path.Combine(dir.Path, "chargehand.bundle")));
         Assert.Equal("{}", File.ReadAllText(System.IO.Path.Combine(dir.Path, "session-outcome.json")));
         Assert.False(File.Exists(System.IO.Path.Combine(dir.Path, "driven-report.json")));
-        Assert.Equal(["chargehand.bundle", "driven-report.json", "handoff.json", "progress.md", "session-outcome.json"], engine.Specs.Select(s => s.Name).Order());     // the usage file is a poll, not an output
+        Assert.Equal(["chargehand.bundle", "driven-report.json", "governor.jsonl", "handoff.json", "progress.md", "session-outcome.json"], engine.Specs.Select(s => s.Name).Order());     // the usage file is a poll, not an output
     }
 
     [Fact]
@@ -78,6 +79,21 @@ public class EngineSessionVolumesTests
 
         Assert.Equal("""{"version":1}""", File.ReadAllText(System.IO.Path.Combine(dir.Path, "handoff.json")));
         Assert.Equal("# Handoff", File.ReadAllText(System.IO.Path.Combine(dir.Path, "progress.md")));
+    }
+
+    [Fact]
+    public async Task The_governors_log_comes_out_with_the_rest_and_a_runner_that_does_not_know_it_costs_the_task_nothing()
+    {
+        var engine = new FakeOut();
+        engine.Files["governor.jsonl"] = """{"signal":"spend"}"""u8.ToArray();
+        using var dir = new TempDir();
+        await new EngineSessionVolumes(engine, Image).FetchOutputAsync("run1", dir.Path, default);
+        Assert.Equal("""{"signal":"spend"}""", File.ReadAllText(System.IO.Path.Combine(dir.Path, "governor.jsonl")));
+
+        var older = new FakeOut { Refuse = name => name == "governor.jsonl" ? $"the runner refused GET /out/run1/{name}?image=x: 403 the runner reads only chargehand.bundle" : null };
+        using var other = new TempDir();
+        await new EngineSessionVolumes(older, Image).FetchOutputAsync("run1", other.Path, default);
+        Assert.False(File.Exists(System.IO.Path.Combine(other.Path, "governor.jsonl")));
     }
 
     [Fact]

@@ -1,0 +1,271 @@
+/* Charts: the frame, legend, tooltip, the uPlot box and the SVG marks. Every colour is a design-system token; a series paints
+   through --key, which its data-slot sets (slot 0 is "Other", the grey; 1 to 8 are --chart-1 to --chart-8). */
+
+:is(.chart-key, .tip__row, .mark)[data-slot="0"] {
+  --key: var(--neutral-9);
+}
+:is(.chart-key, .tip__row, .mark)[data-slot="1"] {
+  --key: var(--chart-1);
+}
+:is(.chart-key, .tip__row, .mark)[data-slot="2"] {
+  --key: var(--chart-2);
+}
+:is(.chart-key, .tip__row, .mark)[data-slot="3"] {
+  --key: var(--chart-3);
+}
+:is(.chart-key, .tip__row, .mark)[data-slot="4"] {
+  --key: var(--chart-4);
+}
+:is(.chart-key, .tip__row, .mark)[data-slot="5"] {
+  --key: var(--chart-5);
+}
+:is(.chart-key, .tip__row, .mark)[data-slot="6"] {
+  --key: var(--chart-6);
+}
+:is(.chart-key, .tip__row, .mark)[data-slot="7"] {
+  --key: var(--chart-7);
+}
+:is(.chart-key, .tip__row, .mark)[data-slot="8"] {
+  --key: var(--chart-8);
+}
+
+.chart-frame {
+  display: grid;
+  /* A table wider than the panel scrolls in its own box; it must not widen the column and the chart with it. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.chart-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chart-legend__item > span {
+  overflow-wrap: anywhere;
+}
+
+.chart-key {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--key, var(--chart-1));
+}
+
+.chart-note {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.chart-actions {
+  display: flex;
+}
+
+.chart-table-box {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+}
+
+.chart-table {
+  min-width: var(--min-w);
+}
+
+/* ---------- the uPlot box ---------- */
+.timechart {
+  position: relative;
+  min-width: 0;
+  transition: opacity 0.15s;
+}
+
+/* Refetching keeps the plot where it is, dimmed: no skeleton, no jump. */
+.is-stale {
+  opacity: 0.55;
+}
+
+.timechart__plot {
+  line-height: 0;
+}
+
+.timechart .uplot {
+  width: auto;
+}
+
+.timechart .u-over {
+  cursor: default;
+}
+
+.timechart__band {
+  position: absolute;
+  top: var(--y);
+  left: var(--x);
+  width: var(--w);
+  height: var(--h);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  pointer-events: none;
+}
+
+/* ---------- tooltip ---------- */
+.chart-tip {
+  position: absolute;
+  top: var(--y);
+  left: var(--x);
+  z-index: var(--z-popover);
+  max-width: 280px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-2);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+  pointer-events: none;
+  transform: translateX(12px);
+}
+
+.chart-tip[data-side="left"] {
+  transform: translateX(calc(-100% - 12px));
+}
+
+.tip {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  color: var(--text);
+  font: 400 12px / 16px var(--font-sans);
+  text-align: left;
+}
+
+.tip__title {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.tip__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.tip__row--total {
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px solid var(--border);
+}
+
+.tip__key {
+  flex: none;
+  align-self: center;
+  width: 10px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--key);
+}
+
+.tip__value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tip__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+}
+
+.tip__source {
+  margin-top: 4px;
+  color: var(--text-subtle);
+  font: 400 11px / 14px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- SVG marks: x positions are percents of the plot, y positions are pixels ---------- */
+.plot {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+.plot .hit {
+  fill: none;
+  pointer-events: all;
+}
+
+.plot .gridline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.plot .baseline {
+  stroke: var(--border-hover);
+  stroke-width: 1;
+}
+
+.plot .whisker {
+  stroke: var(--text-muted);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.plot .dot {
+  fill: var(--key, var(--chart-1));
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.plot .dot--ink {
+  fill: var(--text);
+}
+
+.plot .bar {
+  fill: var(--key, var(--chart-1));
+}
+
+.plot .rule {
+  stroke: var(--text);
+  stroke-width: 2;
+}
+
+.plot text {
+  fill: var(--text-subtle);
+  font: 400 11px / 14px var(--font-sans);
+}
+
+.mark {
+  cursor: default;
+  outline: none;
+}
+
+.mark:hover .dot,
+.mark:focus-visible .dot {
+  stroke: var(--text);
+}
+
+.mark:hover .bar,
+.mark:focus-visible .bar {
+  stroke: var(--text);
+  stroke-width: 1;
+}
+
+.mark:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

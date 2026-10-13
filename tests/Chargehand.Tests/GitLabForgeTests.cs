@@ -270,7 +270,7 @@ public class GitLabForgeTests
     public async Task Marking_ready_takes_the_draft_prefix_off_the_title(string title, string ready)
     {
         var handler = new Canned((request, _) => Json(request.Method == HttpMethod.Get ? MergeRequest(title: title) : "{}"));
-        await Forge(handler).MarkReadyAsync("group/sub/project!7", default);
+        await Forge(handler).MarkReadyAsync(Repo, "group/sub/project!7", default);
 
         Assert.Equal([(HttpMethod.Get, $"{Project}/merge_requests/7"), (HttpMethod.Put, $"{Project}/merge_requests/7")], handler.Requests.Select(r => (r.Method, Path(r))).ToArray());
         using var doc = JsonDocument.Parse(handler.Requests[1].Body!);
@@ -281,7 +281,7 @@ public class GitLabForgeTests
     public async Task A_merge_request_that_is_ready_is_left_alone()
     {
         var handler = new Canned((_, _) => Json(MergeRequest(title: "Add a retry", draft: false)));
-        await Forge(handler).MarkReadyAsync("group/sub/project!7", default);
+        await Forge(handler).MarkReadyAsync(Repo, "group/sub/project!7", default);
 
         Assert.Single(handler.Requests);
     }
@@ -293,7 +293,7 @@ public class GitLabForgeTests
     public async Task A_handle_that_is_not_a_project_and_a_number_is_refused(string handle)
     {
         var handler = new Canned((_, _) => Json("{}"));
-        await Assert.ThrowsAsync<IntegrationException>(() => Forge(handler).MarkReadyAsync(handle, default));
+        await Assert.ThrowsAsync<IntegrationException>(() => Forge(handler).MarkReadyAsync(Repo, handle, default));
         Assert.Empty(handler.Requests);
     }
 
@@ -301,7 +301,7 @@ public class GitLabForgeTests
     public async Task Auto_merge_is_squash_on_the_pipeline_pinned_to_the_head_commit()
     {
         var handler = new Canned((_, _) => Json("{}"));
-        await Forge(handler).EnableAutoMergeAsync("group/sub/project!7", "abc1234", default);
+        await Forge(handler).EnableAutoMergeAsync(Repo, "group/sub/project!7", "abc1234", default);
 
         var seen = Assert.Single(handler.Requests);
         Assert.Equal((HttpMethod.Put, $"{Project}/merge_requests/7/merge", Token, null), (seen.Method, Path(seen), seen.Token, seen.Authorization));
@@ -358,7 +358,7 @@ public class GitLabForgeTests
     public async Task A_refused_call_is_an_integration_exception_without_the_token(HttpStatusCode status)
     {
         var handler = new Canned((_, _) => Json($$"""{"message":"405 Method Not Allowed {{Token}}"}""", status));
-        var e = await Assert.ThrowsAsync<IntegrationException>(() => Forge(handler).EnableAutoMergeAsync("group/sub/project!7", "abc1234", default));
+        var e = await Assert.ThrowsAsync<IntegrationException>(() => Forge(handler).EnableAutoMergeAsync(Repo, "group/sub/project!7", "abc1234", default));
 
         Assert.Contains($"GitLab answered {(int)status} to enabling auto-merge", e.Message);
         Assert.DoesNotContain(Token, e.Message);

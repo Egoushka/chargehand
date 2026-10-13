@@ -1,7 +1,24 @@
 # Benchmarks and exit checks
 
 Measurements taken at each roadmap phase exit. The [changelog](../CHANGELOG.md) says what changed; this file says how
-it performed. Repositories behind the benchmarks are private, so each entry names the setup, not the code.
+it performed. Repositories behind the phase benchmarks are private, so each entry names the setup, not the code; the quality benchmark below runs on public ones.
+
+## Quality benchmark on public repositories (CHARGEHAND-206)
+
+Status: the harness is built; **no real run has been made**, so there is no result to report. `chargehand bench run benchmarks/core.json` runs 13 tasks over four pinned public repositories through driven batches and reports pass rate overall, by size and by ecosystem, honest stops, the question tasks, spend and turns per task, continuations, the governor's decisions with the false-stop rate [ADR 0045](adr/0045-governed-sessions.md) needs, test-integrity flags and wall time. The setup, the definitions and the cost estimate are in the [guide](guide/benchmark.md) and [ADR 0052](adr/0052-quality-benchmark-on-public-repositories.md). Unlike the entries below, these repositories are public: the pins, goals and checks are in `benchmarks/`.
+
+| Repository (pin) | Ecosystem | Tasks |
+|---|---|---|
+| `ardalis/GuardClauses` (`f96b823e4228`) | dotnet | 3 (1 change, 1 question, 1 impossible) |
+| `tj/commander.js` (`ba6d13ddb424`) | node | 4 (3 change, 1 question) |
+| `more-itertools/more-itertools` (`b21ec4ee8e13`) | python | 3 (2 change, 1 impossible) |
+| `JodaOrg/joda-money` (`39d5bbf91c01`) | maven | 3 (2 change, 1 impossible) |
+
+Checked on 2026-10-13 without a model: the pins exist upstream; every acceptance check fails on its pin and passes against a reference implementation; each repository's test command passes on its pin (joda-money 47 s, commander.js 53 s, more-itertools 63 s, GuardClauses 45 s). Not yet: a `--baseline` or a run in the session image.
+
+| Run | Date | Pass rate | Honest stops | False-stop rate | Tokens (in + out) | Dollar equivalent |
+|---|---|---|---|---|---|---|
+| none yet | | | | | | |
 
 ## Phase 5 exit (0.1.0)
 

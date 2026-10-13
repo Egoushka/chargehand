@@ -1,3 +1,5 @@
+using Chargehand.Kernel;
+
 namespace Chargehand.Containers;
 
 /// <summary><c>chargehand runs kill --all</c>: removes every driven-session container, and the networks made for them, by their label (ADR 0039).

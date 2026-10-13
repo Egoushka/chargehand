@@ -1,6 +1,6 @@
 # 0043. Driven batches survive a server restart
 
-- Status: accepted
+- Status: accepted; its state model (snapshot, labels, sweep) is being replaced by 0061
 - Date: 2026-10-12
 
 ## Context

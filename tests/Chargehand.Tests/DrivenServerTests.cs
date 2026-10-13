@@ -57,7 +57,7 @@ public class DrivenServerTests
         var runtime = new ScriptedRuntime(Runs.DraftReply) { Hold = new() };
         await using var s = await TestServer.StartAsync(runtime);
         var id = (await Body(await s.PostAsync(Runs.DraftRequest(), waitSeconds: 0))).GetProperty("run_id").GetString();
-        await s.Log.AppendAsync(new Chargehand.RunLog.StartRecord("run-dead", DateTimeOffset.UtcNow, new string('0', 32), Runs.DraftRequest(), int.MaxValue), CancellationToken.None);
+        await s.Log.AppendAsync(new Chargehand.Modules.Ledger.Api.StartRecord("run-dead", DateTimeOffset.UtcNow, new string('0', 32), Runs.DraftRequest(), int.MaxValue), CancellationToken.None);
         var statuses = (await Body(await s.Http.GetAsync("/v1/runs"))).GetProperty("runs").EnumerateArray().ToDictionary(r => r.GetProperty("run_id").GetString()!, r => r.GetProperty("status").GetString());
         Assert.Equal("running", statuses[id!]);
         Assert.Equal("lost", statuses["run-dead"]);

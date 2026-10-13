@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
 namespace Chargehand.Signing;
 

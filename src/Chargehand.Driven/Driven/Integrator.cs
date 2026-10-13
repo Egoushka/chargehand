@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Chargehand.Config;
 
 namespace Chargehand.Driven;
@@ -21,6 +22,16 @@ public sealed record CiFixResult(bool Pushed, string Detail);
 
 /// <summary>Runs a short session on the pull request's branch and pushes what it fixed; supplied by <see cref="TaskRunner"/>, which owns the containers.</summary>
 public delegate Task<CiFixResult> CiFixSession(CiFixRequest request, CancellationToken ct);
+
+/// <summary>One look at a pull request during <see cref="Integrator.FollowAsync"/>: the checks as the forge listed them, and what the CI fixer's policy made of them.</summary>
+/// <param name="Decision"><c>wait</c>, <c>done</c>, <c>fix</c> or <c>give_up</c> (<see cref="CiFixAction"/>), or <c>merged</c> or <c>closed</c> for the look that ended the watch.</param>
+public sealed record CheckObservation(DateTimeOffset At, string HeadSha, string MergeStatus, bool IsDraft, bool AutoMerge, IReadOnlyList<CheckStatus> Checks, string Decision);
+
+/// <summary>A CI fix attempt as the integrator ran it: the failing required checks it was for, and whether its commits reached the branch.</summary>
+public sealed record CiAttemptObservation(DateTimeOffset At, int Attempt, int MaxAttempts, string JobsKey, IReadOnlyList<string> Failing, bool Pushed, string Detail);
+
+/// <summary>Told what <see cref="Integrator.FollowAsync"/> sees, so it can be kept (CHARGEHAND-214). Nothing it does depends on the callbacks.</summary>
+public sealed record IntegrationWatch(Action<CheckObservation>? Checks = null, Action<CiAttemptObservation>? Attempt = null);
 
 /// <summary>What chargehand does with a pull request after a task's handover opened it (ADR 0046), as the GitHub App (on GitLab, with the forge token), for the repositories the profile lists. <see cref="IntegrateAsync"/> brings the
 /// branch up to date, marks the draft ready and merges it by policy; <see cref="FollowAsync"/> then watches the required checks and, when one fails, has a short session fix it, within a fixed number of
@@ -61,8 +72,9 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
         _ => null,
     };
 
-    /// <summary>Update the branch if it is behind, mark it ready, then merge or ask. A failure of GitHub is a result, not an exception: the pull request is there either way.</summary>
-    public async Task<IntegrationResult> IntegrateAsync(IntegrationTarget target, Action<string> report, CancellationToken ct)
+    /// <summary>Update the branch if it is behind, mark it ready, then merge or ask. A failure of GitHub is a result, not an exception: the pull request is there either way.
+    /// <paramref name="headMoved"/> gets the new head when chargehand's own branch update moved it, so the learning record knows the commits on the branch are still chargehand's (ADR 0045).</summary>
+    public async Task<IntegrationResult> IntegrateAsync(IntegrationTarget target, Action<string> report, CancellationToken ct, Action<string>? headMoved = null)
     {
         var mode = ModeFor(target);
         if (mode == IntegrationMode.Off)
@@ -89,11 +101,12 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                 if (moved is null)
                     return Say(report, IntegrationAction.NeedsAttention, "the branch was behind its base and an update was requested, but its head has not moved yet; not merged");
                 report("the branch was behind its base and was updated");
+                headMoved?.Invoke(moved.HeadSha);
                 pr = moved;
             }
             if (pr.IsDraft)
             {
-                await host.MarkReadyAsync(pr.NodeId, ct);
+                await host.MarkReadyAsync(target.Repository, pr.NodeId, ct);
                 report("marked ready for review");
                 pr = await host.GetAsync(target.Repository, target.Number, ct);
             }
@@ -118,7 +131,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                 return await MergeNowAsync(target, pr.HeadSha, report, ct);
             try
             {
-                await host.EnableAutoMergeAsync(pr.NodeId, pr.HeadSha, ct);
+                await host.EnableAutoMergeAsync(target.Repository, pr.NodeId, pr.HeadSha, ct);
             }
             catch (IntegrationException)
             {
@@ -138,7 +151,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
 
     /// <summary>Watch the required checks of a pull request that <see cref="IntegrateAsync"/> handled. When some fail and every required check has finished, <paramref name="fix"/> runs a session on the branch,
     /// at most <see cref="DrivenCiFix.Attempts"/> times per pull request and never twice for the same failing jobs (<see cref="CiFixPolicy"/>); the count is read from the pull request's own comments.</summary>
-    public async Task<IntegrationResult> FollowAsync(IntegrationTarget target, CiFixSession fix, Action<string> report, CancellationToken ct)
+    public async Task<IntegrationResult> FollowAsync(IntegrationTarget target, CiFixSession fix, Action<string> report, CancellationToken ct, Action<string>? headMoved = null, IntegrationWatch? watch = null)
     {
         var mode = ModeFor(target);
         if (mode == IntegrationMode.Off || target.Partial)
@@ -146,27 +159,35 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
         var maxPolls = Math.Max(1, (int)(TimeSpan.FromMinutes(CiFix.Wait) / PollEvery));
         var polls = 0;
         string? fixedHead = null;
+        void Look(PrSnapshot pr, string decision) => watch?.Checks?.Invoke(new CheckObservation(DateTimeOffset.UtcNow, pr.HeadSha, pr.MergeStatus, pr.IsDraft, pr.AutoMerge, pr.Checks, decision));
         try
         {
             while (true)
             {
                 var pr = await host.GetAsync(target.Repository, target.Number, ct);
                 if (pr.Merged)
+                {
+                    Look(pr, "merged");
                     return Say(report, IntegrationAction.Merged, "merged");
+                }
                 if (pr.Closed)
+                {
+                    Look(pr, "closed");
                     return Say(report, IntegrationAction.None, "the pull request was closed");
+                }
                 var required = pr.Checks.Where(c => c.Required).ToList();
                 var failing = required.Where(c => c.Outcome == CheckOutcome.Failed).Select(c => c.Name).Distinct().ToList();
                 // No required check reported yet is "still waiting": a fresh head has none until its workflows start.
                 var pending = pr.HeadSha == fixedHead || required.Count == 0 || required.Any(c => c.Outcome == CheckOutcome.Pending);
                 var decision = CiFixPolicy.Decide(FixMarker.Parse(pr.Comments), failing, pending, CiFix.Attempts);
+                Look(pr, JsonNamingPolicy.SnakeCaseLower.ConvertName(decision.Action.ToString()));
                 if (decision.Action == CiFixAction.Done && required.Any(c => c.Outcome == CheckOutcome.Other))
                     return Say(report, IntegrationAction.NeedsAttention, "a required check ended without passing or failing (cancelled, or waiting for a person)");
                 if (decision.Action == CiFixAction.Done)
                 {
                     if (mode == IntegrationMode.Ask)
                         return Say(report, IntegrationAction.Asked, "required checks passed; left for a person to merge");
-                    if (!pr.AutoMerge && await IntegrateAsync(target, report, ct) is { Action: IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.NeedsAttention } done)
+                    if (!pr.AutoMerge && await IntegrateAsync(target, report, ct, headMoved) is { Action: IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.NeedsAttention } done)
                         return done;
                 }
                 else if (decision.Action is CiFixAction.Fix or CiFixAction.GiveUp && CiFix.Attempts == 0)
@@ -178,7 +199,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                 }
                 else if (decision.Action == CiFixAction.Fix)
                 {
-                    var result = await FixAsync(target, pr, failing, required, decision, fix, report, ct);
+                    var result = await FixAsync(target, pr, failing, required, decision, fix, report, watch, ct);
                     if (!result.Pushed)
                         return Say(report, IntegrationAction.NeedsAttention, $"CI fix attempt {decision.Attempt} pushed nothing: {result.Detail}");
                     report($"CI fix attempt {decision.Attempt} pushed: {result.Detail}");
@@ -196,7 +217,8 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
         }
     }
 
-    private async Task<CiFixResult> FixAsync(IntegrationTarget target, PrSnapshot pr, List<string> failing, List<CheckStatus> required, CiFixDecision decision, CiFixSession fix, Action<string> report, CancellationToken ct)
+    private async Task<CiFixResult> FixAsync(IntegrationTarget target, PrSnapshot pr, List<string> failing, List<CheckStatus> required, CiFixDecision decision, CiFixSession fix, Action<string> report,
+        IntegrationWatch? watch, CancellationToken ct)
     {
         // The marker goes up before the session starts, so an attempt that is cut short still counts.
         await host.CommentAsync(target.Repository, target.Number, $"{FixMarker.Attempt(new FixAttempt(decision.Attempt, decision.JobsKey))}\nchargehand is starting CI fix attempt {decision.Attempt} of {CiFix.Attempts}: {decision.Reason}.", ct);
@@ -219,7 +241,18 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
             jobs.Add(new FailedJob(name, tail));
         }
         var goal = CiFixGoal.Build(target.TaskGoal, target.Branch, decision.Attempt, CiFix.Attempts, jobs);
-        return await fix(new CiFixRequest(target, decision.Attempt, CiFix.Attempts, jobs, goal), ct);
+        CiFixResult result;
+        try
+        {
+            result = await fix(new CiFixRequest(target, decision.Attempt, CiFix.Attempts, jobs, goal), ct);
+        }
+        catch (Exception e) when (watch?.Attempt is not null)
+        {
+            watch.Attempt(new CiAttemptObservation(DateTimeOffset.UtcNow, decision.Attempt, CiFix.Attempts, decision.JobsKey, [.. failing], false, e is OperationCanceledException ? "cancelled" : e.Message));
+            throw;
+        }
+        watch?.Attempt?.Invoke(new CiAttemptObservation(DateTimeOffset.UtcNow, decision.Attempt, CiFix.Attempts, decision.JobsKey, [.. failing], result.Pushed, result.Detail));
+        return result;
     }
 
     private async Task<IntegrationResult> MergeNowAsync(IntegrationTarget target, string headSha, Action<string> report, CancellationToken ct)

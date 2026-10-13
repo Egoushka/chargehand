@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 using Chargehand.Results;
 using Chargehand.Verification;
 
@@ -177,24 +178,32 @@ public static class DrivenResult
     /// <param name="cancelledByCaller">The caller (not a shutdown) cancelled the batch.</param>
     /// <param name="CredentialDelivery">How the model credential reached the containers (<c>gateway</c>: a per-task token, the real credential only in the egress container; <c>environment</c>: the real credential in the session container's environment).</param>
     /// <param name="plan">What the planning step did (ADR 0049), as the <c>plan</c> artifact; null: it did not run.</param>
+    /// <param name="retro">What the retro after the batch did (ADR 0045), as the <c>retro</c> artifact; null: retros are off.</param>
     public static ResultContract BuildBatch(string runId, string traceId, string description, BatchOutcome outcome, string credentialDelivery, bool priced, string claudeVersion,
-        bool cancelledByCaller = false, BatchPlan? plan = null)
+        bool cancelledByCaller = false, BatchPlan? plan = null, BatchRetro? retro = null)
     {
         var chain = new PromptChain([], new AsSent($"claude-code/{claudeVersion}", "driven", "batch", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
-        var rows = outcome.Tasks.Select(t => new
+        // A row says which runner ran the task only when the profile names its runners (ADR 0058), so a one-runner profile's artifact is what it always was.
+        var rows = outcome.Tasks.Select(t =>
         {
-            id = t.Id,
-            run_id = t.RunId,
-            status = Snake(t.State.ToString()),
-            branch = t.Branch,
-            pr_url = t.PrUrl,
-            usd = priced ? (decimal?)t.Usd : null,
-            tokens = t.Tokens,
-            error_code = t.Error is { } e ? Snake(e.ToString()) : null,
-            detail = t.Detail,
+            var row = new Dictionary<string, object?>
+            {
+                ["id"] = t.Id,
+                ["run_id"] = t.RunId,
+                ["status"] = Snake(t.State.ToString()),
+                ["branch"] = t.Branch,
+                ["pr_url"] = t.PrUrl,
+                ["usd"] = priced ? (decimal?)t.Usd : null,
+                ["tokens"] = t.Tokens,
+                ["error_code"] = t.Error is { } e ? Snake(e.ToString()) : null,
+                ["detail"] = t.Detail,
+            };
+            if (t.Runner is not null)
+                row["runner"] = t.Runner;
+            return row;
         }).ToList();
         var artifact = Inline("driven-batch", "application/json", new { credential_delivery = credentialDelivery, tasks = rows });
-        Artifact[] artifacts = plan is null ? [artifact] : [artifact, Inline("plan", "application/json", plan)];
+        Artifact[] artifacts = [artifact, .. plan is null ? [] : new[] { Inline("plan", "application/json", plan) }, .. retro is null ? [] : new[] { Inline("retro", "application/json", retro) }];
         var usage = new Usage(outcome.Tokens, 0, 0, 0, priced ? outcome.Usd : null);
         if (outcome.AllCompleted)
             return new ResultContract("result/v1", runId, "driven", traceId, chain, ResultStatus.Completed, $"All {outcome.Tasks.Count} tasks ended in a draft pull request. {description}".Trim(), [], [], artifacts, [], 0.9, usage);

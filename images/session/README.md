@@ -21,7 +21,7 @@ the runner's env file, and the goal as `/out/task.json`.
 docker build -f images/session/Dockerfile -t chargehand-session .
 ```
 
-A profile lists the image by digest (`driven.images`); the runner starts nothing else. A repository picks a toolchain by detection, and may name
+A profile lists the image by digest (`driven.images`); the runner starts nothing else. The release publishes it for linux/amd64 and linux/arm64 as one index ([ADR 0058](../../docs/adr/0058-several-runners.md)); the arm64 image is built natively on an arm64 machine (`docker build -f images/session/Dockerfile .` on an Apple-silicon Mac does it, and `images/session-jdk` on top). A repository picks a toolchain by detection, and may name
 an image from that list in `.chargehand/session.json`. A repository that needs Java, Go or Rust needs its own image on the list: the design does
 not build images on demand.
 

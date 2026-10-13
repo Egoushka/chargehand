@@ -1,0 +1,8 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)../Skeleton.props" />
+
+  <!-- Libraries: trimming and Native AOT analyzers on, so a host that references them publishes without warnings. -->
+  <PropertyGroup>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+</Project>

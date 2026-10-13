@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Mcp;
-using Chargehand.Memory;
+using Chargehand.Modules.Memory.Api;
 using ModelContextProtocol.Protocol;
 
 namespace Chargehand.Tests;

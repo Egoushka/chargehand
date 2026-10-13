@@ -6,8 +6,10 @@ public enum TaskState { Completed, Failed, NeedsInput, NotStarted, Cancelled }
 
 /// <summary>One task's end (ADR 0039). <c>RunId</c> is the run in the run store that holds its own <c>result/v1</c>.</summary>
 /// <param name="RetryAfter">For a <see cref="ErrorCode.RateLimited"/> end: when the limit lifts, if known; the scheduler holds new starts until then.</param>
+/// <param name="Runner">The runner the task's sessions ran on, when the profile names its runners (ADR 0058).</param>
+/// <param name="Replace">The task did not start because its runner could not be reached (ADR 0058): the scheduler places it again on another, a limited number of times, and never records this outcome.</param>
 public sealed record TaskOutcome(string Id, TaskState State, string? RunId = null, string? Detail = null, ErrorCode? Error = null, decimal Usd = 0, long Tokens = 0,
-    string? Branch = null, string? PrUrl = null, DateTimeOffset? RetryAfter = null);
+    string? Branch = null, string? PrUrl = null, DateTimeOffset? RetryAfter = null, string? Runner = null, bool Replace = false);
 
 /// <summary>What a running task has used so far, cumulative, and where its session is: turns and stage are known only while it runs, from the session's tally. <c>Usd</c> is
 /// priced dollars (an API key only); <c>UsdEstimate</c> is the session's dollar equivalent from the price table, also on a subscription, and binds nothing.</summary>
@@ -24,14 +26,23 @@ public sealed record TaskLimits(long MaxTokens, decimal? MaxUsd);
 /// <param name="DependsOn">Ids of tasks of the batch that must end <c>completed</c> first (ADR 0049).</param>
 /// <param name="Upstream">The branches of the finished tasks in <paramref name="DependsOn"/>, in that order; the scheduler fills it when the task starts.</param>
 /// <param name="SplitFrom">Set when the planning step made this task out of a larger one (ADR 0049): the id of that task, which the chain's last link keeps.</param>
+/// <param name="SizeFrom"><c>plan</c> when <paramref name="Size"/> is the planning step's estimate; null: the caller's (or no size at all). The learning record says which.</param>
+/// <param name="Runner">The runner the task runs on (ADR 0058): set from the batch state for a task a restart took up, so it stays where its session is, and by the scheduler when it places a new one.</param>
+/// <param name="Title">The request's title for the task's pull request; null: <see cref="PullRequestTitle.FromGoal"/> makes one.</param>
 public sealed record ResolvedTask(string Id, string? Ref, string Goal, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null, ContinuedFrom? From = null,
-    IReadOnlyList<string>? DependsOn = null, IReadOnlyList<UpstreamWork>? Upstream = null, string? SplitFrom = null);
+    IReadOnlyList<string>? DependsOn = null, IReadOnlyList<UpstreamWork>? Upstream = null, string? SplitFrom = null, string? SizeFrom = null, string? Runner = null, string? Title = null);
 
 /// <summary>A finished task a later one starts from (ADR 0049): its last session, whose output volume holds the bundle of its branch, and the branch and pull request it ended in.</summary>
-public sealed record UpstreamWork(string Id, string RunId, string Branch, string? PrUrl);
+/// <param name="Runner">The runner whose engine holds that session's output volume (ADR 0058); null: the only one.</param>
+public sealed record UpstreamWork(string Id, string RunId, string Branch, string? PrUrl, string? Runner = null);
 
-/// <summary>The earlier task a task continues: its last session (whose output volume may hold a handoff) and the work it kept; null: it made no commits, so the new task starts from the base commit.</summary>
-public sealed record ContinuedFrom(string LastRun, KeptWork? Kept);
+/// <summary>The earlier task a task continues: its last session (whose output volume may hold a handoff) and the work it kept; null: it made no commits, so the new task starts from the base commit.
+/// <paramref name="Pushed"/> is set instead when the earlier task finished and its branch is on the remote with a pull request open (a review round, ADR 0051): the new task starts from that branch as the remote has it.</summary>
+/// <param name="Runner">The runner whose engine holds the output volumes of the earlier task's sessions (ADR 0058); null: the only one.</param>
+public sealed record ContinuedFrom(string LastRun, KeptWork? Kept, PushedWork? Pushed = null, string? Runner = null);
+
+/// <summary>A finished task's branch, as its <c>branch</c> artifact records it: <paramref name="Base"/> is the commit the task started at, which a continuation has to start at too.</summary>
+public sealed record PushedWork(string Branch, string Base);
 
 /// <summary>What an unfinished task leaves for a later one, as the <c>kept-work</c> artifact of its result (ADR 0045). The bundle is in the output volume of <paramref name="BundleRun"/>.</summary>
 /// <param name="Branch">The task branch, <c>chargehand/&lt;first run id&gt;</c>; a continuation uses the same name, because the bundle holds that ref.</param>

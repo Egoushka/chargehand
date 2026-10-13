@@ -1,7 +1,8 @@
 using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Contracts;
-using Chargehand.Memory;
+using Chargehand.Kernel;
+using Chargehand.Modules.Memory.Api;
 
 namespace Chargehand.Tests;
 

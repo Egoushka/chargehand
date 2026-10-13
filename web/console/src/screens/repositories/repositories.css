@@ -1,0 +1,49 @@
+/* Repositories: the card's own spacing. Panels, key-values, badges, pills and sparklines are the design system's. */
+.repo-label {
+  margin-bottom: var(--space-1);
+}
+
+.repo-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 3px 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.repo-check .ch-pill {
+  flex: none;
+}
+
+.repo-doctor {
+  margin-top: var(--space-1);
+}
+
+.repo-others {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.repo-history {
+  gap: 2px;
+}
+
+.repo-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-3);
+}
+
+.repo-foot .link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.repo-foot .link:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  text-decoration: none;
+}

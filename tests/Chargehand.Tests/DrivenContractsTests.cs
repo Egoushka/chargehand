@@ -37,10 +37,16 @@ public class DrivenContractsTests
     [InlineData("""{"tasks":[{"id":"t1"}]}""")]                                                            // neither ref nor goal
     [InlineData("""{"tasks":[]}""")]                                                                       // no tasks
     [InlineData("""{"tasks":[{"id":"t1","goal":"g"}],"draft_pr":false}""")]                                // not a draft
-    [InlineData("""{"tasks":[{"id":"t1","goal":"g"}],"max_parallel":5}""")]                                // above the ceiling
+    [InlineData("""{"tasks":[{"id":"t1","goal":"g"}],"max_parallel":17}""")]                               // above the ceiling
     [InlineData("""{"tasks":[{"id":"T 1","goal":"g"}]}""")]                                                // id shape
     [InlineData("""{"tasks":[{"id":"t1","goal":"g","extra":1}]}""")]                                       // unknown member
     public void A_malformed_driven_block_is_refused(string driven) => Assert.NotEmpty(Validate(Request(driven)));
+
+    [Fact]
+    public void Sixteen_tasks_at_once_are_allowed_by_the_schema()
+    {
+        Assert.Empty(Validate(Request("""{"tasks":[{"id":"t1","goal":"g"}],"max_parallel":16}""")));
+    }
 
     [Fact]
     public void Twenty_one_tasks_are_refused()
@@ -216,6 +222,21 @@ public class DrivenContractsTests
         var typed = JsonSerializer.Deserialize<RunStatus>(json, ContractJson.Options)!;
         Assert.Equal((1.75m, 3_500_000L, 90_000L, null), (typed.UsdEstimate, typed.CacheRead, typed.CacheWrite, typed.Usd));
         Assert.Contains("\"usd_estimate\":1.75", JsonSerializer.Serialize(typed, ContractJson.Options));
+    }
+
+    [Fact]
+    public void A_task_event_names_its_runner()
+    {
+        const string json = """{"contract_version":"run-status/v1","run_id":"r","status":"running","event":"container_started","task_id":"t1","detail":"task t1: session container started on runner 'laptop'","runner":"laptop"}""";
+        using var doc = JsonDocument.Parse(json);
+        Assert.Empty(ContractSchemas.Validate(ContractSchemas.RunStatus, doc.RootElement));
+        var typed = JsonSerializer.Deserialize<RunStatus>(json, ContractJson.Options)!;
+        Assert.Equal("laptop", typed.Runner);
+        Assert.Contains("\"runner\":\"laptop\"", JsonSerializer.Serialize(typed, ContractJson.Options));
+        Assert.DoesNotContain("\"runner\"", JsonSerializer.Serialize(typed with { Runner = null }, ContractJson.Options), StringComparison.Ordinal);
+
+        using var empty = JsonDocument.Parse(json.Replace("\"runner\":\"laptop\"", "\"runner\":\"\"", StringComparison.Ordinal));
+        Assert.NotEmpty(ContractSchemas.Validate(ContractSchemas.RunStatus, empty.RootElement));
     }
 
     [Fact]

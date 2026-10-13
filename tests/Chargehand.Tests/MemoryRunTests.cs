@@ -1,7 +1,8 @@
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Mcp;
-using Chargehand.Memory;
+using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Memory.Api;
 using Chargehand.RunLog;
 using static Chargehand.Tests.MemoryStackTests;
 

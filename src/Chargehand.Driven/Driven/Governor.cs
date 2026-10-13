@@ -25,6 +25,7 @@ public enum GovernorAction { Warn, Checkpoint, Stop }
 /// <param name="CheckpointAt">The share of the budget at which spend is a checkpoint; 100% is a stop.</param>
 /// <param name="ProbePatterns">Regular expressions; a command all of whose parts match one only asks what the container has.</param>
 /// <param name="WaitPatterns">Regular expressions for commands that wait on purpose: they count toward no repeat or failure rule, and no-growth turns pause while one runs.</param>
+/// <param name="BudgetSource">Where <paramref name="BudgetUsd"/> came from (ADR 0045): the task's own, the flat budget of its size class, or a percentile of past spend; logged with each decision.</param>
 public sealed record SessionGovernor(
     GovernorMode Mode = GovernorMode.Observe,
     decimal? BudgetUsd = null,
@@ -39,7 +40,8 @@ public sealed record SessionGovernor(
     long ContextTokens = 160_000,
     decimal CheckpointAt = 0.85m,
     IReadOnlyList<string>? ProbePatterns = null,
-    IReadOnlyList<string>? WaitPatterns = null)
+    IReadOnlyList<string>? WaitPatterns = null,
+    BudgetSource? BudgetSource = null)
 {
     public static IReadOnlyList<string> DefaultProbePatterns { get; } =
     [
@@ -58,8 +60,9 @@ public sealed record SessionGovernor(
 /// session in <c>enforce</c> mode.</summary>
 /// <param name="Rule">Why this rung: <c>first_hit</c>, <c>same_signal_again</c>, <c>second_signal</c>, <c>context_size</c>, <c>spend_checkpoint</c> or <c>spend_stop</c>.</param>
 /// <param name="Values">The signal's measurements, for judging afterwards whether the decision was right.</param>
+/// <param name="BudgetSource">Where the budget came from (ADR 0045); null in a log from before it was recorded.</param>
 public sealed record GovernorDecision(DateTimeOffset At, int Turn, GovernorMode Mode, GovernorAction Action, string Signal, string Rule, IReadOnlyDictionary<string, string> Values,
-    decimal? SpendUsd, decimal? BudgetUsd, string? SizeClass, bool Acted = false);
+    decimal? SpendUsd, decimal? BudgetUsd, string? SizeClass, bool Acted = false, BudgetSource? BudgetSource = null);
 
 /// <summary>ADR 0045's governor: reads a session's stream and says when it is stuck or over budget, with no model call. Pure: the caller passes the turn, the time, the spend
 /// and the diff size, and writes the decisions. The stuck signals (repeated call, repeated failure, alternation, failing calls, environment probing, no diff growth) warn on
@@ -267,7 +270,7 @@ public sealed partial class Governor
     }
 
     private GovernorDecision Decision(GovernorAction action, string signal, string rule, Dictionary<string, string> values, int turn, decimal? spend, DateTimeOffset now) =>
-        new(now, turn, _settings.Mode, action, signal, rule, values, spend is { } s ? Math.Round(s, 4) : null, _settings.BudgetUsd, _settings.SizeClass);
+        new(now, turn, _settings.Mode, action, signal, rule, values, spend is { } s ? Math.Round(s, 4) : null, _settings.BudgetUsd, _settings.SizeClass, BudgetSource: _settings.BudgetSource);
 
     private static void Add(List<GovernorDecision> decisions, GovernorDecision? decision)
     {
@@ -290,16 +293,26 @@ public sealed partial class Governor
     private static partial Regex CommandSeparators();
 }
 
+/// <summary>A task's budget in the dollar equivalent and where it came from.</summary>
+public sealed record BudgetChoice(decimal Usd, BudgetSource Source);
+
 public static class DrivenGovernorExtensions
 {
-    /// <summary>The settings a session of a task gets: its own budget, else its size class's (M when it names none), and what earlier sessions of the task spent.</summary>
-    public static SessionGovernor ToSession(this DrivenGovernor settings, string? size, decimal? taskBudget, decimal priorUsd)
+    /// <summary>A task's own budget, else the flat budget of its size class (M when it names none).</summary>
+    public static BudgetChoice Budget(this DrivenGovernor settings, string? size, decimal? taskBudget) =>
+        taskBudget is { } own ? new BudgetChoice(own, new BudgetSource("task"))
+            : new BudgetChoice((settings.Budgets ?? DrivenGovernor.DefaultBudgets).GetValueOrDefault(size ?? "M", DrivenGovernor.DefaultBudgets[size ?? "M"]), new BudgetSource("flat"));
+
+    /// <summary>The settings a session of a task gets: its budget (<paramref name="chosen"/> when the caller looked at the history, else the task's own or its size class's flat one, M when it names none),
+    /// and what earlier sessions of the task spent.</summary>
+    public static SessionGovernor ToSession(this DrivenGovernor settings, string? size, decimal? taskBudget, decimal priorUsd, BudgetChoice? chosen = null)
     {
         var sizeClass = size ?? "M";
         var d = new SessionGovernor();
-        return new SessionGovernor(settings.Mode, taskBudget ?? (settings.Budgets ?? DrivenGovernor.DefaultBudgets).GetValueOrDefault(sizeClass, DrivenGovernor.DefaultBudgets[sizeClass]), priorUsd, sizeClass,
+        var budget = chosen ?? settings.Budget(size, taskBudget);
+        return new SessionGovernor(settings.Mode, budget.Usd, priorUsd, sizeClass,
             settings.RepeatCalls ?? d.RepeatCalls, settings.RepeatFailures ?? d.RepeatFailures, settings.FailingCalls ?? d.FailingCalls, settings.ProbeCommands ?? d.ProbeCommands,
             settings.NoGrowthTurns ?? d.NoGrowthTurns, settings.RewarnTurns ?? d.RewarnTurns, settings.ContextTokens ?? d.ContextTokens, settings.CheckpointAt ?? d.CheckpointAt,
-            settings.ProbePatterns, settings.WaitPatterns);
+            settings.ProbePatterns, settings.WaitPatterns, budget.Source);
     }
 }
