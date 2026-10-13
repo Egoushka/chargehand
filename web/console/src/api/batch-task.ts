@@ -34,7 +34,9 @@ export const batchTaskQuery = (batch: string, task: string, events = 500) =>
         `/v1/batches/${encodeURIComponent(batch)}/tasks/${encodeURIComponent(task)}?events=${events}`,
         signal,
       ),
+    // A task that is running changes under the view.
+    refetchInterval: (query) => (query.state.data?.task.state === 'running' ? 5_000 : false),
   });
 
-export const useBatchTask = (batch: string, task: string, events = 500) =>
-  useQuery(batchTaskQuery(batch, task, events));
+export const useBatchTask = (batch: string, task: string, events = 500, enabled = true) =>
+  useQuery({ ...batchTaskQuery(batch, task, events), enabled });

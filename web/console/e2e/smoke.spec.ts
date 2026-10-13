@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page);
 });
 
-test('signs in, lists runs, opens one with its live events, and signs out', async ({ page }) => {
+test('signs in, lists runs, opens a batch with its tasks, and signs out', async ({ page }) => {
   const seen = watch(page);
 
   const response = await page.goto('/console/runs');
@@ -26,7 +26,8 @@ test('signs in, lists runs, opens one with its live events, and signs out', asyn
   await page.getByRole('link', { name: 'run-20261013-124239-1fdf01' }).click();
   await expect(page).toHaveURL(/\/console\/runs\/run-20261013-124239-1fdf01$/);
   await expect(page.getByRole('heading', { level: 1 })).toContainText('run-20261013-124239-1fdf01');
-  await expect(page.getByText('Found the cause.')).toBeVisible();
+  await expect(page.getByRole('tab', { name: /^Tasks/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('table', { name: 'Tasks' }).getByRole('row')).toHaveCount(7); // header and six tasks
 
   // A deep link reloads into the same screen: the server falls back to index.html for client routes, and the key survives in the tab.
   await page.reload();

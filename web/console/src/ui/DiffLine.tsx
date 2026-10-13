@@ -29,7 +29,8 @@ export function DiffLine({ kind, oldNo, newNo, text, wrap }: DiffLineProps) {
 export function Diff({ children, label }: { children: ReactNode; label: string }) {
   return (
     // biome-ignore lint/a11y/useSemanticElements: a fieldset brings borders and sizing the diff does not want
-    <div className="ch-diff" role="group" aria-label={label}>
+    // biome-ignore lint/a11y/noNoninteractiveTabindex: a diff that scrolls sideways must be reachable by keyboard
+    <div className="ch-diff" role="group" aria-label={label} tabIndex={0}>
       {children}
     </div>
   );

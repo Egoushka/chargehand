@@ -1,8 +1,11 @@
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { clearKey } from './api/key';
 import { resetPreferences } from './shell/preferences';
 import { viewport } from './testing/viewport';
+
+// The batch and task screens are lazy chunks: the first import of one in a test takes longer than the library's default second.
+configure({ asyncUtilTimeout: 4000 });
 
 // happy-dom has no layout, so the parts of the browser that Radix and cmdk measure with are stubbed.
 class ResizeObserverStub {

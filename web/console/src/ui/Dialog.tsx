@@ -11,10 +11,10 @@ export interface DialogProps {
   /** Always set: it names the dialog. `hideTitle` keeps it for assistive technology only. */
   title: string;
   hideTitle?: boolean;
-  /** `center` is a dialog or the palette (near the top); `sheet` is the phone's bottom sheet. */
-  placement?: 'center' | 'sheet';
-  /** The class of the surface: `ch-dialog`, `ch-palette` or `ch-sheet`. */
-  surface?: 'ch-dialog' | 'ch-palette' | 'ch-sheet';
+  /** `center` is a dialog or the palette (near the top); `sheet` is the phone's bottom sheet; `end` is the drawer on the right. */
+  placement?: 'center' | 'sheet' | 'end';
+  /** The class of the surface: `ch-dialog`, `ch-palette`, `ch-sheet` or `ch-drawer`. */
+  surface?: 'ch-dialog' | 'ch-palette' | 'ch-sheet' | 'ch-drawer';
   /** A confirm dialog interrupts: assistive technology announces it as an alert. */
   alert?: boolean;
   /** A width for the dialog; the design's dialogs are 480 px, the shortcuts sheet 640 px. */
@@ -34,7 +34,7 @@ export function Dialog({
   title,
   hideTitle,
   placement = 'center',
-  surface = placement === 'sheet' ? 'ch-sheet' : 'ch-dialog',
+  surface = placement === 'sheet' ? 'ch-sheet' : placement === 'end' ? 'ch-drawer' : 'ch-dialog',
   alert,
   wide,
   children,
@@ -68,7 +68,7 @@ export function Dialog({
     <CloseContext.Provider value={() => onOpenChange(false)}>
       <dialog
         ref={ref}
-        className={cx('ch-modal', placement === 'sheet' ? 'ch-modal--sheet' : 'ch-modal--center')}
+        className={cx('ch-modal', `ch-modal--${placement}`)}
         role={alert ? 'alertdialog' : undefined}
         aria-labelledby={titleId}
         onClose={() => notify.current(false)}

@@ -27,7 +27,7 @@ export {
 export { Banner, Chip, Kpi, Panel } from './Panel';
 export { Sparkline, sparkPath } from './Sparkline';
 export { StatusPill } from './StatusPill';
-export { Cell, HeadCell, Table, TableHead, TableRow } from './Table';
+export { Cell, HeadCell, Table, TableHead, TableRow, TableScroll } from './Table';
 export { Segmented, TabPanel, Tabs } from './Tabs';
 export { TaskNode } from './TaskNode';
 export { Toast, type ToastAction, ToastHost, type ToastProps } from './Toast';

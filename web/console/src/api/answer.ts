@@ -6,8 +6,9 @@ import type { AnswerHint } from './common';
  * The request that answers a question: a driven task that continues the one that asked, with the answer as sent (ADR 0045).
  * The route, repository and preset are the ones the inbox item carried; nothing here guesses them.
  */
-export function answerRequest(hint: AnswerHint, answer: string) {
+export function answerRequest(hint: AnswerHint, answer: string | string[]) {
   const { run_id, task_id } = hint.continue_from;
+  const answers = Array.isArray(answer) ? answer : [answer];
   return {
     contract_version: 'request/v1',
     text: `Answer for task ${task_id} of ${run_id}`,
@@ -16,7 +17,7 @@ export function answerRequest(hint: AnswerHint, answer: string) {
       preset: hint.preset,
       ...(hint.repository ? { repository: hint.repository } : {}),
     },
-    driven: { tasks: [{ id: task_id, continue_from: hint.continue_from, answers: [answer] }] },
+    driven: { tasks: [{ id: task_id, continue_from: hint.continue_from, answers }] },
   };
 }
 
@@ -24,13 +25,16 @@ export function answerRequest(hint: AnswerHint, answer: string) {
 export function useAnswer() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ hint, answer }: { hint: AnswerHint; answer: string }) => {
+    mutationFn: async ({ hint, answer }: { hint: AnswerHint; answer: string | string[] }) => {
       // The hint is data from the server: it may name a route of the API and nothing else.
       if (hint.method !== 'POST' || !hint.path.startsWith('/v1/'))
         throw new ApiError(0, ['This question carries a request the console will not send.']);
       const reply = await call(hint.path, {
         method: hint.method,
-        body: answerRequest(hint, answer.trim()),
+        body: answerRequest(
+          hint,
+          Array.isArray(answer) ? answer.map((a) => a.trim()) : answer.trim(),
+        ),
         headers: { Prefer: 'wait=0' },
       });
       if (!reply.ok) throw new ApiError(reply.status, problems(reply));
