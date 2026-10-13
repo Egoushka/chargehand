@@ -97,6 +97,8 @@ internal static class ConsoleRoutes
             return Json(await ConsoleRepositories.BuildAsync(Context(ctx), Principal.Of(ctx), ctx.RequestAborted));
         });
 
+        ConsoleActions.Map(app, Context);
+
         app.MapGet("/v1/intake", (HttpContext ctx) => OwnerOnly(ctx) ?? Json(ConsoleIntake.Build(Context(ctx))));
 
         app.MapGet("/v1/accounts", async (HttpContext ctx) =>

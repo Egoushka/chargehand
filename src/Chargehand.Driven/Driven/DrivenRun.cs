@@ -72,6 +72,20 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     private readonly ConcurrentDictionary<string, RateLimitPause> _pauses = new();
 
+    private readonly ConcurrentDictionary<string, (BatchControl Control, Action<RunStatus>? Publish)> _live = new(StringComparer.Ordinal);
+
+    /// <summary>What an operator can do to a batch this process is running now (CHARGEHAND-214); null for any other.</summary>
+    public BatchControl? ControlOf(string batchRunId) => _live.TryGetValue(batchRunId, out var live) ? live.Control : null;
+
+    /// <summary>Tells a batch's events something an operator did: into the live stream and the records while this process runs it, into the records alone for a batch that has finished.</summary>
+    public void Announce(string batchRunId, RunStatus e)
+    {
+        if (_live.TryGetValue(batchRunId, out var live) && live.Publish is { } publish)
+            publish(e);
+        else
+            records?.AppendEvent(batchRunId, e);
+    }
+
     // With several runners (ADR 0058) the pool places each task; with one host, the memory rule of ADR 0045 alone.
     private readonly IAdmission? _admission = services?.Runners is { Count: > 0 } runners
         ? new RunnerPool(runners, profile.Driven?.Admission ?? new DrivenAdmission(), services.Poll, log: message => Console.Error.WriteLine($"chargehand: {message}"))
@@ -147,6 +161,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
         ResultContract result;
         System.Security.Cryptography.ECDsa? key = null;
+        _live[runId] = (new BatchControl(), progress);
         try
         {
             key = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
@@ -158,6 +173,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 ? new ResultError(ErrorCode.Cancelled, "the run was cancelled", false, "Start the batch again if it is still wanted; nothing was pushed.")
                 : ChargehandException.ErrorOf(e);
             result = new ResultContract("result/v1", runId, "driven", traceId, chain, ResultStatus.Failed, error.Message, [], [], [], [error.Message], 0, new Usage(0, 0, 0, 0, 0), error);
+        }
+        finally
+        {
+            _live.TryRemove(runId, out _);
         }
         if (Detaching())
         {
@@ -469,7 +488,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", route.Model?.BaseUrl, route.Forward is not null || route.Model?.Forwarded == true || route.Otlp is not null, route.Otlp,
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, route.Exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor, RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge));
             var runner = new TaskRunner(site.Engine, site.Workspace, site.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheckFor?.Invoke(actor), sign, s.Poll, publish: Stamp(site.Name), journal: journal,
-                detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf, outageGrace: s.OutageGrace, records: records);
+                detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf, outageGrace: s.OutageGrace, records: records, control: ControlOf(runId));
             return new SiteBatch(site, net, runner);
         }
         async Task<TaskRunner> RunnerOn(string name)
@@ -496,14 +515,20 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         {
             var router = new SiteRouter(RunnerOn, sites[0].Name, report, journal, sessionsStarted, (_admission as RunnerPool) is { } pool ? pool.Failed : null);
             var requestMb = await AdmissionRequestAsync(TaskRunner.RepositoryKey(RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge), request.Context.Repository?.Path), drivenPreset.MemoryMb, ct);
-            ran = await new BatchScheduler(router, admission: _admission, taskRequestMb: requestMb).RunAsync(ready, limits, ct, o =>
+            ran = await new BatchScheduler(router, admission: _admission, taskRequestMb: requestMb, control: ControlOf(runId)).RunAsync(ready, limits, ct, o =>
             {
                 if (detaching())
                     return;
                 journal?.Finish(o);
                 progress?.Invoke(TaskFinished(runId, o));
             }, (id, why) => progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.SessionProgress) with { TaskId = id, Detail = $"task {id}: {why}" }),
-            o => progress?.Invoke(TaskFinished(runId, o)),
+            o =>
+            {
+                // A task that never started (a dependency failed, or an operator cancelled it) is final too: the saved state says so, so a console reads it and a restart keeps it.
+                if (!detaching())
+                    journal?.Finish(o);
+                progress?.Invoke(TaskFinished(runId, o));
+            },
             (id, lifts) =>
             {
                 _pauses[runId] = new RateLimitPause(runId, id, DateTimeOffset.UtcNow, lifts);

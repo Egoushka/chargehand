@@ -188,12 +188,24 @@ A driven batch leaves a directory `records/<run id>/` beside the run log (the se
 
 - Anything about a batch that ran before the records existed: its events (unless this process still holds them), its earlier sessions, its governor decisions in full and its checks. The counts in `learning.jsonl` and the last session's run record remain.
 - Events past the cap (5000 per batch) and the in-between `session_progress` of a task; a batch whose records were pruned.
+- Who pressed an action beyond the account name in the `operator` event, and an action's result beyond the events the batch writes next (a cancelled task's `task_finished`, a retry's own batch).
 - A transcript beyond its last 256 KiB, one whose output volume was removed, and any secret that is not recognisable as one.
 - A pull request's checks outside the integrator's watch: it takes a look about every 30 seconds until the pull request merges, closes, is given up on or the wait ends, and keeps a look only when it differs from the one before. `pulls` shows the last outcome read back from the forge, about hourly for 14 days.
 - Intake triggers before the log existed, review comments that were not requests, and the text of any comment.
 - A key's use other than the time of its last request.
 
-**Actions** the console can already take are the existing ones: `POST /v1/runs` (an answer is a driven task with `continue_from`), `POST /v1/runs/{id}/cancel`, `POST /v1/halt` and `POST /v1/resume`. Cancelling or retrying one task, stopping one container and re-running a failed pull request check have no route.
+**Actions** the console takes are the existing ones, `POST /v1/runs` (an answer is a driven task with `continue_from`), `POST /v1/runs/{id}/cancel`, `POST /v1/halt` and `POST /v1/resume`, and four on one task or pull request (below).
+
+### Actions on pull requests and tasks
+
+For the owner and the account that started the batch; another account gets `404`, a run token `403`, a `GET` `405`. Each writes an `operator` event to the batch (into the live stream and `events.jsonl`), is safe to send twice and answers `409` with a reason when the state forbids it.
+
+| route | does | answers |
+|---|---|---|
+| `POST /v1/batches/{id}/tasks/{task}/cancel` | cancels one task of a batch this server runs, as a batch cancel does: a running session is interrupted, then killed, and nothing is pushed; a task that has not started never starts, and what depends on it is `not_started`. The outcome is final in the saved state, so a restart keeps it | `202` `{state: "cancelling", changed}`; `200` `changed: false` for a task already cancelled; `409` for a task that has ended, or a batch this server does not run |
+| `POST /v1/batches/{id}/tasks/{task}/session/stop` | kills the task's running session container. The session leaves no outcome, so the task ends as after a session that failed; nothing is snapshotted | `202`; `409` when the task has no session running |
+| `POST /v1/batches/{id}/tasks/{task}/retry` | starts a **new batch** of that one task, owned by the caller, with the batch's limits and the task as it was asked (its `depends_on` dropped, because what it depended on is in the old batch). If the failed task kept work (a `kept-work` artifact) the new task continues it with `continue_from` (ADR 0045). The batch it came from stays as it was: this is not a second attempt inside it | `202` `{run_id, continue_from}` with `Location`; a second retry of the same task returns the first with `200` and `changed: false`; `409` for a batch still running, or a task that is not failed, cancelled or unstarted (one waiting for an answer is answered instead); `503` when halted; the account's caps apply as for `POST /v1/runs` |
+| `POST /v1/pulls/{owner}/{repo}/{number}/checks/rerun` | for a pull request chargehand opened: re-runs the failed jobs of its failed required checks through the GitHub App (`rerun-failed-jobs` for each workflow run, so the App needs the Actions permission to write) | `202` `{checks, rerun_runs}`; `409` when the pull request is merged or closed, no required check has failed (so a second call right after is a `409`), or the server has no credential for the forge; `502` with the forge's message when it refuses |
 
 ## Run tokens (driven sessions)
 
