@@ -215,6 +215,12 @@ public class DrivenRunTests
         /// <summary>For each handover, whether the bundle it was told to read was on disk.</summary>
         public List<bool> BundleSeen { get; } = [];
 
+        /// <summary>The commit the nth handover (1-based) pushed; null: always <c>Commit</c>.</summary>
+        public Func<int, string>? CommitFor { get; set; }
+
+        /// <summary>Flagged on every handover when set (ADR 0046).</summary>
+        public TestIntegrityFlag? Integrity { get; set; }
+
         public Task<HandoverOutcome> RunAsync(HandoverInput input, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
@@ -229,8 +235,8 @@ public class DrivenRunTests
             input.Report?.Invoke(new HandoverEvent(RunEventKind.VerifyFinished, "tests passed"));
             input.Report?.Invoke(new HandoverEvent(RunEventKind.Pushed, $"pushed {input.Branch}"));
             input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, "draft pull request opened", $"https://example.test/o/r/pull/{number}"));
-            return Task.FromResult(new HandoverOutcome(HandoverStatus.Pushed, "", null, input.Branch, Commit, new PullRequestRef($"https://example.test/o/r/pull/{number}", number),
-                new VerificationRecord(["npm", "test"], "detected", 0, "ok", false, TimeSpan.FromSeconds(3), true), ["a.txt"], [], []));
+            return Task.FromResult(new HandoverOutcome(HandoverStatus.Pushed, "", null, input.Branch, CommitFor?.Invoke(number) ?? Commit, new PullRequestRef($"https://example.test/o/r/pull/{number}", number),
+                new VerificationRecord(["npm", "test"], "detected", 0, "ok", false, TimeSpan.FromSeconds(3), true), ["a.txt"], [], [], TestIntegrity: Integrity));
         }
     }
 
@@ -250,19 +256,21 @@ public class DrivenRunTests
         public Profile Profile { get; }
         private readonly DrivenServices? _services;
         private readonly string? _state;
+        private readonly ILearningStore? _learning;
 
         public Rig(bool enabled = true, Func<string, SessionStatus>? script = null, string? mcpForward = null, string? dir = null, JsonlRunLog? log = null, FakeVolumes? volumes = null,
             string? modelUrl = null, bool apiKey = false, string? otlpUrl = null, TelemetrySettings? telemetry = null, bool durable = false, IEvidenceResolver? resolver = null,
             DrivenLimits? limits = null, Func<string, string, SessionOutcome?>? outcomes = null, DrivenIntegrator? integrator = null, IIntegrationHost? integration = null,
             DrivenForge? forge = null, Func<RemoteRepository, string, IForge>? forgeFor = null, string remote = "https://github.com/o/r.git",
-            IBatchPlanner? planner = null, IStackSeeder? stacker = null, DrivenPlanning? planning = null)
+            IBatchPlanner? planner = null, IStackSeeder? stacker = null, DrivenPlanning? planning = null, ILearningStore? learning = null, DrivenLearning? learningSettings = null,
+            IBatchRetro? retro = null, IRetroSink? retroSink = null, DrivenGovernor? governor = null)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
             {
                 ClaudeCode = apiKey ? new ClaudeCodeSettings("2.1.283", ApiKeySecret: "gateway-key") : new ClaudeCodeSettings("2.1.283", OauthTokenSecret: "claude-code-oauth-token"),
                 Driven = new DrivenSettings(enabled, MaxParallel: 2, Images: [Image], PushSecret: PushSecret,
-                    Network: new DrivenNetwork(McpForward: mcpForward, ModelUrl: modelUrl, OtlpUrl: otlpUrl), Limits: limits, Integrator: integrator, Forge: forge, Planning: planning),
+                    Network: new DrivenNetwork(McpForward: mcpForward, ModelUrl: modelUrl, OtlpUrl: otlpUrl), Limits: limits, Integrator: integrator, Forge: forge, Planning: planning, Learning: learningSettings, Governor: governor),
                 Telemetry = telemetry,
                 Prices = new Dictionary<string, ModelPrice> { ["p/small"] = new(0.1m, 0.5m, 0.01m, 0.125m), ["provider/claude-sonnet-5-5"] = new(3m, 15m, 0.3m, 3.75m) },
             };
@@ -270,11 +278,12 @@ public class DrivenRunTests
             var services = enabled
                 ? new DrivenServices(Engine, Engine, Volumes, _ => throw new NotSupportedException("the handover is faked"), null,
                     (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", Commit, remote, "main")), resolver ?? new NoEvidenceProblems(),
-                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1), Integration: integration, ForgeFor: forgeFor, Planner: planner, Stacker: stacker)
+                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1), Integration: integration, ForgeFor: forgeFor, Planner: planner, Stacker: stacker, Retro: retro, RetroSink: retroSink)
                 : null;
             _services = services;
             _state = durable ? Path.Combine(Dir.Path, "batches") : null;
-            Run = new DrivenRun(Profile, Log, Repo.Root, services, _state);
+            _learning = learning;
+            Run = new DrivenRun(Profile, Log, Repo.Root, services, _state, learning);
         }
 
         public string StateDirectory => _state!;
@@ -283,7 +292,7 @@ public class DrivenRunTests
         public DrivenRun Restart()
         {
             Run.Dispose();
-            return Run = new DrivenRun(Profile, Log, Repo.Root, _services, _state);
+            return Run = new DrivenRun(Profile, Log, Repo.Root, _services, _state, _learning);
         }
 
         public void Dispose()

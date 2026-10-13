@@ -61,8 +61,9 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
         _ => null,
     };
 
-    /// <summary>Update the branch if it is behind, mark it ready, then merge or ask. A failure of GitHub is a result, not an exception: the pull request is there either way.</summary>
-    public async Task<IntegrationResult> IntegrateAsync(IntegrationTarget target, Action<string> report, CancellationToken ct)
+    /// <summary>Update the branch if it is behind, mark it ready, then merge or ask. A failure of GitHub is a result, not an exception: the pull request is there either way.
+    /// <paramref name="headMoved"/> gets the new head when chargehand's own branch update moved it, so the learning record knows the commits on the branch are still chargehand's (ADR 0045).</summary>
+    public async Task<IntegrationResult> IntegrateAsync(IntegrationTarget target, Action<string> report, CancellationToken ct, Action<string>? headMoved = null)
     {
         var mode = ModeFor(target);
         if (mode == IntegrationMode.Off)
@@ -89,6 +90,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                 if (moved is null)
                     return Say(report, IntegrationAction.NeedsAttention, "the branch was behind its base and an update was requested, but its head has not moved yet; not merged");
                 report("the branch was behind its base and was updated");
+                headMoved?.Invoke(moved.HeadSha);
                 pr = moved;
             }
             if (pr.IsDraft)
@@ -138,7 +140,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
 
     /// <summary>Watch the required checks of a pull request that <see cref="IntegrateAsync"/> handled. When some fail and every required check has finished, <paramref name="fix"/> runs a session on the branch,
     /// at most <see cref="DrivenCiFix.Attempts"/> times per pull request and never twice for the same failing jobs (<see cref="CiFixPolicy"/>); the count is read from the pull request's own comments.</summary>
-    public async Task<IntegrationResult> FollowAsync(IntegrationTarget target, CiFixSession fix, Action<string> report, CancellationToken ct)
+    public async Task<IntegrationResult> FollowAsync(IntegrationTarget target, CiFixSession fix, Action<string> report, CancellationToken ct, Action<string>? headMoved = null)
     {
         var mode = ModeFor(target);
         if (mode == IntegrationMode.Off || target.Partial)
@@ -166,7 +168,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                 {
                     if (mode == IntegrationMode.Ask)
                         return Say(report, IntegrationAction.Asked, "required checks passed; left for a person to merge");
-                    if (!pr.AutoMerge && await IntegrateAsync(target, report, ct) is { Action: IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.NeedsAttention } done)
+                    if (!pr.AutoMerge && await IntegrateAsync(target, report, ct, headMoved) is { Action: IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.NeedsAttention } done)
                         return done;
                 }
                 else if (decision.Action is CiFixAction.Fix or CiFixAction.GiveUp && CiFix.Attempts == 0)

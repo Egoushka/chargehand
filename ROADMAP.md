@@ -78,9 +78,12 @@ maintainer's approval and a new session-image digest.
     set). Supersedes ADR 0039 decision 2 and ADR 0015 for repositories that opt in; a repository the maintainer lists
     (the one that deploys his servers) always asks. Needs: 3 and a new ADR. **Maintainer** creates the GitHub App and
     installs its key; any credential change on the server is his.
-12. · **Learning loop**: per task, size estimate, budget, spend, stop reason and governor decisions; the human outcome
-    of each pull request (merged unchanged, edited, closed); a retro filed to the maintainer's tracker inbox. Needs: 3,
-    9. Real-run data stays in the maintainer's datasets; `evals/` keeps synthetic examples only.
+12. ▶ **Learning loop** (ADR 0045, in review; built and tested with fakes, not yet run on a real batch): per task, size
+    estimate, budget, spend, stop reason and governor decisions in a record next to the run log; the human outcome of
+    each pull request (merged unchanged, edited, closed), read back through the forge; `chargehand learn report` and
+    `GET /v1/learn`; a retro after each batch, off by default. Not built: filing the retro to the maintainer's tracker
+    inbox, which needs a tracker write path (`IRetroSink` is the hook). Needs: 3, 9. Real-run data stays in the
+    maintainer's datasets; `evals/` keeps synthetic examples only.
 
 ## Stage 4 — Answers you can prove · ✅ (0.8)
 

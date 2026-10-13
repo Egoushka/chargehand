@@ -102,6 +102,7 @@ otherwise from the ones the build copies next to the binary. The run log is the 
 | `score <run-id> <0-1> [name]` | records a hand score for a run |
 | `eval seed\|push\|gate` | Prompt CI: propose items, push them to Langfuse, gate a change |
 | `prompts sync` | mirrors prompt blocks to Langfuse |
+| `learn report [--since 30d]` | what finished driven tasks cost and how their pull requests ended, per repository and size class |
 | `extensions check [--preset <name>] [--probe <query>]` | checks the profile's MCP servers, memory mappings and the presets' services against the tools each server lists |
 | `init [<repo path>] [--profile <out>] [--force]` | reads a repository's marker files and writes a starter profile with the proposed test command and the package hosts to allow |
 | `doctor [--profile <path>]` | one ok/warn/fail line per setup check (profile, server, runner, images, secrets, roots, egress, model credential), each with its fix |

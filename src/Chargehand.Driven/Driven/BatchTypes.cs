@@ -24,8 +24,9 @@ public sealed record TaskLimits(long MaxTokens, decimal? MaxUsd);
 /// <param name="DependsOn">Ids of tasks of the batch that must end <c>completed</c> first (ADR 0049).</param>
 /// <param name="Upstream">The branches of the finished tasks in <paramref name="DependsOn"/>, in that order; the scheduler fills it when the task starts.</param>
 /// <param name="SplitFrom">Set when the planning step made this task out of a larger one (ADR 0049): the id of that task, which the chain's last link keeps.</param>
+/// <param name="SizeFrom"><c>plan</c> when <paramref name="Size"/> is the planning step's estimate; null: the caller's (or no size at all). The learning record says which.</param>
 public sealed record ResolvedTask(string Id, string? Ref, string Goal, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null, ContinuedFrom? From = null,
-    IReadOnlyList<string>? DependsOn = null, IReadOnlyList<UpstreamWork>? Upstream = null, string? SplitFrom = null);
+    IReadOnlyList<string>? DependsOn = null, IReadOnlyList<UpstreamWork>? Upstream = null, string? SplitFrom = null, string? SizeFrom = null);
 
 /// <summary>A finished task a later one starts from (ADR 0049): its last session, whose output volume holds the bundle of its branch, and the branch and pull request it ended in.</summary>
 public sealed record UpstreamWork(string Id, string RunId, string Branch, string? PrUrl);
