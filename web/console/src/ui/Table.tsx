@@ -28,9 +28,19 @@ export function Table({
   );
 }
 
-export function TableHead({ children }: { children: ReactNode }) {
+/** The box that scrolls a table sideways when the screen is narrower than it. A tab stop, so the keyboard can scroll it too. */
+export function TableScroll({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div role="row" className="ch-tr ch-tr--head">
+    // biome-ignore lint/a11y/noNoninteractiveTabindex: a region that scrolls sideways must be reachable by keyboard
+    <div className="table-scroll" role="region" aria-label={label} tabIndex={0}>
+      {children}
+    </div>
+  );
+}
+
+export function TableHead({ children, className, ...rest }: ComponentPropsWithoutRef<'div'>) {
+  return (
+    <div {...rest} role="row" className={cx('ch-tr ch-tr--head', className)}>
       {children}
     </div>
   );

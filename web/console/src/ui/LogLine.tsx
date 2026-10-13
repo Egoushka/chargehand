@@ -42,7 +42,8 @@ export function LogStream({
   tail?: React.ReactNode;
 }) {
   return (
-    <div className="ch-stream" role="log" aria-live="off" aria-label={label}>
+    // biome-ignore lint/a11y/noNoninteractiveTabindex: a log that scrolls must be reachable by keyboard
+    <div className="ch-stream" role="log" aria-live="off" aria-label={label} tabIndex={0}>
       {children}
       {tail ? <div className="ch-stream__tail">{tail}</div> : null}
     </div>

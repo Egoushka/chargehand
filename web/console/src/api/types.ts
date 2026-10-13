@@ -49,6 +49,10 @@ export interface RunFilter {
   kind?: 'single' | 'batch';
   repository?: string;
   actor?: string;
+  /** An ISO 8601 time: only runs started at or after it. */
+  since?: string;
+  /** An exact run id. */
+  runId?: string;
   limit?: number;
 }
 
@@ -62,18 +66,61 @@ export interface RunStatus {
   detail?: string;
   task_id?: string;
   node_id?: string;
+  node_status?: string;
   branch?: string;
   pr_url?: string;
   actor?: string;
+  action?: string;
+  executed_action?: string;
+  runner?: string;
+  usd?: number;
+  usd_total?: number;
+  /** Driven sessions: assistant messages so far, and input plus output tokens (session_progress, task_finished). */
+  turns?: number;
+  tokens?: number;
+  stage?: 'research' | 'write' | 'test' | 'review';
+  usd_estimate?: number;
+  usd_estimate_partial?: boolean;
+  cache_read?: number;
+  cache_write?: number;
+  memory_peak_mb?: number;
   [field: string]: unknown;
 }
 
-/** result/v1, the part the console reads so far. */
+/** A piece of evidence a claim cites: `locator` is `path:line` or `path:start-end` for a `file`. */
+export interface Evidence {
+  id: string;
+  kind: 'file' | 'diff' | 'url' | 'session_message' | 'commit' | 'input';
+  locator: string;
+  /** The commit the locator is read at. */
+  commit?: string;
+  sha256?: string;
+}
+
+/** A statement of a result with the evidence ids it cites. `support` is a second model's judgement, absent when no check ran. */
+export interface Claim {
+  text: string;
+  evidence: string[];
+  confidence: number;
+  support?: 'supported' | 'partial' | 'unchecked';
+}
+
+export interface ResultSignature {
+  alg: string;
+  key_id: string;
+  value: string;
+}
+
+/** result/v1, the part the console reads. */
 export interface RunResult {
   contract_version: 'result/v1';
   task_id: string;
+  node_id?: string;
   status: Exclude<RunState, 'queued' | 'running' | 'lost'>;
   summary: string;
+  claims?: Claim[];
+  evidence?: Evidence[];
+  open_questions?: string[];
   confidence: number;
   usage: {
     input: number;
@@ -83,7 +130,8 @@ export interface RunResult {
     usd: number | null;
   };
   actor?: string;
-  error?: { code: string; message: string; retryable: boolean };
+  signature?: ResultSignature;
+  error?: { code: string; message: string; retryable: boolean; action?: string };
   [field: string]: unknown;
 }
 

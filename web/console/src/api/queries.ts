@@ -13,10 +13,11 @@ export const meQuery = () =>
 
 export function runsPath(filter: RunFilter = {}): string {
   const query = new URLSearchParams({ limit: String(filter.limit ?? 100) });
-  for (const key of ['status', 'kind', 'repository', 'actor'] as const) {
+  for (const key of ['status', 'kind', 'repository', 'actor', 'since'] as const) {
     const value = filter[key];
     if (value) query.set(key, value);
   }
+  if (filter.runId) query.set('run_id', filter.runId);
   return `/v1/runs?${query}`;
 }
 
@@ -41,6 +42,50 @@ export const runQuery = (id: string) =>
     },
     refetchInterval: (query) => (query.state.data?.state === 'running' ? 3_000 : false),
   });
+
+/** One row of GET /v1/runs for an exact run id, or null when the caller sees no such run: it says whether the run is a batch or a single run. */
+export const runSummaryQuery = (id: string) =>
+  queryOptions({
+    queryKey: ['run-summary', id],
+    queryFn: ({ signal }) => getJson<RunList>(runsPath({ runId: id, limit: 1 }), signal),
+    select: (list) => list.runs.find((run) => run.run_id === id) ?? null,
+    refetchInterval: (query) => {
+      const run = query.state.data?.runs[0];
+      return run && (run.status === 'running' || run.status === 'queued') ? 5_000 : false;
+    },
+  });
+
+/** What cancelling one run came to: the server starts it (`cancelling`), or the run had ended or is another process's (`finished`), is unknown (`missing`), or the call failed. */
+export interface CancelOutcome {
+  runId: string;
+  result: 'cancelling' | 'finished' | 'missing' | 'failed';
+  message?: string;
+}
+
+/** POST /v1/runs/{id}/cancel: 202 when this server holds the run and starts cancelling it, 404 for an unknown id, 409 when the run has finished or another process runs it. */
+export async function cancelRun(runId: string): Promise<CancelOutcome> {
+  const reply = await call(`/v1/runs/${enc(runId)}/cancel`, { method: 'POST' });
+  if (reply.status === 202) return { runId, result: 'cancelling' };
+  if (reply.status === 409)
+    return { runId, result: 'finished', message: problems(reply).join('; ') };
+  if (reply.status === 404)
+    return { runId, result: 'missing', message: problems(reply).join('; ') };
+  return { runId, result: 'failed', message: problems(reply).join('; ') };
+}
+
+/** Cancels runs one request each, and says what each came to. A cancelled run ends `failed` with error code `cancelled`. */
+export function useCancelRuns() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (runIds: string[]) => Promise.all(runIds.map((id) => cancelRun(id))),
+    onSettled: () =>
+      Promise.all(
+        ['runs', 'run-summary', 'run', 'batch', 'overview', 'inbox'].map((key) =>
+          queryClient.invalidateQueries({ queryKey: [key] }),
+        ),
+      ),
+  });
+}
 
 export const learnQuery = (since = '30d') =>
   queryOptions({

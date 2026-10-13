@@ -1,12 +1,16 @@
 import { fireEvent, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { ApiError, Unauthorized } from './api/client';
 import { getKey, setKey } from './api/key';
 import { createQueryClient } from './router';
 import { SCREENS } from './shell/screens';
 import { LOGIN, me, run } from './testing/fixtures';
+import { layout } from './testing/layout';
 import { renderConsole } from './testing/render';
 import { serveApi } from './testing/server';
+
+// The runs table is virtual: happy-dom has no layout, so give it one.
+beforeEach(() => layout());
 
 const runs = [
   run('r-1', {
@@ -88,7 +92,7 @@ describe('signing in', () => {
 });
 
 describe('the screens', () => {
-  it.each([...SCREENS.map((s) => [s.label, s.to] as const), ['Run', '/runs/r-1'] as const])(
+  it.each([...SCREENS.map((s) => [s.label, s.to] as const), ['r-1', '/runs/r-1'] as const])(
     'opens %s at %s with its own heading',
     async (label, to) => {
       serveApi({ runs });
@@ -128,10 +132,12 @@ describe('the screens', () => {
       ],
     });
     renderConsole('/console/runs');
-    const links = (await screen.findAllByRole('link', { name: 'PR' })).map((a) =>
+    await screen.findByRole('table', { name: 'Runs' });
+    const links = (await screen.findAllByRole('link', { name: '#7' })).map((a) =>
       a.getAttribute('href'),
     );
     expect(links).toEqual(['https://example.com/o/r/pull/7']);
+    expect(screen.queryByRole('link', { name: 'PR' })).toBeNull();
   });
 
   it('says what the server said when a list fails, and offers a retry', async () => {

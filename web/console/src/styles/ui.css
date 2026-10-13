@@ -9,6 +9,11 @@
   padding: var(--space-5) var(--space-6) var(--space-10);
 }
 
+.screen > * {
+  /* A grid item takes its content's width as its minimum: tabs or a table wider than the screen would stretch the whole page. */
+  min-width: 0;
+}
+
 .screen__head {
   display: flex;
   align-items: flex-start;
@@ -52,6 +57,8 @@
 
 .stack {
   display: grid;
+  /* One column that may be narrower than its content: a wide child scrolls in its own box rather than stretching the page. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-5);
   align-content: start;
   min-width: 0;
@@ -293,6 +300,16 @@
   align-items: flex-end;
 }
 
+/* The drawer sits against the right edge and takes the whole height. */
+.ch-modal--end {
+  justify-content: flex-end;
+}
+
+.ch-modal--end > .ch-drawer {
+  height: 100%;
+  max-height: 100dvh;
+}
+
 .ch-modal--sheet > .ch-sheet {
   width: 100%;
 }
@@ -454,14 +471,109 @@
   transform: none;
 }
 
+/* A row of filters and controls above a list. */
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.toolbar .ch-input-group {
+  flex: 1;
+  min-width: 260px;
+  max-width: 420px;
+}
+
+.toolbar .ch-input:not(input[type="search"]) {
+  width: auto;
+  max-width: 240px;
+}
+
+.toolbar--filters .ch-input {
+  max-width: 200px;
+}
+
+.g2e {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.g-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.wide-scroll {
+  overflow-x: auto;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 2px;
+  vertical-align: -1px;
+  background: var(--neutral-8);
+}
+
+/* The series of a chart: one token per slot, the sixth wraps. */
+[data-n="0"] {
+  --series: var(--chart-1);
+}
+[data-n="1"] {
+  --series: var(--chart-2);
+}
+[data-n="2"] {
+  --series: var(--chart-3);
+}
+[data-n="3"] {
+  --series: var(--chart-4);
+}
+[data-n="4"] {
+  --series: var(--chart-5);
+}
+
+.swatch[data-n],
+.ch-meter__seg.share[data-n] {
+  background: var(--series, var(--neutral-8));
+}
+
 /* ---------- phone: touch targets ---------- */
 @media (max-width: 767px) {
+  /* What the phone has another way to reach: a button that the tab bar or the page already offers. */
+  .hide-phone {
+    display: none;
+  }
+
+  /* Five kinds of event do not fit one line of a phone: the control scrolls sideways inside its own box. */
+  .ch-seg--touch {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
   .screen {
     gap: var(--space-4);
     padding: var(--space-4) var(--space-4) var(--space-8);
   }
 
   .g2,
+  .g2e,
+  .g-split,
   .g4 {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-4);

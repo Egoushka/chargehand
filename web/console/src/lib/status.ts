@@ -108,6 +108,15 @@ export function runStatus(state: RunState): Status {
   }
 }
 
+/** A run's word with its error code read: a cancelled run ended `failed` with the code `cancelled`, a usage limit with `rate_limited`. */
+export function runWord(run: { status: RunState; error_code?: string | null }): Status {
+  if (run.status === 'failed' || run.status === 'denied') {
+    if (run.error_code === 'cancelled') return 'cancelled';
+    if (run.error_code === 'rate_limited') return 'rate_limited';
+  }
+  return runStatus(run.status);
+}
+
 /** A batch task's `state` (batch/v1). */
 export function taskStatus(state: string): Status {
   switch (state) {
