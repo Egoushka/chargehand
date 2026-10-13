@@ -61,10 +61,22 @@ const group = (
   spend_known: tasks,
   spend_median_usd: median,
   spend_p80_usd: p80,
+  completed: Math.round(tasks * 0.8),
+  partial: Math.round(tasks * 0.1),
   completion_rate: 0.8,
   partial_rate: 0.1,
+  checkpointed: Math.round(tasks * 0.1),
   checkpoint_rate: 0.1,
-  prs: { total: tasks },
+  checkpointed_completed: 0,
+  checkpointed_completed_rate: null,
+  prs: {
+    total: tasks,
+    merged_unchanged: Math.round(tasks * 0.5),
+    merged_edited: 0,
+    merged: 0,
+    closed: 0,
+    open: tasks - Math.round(tasks * 0.5),
+  },
   merged_unchanged_rate: 0.5,
 });
 

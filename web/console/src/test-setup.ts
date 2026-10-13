@@ -12,9 +12,23 @@ class ResizeObserverStub {
 }
 globalThis.ResizeObserver ??= ResizeObserverStub;
 Element.prototype.scrollIntoView ??= () => {};
-Element.prototype.hasPointerCapture ??= () => false;
-Element.prototype.setPointerCapture ??= () => {};
-Element.prototype.releasePointerCapture ??= () => {};
+
+// Nor has it a canvas, which uPlot draws on: a context and a path that take every call and draw nothing. What a chart looks like
+// is checked in the browser (e2e); here it is the data it is built from.
+const drawsNothing = () =>
+  new Proxy(
+    {},
+    {
+      get: (_target, name) => (name === 'measureText' ? () => ({ width: 0 }) : () => undefined),
+      set: () => true,
+    },
+  );
+const context = drawsNothing();
+HTMLCanvasElement.prototype.getContext = (() =>
+  context) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+globalThis.Path2D = function Path2D() {
+  return drawsNothing();
+} as unknown as typeof Path2D;
 
 beforeEach(() => {
   viewport(false, 'dark'); // a desktop whose browser asks for dark, unless a test says otherwise
