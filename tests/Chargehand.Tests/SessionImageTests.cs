@@ -41,6 +41,16 @@ public class SessionImageTests
     }
 
     [SessionImageFact]
+    public void The_image_carries_the_toolchain_manifest_the_session_note_reads_and_the_cache_mount_points_owned_by_the_session_user()
+    {
+        var output = Run("cat /opt/chargehand/environment.json; for e in nuget npm pip gradle maven; do stat -c '%u %n' /cache/$e; done");
+        Assert.Contains("\"dotnet\": \"10.", output);
+        Assert.Contains("\"docker\"", output);                  // probed, and listed as absent
+        foreach (var ecosystem in new[] { "nuget", "npm", "pip", "gradle", "maven" })
+            Assert.Contains($"10001 /cache/{ecosystem}", output);
+    }
+
+    [SessionImageFact]
     public void The_plugin_and_the_driver_are_in_place()
     {
         var output = Run("test -f /opt/chargehand-plugin/skills/change/SKILL.md && echo skill-ok; test -f /opt/chargehand/Chargehand.Cli.dll && echo cli-ok; dotnet /opt/chargehand/Chargehand.Cli.dll session --out /nonexistent; echo exit=$?");

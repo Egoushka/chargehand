@@ -31,8 +31,10 @@ RUN apt-get update \
     && useradd --uid 10001 --create-home --home-dir /home/session --shell /bin/bash session
 COPY --from=build /out /opt/chargehand
 COPY plugins/chargehand /opt/chargehand-plugin
-# A new named volume mounted here takes this ownership on first use, so the non-root session can write it.
-RUN mkdir -p /work /out && chown 10001:10001 /work /out
+# A new named volume mounted here takes this ownership on first use, so the non-root session can write it. /cache/<ecosystem> are where the shared package caches of ADR 0048 mount (driven.services.caches).
+RUN mkdir -p /work /out /cache/nuget /cache/npm /cache/pip /cache/gradle /cache/maven && chown 10001:10001 /work /out /cache/nuget /cache/npm /cache/pip /cache/gradle /cache/maven
+# The tools this image has, from their own --version output, so a session reads them from its environment note instead of probing (ADR 0048). An image variant built FROM this one runs it again.
+RUN dotnet /opt/chargehand/Chargehand.Cli.dll session --probe /opt/chargehand/environment.json
 # The runner starts the container with a read-only root and a tmpfs at /home/session and /tmp: Claude Code's own state goes there. The .NET CLI home and the NuGet package cache sit under /work instead, on the volume: a restore of a real solution does not fit the tmpfs.
 ENV HOME=/home/session DISABLE_AUTOUPDATER=1 DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_CLI_HOME=/work/.dotnet NUGET_PACKAGES=/work/.nuget/packages CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 USER 10001

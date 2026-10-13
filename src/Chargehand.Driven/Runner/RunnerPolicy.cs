@@ -8,9 +8,11 @@ namespace Chargehand.Runner;
 /// <param name="MaxContainers">Labelled containers that may exist at once, running or not.</param>
 /// <param name="OutsideNetworks">Networks besides <c>bridge</c> a session container's egress proxy may be joined to: the network the chargehand server sits on, so a session can reach it through a forward.</param>
 /// <param name="SourceRoots">Directories a workspace's read-only source may be under (chargehand's checkouts). None: no workspace is prepared, because a source path names a host directory.</param>
+/// <param name="ServiceImages">Images a test service may be started from (ADR 0048), by digest. None: the runner starts no service.</param>
 /// <param name="Forwards">The forwards (<c>listen-port=host:port</c>) an egress container may carry: how a session calls the chargehand server back. The server names them in its request and the runner starts only these, so a server cannot point an egress container at any other host. None: an egress container carries no forward.</param>
 public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressImage, int MaxContainers = 8, int MaxMemoryMb = 16_384, double MaxCpus = 4, int MaxPids = 1024,
-    IReadOnlyList<string>? SourceRoots = null, IReadOnlyList<string>? OutsideNetworks = null, IReadOnlyList<string>? Forwards = null)
+    IReadOnlyList<string>? SourceRoots = null, IReadOnlyList<string>? OutsideNetworks = null, IReadOnlyList<string>? Forwards = null,
+    IReadOnlyList<string>? ServiceImages = null)
 {
     public const string WorkPrefix = "chargehand-work-";
     public const string OutPrefix = "chargehand-out-";
@@ -27,8 +29,22 @@ public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressIma
             return $"volumes must be {WorkPrefix}<run id> and {OutPrefix}<run id>";
         if (!start.Network.StartsWith(NetworkPrefix, StringComparison.Ordinal))
             return $"the network must be a batch network ({NetworkPrefix}<batch id>)";
+        if (start.Caches?.FirstOrDefault(c => Containers.CacheVolumes.EcosystemOf(c) is null) is { } cache)
+            return $"'{cache}' is not a cache volume ({Containers.CacheVolumes.Prefix}<ecosystem>-<12 hex>)";
         if (start.MemoryMb > MaxMemoryMb || start.Cpus > MaxCpus || start.Pids > MaxPids)
             return $"limits are above the runner's ceilings (memory {MaxMemoryMb} MiB, cpus {MaxCpus}, pids {MaxPids})";
+        return null;
+    }
+
+    /// <summary>A test service starts from an image the runner lists for it, on a batch network, under the ceilings of a session container.</summary>
+    public string? RefuseService(RunnerService service)
+    {
+        if (ServiceImages?.Contains(service.Image, StringComparer.Ordinal) != true)
+            return "image is not on the runner's service image allowlist (--service-images)";
+        if (!service.Network.StartsWith(NetworkPrefix, StringComparison.Ordinal))
+            return $"the network must be a batch network ({NetworkPrefix}<batch id>)";
+        if (service.MemoryMb > MaxMemoryMb)
+            return $"memory is above the runner's ceiling ({MaxMemoryMb} MiB)";
         return null;
     }
 

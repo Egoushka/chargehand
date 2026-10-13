@@ -63,10 +63,25 @@ public static class RunnerServer
                 return Refuse(refusal);
             if (await engine.CountAsync(ct) >= policy.MaxContainers)
                 return Reply(StatusCodes.Status429TooManyRequests, $"{policy.MaxContainers} session containers exist already");
-            var spec = new ContainerSpec(start.RunId, start.Image, start.WorkVolume, start.OutVolume, start.Network, start.Env, start.MemoryMb, start.Cpus, start.Pids, start.Command);
+            var spec = new ContainerSpec(start.RunId, start.Image, start.WorkVolume, start.OutVolume, start.Network, start.Env, start.MemoryMb, start.Cpus, start.Pids, start.Command,
+                Caches: start.Caches);
             _ = ContainerTemplate.RunArgs(spec, "/dev/null");
             _ = ContainerTemplate.EnvFileLines(spec.Env);
             return Ok(new { id = await engine.StartAsync(spec, ct) });
+        }));
+
+        app.MapPost("/service", (HttpContext ctx, CancellationToken ct) => Guard(async () =>
+        {
+            var service = await Body<RunnerService>(ctx, ct);
+            if (engine is not IServiceEngine starter)
+                return Reply(StatusCodes.Status501NotImplemented, "this runner's engine cannot start services");
+            if (policy.RefuseService(service) is { } refusal)
+                return Refuse(refusal);
+            if (await engine.CountAsync(ct) >= policy.MaxContainers)
+                return Reply(StatusCodes.Status429TooManyRequests, $"{policy.MaxContainers} containers exist already");
+            var spec = new ServiceSpec(service.BatchId, service.Name, service.Image, service.Network, service.Port, service.Env, service.Tmpfs, service.MemoryMb);
+            _ = ContainerTemplate.ServiceArgs(spec, "/dev/null");
+            return Ok(new { id = await starter.StartServiceAsync(spec, ct) });
         }));
 
         app.MapPost("/workspace", (HttpContext ctx, CancellationToken ct) => Guard(async () =>

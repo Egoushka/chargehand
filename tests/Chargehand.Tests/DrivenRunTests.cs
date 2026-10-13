@@ -26,7 +26,7 @@ public class DrivenRunTests
 
     private static readonly JsonSerializerOptions Snake = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
-    internal sealed class FakeEngine : IContainerEngine, IWorkspaceEngine
+    internal sealed class FakeEngine : IContainerEngine, IWorkspaceEngine, IServiceEngine
     {
         private readonly object _gate = new();
         private readonly HashSet<string> _stopped = [];
@@ -56,6 +56,21 @@ public class DrivenRunTests
         {
             lock (_gate)
                 Calls.Add(call);
+        }
+
+        public List<ServiceSpec> Services { get; } = [];
+
+        /// <summary>What a service's start throws; null: it starts.</summary>
+        public Func<ServiceSpec, Exception?>? OnService { get; set; }
+
+        public Task<string> StartServiceAsync(ServiceSpec spec, CancellationToken ct)
+        {
+            if (OnService?.Invoke(spec) is { } failure)
+                throw failure;
+            lock (_gate)
+                Services.Add(spec);
+            Record($"service {spec.Name}");
+            return Task.FromResult($"cid-svc-{spec.Name}");
         }
 
         public Task<string> StartAsync(ContainerSpec spec, CancellationToken ct)

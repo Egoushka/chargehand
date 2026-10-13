@@ -7,7 +7,8 @@ namespace Chargehand.Driven;
 /// <param name="Image">The session image (it has the toolchains and git).</param>
 /// <param name="SourcePath">chargehand's checkout of the pinned commit, mounted read-only into the workspace helper.</param>
 /// <param name="ProxyUrl">The batch's egress proxy, so a restore can reach the allowlisted registries; the container has no other route out.</param>
-public sealed record ContainerVerifierSettings(string Image, string SourcePath, string BaseCommit, string Network, string ProxyUrl, int MemoryMb, double Cpus, int Pids);
+/// <param name="Shared">The batch's cache volumes and test services (ADR 0048): the verification restores from the same caches and reaches the same services as the session did; null: neither.</param>
+public sealed record ContainerVerifierSettings(string Image, string SourcePath, string BaseCommit, string Network, string ProxyUrl, int MemoryMb, double Cpus, int Pids, SharedServicesPlan? Shared = null);
 
 /// <summary>Runs the repository's tests on a session's branch in a fresh container (ADR 0039). The session's own container and workspace are removed first; a new workspace is
 /// cloned at the base commit; only the bundle (in the session's output volume) is carried over, and the branch is checked out from it. The container gets the batch network's proxy
@@ -25,10 +26,12 @@ public sealed class ContainerVerifier(IContainerEngine engine, IWorkspaceEngine 
         await engine.RemoveAsync($"chargehand-{run}", ct);
         await engine.RemoveVolumeAsync(RunnerNames.Work(run), ct);
         await workspace.PrepareWorkspaceAsync(new WorkspaceSpec(run, settings.Image, settings.SourcePath, RunnerNames.Work(run), verification.Branch, settings.BaseCommit), ct);
-        var spec = new ContainerSpec(run, settings.Image, RunnerNames.Work(run), RunnerNames.Out(run), settings.Network,
-            new Dictionary<string, string> { ["HTTPS_PROXY"] = settings.ProxyUrl, ["HTTP_PROXY"] = settings.ProxyUrl },
+        Dictionary<string, string> env = new(settings.Shared?.Environment() ?? new Dictionary<string, string>(), StringComparer.Ordinal) { ["HTTPS_PROXY"] = settings.ProxyUrl, ["HTTP_PROXY"] = settings.ProxyUrl };
+        settings.Shared?.BypassProxy(env);
+        var spec = new ContainerSpec(run, settings.Image, RunnerNames.Work(run), RunnerNames.Out(run), settings.Network, env,
             settings.MemoryMb, settings.Cpus, settings.Pids,
-            ["verify-branch", "--bundle", "/out/chargehand.bundle", "--branch", verification.Branch, "--timeout-seconds", ((int)Math.Ceiling(verification.Timeout.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture), "--", .. verification.Argv]);
+            ["verify-branch", "--bundle", "/out/chargehand.bundle", "--branch", verification.Branch, "--timeout-seconds", ((int)Math.Ceiling(verification.Timeout.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture), "--", .. verification.Argv],
+            Caches: settings.Shared?.Caches is { Count: > 0 } caches ? caches : null);
         var id = await engine.StartAsync(spec, ct);
         var started = Stopwatch.StartNew();
         try

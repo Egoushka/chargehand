@@ -5,7 +5,8 @@ namespace Chargehand.Driven;
 
 /// <summary><c>chargehand session</c>: the command a session container runs (ADR 0039). It reads <c>/out/task.json</c> (written by the runner's
 /// side before the container starts), runs <see cref="SessionDriver"/> in <c>/work</c> and leaves its files in <c>/out</c>. The outcome file, not the
-/// exit code, is the record: the exit code is 0 when the session completed or needs input, 1 otherwise.</summary>
+/// exit code, is the record: the exit code is 0 when the session completed or needs input, 1 otherwise. <c>--probe &lt;file&gt;</c> instead measures the image's tools and writes the manifest the
+/// environment note reads (ADR 0048); the image build runs it.</summary>
 public static class SessionCli
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
@@ -57,13 +58,22 @@ public static class SessionCli
     {
         var work = "/work";
         var output = "/out";
+        var manifestPath = ToolchainManifest.DefaultPath;
+        string? probe = null;
         for (var i = 0; i + 1 < args.Count; i += 2)
             switch (args[i])
             {
                 case "--work": work = args[i + 1]; break;
                 case "--out": output = args[i + 1]; break;
-                default: error.WriteLine("usage: chargehand session [--work <dir>] [--out <dir>]"); return 2;
+                case "--toolchains": manifestPath = args[i + 1]; break;
+                case "--probe": probe = args[i + 1]; break;
+                default: error.WriteLine("usage: chargehand session [--work <dir>] [--out <dir>] [--toolchains <file>] | --probe <file>"); return 2;
             }
+        if (probe is not null)
+        {
+            await File.WriteAllTextAsync(probe, (await ToolchainManifest.ProbeAsync(ct)).ToJson(), ct);
+            return 0;
+        }
         SessionTask task;
         try
         {
@@ -76,7 +86,9 @@ public static class SessionCli
         }
         var secrets = SecretVariables
             .Select(Environment.GetEnvironmentVariable).Where(v => !string.IsNullOrEmpty(v)).Select(v => v!).ToList();
-        var options = new SessionOptions(work, output, task, SessionCommand.Claude, secrets, DefaultPrompt,
+        // The note is the manifest the image build wrote, else one probe by the driver: the model never has to look. It sits after the static text, which stays as Prompt CI saw it.
+        var toolchains = ToolchainManifest.Load(manifestPath) ?? await ToolchainManifest.ProbeAsync(ct);
+        var options = new SessionOptions(work, output, task, SessionCommand.Claude, secrets, $"{DefaultPrompt}\n\n{EnvironmentNote.Render(toolchains, task.Environment)}",
             Environment.GetEnvironmentVariable("CHARGEHAND_MCP_URL"), Environment.GetEnvironmentVariable("CHARGEHAND_RUN_TOKEN"));
         var outcome = await SessionDriver.RunAsync(options, ct);
         error.WriteLine($"session {outcome.Status} {outcome.Reason}");

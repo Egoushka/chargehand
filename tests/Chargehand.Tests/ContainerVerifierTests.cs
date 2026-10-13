@@ -67,6 +67,26 @@ public class ContainerVerifierTests
     }
 
     [Fact]
+    public async Task With_shared_services_it_restores_from_the_repositorys_caches_and_reaches_its_services_and_still_holds_no_credential()
+    {
+        var engine = new FakeEngine { Logs = Line(0) + "\n" };
+        var nuget = CacheVolumes.Name("nuget", "o/r");
+        var postgres = new ServiceSpec("b1", "postgres", "docker.io/library/postgres@sha256:4444444444444444444444444444444444444444444444444444444444444444", "chargehand-net-b1", 5432,
+            new Dictionary<string, string>(), []);
+        var settings = new ContainerVerifierSettings(Image, "/srv/checkouts/repo-abc1234", "abc1234def", "chargehand-net-b1", "http://run1:x@chargehand-egress-b1:3128", 4096, 2, 512,
+            new SharedServicesPlan([nuget], [postgres], [], null, null));
+        await new ContainerVerifier(engine, engine, settings, TimeSpan.FromMilliseconds(5)).VerifyAsync(Request(), default);
+
+        var spec = engine.Started!;
+        Assert.Equal([nuget], spec.Caches);
+        Assert.Equal(["CHARGEHAND_SERVICES", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "NUGET_PACKAGES", "no_proxy"], spec.Env.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal("postgres", spec.Env["NO_PROXY"]);
+        Assert.Equal("http://run1:x@chargehand-egress-b1:3128", spec.Env["HTTPS_PROXY"]);
+        Assert.DoesNotContain(spec.Env.Keys, k => k.Contains("ANTHROPIC", StringComparison.Ordinal) || k.Contains("OAUTH", StringComparison.Ordinal) || k.Contains("RUN_TOKEN", StringComparison.Ordinal));
+        _ = ContainerTemplate.RunArgs(spec, "/dev/null");
+    }
+
+    [Fact]
     public async Task A_failing_test_is_its_exit_code_and_output_tail()
     {
         var engine = new FakeEngine { Logs = Line(1, "2 failed") };

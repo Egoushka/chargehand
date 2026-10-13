@@ -185,6 +185,34 @@ The request is refused as `invalid_request` before anything starts when the earl
 
 **How long the work is kept.** A task's output volume (its bundle and handoff) is not removed when the task ends. The sweep at a server start removes every output volume that no running batch owns, except those of tasks that ended with kept work in the last 7 days (the task's last session and the one that holds its bundle). So work is continuable for at least 7 days; after that, the first restart removes it. A question asked before any commit keeps nothing but its goal and questions, which live in the run log. The pull request opened for the question is reused by the answering task's handover (the same branch), so its title still reads `[partial]` and its body the old text until you edit them; chargehand does not edit a pull request. Needs a session image from the release that added continuations (ADR 0044); no image change is needed for this step.
 
+## Shared services
+
+[ADR 0048](../adr/0048-shared-services-for-driven-sessions.md). Four things a repository's sessions share, so they stop probing the container and downloading cold.
+
+**The environment note** needs no setting. Before its first turn a session reads a short block, appended to its prompt next to the static text: the tools the session image has (from `/opt/chargehand/environment.json`, written at image build by `chargehand session --probe`), the ones it lacks, that only the package allowlist answers and there is no Docker, the repository's detected ecosystems, the command chargehand will run on the branch (the request's `context.verify`, else the detected one), where the caches are and which test services exist. An image without the file is probed once by the driver. The block is not in the goal, so research and review calls do not carry it.
+
+**Package caches** (`driven.services.caches`, a list of `nuget`, `npm`, `pip`, `gradle`, `maven`). One named volume per ecosystem and repository, `chargehand-cache-<ecosystem>-<12 hex>`, mounted read-write at `/cache/<ecosystem>` in that repository's sessions and in the verifier, with the package manager's variable pointed at it. Per repository, not shared: a session writes its cache while running the repository's own code, and a package manager trusts what is already in its cache, so a shared cache would let one repository choose what another builds. The volumes are not removed with a task or by the restart sweep and have no size limit; prune them by name (`docker volume ls -q -f name=chargehand-cache-`). They need a session image and a runner from the release that added them.
+
+**Test services** (`driven.services.repositories`, per `owner/repo`, up to four). Each is a pinned image started on the batch's internal network before the first session and removed before the network, reachable as `name:port`, with its data directory in memory:
+
+```json
+"services": {
+  "repositories": {
+    "owner/repo": [
+      { "name": "postgres", "image": "docker.io/library/postgres@sha256:<digest>", "port": 5432,
+        "env": { "POSTGRES_PASSWORD": "test", "POSTGRES_DB": "app" }, "tmpfs": ["/var/lib/postgresql/data"],
+        "note": "user postgres, password test, database app" }
+    ]
+  }
+}
+```
+
+`env` holds test values for a container with no route out, never a real secret. The runner starts only images on its `--service-images`. A service may take a few seconds before it accepts connections (the note tells the session to retry); tasks of one repository in a batch share its services, so tests that need isolation use their own database names.
+
+**A JDK image by ecosystem** (`driven.services.images`, `{"gradle": "<digest>", "maven": "<digest>"}`). A repository whose top level has that ecosystem gets that image for its sessions and its verification; the value must also be in `driven.images`. `images/session-jdk/Dockerfile` builds `FROM` the session image and adds a JDK, Gradle (checksum-verified) and Maven; the release workflow pushes it as `chargehand-session-jdk`. By hand: `docker build -f images/session-jdk/Dockerfile --build-arg BASE=<session image by digest> -t chargehand-session-jdk .`. It makes JVM Gradle and Maven repositories verifiable; it has no Android SDK. The Gradle and Maven package hosts are not in the driven preset's allowlist: add them under `driven.network.allow` (`chargehand init` lists them).
+
+Not built yet: a code index of the base commit mounted read-only into sessions (decided in the ADR, deferred), a readiness wait for services, a size or age limit on cache volumes.
+
 ## Try it end to end
 
 `scripts/driven-e2e.sh` runs the whole path against a real model, by hand, never in CI. It needs Docker, the .NET SDK, python3, `claude` on `PATH` at the version inside the session image, a session image pushed to a registry (build `images/session/Dockerfile`; the profile takes the image by digest), and an Anthropic API key with a **low spend limit set in the console**:
@@ -239,6 +267,6 @@ An `http` URL is reached through a second forward on the batch's egress containe
 
 ## Configure it
 
-The profile's `driven` block (`schemas` and `profiles/profile.schema.json` document each key): `enabled` (default false), `max_parallel`, `max_parallel_total`, `max_session_calls` (research and review runs executing at once across all sessions, default 2: with more sessions than slots, sessions wait on each other), `images` (by digest), `network.allow`, `limits` (see "Limits and the kill switch"), `runner` (URL and the secret item for its key), `push_secret`, `integrator` (merge by policy and fix failing CI as a GitHub App, "Merging by policy" above), and `task_source` (how a tracker item id becomes a goal through a mapped MCP tool). `network.outside` and `network.mcp_forward` (`host:port` of the chargehand server as the egress container reaches it) let a session call chargehand for research and review. `network.otlp_url` turns on Claude Code's own telemetry (above). `images[0]` is the session image and the egress image. Keep `enabled` false in any shared profile. A request adds `driven: { tasks: [{id, ref | goal, max_turns?, max_minutes?}], max_parallel, max_tokens_total | max_usd_total }` and `context.repository`.
+The profile's `driven` block (`schemas` and `profiles/profile.schema.json` document each key): `enabled` (default false), `max_parallel`, `max_parallel_total`, `max_session_calls` (research and review runs executing at once across all sessions, default 2: with more sessions than slots, sessions wait on each other), `images` (by digest), `network.allow`, `limits` (see "Limits and the kill switch"), `runner` (URL and the secret item for its key), `push_secret`, `integrator` (merge by policy and fix failing CI as a GitHub App, "Merging by policy" above), and `task_source` (how a tracker item id becomes a goal through a mapped MCP tool), and `services` (package caches, test services and a session image by ecosystem, "Shared services" above). `network.outside` and `network.mcp_forward` (`host:port` of the chargehand server as the egress container reaches it) let a session call chargehand for research and review. `network.otlp_url` turns on Claude Code's own telemetry (above). `images[0]` is the session image and the egress image. Keep `enabled` false in any shared profile. A request adds `driven: { tasks: [{id, ref | goal, max_turns?, max_minutes?}], max_parallel, max_tokens_total | max_usd_total }` and `context.repository`.
 
 `chargehand init <repo>` writes a starter `driven` block with the package hosts that repository needs in `network.allow`, and `chargehand doctor` checks the images, the runner, the secrets and that `network.allow` covers the repositories under `repository_roots` ([reference](reference.md#commands)).
