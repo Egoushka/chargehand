@@ -169,6 +169,17 @@
             "preset": { "type": "string", "minLength": 1, "description": "The preset the run uses; it must be read-only. Default cheap." }
           }
         },
+        "learning": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "ADR 0045's learning loop: every finished task leaves a record (size class, budget, spend, stop reason, governor decisions, outcome) next to the run log, the server reads the outcome of its pull request back from the forge (merged unchanged, merged after edits, closed, open; off when no forge credential is configured), and chargehand learn report sums them up. A key left out keeps its default.",
+          "properties": {
+            "retro": { "type": "boolean", "description": "After each batch, one cheap read-only run over the batch's records writes a short retro, the batch result's retro artifact. Default false." },
+            "retro_preset": { "type": "string", "minLength": 1, "description": "The preset the retro run uses; it must be read-only. Default cheap." },
+            "pr_days": { "type": "integer", "minimum": 1, "description": "How long after a task finished its pull request is read again until it is merged or closed. Default 14." },
+            "pr_check_minutes": { "type": "integer", "minimum": 1, "description": "How often the server reads the pull requests that are still open. Default 60." }
+          }
+        },
         "admission": {
           "type": "object",
           "additionalProperties": false,

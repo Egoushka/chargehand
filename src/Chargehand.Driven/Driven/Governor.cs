@@ -290,14 +290,22 @@ public sealed partial class Governor
     private static partial Regex CommandSeparators();
 }
 
+/// <summary>A task's budget in the dollar equivalent and where it came from.</summary>
+public sealed record BudgetChoice(decimal Usd, BudgetSource Source);
+
 public static class DrivenGovernorExtensions
 {
+    /// <summary>A task's own budget, else the flat budget of its size class (M when it names none).</summary>
+    public static BudgetChoice Budget(this DrivenGovernor settings, string? size, decimal? taskBudget) =>
+        taskBudget is { } own ? new BudgetChoice(own, new BudgetSource("task"))
+            : new BudgetChoice((settings.Budgets ?? DrivenGovernor.DefaultBudgets).GetValueOrDefault(size ?? "M", DrivenGovernor.DefaultBudgets[size ?? "M"]), new BudgetSource("flat"));
+
     /// <summary>The settings a session of a task gets: its own budget, else its size class's (M when it names none), and what earlier sessions of the task spent.</summary>
     public static SessionGovernor ToSession(this DrivenGovernor settings, string? size, decimal? taskBudget, decimal priorUsd)
     {
         var sizeClass = size ?? "M";
         var d = new SessionGovernor();
-        return new SessionGovernor(settings.Mode, taskBudget ?? (settings.Budgets ?? DrivenGovernor.DefaultBudgets).GetValueOrDefault(sizeClass, DrivenGovernor.DefaultBudgets[sizeClass]), priorUsd, sizeClass,
+        return new SessionGovernor(settings.Mode, settings.Budget(size, taskBudget).Usd, priorUsd, sizeClass,
             settings.RepeatCalls ?? d.RepeatCalls, settings.RepeatFailures ?? d.RepeatFailures, settings.FailingCalls ?? d.FailingCalls, settings.ProbeCommands ?? d.ProbeCommands,
             settings.NoGrowthTurns ?? d.NoGrowthTurns, settings.RewarnTurns ?? d.RewarnTurns, settings.ContextTokens ?? d.ContextTokens, settings.CheckpointAt ?? d.CheckpointAt,
             settings.ProbePatterns, settings.WaitPatterns);
