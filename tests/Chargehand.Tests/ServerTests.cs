@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.RunLog;
 using Chargehand.Server;
@@ -37,14 +38,27 @@ internal sealed class TestServer : IAsyncDisposable
 
     public RunTokenService Tokens => _app.Services.GetRequiredService<RunService>().Tokens;
 
-    public static async Task<TestServer> StartAsync(ScriptedRuntime runtime, IReadOnlyList<string>? allowedHosts = null, Func<string, JsonlRunLog, Chargehand.Driven.DrivenRun>? driven = null)
+    /// <summary>The accounts' keys, in the file the server reads.</summary>
+    public AccountKeyStore Keys => new(System.IO.Path.Combine(_root.Path, "accounts.json"));
+
+    public static async Task<TestServer> StartAsync(ScriptedRuntime runtime, IReadOnlyList<string>? allowedHosts = null, Func<string, JsonlRunLog, Chargehand.Driven.DrivenRun>? driven = null,
+        IReadOnlyList<AccountSettings>? accounts = null, TimeProvider? clock = null)
     {
         var root = new TempDir();
         var log = new JsonlRunLog(System.IO.Path.Combine(root.Path, "log.jsonl"));
-        var app = ChargehandServer.Create(new ServerSettings(0, Key, Repo.Path("presets"), AllowedHosts: allowedHosts),
+        var app = ChargehandServer.Create(new ServerSettings(0, Key, Repo.Path("presets"), AllowedHosts: allowedHosts, Accounts: accounts,
+                AccountKeysFile: System.IO.Path.Combine(root.Path, "accounts.json"), Clock: clock),
             Runs.Orchestrator(runtime, root.Path, log), log, driven?.Invoke(root.Path, log));
         await app.StartAsync();
         return new TestServer(root, runtime, log, app, new Uri(app.Urls.First()));
+    }
+
+    /// <summary>A client that sends <paramref name="key"/> as its bearer.</summary>
+    public HttpClient As(string key)
+    {
+        var client = new HttpClient { BaseAddress = BaseAddress };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        return client;
     }
 
     public Task<HttpResponseMessage> PostAsync(RunRequest request, int waitSeconds) => PostAsync(JsonContent.Create(request, options: ContractJson.Options), waitSeconds);

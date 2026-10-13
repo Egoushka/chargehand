@@ -30,8 +30,9 @@ public sealed record BestBundle(string RunId, int Commits);
 /// <param name="TokenKey">The egress container's key for run tokens; null when the batch has no token exchange.</param>
 /// <param name="Unresolved">Tasks that did not resolve to a goal: final from the start.</param>
 /// <param name="Plan">What the planning step did (ADR 0049), kept so a resumed batch reports it and does not plan again; null: no planning ran.</param>
+/// <param name="Actor">The account that started the batch (ADR 0050); a resumed batch runs as it.</param>
 public sealed record BatchState(string RunId, DateTimeOffset Started, string TraceId, RunRequest Request, string? TokenKey, IReadOnlyList<TaskEntry> Tasks, IReadOnlyList<TaskOutcome> Unresolved,
-    BatchPlan? Plan = null)
+    BatchPlan? Plan = null, string? Actor = null)
 {
     /// <summary>Every run id the batch's resources can carry: the batch's own and its tasks', every session of a task included (an earlier session's output volume holds the bundle a restart may need).</summary>
     public IEnumerable<string> RunIds => Tasks.Select(t => t.RunId).OfType<string>().Concat(Tasks.SelectMany(t => t.Runs ?? [])).Prepend(RunId);

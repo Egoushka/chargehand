@@ -457,7 +457,26 @@
         },
         "api_key_secret": {
           "type": "string",
-          "description": "Secret-store item holding the API key every caller sends as a bearer token."
+          "description": "Secret-store item holding the API key every caller sends as a bearer token. It opens the implicit owner account: every run, no caps."
+        },
+        "accounts": {
+          "type": "array",
+          "description": "Accounts besides the owner (ADR 0050). Their keys come from `chargehand accounts add <name>`, stored as salted hashes in accounts.json beside the run log; a key of an account removed here opens nothing. An account lists, reads and cancels only its own runs; it never halts the server.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$", "not": { "const": "owner" }, "description": "Lowercase letters, digits and hyphens. Recorded as `actor` on the account's runs, results and events." },
+              "max_usd_per_day": { "type": "number", "exclusiveMinimum": 0, "description": "Dollars the account's runs may cost in a UTC day, by their results' usage. Counts priced runs only; a subscription run adds none, so pair it with a token cap." },
+              "max_usd_per_month": { "type": "number", "exclusiveMinimum": 0, "description": "The same over a UTC calendar month." },
+              "max_tokens_per_day": { "type": "integer", "minimum": 1, "description": "Input plus output tokens in a UTC day." },
+              "max_tokens_per_month": { "type": "integer", "minimum": 1, "description": "Input plus output tokens in a UTC calendar month." },
+              "max_concurrent_runs": { "type": "integer", "minimum": 1, "description": "Unfinished runs (queued or running) the account may have at once." },
+              "driven": { "type": "boolean", "default": false, "description": "Whether the account may start a batch (a request with a driven block). A batch pushes branches and opens pull requests with the server's credential." },
+              "repositories": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Absolute directories the account's context.repository.path may be, or be below. Absent: any repository the server allows." }
+            }
+          }
         }
       }
     },

@@ -33,6 +33,6 @@ internal sealed class RunServiceStarter(RunService runs) : IBatchStarter
     {
         if (runs.Halted)
             return Task.FromResult(new BatchStart(null, RunService.HaltedMessage));
-        return Task.FromResult(runs.Start(request) is { } run ? new BatchStart(run.Id) : new BatchStart(null, $"{RunService.MaxUnfinished} runs are unfinished"));
+        return Task.FromResult(runs.Start(request, actor: Principal.Owner.Name) is { } run ? new BatchStart(run.Id) : new BatchStart(null, $"{RunService.MaxUnfinished} runs are unfinished"));
     }
 }

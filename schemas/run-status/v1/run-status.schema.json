@@ -33,6 +33,7 @@
     "usd_estimate": { "type": "number", "minimum": 0, "description": "Driven sessions, session_progress: the session's dollar equivalent so far, from the profile's price table (input, output, cache write and cache read priced apart). An estimate, not a bill, and present on a subscription too; absent without prices or when a model has none." },
     "usd_estimate_partial": { "type": "boolean", "description": "Driven sessions, session_progress: true when some message's model had no price, so usd_estimate sums only the priced ones; absent otherwise." },
     "cache_read": { "type": "integer", "minimum": 0, "description": "Driven sessions, session_progress: cache-read tokens the task's session has used so far." },
-    "cache_write": { "type": "integer", "minimum": 0, "description": "Driven sessions, session_progress: cache-creation tokens the task's session has used so far." }
+    "cache_write": { "type": "integer", "minimum": 0, "description": "Driven sessions, session_progress: cache-creation tokens the task's session has used so far." },
+    "actor": { "type": "string", "minLength": 1, "description": "The account that started the run (ADR 0050); absent for a run started from the CLI." }
   }
 }

@@ -50,8 +50,9 @@ public sealed class Orchestrator(
     /// <param name="parentRunId">The run this one resends with answers, if any; recorded in the start record.</param>
     /// <param name="cancelledByCaller">True once the caller cancelled this run on purpose (not a shutdown): the run then ends as a failed result with
     /// <c>cancelled</c> and is recorded, instead of the cancellation escaping.</param>
+    /// <param name="actor">The account that started the run (ADR 0050); on the start record, the run record and the result.</param>
     public async Task<ResultContract> RunAsync(RunRequest request, CancellationToken ct, string? runId = null, Action<RunStatus>? progress = null,
-        string? parentRunId = null, Func<bool>? cancelledByCaller = null)
+        string? parentRunId = null, Func<bool>? cancelledByCaller = null, string? actor = null)
     {
         var started = DateTimeOffset.UtcNow;
         runId ??= NewRunId();
@@ -64,7 +65,7 @@ public sealed class Orchestrator(
         run?.SetTag("langfuse.trace.name", "chargehand.run");
         run?.SetTag("chargehand.run_id", runId);
         var extensions = new ExtensionsCollector();
-        await runLog.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId, parentRunId, ProcessBoot.Id), ct);
+        await runLog.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId, parentRunId, ProcessBoot.Id, actor), ct);
         progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Started));
 
         var registry = new PromptRegistry(Path.Combine(rootDirectory, "prompts"));
@@ -164,6 +165,7 @@ public sealed class Orchestrator(
                 error);
         }
 
+        result = result with { Actor = actor };
         if (signingKey is not null)
         {
             result = ResultSignature.Sign(result, signingKey);
@@ -174,7 +176,7 @@ public sealed class Orchestrator(
         run?.SetTag("chargehand.action", executed is null ? null : Name(executed.Value));
         // A caller's cancel must not stop the record of it from being written.
         await runLog.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, presetName, intake?.Spec is null ? null : Name(intake.Spec.Action), intake?.Spec, result,
-            executed is null ? null : Name(executed.Value), extensions.ToReport()), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
+            executed is null ? null : Name(executed.Value), extensions.ToReport(), actor), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
         await ReportOutcome(enhanced, result, executed);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
@@ -236,16 +238,16 @@ public sealed class Orchestrator(
     private static ResultError Cancelled() => new(ErrorCode.Cancelled, "the run was cancelled", false, "Start the task again if it is still wanted; nothing was pushed.");
 
     /// <summary>Records a run that was cancelled before it started (it was queued): a start record and a failed result with <c>cancelled</c>.</summary>
-    public async Task<ResultContract> RecordCancelledAsync(RunRequest request, string runId, string? parentRunId, Action<RunStatus>? progress = null)
+    public async Task<ResultContract> RecordCancelledAsync(RunRequest request, string runId, string? parentRunId, Action<RunStatus>? progress = null, string? actor = null)
     {
         var now = DateTimeOffset.UtcNow;
         var traceId = ActivityTraceId.CreateRandom().ToHexString();
         var chain = new PromptChain([], new AsSent(opencodeVersion, "generate", profile.IntakeModel ?? "auto", now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         var error = Cancelled();
         var result = new ResultContract("result/v1", runId, "run", traceId, chain, ResultStatus.Failed, "The run was cancelled before it started.", [], [], [],
-            [error.Message], 0, new Usage(0, 0, 0, 0, 0), error);
-        await runLog.AppendAsync(new StartRecord(runId, now, traceId, request, Environment.ProcessId, parentRunId, ProcessBoot.Id), CancellationToken.None);
-        await runLog.AppendAsync(new RunRecord(runId, now, now, request.Context.Preset, null, null, result), CancellationToken.None);
+            [error.Message], 0, new Usage(0, 0, 0, 0, 0), error, Actor: actor);
+        await runLog.AppendAsync(new StartRecord(runId, now, traceId, request, Environment.ProcessId, parentRunId, ProcessBoot.Id, actor), CancellationToken.None);
+        await runLog.AppendAsync(new RunRecord(runId, now, now, request.Context.Preset, null, null, result, Actor: actor), CancellationToken.None);
         progress?.Invoke(RunStatus.Of(runId, RunState.Failed, RunEventKind.RunFinished) with { Result = result });
         return result;
     }

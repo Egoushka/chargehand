@@ -3,6 +3,8 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.RunLog;
+using Microsoft.AspNetCore.Http;
 
 namespace Chargehand.Server;
 
@@ -12,7 +14,7 @@ namespace Chargehand.Server;
 /// the CLI shares (ADR 0018); events live here only while the run is unfinished.
 /// </summary>
 public sealed class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping, DrivenRun? driven = null,
-    int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null) : IDisposable
+    int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null, IRunLog? log = null, TimeProvider? clock = null) : IDisposable
 {
     /// <summary>Unfinished top-level runs held at most; beyond it a new run is refused (HTTP 429). A session's research and review runs do not count: the child gate and the session count bound them.</summary>
     public const int MaxUnfinished = 10;
@@ -38,18 +40,42 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
     /// <summary>The kill switch is on: no new run starts until <see cref="Resume"/> (ADR 0039).</summary>
     public bool Halted { get; private set; }
 
-    private string MintToken(TaskGrant g) =>
-        Tokens.Issue(new RunTokenClaims(g.RunId, g.RepositoryPath, g.Commit, g.MaxUsd, g.MaxTokens, g.Expires), DateTimeOffset.UtcNow);
+    private string MintToken(TaskGrant g, string? actor) =>
+        Tokens.Issue(new RunTokenClaims(g.RunId, g.RepositoryPath, g.Commit, g.MaxUsd, g.MaxTokens, g.Expires, actor), DateTimeOffset.UtcNow);
 
     public const string HaltedMessage = "the server is halted; POST /v1/resume to accept runs again";
 
-    /// <summary>Cancels a run this process holds, on purpose. False when it holds no such run.</summary>
-    public bool Cancel(string runId)
+    /// <summary>Cancels a run this process holds, on purpose. False when it holds no such run, or <paramref name="who"/> may not see it (ADR 0050).</summary>
+    public bool Cancel(string runId, Principal? who = null)
     {
-        if (_runs.GetValueOrDefault(runId) is not { } run)
+        if (_runs.GetValueOrDefault(runId) is not { } run || !Principal.Sees(who, run.Actor))
             return false;
         run.CancelByCaller();
         return true;
+    }
+
+    /// <summary>The time the accounts' windows are cut by.</summary>
+    public DateTimeOffset Now => (clock ?? TimeProvider.System).GetUtcNow();
+
+    /// <summary>What an account may start (ADR 0050). The owner, stdio and the CLI are unrestricted. An account's request comes back with its budgets cut to what the window
+    /// has left, or refused: a run underway can still overshoot a cap by its own budget.</summary>
+    public async Task<(RunRequest Request, AccountRefusal? Refusal)> AdmitAsync(Principal? who, RunRequest request, CancellationToken ct)
+    {
+        if (who?.Account is not { } account)
+            return (request, null);
+        var now = Now;
+        // Another account's run is not a continuation this account may build on.
+        foreach (var from in request.Driven?.Tasks.Select(t => t.ContinueFrom).OfType<ContinueFrom>() ?? [])
+            if (log is null || (await log.ReadAsync(from.RunId, ct)).Start?.Actor != account.Name)
+                return (request, new("continue_not_allowed", $"continue_from {from.RunId} is not a run of account '{account.Name}'", StatusCodes.Status403Forbidden));
+        ActorSpend none = new(0, 0);
+        var day = log is not null && AccountPolicy.UsesDay(account) ? await log.SpendAsync(account.Name, AccountPolicy.DayStart(now), ct) : none;
+        var month = log is not null && AccountPolicy.UsesMonth(account) ? await log.SpendAsync(account.Name, AccountPolicy.MonthStart(now), ct) : none;
+        // ponytail: count-then-start is not atomic; two racing requests can exceed max_concurrent_runs by one.
+        var unfinished = _runs.Values.Count(r => !r.IsChild && r.Actor == account.Name);
+        return AccountPolicy.Refusal(account, request, unfinished, day, month, now) is { } refusal
+            ? (request, refusal)
+            : (AccountPolicy.Clamp(account, request, day, month), null);
     }
 
     /// <summary>Stops accepting runs and cancels every unfinished one. Returns how many it cancelled.</summary>
@@ -80,12 +106,13 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
 
     /// <summary>Queues a run, or returns null when <see cref="MaxUnfinished"/> top-level runs are unfinished (a run with <paramref name="chargeTo"/> is never refused).</summary>
     /// <param name="chargeTo">The parent run whose token started this one: it runs on the child gate and its cost goes to that run's ledger.</param>
-    public RunHandle? Start(RunRequest request, string? parentRunId = null, string? chargeTo = null)
+    /// <param name="actor">The account that started it (ADR 0050); on the run's records, result and events.</param>
+    public RunHandle? Start(RunRequest request, string? parentRunId = null, string? chargeTo = null, string? actor = null)
     {
         // ponytail: count-then-add is not atomic; two racing calls can exceed the bound by one.
         if (chargeTo is null && _runs.Values.Count(r => !r.IsChild) >= MaxUnfinished)
             return null;
-        var run = new RunHandle(Orchestrator.NewRunId(), stopping) { IsChild = chargeTo is not null };
+        var run = new RunHandle(Orchestrator.NewRunId(), stopping) { IsChild = chargeTo is not null, Actor = actor };
         _runs[run.Id] = run;
         run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
         _ = Task.Run(() => Execute(run, request, parentRunId, chargeTo));
@@ -103,7 +130,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         var swept = await driven.SweepOrphansAsync(open, ct);
         foreach (var state in open)
         {
-            var run = new RunHandle(state.RunId, stopping);
+            var run = new RunHandle(state.RunId, stopping) { Actor = state.Actor };
             _runs[run.Id] = run;
             run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
             _ = Task.Run(() => Execute(run, state.Request, null, null, state), CancellationToken.None);
@@ -123,8 +150,8 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
             {
                 // A batch holds one slot of the main gate and schedules its own tasks (ADR 0039); without a driven setup the orchestrator refuses the request.
                 var result = request.Driven is not null && driven is not null
-                    ? await driven.RunAsync(request, run.Id, MintToken, run.Token, run.Publish, () => run.CancelledByCaller, resume)
-                    : await orchestrator.RunAsync(request, run.Token, run.Id, run.Publish, parentRunId, () => run.CancelledByCaller);
+                    ? await driven.RunAsync(request, run.Id, g => MintToken(g, run.Actor), run.Token, run.Publish, () => run.CancelledByCaller, resume, run.Actor)
+                    : await orchestrator.RunAsync(request, run.Token, run.Id, run.Publish, parentRunId, () => run.CancelledByCaller, run.Actor);
                 if (chargeTo is not null)
                     Ledger.Charge(chargeTo, result.Usage.Usd ?? 0, result.Usage.Input + result.Usage.Output);
                 run.Complete(result);
@@ -137,7 +164,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         catch (OperationCanceledException) when (run.CancelledByCaller)
         {
             // Cancelled in the queue, or before the run's first log write: nothing ran, but the caller still gets a failed result and the log a record.
-            run.Complete(await orchestrator.RecordCancelledAsync(request, run.Id, parentRunId, run.Publish));
+            run.Complete(await orchestrator.RecordCancelledAsync(request, run.Id, parentRunId, run.Publish, run.Actor));
         }
         catch (Exception e)
         {
@@ -162,6 +189,9 @@ public sealed class RunHandle(string id, CancellationToken stopping) : IDisposab
     private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public string Id => id;
+
+    /// <summary>The account that started the run (ADR 0050); null for none.</summary>
+    public string? Actor { get; init; }
 
     /// <summary>Started through a session's run token: it runs on the child gate.</summary>
     public bool IsChild { get; init; }
@@ -206,7 +236,7 @@ public sealed class RunHandle(string id, CancellationToken stopping) : IDisposab
         TaskCompletionSource changed;
         lock (_events)
         {
-            _events.Add(e);
+            _events.Add(e.Actor is null && Actor is not null ? e with { Actor = Actor } : e);
             changed = _changed;
             _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
