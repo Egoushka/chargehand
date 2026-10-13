@@ -24,7 +24,7 @@ describe('call', () => {
     expect(path).toBe('/v1/runs');
     expect(init?.headers).toMatchObject({ Authorization: 'Bearer chk1.abc.secret' });
     expect(init).toMatchObject({
-      credentials: 'omit',
+      credentials: 'same-origin',
       referrerPolicy: 'no-referrer',
       cache: 'no-store',
     });
