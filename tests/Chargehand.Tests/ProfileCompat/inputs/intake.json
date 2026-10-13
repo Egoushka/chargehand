@@ -1,0 +1,29 @@
+{
+  "schema": "profile/v1",
+  "mcp_servers": {
+    "tracker": { "url": "https://tracker.example.com/mcp" }
+  },
+  "driven": {
+    "enabled": true,
+    "task_source": { "server": "tracker", "tool": "get_item", "arguments": { "id": "{ref}", "fields": ["title", "body"] }, "title": "item.title", "body": "item.body" },
+    "integrator": {
+      "app_id": 12345,
+      "private_key_secret": "chargehand-app-key",
+      "repositories": { "owner/repo": "merge", "group/subgroup/project": "ask" },
+      "always_ask": ["owner/other"],
+      "ci_fix": { "max_attempts": 2, "max_turns": 10, "wait_minutes": 30 }
+    },
+    "forge": { "kind": "gitlab", "base_url": "https://gitlab.example.com/api/v4", "token_secret": "chargehand-gitlab-token" },
+    "planning": { "enabled": true, "preset": "default" }
+  },
+  "automation": {
+    "github": {
+      "repositories": { "owner/repo": { "path": "/srv/chargehand/work/repo" } },
+      "allowed_authors": ["alice", "helper[bot]"],
+      "label": "agent",
+      "poll_seconds": 300,
+      "budget_class": "S",
+      "max_review_rounds": 2
+    }
+  }
+}

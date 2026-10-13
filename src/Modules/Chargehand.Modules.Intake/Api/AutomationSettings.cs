@@ -1,14 +1,16 @@
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
+using Chargehand.Modules.Handover.Api;
 
-namespace Chargehand.Config;
+namespace Chargehand.Modules.Intake.Api;
 
-/// <summary>ADR 0051: work that starts without a caller. Unset, nothing is watched. Plain data in Core, read by <c>Chargehand.Automation</c>, as the <c>driven</c> records are (ADR 0047).</summary>
+/// <summary>ADR 0051: work that starts without a caller. Unset, nothing is watched. The Intake module owns these settings (ADR 0060); <c>Chargehand.Automation</c> reads them until it is ported.</summary>
 /// <param name="Github">Issues and comments on GitHub that start a driven batch; null: not watched.</param>
 public sealed record AutomationSettings(AutomationGitHub? Github = null)
 {
-    internal void Validate(DrivenSettings? driven) => Github?.Validate(driven);
+    /// <param name="drivenEnabled">Whether <c>driven.enabled</c> is set.</param>
+    public void Validate(bool drivenEnabled, DrivenIntegrator? integrator) => Github?.Validate(drivenEnabled, integrator);
 }
 
 /// <summary>A label on an issue, or a mention of the bot in a comment, by an allowed author starts a driven batch of one task (ADR 0051). chargehand polls: the server is not reachable from GitHub.
@@ -30,33 +32,45 @@ public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, Automa
 {
     public const int MinPollSeconds = 30;
 
-    internal void Validate(DrivenSettings? driven)
+    internal void Validate(bool drivenEnabled, DrivenIntegrator? integrator)
     {
-        var problems = new List<string>();
-        if (driven is not { Enabled: true, Integrator: { AppId: not null, PrivateKeySecret: not null } })
-            problems.Add("needs driven.enabled and the GitHub App of driven.integrator (app_id, private_key_secret), which reads and comments");
-        if (Repositories is not { Count: > 0 })
-            problems.Add("repositories must list at least one owner/repo");
-        foreach (var (name, repository) in Repositories ?? new Dictionary<string, AutomationRepository>())
-        {
-            if (!RepositoryName().IsMatch(name)) problems.Add($"repositories key '{name}' must be owner/repo");
-            if (string.IsNullOrWhiteSpace(repository?.Path)) problems.Add($"repositories.{name}.path must be the server's checkout of the repository");
-        }
-        if (AllowedAuthors is null)
-            problems.Add("allowed_authors is required (an empty list means nothing triggers)");
-        foreach (var login in AllowedAuthors ?? [])
-            if (!Login().IsMatch(login)) problems.Add($"allowed_authors entry '{login}' must be a GitHub login");
-        if (!LabelName().IsMatch(Label)) problems.Add("label must be a label name without commas");
-        if (!MentionName().IsMatch(Mention)) problems.Add("mention must be @ and a GitHub login");
-        if (PollSeconds is < MinPollSeconds or > 3600) problems.Add($"poll_seconds must be {MinPollSeconds} to 3600");
-        if (BudgetClass is not ("S" or "M" or "L")) problems.Add("budget_class must be S, M or L");
-        if (MaxTokensTotal < 1) problems.Add("max_tokens_total must be above 0");
-        if (MaxUsdTotal <= 0) problems.Add("max_usd_total must be above 0");
-        if (MaxConcurrent is < 1 or > 10) problems.Add("max_concurrent must be 1 to 10");
-        if (MaxStartsPerDay is < 1 or > 1000) problems.Add("max_starts_per_day must be 1 to 1000");
-        if (MaxReviewRounds is < 0 or > DrivenCiFix.AttemptCap) problems.Add($"max_review_rounds must be 0 to {DrivenCiFix.AttemptCap}");
+        List<string> problems = [.. SourceProblems(drivenEnabled, integrator), .. TriggerProblems(), .. LimitProblems()];
         if (problems.Count > 0)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"automation.github: {string.Join("; ", problems)}", "Fix automation.github in the profile; docs/guide/intake.md lists the keys.");
+    }
+
+    private IEnumerable<string> SourceProblems(bool drivenEnabled, DrivenIntegrator? integrator)
+    {
+        if (!drivenEnabled || integrator is not { AppId: not null, PrivateKeySecret: not null })
+            yield return "needs driven.enabled and the GitHub App of driven.integrator (app_id, private_key_secret), which reads and comments";
+        if (Repositories is not { Count: > 0 })
+            yield return "repositories must list at least one owner/repo";
+        foreach (var (name, repository) in Repositories ?? new Dictionary<string, AutomationRepository>())
+        {
+            if (!RepositoryName().IsMatch(name)) yield return $"repositories key '{name}' must be owner/repo";
+            if (string.IsNullOrWhiteSpace(repository?.Path)) yield return $"repositories.{name}.path must be the server's checkout of the repository";
+        }
+        if (AllowedAuthors is null)
+            yield return "allowed_authors is required (an empty list means nothing triggers)";
+        foreach (var login in AllowedAuthors ?? [])
+            if (!Login().IsMatch(login)) yield return $"allowed_authors entry '{login}' must be a GitHub login";
+    }
+
+    private IEnumerable<string> TriggerProblems()
+    {
+        if (!LabelName().IsMatch(Label)) yield return "label must be a label name without commas";
+        if (!MentionName().IsMatch(Mention)) yield return "mention must be @ and a GitHub login";
+        if (PollSeconds is < MinPollSeconds or > 3600) yield return $"poll_seconds must be {MinPollSeconds} to 3600";
+    }
+
+    private IEnumerable<string> LimitProblems()
+    {
+        if (BudgetClass is not ("S" or "M" or "L")) yield return "budget_class must be S, M or L";
+        if (MaxTokensTotal < 1) yield return "max_tokens_total must be above 0";
+        if (MaxUsdTotal <= 0) yield return "max_usd_total must be above 0";
+        if (MaxConcurrent is < 1 or > 10) yield return "max_concurrent must be 1 to 10";
+        if (MaxStartsPerDay is < 1 or > 1000) yield return "max_starts_per_day must be 1 to 1000";
+        if (MaxReviewRounds is < 0 or > DrivenCiFix.AttemptCap) yield return $"max_review_rounds must be 0 to {DrivenCiFix.AttemptCap}";
     }
 
     [GeneratedRegex(@"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")]

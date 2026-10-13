@@ -5,6 +5,9 @@ using Chargehand.Config;
 using Chargehand.Containers;
 using Chargehand.Driven;
 using Chargehand.Kernel;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Intake.Api;
 
 namespace Chargehand.Server;
 

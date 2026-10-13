@@ -10,6 +10,9 @@
     <ProjectReference Include="..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
     <!-- ADR 0060: the port runs old to new; this project calls ported modules until it is empty. -->
     <ProjectReference Include="..\Modules\Chargehand.Modules.Accounts\Chargehand.Modules.Accounts.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Batches\Chargehand.Modules.Batches.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Handover\Chargehand.Modules.Handover.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Intake\Chargehand.Modules.Intake.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Ledger\Chargehand.Modules.Ledger.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Memory\Chargehand.Modules.Memory.csproj" />
   </ItemGroup>

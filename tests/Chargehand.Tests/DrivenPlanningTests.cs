@@ -2,6 +2,7 @@ using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Batches.Api;
 
 namespace Chargehand.Tests;
 

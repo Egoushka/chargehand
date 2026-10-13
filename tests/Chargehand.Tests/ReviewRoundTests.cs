@@ -3,6 +3,7 @@ using Chargehand.Automation;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Intake.Api;
 
 namespace Chargehand.Tests;
 

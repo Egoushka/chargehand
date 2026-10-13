@@ -9,6 +9,8 @@ using Chargehand.Driven;
 using Chargehand.Egress;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;

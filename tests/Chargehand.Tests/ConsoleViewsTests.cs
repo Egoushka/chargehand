@@ -6,6 +6,8 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Intake.Api;
 using Chargehand.Server;
 using Chargehand.Workspace;
 

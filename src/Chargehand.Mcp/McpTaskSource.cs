@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Chargehand.Config;
+using Chargehand.Modules.Intake.Api;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 
