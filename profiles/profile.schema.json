@@ -506,7 +506,7 @@
                 "type": "object",
                 "additionalProperties": false,
                 "required": ["api_key_secret"],
-                "description": "The account's own model credential (ADR 0052): its read-only runs and its batches use it instead of the server's, and are priced as API usage. Needs the claude_code runtime. A subscription token is the owner's and is not accepted here.",
+                "description": "The account's own model credential (ADR 0053): its read-only runs and its batches use it instead of the server's, and are priced as API usage. Needs the claude_code runtime. A subscription token is the owner's and is not accepted here.",
                 "properties": {
                   "api_key_secret": { "type": "string", "minLength": 1, "description": "Secret-store item holding an Anthropic API key, or the key a gateway issued when base_url names that gateway." },
                   "base_url": { "type": "string", "pattern": "^https?://[^/?#@]+(/[^?#]*)?$", "description": "An Anthropic-compatible gateway's base URL (http or https, no credentials, query or fragment). Absent: Anthropic's own API." }

@@ -19,7 +19,7 @@ namespace Chargehand.Driven;
 /// <param name="HandoverFor">The handover of a batch; null: <see cref="Handover"/> with a <see cref="ContainerVerifier"/> on <see cref="Engine"/> and <see cref="PullRequestsFor"/>.</param>
 /// <param name="Integration">What the integrator does on GitHub as the App (ADR 0046); null: nothing is integrated on GitHub even if the profile has a <c>driven.integrator</c> block.</param>
 /// <param name="ForgeFor">The forge of a remote that is not on GitHub, given the API token (<c>driven.forge.token_secret</c>, else the push credential); null: such a batch is refused.</param>
-/// <param name="SupportCheckFor">The support check of a batch's claims, given the account that started it so the check's model calls use that account's credential (ADR 0052); null: no check.</param>
+/// <param name="SupportCheckFor">The support check of a batch's claims, given the account that started it so the check's model calls use that account's credential (ADR 0053); null: no check.</param>
 /// <param name="Planner">Plans a batch before it runs (ADR 0049); null: a batch that asks for a plan reports it skipped.</param>
 /// <param name="Stacker">Makes the starting branch of a task that depends on others (ADR 0049); null: <see cref="GitStackSeeder"/>, with git on this host.</param>
 /// <param name="Retro">Writes the retro after a batch when <c>driven.learning.retro</c> is on (ADR 0045); null: such a batch reports the retro skipped.</param>
@@ -218,7 +218,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             drivenPreset = profileLimits.Apply(drivenPreset);
         var (_, kind) = Orchestrator.AnswerKind(preset);
 
-        // An account runs on its own key, or on the server's only where the profile lets it (ADR 0052); an API key has a dollar price, so its cap binds.
+        // An account runs on its own key, or on the server's only where the profile lets it (ADR 0053); an API key has a dollar price, so its cap binds.
         var own = new AccountCredentials(profile.Http?.Accounts).For(actor);
         var priced = own is not null || claude.ApiKeySecret is not null;
         var perTaskUsd = Math.Min(kind.Budget.MaxUsd, request.Driven!.MaxUsdTotal ?? decimal.MaxValue);

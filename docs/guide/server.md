@@ -84,7 +84,7 @@ A request that is admitted has its `budget_usd` (for a batch also `max_usd_total
 
 ### An account's own model key
 
-By default an account would spend the server's model credential, one bill and one rate limit for everyone ([ADR 0052](../adr/0052-accounts-bring-their-own-model-key.md)). Give it its own:
+By default an account would spend the server's model credential, one bill and one rate limit for everyone ([ADR 0053](../adr/0053-accounts-bring-their-own-model-key.md)). Give it its own:
 
 ```json
 { "name": "alice", "model": { "api_key_secret": "alice-anthropic-key" } }

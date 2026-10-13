@@ -13,7 +13,7 @@ using ModelContextProtocol.Protocol;
 
 namespace Chargehand.Tests;
 
-/// <summary>An account brings its own model credential (ADR 0052): which runs use whose key, what is refused, and that no run sees another account's key. Keys here are fakes.</summary>
+/// <summary>An account brings its own model credential (ADR 0053): which runs use whose key, what is refused, and that no run sees another account's key. Keys here are fakes.</summary>
 public class AccountModelTests
 {
     private const string Image = "ghcr.io/example/session@sha256:1111111111111111111111111111111111111111111111111111111111111111";
