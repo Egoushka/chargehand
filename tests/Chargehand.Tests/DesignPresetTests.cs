@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 
 namespace Chargehand.Tests;
