@@ -1,0 +1,15 @@
+<Project>
+  <!-- ADR 0060: the feature-module skeleton the rewrite ports into. Imported by the Directory.Build.props of src/Shared,
+       src/Modules, src/Runtimes and src/Hosts; the projects under src/Chargehand* keep the root props alone. -->
+  <Import Project="$(MSBuildThisFileDirectory)../Directory.Build.props" />
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- CA1502 (complexity) reads its threshold from this file; .editorconfig makes it an error under these folders. -->
+  <ItemGroup>
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)CodeMetricsConfig.txt" />
+    <InternalsVisibleTo Include="$(MSBuildProjectName).Tests" />
+  </ItemGroup>
+</Project>

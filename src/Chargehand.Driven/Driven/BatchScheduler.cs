@@ -1,4 +1,5 @@
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
 namespace Chargehand.Driven;
 
@@ -8,13 +9,14 @@ namespace Chargehand.Driven;
 /// cap while tasks are still running has them cancelled; so has a task that reports more than its own cap (live usage reaches the scheduler while the task
 /// runs, so the caps bind before it ends). A task that ended on a usage or rate limit holds new starts until the limit lifts (its reset time, else a fixed backoff; a reset
 /// further off than <see cref="MaxPause"/> stops the batch instead); running tasks go on. An unavailable provider stops new starts and says how to switch to an
-/// API key; nothing switches by itself. With an <paramref name="admission"/>, a task also waits until the host has memory for its container (ADR 0045); a running task is
+/// API key; nothing switches by itself. With an <paramref name="admission"/>, a task also waits until the host has memory for its request (ADR 0045); a running task is
 /// never stopped for it. A task with <c>DependsOn</c> starts only once all of those ended <c>completed</c>, with their branches in <see cref="ResolvedTask.Upstream"/> (ADR 0049); one whose
 /// dependency failed, asked a question, was cancelled or was not started is <c>not_started</c> with that reason and holds no slot. A halt (the token) cancels what runs and starts nothing more.</summary>
 /// <param name="backoff">How long a limit that names no reset holds new starts; <see cref="UsageLimit.DefaultBackoff"/> when null.</param>
-/// <param name="admission">Shared by every batch of the server; null: tasks start by count and caps only.</param>
-/// <param name="taskMemoryMb">The memory limit of a task's container, which the host must have free.</param>
-public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null, HostAdmission? admission = null, int taskMemoryMb = 0)
+/// <param name="admission">Shared by every batch of the server; null: tasks start by count and caps only. With several runners (ADR 0058) it also names the one a task runs on; a task whose runner
+/// could not be reached before its session started (<see cref="TaskOutcome.Replace"/>) is asked for again, up to <see cref="MaxPlacements"/> times in all.</param>
+/// <param name="taskRequestMb">What the host must have free for a task: the working set its repository's sessions have measured (<see cref="MemoryRequest"/>), not its container's limit.</param>
+public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null, IAdmission? admission = null, int taskRequestMb = 0, BatchControl? control = null)
 {
     /// <summary>The longest wait for a limit to lift; past it the batch stops and the caller retries.</summary>
     public static readonly TimeSpan MaxPause = TimeSpan.FromHours(6);
@@ -27,8 +29,12 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
         "The provider's usage or rate limit was hit twice in a row with no task finishing in between, so the rest of the batch was not started. "
         + "Resend the tasks that did not finish once the limit lifts.";
 
+    /// <summary>How many runners a task is placed on before its runner's silence is the task's failure.</summary>
+    public const int MaxPlacements = 3;
+
     private sealed class Running(TaskLimits limits, CancellationTokenSource cts)
     {
+        public string? Runner { get; set; }
         public TaskLimits Limits { get; } = limits;
         public CancellationTokenSource Cts { get; } = cts;
         public TaskUsage Reported { get; set; } = new(0, 0);
@@ -39,8 +45,9 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
     /// <param name="onFinished">Told each started task's final outcome as it ends, after the caps have had their say.</param>
     /// <param name="onHold">Told a task's id and why, when it first waits for the host and when it is let in against the rule.</param>
     /// <param name="onSkipped">Told the outcome of a task that will not start because a task it depends on did not complete.</param>
+    /// <param name="onPause">Told a task's id and when the limit it hit lifts, when a usage or rate limit holds new starts.</param>
     public async Task<BatchOutcome> RunAsync(IReadOnlyList<ResolvedTask> tasks, BatchLimits limits, CancellationToken ct, Action<TaskOutcome>? onFinished = null,
-        Action<string, string>? onHold = null, Action<TaskOutcome>? onSkipped = null)
+        Action<string, string>? onHold = null, Action<TaskOutcome>? onSkipped = null, Action<string, DateTimeOffset>? onPause = null)
     {
         var outcomes = new TaskOutcome?[tasks.Count];
         var started = new bool[tasks.Count];
@@ -61,6 +68,7 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
         var limitStop = false;
         var admitAfter = DateTimeOffset.MinValue;
         string? holding = null;
+        var placements = new int[tasks.Count];
 
         bool Fits()
         {
@@ -106,6 +114,15 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
                 {
                     if (!Pending(i))
                         continue;
+                    if (control?.IsCancelled(tasks[i].Id) == true)
+                    {
+                        // An operator cancelled it before it started.
+                        var stopped = new TaskOutcome(tasks[i].Id, TaskState.Cancelled, null, "cancelled by the operator before it started", ErrorCode.Cancelled);
+                        outcomes[i] = stopped;
+                        onSkipped?.Invoke(stopped);
+                        again = true;
+                        continue;
+                    }
                     var cause = Dependencies(i).Select(d => outcomes[d]).FirstOrDefault(o => o is { State: not TaskState.Completed });
                     if (cause is null)
                         continue;
@@ -129,7 +146,7 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
         {
             if (tasks[i].DependsOn is not { Count: > 0 })
                 return tasks[i];
-            var upstream = Dependencies(i).Select(d => outcomes[d]!).Where(o => o.RunId is not null && o.Branch is not null).Select(o => new UpstreamWork(o.Id, o.RunId!, o.Branch!, o.PrUrl));
+            var upstream = Dependencies(i).Select(d => outcomes[d]!).Where(o => o.RunId is not null && o.Branch is not null).Select(o => new UpstreamWork(o.Id, o.RunId!, o.Branch!, o.PrUrl, o.Runner));
             return tasks[i] with { Upstream = [.. upstream] };
         }
 
@@ -162,51 +179,63 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
             }
         }
 
-        // Asks the host, at most once per interval; false: look again later.
-        async Task<bool> Admitted(string id)
+        // Asks the host, at most once per interval; null: look again later. Else the runner the task goes to (null with one host).
+        async Task<AdmissionDecision?> Admitted(int i)
         {
+            var id = tasks[i].Id;
             if (DateTimeOffset.UtcNow < admitAfter)
-                return false;
+                return null;
             AdmissionDecision decision;
             try
             {
-                decision = await admission!.TryAdmitAsync(taskMemoryMb, ct);
+                decision = await admission!.TryAdmitAsync(taskRequestMb, tasks[i].Runner, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                return false;
+                return null;
             }
             if (decision.Admit)
             {
                 holding = null;
                 if (decision.Detail is { } forced)
                     onHold?.Invoke(id, forced);
-                return true;
+                return decision;
+            }
+            if (decision.Refuse)
+            {
+                // Nothing will place it: the batch stops starting tasks, and what runs finishes.
+                notStartedReason ??= $"not started: {decision.Detail}";
+                notStartedError ??= ErrorCode.ContainerUnavailable;
+                return null;
             }
             admitAfter = DateTimeOffset.UtcNow + admission.Interval;
             if (holding != id)
                 onHold?.Invoke(id, decision.Detail!);
             holding = id;
-            return false;
+            return null;
         }
 
         while (true)
         {
+            // A task an operator cancelled before it started never does.
+            SkipDependents();
             // Start what fits, in order.
             while (notStartedReason is null && !ct.IsCancellationRequested && running.Count < limits.MaxParallel && DateTimeOffset.UtcNow >= pausedUntil && NextReady() is { } index && Fits())
             {
                 if (limits.Global is not null && !await limits.Global.WaitAsync(0, CancellationToken.None))
                     break;
-                if (admission is not null && !await Admitted(tasks[index].Id))
+                AdmissionDecision? placed = null;
+                if (admission is not null && (placed = await Admitted(index)) is null)
                 {
                     limits.Global?.Release();
                     break;
                 }
                 started[index] = true;
-                var task = WithUpstream(index);
-                var state = new Running(limits.PerTask, CancellationTokenSource.CreateLinkedTokenSource(ct));
+                var task = WithUpstream(index) with { Runner = placed?.Runner ?? tasks[index].Runner };
+                var state = new Running(limits.PerTask, CancellationTokenSource.CreateLinkedTokenSource(ct)) { Runner = placed?.Runner };
                 lock (gate)
                     running[index] = state;
+                control?.Started(task.Id, state.Cts);
                 var progress = new SyncProgress(u =>
                 {
                     lock (gate)
@@ -251,6 +280,25 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
                 if (!state.Task!.IsCompleted)
                     continue;
                 var outcome = await state.Task;
+                control?.Ended(outcome.Id);
+                if (outcome.Replace)
+                {
+                    // Its runner did not answer before the session started: nothing ran, so the task takes no part in the caps and is placed again, elsewhere if it can be.
+                    lock (gate)
+                        running.Remove(index);
+                    limits.Global?.Release();
+                    admission?.Ended(state.Runner);
+                    state.Cts.Dispose();
+                    if (++placements[index] < MaxPlacements && !ct.IsCancellationRequested)
+                    {
+                        started[index] = false;
+                        onHold?.Invoke(outcome.Id, outcome.Detail ?? "its runner did not answer; placing it again");
+                        continue;
+                    }
+                    outcomes[index] = outcome with { State = TaskState.Failed, Replace = false };
+                    onFinished?.Invoke(outcomes[index]!);
+                    continue;
+                }
                 if (outcome.Tokens == 0 && outcome.Usd == 0)
                     outcome = outcome with { Tokens = state.Reported.Tokens, Usd = state.Reported.Usd };
                 if (state.OverTaskCap && outcome.State != TaskState.Completed)
@@ -262,7 +310,7 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
                     doneUsd += outcome.Usd;
                 }
                 limits.Global?.Release();
-                admission?.Ended();
+                admission?.Ended(state.Runner);
                 state.Cts.Dispose();
                 if (overspent && outcome.State != TaskState.Completed)
                     outcome = outcome with { Error = ErrorCode.CostCapReached, Detail = "stopped: the batch's cap was exceeded" };
@@ -279,7 +327,10 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
                         action = RepeatedLimitAction;
                     }
                     else if (LimitLifts(outcome) is { } lifts)
+                    {
                         pausedUntil = lifts > pausedUntil ? lifts : pausedUntil;
+                        onPause?.Invoke(outcome.Id, pausedUntil);
+                    }
                     else
                     {
                         notStartedReason = "not started: the provider is rate limited until later than the batch will wait";

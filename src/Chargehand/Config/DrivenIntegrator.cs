@@ -1,12 +1,14 @@
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
 namespace Chargehand.Config;
 
 /// <summary>ADR 0046: for the repositories it lists, chargehand marks a finished task's pull request ready and merges it through the repository's required checks, acting as a GitHub App
 /// instead of the push credential (on GitLab, with the forge token). Unset, chargehand opens draft pull requests and never touches them again (ADR 0039).</summary>
-/// <param name="AppId">The GitHub App's numeric id; the three App keys are all set or all left out (a profile that integrates GitLab projects only needs none).</param>
-/// <param name="InstallationId">The App's installation on the owner of the repositories.</param>
+/// <param name="AppId">The GitHub App's numeric id; <c>app_id</c> and <c>private_key_secret</c> are both set or both left out (a profile that integrates GitLab projects only needs none).</param>
+/// <param name="InstallationId">Optional. An App is installed once per account or organisation, so chargehand asks GitHub which installation covers each repository's owner. This pins one installation,
+/// for the account it belongs to, and skips the lookup for that owner's repositories; it reaches no other owner.</param>
 /// <param name="PrivateKeySecret">The secret item holding the App's private key (PEM). Never logged, never in a container.</param>
 /// <param name="Repositories">Per <c>owner/repo</c> (<c>group/subgroup/project</c> on GitLab): <c>merge</c> (ready, then merged through the required checks) or <c>ask</c> (ready, a comment, no merge). A repository not listed is off.</param>
 /// <param name="AlwaysAsk">Repositories that are <c>ask</c> whatever else says: this list wins, even over <c>merge</c> and over a repository not listed.</param>
@@ -21,7 +23,7 @@ public sealed partial record DrivenIntegrator(long? AppId = null, long? Installa
         if (AppId is not null || InstallationId is not null || PrivateKeySecret is not null)
         {
             if (AppId is null or < 1) problems.Add("app_id must be the App's numeric id");
-            if (InstallationId is null or < 1) problems.Add("installation_id must be the installation's numeric id");
+            if (InstallationId is < 1) problems.Add("installation_id must be the installation's numeric id");
             if (string.IsNullOrWhiteSpace(PrivateKeySecret)) problems.Add("private_key_secret must name a secret item");
         }
         foreach (var (name, mode) in Repositories ?? new Dictionary<string, string>())

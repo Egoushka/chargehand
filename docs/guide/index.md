@@ -42,10 +42,10 @@ Sources: [README](../../README.md#how-a-run-works), [ADR 0009](../adr/0009-resul
 
 ## Current status
 
-- **Before 1.0.** The latest release is v0.8.8. Goal 0.4, "it runs with nothing configured", is done: v0.4.0 shipped it and v0.4.1 added its MCP Registry listing. Goal 0.5 in the roadmap, one prompt to a reviewed change, is still open: its code (the plugin, the command and the `review` preset) shipped in 0.4.0, there is no 0.5.0, and what is left is the maintainer's own use of the command on real tasks. Goal 0.6, runs that use your MCP services and memory, is done and released in v0.6.0 ([Memory and services](memory-and-services.md)). Goal 0.7 (writing workers) and goal 0.8 (support checking and signed results) are released together in v0.8.0; there is no 0.7.0. The 0.7 exit bar, five real issues taken to a merged change, is not met yet.
+- **Before 1.0.** The latest release is v0.9.3. Goal 0.4, "it runs with nothing configured", is done: v0.4.0 shipped it and v0.4.1 added its MCP Registry listing. Goal 0.5 in the roadmap, one prompt to a reviewed change, is still open: its code (the plugin, the command and the `review` preset) shipped in 0.4.0, there is no 0.5.0, and what is left is the maintainer's own use of the command on real tasks. Goal 0.6, runs that use your MCP services and memory, is done and released in v0.6.0 ([Memory and services](memory-and-services.md)). Goal 0.7 (writing workers) and goal 0.8 (support checking and signed results) are released together in v0.8.0; there is no 0.7.0. The 0.7 exit bar, five real issues taken to a merged change, is not met yet.
 - **Read-only workers, and one writer.** Every shipped preset but `code` denies edits. Since 0.8.0, the `code` preset writes a branch that passes its tests in a sandbox ([Writing a branch](writing.md)).
 - **On nuget.org and in the MCP Registry.** The `Chargehand` tool package and `Chargehand.Contracts` are published, so `dnx Chargehand@<version> --yes -- mcp` runs chargehand without a clone ([the MCP page](mcp.md#from-the-package)). The registry lists `io.github.Egoushka/chargehand` from 0.4.1, and the release workflow lists each new version.
-- **Main and the release.** This guide describes the `main` branch, which is v0.8.8 plus the changes under Unreleased in the [changelog](../../CHANGELOG.md#unreleased). A change that lands on `main` after a release appears there, and pages mark it "on main, not yet released".
+- **Main and the release.** This guide describes the `main` branch, which is v0.9.3 plus the changes under Unreleased in the [changelog](../../CHANGELOG.md#unreleased). A change that lands on `main` after a release appears there, and pages mark it "on main, not yet released".
 
 ## Where to go next
 
@@ -54,8 +54,11 @@ Sources: [README](../../README.md#how-a-run-works), [ADR 0009](../adr/0009-resul
 - [Install with Docker Compose](install.md): the release images on one Docker host, Core only or with the runner behind a socket proxy, and a first run.
 - [Use it from an MCP client](mcp.md): the `orchestrate` tool over stdio or HTTP.
 - [Run the HTTP server](server.md): `chargehand serve`, its routes and the container image.
+- [Web UI](web-ui.md): a page at `/ui/` for runs, live events, results with linked citations, starting and cancelling runs, and spend against an account's caps.
 - [Writing a branch](writing.md): the `code` preset, its sandbox, what it verifies and what it does not.
 - [Driven writing sessions](driven.md): a list of tasks as parallel headless sessions in containers, ending in draft pull requests; what is built and what is not wired yet.
+- [Several runners](runners.md): driven sessions on more than one machine, a server's runner plus a laptop: the `runners` list, how a task gets a runner, a remote runner's repository, images by platform.
+- [Benchmark on real repositories](benchmark.md): a fixed set of tasks on pinned public repositories, run through driven batches and reported as pass rate, honest stops, spend and the governor's false stops.
 - [Support checking and signed results](support-and-signing.md): each claim checked against the text it cites, and results signed and verified offline.
 - [Memory and services](memory-and-services.md): recall from MCP memory servers, retain only claims whose citations resolved, and give a preset's workers read-only MCP tools.
 - [The change command](change.md): `/chargehand:change` in Claude Code.

@@ -8,6 +8,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
+    <!-- ADR 0060: the port runs old to new. -->
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Journal\Chargehand.Modules.Journal.csproj" />
   </ItemGroup>
 
   <ItemGroup>

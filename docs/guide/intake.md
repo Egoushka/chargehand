@@ -55,7 +55,7 @@ The goal's first line is the issue's title (the pull request's title is cut from
 
 ```json
 {
-  "driven": { "enabled": true, "integrator": { "app_id": 123456, "installation_id": 7654321, "private_key_secret": "chargehand-app-key" } },
+  "driven": { "enabled": true, "integrator": { "app_id": 123456, "private_key_secret": "chargehand-app-key" } },
   "automation": { "github": {
     "repositories": { "octo/repo": { "path": "/srv/chargehand/repos/repo" } },
     "allowed_authors": ["octocat"],
@@ -66,7 +66,8 @@ The goal's first line is the issue's title (the pull request's title is cut from
     "max_tokens_total": 2000000,
     "max_usd_total": 5,
     "max_concurrent": 2,
-    "max_starts_per_day": 10 } }
+    "max_starts_per_day": 10,
+    "max_review_rounds": 3 } }
 }
 ```
 
@@ -74,8 +75,25 @@ The goal's first line is the issue's title (the pull request's title is cut from
 
 ## State
 
-`intake/github.json` next to the run log: the comment cursor per repository, every trigger acted on or ignored, the tasks with their phase, and when batches started. It is written whole through a temporary file. Deleting it makes the server forget what it started: labelled issues start again, and comments from before the next poll are not read.
+`intake/github.json` next to the run log: the comment cursor per repository, every trigger acted on or ignored, the tasks with their phase, the review comments waiting for a round, and when batches started. It is written whole through a temporary file. Deleting it makes the server forget what it started: labelled issues start again, and comments from before the next poll are not read.
+
+## Review comments on a chargehand pull request
+
+The same poll reads the pull requests of the watched repositories. On a pull request that is open and whose head branch is `chargehand/<name>` in the repository itself (not a fork), these start a **review round**:
+
+| What | Who counts |
+|---|---|
+| An inline review comment | an allowed author; no mention needed. A reply inside a thread needs the mention |
+| A conversation comment that mentions `@chargehand` | an allowed author |
+
+All the comments waiting for a pull request go into one round: a batch of one task, `pr-<n>`, that continues the task which opened the pull request (found in the run log by its branch, so it works for a pull request intake did not start) with one entry per comment: who, the file and line, the text. The session starts from the branch **as the remote has it**, including what a person or the CI fixer pushed since; its push is a fast-forward of the same branch, so the pull request updates itself and keeps its title and body. If the task's batch, or an earlier round, is still running, the comments wait (one comment says so) and the next round takes them.
+
+**One cap per pull request: 3, shared with the CI fixer.** Fix attempts and review rounds are counted together, in hidden markers on the pull request itself (`chargehand-ci-fix attempt=N ...`, `chargehand-review-round attempt=N comments=...`), so a restart or a lost state file cannot start a fourth. A round also lists the comments it took, so no comment is taken twice. When the cap is used chargehand says so once; the CI fixer, finding it used, gives up too. `max_review_rounds` (default 3) can lower the rounds, never the shared cap; 0 turns the loop off. A round counts toward `max_concurrent` and `max_starts_per_day` like any batch.
+
+When the round ends chargehand comments on the pull request: the changes are on it, with the session's summary; or what stopped it; or its questions (a reply continues the round's task). On an opted-in repository the integrator then follows the pull request as after any task.
+
+A pull request from a fork, a branch that is not `chargehand/<name>`, a closed pull request, and comments of anyone not on `allowed_authors` are ignored. A branch that was deleted or rewritten fails the round with the reason, before a container starts.
 
 ## Not covered
 
-Review comments on a chargehand pull request (CHARGEHAND-184 continues the branch from them). A webhook instead of the poll. Issues in a repository nobody listed. Labels from a bot account. Not run against GitHub: see the ADR's UNKNOWN list.
+Review summaries (the body of a submitted review) are not read, only its inline comments. A webhook instead of the poll. Issues in a repository nobody listed. Labels from a bot account. Not run against GitHub: see the ADR's UNKNOWN lists.

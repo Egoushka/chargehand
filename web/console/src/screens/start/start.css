@@ -1,0 +1,247 @@
+/* Start a batch: the form's layout, a task row, the dependency graph and the phone's action bar. Colour, type and space are tokens. */
+.start-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.start-split--json {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+
+.formgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+  align-items: start;
+}
+
+/* ---------- a task ---------- */
+.taskedit-list {
+  display: grid;
+}
+
+.taskedit {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.taskedit:last-child {
+  border-bottom: 0;
+}
+
+.taskedit__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 11rem) auto;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.taskedit__tools {
+  display: flex;
+  gap: 2px;
+  align-self: end;
+}
+
+.taskedit__deps {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.taskedit__deps .ch-select-native {
+  width: auto;
+  max-width: 14rem;
+}
+
+.taskedit__estimate {
+  margin: 0;
+}
+
+/* ---------- the graph ---------- */
+.start-graph {
+  position: relative;
+  overflow: auto;
+  max-height: 22rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.start-graph:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.graph__inner {
+  position: relative;
+  width: calc(var(--w) * 1px);
+  height: calc(var(--h) * 1px);
+}
+
+.graph__inner svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.graph__n {
+  position: absolute;
+  left: calc(var(--x) * 1px);
+  top: calc(var(--y) * 1px);
+  width: calc(var(--nw) * 1px);
+  height: calc(var(--nh) * 1px);
+}
+
+.start-node {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 100%;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-3);
+  background: var(--surface-raised);
+}
+
+.start-node__id {
+  min-width: 0;
+  overflow: hidden;
+  font: 500 12px / 16px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.start-node__auto {
+  color: var(--text-subtle);
+  font: 500 11px / 16px var(--font-sans);
+}
+
+/* ---------- lists in panels ---------- */
+.start-issues {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.start-issues li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-2);
+}
+
+.start-issues li > .ch-i {
+  margin-top: 2px;
+}
+
+.start-todo {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.start-sources {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.start-sources li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.start-curl {
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  background: var(--surface-sunken);
+  font: 400 12px / 18px var(--font-mono);
+  white-space: pre;
+}
+
+textarea.start-json {
+  min-height: 24rem;
+  white-space: pre;
+  overflow: auto;
+  resize: vertical;
+}
+
+.start-fixed {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--size-control-md);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.start-save {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+
+.start-template {
+  --cols: minmax(0, 1fr) auto auto;
+}
+
+.start-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  gap: var(--space-3);
+  margin: 0 calc(-1 * var(--space-4));
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.start-bar > :last-child {
+  flex: 2;
+}
+
+.start-bar > :first-child {
+  flex: 1;
+}
+
+@media (max-width: 767px) {
+  .start-split,
+  .start-split--json {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  .formgrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .taskedit__top {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .taskedit__top > :nth-child(3) {
+    grid-column: 1 / -1;
+  }
+
+  .taskedit__tools {
+    align-self: start;
+  }
+
+  .taskedit__deps .ch-select-native {
+    max-width: none;
+    flex: 1 1 10rem;
+  }
+
+  .ch-chip button {
+    width: var(--space-6);
+    height: var(--space-6);
+  }
+
+  .ch-chip {
+    height: var(--space-8);
+  }
+}

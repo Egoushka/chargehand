@@ -1,5 +1,6 @@
 using Chargehand.Automation;
 using Chargehand.Contracts;
+using Chargehand.Modules.Accounts.Api;
 using Microsoft.Extensions.Hosting;
 
 namespace Chargehand.Server;

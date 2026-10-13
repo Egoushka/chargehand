@@ -60,4 +60,46 @@ public class SessionImageTests
         Assert.DoesNotContain("usage: chargehand [--profile", output);
         Assert.Contains("exit=2", output);                       // no task file: a usage-class failure, not a crash
     }
+
+    [SessionImageFact]
+    public async Task A_workspace_is_made_on_a_real_engine_from_a_bundle_streamed_into_the_output_volume()
+    {
+        // The path a remote runner takes (ADR 0058): source.bundle into the run's output volume as the server's stream, then the template's helper clones from it into a new work volume.
+        using var dir = new TempDir();
+        var source = Path.Combine(dir.Path, "checkout");
+        Directory.CreateDirectory(source);
+        RepositoryBundlesTests.Git(source, "init", "-q", "-b", "main");
+        File.WriteAllText(Path.Combine(source, "a.txt"), "one\n");
+        RepositoryBundlesTests.Git(source, "add", "-A");
+        RepositoryBundlesTests.Git(source, "commit", "-q", "-m", "one");
+        File.WriteAllText(Path.Combine(source, "b.txt"), "two\n");
+        RepositoryBundlesTests.Git(source, "add", "-A");
+        RepositoryBundlesTests.Git(source, "commit", "-q", "-m", "two");
+        var commit = RepositoryBundlesTests.Git(source, "rev-parse", "HEAD").Trim();
+        RepositoryBundlesTests.Git(source, "checkout", "-q", "--detach", commit);
+        var run = "b" + Guid.NewGuid().ToString("N")[..10];
+        var engine = new Chargehand.Containers.DockerCliEngine();
+        var workspace = new Chargehand.Driven.BundleWorkspaceEngine(engine, engine, new Chargehand.Driven.RepositoryBundles(Path.Combine(dir.Path, "bundles")));
+        try
+        {
+            await engine.CreateVolumeAsync($"chargehand-out-{run}", run, default);
+
+            await workspace.PrepareWorkspaceAsync(new Chargehand.Containers.WorkspaceSpec(run, Image!, source, $"chargehand-work-{run}", $"chargehand/{run}", commit), default);
+
+            var psi = new ProcessStartInfo("docker", ["run", "--rm", "--user", "10001:10001", "-v", $"chargehand-work-{run}:/work:ro", "--entrypoint", "sh", Image!, "-c",
+                "git config --global safe.directory '*' 2>/dev/null; cd /work && git rev-parse --abbrev-ref HEAD && git log --format=%s && cat a.txt b.txt && git status --porcelain && git config core.hooksPath"])
+            { RedirectStandardOutput = true, RedirectStandardError = true };
+            using var p = Process.Start(psi)!;
+            var output = await p.StandardOutput.ReadToEndAsync();
+            var error = await p.StandardError.ReadToEndAsync();
+            await p.WaitForExitAsync();
+            Assert.True(p.ExitCode == 0, error);
+            Assert.Equal(["chargehand/" + run, "two", "one", "one", "two", "/dev/null"], output.Trim().Split('\n'));
+        }
+        finally
+        {
+            await engine.RemoveVolumeAsync($"chargehand-work-{run}", default);
+            await engine.RemoveVolumeAsync($"chargehand-out-{run}", default);
+        }
+    }
 }

@@ -113,7 +113,7 @@ public static class OrchestrateTool
             throw new McpException(RunService.HaltedMessage);
         string? chargeTo = null;
         var http = context.Services!.GetService<IHttpContextAccessor>()?.HttpContext;
-        var who = Principal.Of(http);
+        var who = PrincipalHttp.Of(http);
         if (http?.Items[RunScope.ItemKey] is RunTokenClaims scope)
         {
             var applied = RunScope.Apply(scope, request, runs.Ledger);

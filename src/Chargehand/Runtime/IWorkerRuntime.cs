@@ -1,3 +1,5 @@
+using Chargehand.Kernel;
+
 namespace Chargehand.Runtime;
 
 /// <summary>
@@ -92,8 +94,6 @@ public enum HttpServiceProtocol { StreamableHttp, Sse }
 public sealed record WorkerSession(string Id, string Directory);
 
 public enum IdleOutcome { Succeeded, Failed, Interrupted }
-
-public sealed record TokenCounts(long Input, long Output, long Reasoning, long CacheRead, long CacheWrite);
 
 /// <param name="ToolOutput">Concatenated tool inputs and outputs of an assistant message (evidence scope).</param>
 /// <param name="ToolResults">What the message's tools returned, one text per result and without the calls' inputs; null: none.</param>

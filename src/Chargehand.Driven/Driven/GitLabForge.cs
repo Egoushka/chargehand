@@ -127,19 +127,20 @@ public sealed partial class GitLabForge(HttpClient http, string token) : IForge
         await RestAsync(HttpMethod.Put, $"{MergeRequestPath(repository, number)}/rebase", new { }, "the rebase", ct);
     }
 
-    public async Task MarkReadyAsync(string nodeId, CancellationToken ct)
+    /// <summary>The handle names the project and the number; <paramref name="repository"/> is not needed here (one token serves every project).</summary>
+    public async Task MarkReadyAsync(RemoteRepository repository, string nodeId, CancellationToken ct)
     {
-        var (repository, number) = Handle(nodeId);
-        using var mr = JsonDocument.Parse(await RestAsync(HttpMethod.Get, MergeRequestPath(repository, number), null, "the merge request's title", ct));
+        var (project, number) = Handle(nodeId);
+        using var mr = JsonDocument.Parse(await RestAsync(HttpMethod.Get, MergeRequestPath(project, number), null, "the merge request's title", ct));
         var title = mr.RootElement.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
         if (DraftPrefix().IsMatch(title))
-            await RestAsync(HttpMethod.Put, MergeRequestPath(repository, number), new { title = DraftPrefix().Replace(title, "") }, "marking the merge request ready", ct);
+            await RestAsync(HttpMethod.Put, MergeRequestPath(project, number), new { title = DraftPrefix().Replace(title, "") }, "marking the merge request ready", ct);
     }
 
-    public async Task EnableAutoMergeAsync(string nodeId, string headSha, CancellationToken ct)
+    public async Task EnableAutoMergeAsync(RemoteRepository repository, string nodeId, string headSha, CancellationToken ct)
     {
-        var (repository, number) = Handle(nodeId);
-        await RestAsync(HttpMethod.Put, $"{MergeRequestPath(repository, number)}/merge", new { merge_when_pipeline_succeeds = true, sha = headSha, squash = true }, "enabling auto-merge", ct);
+        var (project, number) = Handle(nodeId);
+        await RestAsync(HttpMethod.Put, $"{MergeRequestPath(project, number)}/merge", new { merge_when_pipeline_succeeds = true, sha = headSha, squash = true }, "enabling auto-merge", ct);
     }
 
     public async Task MergeNowAsync(RemoteRepository repository, int number, string headSha, CancellationToken ct) =>

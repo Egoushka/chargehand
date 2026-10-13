@@ -4,6 +4,9 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
+using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Server;
@@ -19,7 +22,7 @@ public class AccountsTests
 
     private static AccountSettings Account(string name, decimal? usdDay = null, decimal? usdMonth = null, long? tokensDay = null, long? tokensMonth = null,
         int? concurrent = null, bool driven = false, string[]? repositories = null) =>
-        new(name, usdDay, usdMonth, tokensDay, tokensMonth, concurrent, driven, repositories);
+        new(name, usdDay, usdMonth, tokensDay, tokensMonth, concurrent, driven, repositories, AllowServerCredential: true);
 
     private static ManualTimeProvider ClockAtNow()
     {
@@ -540,6 +543,7 @@ public class AccountsTests
         Assert.Contains($"{id}", list, StringComparison.Ordinal);
         Assert.Contains("laptop", list, StringComparison.Ordinal);
         Assert.Contains("usd/day 5", list, StringComparison.Ordinal);
+        Assert.Contains("server's model key", list, StringComparison.Ordinal);
         Assert.Contains("active", list, StringComparison.Ordinal);
 
         Assert.Equal(0, Run(out _, out _, "revoke", id));

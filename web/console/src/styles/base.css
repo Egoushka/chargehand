@@ -1,0 +1,53 @@
+/* Page-level rules. Colour, type and spacing come from tokens.css; the components' own classes come from bundle.css. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+/* The body carries `ch-root` (index.html), so what React portals to it (dialogs, menus, toasts) is styled like the rest. */
+body {
+  margin: 0;
+  min-height: 100dvh;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-block: 0;
+}
+
+a {
+  color: var(--accent-text);
+}
+
+a:hover {
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+code,
+kbd,
+pre {
+  font-family: var(--font-mono);
+}
+
+table {
+  border-collapse: collapse;
+}
+
+#root {
+  min-height: inherit;
+}

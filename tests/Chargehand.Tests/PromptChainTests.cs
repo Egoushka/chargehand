@@ -1,4 +1,5 @@
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 using Chargehand.Prompts;
 using Chargehand.Runtime;
 

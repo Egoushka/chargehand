@@ -8,3 +8,7 @@ profiles/local.*
 .env*
 docs/
 tests/
+web/console/node_modules/
+web/console/dist/
+web/console/test-results/
+web/console/playwright-report/

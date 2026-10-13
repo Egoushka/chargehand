@@ -96,12 +96,13 @@ otherwise from the ones the build copies next to the binary. The run log is the 
 | `show <run-id>` | calls, tokens, cache %, cost |
 | `cache <run-id>` | cache reads and writes per call, and the first block that broke a shared prefix |
 | `reconcile <run-id> < spend-rows.jsonl` | joins calls to exported gateway spend rows |
-| `serve` | HTTP and MCP, on 127.0.0.1 unless the profile opens it (profile `http`) |
+| `serve` | HTTP and MCP, on 127.0.0.1 unless the profile opens it (profile `http`); with `http.ui` also the [web UI](docs/guide/web-ui.md) at `/ui/` and the operator console at `/console/` |
 | `mcp` | MCP over stdio, for a client that starts chargehand itself; no port, no key |
 | `routes` | routing report per preset, node kind and model |
 | `score <run-id> <0-1> [name]` | records a hand score for a run |
 | `eval seed\|push\|gate` | Prompt CI: propose items, push them to Langfuse, gate a change |
 | `prompts sync` | mirrors prompt blocks to Langfuse |
+| `learn report [--since 30d]` | what finished driven tasks cost and how their pull requests ended, per repository and size class |
 | `extensions check [--preset <name>] [--probe <query>]` | checks the profile's MCP servers, memory mappings and the presets' services against the tools each server lists |
 | `init [<repo path>] [--profile <out>] [--force]` | reads a repository's marker files and writes a starter profile with the proposed test command and the package hosts to allow |
 | `doctor [--profile <path>]` | one ok/warn/fail line per setup check (profile, server, runner, images, secrets, roots, egress, model credential), each with its fix |
@@ -226,7 +227,7 @@ chargehand call, and a run makes up to four (one research, up to three reviews).
 | `src/Chargehand.OpenCode` | OpenCode V2 client and worker-runtime adapter |
 | `src/Chargehand.ClaudeCode` | Claude Code worker-runtime adapter |
 | `src/Chargehand.Mcp` | MCP client: one connection per profile `mcp_servers` entry (Streamable HTTP, SSE or stdio), secret placeholders |
-| `src/Chargehand.Automation` | work that starts without a caller: GitHub intake from issue labels and mentions (references Driven; [ADR 0051](docs/adr/0051-intake-from-github.md)) |
+| `src/Chargehand.Automation` | work that starts without a caller: GitHub intake from issue labels and mentions ([ADR 0051](docs/adr/0051-intake-from-github.md)), and the quality benchmark `chargehand bench` ([ADR 0052](docs/adr/0052-quality-benchmark-on-public-repositories.md)); references Driven |
 | `src/Chargehand.Server` | HTTP interface and MCP server |
 | `src/Chargehand.Cli` | CLI entry point, packed as the `Chargehand` dnx tool and MCP server |
 | `.mcp/server.json` | MCP Registry entry, packed into the tool; the pack stamps the version over `0.0.0` |

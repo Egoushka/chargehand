@@ -58,14 +58,14 @@ internal sealed class FakeIntegrationHost : IIntegrationHost
         return Task.CompletedTask;
     }
 
-    public Task MarkReadyAsync(string nodeId, CancellationToken ct)
+    public Task MarkReadyAsync(RemoteRepository repository, string nodeId, CancellationToken ct)
     {
         Calls.Add("ready");
         Current = Current with { IsDraft = false, MergeStatus = StatusAfterReady };
         return Task.CompletedTask;
     }
 
-    public Task EnableAutoMergeAsync(string nodeId, string headSha, CancellationToken ct)
+    public Task EnableAutoMergeAsync(RemoteRepository repository, string nodeId, string headSha, CancellationToken ct)
     {
         Calls.Add($"auto-merge {headSha}");
         if (AutoMergeRefused is not null)
@@ -86,6 +86,21 @@ internal sealed class FakeIntegrationHost : IIntegrationHost
         Calls.Add("comment");
         Comments.Add(body);
         return Task.CompletedTask;
+    }
+
+    /// <summary>The job ids each re-run was asked for; a re-run turns the failed checks pending.</summary>
+    public List<IReadOnlyList<long>> Reruns { get; } = [];
+
+    public Exception? RerunFails { get; set; }
+
+    public Task<int> RerunFailedJobsAsync(RemoteRepository repository, IReadOnlyList<long> jobIds, CancellationToken ct)
+    {
+        Calls.Add("rerun");
+        if (RerunFails is not null)
+            throw RerunFails;
+        Reruns.Add(jobIds);
+        Current = Current with { Checks = [.. Current.Checks.Select(c => jobIds.Contains(c.JobId ?? -1) ? c with { Outcome = CheckOutcome.Pending } : c)] };
+        return Task.FromResult(jobIds.Count);
     }
 
     public Task<string> JobLogTailAsync(RemoteRepository repository, long jobId, int maxChars, CancellationToken ct)

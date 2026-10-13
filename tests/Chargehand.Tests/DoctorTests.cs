@@ -1,5 +1,6 @@
 using System.Net;
 using Chargehand.Config;
+using Chargehand.Kernel;
 using Chargehand.Onboarding;
 
 namespace Chargehand.Tests;
@@ -92,7 +93,7 @@ public class DoctorTests
     {
         using var dir = new TempDir();
         var env = Healthy(dir);
-        env.LoadFailure = new Chargehand.ChargehandException(Chargehand.Contracts.ErrorCode.InvalidRequest, "mcp_servers.x: set one of url and command", "Fix the entry in the profile.");
+        env.LoadFailure = new Chargehand.Kernel.ChargehandException(Chargehand.Contracts.ErrorCode.InvalidRequest, "mcp_servers.x: set one of url and command", "Fix the entry in the profile.");
         env.Files.Add("p.json");
 
         var results = await Doctor.RunAsync("p.json", env, PresetAllow, default);

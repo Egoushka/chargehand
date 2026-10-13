@@ -1,3 +1,5 @@
+using Chargehand.Kernel;
+
 namespace Chargehand.Mcp;
 
 /// <summary>
