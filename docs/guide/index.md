@@ -57,6 +57,7 @@ Sources: [README](../../README.md#how-a-run-works), [ADR 0009](../adr/0009-resul
 - [Web UI](web-ui.md): a page at `/ui/` for runs, live events, results with linked citations, starting and cancelling runs, and spend against an account's caps.
 - [Writing a branch](writing.md): the `code` preset, its sandbox, what it verifies and what it does not.
 - [Driven writing sessions](driven.md): a list of tasks as parallel headless sessions in containers, ending in draft pull requests; what is built and what is not wired yet.
+- [Several runners](runners.md): driven sessions on more than one machine, a server's runner plus a laptop: the `runners` list, how a task gets a runner, a remote runner's repository, images by platform.
 - [Benchmark on real repositories](benchmark.md): a fixed set of tasks on pinned public repositories, run through driven batches and reported as pass rate, honest stops, spend and the governor's false stops.
 - [Support checking and signed results](support-and-signing.md): each claim checked against the text it cites, and results signed and verified offline.
 - [Memory and services](memory-and-services.md): recall from MCP memory servers, retain only claims whose citations resolved, and give a preset's workers read-only MCP tools.

@@ -299,7 +299,50 @@
           }
         },
         "network": { "type": "object", "additionalProperties": false, "properties": { "allow": { "type": "array", "items": { "type": "string", "minLength": 1 } }, "outside": { "type": "string", "minLength": 1, "description": "A network besides the default one that the batch's egress container joins: the one the chargehand server sits on." }, "mcp_forward": { "type": "string", "pattern": "^[^\\s:]+:[0-9]{1,5}$", "description": "host:port of the chargehand server as the egress container reaches it. Set, a session can call chargehand for research and review; unset, it cannot." }, "model_url": { "type": "string", "pattern": "^https?://[^\\s?#@]+$", "description": "An Anthropic-compatible gateway as the egress container reaches it: http://host:port/path through a forward, or https://host/path through the proxy. Set, a session gets claude_code.api_key_secret (the key the gateway issued, with a budget) and ANTHROPIC_BASE_URL instead of the real credential; unset, the real credential is in the container's environment." }, "otlp_url": { "type": "string", "pattern": "^http://[^\\s?#@]+$", "description": "An OTLP/HTTP collector as the egress container reaches it, http://host:port through a forward on a port no other forward uses. Set, each session's Claude Code exports its own logs and metrics there, tagged chargehand.run_id, chargehand.task_id, chargehand.task_run_id and chargehand.trace_id; unset, it exports nothing." } }, "description": "Hosts added to the preset's allowlist, and how a session reaches the chargehand server." },
-        "runner": { "type": "object", "additionalProperties": false, "required": ["url", "api_key_secret"], "properties": { "url": { "type": "string", "minLength": 1 }, "api_key_secret": { "type": "string", "minLength": 1 } }, "description": "The runner service in front of the container engine. Absent: the server calls the engine itself (a laptop)." },
+        "runner": { "type": "object", "additionalProperties": false, "required": ["url", "api_key_secret"], "properties": { "url": { "type": "string", "minLength": 1 }, "api_key_secret": { "type": "string", "minLength": 1 } }, "description": "The runner service in front of the container engine: one runner, named default (ADR 0058: runners lists several). Absent, and no runners: the server calls the engine itself (a laptop)." },
+        "runners": {
+          "type": "array",
+          "minItems": 1,
+          "description": "ADR 0058: several runner services, in place of runner (never both). The server runs each task on the healthy runner with the most free memory that has a session slot, and keeps all of a task's sessions on it. A profile that names one runner behaves as one that uses runner.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "url", "api_key_secret"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$", "description": "Unique. It is in run events and in the driven-batch artifact." },
+              "url": { "type": "string", "pattern": "^https?://[^\\s?#@]+$", "description": "The runner's address as the server reaches it." },
+              "api_key_secret": { "type": "string", "minLength": 1, "description": "Secret item for the runner's bearer key." },
+              "max_sessions": { "type": "integer", "minimum": 1, "description": "Sessions this server runs on the runner at once. Unset: no limit besides max_parallel and max_parallel_total." },
+              "platform": { "enum": ["linux/amd64", "linux/arm64"], "description": "The architecture of the runner's engine. Default linux/amd64. It picks the image: driven.image_variants." },
+              "weight": { "type": "number", "exclusiveMinimum": 0, "maximum": 100, "description": "Multiplies the runner's free memory when two runners are compared. Default 1." },
+              "reserve_mb": { "type": "integer", "minimum": 0, "description": "Replaces driven.admission.reserve_mb for this runner: the memory left for everything else on its host." },
+              "workspace": { "enum": ["shared", "bundle"], "description": "shared (default): the runner reads the server's checkouts from a disk both see. bundle: the runner is not on the server's host, and the server sends it the repository as a git bundle." },
+              "forwards": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "The server's address as this runner's egress containers reach it. Each key replaces the same key of network for this runner; a key left out inherits it. A bundle runner needs mcp while network.mcp_forward is set, and model_url or otlp_url while network sets an http one.",
+                "properties": {
+                  "mcp": { "type": "string", "pattern": "^[^\\s:]+:[0-9]{1,5}$", "description": "host:port of the chargehand server." },
+                  "model_url": { "type": "string", "pattern": "^https?://[^\\s?#@]+$" },
+                  "otlp_url": { "type": "string", "pattern": "^http://[^\\s?#@]+$" },
+                  "outside": { "type": "string", "minLength": 1, "description": "The network the egress container joins besides the batch's own. On a laptop engine: bridge." }
+                }
+              }
+            }
+          }
+        },
+        "image_variants": {
+          "type": "object",
+          "description": "ADR 0058: for an image listed in images (services.images draws from the same list), the image to start on a runner of another platform. A runner uses the image as written unless this has an entry for its platform; a multi-platform index digest needs none.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "linux/amd64": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$" },
+              "linux/arm64": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$" }
+            }
+          }
+        },
         "push_secret": { "type": "string", "minLength": 1, "description": "Secret item for the credential that pushes non-default branches and opens draft pull requests (on GitLab also merge requests, unless forge.token_secret names another)." },
         "task_source": {
           "type": "object",

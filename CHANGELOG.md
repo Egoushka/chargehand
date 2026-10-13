@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Several runners (ADR 0058, CHARGEHAND-212), first change: the profile. `driven.runners` lists runner services, each with a `name`, `url`, `api_key_secret` and optionally `max_sessions`, `platform` (`linux/amd64` or `linux/arm64`), `weight`, `reserve_mb`, `workspace` (`shared` or `bundle`) and `forwards` (the server's address as that runner's egress reaches it); `driven.runner` stays as the one-runner form and needs no change. `driven.image_variants` maps an image to the one to start on another platform. A setting that cannot work is refused naming its key; `chargehand doctor` probes and checks each runner. `chargehand serve` refuses more than one runner until the scheduling change lands. See [Several runners](docs/guide/runners.md).
+
 ## [0.9.0] - 2026-10-13
 
 Driven sessions are governed: a governor watches spend and stuck signals (observe mode by default), stopped work continues in a fresh session or becomes a partial draft PR, tasks can depend on each other and answer questions, admission looks at free memory, and an optional GitHub App integrator merges through required checks. The orchestrator core ships apart from the driven infrastructure, with accounts that bring their own model key, GitLab, intake from GitHub issues and review comments, budgets learned from past spend, a web UI, a one-file install, `init` and `doctor`, a quality benchmark harness and a review workflow for any repository.
