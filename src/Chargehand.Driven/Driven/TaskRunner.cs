@@ -8,6 +8,7 @@ using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Egress;
 using Chargehand.Kernel;
+using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Results;
 using Chargehand.RunLog;
@@ -87,12 +88,12 @@ public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, stri
 /// stood after a server restart (ADR 0043). <paramref name="detaching"/> says the server is stopping rather than the run being cancelled: the session container is then left running for the next process.
 /// A task with <see cref="ResolvedTask.Upstream"/> (ADR 0049) starts from the branches of the tasks it depends on: <paramref name="stacker"/> makes one branch of them, named for this task, and its bundle seeds
 /// the first session. With a <paramref name="learning"/> store, a task that ends writes what it taught (ADR 0045). With <paramref name="records"/>, each session, its governor log, the pull request's checks and the CI fix
-/// attempts are kept for the console (CHARGEHAND-214).</summary>
+/// attempts are kept for the console (CHARGEHAND-214). With <paramref name="steps"/>, each session start is a recorded step (ADR 0061), and a start a restart cut short is taken up under its own run id.</summary>
 public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspace, ISessionVolumes volumes, IBranchHandover handover, IRunLog log, TaskTokenMinter mint,
     TaskRunnerSettings settings, IEvidenceResolver resolver,
     Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? supportCheck, Func<ResultContract, ResultContract>? sign,
     TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, BatchJournal? journal = null, Func<bool>? detaching = null, IStackSeeder? stacker = null, ILearningStore? learning = null, IBranchSeeder? brancher = null,
-    Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null, BatchRecords? records = null, BatchControl? control = null) : ITaskRunner
+    Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null, BatchRecords? records = null, BatchControl? control = null, DrivenJournal? steps = null) : ITaskRunner
 {
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultUsagePoll = TimeSpan.FromSeconds(5);
@@ -115,8 +116,16 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         if (entry is { Phase: TaskPhase.HandedOver or TaskPhase.Failed, Outcome: { } done })
             return done;
         var resumed = entry is { Phase: TaskPhase.Started or TaskPhase.Finished, RunId: not null } ? entry : null;
-        string? restartSeed = null;
-        if (resumed is not null && await GoneWithoutOutputAsync(resumed, ct))
+        // A session start the restart cut short runs again under the run id it was given: its step adopts or removes what the cut attempt left, and its finished steps are not repeated.
+        var interrupted = resumed is { Phase: TaskPhase.Started } && await StartCutAsync(task.Id, resumed.RunId!, ct) ? resumed : null;
+        var restartSeed = interrupted is { Continuation: > 0, Runs: { Count: > 1 } runsSoFar } ? await RestoreBundleAsync(runsSoFar[^2], ct) : null;
+        if (interrupted is { Continuation: 0 })
+            // A first session starts as it did the first time, under the same run id and branch.
+            resumed = null;
+        else if (restartSeed is null)
+            // A continuation whose seed is gone is handled as any other begun task.
+            interrupted = null;
+        if (interrupted is null && resumed is not null && await GoneWithoutOutputAsync(resumed, ct))
         {
             // Nothing to take up. A continuation that never started is started again from the previous session's bundle (ADR 0044); any other task begins again
             // under a new run id and branch. The old attempt's leftovers are cleared either way.
@@ -126,9 +135,9 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 resumed = null;
         }
         var attach = resumed is not null && restartSeed is null;
-        var runId = resumed?.RunId ?? Orchestrator.NewRunId();
+        var runId = resumed?.RunId ?? interrupted?.RunId ?? Orchestrator.NewRunId();
         var branch = resumed?.Branch ?? task.From?.Kept?.Branch ?? task.From?.Pushed?.Branch ?? $"chargehand/{runId}";
-        var started = resumed?.Started ?? DateTimeOffset.UtcNow;
+        var started = resumed?.Started ?? interrupted?.Started ?? DateTimeOffset.UtcNow;
         var preset = settings.Preset;
         var maxTurns = task.MaxTurns ?? preset.MaxTurns;
         var maxMinutes = task.MaxMinutes ?? preset.MaxMinutes;
@@ -136,7 +145,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         var continuation = resumed?.Continuation ?? 0;
         var prior = resumed?.Prior;
         List<string> runs = [.. resumed?.Runs ?? [runId]];
-        if (restartSeed is not null)
+        if (restartSeed is not null && interrupted is null)
         {
             // The same session again under a new run id: the name of the one that never started is not reused.
             runId = Orchestrator.NewRunId();
@@ -644,8 +653,39 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             maxUsd is { } cap && (ended || usd <= cap + cap / 10) ? Math.Min(usd, cap) : usd);
     }
 
-    /// <summary>The session's container, workspace and task file, up to the container's start.</summary>
+    /// <summary>The session's start as the step <c>session/&lt;task&gt;/&lt;run&gt;</c> (ADR 0061). A step that runs again first adopts or removes the container an earlier attempt left; the
+    /// workspace and task file steps inside it that finished are not repeated.</summary>
     private async Task<string> StartSessionAsync(ResolvedTask task, string runId, string branch, string goal, int maxTurns, int maxMinutes, (long Tokens, decimal? Usd) left, decimal spentUsd,
+        string? seed, DateTimeOffset sessionStarted, string detail, Activity? span, string traceId, BudgetChoice? budget, CancellationToken ct)
+    {
+        if (steps is null)
+            return await CreateSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, left, spentUsd, seed, sessionStarted, detail, span, traceId, budget, ct);
+        // A run id gets one start, so a completed key is never asked for again.
+        var container = $"chargehand-{runId}";
+        await steps.RunAsync(StepKey.Session(settings.BatchId, task.Id, runId), async (attempt, token) =>
+            container = attempt.Repeated && await AdoptAsync(task.Id, runId, token) is { } adopted
+                ? adopted
+                : await CreateSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, left, spentUsd, seed, sessionStarted, detail, span, traceId, budget, token), ct);
+        return container;
+    }
+
+    /// <summary>The session container an earlier start of <paramref name="runId"/> left, when it is the session: running, or ended with its outcome. One that was made and never started, or
+    /// ended without an outcome, is removed so the start can run again under its fixed name.</summary>
+    /// <returns>The container to wait for; null: start one.</returns>
+    private async Task<string?> AdoptAsync(string taskId, string runId, CancellationToken ct)
+    {
+        var name = $"chargehand-{runId}";
+        var state = await Tolerant(taskId, () => engine.InspectAsync(name, ct), ct);
+        if (state.Status == ContainerStatus.Missing)
+            return null;
+        if (state.Status == ContainerStatus.Running || state.Status == ContainerStatus.Exited && await HasOutcomeAsync(taskId, runId, ct))
+            return name;
+        await engine.RemoveAsync(name, ct);
+        return null;
+    }
+
+    /// <summary>The session's container, workspace and task file, up to the container's start.</summary>
+    private async Task<string> CreateSessionAsync(ResolvedTask task, string runId, string branch, string goal, int maxTurns, int maxMinutes, (long Tokens, decimal? Usd) left, decimal spentUsd,
         string? seed, DateTimeOffset sessionStarted, string detail, Activity? span, string traceId, BudgetChoice? budget, CancellationToken ct)
     {
         var preset = settings.Preset;
@@ -827,22 +867,28 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     private bool Detaching => detaching?.Invoke() == true;
 
     /// <summary>A task begun before a restart whose container is gone and whose output volume holds no outcome: there is nothing to take up.</summary>
-    private async Task<bool> GoneWithoutOutputAsync(TaskEntry entry, CancellationToken ct)
+    private async Task<bool> GoneWithoutOutputAsync(TaskEntry entry, CancellationToken ct) =>
+        (await Tolerant(entry.Id, () => engine.InspectAsync(entry.Container ?? $"chargehand-{entry.RunId}", ct), ct)).Status == ContainerStatus.Missing
+        && !await HasOutcomeAsync(entry.Id, entry.RunId!, ct);
+
+    private async Task<bool> HasOutcomeAsync(string taskId, string runId, CancellationToken ct)
     {
-        if ((await Tolerant(entry.Id, () => engine.InspectAsync(entry.Container ?? $"chargehand-{entry.RunId}", ct), ct)).Status != ContainerStatus.Missing)
-            return false;
-        var directory = Path.Combine(settings.ScratchRoot, "out", entry.RunId!);
+        var directory = Path.Combine(settings.ScratchRoot, "out", runId);
         Directory.CreateDirectory(directory);
         try
         {
-            await Tolerant(entry.Id, () => volumes.FetchOutputAsync(entry.RunId!, directory, ct), ct);
+            await Tolerant(taskId, () => volumes.FetchOutputAsync(runId, directory, ct), ct);
         }
         catch (ChargehandException e) when (e is not RunnerUnreachableException)
         {
-            return true;
+            return false;
         }
-        return !File.Exists(Path.Combine(directory, "session-outcome.json"));
+        return File.Exists(Path.Combine(directory, "session-outcome.json"));
     }
+
+    /// <summary>The start of the task's session under <paramref name="runId"/> recorded its intent and no outcome: a restart cut it short (ADR 0061).</summary>
+    private async Task<bool> StartCutAsync(string taskId, string runId, CancellationToken ct) =>
+        steps is not null && (await steps.UnfinishedAsync(settings.BatchId, ct)).Contains(StepKey.Session(settings.BatchId, taskId, runId));
 
     private async Task RemoveRunAsync(string runId, string? container)
     {

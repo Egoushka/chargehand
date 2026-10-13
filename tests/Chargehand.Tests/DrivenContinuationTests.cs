@@ -378,7 +378,7 @@ public class DrivenContinuationTests
     }
 
     [Fact]
-    public async Task A_restart_before_a_continuations_container_started_redoes_it_from_the_previous_bundle_on_the_same_branch()
+    public async Task A_restart_before_a_continuations_container_started_starts_it_again_under_its_run_id_from_the_previous_bundle_on_the_same_branch()
     {
         using var rig = new DrivenRunTests.Rig(durable: true, outcomes: (_, goal) => IsContinuation(goal) ? Done() : Stopped(SessionStatus.Stalled, "turn_limit"));
         using var stop = new CancellationTokenSource();
@@ -391,11 +391,11 @@ public class DrivenContinuationTests
         var (firstRun, secondRun) = (rig.Engine.Started[0].RunId, rig.Engine.Started[1].RunId);
         Assert.Equal((secondRun, 1), (entry.RunId, entry.Continuation));
         Assert.Null(entry.Container);
-        // The container is gone and the host's scratch directory with the first bundle was cleared by the restart.
+        // No container was made, and the host's scratch directory with the first bundle was cleared by the restart.
         rig.Engine.Gone.Add($"chargehand-{secondRun}");
-        rig.Volumes.NoOutput.Add(secondRun);
         Directory.Delete(Path.Combine(rig.Profile.WorkerRoot, ".driven", "out", firstRun), recursive: true);
         rig.Engine.OnStart = null;
+        var fetched = rig.Volumes.Fetched.Count;
 
         var result = await rig.Run.RunAsync(state.Request, state.RunId, Token, default, null, () => false, state);
 
@@ -404,12 +404,14 @@ public class DrivenContinuationTests
         Assert.Equal($"chargehand/{firstRun}", handover.Branch);
         Assert.False(handover.Partial);
         Assert.Contains("1 continuation session(s)", handover.Body);
-        // Seeded from the first session's bundle, read again from its output volume.
-        Assert.All(rig.Volumes.Seeds, s => Assert.EndsWith(Path.Combine("out", firstRun, "chargehand.bundle"), s.Path));
-        Assert.Equal(2, rig.Volumes.Seeds.Count);
-        Assert.NotEqual(secondRun, rig.Engine.Started[2].RunId);
-        Assert.Equal(rig.Engine.Started[2].RunId, rig.Volumes.Seeds[1].RunId);
-        Assert.Contains("Continuation 1 of 2. A previous session was stopped by turn limit", rig.Volumes.Tasks[^1].Goal);
+        // The start ran again under the same run id (ADR 0061); the seed and the task file it wrote before the cut are not written again.
+        Assert.Equal([firstRun, secondRun, secondRun], rig.Engine.Started.Select(s => s.RunId));
+        var seed = Assert.Single(rig.Volumes.Seeds);
+        Assert.Equal(secondRun, seed.RunId);
+        Assert.EndsWith(Path.Combine("out", firstRun, "chargehand.bundle"), seed.Path);
+        Assert.Contains(firstRun, rig.Volumes.Fetched.Skip(fetched));
+        var task = Assert.Single(rig.Volumes.Tasks, t => t.RunId == secondRun);
+        Assert.Contains("Continuation 1 of 2. A previous session was stopped by turn limit", task.Goal);
     }
 
     private static OperationCanceledException Stopping(CancellationTokenSource stop)

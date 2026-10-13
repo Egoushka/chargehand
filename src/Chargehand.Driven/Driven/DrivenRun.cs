@@ -489,7 +489,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             progress?.Invoke(report ? e with { Runner = runner, Detail = e.Event == RunEventKind.ContainerStarted && e.Detail is { } detail ? $"{detail} on runner '{runner}'" : e.Detail } : e);
         };
         Func<string?, ISessionVolumes> volumesOf = name => (sites.FirstOrDefault(x => x.Name == name) ?? sites[0]).Volumes;
-        // The workspace helper and the writes into an output volume are recorded steps in the batch's flow (ADR 0061).
+        // The session start, the workspace helper and the writes into an output volume are recorded steps in the batch's flow (ADR 0061).
         var steps = _steps is null ? null : await _steps.Value;
         async Task<SiteBatch> BuildAsync(SiteRoute route)
         {
@@ -523,7 +523,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, route.Exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor, RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge));
             var runner = new TaskRunner(site.Engine, steps is null ? site.Workspace : new JournaledWorkspaceEngine(site.Workspace, site.Engine, steps, runId),
                 steps is null ? site.Volumes : new JournaledSessionVolumes(site.Volumes, steps, runId), handover, log, mint, task, s.Resolver, s.SupportCheckFor?.Invoke(actor), sign, s.Poll, publish: Stamp(site.Name), journal: journal,
-                detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf, outageGrace: s.OutageGrace, records: records, control: ControlOf(runId));
+                detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf, outageGrace: s.OutageGrace, records: records, control: ControlOf(runId), steps: steps);
             return new SiteBatch(site, net, runner);
         }
         async Task<TaskRunner> RunnerOn(string name)

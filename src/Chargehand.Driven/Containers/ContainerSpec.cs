@@ -117,7 +117,8 @@ public interface IOutTailEngine
     Task<bool> ReadOutTailAsync(OutFileSpec spec, int maxBytes, Stream destination, CancellationToken ct);
 }
 
-public enum ContainerStatus { Running, Exited, Missing }
+/// <summary><see cref="Created"/>: made and never started, what a <c>docker run</c> cut short between its create and its start leaves.</summary>
+public enum ContainerStatus { Running, Exited, Missing, Created }
 
 /// <param name="ExitCode">Set once the container has exited.</param>
 /// <param name="OomKilled">The kernel killed it for memory.</param>

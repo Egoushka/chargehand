@@ -89,9 +89,14 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
         var parts = result.Stdout.Trim().Split(' ');
         if (parts.Length is not (3 or 4) || !int.TryParse(parts[1], out var exit))
             throw Unavailable("docker inspect answered something unexpected", result, null);
-        var running = parts[0] is "running" or "created" or "restarting" or "paused";
+        var status = parts[0] switch
+        {
+            "running" or "restarting" or "paused" => ContainerStatus.Running,
+            "created" => ContainerStatus.Created,
+            _ => ContainerStatus.Exited,
+        };
         int? peak = parts[0] == "running" ? await SamplePeakAsync(id, parts.Length == 4 ? parts[3] : null, ct) : _peaks.TryGetValue(id, out var seen) ? seen.Mb : null;
-        return new ContainerState(running ? ContainerStatus.Running : ContainerStatus.Exited, running ? null : exit, parts[2] == "true", peak);
+        return new ContainerState(status, status == ContainerStatus.Exited ? exit : null, parts[2] == "true", peak);
     }
 
     /// <summary>Measures a running container and keeps the largest value. A reading that fails is skipped: the memory figure must never fail an inspect.</summary>

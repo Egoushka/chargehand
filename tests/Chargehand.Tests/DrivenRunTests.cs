@@ -57,6 +57,9 @@ public class DrivenRunTests
 
         /// <summary>Containers docker no longer knows.</summary>
         public HashSet<string> Gone { get; } = [];
+
+        /// <summary>Containers docker made and never started, by name: what a start cut between its create and its start leaves. Removing one forgets it.</summary>
+        public HashSet<string> Created { get; } = [];
         public EngineResources Resources { get; set; } = new([], [], []);
 
         public void Release() { lock (_gate) _held.Clear(); }
@@ -124,6 +127,8 @@ public class DrivenRunTests
                 }
                 if (Gone.Contains(id))
                     return Task.FromResult(new ContainerState(ContainerStatus.Missing, null, false));
+                if (Created.Contains(id))
+                    return Task.FromResult(new ContainerState(ContainerStatus.Created, null, false));
                 if (_held.Contains(id) && !_stopped.Contains(id))
                     return Task.FromResult(new ContainerState(ContainerStatus.Running, null, false, Peak(id)));
                 _inspections[id] = _inspections.GetValueOrDefault(id) + 1;
@@ -132,7 +137,13 @@ public class DrivenRunTests
             return Task.FromResult(running ? new ContainerState(ContainerStatus.Running, null, false, Peak(id)) : new ContainerState(ContainerStatus.Exited, 0, false, Peak(id)));
         }
 
-        public Task RemoveAsync(string id, CancellationToken ct) { Record($"rm {id}"); return Task.CompletedTask; }
+        public Task RemoveAsync(string id, CancellationToken ct)
+        {
+            Record($"rm {id}");
+            lock (_gate)
+                Created.Remove(id);
+            return Task.CompletedTask;
+        }
         public Task KillAllAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> OwnsAsync(string id, CancellationToken ct) => throw new NotSupportedException();
         public Task<int> CountAsync(CancellationToken ct) => OnList is null ? Task.FromResult(Resources.Containers.Count) : throw OnList;
