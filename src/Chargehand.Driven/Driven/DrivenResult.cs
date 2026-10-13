@@ -176,8 +176,9 @@ public static class DrivenResult
     /// own result under its own run id; this one lists them in the <c>driven-batch</c> artifact.</summary>
     /// <param name="cancelledByCaller">The caller (not a shutdown) cancelled the batch.</param>
     /// <param name="CredentialDelivery">How the model credential reached the containers (<c>gateway</c>: a per-task token, the real credential only in the egress container; <c>environment</c>: the real credential in the session container's environment).</param>
+    /// <param name="plan">What the planning step did (ADR 0049), as the <c>plan</c> artifact; null: it did not run.</param>
     public static ResultContract BuildBatch(string runId, string traceId, string description, BatchOutcome outcome, string credentialDelivery, bool priced, string claudeVersion,
-        bool cancelledByCaller = false)
+        bool cancelledByCaller = false, BatchPlan? plan = null)
     {
         var chain = new PromptChain([], new AsSent($"claude-code/{claudeVersion}", "driven", "batch", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         var rows = outcome.Tasks.Select(t => new
@@ -193,9 +194,10 @@ public static class DrivenResult
             detail = t.Detail,
         }).ToList();
         var artifact = Inline("driven-batch", "application/json", new { credential_delivery = credentialDelivery, tasks = rows });
+        Artifact[] artifacts = plan is null ? [artifact] : [artifact, Inline("plan", "application/json", plan)];
         var usage = new Usage(outcome.Tokens, 0, 0, 0, priced ? outcome.Usd : null);
         if (outcome.AllCompleted)
-            return new ResultContract("result/v1", runId, "driven", traceId, chain, ResultStatus.Completed, $"All {outcome.Tasks.Count} tasks ended in a draft pull request. {description}".Trim(), [], [], [artifact], [], 0.9, usage);
+            return new ResultContract("result/v1", runId, "driven", traceId, chain, ResultStatus.Completed, $"All {outcome.Tasks.Count} tasks ended in a draft pull request. {description}".Trim(), [], [], artifacts, [], 0.9, usage);
         var incomplete = outcome.Incomplete;
         var message = $"{incomplete.Count} of {outcome.Tasks.Count} tasks did not produce a pull request";
         var action = $"Tasks that did not finish: {string.Join(", ", incomplete)}. Read each task's own result under its run id, fix what it names and send those tasks again."
@@ -213,7 +215,7 @@ public static class DrivenResult
             code = ErrorCode.RateLimited;
         }
         var questions = outcome.Tasks.Where(t => t.State != TaskState.Completed).Select(t => $"Task {t.Id}: {Snake(t.State.ToString()).Replace('_', ' ')}: {t.Detail ?? "no detail"}").ToList();
-        return new ResultContract("result/v1", runId, "driven", traceId, chain, ResultStatus.Failed, message, [], [], [artifact], questions, 0.5, usage,
+        return new ResultContract("result/v1", runId, "driven", traceId, chain, ResultStatus.Failed, message, [], [], artifacts, questions, 0.5, usage,
             new ResultError(code, message, ChargehandException.Retryable(code), action));
     }
 

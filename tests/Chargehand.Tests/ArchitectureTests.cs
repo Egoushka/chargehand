@@ -6,6 +6,7 @@ namespace Chargehand.Tests;
 public class ArchitectureTests
 {
     private const string Driven = "Chargehand.Driven";
+    private const string Automation = "Chargehand.Automation";
 
     private static IEnumerable<string> References(string assembly) =>
         Assembly.Load(assembly).GetReferencedAssemblies().Select(a => a.Name!);
@@ -18,6 +19,23 @@ public class ArchitectureTests
     [InlineData("Chargehand.ClaudeCode")]
     public void Core_and_its_adapters_do_not_reference_Driven(string assembly) =>
         Assert.DoesNotContain(Driven, References(assembly));
+
+    [Theory]
+    [InlineData("Chargehand")]
+    [InlineData("Chargehand.Contracts")]
+    [InlineData("Chargehand.Mcp")]
+    [InlineData("Chargehand.OpenCode")]
+    [InlineData("Chargehand.ClaudeCode")]
+    [InlineData("Chargehand.Driven")]
+    public void Core_its_adapters_and_Driven_do_not_reference_Automation(string assembly) =>
+        Assert.DoesNotContain(Automation, References(assembly));
+
+    [Fact]
+    public void Automation_references_Driven_and_the_server_references_Automation()
+    {
+        Assert.Contains(Driven, References(Automation));
+        Assert.Contains(Automation, References("Chargehand.Server"));
+    }
 
     [Fact]
     public void Driven_references_Core()

@@ -15,9 +15,12 @@ public enum TaskPhase { Pending, Started, Finished, HandedOver, Failed }
 /// <param name="SessionGoal">The latest session's prompt when it is a continuation's (the goal plus the note); null: the task's goal.</param>
 /// <param name="StartDetail">The <c>container_started</c> text of a continuation, kept so a continuation redone after a restart says the same.</param>
 /// <param name="From">The earlier batch's task this one continues (ADR 0045); the goal above already carries its questions and the answers.</param>
+/// <param name="DependsOn">The tasks this one waits for (ADR 0049), as the batch runs them: a planned chain's links included.</param>
+/// <param name="Size">The size the governor holds the task to, after planning; null: the request's, else M.</param>
+/// <param name="SplitFrom">The task the planning step split this one out of.</param>
 public sealed record TaskEntry(string Id, string? Ref, string Goal, TaskPhase Phase = TaskPhase.Pending, string? RunId = null, string? Branch = null, string? Container = null,
     DateTimeOffset? Started = null, TaskOutcome? Outcome = null, int Continuation = 0, SessionOutcome? Prior = null, IReadOnlyList<string>? Runs = null, DateTimeOffset? SessionStarted = null,
-    BestBundle? Best = null, string? SessionGoal = null, string? StartDetail = null, ContinuedFrom? From = null);
+    BestBundle? Best = null, string? SessionGoal = null, string? StartDetail = null, ContinuedFrom? From = null, IReadOnlyList<string>? DependsOn = null, string? Size = null, string? SplitFrom = null);
 
 /// <param name="Commits">Commits past the base the bundle holds; a continuation has to add to them to go on.</param>
 public sealed record BestBundle(string RunId, int Commits);
@@ -26,7 +29,10 @@ public sealed record BestBundle(string RunId, int Commits);
 /// The names of the batch's network and egress container follow from <paramref name="RunId"/>; the real model credential is never kept, the profile supplies it again.</summary>
 /// <param name="TokenKey">The egress container's key for run tokens; null when the batch has no token exchange.</param>
 /// <param name="Unresolved">Tasks that did not resolve to a goal: final from the start.</param>
-public sealed record BatchState(string RunId, DateTimeOffset Started, string TraceId, RunRequest Request, string? TokenKey, IReadOnlyList<TaskEntry> Tasks, IReadOnlyList<TaskOutcome> Unresolved)
+/// <param name="Plan">What the planning step did (ADR 0049), kept so a resumed batch reports it and does not plan again; null: no planning ran.</param>
+/// <param name="Actor">The account that started the batch (ADR 0050); a resumed batch runs as it.</param>
+public sealed record BatchState(string RunId, DateTimeOffset Started, string TraceId, RunRequest Request, string? TokenKey, IReadOnlyList<TaskEntry> Tasks, IReadOnlyList<TaskOutcome> Unresolved,
+    BatchPlan? Plan = null, string? Actor = null)
 {
     /// <summary>Every run id the batch's resources can carry: the batch's own and its tasks', every session of a task included (an earlier session's output volume holds the bundle a restart may need).</summary>
     public IEnumerable<string> RunIds => Tasks.Select(t => t.RunId).OfType<string>().Concat(Tasks.SelectMany(t => t.Runs ?? [])).Prepend(RunId);

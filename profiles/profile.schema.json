@@ -160,6 +160,15 @@
             "max_continuations": { "type": "integer", "minimum": 0, "maximum": 5, "description": "Further sessions on the same branch after one is stopped by the turn limit or the wall clock with work committed (ADR 0044). Each gets max_turns and max_minutes again; max_tokens is shared. Default 2; 0: none." }
           }
         },
+        "planning": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "ADR 0049's planning step: before a batch starts, one cheap read-only run through the orchestrator sizes tasks that have no size (S, M, L), splits a large task into an ordered chain and gives tasks that would take the same next number (migrations, ADR files) their own. The caller's size and depends_on always win. The plan is the batch result's plan artifact. A request's driven.plan overrides enabled.",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Plan every batch. Default false." },
+            "preset": { "type": "string", "minLength": 1, "description": "The preset the run uses; it must be read-only. Default cheap." }
+          }
+        },
         "admission": {
           "type": "object",
           "additionalProperties": false,
@@ -282,6 +291,44 @@
             "arguments": { "type": "object", "description": "The tool's arguments; the string {ref} is replaced by the item id." },
             "title": { "type": "string", "minLength": 1, "description": "Dotted property names to the title string in the answer." },
             "body": { "type": "string", "minLength": 1, "description": "The same for the description; omit for a title-only goal." }
+          }
+        }
+      }
+    },
+    "automation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Work that starts without a caller (ADR 0051). Unset: nothing is watched.",
+      "properties": {
+        "github": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repositories", "allowed_authors"],
+          "description": "A label on an issue, or a mention of the bot in a comment, by an allowed author starts a driven batch of one task; a reply to its questions continues it. chargehand polls GitHub as the GitHub App of driven.integrator, which also needs the Issues permission (read and write). Needs driven.enabled and driven.integrator.",
+          "properties": {
+            "repositories": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": { "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path"],
+                "properties": {
+                  "path": { "type": "string", "minLength": 1, "description": "The server's checkout of the repository (under repository_roots). A triggered batch starts from the commit its origin's default branch points at, after a fetch." }
+                }
+              },
+              "description": "Per owner/repo: the repositories watched. Opt-in: a repository not listed is never read."
+            },
+            "allowed_authors": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\\[bot\\])?$" }, "description": "GitHub logins whose label or comment starts a batch. Required, no default: an empty list means nothing triggers. For a label, the person who applied it must be on the list." },
+            "label": { "type": "string", "minLength": 1, "maxLength": 50, "pattern": "^[^,\\s][^,]*$", "description": "The label that triggers. Default chargehand." },
+            "mention": { "type": "string", "pattern": "^@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$", "description": "The mention that triggers in a comment. Default @chargehand." },
+            "poll_seconds": { "type": "integer", "minimum": 30, "maximum": 3600, "description": "How often the repositories are read. Default 120." },
+            "budget_class": { "enum": ["S", "M", "L"], "description": "The size class of a triggered task whose issue has no size:S, size:M or size:L label (exactly one). It sets the governor's budget (ADR 0045). Default M." },
+            "max_tokens_total": { "type": "integer", "minimum": 1, "description": "The token cap of one triggered batch. Default 2000000." },
+            "max_usd_total": { "type": "number", "exclusiveMinimum": 0, "description": "The dollar cap of one triggered batch, where the credential is priced. Default 5." },
+            "max_concurrent": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Triggered batches running at once. A trigger over it waits for a slot, with one comment. Default 2." },
+            "max_starts_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Triggered batches started in any 24 hours, answers included. A trigger over it is refused, with one comment. Default 10." }
           }
         }
       }
@@ -410,7 +457,26 @@
         },
         "api_key_secret": {
           "type": "string",
-          "description": "Secret-store item holding the API key every caller sends as a bearer token."
+          "description": "Secret-store item holding the API key every caller sends as a bearer token. It opens the implicit owner account: every run, no caps."
+        },
+        "accounts": {
+          "type": "array",
+          "description": "Accounts besides the owner (ADR 0050). Their keys come from `chargehand accounts add <name>`, stored as salted hashes in accounts.json beside the run log; a key of an account removed here opens nothing. An account lists, reads and cancels only its own runs; it never halts the server.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$", "not": { "const": "owner" }, "description": "Lowercase letters, digits and hyphens. Recorded as `actor` on the account's runs, results and events." },
+              "max_usd_per_day": { "type": "number", "exclusiveMinimum": 0, "description": "Dollars the account's runs may cost in a UTC day, by their results' usage. Counts priced runs only; a subscription run adds none, so pair it with a token cap." },
+              "max_usd_per_month": { "type": "number", "exclusiveMinimum": 0, "description": "The same over a UTC calendar month." },
+              "max_tokens_per_day": { "type": "integer", "minimum": 1, "description": "Input plus output tokens in a UTC day." },
+              "max_tokens_per_month": { "type": "integer", "minimum": 1, "description": "Input plus output tokens in a UTC calendar month." },
+              "max_concurrent_runs": { "type": "integer", "minimum": 1, "description": "Unfinished runs (queued or running) the account may have at once." },
+              "driven": { "type": "boolean", "default": false, "description": "Whether the account may start a batch (a request with a driven block). A batch pushes branches and opens pull requests with the server's credential." },
+              "repositories": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Absolute directories the account's context.repository.path may be, or be below. Absent: any repository the server allows." }
+            }
+          }
         }
       }
     },

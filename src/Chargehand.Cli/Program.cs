@@ -41,6 +41,8 @@ const string Usage = """
                                    (server: --url or CHARGEHAND_URL, key: CHARGEHAND_API_KEY, else the profile's http block)
       cancel <run-id> [--url <server>]
                                    asks the server to cancel a run
+      accounts add <account> [--label <text>] | list | revoke <key-id>
+                                   keys of the accounts in the profile's http.accounts; a new key is printed once (ADR 0050)
       show <run-id>                prints a run and its calls from the run log
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
       cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
@@ -148,7 +150,7 @@ if (argv is ["doctor", .. var doctorArgs])
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Onboarding.DoctorCli.RunAsync(doctorArgs, profilePath, new Chargehand.Onboarding.SystemDoctorEnvironment(), DrivenPresetAllow(), Console.Out, Console.Error, stop.Token);
 }
-if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions" or "runs"))
+if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions" or "runs" or "accounts"))
 {
     Console.Error.WriteLine(Usage);
     return 2;
@@ -183,6 +185,8 @@ switch (argv)
         return await Serve();
     case ["mcp"]:
         return await Mcp();
+    case ["accounts", .. var accountArgs]:
+        return AccountsCli.Run(accountArgs, profile, AccountsCli.KeysFile(runLogPath), Console.Out, Console.Error);
     case ["show", var id]:
         return await Show(id);
     case ["runs", "kill", "--all"]:
@@ -334,7 +338,10 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         driven.TaskSource is { } source ? new Chargehand.Mcp.McpTaskSource(source, mcpPool) : null,
         orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck, Host: hostSource,
         Integration: IntegrationHost(driven), ForgeFor: (remote, token) => new Chargehand.Driven.GitLabForge(
-            new HttpClient { BaseAddress = Chargehand.Driven.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token)), stateDirectory);
+            new HttpClient { BaseAddress = Chargehand.Driven.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token),
+        Planner: new Chargehand.Driven.ModelPlanner(async (request, runId, parentRunId, token) =>
+            // The planning run belongs to the account of the batch it plans (ADR 0050).
+            await orchestrator.RunAsync(request, token, runId, parentRunId: parentRunId, actor: (await runLog.ReadAsync(parentRunId, token)).Start?.Actor), driven.Planning?.Preset ?? "cheap")), stateDirectory);
 }
 
 // GitHub's API root: api.github.com, or the Enterprise host the profile's driven.forge names. The E2E switch exists for scripts/driven-e2e.sh only.
@@ -351,6 +358,17 @@ Chargehand.Driven.IIntegrationHost? IntegrationHost(Chargehand.Config.DrivenSett
         new Chargehand.Driven.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System));
 }
 
+// GitHub intake (ADR 0051): null unless the profile has automation.github. It reads and comments as the integrator's GitHub App; its state sits next to the run log.
+Chargehand.Automation.GitHubIntake? GitHubIntake()
+{
+    if (profile.Automation?.Github is not { } github || profile.Driven is not { Integrator: { AppId: { } appId, InstallationId: { } installationId, PrivateKeySecret: { } privateKeySecret } } driven)
+        return null;
+    var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
+    var tokens = new Chargehand.Driven.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System);
+    var state = Chargehand.Automation.IntakeState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"));
+    return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, integrator: new Chargehand.Driven.IntegratorPolicy(driven.Integrator));
+}
+
 async Task<int> Serve()
 {
     if (profile.Http is not { } http)
@@ -363,7 +381,7 @@ async Task<int> Serve()
     var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
-        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches")), orchestrator, runLog, DrivenRunFor(orchestrator));
+        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath)), orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp)");
     await app.WaitForShutdownAsync(ct);

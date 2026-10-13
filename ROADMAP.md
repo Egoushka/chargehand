@@ -64,8 +64,9 @@ maintainer's approval and a new session-image digest.
    nothing.
 8. ▶ **A question gets an answer** (ADR 0045): `tasks[].answers` and `continue_from` start a task from another task's
    kept work, on the same branch; a `question` run event; the output volume kept for 7 days. Needs: 1.
-9. · **Task dependencies, then planning**: `depends_on` with stacked branches or a merge between tasks; then a cheap
-   planning step that sizes tasks (S, M, L), splits large ones into a chain and assigns shared numbers. Needs: 3.
+9. ▶ **Task dependencies, then planning** (ADR 0049): `depends_on` with stacked branches or a merge between tasks; then
+   a cheap planning step (off by default) that sizes tasks (S, M, L), splits large ones into a chain and assigns shared
+   numbers. Needs: 3.
 10. ▶ **Shared services** (ADR 0048, in review): the environment note in the prompt, package caches per repository,
     declared test services on the batch network, and a JDK and Gradle image chosen by ecosystem are built and tested
     with fakes (the Postgres service, the cache volumes and the JDK image were also run on a local engine); the

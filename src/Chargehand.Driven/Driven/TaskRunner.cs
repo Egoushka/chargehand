@@ -65,20 +65,23 @@ public delegate string TaskTokenMinter(TaskGrant grant);
 /// <param name="Governor">The profile's <c>driven.governor</c> (ADR 0045); null: no governor in the sessions.</param>
 /// <param name="Integration">The profile's <c>driven.integrator</c> (ADR 0046): marks a finished task's pull request ready, merges it by policy and fixes failing CI; null: the draft is left alone.</param>
 /// <param name="Shared">The batch's cache volumes and test services and the repository facts for the session's environment note (ADR 0048); null: the note has the image's facts only.</param>
+/// <param name="Actor">The account that started the batch (ADR 0050); on the task's records and result.</param>
 public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, string Image, string SourcePath, string BaseCommit, string RemoteUrl, string BaseBranch,
     BatchNetworkInfo Network, string? McpUrl, DrivenPreset Preset, TaskLimits Limits, bool Priced, IReadOnlyDictionary<string, string> ModelEnvironment, PushCredential Push,
     string ScratchRoot, string Model, string ClaudeVersion, bool AllowLocalRemote = false, string? ModelBaseUrl = null, bool CallbackForwards = false, DrivenOtlpRoute? Otlp = null,
-    IReadOnlyDictionary<string, ModelPrice>? Prices = null, bool UsageOnSpans = false, string? GatewayKey = null, DrivenGovernor? Governor = null, Integrator? Integration = null, SharedServicesPlan? Shared = null);
+    IReadOnlyDictionary<string, ModelPrice>? Prices = null, bool UsageOnSpans = false, string? GatewayKey = null, DrivenGovernor? Governor = null, Integrator? Integration = null, SharedServicesPlan? Shared = null, string? Actor = null);
 
 /// <summary>Runs one task of a batch to its end (ADR 0039): a workspace at the pinned commit, a session container on the batch network, then the handover (chargehand's own
 /// verification, the scan, the push, a draft pull request) and the task's own <c>result/v1</c> in the run log. A cancel signals the session and ends the task; it never reaches
 /// the handover, so nothing is pushed. <paramref name="publish"/> gets the task's steps as events of the batch run: <c>container_started</c>, <c>session_progress</c> when the
 /// session's tally changes, and the handover's <c>verify_finished</c>, <c>pushed</c> and <c>pr_opened</c>. With a <paramref name="journal"/> the task's progress is saved, and a task it shows as begun is taken up where it
-/// stood after a server restart (ADR 0043). <paramref name="detaching"/> says the server is stopping rather than the run being cancelled: the session container is then left running for the next process.</summary>
+/// stood after a server restart (ADR 0043). <paramref name="detaching"/> says the server is stopping rather than the run being cancelled: the session container is then left running for the next process.
+/// A task with <see cref="ResolvedTask.Upstream"/> (ADR 0049) starts from the branches of the tasks it depends on: <paramref name="stacker"/> makes one branch of them, named for this task, and its bundle seeds
+/// the first session.</summary>
 public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspace, ISessionVolumes volumes, IBranchHandover handover, IRunLog log, TaskTokenMinter mint,
     TaskRunnerSettings settings, IEvidenceResolver resolver,
     Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? supportCheck, Func<ResultContract, ResultContract>? sign,
-    TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, BatchJournal? journal = null, Func<bool>? detaching = null) : ITaskRunner
+    TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, BatchJournal? journal = null, Func<bool>? detaching = null, IStackSeeder? stacker = null) : ITaskRunner
 {
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultUsagePoll = TimeSpan.FromSeconds(5);
@@ -133,6 +136,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         var goal = resumed?.SessionGoal ?? task.Goal;
         var startDetail = resumed?.StartDetail ?? (task.From is null ? "session container started" : "session container started (continues an earlier task's work)");
         string? startFailure = null;
+        var stack = StackOf(task);
+        var stackDirectory = Path.Combine(settings.ScratchRoot, $"{runId}-stack");
         var ended = false;
         // A child of the batch's span: the task's result carries the batch's trace id, so it resolves in Langfuse.
         using var span = Telemetry.Source.StartActivity(DrivenTelemetry.TaskSpan);
@@ -149,6 +154,13 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 var (bundle, handoff) = await KeptWorkAsync(from, ct);
                 seed = bundle;
                 goal = handoff is null ? goal : $"{goal}\n\nThe handoff the earlier session left:\n\n{Truncated(handoff, ProgressInGoal)}";
+            }
+            if (resumed is null && stack is not null)
+            {
+                // A branch that holds the work of every task this one depends on; a conflict between them fails the task before any container starts.
+                seed = await StackAsync(task, branch, outDirectory, stackDirectory, ct);
+                goal = $"{goal}\n\n{stack.GoalNote}";
+                startDetail = stack.StartDetail;
             }
             if (resumed is null)
                 journal?.Update(task.Id, e => e with
@@ -262,11 +274,11 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             var handoverRun = partial ? (best!.RunId, best.OutDirectory) : (runId, outDirectory);
             HandoverOutcome? handed = null;
             if (finished)
-                handed = await HandOverAsync(task, handoverRun, branch, Title(task.Goal), $"{DrivenReport.Parse(reportJson!)!.Summary}\n\nTask: {task.Id}{ContinuationNote(continuation)}", partial: false, ct);
+                handed = await HandOverAsync(task, handoverRun, branch, Title(task.Goal), $"{DrivenReport.Parse(reportJson!)!.Summary}\n\nTask: {task.Id}{ContinuationNote(continuation)}", partial: false, stack, ct);
             else if (partial)
             {
                 await RestoreBundleAsync(handoverRun.Item1, ct);
-                handed = await HandOverAsync(task, handoverRun, branch, $"[partial] {Title(task.Goal)}", PartialBody(task, session, total, continuation, startFailure, ReadProgress(outDirectory)), partial: true, ct);
+                handed = await HandOverAsync(task, handoverRun, branch, $"[partial] {Title(task.Goal)}", PartialBody(task, session, total, continuation, startFailure, ReadProgress(outDirectory)), partial: true, stack, ct);
             }
 
             var scratchClone = Path.Combine(settings.ScratchRoot, handoverRun.Item1);
@@ -274,13 +286,14 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             var result = await DrivenResult.BuildTaskAsync(new DrivenTaskInput(task.Id, runId, traceId, settings.Model, settings.ClaudeVersion, total, reportJson, handed, children,
                 Directory.Exists(scratchClone) ? scratchClone : settings.SourcePath, settings.BaseCommit, settings.Priced,
                 partial ? new KeptWork(branch, best!.RunId, best.Commits, settings.BaseCommit) : null), resolver, supportCheck, ct);
+            result = result with { Actor = settings.Actor };
             if (sign is not null)
                 result = sign(result);
-            await log.AppendAsync(new StartRecord(runId, started, traceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId, ProcessBoot.Id), CancellationToken.None);
-            await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, settings.Request.Context.Preset, null, null, result), CancellationToken.None);
+            await log.AppendAsync(new StartRecord(runId, started, traceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId, ProcessBoot.Id, settings.Actor), CancellationToken.None);
+            await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, settings.Request.Context.Preset, null, null, result, Actor: settings.Actor), CancellationToken.None);
             var startNote = startFailure is null ? null : $"; continuation {continuation + 1} did not start";
             (string? Detail, SessionOutcome? Spent) follow = (null, null);
-            if (FollowsUp(handed))
+            if (FollowsUp(handed, stack))
             {
                 // A restart during the follow-up keeps this outcome rather than handing the task over again; the pull request itself holds the count of fix attempts (ADR 0046).
                 journal?.Finish(Outcome(task, runId, result, total, handed, settings.Priced, partial, startNote));
@@ -305,6 +318,9 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         }
         finally
         {
+            DeleteQuietly(stackDirectory);
+            foreach (var up in task.Upstream ?? [])
+                DeleteQuietly(Path.Combine(settings.ScratchRoot, "out", up.RunId));
             // A server that is stopping leaves an unfinished task as it is: the next process takes it up (ADR 0043).
             if (ended || !Detaching)
             {
@@ -326,9 +342,10 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         }
     }
 
-    /// <summary>The task's pull request is on a repository the profile opted in to integration (ADR 0046).</summary>
-    private bool FollowsUp(HandoverOutcome? handed) =>
-        settings.Integration is { } integrator && handed?.PullRequest is not null && integrator.Remote(settings.RemoteUrl) is { } repository && integrator.Mode(repository) != IntegrationMode.Off;
+    /// <summary>The task's pull request is on a repository the profile opted in to integration (ADR 0046). A task that depends on others is left alone: merging its pull request by policy
+    /// would merge the work it was stacked on as well, before anyone has read that.</summary>
+    private bool FollowsUp(HandoverOutcome? handed, StackBase? stack) =>
+        stack is null && settings.Integration is { } integrator && handed?.PullRequest is not null && integrator.Remote(settings.RemoteUrl) is { } repository && integrator.Mode(repository) != IntegrationMode.Off;
 
     /// <summary>After the handover, on an opted-in repository: mark the draft ready and merge it by policy, then watch its required checks and, when some fail, run short fix sessions on the same branch
     /// seeded from the last bundle (<see cref="CiFixSession"/>). The pull request exists whatever happens here, so a GitHub error or a cancel ends in a line of detail, never in a failed task.</summary>
@@ -579,11 +596,54 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     private static string ContinuationNote(int continuation) =>
         continuation == 0 ? "" : string.Create(CultureInfo.InvariantCulture, $"\n\nThe task ran {continuation} continuation session(s) on this branch after earlier ones were stopped.");
 
-    private Task<HandoverOutcome> HandOverAsync(ResolvedTask task, (string RunId, string OutDirectory) run, string branch, string title, string body, bool partial, CancellationToken ct) =>
-        handover.RunAsync(new HandoverInput(run.RunId, run.OutDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, settings.BaseBranch,
-            title, body, settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
+    private Task<HandoverOutcome> HandOverAsync(ResolvedTask task, (string RunId, string OutDirectory) run, string branch, string title, string body, bool partial, StackBase? stack, CancellationToken ct) =>
+        handover.RunAsync(new HandoverInput(run.RunId, run.OutDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, stack?.PullRequestBase ?? settings.BaseBranch,
+            title, stack is null ? body : $"{body}\n\n{stack.Note}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
             Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
-            Goal: task.Goal, UpdateReused: !partial, PolicyNote: settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null), ct);
+            Goal: task.Goal, UpdateReused: !partial, PolicyNote: stack is null && settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null,
+            FallbackBaseBranch: stack?.PullRequestBase is null ? null : settings.BaseBranch), ct);
+
+    /// <summary>How a task that depends on others is based (ADR 0049). <paramref name="PullRequestBase"/> is the dependency's branch when there is exactly one, so the pull request shows only this task's
+    /// change; null: the default branch, because a pull request has one base and several branches were merged.</summary>
+    private sealed record StackBase(string? PullRequestBase, string Note, string GoalNote, string StartDetail);
+
+    private StackBase? StackOf(ResolvedTask task)
+    {
+        if (task.Upstream is not { Count: > 0 } upstream)
+            return null;
+        var names = string.Join(", ", upstream.Select(u => $"'{u.Id}'"));
+        var goalNote = $"The work of the {(upstream.Count == 1 ? "task" : "tasks")} this one depends on ({names}) is already on your branch, after the base commit. Read `git log` first and build on it; do not redo it.";
+        if (upstream.Count == 1)
+        {
+            var only = upstream[0];
+            return new StackBase(only.Branch,
+                $"Stacked on `{only.Branch}` (task '{only.Id}'{(only.PrUrl is null ? "" : $", {only.PrUrl}")}): this pull request is based on that branch, so it shows only this task's change. Merge that one first.",
+                goalNote, $"session container started (stacked on task '{only.Id}')");
+        }
+        return new StackBase(null,
+            $"Depends on tasks {names}: the branch starts from a merge of their branches ({string.Join(", ", upstream.Select(u => $"`{u.Branch}`"))}), so against `{settings.BaseBranch}` this pull request also shows their changes. "
+            + "Merge theirs first, or merge this one and close theirs.",
+            goalNote, $"session container started (starts from the merged branches of tasks {names})");
+    }
+
+    /// <summary>The seed bundle for a task that depends on others: each dependency's bundle is read back from its last session's output volume, then <see cref="IStackSeeder"/> makes one branch of them.</summary>
+    /// <exception cref="ChargehandException"><see cref="ErrorCode.MergeConflict"/> when the branches do not merge; <see cref="ErrorCode.SessionFailed"/> when a bundle is gone or git fails.</exception>
+    private async Task<string> StackAsync(ResolvedTask task, string branch, string outDirectory, string directory, CancellationToken ct)
+    {
+        List<StackInput> inputs = [];
+        foreach (var up in task.Upstream!)
+            inputs.Add(new StackInput(up.Id, up.Branch, await RestoreBundleAsync(up.RunId, ct) ?? throw new ChargehandException(ErrorCode.SessionFailed,
+                $"the work of task '{up.Id}', which this task depends on, is gone: its output volume is no longer there", "Send the tasks again, in one batch.")));
+        var bundle = Path.Combine(outDirectory, "stack.bundle");
+        var made = await (stacker ?? new GitStackSeeder()).BuildAsync(new StackRequest(branch, settings.SourcePath, settings.BaseCommit, settings.ScratchRoot, directory, bundle, inputs), ct);
+        if (made.Conflicts.Count > 0)
+            throw new ChargehandException(ErrorCode.MergeConflict,
+                $"the branches of the tasks it depends on conflict when merged: task '{made.ConflictWith}' conflicts in {string.Join(", ", made.Conflicts.Take(20))}{(made.Conflicts.Count > 20 ? $" and {made.Conflicts.Count - 20} more" : "")}",
+                "Make the tasks change different files, or order them with depends_on so one builds on the other, then send this task again.");
+        if (!made.Made)
+            throw new ChargehandException(ErrorCode.SessionFailed, $"could not start from the tasks it depends on: {made.Failure}", "Send the tasks again.");
+        return bundle;
+    }
 
     private static SessionOutcome Total(SessionOutcome? earlier, SessionOutcome last)
     {

@@ -9,7 +9,8 @@ namespace Chargehand.Driven;
 /// runs, so the caps bind before it ends). A task that ended on a usage or rate limit holds new starts until the limit lifts (its reset time, else a fixed backoff; a reset
 /// further off than <see cref="MaxPause"/> stops the batch instead); running tasks go on. An unavailable provider stops new starts and says how to switch to an
 /// API key; nothing switches by itself. With an <paramref name="admission"/>, a task also waits until the host has memory for its container (ADR 0045); a running task is
-/// never stopped for it. A halt (the token) cancels what runs and starts nothing more.</summary>
+/// never stopped for it. A task with <c>DependsOn</c> starts only once all of those ended <c>completed</c>, with their branches in <see cref="ResolvedTask.Upstream"/> (ADR 0049); one whose
+/// dependency failed, asked a question, was cancelled or was not started is <c>not_started</c> with that reason and holds no slot. A halt (the token) cancels what runs and starts nothing more.</summary>
 /// <param name="backoff">How long a limit that names no reset holds new starts; <see cref="UsageLimit.DefaultBackoff"/> when null.</param>
 /// <param name="admission">Shared by every batch of the server; null: tasks start by count and caps only.</param>
 /// <param name="taskMemoryMb">The memory limit of a task's container, which the host must have free.</param>
@@ -37,10 +38,15 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
 
     /// <param name="onFinished">Told each started task's final outcome as it ends, after the caps have had their say.</param>
     /// <param name="onHold">Told a task's id and why, when it first waits for the host and when it is let in against the rule.</param>
+    /// <param name="onSkipped">Told the outcome of a task that will not start because a task it depends on did not complete.</param>
     public async Task<BatchOutcome> RunAsync(IReadOnlyList<ResolvedTask> tasks, BatchLimits limits, CancellationToken ct, Action<TaskOutcome>? onFinished = null,
-        Action<string, string>? onHold = null)
+        Action<string, string>? onHold = null, Action<TaskOutcome>? onSkipped = null)
     {
         var outcomes = new TaskOutcome?[tasks.Count];
+        var started = new bool[tasks.Count];
+        var indexOf = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < tasks.Count; i++)
+            indexOf[tasks[i].Id] = i;
         var running = new Dictionary<int, Running>();
         var gate = new object();
         var changed = new SemaphoreSlim(0);
@@ -53,7 +59,6 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
         var pausedUntil = DateTimeOffset.MinValue;
         var limits429 = 0;
         var limitStop = false;
-        var next = 0;
         var admitAfter = DateTimeOffset.MinValue;
         string? holding = null;
 
@@ -75,6 +80,57 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
                 }
                 return true;
             }
+        }
+
+        IEnumerable<int> Dependencies(int i) => (tasks[i].DependsOn ?? []).Where(indexOf.ContainsKey).Select(d => indexOf[d]);
+
+        bool Pending(int i) => !started[i] && outcomes[i] is null;
+
+        // The first task, in order, that is not started and whose dependencies all completed; null: none is ready now.
+        int? NextReady()
+        {
+            for (var i = 0; i < tasks.Count; i++)
+                if (Pending(i) && Dependencies(i).All(d => outcomes[d]?.State == TaskState.Completed))
+                    return i;
+            return null;
+        }
+
+        // A task whose dependency ended any way but completed will never start; that spreads down the chain.
+        void SkipDependents()
+        {
+            bool again;
+            do
+            {
+                again = false;
+                for (var i = 0; i < tasks.Count; i++)
+                {
+                    if (!Pending(i))
+                        continue;
+                    var cause = Dependencies(i).Select(d => outcomes[d]).FirstOrDefault(o => o is { State: not TaskState.Completed });
+                    if (cause is null)
+                        continue;
+                    var how = cause.State switch
+                    {
+                        TaskState.Failed => "failed",
+                        TaskState.NeedsInput => "asked a question",
+                        TaskState.Cancelled => "was cancelled",
+                        _ => "was not started",
+                    };
+                    var skipped = new TaskOutcome(tasks[i].Id, TaskState.NotStarted, null, $"not started: the task it depends on, '{cause.Id}', {how}", cause.State == TaskState.Cancelled ? ErrorCode.Cancelled : null);
+                    outcomes[i] = skipped;
+                    onSkipped?.Invoke(skipped);
+                    again = true;
+                }
+            }
+            while (again);
+        }
+
+        ResolvedTask WithUpstream(int i)
+        {
+            if (tasks[i].DependsOn is not { Count: > 0 })
+                return tasks[i];
+            var upstream = Dependencies(i).Select(d => outcomes[d]!).Where(o => o.RunId is not null && o.Branch is not null).Select(o => new UpstreamWork(o.Id, o.RunId!, o.Branch!, o.PrUrl));
+            return tasks[i] with { Upstream = [.. upstream] };
         }
 
         void CheckTaskCap(Running r)
@@ -137,17 +193,17 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
         while (true)
         {
             // Start what fits, in order.
-            while (next < tasks.Count && notStartedReason is null && !ct.IsCancellationRequested && running.Count < limits.MaxParallel && DateTimeOffset.UtcNow >= pausedUntil && Fits())
+            while (notStartedReason is null && !ct.IsCancellationRequested && running.Count < limits.MaxParallel && DateTimeOffset.UtcNow >= pausedUntil && NextReady() is { } index && Fits())
             {
                 if (limits.Global is not null && !await limits.Global.WaitAsync(0, CancellationToken.None))
                     break;
-                if (admission is not null && !await Admitted(tasks[next].Id))
+                if (admission is not null && !await Admitted(tasks[index].Id))
                 {
                     limits.Global?.Release();
                     break;
                 }
-                var index = next++;
-                var task = tasks[index];
+                started[index] = true;
+                var task = WithUpstream(index);
                 var state = new Running(limits.PerTask, CancellationTokenSource.CreateLinkedTokenSource(ct));
                 lock (gate)
                     running[index] = state;
@@ -165,9 +221,14 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
 
             if (running.Count == 0)
             {
-                if (next < tasks.Count && notStartedReason is null && !ct.IsCancellationRequested)
+                if (Enumerable.Range(0, tasks.Count).Any(Pending) && notStartedReason is null && !ct.IsCancellationRequested)
                 {
-                    if (!Fits())
+                    if (NextReady() is null)
+                    {
+                        // Every dependency has ended and none is waiting to start, so what is left depends in a circle (a request is checked for that before it gets here).
+                        notStartedReason = "not started: the tasks it depends on can never complete";
+                    }
+                    else if (!Fits())
                     {
                         notStartedReason = "the batch's cap leaves no room for another task";
                         notStartedError = ErrorCode.CostCapReached;
@@ -236,6 +297,7 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
                     action = RateLimitedAction;
                 }
             }
+            SkipDependents();
         }
 
         var why = notStartedReason ?? (ct.IsCancellationRequested ? "not started: the batch was cancelled" : "not started");

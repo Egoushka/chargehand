@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Chargehand.Automation/Chargehand.Automation.csproj" />
     <Project Path="src/Chargehand.Cli/Chargehand.Cli.csproj" />
     <Project Path="src/Chargehand.ClaudeCode/Chargehand.ClaudeCode.csproj" />
     <Project Path="src/Chargehand.Contracts/Chargehand.Contracts.csproj" />

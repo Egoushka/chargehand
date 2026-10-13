@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace Chargehand.Contracts;
 
-/// <summary>result/v1: what a node returns, and what a run returns to its caller.</summary>
+/// <summary>result/v1: what a node returns, and what a run returns to its caller. <c>Actor</c> is the account that started the run (ADR 0050); null for a CLI run.</summary>
 public sealed record ResultContract(
     string ContractVersion,
     string TaskId,
@@ -18,7 +18,8 @@ public sealed record ResultContract(
     double Confidence,
     Usage Usage,
     ResultError? Error = null,
-    SignatureBlock? Signature = null);
+    SignatureBlock? Signature = null,
+    string? Actor = null);
 
 public enum ResultStatus { Completed, NeedsInput, Failed, Denied }
 
@@ -52,6 +53,7 @@ public enum ErrorCode
     PrFailed,
     Cancelled,
     TasksIncomplete,
+    MergeConflict,
 }
 
 /// <param name="Support">Whether the text the claim cites supports it, as a model judged (ADR 0036); null when no check ran.</param>
