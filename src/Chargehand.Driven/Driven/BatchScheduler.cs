@@ -44,8 +44,9 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
     /// <param name="onFinished">Told each started task's final outcome as it ends, after the caps have had their say.</param>
     /// <param name="onHold">Told a task's id and why, when it first waits for the host and when it is let in against the rule.</param>
     /// <param name="onSkipped">Told the outcome of a task that will not start because a task it depends on did not complete.</param>
+    /// <param name="onPause">Told a task's id and when the limit it hit lifts, when a usage or rate limit holds new starts.</param>
     public async Task<BatchOutcome> RunAsync(IReadOnlyList<ResolvedTask> tasks, BatchLimits limits, CancellationToken ct, Action<TaskOutcome>? onFinished = null,
-        Action<string, string>? onHold = null, Action<TaskOutcome>? onSkipped = null)
+        Action<string, string>? onHold = null, Action<TaskOutcome>? onSkipped = null, Action<string, DateTimeOffset>? onPause = null)
     {
         var outcomes = new TaskOutcome?[tasks.Count];
         var started = new bool[tasks.Count];
@@ -312,7 +313,10 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
                         action = RepeatedLimitAction;
                     }
                     else if (LimitLifts(outcome) is { } lifts)
+                    {
                         pausedUntil = lifts > pausedUntil ? lifts : pausedUntil;
+                        onPause?.Invoke(outcome.Id, pausedUntil);
+                    }
                     else
                     {
                         notStartedReason = "not started: the provider is rate limited until later than the batch will wait";

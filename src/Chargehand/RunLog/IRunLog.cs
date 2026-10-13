@@ -24,6 +24,9 @@ public interface IRunLog
 
     /// <summary>What <paramref name="actor"/>'s runs cost since <paramref name="since"/> (ADR 0050).</summary>
     Task<ActorSpend> SpendAsync(string actor, DateTimeOffset since, CancellationToken ct) => throw new NotSupportedException();
+
+    /// <summary>Every record, for the operator console's read routes (batches, inbox, analytics); a log that cannot list them says so with <see cref="NotSupportedException"/>.</summary>
+    Task<RunLogData> ReadAllAsync(CancellationToken ct) => throw new NotSupportedException();
 }
 
 /// <summary>An account's spend in a window: finished runs by their result's usage, unfinished ones by their calls so far. A task or call of a driven batch is not counted

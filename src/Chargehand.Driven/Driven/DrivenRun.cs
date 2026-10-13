@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -33,6 +34,9 @@ public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Wo
     TimeSpan? Poll = null, IHostSource? Host = null, IIntegrationHost? Integration = null, Func<RemoteRepository, string, IForge>? ForgeFor = null, IBatchPlanner? Planner = null, IStackSeeder? Stacker = null,
     IBatchRetro? Retro = null, IRetroSink? RetroSink = null, IBranchSeeder? Brancher = null, IReadOnlyList<RunnerSite>? Runners = null, TimeSpan? OutageGrace = null);
 
+/// <summary>A usage or rate limit that holds a batch's new starts: the task that hit it, when it was seen and when it lifts.</summary>
+public sealed record RateLimitPause(string BatchRunId, string TaskId, DateTimeOffset ObservedAt, DateTimeOffset ResetsAt);
+
 /// <summary>A request with a <c>driven</c> block, from start to the batch's result (ADR 0039): tasks resolved, the batch network up, tasks run under the batch's limits by
 /// <see cref="TaskRunner"/>, the network down, and one <c>result/v1</c> that lists the tasks. Every refusal (driven sessions off, no push credential, no image) is a failed
 /// result with a code, recorded like any run. How the model credential reaches a session, recorded on the batch result: a subscription token goes only to the batch's egress container,
@@ -57,7 +61,11 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     private readonly BatchStateStore? _store = stateDirectory is null ? null : new BatchStateStore(stateDirectory);
 
+    private readonly int _maxParallelTotal = Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4);
+
     private readonly SemaphoreSlim _global = new(Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4));
+
+    private readonly ConcurrentDictionary<string, RateLimitPause> _pauses = new();
 
     // With several runners (ADR 0058) the pool places each task; with one host, the memory rule of ADR 0045 alone.
     private readonly IAdmission? _admission = services?.Runners is { Count: > 0 } runners
@@ -75,6 +83,27 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     /// <summary>The runners a batch may use: those the services hold, else the one engine they hold as the runner named <see cref="DrivenSettings.DefaultRunnerName"/>.</summary>
     private static IReadOnlyList<RunnerSite> SitesOf(DrivenServices s) =>
         s.Runners is { Count: > 0 } runners ? runners : [new RunnerSite(new DrivenRunnerEntry(DrivenSettings.DefaultRunnerName, "", ""), s.Engine, s.Workspace, s.Volumes, s.Host)];
+
+    /// <summary>Whether driven sessions are set up on this server (the profile has them on and a container engine is connected).</summary>
+    public bool Enabled => services is not null;
+
+    /// <summary>The container engine (the runner, or Docker on this machine); null when driven sessions are off. The console reads its resource names and count and never changes anything through it.</summary>
+    public IContainerEngine? Engine => services?.Engine;
+
+    /// <summary>Where admission reads the host's free memory and load; null when driven sessions are off.</summary>
+    public IHostSource? Host => services?.Host;
+
+    /// <summary><c>driven.max_parallel_total</c>: tasks running at once across every batch.</summary>
+    public int MaxParallelTotal => _maxParallelTotal;
+
+    /// <summary>Tasks running now, across every batch of this process.</summary>
+    public int SessionsRunning => Math.Max(0, _maxParallelTotal - _global.CurrentCount);
+
+    /// <summary>The unfinished batches' saved state (ADR 0043): one entry per batch this process or its predecessor is running. It carries the batch's token key; a reader must not pass it on.</summary>
+    public IReadOnlyList<BatchState> LiveBatches() => _store?.List() ?? [];
+
+    /// <summary>Usage or rate limits that hold new starts now, one per batch.</summary>
+    public IReadOnlyList<RateLimitPause> RateLimitPauses(DateTimeOffset now) => [.. _pauses.Values.Where(p => p.ResetsAt > now).OrderBy(p => p.ResetsAt)];
 
     /// <param name="resume">The saved state of a batch a restart interrupted: the batch carries on from it under the same run id (ADR 0043).</param>
     /// <param name="actor">The account that started the batch (ADR 0050); a resumed batch keeps the one its state saved.</param>
@@ -132,6 +161,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             run?.SetStatus(ActivityStatusCode.Error, result.Error?.Message);
         await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, request.Context.Preset, null, null, result, Actor: actor), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
         _store?.Delete(runId);
+        _pauses.TryRemove(runId, out _);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
     }
@@ -372,7 +402,16 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 journal?.Finish(o);
                 progress?.Invoke(TaskFinished(runId, o));
             }, (id, why) => progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.SessionProgress) with { TaskId = id, Detail = $"task {id}: {why}" }),
-            o => progress?.Invoke(TaskFinished(runId, o)));
+            o => progress?.Invoke(TaskFinished(runId, o)),
+            (id, lifts) =>
+            {
+                _pauses[runId] = new RateLimitPause(runId, id, DateTimeOffset.UtcNow, lifts);
+                progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.SessionProgress) with
+                {
+                    TaskId = id,
+                    Detail = $"task {id}: the provider's usage or rate limit was hit; new starts are held until {lifts.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)}",
+                });
+            });
         }
         finally
         {

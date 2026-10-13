@@ -133,7 +133,7 @@ public class DrivenRunTests
         public Task RemoveAsync(string id, CancellationToken ct) { Record($"rm {id}"); return Task.CompletedTask; }
         public Task KillAllAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> OwnsAsync(string id, CancellationToken ct) => throw new NotSupportedException();
-        public Task<int> CountAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<int> CountAsync(CancellationToken ct) => OnList is null ? Task.FromResult(Resources.Containers.Count) : throw OnList;
         public Task<EngineResources> ListAsync(CancellationToken ct)
         {
             Record("list");
