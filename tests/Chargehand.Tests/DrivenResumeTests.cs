@@ -1,5 +1,6 @@
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 using Chargehand.Server;
@@ -125,6 +126,40 @@ public class DrivenResumeTests
         Assert.Equal(3, rig.Handover.Inputs.Count);
         Assert.DoesNotContain(rig.Handover.Inputs, i => i.Branch.Contains(lost, StringComparison.Ordinal));
         Assert.Contains($"volume-rm chargehand-work-{lost}", rig.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_batch_records_its_workspace_and_task_file_steps_and_forgets_them_when_its_run_record_is_written()
+    {
+        using var rig = new DrivenRunTests.Rig(durable: true);
+        var state = await StopMidBatch(rig);
+        var steps = state.Tasks.Take(2).SelectMany(t => new[] { StepKey.Prep(BatchId, t.RunId!), StepKey.Transfer(BatchId, t.RunId!, "task") }).ToList();
+
+        // The journal is a second connection to the server's file: a key that is already completed does not run, one that is not recorded does.
+        using (var journal = await DrivenJournal.OpenAsync(rig.StateDirectory))
+        {
+            Assert.Equal(0, await RunAll(journal, steps));
+            Assert.Empty(await journal.UnfinishedAsync());
+        }
+
+        rig.Engine.Release();
+        var result = await rig.Run.RunAsync(state.Request, state.RunId, Token, default, null, () => false, state);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        using (var journal = await DrivenJournal.OpenAsync(rig.StateDirectory))
+            Assert.Equal(steps.Count, await RunAll(journal, steps));
+    }
+
+    private static async Task<int> RunAll(DrivenJournal journal, IEnumerable<StepKey> keys)
+    {
+        var ran = 0;
+        foreach (var key in keys)
+            await journal.RunAsync(key, (_, _) =>
+            {
+                ran++;
+                return Task.CompletedTask;
+            });
+        return ran;
     }
 
     [Fact]
