@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A killed transfer no longer blocks every later read of a driven run's output. The helper that moves a file in or out of a session's output volume is named `chargehand-xfer-<run>`; a call cancelled between `docker create` and `docker start` (the server restarting while it polled sessions) left a created, never started container under that name, which `--rm` does not remove, and every later transfer for the run failed with a name conflict (`exit 125`, 503 from the runner) until the task gave up. Now a cancelled transfer removes the helper it may have made; a transfer that meets a stopped helper of its name removes it (`docker rm` without `-f`, so a running transfer of the same run is waited for, not killed) and runs again; the runner removes helpers that are not running when it starts; and a transfer that fails with docker's own error (`125`) is run again up to 4 times, 0.25 s longer apart each time, before the call fails. A missing file (`3`) and a failure after bytes were copied are not repeated. A task that already failed on this stays `failed` (a resumed batch returns its recorded outcome, and a task that kept no work cannot be continued); its output volume still holds the bundle until the next server start sweeps the volumes of finished batches.
+
 ## [0.9.1] - 2026-10-13
 
 More driven sessions fit on one host: admission asks for a session's measured working set (the p90 of past peaks) instead of its whole memory limit, with a memory-pressure guard, and the parallelism ceilings rise. Also the foundation of the new operator console at `/console/` and the profile half of several runners.

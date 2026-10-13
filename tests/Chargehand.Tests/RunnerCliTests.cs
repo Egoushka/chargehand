@@ -115,4 +115,24 @@ public class RunnerCliTests
         Assert.NotNull(RunnerCli.Parse(["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress, "--source-roots", "/srv/w", "--outside-networks", "n", "--forwards", "4300=h:4300"], key: "k", quiet));
         Assert.Equal("", quiet.ToString());
     }
+
+    [Fact]
+    public async Task At_start_the_runner_clears_helpers_a_killed_run_left_and_says_how_many()
+    {
+        using var dir = new TempDir();
+        var script = dir.Write("docker", "#!/bin/sh\ncase \"$1\" in ps) printf 'chargehand-xfer-run1\\nchargehand-xfer-run2\\n';; esac\n");
+        var error = new StringWriter();
+        await RunnerCli.ClearLeftoversAsync(new Chargehand.Containers.DockerCliEngine("/bin/sh", [script]), error, default);
+        Assert.Contains("2 leftover transfer containers", error.ToString());
+    }
+
+    [Fact]
+    public async Task An_engine_that_does_not_answer_at_start_is_a_note_and_not_a_reason_to_stay_down()
+    {
+        using var dir = new TempDir();
+        var script = dir.Write("docker", "#!/bin/sh\necho 'Cannot connect to the Docker daemon' >&2\nexit 1\n");
+        var error = new StringWriter();
+        await RunnerCli.ClearLeftoversAsync(new Chargehand.Containers.DockerCliEngine("/bin/sh", [script]), error, default);
+        Assert.Contains("Cannot connect", error.ToString());
+    }
 }
