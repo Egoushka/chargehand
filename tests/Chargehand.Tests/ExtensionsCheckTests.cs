@@ -1,6 +1,7 @@
 using Chargehand.Config;
 using Chargehand.Kernel;
 using Chargehand.Mcp;
+using Chargehand.Modules.Memory.Api;
 using static Chargehand.Tests.MemoryConfigTests;
 
 namespace Chargehand.Tests;

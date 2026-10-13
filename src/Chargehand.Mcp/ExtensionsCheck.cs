@@ -45,9 +45,9 @@ public static partial class ExtensionsCheck
                 report.Fail($"server {name}: {listings[name].Reason}", listings[name].Action!);
 
         var providers = profile.Memory ?? [];
-        foreach (var problem in MemoryMapping.Validate(providers, servers))
+        foreach (var problem in MemoryMapping.Validate(providers, servers.Keys))
             report.Fail(problem, "fix memory in the profile; docs/guide/reference.md lists the fields");
-        foreach (var provider in providers.Where(p => MemoryMapping.Validate(p, servers).Count == 0))
+        foreach (var provider in providers.Where(p => MemoryMapping.Validate(p, servers.Keys).Count == 0))
             await CheckMemoryAsync(provider, listings[provider.Server], probeQuery, timeout ?? DefaultTimeout, pool, report, ct);
 
         if (profile.PromptEnhancer is { } enhancer)
