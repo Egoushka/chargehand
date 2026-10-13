@@ -176,8 +176,11 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     private static string? IdAfter(string name, string prefix) => name.StartsWith(prefix, StringComparison.Ordinal) ? name[prefix.Length..] : null;
 
+    /// <summary>The batch id in <c>chargehand-svc-&lt;service&gt;-&lt;batch&gt;</c> (ADR 0048); a service name has no hyphen, so the first one after it ends the name.</summary>
+    private static string? ServiceBatch(string name) => IdAfter(name, "chargehand-svc-") is { } rest && rest.IndexOf('-') is > 0 and var dash ? rest[(dash + 1)..] : null;
+
     private static string? ContainerRunId(string name) =>
-        IdAfter(name, "chargehand-egress-") ?? IdAfter(name, "chargehand-prep-") ?? IdAfter(name, "chargehand-xfer-") ?? IdAfter(name, "chargehand-");
+        IdAfter(name, "chargehand-egress-") ?? ServiceBatch(name) ?? IdAfter(name, "chargehand-prep-") ?? IdAfter(name, "chargehand-xfer-") ?? IdAfter(name, "chargehand-");
 
     private async Task<ResultContract> RunBatchAsync(RunRequest request, string runId, DateTimeOffset started, string traceId, TaskTokenMinter mint, Func<ResultContract, ResultContract>? sign,
         Action<RunStatus>? progress, Activity? span, BatchState? resume, Func<bool> detaching, Func<bool> cancelledByCaller, CancellationToken ct)
@@ -235,6 +238,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         if (otlp is not null)
             forwards.Add(otlp.Forward);
         IReadOnlyList<string> allow = [.. (drivenPreset.Allow ?? []).Concat(settings.Network?.Allow ?? []).Concat(model?.AllowHost is { } host ? new[] { host } : []).Distinct()];
+        // ADR 0048: the repository's session image, cache volumes and test services. With no driven.services key the plan is only the facts for the environment note.
+        var identity = SharedServicesPlan.Identity(checkout.RemoteUrl, request.Context.Repository!.Path);
+        var shared = SharedServicesPlan.For(settings.Services, checkout.Directory, request.Context.Verify, identity, runId, BatchNetwork.NetworkName(runId));
+        var sessionImage = SharedServicesPlan.PickImage(settings.Services, shared.Ecosystems, image);
         var batchNetwork = new BatchNetwork(s.Engine);
         var net = resume is null
             ? await batchNetwork.CreateAsync(runId, image, allow, ct, settings.Network?.Outside ?? BatchNetwork.DefaultOutside, forwards.Count == 0 ? null : forwards, exchange)
@@ -242,14 +249,18 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         BatchOutcome ran;
         try
         {
-            var verifierSettings = new ContainerVerifierSettings(image, checkout.Directory, checkout.Commit, net.Network, net.ProxyUrl(runId), drivenPreset.MemoryMb, drivenPreset.Cpus, drivenPreset.Pids);
+            if (resume is null)
+                await new BatchServices(s.Engine).StartAsync(shared.Services, ct);
+            else
+                await new BatchServices(s.Engine).EnsureAsync(shared.Services, ct);
+            var verifierSettings = new ContainerVerifierSettings(sessionImage, checkout.Directory, checkout.Commit, net.Network, net.ProxyUrl(runId), drivenPreset.MemoryMb, drivenPreset.Cpus, drivenPreset.Pids, shared);
             var handover = s.HandoverFor?.Invoke(verifierSettings, push)
                 ?? new Handover(new ContainerVerifier(s.Engine, s.Workspace, verifierSettings), s.PullRequestsFor(push));
-            var task = new TaskRunnerSettings(runId, request, image, checkout.Directory, checkout.Commit, checkout.RemoteUrl, checkout.BaseBranch, net,
+            var task = new TaskRunnerSettings(runId, request, sessionImage, checkout.Directory, checkout.Commit, checkout.RemoteUrl, checkout.BaseBranch, net,
                 forward is null ? null : $"{BatchNetworkInfo.ServiceUrl(port)}/v1/mcp", drivenPreset, limits.PerTask, priced, modelEnvironment, push,
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true || otlp is not null, otlp,
-                profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator);
+                profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared);
             var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress, journal: journal, detaching: detaching);
             ran = await new BatchScheduler(runner, admission: _admission, taskMemoryMb: drivenPreset.MemoryMb).RunAsync(ready, limits, ct, o =>
             {
@@ -262,7 +273,11 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         finally
         {
             if (!detaching())
+            {
+                // A network with a container still attached cannot be removed: the services go first.
+                await new BatchServices(s.Engine).RemoveAsync(shared.Services, CancellationToken.None);
                 await new BatchNetwork(s.Engine).RemoveAsync(net, CancellationToken.None);
+            }
         }
 
         // In request order: tasks that did not resolve were never started.

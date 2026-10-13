@@ -38,6 +38,24 @@ public class DockerEngineTests
     }
 
     [Fact]
+    public async Task A_service_starts_through_its_template_and_its_environment_reaches_docker_in_an_env_file_only()
+    {
+        using var dir = new TempDir();
+        var (docker, log) = FakeDocker(dir, "echo svc123");
+        var spec = new ServiceSpec("b1", "postgres", $"docker.io/library/postgres@sha256:{Digest}", "chargehand-net-b1", 5432, new Dictionary<string, string> { ["POSTGRES_PASSWORD"] = "canary-db-password" }, ["/var/lib/postgresql/data"]);
+        Assert.Equal("svc123", await Engine(docker).StartServiceAsync(spec, default));
+        var call = File.ReadAllLines(log).Single();
+        Assert.StartsWith("run --detach --init --name chargehand-svc-postgres-b1", call);
+        Assert.DoesNotContain("canary-db-password", call);
+        Assert.Contains("POSTGRES_PASSWORD=canary-db-password", File.ReadAllText(log + ".env"));
+
+        var (failing, _) = FakeDocker(dir, "echo 'pull access denied canary-db-password' >&2; exit 125");
+        var e = await Assert.ThrowsAsync<ChargehandException>(() => Engine(failing).StartServiceAsync(spec, default));
+        Assert.Equal(ErrorCode.ContainerUnavailable, e.Code);
+        Assert.DoesNotContain("canary-db-password", e.Message);
+    }
+
+    [Fact]
     public async Task A_failing_start_is_container_unavailable_with_an_action_and_no_secret()
     {
         using var dir = new TempDir();

@@ -5,8 +5,12 @@ namespace Chargehand.Runner;
 
 /// <summary>The runner's request bodies. Each is exactly the fields the runner acts on; a body with any other field is refused, so a caller
 /// cannot ask for a flag, a mount, a capability or a user by adding one.</summary>
+/// <param name="Caches">Package cache volumes (ADR 0048); left out of the body when there are none, so a runner older than this field still accepts the call.</param>
 public sealed record RunnerStart(string RunId, string Image, string WorkVolume, string OutVolume, string Network,
-    Dictionary<string, string> Env, int MemoryMb, double Cpus, int Pids, List<string> Command);
+    Dictionary<string, string> Env, int MemoryMb, double Cpus, int Pids, List<string> Command, List<string>? Caches = null);
+
+/// <summary>A test service of a batch (ADR 0048); the runner builds the command line from <see cref="Chargehand.Containers.ContainerTemplate.ServiceArgs"/>.</summary>
+public sealed record RunnerService(string BatchId, string Name, string Image, string Network, int Port, Dictionary<string, string> Env, List<string> Tmpfs, int MemoryMb);
 
 public sealed record RunnerSignal(string Id, string Signal);
 

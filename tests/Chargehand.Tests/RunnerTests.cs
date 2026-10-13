@@ -16,8 +16,11 @@ public class RunnerTests
     private const string EgressImage = "registry.example/chargehand@sha256:2222222222222222222222222222222222222222222222222222222222222222";
     private const string Key = "runner-key-for-tests";
 
-    private sealed class FakeEngine : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine
+    private sealed class FakeEngine : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine, IServiceEngine
     {
+        public ServiceSpec? Service { get; private set; }
+        public Task<string> StartServiceAsync(ServiceSpec spec, CancellationToken ct) { Service = spec; Calls.Add("service"); return Task.FromResult("ours1"); }
+
         public List<string> Calls { get; } = [];
         public HashSet<string> Owned { get; } = ["ours1"];
         public int Count { get; set; }
@@ -68,10 +71,11 @@ public class RunnerTests
         }
     }
 
-    private static async Task<Runner> Start(int maxContainers = 8, IReadOnlyList<string>? hosts = null)
+    private static async Task<Runner> Start(int maxContainers = 8, IReadOnlyList<string>? hosts = null, IReadOnlyList<string>? serviceImages = null)
     {
         var engine = new FakeEngine();
-        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage, maxContainers, SourceRoots: ["/srv/checkouts"], OutsideNetworks: ["stack_net"], Forwards: ["4300=chargehand:4300"]), AllowedHosts: hosts), engine);
+        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage, maxContainers, SourceRoots: ["/srv/checkouts"], OutsideNetworks: ["stack_net"], Forwards: ["4300=chargehand:4300"],
+            ServiceImages: serviceImages), AllowedHosts: hosts), engine);
         await app.StartAsync();
         return new Runner(engine, app);
     }
@@ -434,5 +438,71 @@ public class RunnerTests
         request.Headers.Host = "evil.example";
         Assert.Equal(HttpStatusCode.BadRequest, (await r.Http.SendAsync(request)).StatusCode);
         Assert.Empty(r.Engine.Calls);
+    }
+
+    private const string ServiceImage = "docker.io/library/postgres@sha256:4444444444444444444444444444444444444444444444444444444444444444";
+
+    private static string ServiceBody(string image = ServiceImage, string network = "chargehand-net-b1", int memory = 512, string extra = "") =>
+        $$"""{"batch_id":"b1","name":"postgres","image":"{{image}}","network":"{{network}}","port":5432,"env":{"POSTGRES_PASSWORD":"test"},"tmpfs":["/var/lib/postgresql/data"],"memory_mb":{{memory}}{{extra}}}""";
+
+    [Fact]
+    public async Task A_session_start_may_carry_cache_volumes_named_for_a_cache_and_no_other_volume()
+    {
+        await using var r = await Start();
+        var nuget = CacheVolumes.Name("nuget", "o/r");
+        Assert.Equal(HttpStatusCode.OK, (await r.Http.PostAsync("/start", Json(StartBody($",\"caches\":[\"{nuget}\"]")))).StatusCode);
+        Assert.Equal([nuget], r.Engine.Started!.Caches);
+        foreach (var volume in new[] { "chargehand-work-other", "/etc", "chargehand-cache-ruby-0123456789ab" })
+            Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/start", Json(StartBody($",\"caches\":[\"{volume}\"]")))).StatusCode);
+        Assert.Equal(["start"], r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_service_starts_from_an_image_the_runner_lists_on_a_batch_network_under_its_ceilings()
+    {
+        await using var r = await Start(serviceImages: [ServiceImage]);
+        Assert.Equal(HttpStatusCode.OK, (await r.Http.PostAsync("/service", Json(ServiceBody()))).StatusCode);
+        Assert.Equal(("postgres", "b1", 5432), (r.Engine.Service!.Name, r.Engine.Service.BatchId, r.Engine.Service.Port));
+        Assert.Equal("test", r.Engine.Service.Env["POSTGRES_PASSWORD"]);
+        Assert.Equal(["/var/lib/postgresql/data"], r.Engine.Service.Tmpfs);
+
+        var other = "docker.io/library/redis@sha256:5555555555555555555555555555555555555555555555555555555555555555";
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/service", Json(ServiceBody(image: other)))).StatusCode);   // not listed
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/service", Json(ServiceBody(network: "host")))).StatusCode); // not a batch network
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/service", Json(ServiceBody(memory: 65536)))).StatusCode);   // over the ceiling
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/start", Json(StartBody(image: ServiceImage)))).StatusCode); // a service image is not a session image
+        foreach (var extra in new[] { ",\"privileged\":true", ",\"mounts\":[\"/:/host\"]", ",\"user\":\"0:0\"" })
+            Assert.Equal(HttpStatusCode.BadRequest, (await r.Http.PostAsync("/service", Json(ServiceBody(extra: extra)))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await r.Http.PostAsync("/service", Json(ServiceBody().Replace("/var/lib/postgresql/data", "/var/../etc")))).StatusCode);
+        Assert.Equal(["service"], r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_runner_with_no_service_images_starts_no_service_and_the_service_counts_against_the_container_limit()
+    {
+        await using var none = await Start();
+        Assert.Equal(HttpStatusCode.Forbidden, (await none.Http.PostAsync("/service", Json(ServiceBody()))).StatusCode);
+        await using var full = await Start(maxContainers: 2, serviceImages: [ServiceImage]);
+        full.Engine.Count = 2;
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await full.Http.PostAsync("/service", Json(ServiceBody()))).StatusCode);
+        Assert.Empty(full.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task The_client_starts_a_service_and_a_session_with_caches_through_the_runner_and_leaves_the_caches_out_when_there_are_none()
+    {
+        await using var r = await Start(serviceImages: [ServiceImage]);
+        var client = new RunnerClient(r.Http);
+        Assert.Equal("ours1", await client.StartServiceAsync(new ServiceSpec("b1", "postgres", ServiceImage, "chargehand-net-b1", 5432, new Dictionary<string, string> { ["POSTGRES_PASSWORD"] = "test" }, ["/var/lib/postgresql/data"], 256), default));
+        Assert.Equal(256, r.Engine.Service!.MemoryMb);
+
+        var nuget = CacheVolumes.Name("nuget", "o/r");
+        var spec = new ContainerSpec("run1", Image, "chargehand-work-run1", "chargehand-out-run1", "chargehand-net-b1", new Dictionary<string, string>(), 1024, 1, 64, ["session"], Caches: [nuget]);
+        await client.StartAsync(spec, default);
+        Assert.Equal([nuget], r.Engine.Started!.Caches);
+        await client.StartAsync(spec with { Caches = null }, default);
+        Assert.Null(r.Engine.Started!.Caches);
+        // A runner built before the field refuses a body that has it, so a body with no caches must not name the field at all.
+        Assert.DoesNotContain("caches", System.Text.Json.JsonSerializer.Serialize(new RunnerStart("run1", Image, "w", "o", "n", [], 1024, 1, 64, ["session"]), RunnerJson.Options));
     }
 }

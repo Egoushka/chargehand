@@ -8,14 +8,18 @@ namespace Chargehand.Runner;
 
 /// <summary>An <see cref="IContainerEngine"/> over the runner's HTTP API (ADR 0039), for a server that must not hold the container engine's
 /// socket. The <see cref="HttpClient"/> carries the base address and the bearer key.</summary>
-public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine, IHostSource
+public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine, IServiceEngine, IHostSource
 {
     public async Task<string> StartAsync(ContainerSpec spec, CancellationToken ct)
     {
         var body = new RunnerStart(spec.RunId, spec.ImageDigest, spec.WorkVolume, spec.OutVolume, spec.Network, new Dictionary<string, string>(spec.Env),
-            spec.MemoryMb, spec.Cpus, spec.Pids, [.. spec.Command]);
+            spec.MemoryMb, spec.Cpus, spec.Pids, [.. spec.Command], spec.Caches is { Count: > 0 } caches ? [.. caches] : null);
         return (await Send<IdReply>(HttpMethod.Post, "/start", body, ct)).Id;
     }
+
+    public async Task<string> StartServiceAsync(ServiceSpec spec, CancellationToken ct) =>
+        (await Send<IdReply>(HttpMethod.Post, "/service", new RunnerService(spec.BatchId, spec.Name, spec.Image, spec.Network, spec.Port, new Dictionary<string, string>(spec.Env),
+            [.. spec.Tmpfs], spec.MemoryMb), ct)).Id;
 
     public Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct) =>
         Send(HttpMethod.Post, "/workspace", new RunnerWorkspace(spec.RunId, spec.Image, spec.SourcePath, spec.WorkVolume, spec.Branch, spec.Commit), ct);

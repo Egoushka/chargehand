@@ -12,6 +12,8 @@ from a fixed template (non-root, read-only root filesystem, no capabilities, no 
 | Claude Code | `CLAUDE_CODE_VERSION`, which must equal `claude_code.version` in the profile |
 | chargehand | this checkout's published CLI at `/opt/chargehand`, and the plugin at `/opt/chargehand-plugin` |
 
+It also holds `/opt/chargehand/environment.json`, the versions of the tools above and the names of those it lacks, written at build time by `chargehand session --probe`: a session reads it in its environment note instead of probing ([ADR 0048](../../docs/adr/0048-shared-services-for-driven-sessions.md)). `/cache/<ecosystem>` are the mount points of the shared package caches.
+
 It holds no Docker client, no cloud CLI and no credential. The model credential, the proxy and the run token arrive as environment variables from
 the runner's env file, and the goal as `/out/task.json`.
 

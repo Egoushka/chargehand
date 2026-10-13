@@ -66,9 +66,12 @@ maintainer's approval and a new session-image digest.
    kept work, on the same branch; a `question` run event; the output volume kept for 7 days. Needs: 1.
 9. · **Task dependencies, then planning**: `depends_on` with stacked branches or a merge between tasks; then a cheap
    planning step that sizes tasks (S, M, L), splits large ones into a chain and assigns shared numbers. Needs: 3.
-10. · **Shared services**: first an environment note in the prompt (what the container has, how to run the tests);
-    then a build and test service with warm caches, JDK and Gradle verification, and a code-index mount scoped to the
-    base commit. Needs: 6, and a runner ADR. **Maintainer** approves the server change.
+10. ▶ **Shared services** (ADR 0048, in review): the environment note in the prompt, package caches per repository,
+    declared test services on the batch network, and a JDK and Gradle image chosen by ecosystem are built and tested
+    with fakes (the Postgres service, the cache volumes and the JDK image were also run on a local engine); the
+    code index pinned to the base commit is decided and not built, and the Android SDK is not in the image. Needs: 6,
+    and a runner ADR. **Maintainer** approves the server change and makes it: a runner and server from this release,
+    the new image digests, `--service-images`, the `driven.services` profile keys.
 11. ▶ **Integrator and CI fixer** (ADR 0046, in review; built and tested against a fake GitHub host, not yet run against GitHub) behind a GitHub App credential: update the branch, merge by policy through required
     checks and `--auto`, and a short session that fixes a small CI failure (at most 3 attempts, one per failing-job
     set). Supersedes ADR 0039 decision 2 and ADR 0015 for repositories that opt in; a repository the maintainer lists

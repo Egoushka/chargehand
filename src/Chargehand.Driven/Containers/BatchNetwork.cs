@@ -21,6 +21,9 @@ public sealed record BatchNetworkInfo(string Network, string EgressContainer, st
 /// and nothing else, even if it ignores its proxy variables.</summary>
 public sealed class BatchNetwork(IContainerEngine engine)
 {
+    /// <summary>The name of a batch's internal network, known before it exists (the batch's test services are described against it).</summary>
+    public static string NetworkName(string batchId) => $"chargehand-net-{batchId}";
+
     /// <summary>Docker's default outside network.</summary>
     public const string DefaultOutside = "bridge";
 
@@ -38,7 +41,7 @@ public sealed class BatchNetwork(IContainerEngine engine)
     {
         var egress = $"chargehand-egress-{batchId}";
         if ((await engine.InspectAsync(egress, ct)).Status == ContainerStatus.Running)
-            return new BatchNetworkInfo($"chargehand-net-{batchId}", egress, egress, new EgressSpec(batchId, egressImage, "", allow).Port, gateway?.Port ?? 0);
+            return new BatchNetworkInfo(NetworkName(batchId), egress, egress, new EgressSpec(batchId, egressImage, "", allow).Port, gateway?.Port ?? 0);
         await engine.RemoveAsync(egress, ct);
         return await BuildAsync(batchId, egressImage, allow, outsideNetwork, forwards, gateway, resume: true, ct);
     }
@@ -46,7 +49,7 @@ public sealed class BatchNetwork(IContainerEngine engine)
     private async Task<BatchNetworkInfo> BuildAsync(string batchId, string egressImage, IReadOnlyList<string> allow, string outsideNetwork,
         IReadOnlyList<string>? forwards, ModelGatewaySpec? gateway, bool resume, CancellationToken ct)
     {
-        var network = $"chargehand-net-{batchId}";
+        var network = NetworkName(batchId);
         var spec = new EgressSpec(batchId, egressImage, network, allow, Forwards: forwards, Gateway: gateway);
         _ = ContainerTemplate.EgressArgs(spec, "env-file-placeholder"); // validates every value before anything is created
         var info = new BatchNetworkInfo(network, "", $"chargehand-egress-{batchId}", spec.Port, gateway?.Port ?? 0);

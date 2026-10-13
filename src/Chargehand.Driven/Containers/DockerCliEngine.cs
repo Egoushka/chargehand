@@ -7,7 +7,7 @@ namespace Chargehand.Containers;
 /// <summary>An <see cref="IContainerEngine"/> that calls the <c>docker</c> CLI (ADR 0039). Arguments go through
 /// <see cref="ProcessStartInfo.ArgumentList"/>, never a shell string; every name is checked before it reaches docker. <paramref name="leadingArgs"/>
 /// go before every call (a test runs a fake docker script as <c>sh script</c>, which avoids a busy-executable race on Linux).</summary>
-public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null) : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine
+public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null) : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine, IServiceEngine
 {
     private const int OutputCap = 64 * 1024;
 
@@ -19,6 +19,16 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
         var result = await RunWithEnvFileAsync(ContainerTemplate.EnvFileLines(spec.Env), envFile => ContainerTemplate.RunArgs(spec, envFile), ct);
         if (result.ExitCode != 0)
             throw Unavailable("docker run failed", result, spec.Env);
+        return result.Stdout.Trim();
+    }
+
+    public async Task<string> StartServiceAsync(ServiceSpec spec, CancellationToken ct)
+    {
+        var result = spec.Env.Count == 0
+            ? await RunAsync(ContainerTemplate.ServiceArgs(spec, null), ct)
+            : await RunWithEnvFileAsync(ContainerTemplate.ServiceEnvLines(spec.Env), envFile => ContainerTemplate.ServiceArgs(spec, envFile), ct);
+        if (result.ExitCode != 0)
+            throw Unavailable($"docker run of the service '{spec.Name}' failed", result, spec.Env);
         return result.Stdout.Trim();
     }
 

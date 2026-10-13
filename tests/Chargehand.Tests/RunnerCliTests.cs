@@ -23,6 +23,18 @@ public class RunnerCliTests
         Assert.Equal(["4300=chargehand:4300"], settings.Policy.Forwards);
     }
 
+    [Fact]
+    public void Service_images_are_listed_by_digest_and_a_tag_is_refused()
+    {
+        var service = "docker.io/library/postgres@sha256:4444444444444444444444444444444444444444444444444444444444444444";
+        var settings = RunnerCli.Parse(["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress, "--service-images", service], key: "k", TextWriter.Null);
+        Assert.Equal([service], settings!.Policy.ServiceImages);
+        Assert.Empty(RunnerCli.Parse(["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress], key: "k", TextWriter.Null)!.Policy.ServiceImages!);
+        var error = new StringWriter();
+        Assert.Null(RunnerCli.Parse(["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress, "--service-images", "postgres:16"], key: "k", error));
+        Assert.Contains("--service-images: 'postgres:16'", error.ToString());
+    }
+
     [Theory]
     [InlineData("--listen", "127.0.0.1:4310", "--egress-image", Egress)]                                   // no images
     [InlineData("--listen", "127.0.0.1:4310", "--images", Image)]                                          // no egress image

@@ -9,6 +9,7 @@ namespace Chargehand.Containers;
 /// <param name="Network">The name of the per-batch internal network; the container is attached to nothing else.</param>
 /// <param name="Env">Names from <see cref="ContainerTemplate.AllowedEnv"/> only; values go through an env file, never the command line.</param>
 /// <param name="Command">Arguments after the image; a word that looks like a flag stays the command's, not docker's.</param>
+/// <param name="Caches">Package cache volumes by name (<see cref="CacheVolumes.Name"/>), each mounted read-write at <c>/cache/&lt;ecosystem&gt;</c> (ADR 0048); null: none.</param>
 public sealed record ContainerSpec(
     string RunId,
     string ImageDigest,
@@ -20,7 +21,25 @@ public sealed record ContainerSpec(
     double Cpus,
     int Pids,
     IReadOnlyList<string> Command,
-    string User = "10001:10001");
+    string User = "10001:10001",
+    IReadOnlyList<string>? Caches = null);
+
+/// <summary>A test service of a batch (ADR 0048): a pinned third-party image on the batch's internal network, with no route out, removed with the batch.</summary>
+/// <param name="Name">The host name on the batch network (an alias), lowercase letters and digits.</param>
+/// <param name="Env">The service's own environment; values go through an env file.</param>
+/// <param name="Tmpfs">Memory-backed directories of the image (a database's data directory).</param>
+public sealed record ServiceSpec(string BatchId, string Name, string Image, string Network, int Port, IReadOnlyDictionary<string, string> Env, IReadOnlyList<string> Tmpfs, int MemoryMb = 512)
+{
+    /// <summary>The container's name; the service name has no hyphen, so the batch id can be read back from it (the sweep for leftovers does).</summary>
+    public string ContainerName => $"chargehand-svc-{Name}-{BatchId}";
+}
+
+/// <summary>Starts a batch's test services. The Docker CLI and the runner implement it; an engine without it cannot run a batch whose repository declares services.</summary>
+public interface IServiceEngine
+{
+    /// <returns>The container id.</returns>
+    Task<string> StartServiceAsync(ServiceSpec spec, CancellationToken ct);
+}
 
 /// <summary>The egress proxy's container (ADR 0039): the server image started with its <c>egress</c> verb, one per batch.</summary>
 /// <param name="Allow">Host patterns for <see cref="Chargehand.Egress.AllowlistMatcher"/>.</param>

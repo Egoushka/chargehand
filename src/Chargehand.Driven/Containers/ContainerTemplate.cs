@@ -22,7 +22,12 @@ public static partial class ContainerTemplate
         "CHARGEHAND_MCP_URL", "CHARGEHAND_RUN_TOKEN", "CHARGEHAND_RUN_ID", "CHARGEHAND_BRANCH", "CHARGEHAND_DRIVEN",
         "CHARGEHAND_REPOSITORY_PATH", "CHARGEHAND_BASE_COMMIT",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_AUTOUPDATER", "DISABLE_TELEMETRY",
+        // ADR 0048: where the package managers keep their cache (each only with its fixed value, see EnvFileLines) and the test services of the batch.
+        "NUGET_PACKAGES", "npm_config_cache", "PIP_CACHE_DIR", "GRADLE_USER_HOME", "MAVEN_OPTS", ServicesVariable,
     };
+
+    /// <summary>The test services a session may use, <c>name=name:port</c> separated by commas (ADR 0048).</summary>
+    public const string ServicesVariable = "CHARGEHAND_SERVICES";
 
     /// <summary>The arguments after <c>docker</c>. Environment values are not among them: <paramref name="envFile"/> holds them
     /// (<see cref="EnvFileLines"/>), so they never show in a process listing.</summary>
@@ -44,6 +49,9 @@ public static partial class ContainerTemplate
             throw new ArgumentException("command must be non-empty words with no NUL", nameof(spec));
         if (string.IsNullOrWhiteSpace(envFile) || envFile.StartsWith('-'))
             throw new ArgumentException("env file must be a path", nameof(envFile));
+        var caches = spec.Caches ?? [];
+        if (caches.Any(c => CacheVolumes.EcosystemOf(c) is null) || caches.Select(CacheVolumes.EcosystemOf).Distinct().Count() != caches.Count)
+            throw new ArgumentException("caches must be cache volumes (chargehand-cache-<ecosystem>-<12 hex>), one per ecosystem", nameof(spec));
 
         List<string> args =
         [
@@ -63,12 +71,68 @@ public static partial class ContainerTemplate
             "--network", spec.Network,
             "-v", $"{spec.WorkVolume}:/work",
             "-v", $"{spec.OutVolume}:/out",
+            .. caches.SelectMany(c => new[] { "-v", $"{c}:{CacheVolumes.MountRoot}/{CacheVolumes.EcosystemOf(c)}" }),
             "--workdir", "/work",
             "--env-file", envFile,
             spec.ImageDigest,
             .. spec.Command,
         ];
         return args;
+    }
+
+    /// <summary>The capabilities a database image's entrypoint needs to start as root, fix the ownership of its data directory and drop to its own user; nothing else is kept.</summary>
+    private static readonly string[] ServiceCapabilities = ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"];
+
+    /// <summary>The arguments after <c>docker</c> for a test service (ADR 0048): a pinned image, detached, on the batch's internal network only and reachable there by its name, with
+    /// no capability beyond <see cref="ServiceCapabilities"/>, no mount, limits, and a memory-backed <c>/tmp</c> and data directory. The service is a third party's image, so its
+    /// root filesystem is not read-only: a database writes to places the image names. It has no route out and holds no credential.</summary>
+    public static IReadOnlyList<string> ServiceArgs(ServiceSpec spec, string? envFile)
+    {
+        Check(RunIdPattern(), spec.BatchId, "batch id");
+        Check(ServiceNamePattern(), spec.Name, "service name");
+        Check(ImagePattern(), spec.Image, "image (must be name@sha256:<64 hex>)");
+        Check(NamePattern(), spec.Network, "network");
+        if (spec.Port is < 1 or > 65535)
+            throw new ArgumentException("port must be 1 to 65535", nameof(spec));
+        if (spec.MemoryMb is < 64 or > 8192)
+            throw new ArgumentException("memory must be 64 to 8192 MiB", nameof(spec));
+        foreach (var directory in spec.Tmpfs)
+            Check(ServiceTmpfsPattern(), directory, "tmpfs directory (a plain absolute path)");
+        if (spec.Env.Count > 0 && (string.IsNullOrWhiteSpace(envFile) || envFile.StartsWith('-')))
+            throw new ArgumentException("a service with an environment needs an env file path", nameof(envFile));
+        _ = ServiceEnvLines(spec.Env);
+        return
+        [
+            "run", "--detach", "--init",
+            "--name", spec.ContainerName,
+            "--label", $"{RunLabel}={spec.BatchId}",
+            "--cap-drop", "ALL",
+            .. ServiceCapabilities.SelectMany(c => new[] { "--cap-add", c }),
+            "--security-opt", "no-new-privileges",
+            "--pids-limit", "256",
+            "--memory", $"{spec.MemoryMb.ToString(CultureInfo.InvariantCulture)}m",
+            "--memory-swap", $"{spec.MemoryMb.ToString(CultureInfo.InvariantCulture)}m",
+            "--cpus", "1",
+            "--tmpfs", "/tmp:rw,nosuid,size=256m",
+            .. spec.Tmpfs.SelectMany(d => new[] { "--tmpfs", $"{d}:rw,nosuid,size=1g" }),
+            "--network", spec.Network,
+            "--network-alias", spec.Name,
+            .. spec.Env.Count == 0 ? (string[])[] : ["--env-file", envFile!],
+            spec.Image,
+        ];
+    }
+
+    /// <summary>A service's env file lines, <c>NAME=value</c>, in name order. Refuses a name that is not upper case letters, digits and underscores, an <c>LD_</c> name, and a value with a line break or NUL.</summary>
+    public static IReadOnlyList<string> ServiceEnvLines(IReadOnlyDictionary<string, string> env)
+    {
+        foreach (var (name, value) in env)
+        {
+            if (!ServiceEnvNamePattern().IsMatch(name) || name.StartsWith("LD_", StringComparison.Ordinal))
+                throw new ArgumentException($"environment name '{name}' is not one a service may get", nameof(env));
+            if (value.Contains('\n') || value.Contains('\r') || value.Contains('\0'))
+                throw new ArgumentException($"environment value of '{name}' has a line break or NUL", nameof(env));
+        }
+        return env.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}").ToList();
     }
 
     /// <summary>The arguments after <c>docker</c> for a batch's egress proxy: the server image, its <c>egress</c> verb, read-only, no capabilities,
@@ -131,14 +195,14 @@ public static partial class ContainerTemplate
     /// <c>safe.directory</c> is needed because the read-only source belongs to another user. It is a global config in the helper's tmpfs (the root filesystem is
     /// read-only, so HOME moves to /tmp): <c>git clone</c> of a local path runs <c>git-upload-pack</c> as a child, which checks ownership itself and does not see
     /// <c>-c</c> or <c>GIT_CONFIG_*</c> (measured on a Linux host). The clone gets no hooks (<c>--template=</c>) and its own commits run none (<c>core.hooksPath</c>). The session image keeps the .NET CLI home and
-    /// the NuGet package cache in /work (<c>DOTNET_CLI_HOME</c>, <c>NUGET_PACKAGES</c>): they are excluded here, so the stop snapshot's <c>git add -A</c> does not commit them.</summary>
+    /// the NuGet package cache in /work (<c>DOTNET_CLI_HOME</c>, <c>NUGET_PACKAGES</c>), and the JDK variant (ADR 0048) Gradle's and Maven's: they are excluded here, so the stop snapshot's <c>git add -A</c> does not commit them.</summary>
     public const string WorkspaceScript =
         "set -e\n"
         + "export HOME=/tmp\n"
         + "git config --global safe.directory '*'\n"
         + "git clone --quiet --no-hardlinks --template= /src /work\n"
         + "mkdir -p /work/.git/info\n"
-        + "printf '%s\\n' '/.dotnet/' '/.nuget/' >> /work/.git/info/exclude\n"
+        + "printf '%s\\n' '/.dotnet/' '/.nuget/' '/.gradle/' '/.m2/' >> /work/.git/info/exclude\n"
         + "git -C /work checkout --quiet -b \"$1\" \"$2\"\n"
         + "git -C /work config user.name chargehand\n"
         + "git -C /work config user.email chargehand@localhost\n"
@@ -242,6 +306,10 @@ public static partial class ContainerTemplate
                 throw new ArgumentException($"environment name '{name}' is not one a session container may get", nameof(env));
             if (value.Contains('\n') || value.Contains('\r') || value.Contains('\0'))
                 throw new ArgumentException($"environment value of '{name}' has a line break or NUL", nameof(env));
+            if (CacheVolumes.IsCacheVariable(name, out var fixedValue) && value != fixedValue)
+                throw new ArgumentException($"environment value of '{name}' must be {fixedValue}", nameof(env));
+            if (name == ServicesVariable && !ServicesValuePattern().IsMatch(value))
+                throw new ArgumentException($"environment value of '{name}' must be name=name:port pairs", nameof(env));
         }
         return env.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}").ToList();
     }
@@ -281,6 +349,18 @@ public static partial class ContainerTemplate
 
     [GeneratedRegex(@"^[0-9a-f]{7,40}$")]
     private static partial Regex CommitPattern();
+
+    [GeneratedRegex(@"^[a-z][a-z0-9]{0,23}$")]
+    private static partial Regex ServiceNamePattern();
+
+    [GeneratedRegex(@"^[A-Z][A-Z0-9_]{0,63}$")]
+    private static partial Regex ServiceEnvNamePattern();
+
+    [GeneratedRegex(@"^/(?!\.\.?(/|$))[A-Za-z0-9_.+@-]+(/(?!\.\.?(/|$))[A-Za-z0-9_.+@-]+)*$")]
+    private static partial Regex ServiceTmpfsPattern();
+
+    [GeneratedRegex(@"^[a-z][a-z0-9]{0,23}=[a-z][a-z0-9]{0,23}:[0-9]{1,5}(,[a-z][a-z0-9]{0,23}=[a-z][a-z0-9]{0,23}:[0-9]{1,5})*$")]
+    private static partial Regex ServicesValuePattern();
 
     [GeneratedRegex(@"^SIG[A-Z0-9]{2,10}$")]
     private static partial Regex SignalPattern();
