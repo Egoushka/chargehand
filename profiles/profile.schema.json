@@ -231,19 +231,19 @@
         "integrator": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["app_id", "installation_id", "private_key_secret"],
-          "description": "ADR 0046: for the repositories listed, chargehand marks a finished task's pull request ready and merges it through the repository's required checks, and has a short session fix a failing required check, acting as a GitHub App. Unset: draft pull requests only, never touched again.",
+          "dependentRequired": { "app_id": ["installation_id", "private_key_secret"], "installation_id": ["app_id", "private_key_secret"], "private_key_secret": ["app_id", "installation_id"] },
+          "description": "ADR 0046: for the repositories listed, chargehand marks a finished task's pull request ready and merges it through the repository's required checks, and has a short session fix a failing required check, acting as a GitHub App (on GitLab, with the forge token). The three App keys are all set or all left out: a profile that integrates GitLab projects only needs none. Unset: draft pull requests only, never touched again.",
           "properties": {
             "app_id": { "type": "integer", "minimum": 1, "description": "The GitHub App's numeric id." },
             "installation_id": { "type": "integer", "minimum": 1, "description": "The App's installation on the owner of the repositories." },
             "private_key_secret": { "type": "string", "minLength": 1, "description": "Secret item holding the App's private key (PEM). Never logged, never inside a container." },
             "repositories": {
               "type": "object",
-              "propertyNames": { "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+              "propertyNames": { "pattern": "^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$" },
               "additionalProperties": { "enum": ["merge", "ask"] },
-              "description": "Per owner/repo: merge (marked ready, then auto-merge with squash, so GitHub merges once the required checks pass) or ask (marked ready and commented on; a person merges). A repository not listed is off."
+              "description": "Per owner/repo (group/subgroup/project on GitLab): merge (marked ready, then auto-merge with squash, so the forge merges once the required checks pass) or ask (marked ready and commented on; a person merges). A repository not listed is off."
             },
-            "always_ask": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" }, "description": "Repositories that are ask whatever else says: this list wins over merge and over a repository not listed." },
+            "always_ask": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$" }, "description": "Repositories that are ask whatever else says: this list wins over merge and over a repository not listed." },
             "ci_fix": {
               "type": "object",
               "additionalProperties": false,
@@ -257,9 +257,20 @@
             }
           }
         },
+        "forge": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "description": "Which code host the remotes are on and how to reach it (ADR 0047). Unset: a remote on gitlab.com or on a host whose first label is gitlab is GitLab, and any other host is GitHub.",
+          "properties": {
+            "kind": { "enum": ["github", "gitlab"], "description": "The forge of every remote of this profile, whatever the host name says." },
+            "base_url": { "type": "string", "pattern": "^https://[^\\s?#@]+$", "description": "The API root: https://host/api/v4 for GitLab (the instance root https://host is accepted), https://host/api/v3 for GitHub Enterprise. Unset: derived from the remote's host (GitLab) or api.github.com." },
+            "token_secret": { "type": "string", "minLength": 1, "description": "GitLab only: secret item for the API token (PRIVATE-TOKEN, scope api). Unset: push_secret, which then needs api and write_repository." }
+          }
+        },
         "network": { "type": "object", "additionalProperties": false, "properties": { "allow": { "type": "array", "items": { "type": "string", "minLength": 1 } }, "outside": { "type": "string", "minLength": 1, "description": "A network besides the default one that the batch's egress container joins: the one the chargehand server sits on." }, "mcp_forward": { "type": "string", "pattern": "^[^\\s:]+:[0-9]{1,5}$", "description": "host:port of the chargehand server as the egress container reaches it. Set, a session can call chargehand for research and review; unset, it cannot." }, "model_url": { "type": "string", "pattern": "^https?://[^\\s?#@]+$", "description": "An Anthropic-compatible gateway as the egress container reaches it: http://host:port/path through a forward, or https://host/path through the proxy. Set, a session gets claude_code.api_key_secret (the key the gateway issued, with a budget) and ANTHROPIC_BASE_URL instead of the real credential; unset, the real credential is in the container's environment." }, "otlp_url": { "type": "string", "pattern": "^http://[^\\s?#@]+$", "description": "An OTLP/HTTP collector as the egress container reaches it, http://host:port through a forward on a port no other forward uses. Set, each session's Claude Code exports its own logs and metrics there, tagged chargehand.run_id, chargehand.task_id, chargehand.task_run_id and chargehand.trace_id; unset, it exports nothing." } }, "description": "Hosts added to the preset's allowlist, and how a session reaches the chargehand server." },
         "runner": { "type": "object", "additionalProperties": false, "required": ["url", "api_key_secret"], "properties": { "url": { "type": "string", "minLength": 1 }, "api_key_secret": { "type": "string", "minLength": 1 } }, "description": "The runner service in front of the container engine. Absent: the server calls the engine itself (a laptop)." },
-        "push_secret": { "type": "string", "minLength": 1, "description": "Secret item for the credential that pushes non-default branches and opens draft pull requests." },
+        "push_secret": { "type": "string", "minLength": 1, "description": "Secret item for the credential that pushes non-default branches and opens draft pull requests (on GitLab also merge requests, unless forge.token_secret names another)." },
         "task_source": {
           "type": "object",
           "additionalProperties": false,

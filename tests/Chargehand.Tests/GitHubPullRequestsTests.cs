@@ -58,18 +58,43 @@ public class GitHubPullRequestsTests
         var pr = await new GitHubPullRequests(new HttpClient(handler) { BaseAddress = new Uri("https://api.example.test/") }, "the-token")
             .CreateDraftAsync(new RemoteRepository("o", "r"), "chargehand/run1", "main", "Add a retry", "Body", default);
 
-        Assert.Equal(new PullRequestRef("https://example.test/o/r/pull/3", 3), pr);
+        Assert.Equal(new PullRequestRef("https://example.test/o/r/pull/3", 3, Reused: true), pr);
         Assert.Equal("https://api.example.test/repos/o/r/pulls?head=o%3Achargehand%2Frun1&state=open", handler.Requests[1].Url);
     }
 
     [Fact]
-    public void The_client_can_open_a_draft_and_do_nothing_else()
+    public void The_client_can_open_a_draft_and_edit_its_title_and_nothing_else()
     {
         var methods = typeof(GitHubPullRequests).GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly)
             .Select(m => m.Name).ToList();
-        Assert.Equal(["CreateDraftAsync"], methods);
+        Assert.Equal(["CreateDraftAsync", "EditAsync"], methods);
         var all = typeof(GitHubPullRequests).Assembly.GetTypes().Where(t => t.Name.Contains("PullRequest", StringComparison.Ordinal)).SelectMany(t => t.GetMethods()).Select(m => m.Name);
         Assert.DoesNotContain(all, n => n.Contains("Merge", StringComparison.OrdinalIgnoreCase) || n.Contains("AutoMerge", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task The_title_and_body_are_patched_on_the_pull_request_with_the_token_in_the_header_only()
+    {
+        var handler = new Recorder(HttpStatusCode.OK, "{}");
+        await Client(handler).EditAsync(new RemoteRepository("o", "r"), 7, "Add a retry", "Done.", default);
+
+        var (method, url, body, auth) = Assert.Single(handler.Requests);
+        Assert.Equal((HttpMethod.Patch, "https://api.example.test/repos/o/r/pulls/7", "Bearer the-token"), (method, url, auth));
+        using var doc = JsonDocument.Parse(body!);
+        Assert.Equal(["title", "body"], doc.RootElement.EnumerateObject().Select(p => p.Name).ToArray());
+        Assert.Equal(("Add a retry", "Done."), (doc.RootElement.GetProperty("title").GetString(), doc.RootElement.GetProperty("body").GetString()));
+        Assert.DoesNotContain("the-token", body);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.NotFound)]
+    public async Task A_refused_edit_is_a_pull_request_exception_without_the_token(HttpStatusCode status)
+    {
+        var handler = new Recorder(status, """{"message":"Bad credentials the-token"}""");
+        var e = await Assert.ThrowsAsync<PullRequestException>(() => Client(handler).EditAsync(new RemoteRepository("o", "r"), 7, "t", "b", default));
+        Assert.Contains(((int)status).ToString(System.Globalization.CultureInfo.InvariantCulture), e.Message);
+        Assert.DoesNotContain("the-token", e.Message);
     }
 
     [Theory]

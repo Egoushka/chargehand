@@ -17,11 +17,12 @@ namespace Chargehand.Driven;
 /// <param name="Secret">Resolves a secret item by name (the profile's sources).</param>
 /// <param name="Host">Where admission reads the host's free memory and load (the runner, or this machine); null: tasks start by count only.</param>
 /// <param name="HandoverFor">The handover of a batch; null: <see cref="Handover"/> with a <see cref="ContainerVerifier"/> on <see cref="Engine"/> and <see cref="PullRequestsFor"/>.</param>
-/// <param name="Integration">What the integrator does on GitHub as the App (ADR 0046); null: nothing is integrated even if the profile has a <c>driven.integrator</c> block.</param>
+/// <param name="Integration">What the integrator does on GitHub as the App (ADR 0046); null: nothing is integrated on GitHub even if the profile has a <c>driven.integrator</c> block.</param>
+/// <param name="ForgeFor">The forge of a remote that is not on GitHub, given the API token (<c>driven.forge.token_secret</c>, else the push credential); null: such a batch is refused.</param>
 public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Workspace, ISessionVolumes Volumes, Func<PushCredential, IPullRequests> PullRequestsFor, ITaskSource? TaskSource,
     Func<RepositoryRef, string, CancellationToken, Task<DrivenCheckout>> Checkout, IEvidenceResolver Resolver, Func<string, string> Secret,
     Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? SupportCheck = null, Func<ContainerVerifierSettings, PushCredential, IBranchHandover>? HandoverFor = null,
-    TimeSpan? Poll = null, IHostSource? Host = null, IIntegrationHost? Integration = null);
+    TimeSpan? Poll = null, IHostSource? Host = null, IIntegrationHost? Integration = null, Func<RemoteRepository, string, IForge>? ForgeFor = null);
 
 /// <summary>A request with a <c>driven</c> block, from start to the batch's result (ADR 0039): tasks resolved, the batch network up, tasks run under the batch's limits by
 /// <see cref="TaskRunner"/>, the network down, and one <c>result/v1</c> that lists the tasks. Every refusal (driven sessions off, no push credential, no image) is a failed
@@ -204,7 +205,6 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var limits = DrivenBatch.Limits(request, settings, drivenPreset, perTaskUsd, priced, _global);
         var push = settings.PushSecret is { } pushSecret ? new PushCredential(Resolve(s, pushSecret)) : throw new ChargehandException(ErrorCode.CredentialUnavailable,
             "driven.push_secret is not set, so nothing could be pushed", "Name the secret item that holds the credential which pushes non-default branches.");
-        var integrator = settings.Integrator is { } integration && s.Integration is { } github ? new Integrator(new IntegratorPolicy(integration), github, integration.CiFix) : null;
         var modelEnvironment = new Dictionary<string, string>
         {
             [priced ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN"] = Resolve(s, (priced ? claude.ApiKeySecret : claude.OauthTokenSecret)
@@ -224,6 +224,13 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             new[] { forward is null ? (int?)null : port, model?.ForwardPort }.OfType<int>());
 
         var checkout = await s.Checkout(request.Context.Repository!, request.Context.Preset, ct);
+        // A forge other than GitHub acts with one token, both to open the pull request and to integrate it.
+        var forge = RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge) is { Forge: not ForgeKind.GitHub } remote
+            ? s.ForgeFor?.Invoke(remote, settings.Forge?.TokenSecret is { } tokenSecret ? Resolve(s, tokenSecret) : push.Value)
+                ?? throw new ChargehandException(ErrorCode.InvalidRequest, $"the remote is a {remote.Forge} project, but this server has no support for it set up", "Check driven.forge in the profile.")
+            : null;
+        var integrator = settings.Integrator is { } integration && (forge ?? s.Integration) is { } integrationHost
+            ? new Integrator(new IntegratorPolicy(integration), integrationHost, integration.CiFix, forge: settings.Forge) : null;
         span?.SetTag("chargehand.base_commit", checkout.Commit);
         // A kept bundle is a branch from the commit its task started at; fetched into a workspace at another commit it would not apply.
         if (ready.FirstOrDefault(t => t.From?.Kept is { } kept && kept.Base != checkout.Commit) is { } moved)
@@ -255,7 +262,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 await new BatchServices(s.Engine).EnsureAsync(shared.Services, ct);
             var verifierSettings = new ContainerVerifierSettings(sessionImage, checkout.Directory, checkout.Commit, net.Network, net.ProxyUrl(runId), drivenPreset.MemoryMb, drivenPreset.Cpus, drivenPreset.Pids, shared);
             var handover = s.HandoverFor?.Invoke(verifierSettings, push)
-                ?? new Handover(new ContainerVerifier(s.Engine, s.Workspace, verifierSettings), s.PullRequestsFor(push));
+                ?? new Handover(new ContainerVerifier(s.Engine, s.Workspace, verifierSettings), forge ?? s.PullRequestsFor(push), settings.Forge);
             var task = new TaskRunnerSettings(runId, request, sessionImage, checkout.Directory, checkout.Commit, checkout.RemoteUrl, checkout.BaseBranch, net,
                 forward is null ? null : $"{BatchNetworkInfo.ServiceUrl(port)}/v1/mcp", drivenPreset, limits.PerTask, priced, modelEnvironment, push,
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,

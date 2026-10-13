@@ -62,6 +62,41 @@ The App needs contents and pull requests write, checks, actions and commit statu
 
 Not run against GitHub yet: the calls are checked against a fake host and recorded request shapes. The open points (rulesets and `isRequired`, `update-branch` on a draft, the job-log id) are listed in the ADR, and each fails without merging.
 
+### GitLab
+
+A remote on GitLab gets a merge request where GitHub gets a pull request, and the same policy and CI fixer work through it ([ADR 0047](../adr/0047-core-and-driven-assemblies.md), the forge extension point). The forge is read from the remote URL: `gitlab.com` and a host whose first label is `gitlab` (`gitlab.example.test`) are GitLab, any other host is GitHub as before. For anything else set `driven.forge.kind` (`github` or `gitlab`); it applies to every remote of the profile. Remotes are `https://host/group/sub/project.git`, `git@host:group/sub/project.git` or `ssh://git@host/group/sub/project.git`; the namespace can nest, and `driven.integrator.repositories` and `always_ask` name a project by its whole path (`group/sub/project`). The API root is `https://<remote host>/api/v4/`; `driven.forge.base_url` replaces it (the instance root or the API root, https only), for a host behind a path or another name.
+
+```json
+{ "driven": {
+  "push_secret": "gitlab-token",
+  "forge": { "kind": "gitlab", "base_url": "https://git.example.test", "token_secret": "gitlab-api-token" },
+  "integrator": { "repositories": { "group/sub/project": "merge" } } } }
+```
+
+One token does everything, sent as `PRIVATE-TOKEN`; there is no App. It is `driven.forge.token_secret`, else `driven.push_secret`, which also pushes the branch over https, so that token then needs the `api` and `write_repository` scopes. Use a project or group access token (or a bot user's) that cannot push the protected default branch; the project's merge rules still decide what it may merge. `driven.integrator` needs no `app_id`, `installation_id` or `private_key_secret` for a GitLab-only profile (the three are all set or all left out).
+
+| chargehand does | GitLab call |
+|---|---|
+| open a draft | `POST /projects/:id/merge_requests`, the title prefixed `Draft: `; a request that already exists for the branch is found by `GET /merge_requests?source_branch=&state=opened` |
+| edit the title and body | `PUT /merge_requests/:iid` with `title` (kept a draft if it is one) and `description`; GitHub: `PATCH /repos/:o/:r/pulls/:n` |
+| read the state | `GET /merge_requests/:iid` (`state`, `draft`, `sha`, `detailed_merge_status`, `head_pipeline`), `GET /pipelines/:id/jobs`, `GET /merge_requests/:iid/notes` (last 50) |
+| how far behind | `GET /repository/compare?from=<branch>&to=<base>`: the commits of the base the branch lacks |
+| update the branch | `PUT /merge_requests/:iid/rebase`, after checking that the head is the one expected |
+| mark ready | `PUT /merge_requests/:iid` with the title less its `Draft:`, `[Draft]` or `(Draft)` prefix |
+| auto-merge | `PUT /merge_requests/:iid/merge` with `merge_when_pipeline_succeeds: true`, `sha` (the head) and `squash: true` |
+| merge now | the same without `merge_when_pipeline_succeeds` |
+| comment | `POST /merge_requests/:iid/notes` |
+| a failing job's log | `GET /jobs/:id/trace`, the end of it, colour codes and section markers removed |
+
+**"Required checks" on GitLab.** GitLab names no individual required check; its gate is "pipelines must succeed" (and approvals, discussions and the like). chargehand reads the jobs of the merge request's head pipeline and counts every job that is not `allow_failure` as required: `success` and `skipped` pass, `failed` fails, `created`, `pending`, `running`, `preparing`, `scheduled` and `waiting_for_resource` are pending, and `canceled` or a `manual` job that blocks ends the wait as "waiting for a person". A pipeline that belongs to an older head is ignored (a fresh head has no checks until GitLab creates its pipeline), and a pipeline that ended with no job at all, as a broken `.gitlab-ci.yml` does, is one required check named `pipeline`. `detailed_merge_status` is mapped onto the words the integrator reads: `mergeable` is clean, `conflict` is dirty, `need_rebase` is behind, `draft_status` is draft, `checking` and `unchecked` are unknown, and everything else (a pipeline still running or missing, approvals, open discussions, a blocking rule) is blocked, which makes chargehand ask for auto-merge.
+
+Limits, all of which stop short of a merge:
+
+- Only the first 100 jobs of the pipeline are read, and jobs of child or downstream pipelines are not. A failing downstream pipeline still blocks GitLab's own merge, but the CI fixer does not see it.
+- `merge_when_pipeline_succeeds` is the parameter GitLab deprecated in favour of `auto_merge`; it still works in API v4. GitLab may refuse it while the merge request has no pipeline yet (UNKNOWN: not checked against an instance), for instance when chargehand asks before the pipeline of a fresh push exists; the integrator then stops with GitLab's refusal and a person merges.
+- GitLab's rebase takes no expected head and rewrites the branch's commits. A CI fix session seeded from the bundle made before the rebase pushes a branch that no longer fast-forwards the remote, and chargehand never forces; that attempt is reported as pushing nothing.
+- The calls are tested against a fake host only, like GitHub's: not run against a GitLab instance. The `Draft:` title (rather than a `draft` attribute) and the rebase path are the points to check first on a real one.
+
 ## Watching a batch
 
 While a batch runs, its own run (`GET /v1/runs/{batch}`, a `202` with `run-status/v1`, and `GET /v1/runs/{batch}/events`) carries each task's steps, every event with `task_id` and a `detail` line such as `task t1: 48200 tokens, 12 turns, stage write`:
@@ -183,7 +218,7 @@ The task needs no `goal` or `ref` (it takes the earlier task's) and starts from 
 
 The request is refused as `invalid_request` before anything starts when the earlier batch is not in the run log or has not finished, has no task with that id, the task completed or stopped with no work kept, it ended `needs_input` and the request gives no `answers`, or `context.repository.commit` is not the commit the earlier task started at (the kept branch is a series of commits on that base). `answers` without `continue_from`, `continue_from` with a `goal` or `ref`, and two tasks continuing the same one (they would push the same branch) are refused too. A kept bundle that is gone fails only that task, `invalid_request`.
 
-**How long the work is kept.** A task's output volume (its bundle and handoff) is not removed when the task ends. The sweep at a server start removes every output volume that no running batch owns, except those of tasks that ended with kept work in the last 7 days (the task's last session and the one that holds its bundle). So work is continuable for at least 7 days; after that, the first restart removes it. A question asked before any commit keeps nothing but its goal and questions, which live in the run log. The pull request opened for the question is reused by the answering task's handover (the same branch), so its title still reads `[partial]` and its body the old text until you edit them; chargehand does not edit a pull request. Needs a session image from the release that added continuations (ADR 0044); no image change is needed for this step.
+**How long the work is kept.** A task's output volume (its bundle and handoff) is not removed when the task ends. The sweep at a server start removes every output volume that no running batch owns, except those of tasks that ended with kept work in the last 7 days (the task's last session and the one that holds its bundle). So work is continuable for at least 7 days; after that, the first restart removes it. A question asked before any commit keeps nothing but its goal and questions, which live in the run log. The pull request opened for the question is reused by the answering task's handover (the same branch); when that task finishes, the handover replaces its `[partial]` title and its body with the finished ones (a task that is partial again leaves them). If the host refuses the edit the push still stands and the `pr_opened` detail says the title could not be updated. Needs a session image from the release that added continuations (ADR 0044); no image change is needed for this step.
 
 ## Shared services
 
@@ -267,6 +302,6 @@ An `http` URL is reached through a second forward on the batch's egress containe
 
 ## Configure it
 
-The profile's `driven` block (`schemas` and `profiles/profile.schema.json` document each key): `enabled` (default false), `max_parallel`, `max_parallel_total`, `max_session_calls` (research and review runs executing at once across all sessions, default 2: with more sessions than slots, sessions wait on each other), `images` (by digest), `network.allow`, `limits` (see "Limits and the kill switch"), `runner` (URL and the secret item for its key), `push_secret`, `integrator` (merge by policy and fix failing CI as a GitHub App, "Merging by policy" above), and `task_source` (how a tracker item id becomes a goal through a mapped MCP tool), and `services` (package caches, test services and a session image by ecosystem, "Shared services" above). `network.outside` and `network.mcp_forward` (`host:port` of the chargehand server as the egress container reaches it) let a session call chargehand for research and review. `network.otlp_url` turns on Claude Code's own telemetry (above). `images[0]` is the session image and the egress image. Keep `enabled` false in any shared profile. A request adds `driven: { tasks: [{id, ref | goal, max_turns?, max_minutes?}], max_parallel, max_tokens_total | max_usd_total }` and `context.repository`.
+The profile's `driven` block (`schemas` and `profiles/profile.schema.json` document each key): `enabled` (default false), `max_parallel`, `max_parallel_total`, `max_session_calls` (research and review runs executing at once across all sessions, default 2: with more sessions than slots, sessions wait on each other), `images` (by digest), `network.allow`, `limits` (see "Limits and the kill switch"), `runner` (URL and the secret item for its key), `push_secret`, `integrator` (merge by policy and fix failing CI as a GitHub App, "Merging by policy" above), `forge` (GitLab or GitHub Enterprise: the kind, an API root and the GitLab token, "GitLab" above), and `task_source` (how a tracker item id becomes a goal through a mapped MCP tool), and `services` (package caches, test services and a session image by ecosystem, "Shared services" above). `network.outside` and `network.mcp_forward` (`host:port` of the chargehand server as the egress container reaches it) let a session call chargehand for research and review. `network.otlp_url` turns on Claude Code's own telemetry (above). `images[0]` is the session image and the egress image. Keep `enabled` false in any shared profile. A request adds `driven: { tasks: [{id, ref | goal, max_turns?, max_minutes?}], max_parallel, max_tokens_total | max_usd_total }` and `context.repository`.
 
 `chargehand init <repo>` writes a starter `driven` block with the package hosts that repository needs in `network.allow`, and `chargehand doctor` checks the images, the runner, the secrets and that `network.allow` covers the repositories under `repository_roots` ([reference](reference.md#commands)).

@@ -55,6 +55,8 @@ public class DrivenIntegrationTests
         Assert.EndsWith("; merged", row.GetProperty("detail").GetString());
         // The pull request body says what happens to it.
         Assert.Contains("enable auto-merge", rig.Handover.Inputs[0].PolicyNote);
+        // A finished task replaces the title and body of a pull request an earlier, partial one left for the branch.
+        Assert.True(rig.Handover.Inputs[0].UpdateReused);
     }
 
     [Fact]
@@ -94,6 +96,7 @@ public class DrivenIntegrationTests
         var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
 
         Assert.True(Assert.Single(rig.Handover.Inputs).Partial);
+        Assert.False(rig.Handover.Inputs[0].UpdateReused);
         Assert.Null(rig.Handover.Inputs[0].PolicyNote);
         Assert.Empty(host.Calls);
         Assert.Equal("failed", Row(result).GetProperty("status").GetString());
@@ -186,5 +189,94 @@ public class DrivenIntegrationTests
         Assert.Equal(2, rig.Engine.Started.Count);
         Assert.Single(rig.Handover.Inputs);
         Assert.Contains("pushed nothing: the session made no new commit", Row(result).GetProperty("detail").GetString());
+    }
+
+    /// <summary>A GitLab as the batch sees it: one object for opening and integrating, backed by the fake host.</summary>
+    private sealed class FakeForge(FakeIntegrationHost inner) : IForge
+    {
+        public string Name => "GitLab";
+
+        public Task<PullRequestRef> CreateDraftAsync(RemoteRepository repo, string head, string @base, string title, string body, CancellationToken ct) => throw new NotSupportedException("the handover is faked");
+
+        public Task EditAsync(RemoteRepository repo, int number, string title, string body, CancellationToken ct) => throw new NotSupportedException("the handover is faked");
+
+        public Task<PrSnapshot> GetAsync(RemoteRepository repository, int number, CancellationToken ct) => inner.GetAsync(repository, number, ct);
+
+        public Task<int> BehindByAsync(RemoteRepository repository, string baseBranch, string branch, CancellationToken ct) => inner.BehindByAsync(repository, baseBranch, branch, ct);
+
+        public Task UpdateBranchAsync(RemoteRepository repository, int number, string expectedHeadSha, CancellationToken ct) => inner.UpdateBranchAsync(repository, number, expectedHeadSha, ct);
+
+        public Task MarkReadyAsync(string nodeId, CancellationToken ct) => inner.MarkReadyAsync(nodeId, ct);
+
+        public Task EnableAutoMergeAsync(string nodeId, string headSha, CancellationToken ct) => inner.EnableAutoMergeAsync(nodeId, headSha, ct);
+
+        public Task MergeNowAsync(RemoteRepository repository, int number, string headSha, CancellationToken ct) => inner.MergeNowAsync(repository, number, headSha, ct);
+
+        public Task CommentAsync(RemoteRepository repository, int number, string body, CancellationToken ct) => inner.CommentAsync(repository, number, body, ct);
+
+        public Task<string> JobLogTailAsync(RemoteRepository repository, long jobId, int maxChars, CancellationToken ct) => inner.JobLogTailAsync(repository, jobId, maxChars, ct);
+    }
+
+    private const string GitLabRemote = "git@gitlab.example.test:group/sub/project.git";
+
+    [Fact]
+    public async Task A_gitlab_remote_is_integrated_through_the_forge_the_server_builds_for_it_with_the_push_credential()
+    {
+        var host = Host();
+        List<(RemoteRepository Remote, string Token)> built = [];
+        using var rig = new DrivenRunTests.Rig(integrator: Config(repository: "group/sub/project"), remote: GitLabRemote, forgeFor: (remote, token) =>
+        {
+            built.Add((remote, token));
+            return new FakeForge(host);
+        });
+
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal([(new RemoteRepository("group/sub", "project", ForgeKind.GitLab, "gitlab.example.test"), "value-of-secret-push")], built);
+        Assert.Contains("ready", host.Calls);
+        Assert.Contains("auto-merge aaaaaaa1", host.Calls);
+        Assert.Contains("GitLab merges it only once every required check and rule passes", rig.Handover.Inputs[0].PolicyNote);
+        Assert.EndsWith("; merged", Row(result).GetProperty("detail").GetString());
+    }
+
+    [Fact]
+    public async Task The_forge_token_secret_replaces_the_push_credential_for_the_forge()
+    {
+        List<string> tokens = [];
+        using var rig = new DrivenRunTests.Rig(integrator: Config(repository: "o/r"), forge: new DrivenForge("gitlab", TokenSecret: "gitlab-api-token"), forgeFor: (_, token) =>
+        {
+            tokens.Add(token);
+            return new FakeForge(Host());
+        });
+
+        await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Equal(["value-of-gitlab-api-token"], tokens);
+    }
+
+    [Fact]
+    public async Task A_gitlab_remote_with_no_forge_set_up_is_refused_before_any_container_exists()
+    {
+        using var rig = new DrivenRunTests.Rig(remote: GitLabRemote);
+
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Equal(ErrorCode.InvalidRequest, result.Error!.Code);
+        Assert.Contains("GitLab", result.Error.Message);
+        Assert.Empty(rig.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_github_remote_never_asks_for_another_forge()
+    {
+        var host = Host();
+        using var rig = new DrivenRunTests.Rig(integrator: Config(), integration: host, forgeFor: (_, _) => throw new InvalidOperationException("not for GitHub"));
+
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Contains("auto-merge aaaaaaa1", host.Calls);
+        Assert.Contains("GitHub merges it only once", rig.Handover.Inputs[0].PolicyNote);
     }
 }

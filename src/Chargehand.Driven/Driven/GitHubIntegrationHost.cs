@@ -15,16 +15,19 @@ public enum CheckOutcome { Pending, Passed, Failed, Other }
 /// <param name="JobId">The Actions job id, which is the check run's id; null for a commit status.</param>
 public sealed record CheckStatus(string Name, bool Required, CheckOutcome Outcome, long? JobId);
 
-/// <param name="NodeId">GraphQL's id, which the ready and auto-merge mutations take.</param>
-/// <param name="MergeStatus">GitHub's <c>mergeStateStatus</c>: CLEAN, BEHIND, BLOCKED, DIRTY, DRAFT, HAS_HOOKS, UNSTABLE or UNKNOWN.</param>
+/// <param name="NodeId">The host's own handle for the pull request, which the ready and auto-merge calls take: GraphQL's id on GitHub, the project path and iid (<c>group/project!7</c>) on GitLab.</param>
+/// <param name="MergeStatus">GitHub's <c>mergeStateStatus</c>: CLEAN, BEHIND, BLOCKED, DIRTY, DRAFT, HAS_HOOKS, UNSTABLE or UNKNOWN. A forge that names its states otherwise maps them onto these.</param>
 /// <param name="Comments">The bodies of the latest comments, for the markers chargehand leaves.</param>
 public sealed record PrSnapshot(string NodeId, int Number, string HeadSha, string BaseBranch, bool IsDraft, bool Merged, bool Closed, string MergeStatus, bool AutoMerge,
     IReadOnlyList<CheckStatus> Checks, IReadOnlyList<string> Comments);
 
-/// <summary>What the integrator does on GitHub (ADR 0046), each call as the GitHub App. Every merge is pinned to a head commit and goes through the repository's rules: there is no call here that
-/// bypasses one. It is a different interface from <see cref="IPullRequests"/>, which still opens drafts and nothing else.</summary>
+/// <summary>What the integrator does on a forge (ADR 0046), each call as the GitHub App (on GitLab, with the forge token). Every merge is pinned to a head commit and goes through the repository's rules:
+/// there is no call here that bypasses one. It is a different interface from <see cref="IPullRequests"/>, which still opens drafts and nothing else; <see cref="IForge"/> joins them.</summary>
 public interface IIntegrationHost
 {
+    /// <summary>The forge's name in the words chargehand writes about it.</summary>
+    string Name => "GitHub";
+
     Task<PrSnapshot> GetAsync(RemoteRepository repository, int number, CancellationToken ct);
 
     /// <summary>How many commits of <paramref name="baseBranch"/> the branch lacks.</summary>
@@ -42,7 +45,7 @@ public interface IIntegrationHost
 
     Task CommentAsync(RemoteRepository repository, int number, string body, CancellationToken ct);
 
-    /// <summary>The end of an Actions job's log, at most <paramref name="maxChars"/> characters, ANSI codes and timestamps removed.</summary>
+    /// <summary>The end of a CI job's log, at most <paramref name="maxChars"/> characters, ANSI codes and timestamps removed.</summary>
     Task<string> JobLogTailAsync(RemoteRepository repository, long jobId, int maxChars, CancellationToken ct);
 }
 

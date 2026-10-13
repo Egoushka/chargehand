@@ -203,6 +203,8 @@ public static partial class Doctor
                 uses.Add((push, "driven.push_secret", driven.Enabled));
             if (driven.Runner is { } runner)
                 uses.Add((runner.ApiKeySecret, "driven.runner.api_key_secret", driven.Enabled));
+            if (driven.Forge?.TokenSecret is { } forgeToken)
+                uses.Add((forgeToken, "driven.forge.token_secret", driven.Enabled));
         }
         foreach (var (name, server) in profile.McpServers ?? new Dictionary<string, McpServerSettings>())
             foreach (var item in (server.Headers?.Values ?? []).Concat(server.Env?.Values ?? []).SelectMany(v => SecretPlaceholder().Matches(v).Select(m => m.Groups["item"].Value)))

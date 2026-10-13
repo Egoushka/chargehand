@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
+using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Verification;
 
@@ -25,10 +26,11 @@ public sealed record PushCredential(string Value, PushCredentialKind Kind = Push
 /// <param name="Report">Told each step as it ends: <c>verify_finished</c>, <c>pushed</c>, <c>pr_opened</c>.</param>
 /// <param name="Partial">The session did not finish (ADR 0044): the tests are run and recorded, but a failing run, a timeout or a repository with no test command does not stop the push. A secret in the diff, a CI change and every other check still do.</param>
 /// <param name="PolicyNote">What the pull request body says chargehand does next (ADR 0046), for a repository that opted in to integration; null: the draft is not merged and chargehand will not merge it.</param>
+/// <param name="UpdateReused">The title and body replace those of a pull request the host already had for the branch (a task continued on it), as a finished task's replace the <c>[partial]</c> ones. Off, a reused pull request is left as it is.</param>
 /// <param name="Goal">The task's goal; with it, a passing branch that changes only tests and build files is flagged unless the goal asks for that work (<see cref="TestIntegrity"/>). Null: not assessed.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
-    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null);
+    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false);
 
 /// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
 public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
@@ -67,7 +69,7 @@ public sealed record ChangeSummary(IReadOnlyList<FileChange> Files, string? Diff
 /// something, its diff carries no secret and no CI configuration, and the repository's tests pass in a fresh container. Only then does it push <c>chargehand/&lt;run&gt;</c>
 /// (never anything else, never forced) with a credential that cannot push the default branch, and open a <b>draft</b> pull request. It never merges. A session that says
 /// its tests pass is not believed: the verification here is chargehand's own.</summary>
-public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pullRequests) : IBranchHandover
+public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pullRequests, DrivenForge? forge = null) : IBranchHandover
 {
     private const int MaxDiffBytes = 8 * 1024 * 1024;
 
@@ -176,13 +178,28 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         input.Report?.Invoke(new HandoverEvent(RunEventKind.Pushed, $"pushed {input.Branch}"));
 
         var integrity = input.Goal is { } goal && verification is { ExitCode: 0, TimedOut: false } ? TestIntegrity.Assess(changed, goal) : null;
-        var repository = RemoteRepository.Parse(input.RemoteUrl) ?? (input.AllowLocalRemote ? new RemoteRepository("local", "local") : null);
+        var repository = RemoteRepository.Parse(input.RemoteUrl, forge) ?? (input.AllowLocalRemote ? new RemoteRepository("local", "local") : null);
         if (repository is null)
             return new(HandoverStatus.PrFailed, "the remote's owner and repository could not be read from its URL", ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity);
         try
         {
-            var pr = await pullRequests.CreateDraftAsync(repository, input.Branch, input.BaseBranch, input.Title, DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity), ct);
-            input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, "draft pull request opened", pr.Url));
+            var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity);
+            var pr = await pullRequests.CreateDraftAsync(repository, input.Branch, input.BaseBranch, input.Title, prBody, ct);
+            var detail = "draft pull request opened";
+            if (pr.Reused && input.UpdateReused)
+            {
+                // The pull request and the push are there either way; a title that stays stale is said, not an error.
+                try
+                {
+                    await pullRequests.EditAsync(repository, pr.Number, input.Title, prBody, ct);
+                    detail = "draft pull request reused and its title and body updated";
+                }
+                catch (PullRequestException e)
+                {
+                    detail = Redact($"draft pull request reused; its title and body could not be updated: {e.Message}", secrets);
+                }
+            }
+            input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, detail, pr.Url));
             return new(HandoverStatus.Pushed, "", null, input.Branch, commit, pr, verification, changed, verificationPaths, [], changes, integrity);
         }
         catch (PullRequestException e)

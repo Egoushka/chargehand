@@ -85,6 +85,7 @@ public sealed record Profile(
         profile.Driven?.Admission?.Validate();
         profile.Driven?.Integrator?.Validate();
         profile.Driven?.Services?.Validate(profile.Driven.Images);
+        profile.Driven?.Forge?.Validate();
         return profile;
     }
 
@@ -408,6 +409,7 @@ public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string L
 /// <param name="Admission">What the host must have free before a task starts; null: the defaults of <see cref="DrivenAdmission"/>.</param>
 /// <param name="Integrator">ADR 0046: merge by policy and fix failing CI as a GitHub App; null: draft pull requests only, as before.</param>
 /// <param name="Services">ADR 0048: package caches, test services and a session image by ecosystem; null: none, as before.</param>
+/// <param name="Forge">Which code host the remotes are on and how to reach it; null: GitLab for <c>gitlab.com</c> and hosts named <c>gitlab.*</c>, GitHub for every other host.</param>
 public sealed record DrivenSettings(
     bool Enabled = false,
     int MaxParallel = 2,
@@ -422,7 +424,8 @@ public sealed record DrivenSettings(
     DrivenGovernor? Governor = null,
     DrivenAdmission? Admission = null,
     DrivenIntegrator? Integrator = null,
-    DrivenSharedServices? Services = null);
+    DrivenSharedServices? Services = null,
+    DrivenForge? Forge = null);
 
 /// <summary>When the host has room for another session (ADR 0045). A task starts only if available memory minus <c>ReserveMb</c> covers its container's memory limit;
 /// a running task is never stopped for it.</summary>
