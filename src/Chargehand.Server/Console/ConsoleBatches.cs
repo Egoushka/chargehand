@@ -95,7 +95,7 @@ internal static class ConsoleBatches
     [
         "Events are kept on disk per batch (at most 5000, a task's progress at most every 30 seconds) and pruned with the batch's other records past 500 batches or 180 days; a batch from before they were kept, or pruned, has only the events this process holds, if any.",
         "Sessions, governor decisions, checks and CI fix attempts are kept from the release that added them: an earlier task has the counts and its last session only.",
-        "The session transcript is not served: the runner reads only the files of ADR 0039's list from a session's output volume, and the stream is not on it.",
+        "Only the end of a session's transcript is served (up to 256 KiB, while the session's output volume exists), on its own route; none of it is kept.",
         "A pull request's checks are the looks the integrator took while it watched them (until the pull request merged, closed, was given up on or the wait ended); one it never watched has none, and a look is kept only when it differs from the one before.",
     ];
 

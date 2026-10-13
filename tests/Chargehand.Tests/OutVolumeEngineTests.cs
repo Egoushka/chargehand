@@ -61,6 +61,27 @@ public class OutVolumeEngineTests
     }
 
     [Fact]
+    public async Task The_end_of_a_transcript_is_read_with_a_tail_helper_and_a_missing_one_reads_as_false()
+    {
+        using var dir = new TempDir();
+        var (docker, log) = FakeDocker(dir, "printf 'the end'");
+        var engine = new DockerCliEngine("/bin/sh", [docker]);
+        using var read = new MemoryStream();
+
+        Assert.True(await engine.ReadOutTailAsync(Spec("stream.jsonl"), 4096, read, default));
+
+        Assert.Equal("the end", System.Text.Encoding.UTF8.GetString(read.ToArray()));
+        var calls = File.ReadAllText(log);
+        Assert.Single(File.ReadAllLines(log), l => l.StartsWith("run --rm --init -i --name chargehand-xfer-run1", StringComparison.Ordinal));
+        Assert.EndsWith("transfer stream.jsonl 4096\n", calls, StringComparison.Ordinal);
+        Assert.Contains("chargehand-out-run1:/out:ro", calls, StringComparison.Ordinal);
+        using var dir2 = new TempDir();
+        Assert.False(await new DockerCliEngine("/bin/sh", [FakeDocker(dir2, "exit 3").Script]).ReadOutTailAsync(Spec("stream.jsonl"), 4096, new MemoryStream(), default));
+        using var dir3 = new TempDir();
+        await Assert.ThrowsAsync<ChargehandException>(() => Quick(FakeDocker(dir3, "exit 1").Script).ReadOutTailAsync(Spec("stream.jsonl"), 4096, new MemoryStream(), default));
+    }
+
+    [Fact]
     public async Task A_missing_file_reads_as_false_and_any_other_failure_is_container_unavailable()
     {
         using var dir = new TempDir();

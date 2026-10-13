@@ -109,6 +109,14 @@ public interface IOutVolumeEngine
     Task<bool> ReadOutFileAsync(OutFileSpec spec, Stream destination, CancellationToken ct);
 }
 
+/// <summary>Reads the end of a file in a session's output volume (ADR 0059): at most <paramref name="maxBytes"/> of it, for the files of <see cref="ContainerTemplate.OutFilesTail"/> only. It is separate from
+/// <see cref="IOutVolumeEngine"/> so that an engine, or a runner, that predates it is simply not asked.</summary>
+public interface IOutTailEngine
+{
+    /// <returns>False when the volume has no such file; nothing was written to <paramref name="destination"/> then.</returns>
+    Task<bool> ReadOutTailAsync(OutFileSpec spec, int maxBytes, Stream destination, CancellationToken ct);
+}
+
 public enum ContainerStatus { Running, Exited, Missing }
 
 /// <param name="ExitCode">Set once the container has exited.</param>

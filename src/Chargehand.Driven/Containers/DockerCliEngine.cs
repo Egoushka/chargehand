@@ -12,7 +12,7 @@ namespace Chargehand.Containers;
 /// While a container runs, each inspect also measures its memory (ADR 0045, admission): the cgroup's <c>memory.peak</c> when <paramref name="cgroupRoot"/> shows the container's cgroup, else the
 /// largest <c>docker stats</c> reading, taken at most every <paramref name="statsEvery"/> (5 s). The largest value seen is kept until the container is removed, because its cgroup is gone once it exits.</summary>
 public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null, string cgroupRoot = "/sys/fs/cgroup", TimeSpan? statsEvery = null, TimeSpan? retryEvery = null)
-    : IContainerEngine, IWorkspaceEngine, IBundleWorkspaceEngine, IOutVolumeEngine, IServiceEngine
+    : IContainerEngine, IWorkspaceEngine, IBundleWorkspaceEngine, IOutVolumeEngine, IOutTailEngine, IServiceEngine
 {
     private const int OutputCap = 64 * 1024;
 
@@ -294,6 +294,16 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
             return false;
         if (result.ExitCode != 0)
             throw Unavailable($"reading {spec.Name} from the output volume failed", result, null);
+        return true;
+    }
+
+    public async Task<bool> ReadOutTailAsync(OutFileSpec spec, int maxBytes, Stream destination, CancellationToken ct)
+    {
+        var result = await RunHelperAsync(ContainerTemplate.OutTailArgs(spec, maxBytes), default, null, destination, ct);
+        if (result.ExitCode == ContainerTemplate.OutFileMissing)
+            return false;
+        if (result.ExitCode != 0)
+            throw Unavailable($"reading the end of {spec.Name} from the output volume failed", result, null);
         return true;
     }
 

@@ -49,6 +49,15 @@ internal static class ConsoleRoutes
             return await ConsoleBatches.TaskAsync(Context(ctx), Principal.Of(ctx), id, task, events, ctx.RequestAborted) is { } body ? Json(body) : HttpResults.NotFound();
         });
 
+        // The end of a session's transcript (ADR 0059): the batch's own account and the owner, never stored, never cached.
+        app.MapGet("/v1/batches/{id}/tasks/{task}/sessions/{session}/transcript", async (string id, string task, string session, HttpContext ctx) =>
+        {
+            if (Limit(ctx, Transcript.DefaultBytes, Transcript.MaxBytes, "bytes", Transcript.MinBytes) is not { } bytes)
+                return Json(ChargehandServer.Problem($"bytes must be {Transcript.MinBytes} to {Transcript.MaxBytes}"), StatusCodes.Status400BadRequest);
+            ctx.Response.Headers.CacheControl = "no-store";
+            return await ConsoleTranscripts.BuildAsync(Context(ctx), Principal.Of(ctx), id, task, session, bytes, ctx.RequestAborted) is { } body ? Json(body) : HttpResults.NotFound();
+        });
+
         app.MapGet("/v1/pulls", async (HttpContext ctx) =>
         {
             var c = Context(ctx);
