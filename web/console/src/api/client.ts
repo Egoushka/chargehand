@@ -54,7 +54,7 @@ export async function call<T = unknown>(
     method,
     signal,
     cache: 'no-store',
-    credentials: 'omit',
+    credentials: 'same-origin',
     referrerPolicy: 'no-referrer',
     headers: authHeaders(key ?? getKey(), {
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),

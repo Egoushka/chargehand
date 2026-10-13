@@ -58,7 +58,7 @@ export async function streamEvents<T = unknown>(
     const res = await fetch(path, {
       signal,
       cache: 'no-store',
-      credentials: 'omit',
+      credentials: 'same-origin',
       referrerPolicy: 'no-referrer',
       headers: authHeaders(undefined, { Accept: 'text/event-stream' }),
     });
