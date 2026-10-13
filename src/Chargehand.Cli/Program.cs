@@ -9,7 +9,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Evals;
 using Chargehand.Mcp;
-using Chargehand.Memory;
+using Chargehand.Modules.Memory.Api;
 using Chargehand.OpenCode;
 using Chargehand.Prompts;
 using Chargehand.RunLog;

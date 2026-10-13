@@ -25,6 +25,7 @@ public class ModuleRuleTests
             select $"{name} -> {reference}").ToList();
 
         // A reference outside the table is an old src/Chargehand* project: the port goes old -> new, never back.
+        // Chargehand.Contracts is the exception, listed at layer 0.
         Assert.Empty(upward);
     }
 

@@ -9,7 +9,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Enhancement;
 using Chargehand.Intake;
-using Chargehand.Memory;
+using Chargehand.Modules.Memory.Api;
 using Chargehand.Nodes;
 using Chargehand.Plans;
 using Chargehand.Prompts;

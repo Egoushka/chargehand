@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
-using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
-namespace Chargehand.Memory;
+namespace Chargehand.Modules.Memory.Api;
 
 /// <summary>
 /// What one memory source may cost a run: facts, characters in all and characters per fact recalled (after whitespace is
@@ -143,7 +143,7 @@ public sealed partial class MemoryStack(IReadOnlyList<MemorySource> sources)
 
     private static string Reason(Exception e)
     {
-        var reason = OneLine(ChargehandException.Scrub(string.IsNullOrWhiteSpace(e.Message) ? e.GetType().Name : e.Message));
+        var reason = OneLine(Redaction.Scrub(string.IsNullOrWhiteSpace(e.Message) ? e.GetType().Name : e.Message));
         return reason.Length <= MaxReasonLength ? reason : reason[..MaxReasonLength];
     }
 

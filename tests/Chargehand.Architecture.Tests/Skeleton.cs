@@ -9,6 +9,8 @@ internal static class Skeleton
     public static readonly IReadOnlyDictionary<string, int> Layers = new Dictionary<string, int>
     {
         ["Chargehand.Kernel"] = 0,
+        // The published wire contract (schemas, result/v1): the one project outside the skeleton new code may use.
+        ["Chargehand.Contracts"] = 0,
         ["Chargehand.Modules.Ledger"] = 1,
         ["Chargehand.Modules.Accounts"] = 1,
         ["Chargehand.Modules.Memory"] = 1,
