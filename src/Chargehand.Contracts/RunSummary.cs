@@ -13,4 +13,5 @@ public sealed record RunSummary(
     decimal? Usd = null,
     string? Branch = null,
     string? PrUrl = null,
-    ErrorCode? ErrorCode = null);
+    ErrorCode? ErrorCode = null,
+    string? Actor = null);

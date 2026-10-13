@@ -51,6 +51,7 @@ Sources: [README](../../README.md#how-a-run-works), [ADR 0009](../adr/0009-resul
 
 - [What it does, and how we know](capabilities.md): each capability with its status and the evidence behind it.
 - [Quickstart](quickstart.md): one question from a checkout, end to end.
+- [Install with Docker Compose](install.md): the release images on one Docker host, Core only or with the runner behind a socket proxy, and a first run.
 - [Use it from an MCP client](mcp.md): the `orchestrate` tool over stdio or HTTP.
 - [Run the HTTP server](server.md): `chargehand serve`, its routes and the container image.
 - [Writing a branch](writing.md): the `code` preset, its sandbox, what it verifies and what it does not.

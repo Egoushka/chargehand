@@ -21,11 +21,19 @@ public interface IRunLog
 
     /// <summary>One <see cref="RunSummary"/> per run, newest first, for a client that lists runs (ADR 0039).</summary>
     Task<IReadOnlyList<RunSummary>> ListAsync(RunListQuery query, CancellationToken ct);
+
+    /// <summary>What <paramref name="actor"/>'s runs cost since <paramref name="since"/> (ADR 0050).</summary>
+    Task<ActorSpend> SpendAsync(string actor, DateTimeOffset since, CancellationToken ct) => throw new NotSupportedException();
 }
+
+/// <summary>An account's spend in a window: finished runs by their result's usage, unfinished ones by their calls so far. A task or call of a driven batch is not counted
+/// apart: the batch's result holds its cost. <c>Usd</c> counts only priced usage (a subscription run adds none), so a token cap is the bound that always binds.</summary>
+public sealed record ActorSpend(decimal Usd, long Tokens);
 
 /// <param name="Status">Only runs in this state; null for all.</param>
 /// <param name="Since">Only runs started at or after this time.</param>
-public sealed record RunListQuery(RunState? Status = null, DateTimeOffset? Since = null, int Limit = 50);
+/// <param name="Actor">Only this account's runs (ADR 0050); null for all.</param>
+public sealed record RunListQuery(RunState? Status = null, DateTimeOffset? Since = null, int Limit = 50, string? Actor = null);
 
 /// <summary>Everything the log holds for one run.</summary>
 public sealed record RunEntry(StartRecord? Start, RunRecord? Run, IReadOnlyList<CallRecord> Calls);
@@ -33,7 +41,8 @@ public sealed record RunEntry(StartRecord? Start, RunRecord? Run, IReadOnlyList<
 /// <summary>Written when a run starts: the request as received and the process that runs it.</summary>
 /// <param name="ParentRunId">The run this one resends with answers (MCP input_required), if any.</param>
 /// <param name="BootId">The <see cref="ProcessBoot.Id"/> of the writing process; null on a record from before it existed. A pid alone repeats (a container's server is pid 1 every time).</param>
-public sealed record StartRecord(string RunId, DateTimeOffset Started, string TraceId, RunRequest Request, int Pid, string? ParentRunId = null, string? BootId = null)
+/// <param name="Actor">The account that started the run (ADR 0050); null for a CLI run and for a record from before accounts.</param>
+public sealed record StartRecord(string RunId, DateTimeOffset Started, string TraceId, RunRequest Request, int Pid, string? ParentRunId = null, string? BootId = null, string? Actor = null)
 {
     /// <summary>Whether the process that runs it still exists; without a run record, a dead owner means a lost run.</summary>
     public bool OwnerAlive()
@@ -98,7 +107,8 @@ public sealed record RunRecord(
     TaskSpec? Spec,
     ResultContract Result,
     string? ExecutedAction = null,
-    ExtensionsReport? Extensions = null);
+    ExtensionsReport? Extensions = null,
+    string? Actor = null);
 
 /// <summary>What the profile's extensions did in one run, for the run log and <c>chargehand show</c> (goal 0.6). Null on a record from before it existed.</summary>
 public sealed record ExtensionsReport(IReadOnlyList<MemoryReport> Memory, IReadOnlyList<ServiceReport> Services)

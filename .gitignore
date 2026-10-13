@@ -13,6 +13,8 @@ TestResults/
 # Private: never commit (CLAUDE.md, "Public vs private")
 profiles/local.*
 .env*
+!deploy/compose/.env.example
+/deploy/compose/profile.json
 .private-terms
 runs/
 

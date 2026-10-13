@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
+    <ProjectReference Include="..\Chargehand.Automation\Chargehand.Automation.csproj" />
     <ProjectReference Include="..\Chargehand.Driven\Chargehand.Driven.csproj" />
   </ItemGroup>
 

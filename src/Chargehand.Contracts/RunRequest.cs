@@ -37,12 +37,14 @@ public sealed record PromptBlock(string Name, string Version, string Sha256, str
 /// would be a visible change.</summary>
 /// <param name="MaxTokensTotal">Input plus output tokens over the whole batch, counted from each session's stream; binds in both credential modes.</param>
 /// <param name="MaxUsdTotal">Dollars over the batch; enforced only where the credential is priced (an API key).</param>
+/// <param name="Plan">Run the planning step before the batch (ADR 0049); null: the profile's <c>driven.planning.enabled</c> decides.</param>
 public sealed record RequestDriven(
     IReadOnlyList<DrivenTask> Tasks,
     int? MaxParallel = null,
     long? MaxTokensTotal = null,
     decimal? MaxUsdTotal = null,
-    bool DraftPr = true);
+    bool DraftPr = true,
+    bool? Plan = null);
 
 /// <param name="MaxTurns">Replaces the preset's <c>max_turns</c> for this task's sessions; null: the preset's.</param>
 /// <param name="MaxMinutes">Replaces the preset's <c>max_minutes</c> for this task's sessions; null: the preset's.</param>
@@ -50,8 +52,9 @@ public sealed record RequestDriven(
 /// <param name="BudgetUsd">The task's own budget in the governor's dollar equivalent, in place of its size class's.</param>
 /// <param name="Answers">Answers to the questions an earlier session of the task named by <paramref name="ContinueFrom"/> asked; they go into the goal verbatim (ADR 0045).</param>
 /// <param name="ContinueFrom">An earlier batch's task that ended <c>needs_input</c> or stopped with work kept: this task starts from that task's branch and takes its goal, so it needs neither <c>goal</c> nor <c>ref</c>.</param>
+/// <param name="DependsOn">Ids of tasks of this batch that must end <c>completed</c> first; the task starts from their branches (ADR 0049). Null or empty: independent.</param>
 public sealed record DrivenTask(string Id, string? Ref = null, string? Goal = null, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null,
-    IReadOnlyList<string>? Answers = null, ContinueFrom? ContinueFrom = null);
+    IReadOnlyList<string>? Answers = null, ContinueFrom? ContinueFrom = null, IReadOnlyList<string>? DependsOn = null);
 
 /// <param name="RunId">The earlier batch's run id.</param>
 /// <param name="TaskId">The task's id in that batch.</param>
@@ -72,7 +75,59 @@ public static class DrivenRules
             .Concat(driven.Tasks.Where(t => t.ContinueFrom is { } from && (!RunIdPattern.IsMatch(from.RunId) || !RunIdPattern.IsMatch(from.TaskId)))
                 .Select(t => $"task '{t.Id}': continue_from needs a run id and a task id"))
             .Concat(driven.Tasks.Where(t => t.ContinueFrom is not null).GroupBy(t => t.ContinueFrom!).Where(g => g.Count() > 1)
-                .Select(g => $"tasks {string.Join(", ", g.Select(t => $"'{t.Id}'"))} all continue {g.Key.RunId}/{g.Key.TaskId}: they would share its branch")).ToList();
+                .Select(g => $"tasks {string.Join(", ", g.Select(t => $"'{t.Id}'"))} all continue {g.Key.RunId}/{g.Key.TaskId}: they would share its branch"))
+            .Concat(DependencyProblems(driven.Tasks)).ToList();
+
+    /// <summary>The <c>depends_on</c> rules JSON Schema cannot express: every id is a task of the batch, none repeats or names its own task, no task continues an earlier one
+    /// and also depends on another (two different starting points), and the graph has no cycle.</summary>
+    public static IReadOnlyList<string> DependencyProblems(IReadOnlyList<DrivenTask> tasks)
+    {
+        List<string> problems = [];
+        var ids = tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var task in tasks.Where(t => t.DependsOn is { Count: > 0 }))
+        {
+            problems.AddRange(task.DependsOn!.Where(d => d == task.Id).Select(_ => $"task '{task.Id}': depends_on names the task itself"));
+            problems.AddRange(task.DependsOn!.Where(d => d != task.Id && !ids.Contains(d)).Distinct().Select(d => $"task '{task.Id}': depends_on names '{d}', which is not a task of this batch"));
+            problems.AddRange(task.DependsOn!.GroupBy(d => d).Where(g => g.Count() > 1).Select(g => $"task '{task.Id}': depends_on names '{g.Key}' more than once"));
+            if (task.ContinueFrom is not null)
+                problems.Add($"task '{task.Id}': depends_on and continue_from start from different work; use one");
+        }
+        if (problems.Count > 0)
+            return problems;
+        // A repeated id is reported on its own; the first of them stands in for the graph here.
+        var graph = tasks.GroupBy(t => t.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().DependsOn ?? [], StringComparer.Ordinal);
+        if (Cycle(graph) is { Count: > 0 } cycle)
+            problems.Add($"tasks depend on each other in a cycle: {string.Join(" -> ", cycle)}");
+        return problems;
+    }
+
+    /// <summary>The ids of one dependency cycle in the order they depend on each other (the first id repeated at the end), or empty when the graph has none.</summary>
+    public static IReadOnlyList<string> Cycle(IReadOnlyDictionary<string, IReadOnlyList<string>> dependsOn)
+    {
+        Dictionary<string, int> mark = new(StringComparer.Ordinal);
+        List<string> path = [];
+        IReadOnlyList<string> Visit(string id)
+        {
+            mark[id] = 1;
+            path.Add(id);
+            foreach (var next in dependsOn.GetValueOrDefault(id) ?? [])
+            {
+                if (!dependsOn.ContainsKey(next))
+                    continue;
+                if (mark.GetValueOrDefault(next) == 1)
+                    return [.. path.SkipWhile(p => p != next), next];
+                if (mark.GetValueOrDefault(next) == 0 && Visit(next) is { Count: > 0 } found)
+                    return found;
+            }
+            path.RemoveAt(path.Count - 1);
+            mark[id] = 2;
+            return [];
+        }
+        foreach (var id in dependsOn.Keys.Where(id => mark.GetValueOrDefault(id) == 0))
+            if (Visit(id) is { Count: > 0 } found)
+                return found;
+        return [];
+    }
 
     private static readonly System.Text.RegularExpressions.Regex RunIdPattern = new("^[a-z0-9][a-z0-9_.-]{0,63}$");
 

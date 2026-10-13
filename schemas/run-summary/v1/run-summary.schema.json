@@ -18,6 +18,7 @@
     "usd": { "type": ["number", "null"], "minimum": 0, "description": "Priced by the orchestrator's table; null when the cost is unknown or the credential is not priced." },
     "branch": { "type": ["string", "null"] },
     "pr_url": { "type": ["string", "null"] },
-    "error_code": { "type": ["string", "null"], "description": "result/v1's error.code of a failed run." }
+    "error_code": { "type": ["string", "null"], "description": "result/v1's error.code of a failed run." },
+    "actor": { "type": ["string", "null"], "description": "The account that started the run (ADR 0050); null for a run started from the CLI." }
   }
 }

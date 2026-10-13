@@ -19,6 +19,7 @@ public class BatchSchedulerTests
         public Dictionary<string, IProgress<TaskUsage>> Progress { get; } = [];
         public Dictionary<string, CancellationToken> Tokens { get; } = [];
         public List<string> Started { get; } = [];
+        public Dictionary<string, ResolvedTask> Tasks { get; } = [];
         public int Running;
         public int MaxRunning;
         public Func<ResolvedTask, TaskOutcome?>? Immediate { get; init; }
@@ -29,6 +30,7 @@ public class BatchSchedulerTests
             lock (_lock)
             {
                 Started.Add(task.Id);
+                Tasks[task.Id] = task;
                 Running++;
                 MaxRunning = Math.Max(MaxRunning, Running);
                 tcs = Pending[task.Id] = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -410,5 +412,91 @@ public class BatchSchedulerTests
         await Task.WhenAll(a, b);
         Assert.Equal(4, runnerA.Started.Count + runnerB.Started.Count);
         Assert.Equal(2, global.CurrentCount);
+    }
+
+    private static ResolvedTask Dep(string id, params string[] dependsOn) => new(id, null, $"goal {id}", DependsOn: dependsOn.Length == 0 ? null : dependsOn);
+
+    [Fact]
+    public async Task A_task_starts_only_once_everything_it_depends_on_completed_and_gets_their_branches()
+    {
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner).RunAsync([Dep("t1"), Dep("t2", "t1"), Dep("t3")], Limits(parallel: 3), default);
+        await runner.WaitStarted(2);
+        await Task.Delay(150);
+        Assert.Equal(["t1", "t3"], runner.Started);            // t2 waits although a slot is free
+        Assert.Null(runner.Tasks["t1"].Upstream);
+
+        runner.Finish("t3");
+        await Task.Delay(100);
+        Assert.Equal(["t1", "t3"], runner.Started);
+        runner.Finish("t1");
+        await runner.WaitStarted(3);
+        Assert.Equal(new UpstreamWork("t1", "run-t1", "chargehand/run-t1", "https://example.test/pull/t1"), Assert.Single(runner.Tasks["t2"].Upstream!));
+        runner.Finish("t2");
+        Assert.All((await batch).Tasks, t => Assert.Equal(TaskState.Completed, t.State));
+    }
+
+    [Fact]
+    public async Task A_task_listed_before_its_dependency_still_starts_after_it()
+    {
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner).RunAsync([Dep("b", "a"), Dep("a")], Limits(parallel: 2), default);
+        await runner.WaitStarted(1);
+        await Task.Delay(100);
+        Assert.Equal(["a"], runner.Started);
+        runner.Finish("a");
+        await runner.WaitStarted(2);
+        runner.Finish("b");
+        var outcome = await batch;
+        Assert.Equal(["b", "a"], outcome.Tasks.Select(t => t.Id));     // the batch reports in the order it was given
+        Assert.True(outcome.AllCompleted);
+    }
+
+    [Fact]
+    public async Task Several_dependencies_all_have_to_complete_and_arrive_in_the_order_the_task_lists_them()
+    {
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner).RunAsync([Dep("t1"), Dep("t2"), Dep("t3", "t2", "t1")], Limits(parallel: 3), default);
+        await runner.WaitStarted(2);
+        runner.Finish("t1");
+        await Task.Delay(150);
+        Assert.Equal(["t1", "t2"], runner.Started);
+        runner.Finish("t2");
+        await runner.WaitStarted(3);
+        Assert.Equal(["t2", "t1"], runner.Tasks["t3"].Upstream!.Select(u => u.Id));
+        runner.Finish("t3");
+        Assert.True((await batch).AllCompleted);
+    }
+
+    [Theory]
+    [InlineData(TaskState.Failed, "failed")]
+    [InlineData(TaskState.NeedsInput, "asked a question")]
+    public async Task A_dependency_that_did_not_complete_leaves_its_dependents_not_started_down_the_chain_and_they_hold_no_slot(TaskState ended, string how)
+    {
+        var runner = new ScriptedRunner();
+        List<TaskOutcome> skipped = [];
+        var batch = new BatchScheduler(runner).RunAsync([Dep("t1"), Dep("t2", "t1"), Dep("t3", "t2"), Dep("t4")], Limits(parallel: 1), default, onSkipped: skipped.Add);
+        await runner.WaitStarted(1);
+        runner.Finish("t1", ended);
+        await runner.WaitStarted(2);
+        Assert.Equal(["t1", "t4"], runner.Started);            // the one slot went to the independent task
+        runner.Finish("t4");
+        var outcome = await batch;
+
+        Assert.Equal([ended, TaskState.NotStarted, TaskState.NotStarted, TaskState.Completed], outcome.Tasks.Select(t => t.State));
+        Assert.Equal($"not started: the task it depends on, 't1', {how}", outcome.Tasks[1].Detail);
+        Assert.Equal("not started: the task it depends on, 't2', was not started", outcome.Tasks[2].Detail);
+        Assert.Equal(["t2", "t3"], skipped.Select(o => o.Id));
+        Assert.Equal(["t1", "t4"], runner.Started);
+    }
+
+    [Fact]
+    public async Task A_dependency_cycle_that_got_past_the_request_check_does_not_hang_the_batch()
+    {
+        var runner = new ScriptedRunner();
+        var outcome = await new BatchScheduler(runner).RunAsync([Dep("a", "b"), Dep("b", "a")], Limits(), default).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.All(outcome.Tasks, t => Assert.Equal(TaskState.NotStarted, t.State));
+        Assert.Contains("can never complete", outcome.Tasks[0].Detail);
+        Assert.Empty(runner.Started);
     }
 }

@@ -22,7 +22,7 @@ hooks read the main checkout's, so don't copy it in.
 
 ## Layout
 
-`src/Chargehand` (Core) never references `src/Chargehand.Driven` (containers, egress, runner, sessions, batches, integrator); `ArchitectureTests` fails if it does (ADR 0047). Server and Cli reference both.
+`src/Chargehand` (Core) never references `src/Chargehand.Driven` (containers, egress, runner, sessions, batches, integrator); `ArchitectureTests` fails if it does (ADR 0047). `src/Chargehand.Automation` (intake) references Driven; Core and Driven never reference it. Server and Cli reference all.
 
 ## Public vs private — the rule for every file
 

@@ -35,17 +35,29 @@ public static class DrivenBatch
             }
             if (task.Goal is { Length: > 0 } goal)
             {
-                ready.Add(new ResolvedTask(task.Id, task.Ref, goal, task.MaxTurns, task.MaxMinutes, task.Size, task.BudgetUsd));
+                ready.Add(new ResolvedTask(task.Id, task.Ref, goal, task.MaxTurns, task.MaxMinutes, task.Size, task.BudgetUsd, DependsOn: task.DependsOn));
                 continue;
             }
             try
             {
-                ready.Add(new ResolvedTask(task.Id, task.Ref, await source!.ResolveAsync(task.Ref!, ct), task.MaxTurns, task.MaxMinutes, task.Size, task.BudgetUsd));
+                ready.Add(new ResolvedTask(task.Id, task.Ref, await source!.ResolveAsync(task.Ref!, ct), task.MaxTurns, task.MaxMinutes, task.Size, task.BudgetUsd, DependsOn: task.DependsOn));
             }
             catch (TaskSourceException e)
             {
                 failed.Add(new TaskOutcome(task.Id, TaskState.Failed, null, $"could not resolve '{task.Ref}': {e.Message}", ErrorCode.InvalidRequest));
             }
+        }
+        // A task cannot start from work that was never started: whatever depends on a task that did not resolve, directly or down the chain, is not started either.
+        for (var again = true; again;)
+        {
+            again = false;
+            foreach (var task in ready.Where(t => t.DependsOn is { Count: > 0 }).ToList())
+                if (task.DependsOn!.FirstOrDefault(d => failed.Any(f => f.Id == d)) is { } cause)
+                {
+                    ready.Remove(task);
+                    failed.Add(new TaskOutcome(task.Id, TaskState.NotStarted, null, $"not started: the task it depends on, '{cause}', could not be resolved", ErrorCode.InvalidRequest));
+                    again = true;
+                }
         }
         return (ready, failed);
     }

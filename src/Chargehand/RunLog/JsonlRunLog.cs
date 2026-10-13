@@ -60,14 +60,50 @@ public sealed class JsonlRunLog(string path) : IRunLog
         {
             if (query.Since is { } since && start.Started < since)
                 continue;
+            if (query.Actor is { } actor && start.Actor != actor)
+                continue;
             finished.TryGetValue(start.RunId, out var run);
             var state = run is not null ? RunStatus.StateOf(run.Result.Status) : start.OwnerAlive() ? RunState.Running : RunState.Lost;
             if (query.Status is { } wanted && wanted != state)
                 continue;
             rows.Add(new RunSummary("run-summary/v1", start.RunId, state, run?.Preset ?? start.Request.Context.Preset, start.Started, start.ParentRunId,
-                null, run?.Finished, run?.Result.Usage.Usd, ArtifactField(run?.Result, "branch", "branch"), ArtifactField(run?.Result, "pull-request", "url"), run?.Result.Error?.Code));
+                null, run?.Finished, run?.Result.Usage.Usd, ArtifactField(run?.Result, "branch", "branch"), ArtifactField(run?.Result, "pull-request", "url"), run?.Result.Error?.Code, start.Actor));
         }
         return [.. rows.OrderByDescending(r => r.StartedAt).Take(Math.Clamp(query.Limit, 1, 500))];
+    }
+
+    public async Task<ActorSpend> SpendAsync(string actor, DateTimeOffset since, CancellationToken ct)
+    {
+        var data = await ReadAllAsync(ct);
+        var starts = data.Starts.GroupBy(s => s.RunId).ToDictionary(g => g.Key, g => g.Last());
+        var finished = data.Runs.GroupBy(r => r.RunId).ToDictionary(g => g.Key, g => g.Last());
+        // A task or call under a batch is inside the batch's usage.
+        bool InBatch(StartRecord start)
+        {
+            for (var parent = start.ParentRunId; parent is not null && starts.TryGetValue(parent, out var p); parent = p.ParentRunId)
+                if (p.Request.Driven is not null)
+                    return true;
+            return false;
+        }
+        decimal usd = 0;
+        long tokens = 0;
+        foreach (var start in starts.Values.Where(s => s.Actor == actor && !InBatch(s)))
+        {
+            if (finished.TryGetValue(start.RunId, out var run))
+            {
+                if (run.Finished < since)
+                    continue;
+                usd += run.Result.Usage.Usd ?? 0;
+                tokens += run.Result.Usage.Input + run.Result.Usage.Output;
+            }
+            else if (start.OwnerAlive())
+                foreach (var call in data.Calls.Where(c => c.RunId == start.RunId && c.Started >= since))
+                {
+                    usd += call.Usd ?? 0;
+                    tokens += call.Tokens is { } t ? t.Input + t.Output : 0;
+                }
+        }
+        return new(usd, tokens);
     }
 
     /// <summary>A string member of a result artifact's inline JSON (the branch artifact's <c>branch</c>, the pull request's <c>url</c>); null when there is none.</summary>

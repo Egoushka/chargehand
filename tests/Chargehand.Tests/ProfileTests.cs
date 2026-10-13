@@ -94,6 +94,17 @@ public class ProfileTests
     }
 
     [Fact]
+    public void Driven_planning_is_off_unless_the_profile_turns_it_on_and_defaults_to_the_cheap_preset()
+    {
+        using var dir = new TempDir();
+        Assert.Null(Profile.Load(dir.Write("none.json", """{"schema":"profile/v1","driven":{}}""")).Driven!.Planning);
+        Assert.Equal(new DrivenPlanning(true, "cheap"), Profile.Load(dir.Write("on.json", """{"schema":"profile/v1","driven":{"planning":{"enabled":true}}}""")).Driven!.Planning);
+        Assert.Equal(new DrivenPlanning(false, "review"), Profile.Load(dir.Write("preset.json", """{"schema":"profile/v1","driven":{"planning":{"preset":"review"}}}""")).Driven!.Planning);
+        var empty = dir.Write("empty.json", """{"schema":"profile/v1","driven":{"planning":{"preset":" "}}}""");
+        Assert.Equal(ErrorCode.InvalidRequest, Assert.Throws<ChargehandException>(() => Profile.Load(empty)).Code);
+    }
+
+    [Fact]
     public void Default_worker_root_is_outside_home()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
