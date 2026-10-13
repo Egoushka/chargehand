@@ -5,6 +5,9 @@ using System.Text.RegularExpressions;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Runtime;
@@ -93,7 +96,7 @@ public sealed record Profile(
         profile.Driven?.Services?.Validate(profile.Driven.Images);
         profile.Driven?.Forge?.Validate();
         profile.Driven?.ValidateRunners();
-        profile.Automation?.Validate(profile.Driven);
+        profile.Automation?.Validate(profile.Driven?.Enabled == true, profile.Driven?.Integrator);
         return profile;
     }
 
@@ -349,19 +352,6 @@ public sealed record DrivenLearning(bool Retro = false, string RetroPreset = "ch
     }
 }
 
-/// <summary>The planning step before a batch (ADR 0049): one read-only run through the orchestrator's own pipeline, on a cheap preset, so no new model client or credential is involved.</summary>
-/// <param name="Enabled">Plan every batch; a request's <c>driven.plan</c> overrides it either way. Off by default.</param>
-/// <param name="Preset">The preset the run uses; it must be read-only. Default <c>cheap</c>.</param>
-public sealed record DrivenPlanning(bool Enabled = false, string Preset = "cheap")
-{
-    /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
-    internal void Validate()
-    {
-        if (string.IsNullOrWhiteSpace(Preset))
-            throw new ChargehandException(ErrorCode.InvalidRequest, "driven.planning: preset must not be empty", "Fix driven.planning in the profile; docs/guide/driven.md lists the keys.");
-    }
-}
-
 /// <summary>When the host has room for another session (ADR 0045). A task starts only if available memory minus <c>ReserveMb</c> covers its memory request, the working set
 /// that sessions of its repository have measured (not the container's limit), and memory pressure is low; a running task is never stopped for it.</summary>
 /// <param name="ReserveMb">Memory left for everything else on the host.</param>
@@ -481,12 +471,6 @@ public sealed record DrivenNetwork(IReadOnlyList<string>? Allow = null, string? 
 
 /// <summary>The runner service that holds the container engine's socket; null means the server calls the engine itself. One runner, named <see cref="DrivenSettings.DefaultRunnerName"/>: <c>driven.runners</c> (ADR 0058) lists several.</summary>
 public sealed record DrivenRunner(string Url, string ApiKeySecret);
-
-/// <summary>How a tracker item id becomes a goal (ADR 0039): call <c>Tool</c> on <c>Server</c> (a key of <c>mcp_servers</c>) with <c>{ref}</c> in
-/// <c>Arguments</c> replaced by the id, then read the goal's title and body from the JSON answer by dotted path.</summary>
-/// <param name="Title">Dotted property names leading to the title string.</param>
-/// <param name="Body">The same for the description; null for a title-only goal.</param>
-public sealed record DrivenTaskSource(string Server, string Tool, IReadOnlyDictionary<string, JsonElement> Arguments, string Title, string? Body = null);
 
 
 /// <summary>

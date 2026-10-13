@@ -13,6 +13,7 @@ public class ProfileCompatTests
     [InlineData("profiles/example.json")]
     [InlineData("profiles/opencode.example.json")]
     [InlineData("tests/Chargehand.Tests/ProfileCompat/inputs/full.json")]
+    [InlineData("tests/Chargehand.Tests/ProfileCompat/inputs/intake.json")]
     public void A_profile_loads_as_its_snapshot(string profile)
     {
         var loaded = JsonSerializer.Serialize(Profile.Load(Repo.Path(profile.Split('/'))), Snapshot);
