@@ -123,6 +123,8 @@ export interface LearnGroup {
   repository: string;
   size_class: string;
   tasks: number;
+  /** How many of the tasks have a known spend; the percentiles are over these. */
+  spend_known?: number;
   completion_rate: number;
   partial_rate: number;
   spend_median_usd: number | null;

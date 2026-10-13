@@ -11,6 +11,7 @@ import { Overview } from './screens/overview/Overview';
 import { Placeholder } from './screens/Placeholder';
 import { RunDetail } from './screens/run/RunDetail';
 import { Runs } from './screens/runs/Runs';
+import { Start } from './screens/start/Start';
 import { Root } from './shell/Root';
 import { SCREENS, type ScreenPath } from './shell/screens';
 
@@ -34,7 +35,7 @@ const routeTree = rootRoute.addChildren([
   child('runs', Runs),
   child('runs/$runId', RunDetail),
   child('needs-you', NeedsYou),
-  child('new', placeholder('/new')),
+  child('new', Start),
   child('analytics', placeholder('/analytics')),
   child('learning', placeholder('/learning')),
   child('intake', placeholder('/intake')),
