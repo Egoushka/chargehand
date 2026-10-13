@@ -117,15 +117,15 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             return done;
         var resumed = entry is { Phase: TaskPhase.Started or TaskPhase.Finished, RunId: not null } ? entry : null;
         // A session start the restart cut short runs again under the run id it was given: its step adopts or removes what the cut attempt left, and its finished steps are not repeated.
-        var cut = resumed is { Phase: TaskPhase.Started } && await StartCutAsync(task.Id, resumed.RunId!, ct) ? resumed : null;
-        var restartSeed = cut is { Continuation: > 0, Runs: { Count: > 1 } runsSoFar } ? await RestoreBundleAsync(runsSoFar[^2], ct) : null;
-        if (cut is { Continuation: 0 })
+        var interrupted = resumed is { Phase: TaskPhase.Started } && await StartCutAsync(task.Id, resumed.RunId!, ct) ? resumed : null;
+        var restartSeed = interrupted is { Continuation: > 0, Runs: { Count: > 1 } runsSoFar } ? await RestoreBundleAsync(runsSoFar[^2], ct) : null;
+        if (interrupted is { Continuation: 0 })
             // A first session starts as it did the first time, under the same run id and branch.
             resumed = null;
         else if (restartSeed is null)
             // A continuation whose seed is gone is handled as any other begun task.
-            cut = null;
-        if (cut is null && resumed is not null && await GoneWithoutOutputAsync(resumed, ct))
+            interrupted = null;
+        if (interrupted is null && resumed is not null && await GoneWithoutOutputAsync(resumed, ct))
         {
             // Nothing to take up. A continuation that never started is started again from the previous session's bundle (ADR 0044); any other task begins again
             // under a new run id and branch. The old attempt's leftovers are cleared either way.
@@ -135,9 +135,9 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 resumed = null;
         }
         var attach = resumed is not null && restartSeed is null;
-        var runId = resumed?.RunId ?? cut?.RunId ?? Orchestrator.NewRunId();
+        var runId = resumed?.RunId ?? interrupted?.RunId ?? Orchestrator.NewRunId();
         var branch = resumed?.Branch ?? task.From?.Kept?.Branch ?? task.From?.Pushed?.Branch ?? $"chargehand/{runId}";
-        var started = resumed?.Started ?? cut?.Started ?? DateTimeOffset.UtcNow;
+        var started = resumed?.Started ?? interrupted?.Started ?? DateTimeOffset.UtcNow;
         var preset = settings.Preset;
         var maxTurns = task.MaxTurns ?? preset.MaxTurns;
         var maxMinutes = task.MaxMinutes ?? preset.MaxMinutes;
@@ -145,7 +145,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         var continuation = resumed?.Continuation ?? 0;
         var prior = resumed?.Prior;
         List<string> runs = [.. resumed?.Runs ?? [runId]];
-        if (restartSeed is not null && cut is null)
+        if (restartSeed is not null && interrupted is null)
         {
             // The same session again under a new run id: the name of the one that never started is not reused.
             runId = Orchestrator.NewRunId();

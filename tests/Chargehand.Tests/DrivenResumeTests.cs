@@ -150,6 +150,73 @@ public class DrivenResumeTests
             Assert.Equal(steps.Count, await RunAll(journal, steps));
     }
 
+    /// <summary>t1 handed over, then t2's session start is cut after docker made its container and before it started it, as the server stops (ADR 0061). Its workspace and task file were done.</summary>
+    private static async Task<(BatchState State, string Cut)> CutMidStart(DrivenRunTests.Rig rig)
+    {
+        using var stop = new CancellationTokenSource();
+        rig.Engine.OnStart = n =>
+        {
+            if (n != 2)
+                return null;
+            rig.Engine.Created.Add($"chargehand-{rig.Engine.Started[1].RunId}");
+            stop.Cancel();
+            return new OperationCanceledException(stop.Token);
+        };
+        await rig.Run.RunAsync(Request("one", "two", "three"), BatchId, Token, stop.Token, null, () => false);
+        rig.Engine.OnStart = null;
+
+        var state = Assert.Single(await rig.Restart().UnfinishedAsync(default));
+        var cut = state.Tasks[1].RunId!;
+        Assert.Equal([TaskPhase.HandedOver, TaskPhase.Started, TaskPhase.Pending], state.Tasks.Select(t => t.Phase));
+        Assert.Equal(rig.Engine.Started[1].RunId, cut);
+        using (var journal = await DrivenJournal.OpenAsync(rig.StateDirectory))
+            Assert.Equal([StepKey.Session(BatchId, "t2", cut)], await journal.UnfinishedAsync());
+        return (state, cut);
+    }
+
+    [Fact]
+    public async Task A_session_start_cut_after_the_container_was_made_starts_again_under_the_same_run_id_without_preparing_again()
+    {
+        using var rig = new DrivenRunTests.Rig(durable: true);
+        var (state, cut) = await CutMidStart(rig);
+
+        var result = await rig.Run.RunAsync(state.Request, state.RunId, Token, default, null, () => false, state);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal([("t1", "completed"), ("t2", "completed"), ("t3", "completed")], Tasks(result).Rows);
+        // The made container was removed by its name, then started again under the same run id: t2 has one run, one branch and one run record.
+        Assert.Equal([state.Tasks[0].RunId, cut, cut], rig.Engine.Started.Take(3).Select(s => s.RunId));
+        Assert.Equal(4, rig.Engine.Started.Count);
+        Assert.Empty(rig.Engine.Created);
+        Assert.True(rig.Engine.Calls.IndexOf($"rm chargehand-{cut}") < rig.Engine.Calls.LastIndexOf($"start {cut}"));
+        Assert.Equal($"chargehand/{cut}", rig.Handover.Inputs[1].Branch);
+        Assert.NotNull((await rig.Log.ReadAsync(cut, default)).Run);
+        // The workspace and the task file finished before the cut, so they are not done again.
+        Assert.Single(rig.Engine.Calls, c => c.StartsWith($"prepare {cut} ", StringComparison.Ordinal));
+        Assert.Single(rig.Volumes.Tasks, t => t.RunId == cut);
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(0)]
+    public async Task A_session_start_cut_after_the_container_started_takes_that_container_up(int runFor)
+    {
+        using var rig = new DrivenRunTests.Rig(durable: true);
+        var (state, cut) = await CutMidStart(rig);
+        // Docker started it after all; it still runs (2), or it ended and left its outcome (0).
+        rig.Engine.Created.Clear();
+        rig.Engine.RunFor = runFor;
+
+        var result = await rig.Run.RunAsync(state.Request, state.RunId, Token, default, null, () => false, state);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal(3, rig.Engine.Started.Count);
+        Assert.Equal([state.Tasks[0].RunId, cut], rig.Engine.Started.Take(2).Select(s => s.RunId));
+        Assert.NotEqual(cut, rig.Engine.Started[2].RunId);
+        Assert.Equal($"chargehand/{cut}", rig.Handover.Inputs[1].Branch);
+        Assert.Single(rig.Engine.Calls, c => c.StartsWith($"prepare {cut} ", StringComparison.Ordinal));
+    }
+
     private static async Task<int> RunAll(DrivenJournal journal, IEnumerable<StepKey> keys)
     {
         var ran = 0;
