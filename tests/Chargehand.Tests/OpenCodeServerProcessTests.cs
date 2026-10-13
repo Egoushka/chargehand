@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 using Chargehand.OpenCode;
 
 namespace Chargehand.Tests;

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Chargehand.Containers;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
 namespace Chargehand.Tests;
 

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
 namespace Chargehand.Driven;
 

@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using Chargehand.Containers;
 using Chargehand.Driven;
+using Chargehand.Kernel;
 using Chargehand.Runner;
 using Chargehand.Server;
 

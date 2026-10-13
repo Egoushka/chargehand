@@ -4,4 +4,8 @@
     <Description>Types every module and host shares: build info, host health. Stays a few hundred lines; generic code goes to the kit.</Description>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
+  </ItemGroup>
+
 </Project>

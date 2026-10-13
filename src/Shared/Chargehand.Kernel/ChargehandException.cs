@@ -1,8 +1,7 @@
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
-using Chargehand.Kernel;
 
-namespace Chargehand;
+namespace Chargehand.Kernel;
 
 /// <summary>A failure whose cause is known; a failed result carries its code in result/v1's error (ADR 0022).</summary>
 /// <param name="action">What the user or client should do about it, e.g. the command that starts the runtime.</param>

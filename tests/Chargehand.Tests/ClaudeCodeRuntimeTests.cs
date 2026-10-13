@@ -3,6 +3,7 @@ using System.Text.Json;
 using Chargehand.ClaudeCode;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Nodes;
 using Chargehand.Runtime;

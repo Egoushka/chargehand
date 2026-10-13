@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Chargehand.Config;
+using Chargehand.Kernel;
 using Chargehand.Modules.Memory.Api;
 using ModelContextProtocol.Protocol;
 

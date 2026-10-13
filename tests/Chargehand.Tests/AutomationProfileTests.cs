@@ -2,6 +2,7 @@ using System.Text.Json;
 using Chargehand.Automation;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
 namespace Chargehand.Tests;
 

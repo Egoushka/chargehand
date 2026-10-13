@@ -4,6 +4,7 @@ using System.Text.Json;
 using Chargehand.Bench;
 using Chargehand.Containers;
 using Chargehand.Driven;
+using Chargehand.Kernel;
 
 namespace Chargehand.Tests;
 
