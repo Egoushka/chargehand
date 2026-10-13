@@ -1,36 +1,10 @@
-import { join } from 'node:path';
-import AxeBuilder from '@axe-core/playwright';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { SIZES, settle, shot, sidewaysScroll, violations } from './looks.ts';
 import { listenForViolations, mockApi, signIn, watch } from './mock.ts';
 
 // The shell, the Overview and Needs you, at a desktop and a phone width, in the dark and the light theme. Each look also passes axe
 // with no serious or critical violation, and none of them may log an error, break the page's policy or call another origin.
 // CONSOLE_SHOTS=<dir> also saves a screenshot of each look there.
-
-const SIZES = {
-  desktop: { width: 1280, height: 900 },
-  phone: { width: 375, height: 812 },
-} as const;
-
-const shot = async (page: Page, name: string) => {
-  if (process.env.CONSOLE_SHOTS)
-    await page.screenshot({ path: join(process.env.CONSOLE_SHOTS, `${name}.png`), fullPage: true });
-};
-
-/** Waits until the page has nothing left to load, so axe reads a settled page. */
-const settle = async (page: Page) => {
-  await page.waitForLoadState('networkidle');
-  await page.evaluate(() => document.fonts?.ready);
-};
-
-async function violations(page: Page, include?: string) {
-  const builder = new AxeBuilder({ page });
-  if (include) builder.include(include);
-  const { violations: found } = await builder.analyze();
-  return found
-    .filter((v) => v.impact === 'serious' || v.impact === 'critical')
-    .map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(' ')).join('; ')}`);
-}
 
 for (const [device, viewport] of Object.entries(SIZES)) {
   for (const scheme of ['dark', 'light'] as const) {
@@ -57,14 +31,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         await settle(page);
 
         expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe(scheme);
-        const overflow = await page.evaluate(() => {
-          const scroller = document.querySelector<HTMLElement>('.main') ?? document.documentElement;
-          return (
-            Math.max(document.documentElement.scrollWidth, scroller.scrollWidth) -
-            document.documentElement.clientWidth
-          );
-        });
-        expect(overflow).toBeLessThanOrEqual(0);
+        expect(await sidewaysScroll(page)).toBeLessThanOrEqual(0);
 
         if (device === 'phone') {
           const bar = page.getByRole('navigation', { name: 'Main' });
