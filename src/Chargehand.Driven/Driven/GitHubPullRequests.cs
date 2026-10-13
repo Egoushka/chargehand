@@ -33,7 +33,7 @@ public sealed record PullRequestRef(string Url, int Number, bool Reused = false)
 
 public sealed class PullRequestException(string message) : Exception(message);
 
-/// <summary>Opens pull requests or merge requests, as a draft, and edits the title and body of one it opened (ADR 0039). It cannot merge, approve, close or change whether a request is a draft.</summary>
+/// <summary>Opens pull requests or merge requests, as a draft, edits the title and body of one it opened (ADR 0039), and finds an open one by its branch. It cannot merge, approve, close or change whether a request is a draft.</summary>
 public interface IPullRequests
 {
     /// <exception cref="PullRequestException">The host refused, or could not be reached.</exception>
@@ -41,9 +41,12 @@ public interface IPullRequests
 
     /// <exception cref="PullRequestException">The host refused, or could not be reached.</exception>
     Task EditAsync(RemoteRepository repo, int number, string title, string body, CancellationToken ct);
+
+    /// <summary>The open request whose head is <paramref name="head"/>; null when there is none or the host did not answer.</summary>
+    Task<PullRequestRef?> FindByHeadAsync(RemoteRepository repo, string head, CancellationToken ct);
 }
 
-/// <summary>What chargehand does on GitHub with the push credential: <c>POST /repos/{owner}/{repo}/pulls</c> with <c>draft: true</c>, and <c>PATCH</c> of the title and body of that pull request. This class has no
+/// <summary>What chargehand does on GitHub with the push credential: <c>POST /repos/{owner}/{repo}/pulls</c> with <c>draft: true</c>, and <c>PATCH</c> of the title and body of that pull request, and a <c>GET</c> of the open one for a branch. This class has no
 /// method that merges, enables auto-merge, approves or closes; <c>GitHubPullRequestsTests</c> fails if one appears.</summary>
 public sealed class GitHubPullRequests(HttpClient http, string token) : IPullRequests
 {
@@ -71,7 +74,7 @@ public sealed class GitHubPullRequests(HttpClient http, string token) : IPullReq
             var text = await response.Content.ReadAsStringAsync(ct);
             // A handover repeated after a restart finds the pull request it opened before: return that one.
             if (response.StatusCode == HttpStatusCode.UnprocessableEntity && text.Contains("already exists", StringComparison.OrdinalIgnoreCase)
-                && await FindOpenAsync(repo, head, ct) is { } existing)
+                && await FindByHeadAsync(repo, head, ct) is { } existing)
                 return existing with { Reused = true };
             if (!response.IsSuccessStatusCode)
                 throw new PullRequestException(Redact($"GitHub answered {(int)response.StatusCode}: {Message(text)}"));
@@ -109,7 +112,7 @@ public sealed class GitHubPullRequests(HttpClient http, string token) : IPullReq
         }
     }
 
-    private async Task<PullRequestRef?> FindOpenAsync(RemoteRepository repo, string head, CancellationToken ct)
+    public async Task<PullRequestRef?> FindByHeadAsync(RemoteRepository repo, string head, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get,
             $"repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Name)}/pulls?head={Uri.EscapeDataString($"{repo.Owner}:{head}")}&state=open");

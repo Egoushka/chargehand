@@ -40,7 +40,7 @@ public class HandoverTests
     }
 
     /// <summary>A source checkout, a session workspace with a branch and a bundle in an output directory, and a bare remote that refuses the default branch.</summary>
-    private sealed class Fixture : IDisposable
+    internal sealed class Fixture : IDisposable
     {
         public TempDir Dir { get; } = new();
         public string Source => Path.Combine(Dir.Path, "source");
@@ -110,7 +110,7 @@ public class HandoverTests
         public void Dispose() => Dir.Dispose();
     }
 
-    private sealed class FakeVerifier(int exit = 0, Exception? failure = null) : IBranchVerifier
+    internal sealed class FakeVerifier(int exit = 0, Exception? failure = null) : IBranchVerifier
     {
         public List<BranchVerification> Calls { get; } = [];
 
@@ -140,6 +140,8 @@ public class HandoverTests
             Edited.Add((number, title, body));
             return editFailure is null ? Task.CompletedTask : throw editFailure;
         }
+
+        public Task<PullRequestRef?> FindByHeadAsync(RemoteRepository repo, string head, CancellationToken ct) => Task.FromResult<PullRequestRef?>(null);
     }
 
     [Fact]

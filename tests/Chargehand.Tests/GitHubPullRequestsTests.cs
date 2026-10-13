@@ -63,11 +63,11 @@ public class GitHubPullRequestsTests
     }
 
     [Fact]
-    public void The_client_can_open_a_draft_and_edit_its_title_and_nothing_else()
+    public void The_client_can_open_a_draft_edit_its_title_and_find_one_by_branch_and_nothing_else()
     {
         var methods = typeof(GitHubPullRequests).GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly)
             .Select(m => m.Name).ToList();
-        Assert.Equal(["CreateDraftAsync", "EditAsync"], methods);
+        Assert.Equal(["CreateDraftAsync", "EditAsync", "FindByHeadAsync"], methods);
         var all = typeof(GitHubPullRequests).Assembly.GetTypes().Where(t => t.Name.Contains("PullRequest", StringComparison.Ordinal)).SelectMany(t => t.GetMethods()).Select(m => m.Name);
         Assert.DoesNotContain(all, n => n.Contains("Merge", StringComparison.OrdinalIgnoreCase) || n.Contains("AutoMerge", StringComparison.OrdinalIgnoreCase));
     }

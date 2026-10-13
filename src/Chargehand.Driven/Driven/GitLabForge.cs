@@ -41,7 +41,7 @@ public sealed partial class GitLabForge(HttpClient http, string token) : IForge
         {
             var text = await response.Content.ReadAsStringAsync(ct);
             // A handover repeated after a restart finds the merge request it opened before: return that one.
-            if (response.StatusCode == HttpStatusCode.Conflict && text.Contains("already exists", StringComparison.OrdinalIgnoreCase) && await FindOpenAsync(repo, head, ct) is { } existing)
+            if (response.StatusCode == HttpStatusCode.Conflict && text.Contains("already exists", StringComparison.OrdinalIgnoreCase) && await FindByHeadAsync(repo, head, ct) is { } existing)
                 return existing with { Reused = true };
             if (!response.IsSuccessStatusCode)
                 throw new PullRequestException(Redact($"GitLab answered {(int)response.StatusCode}: {Message(text)}"));
@@ -187,7 +187,7 @@ public sealed partial class GitLabForge(HttpClient http, string token) : IForge
             _ => "BLOCKED",
         };
 
-    private async Task<PullRequestRef?> FindOpenAsync(RemoteRepository repo, string head, CancellationToken ct)
+    public async Task<PullRequestRef?> FindByHeadAsync(RemoteRepository repo, string head, CancellationToken ct)
     {
         try
         {

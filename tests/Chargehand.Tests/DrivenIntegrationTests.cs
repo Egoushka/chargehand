@@ -231,6 +231,8 @@ public class DrivenIntegrationTests
 
         public Task EditAsync(RemoteRepository repo, int number, string title, string body, CancellationToken ct) => throw new NotSupportedException("the handover is faked");
 
+        public Task<PullRequestRef?> FindByHeadAsync(RemoteRepository repo, string head, CancellationToken ct) => throw new NotSupportedException("the handover is faked");
+
         public Task<PrSnapshot> GetAsync(RemoteRepository repository, int number, CancellationToken ct) => inner.GetAsync(repository, number, ct);
 
         public Task<int> BehindByAsync(RemoteRepository repository, string baseBranch, string branch, CancellationToken ct) => inner.BehindByAsync(repository, baseBranch, branch, ct);
