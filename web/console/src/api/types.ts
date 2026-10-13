@@ -1,0 +1,139 @@
+// The server's JSON, as far as the console reads it. Field names follow schemas/*/v1 (snake_case, as sent).
+
+export type RunState =
+  | 'queued'
+  | 'running'
+  | 'lost'
+  | 'completed'
+  | 'needs_input'
+  | 'failed'
+  | 'denied';
+
+export const RUN_STATES: readonly RunState[] = [
+  'queued',
+  'running',
+  'lost',
+  'completed',
+  'needs_input',
+  'failed',
+  'denied',
+];
+
+/** run-summary/v1: one row of GET /v1/runs. */
+export interface RunSummary {
+  contract_version: 'run-summary/v1';
+  run_id: string;
+  parent_run_id?: string | null;
+  task_ref?: string | null;
+  preset: string;
+  status: RunState;
+  started_at: string;
+  finished_at?: string | null;
+  usd?: number | null;
+  branch?: string | null;
+  pr_url?: string | null;
+  error_code?: string | null;
+  actor?: string | null;
+  kind?: 'single' | 'batch';
+  repository?: string | null;
+  commit?: string | null;
+  tokens?: number | null;
+}
+
+export interface RunList {
+  runs: RunSummary[];
+}
+
+export interface RunFilter {
+  status?: RunState;
+  kind?: 'single' | 'batch';
+  repository?: string;
+  actor?: string;
+  limit?: number;
+}
+
+/** run-status/v1: a run that has not finished (HTTP 202 and 410), and the data of each event on /v1/runs/{id}/events. */
+export interface RunStatus {
+  contract_version?: 'run-status/v1';
+  run_id: string;
+  status: RunState;
+  event?: string;
+  at?: string;
+  detail?: string;
+  task_id?: string;
+  node_id?: string;
+  branch?: string;
+  pr_url?: string;
+  actor?: string;
+  [field: string]: unknown;
+}
+
+/** result/v1, the part the console reads so far. */
+export interface RunResult {
+  contract_version: 'result/v1';
+  task_id: string;
+  status: Exclude<RunState, 'queued' | 'running' | 'lost'>;
+  summary: string;
+  confidence: number;
+  usage: {
+    input: number;
+    output: number;
+    cache_read: number;
+    cache_write: number;
+    usd: number | null;
+  };
+  actor?: string;
+  error?: { code: string; message: string; retryable: boolean };
+  [field: string]: unknown;
+}
+
+/** What GET /v1/runs/{id} says: the result (200), or the status of a run that is running (202) or lost (410). */
+export type RunReply =
+  | { state: 'finished'; result: RunResult }
+  | { state: 'running'; status: RunStatus }
+  | { state: 'lost'; status: RunStatus };
+
+export interface WindowSpend {
+  usd: number;
+  tokens: number;
+  resets_at: string;
+}
+
+/** GET /v1/accounts/me. A limit that is absent is no cap. */
+export interface Me {
+  name: string;
+  owner: boolean;
+  driven: boolean;
+  repositories?: string[] | null;
+  limits: {
+    max_usd_per_day?: number;
+    max_usd_per_month?: number;
+    max_tokens_per_day?: number;
+    max_tokens_per_month?: number;
+    max_concurrent_runs?: number;
+  };
+  spend: { day: WindowSpend; month: WindowSpend };
+  unfinished_runs: number;
+  halted: boolean;
+  presets: string[];
+}
+
+/** GET /v1/learn. */
+export interface LearnGroup {
+  repository: string;
+  size_class: string;
+  tasks: number;
+  completion_rate: number;
+  partial_rate: number;
+  spend_median_usd: number | null;
+  spend_p80_usd: number | null;
+  checkpoint_rate: number;
+  prs: { total: number };
+  merged_unchanged_rate: number | null;
+}
+
+export interface LearnReport {
+  since: string | null;
+  tasks: number;
+  groups: LearnGroup[];
+}

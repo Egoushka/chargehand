@@ -1,6 +1,6 @@
 # 0054. A web UI served by the server, with the key in sessionStorage
 
-- Status: accepted
+- Status: accepted; its "no build step, no third-party code" is amended by 0056 for the operator console at `/console/`, which replaces this page when it reaches parity
 - Date: 2026-10-13
 
 ## Context

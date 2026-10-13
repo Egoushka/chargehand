@@ -1,11 +1,13 @@
 ---
 title: "Web UI"
-description: "A page at /ui/ that lists runs, streams a run's events, shows results with linked citations, starts and cancels runs and shows spend against caps: how to turn it on, what each screen does, and the security trade-off of keeping the key in the tab."
+description: "A page at /ui/ that lists runs, streams a run's events, shows results with linked citations, starts and cancels runs and shows spend against caps, and the operator console at /console/ that will replace it: how to turn them on, what each screen does, how the console is built, and the security trade-off of keeping the key in the tab."
 order: 5
 section: "Guides"
 ---
 
 The server can serve a small web page at `/ui/` ([ADR 0054](../adr/0054-web-ui.md)). It is for watching and for the few actions you would otherwise do with `curl`. It calls the routes in [the server guide](server.md) and nothing else, so what an account may see and do there is what it may do over HTTP.
+
+A new operator console is being built at `/console/` to replace it ([ADR 0056](../adr/0056-operator-console.md), [below](#the-operator-console-console)). It has only the shell so far; everything on this page up to that section describes `/ui/`, which stays until the console reaches parity.
 
 ## Turn it on
 
@@ -15,7 +17,7 @@ It is off unless the profile asks:
 { "http": { "port": 4300, "api_key_secret": "chargehand-api-key", "ui": true } }
 ```
 
-Restart `chargehand serve`; its start line then ends `UI /ui/`. Open `http://127.0.0.1:4300/ui/` (the same `allowed_hosts` rules apply as for the API). The page's files are public and load without a key; every call the page makes carries one.
+Restart `chargehand serve`; its start line then ends `UI /ui/, console /console/` (the one setting turns on both). Open `http://127.0.0.1:4300/ui/` (the same `allowed_hosts` rules apply as for the API). The page's files are public and load without a key; every call the page makes carries one.
 
 ## Sign in
 
@@ -57,6 +59,39 @@ The result shows the summary, the error and what to do about it, confidence, usa
 - `GET /v1/runs` accepts `kind=single|batch`, `repository=<exact path>`, `run_id=` and, for the owner, `actor=`; an account always gets its own runs.
 - `run-summary/v1` gains optional `kind`, `repository`, `commit` and `tokens` (additive).
 
-## Not tested in CI
+## Not tested in CI (`/ui/`)
 
 The tests cover what a .NET test can see: the files are served only when `http.ui` is on, without a key, with the policy and the other headers; every other route still needs a key; the embedded files are the folder's; no file names another origin, builds markup from a string, carries inline script or style, or calls `fetch` outside `api.js`; `/v1/accounts/me` and the new list filters. The JavaScript itself was exercised by hand in a browser against a server with seeded runs; nothing runs it automatically.
+
+## The operator console (`/console/`)
+
+The console is a single-page app in `web/console/` built with Vite: React and TypeScript, TanStack Router and Query, Vitest, Playwright and Biome ([ADR 0056](../adr/0056-operator-console.md) says why a build step now, and why these). The server embeds the build and serves it at `/console/` under the same `http.ui` setting as `/ui/`, with the same rules: the files are public and need no key; you paste an API key, it stays in `sessionStorage` for the tab and goes out as the bearer header; every response carries the policy `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`, so no inline script or style and no other origin. Signing out, or a `401`, drops the key and everything fetched with it.
+
+Files under `assets/` carry a content hash and are cached for a year; `index.html` is never cached. A path under `/console/` that is not a file and has no file extension (`/console/runs/<id>`) gets `index.html`, so a reload or a pasted link opens the same screen; a missing file is a `404`.
+
+**What is there now.** The shell (navigation, who is signed in with today's spend, halt and resume for the owner, a banner while the server is halted), sign-in, the runs table from `GET /v1/runs`, a run's page with its status, summary and live events (`GET /v1/runs/{id}/events` over `fetch`), and a placeholder for each screen still to come: overview, needs you, new run, analytics, learning, intake, repositories, accounts and system. The typed client also covers `/v1/accounts/me` and `/v1/learn`. The screens of `/ui/` move over one by one; `/ui/` goes when the console has them all.
+
+### Build and develop
+
+Needs Node 24 (`web/console/.nvmrc`; `engines` allows newer).
+
+```bash
+cd web/console
+npm ci --ignore-scripts      # from the lockfile, no install scripts (.npmrc says the same)
+npm run dev                  # Vite on :5173; /v1 is proxied to CHARGEHAND_URL (default http://127.0.0.1:4300)
+npm run lint                 # Biome: lint and format check (npm run format fixes)
+npm run typecheck            # tsc --noEmit
+npm test                     # Vitest
+npm run build                # vite build, then scripts/verify-dist.mjs
+npm run test:e2e             # Playwright smoke test against `vite preview` (needs: npx playwright install chromium)
+```
+
+The dev server has no Content-Security-Policy (Vite's hot reload needs inline script); `vite preview` and the server do. After `npm run build`, `dotnet build` embeds `web/console/dist`. **A build without it still works:** the .NET tests do not need Node, and `/console/` answers `503` with a short page that says the console is not built. `scripts/check.sh` runs the web steps when Node is installed, and prints that it skipped them when it is not (the smoke test too, when Chromium for Playwright is missing); CI always runs them.
+
+### Supply chain
+
+Versions are exact in `package.json`, the lockfile is committed, installs run with `--ignore-scripts`, and `.npmrc` sets `min-release-age=14`, so no package younger than 14 days is resolved; Dependabot proposes updates weekly (minor and patch together) with a 14-day cooldown. There is no CDN: every script, style and font comes from the build. The Docker image builds the console in its own Node stage, so Node and the packages are not in the image.
+
+### How it is tested
+
+Vitest covers the API client (the bearer header, a `401` dropping the key, error bodies), the server-sent-events parser, the key store and the screens against a mocked `fetch`. The Playwright smoke test serves the built app with `vite preview`, which sends the server's policy, mocks the API in the browser and checks that signing in, the runs table, a run with live events, a reload on a deep link and every planned screen work with no console error, no policy violation and no request to another origin. The .NET tests check what the server does with the build: served only when `http.ui` is on, without a key, with the policy and the other headers, hashed assets cached and the page not, client routes falling back to `index.html`, a missing asset a `404`, the embedded files equal to `dist`, and that `web/console/csp.ts` holds the same policy.

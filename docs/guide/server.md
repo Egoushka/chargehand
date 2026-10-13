@@ -109,7 +109,7 @@ In a batch the key reaches the session container as `ANTHROPIC_API_KEY` (`creden
 | `http.allowed_hosts` | none | host names accepted besides `localhost` and `127.0.0.1` |
 | `http.api_key_secret` | required | the secret item that holds the bearer key (the `owner`) |
 | `http.accounts` | none | named accounts with their own keys and caps, see above |
-| `http.ui` | `false` | serve the [web UI](web-ui.md) at `/ui/` |
+| `http.ui` | `false` | serve the [web UI](web-ui.md) at `/ui/` and the [operator console](web-ui.md#the-operator-console-console) at `/console/` |
 
 The server compares each request's `Host` header with `localhost`, `127.0.0.1` and `allowed_hosts`, and answers any other host with `400`. That check guards against DNS rebinding. When `listen` is not loopback, the server refuses to start unless `allowed_hosts` names at least one host, because beyond loopback the check must name the server. Bind a private network only ([ADR 0024](../adr/0024-server-on-a-private-network-and-release-images.md)). The server sends no CORS headers and caps request bodies at 1 MB.
 
@@ -129,9 +129,9 @@ With no `repository_roots`, `serve` allows repositories under `worker_root` only
 | `GET /v1/runs/{id}` | `202` with `run-status/v1` while queued or running; `200` with `result/v1` once finished; `410` when the process that ran it ended first; `404` for an unknown id |
 | `GET /v1/runs/{id}/events` | server-sent events for the run; `404` for an unknown id |
 | `/v1/mcp` | MCP over Streamable HTTP, see [the MCP page](mcp.md) |
-| `/ui/` | the [web UI](web-ui.md): static files, served only when `http.ui` is `true`, without a key (the page calls the routes above with one) |
+| `/ui/`, `/console/` | the [web UI](web-ui.md) and the [operator console](web-ui.md#the-operator-console-console): static files, served only when `http.ui` is `true`, without a key (the page calls the routes above with one) |
 
-Every route answers `401` without a valid key (the [web UI](web-ui.md)'s static files under `/ui/`, when it is on, are the one exception) and `400` for a host it does not accept. With accounts, the run routes answer for the caller's own runs (see [accounts](#accounts-and-named-keys)). [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs) covers `200`, `202`, `400`, `401`, `404`, `410` and `429` on these routes.
+Every route answers `401` without a valid key (the static files of the [web UI](web-ui.md) under `/ui/` and the console under `/console/`, when `http.ui` is on, are the one exception) and `400` for a host it does not accept. With accounts, the run routes answer for the caller's own runs (see [accounts](#accounts-and-named-keys)). [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs) covers `200`, `202`, `400`, `401`, `404`, `410` and `429` on these routes.
 
 ### POST /v1/runs
 

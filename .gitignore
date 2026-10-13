@@ -6,6 +6,12 @@ obj/
 .idea/
 TestResults/
 
+# Operator console (ADR 0056): installed packages and build output
+/web/console/node_modules/
+/web/console/dist/
+/web/console/test-results/
+/web/console/playwright-report/
+
 # OS / editors
 .DS_Store
 *.tmp
