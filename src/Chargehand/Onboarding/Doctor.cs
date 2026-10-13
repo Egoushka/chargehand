@@ -191,7 +191,12 @@ public static partial class Doctor
         if (profile.Opencode is { } oc)
             uses.Add((oc.PasswordSecret, "opencode.password_secret", true));
         if (profile.Http is { } http)
+        {
             uses.Add((http.ApiKeySecret, "http.api_key_secret", true));
+            foreach (var account in http.Accounts ?? [])
+                if (account.Model?.ApiKeySecret is { } accountKey)
+                    uses.Add((accountKey, $"http.accounts.{account.Name}.model.api_key_secret", true));
+        }
         if (profile.Telemetry is { } t)
         {
             uses.Add((t.PublicKeySecret, "telemetry.public_key_secret", true));

@@ -175,8 +175,8 @@ public partial class WebUiTests
     public async Task Accounts_me_says_who_the_key_is_what_it_may_do_and_what_it_has_spent()
     {
         var clock = ClockAtNow();
-        AccountSettings alice = new("alice", MaxUsdPerDay: 5m, MaxUsdPerMonth: 60m, MaxTokensPerDay: 2000, MaxConcurrentRuns: 2, Repositories: ["/srv/app"]);
-        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), accounts: [alice, new("bob")], clock: clock);
+        AccountSettings alice = new("alice", MaxUsdPerDay: 5m, MaxUsdPerMonth: 60m, MaxTokensPerDay: 2000, MaxConcurrentRuns: 2, Repositories: ["/srv/app"], AllowServerCredential: true);
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), accounts: [alice, new("bob", AllowServerCredential: true)], clock: clock);
         await Seed(s.Log, "a-today", "alice", Now.AddHours(-1), 1.25m, 300);
         await Seed(s.Log, "a-earlier-this-month", "alice", new DateTimeOffset(2026, 10, 3, 9, 0, 0, TimeSpan.Zero), 2m, 100);
         await Seed(s.Log, "a-last-month", "alice", new DateTimeOffset(2026, 9, 30, 9, 0, 0, TimeSpan.Zero), 40m, 9000);
@@ -209,7 +209,7 @@ public partial class WebUiTests
     public async Task Accounts_me_of_the_owner_has_no_caps_and_shows_the_halt_state_and_unfinished_runs()
     {
         var runtime = new ScriptedRuntime(Runs.DraftReply) { Hold = new() };
-        await using var s = await TestServer.StartAsync(runtime, accounts: [new AccountSettings("alice", MaxConcurrentRuns: 3)]);
+        await using var s = await TestServer.StartAsync(runtime, accounts: [new AccountSettings("alice", MaxConcurrentRuns: 3, AllowServerCredential: true)]);
         using var alice = s.As(s.Keys.Create("alice", null).Key);
 
         var owner = await Body(await s.Http.GetAsync("/v1/accounts/me"));
@@ -241,7 +241,7 @@ public partial class WebUiTests
     [Fact]
     public async Task The_run_list_filters_by_kind_repository_and_run_and_rows_say_what_the_ui_shows()
     {
-        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), accounts: [new AccountSettings("alice"), new AccountSettings("bob")]);
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), accounts: [new AccountSettings("alice", AllowServerCredential: true), new AccountSettings("bob", AllowServerCredential: true)]);
         var single = Runs.DraftRequest() with { Context = Runs.DraftRequest().Context with { Repository = new RepositoryRef("/srv/app", "abc1234def") } };
         var batch = Runs.DraftRequest() with { Driven = new RequestDriven([new DrivenTask("t1", Goal: "do it")]) };
         await Seed(s.Log, "r-single", "alice", Now, 0.5m, 1234, single);

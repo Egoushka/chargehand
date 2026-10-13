@@ -19,6 +19,7 @@ namespace Chargehand.Driven;
 /// <param name="HandoverFor">The handover of a batch; null: <see cref="Handover"/> with a <see cref="ContainerVerifier"/> on <see cref="Engine"/> and <see cref="PullRequestsFor"/>.</param>
 /// <param name="Integration">What the integrator does on GitHub as the App (ADR 0046); null: nothing is integrated on GitHub even if the profile has a <c>driven.integrator</c> block.</param>
 /// <param name="ForgeFor">The forge of a remote that is not on GitHub, given the API token (<c>driven.forge.token_secret</c>, else the push credential); null: such a batch is refused.</param>
+/// <param name="SupportCheckFor">The support check of a batch's claims, given the account that started it so the check's model calls use that account's credential (ADR 0053); null: no check.</param>
 /// <param name="Planner">Plans a batch before it runs (ADR 0049); null: a batch that asks for a plan reports it skipped.</param>
 /// <param name="Stacker">Makes the starting branch of a task that depends on others (ADR 0049); null: <see cref="GitStackSeeder"/>, with git on this host.</param>
 /// <param name="Retro">Writes the retro after a batch when <c>driven.learning.retro</c> is on (ADR 0045); null: such a batch reports the retro skipped.</param>
@@ -26,7 +27,7 @@ namespace Chargehand.Driven;
 /// <param name="Brancher">Fetches the pushed branch a review round continues (ADR 0051); null: <see cref="GitBranchSeeder"/>, with git on this host.</param>
 public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Workspace, ISessionVolumes Volumes, Func<PushCredential, IPullRequests> PullRequestsFor, ITaskSource? TaskSource,
     Func<RepositoryRef, string, CancellationToken, Task<DrivenCheckout>> Checkout, IEvidenceResolver Resolver, Func<string, string> Secret,
-    Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? SupportCheck = null, Func<ContainerVerifierSettings, PushCredential, IBranchHandover>? HandoverFor = null,
+    Func<string?, Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>?>? SupportCheckFor = null, Func<ContainerVerifierSettings, PushCredential, IBranchHandover>? HandoverFor = null,
     TimeSpan? Poll = null, IHostSource? Host = null, IIntegrationHost? Integration = null, Func<RemoteRepository, string, IForge>? ForgeFor = null, IBatchPlanner? Planner = null, IStackSeeder? Stacker = null,
     IBatchRetro? Retro = null, IRetroSink? RetroSink = null, IBranchSeeder? Brancher = null);
 
@@ -217,20 +218,24 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             drivenPreset = profileLimits.Apply(drivenPreset);
         var (_, kind) = Orchestrator.AnswerKind(preset);
 
-        var priced = claude.ApiKeySecret is not null;
+        // An account runs on its own key, or on the server's only where the profile lets it (ADR 0053); an API key has a dollar price, so its cap binds.
+        var own = new AccountCredentials(profile.Http?.Accounts).For(actor);
+        var priced = own is not null || claude.ApiKeySecret is not null;
         var perTaskUsd = Math.Min(kind.Budget.MaxUsd, request.Driven!.MaxUsdTotal ?? decimal.MaxValue);
         var limits = DrivenBatch.Limits(request, settings, drivenPreset, perTaskUsd, priced, _global);
         var push = settings.PushSecret is { } pushSecret ? new PushCredential(Resolve(s, pushSecret)) : throw new ChargehandException(ErrorCode.CredentialUnavailable,
             "driven.push_secret is not set, so nothing could be pushed", "Name the secret item that holds the credential which pushes non-default branches.");
         var modelEnvironment = new Dictionary<string, string>
         {
-            [priced ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN"] = Resolve(s, (priced ? claude.ApiKeySecret : claude.OauthTokenSecret)
+            [priced ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN"] = Resolve(s, own?.ApiKeySecret ?? (priced ? claude.ApiKeySecret : claude.OauthTokenSecret)
                 ?? throw new ChargehandException(ErrorCode.CredentialUnavailable, "claude_code names no credential", "Set api_key_secret or oauth_token_secret.")),
         };
 
         var forward = settings.Network?.McpForward;
         var port = forward is null ? 0 : int.Parse(forward[(forward.LastIndexOf(':') + 1)..], CultureInfo.InvariantCulture);
-        var model = DrivenModelRoute.Parse(settings.Network?.ModelUrl, priced, forward is null ? null : port);
+        // The server's gateway is for the server's credential: an account's own key goes direct to Anthropic, or to the gateway its model block names.
+        var model = own is null ? DrivenModelRoute.Parse(settings.Network?.ModelUrl, priced, forward is null ? null : port)
+            : DrivenModelRoute.Parse(own.BaseUrl, priced, forward is null ? null : port, "http.accounts[].model.base_url");
         // A subscription token without a gateway of the operator's goes only to the batch's egress container, which exchanges a per-task token for it (ADR 0039,
         // decision 9). An API key, or a key a gateway issued, stays in the session's environment: the exchange is measured on the subscription only.
         var exchange = !priced && model is null ? new ModelGatewaySpec(modelEnvironment.Values.Single(), resume?.TokenKey ?? ModelTokens.NewKey()) : null;
@@ -292,7 +297,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true || otlp is not null, otlp,
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor, RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge));
-            var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress, journal: journal, detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher);
+            var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheckFor?.Invoke(actor), sign, s.Poll, publish: progress, journal: journal, detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher);
             ran = await new BatchScheduler(runner, admission: _admission, taskMemoryMb: drivenPreset.MemoryMb).RunAsync(ready, limits, ct, o =>
             {
                 if (detaching())

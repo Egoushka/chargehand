@@ -81,7 +81,7 @@ public class LearningTests
     public async Task A_record_names_the_account_that_started_the_batch()
     {
         using var stores = new Stores();
-        using var rig = new DrivenRunTests.Rig(learning: stores.Store, outcomes: (_, _) => Done(1m));
+        using var rig = new DrivenRunTests.Rig(learning: stores.Store, outcomes: (_, _) => Done(1m), accounts: [new("alice", AllowServerCredential: true)]);
 
         await rig.Run.RunAsync(One(), BatchId, Token, default, actor: "alice");
 

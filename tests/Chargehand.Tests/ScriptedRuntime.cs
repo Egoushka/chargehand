@@ -151,8 +151,8 @@ internal static class Runs
     public static Profile Profile(string workerRoot) => new("profile/v1", new OpenCodeSettings("http://127.0.0.1:1", "pw", "2.0.16"), workerRoot, "draft", "p/small",
         new Dictionary<string, ModelPrice> { ["p/small"] = new(0.1m, 0.5m, 0.01m, 0.125m) }, SupportCheck: false, Models: new Dictionary<string, string> { ["provider/small-model"] = "p/small" });
 
-    public static Orchestrator Orchestrator(IWorkerRuntime runtime, string workerRoot, IRunLog log) =>
-        new(Profile(workerRoot), runtime, "2.0.16", Repo.Root, log, new Dictionary<string, int>());
+    public static Orchestrator Orchestrator(IWorkerRuntime runtime, string workerRoot, IRunLog log, Func<string?, IWorkerRuntime>? runtimeFor = null) =>
+        new(Profile(workerRoot), runtime, "2.0.16", Repo.Root, log, new Dictionary<string, int>(), runtimeFor: runtimeFor);
 
     public static RunRequest DraftRequest(bool interactive = false) => new("request/v1", "Draft a note.", new RequestContext(interactive, "draft"),
         [new CallerInput("rel-v1", "signal", "Released v1.")], [PromptBlock.Create("generator/note", "0.1.0", "Write one sentence.")]);
