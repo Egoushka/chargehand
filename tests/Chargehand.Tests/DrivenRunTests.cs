@@ -14,6 +14,7 @@ using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
+using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Verification;
 using Chargehand.Workspace;
 

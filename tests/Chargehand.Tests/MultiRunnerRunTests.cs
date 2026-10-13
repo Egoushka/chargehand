@@ -7,6 +7,7 @@ using Chargehand.Driven;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 using Chargehand.Runner;
+using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Workspace;
 
 namespace Chargehand.Tests;
