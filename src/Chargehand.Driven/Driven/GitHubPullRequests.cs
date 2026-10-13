@@ -6,7 +6,10 @@ using System.Text.RegularExpressions;
 
 namespace Chargehand.Driven;
 
-public sealed partial record RemoteRepository(string Owner, string Name)
+/// <param name="Owner">The owner on GitHub; on GitLab the namespace, which can be nested (<c>group/subgroup</c>).</param>
+/// <param name="Forge">The code host of the remote; <see cref="Parse(string)"/> only reads GitHub's shape, <see cref="Parse(string, DrivenForge?)"/> decides.</param>
+/// <param name="Host">The remote's host name; set by <see cref="Parse(string, DrivenForge?)"/> for a forge other than GitHub.</param>
+public sealed partial record RemoteRepository(string Owner, string Name, ForgeKind Forge = ForgeKind.GitHub, string? Host = null)
 {
     /// <summary>The owner and repository of an https or ssh remote URL (<c>https://host/o/r(.git)</c>, <c>git@host:o/r(.git)</c>, <c>ssh://git@host/o/r(.git)</c>);
     /// null for anything else, including a local path.</summary>
@@ -29,7 +32,7 @@ public sealed record PullRequestRef(string Url, int Number);
 
 public sealed class PullRequestException(string message) : Exception(message);
 
-/// <summary>Opens pull requests; it can open a draft and nothing else (ADR 0039).</summary>
+/// <summary>Opens pull requests or merge requests; it can open a draft and nothing else (ADR 0039).</summary>
 public interface IPullRequests
 {
     /// <exception cref="PullRequestException">The host refused, or could not be reached.</exception>

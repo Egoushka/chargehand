@@ -330,20 +330,25 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         ? new Chargehand.Driven.EngineSessionVolumes(files, images[0])
         : new Chargehand.Driven.UnavailableSessionVolumes();
     return new Chargehand.Driven.DrivenRun(profile, runLog, root, new Chargehand.Driven.DrivenServices(engine, workspace, volumes,
-        push => new Chargehand.Driven.GitHubPullRequests(new HttpClient { BaseAddress = new Uri(Environment.GetEnvironmentVariable("CHARGEHAND_E2E_GITHUB_API") ?? "https://api.github.com/") }, push.Value),
+        push => new Chargehand.Driven.GitHubPullRequests(new HttpClient { BaseAddress = GitHubApiRoot(driven) }, push.Value),
         driven.TaskSource is { } source ? new Chargehand.Mcp.McpTaskSource(source, mcpPool) : null,
         orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck, Host: hostSource,
-        Integration: IntegrationHost(driven)), stateDirectory);
+        Integration: IntegrationHost(driven), ForgeFor: (remote, token) => new Chargehand.Driven.GitLabForge(
+            new HttpClient { BaseAddress = Chargehand.Driven.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token)), stateDirectory);
 }
+
+// GitHub's API root: api.github.com, or the Enterprise host the profile's driven.forge names. The E2E switch exists for scripts/driven-e2e.sh only.
+Uri GitHubApiRoot(Chargehand.Config.DrivenSettings driven) =>
+    new(Environment.GetEnvironmentVariable("CHARGEHAND_E2E_GITHUB_API") ?? (driven.Forge is { Kind: "github", BaseUrl: { } baseUrl } ? baseUrl.TrimEnd('/') + "/" : "https://api.github.com/"));
 
 // The App's token source lives as long as the process, so a token is fetched once an hour at most (ADR 0046). The key is read from the secret store only when a token is needed.
 Chargehand.Driven.IIntegrationHost? IntegrationHost(Chargehand.Config.DrivenSettings driven)
 {
-    if (driven.Integrator is not { } integrator)
+    if (driven.Integrator is not { AppId: { } appId, InstallationId: { } installationId, PrivateKeySecret: { } privateKeySecret })
         return null;
-    var api = new HttpClient { BaseAddress = new Uri(Environment.GetEnvironmentVariable("CHARGEHAND_E2E_GITHUB_API") ?? "https://api.github.com/") };
+    var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
     return new Chargehand.Driven.GitHubIntegrationHost(api,
-        new Chargehand.Driven.GitHubInstallationTokens(api, integrator.AppId, integrator.InstallationId, () => profile.Secret(integrator.PrivateKeySecret), TimeProvider.System));
+        new Chargehand.Driven.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System));
 }
 
 async Task<int> Serve()

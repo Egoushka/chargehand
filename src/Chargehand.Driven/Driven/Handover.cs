@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
+using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Verification;
 
@@ -67,7 +68,7 @@ public sealed record ChangeSummary(IReadOnlyList<FileChange> Files, string? Diff
 /// something, its diff carries no secret and no CI configuration, and the repository's tests pass in a fresh container. Only then does it push <c>chargehand/&lt;run&gt;</c>
 /// (never anything else, never forced) with a credential that cannot push the default branch, and open a <b>draft</b> pull request. It never merges. A session that says
 /// its tests pass is not believed: the verification here is chargehand's own.</summary>
-public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pullRequests) : IBranchHandover
+public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pullRequests, DrivenForge? forge = null) : IBranchHandover
 {
     private const int MaxDiffBytes = 8 * 1024 * 1024;
 
@@ -176,7 +177,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         input.Report?.Invoke(new HandoverEvent(RunEventKind.Pushed, $"pushed {input.Branch}"));
 
         var integrity = input.Goal is { } goal && verification is { ExitCode: 0, TimedOut: false } ? TestIntegrity.Assess(changed, goal) : null;
-        var repository = RemoteRepository.Parse(input.RemoteUrl) ?? (input.AllowLocalRemote ? new RemoteRepository("local", "local") : null);
+        var repository = RemoteRepository.Parse(input.RemoteUrl, forge) ?? (input.AllowLocalRemote ? new RemoteRepository("local", "local") : null);
         if (repository is null)
             return new(HandoverStatus.PrFailed, "the remote's owner and repository could not be read from its URL", ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity);
         try

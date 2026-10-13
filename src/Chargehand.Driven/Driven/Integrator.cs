@@ -22,10 +22,10 @@ public sealed record CiFixResult(bool Pushed, string Detail);
 /// <summary>Runs a short session on the pull request's branch and pushes what it fixed; supplied by <see cref="TaskRunner"/>, which owns the containers.</summary>
 public delegate Task<CiFixResult> CiFixSession(CiFixRequest request, CancellationToken ct);
 
-/// <summary>What chargehand does with a pull request after a task's handover opened it (ADR 0046), as the GitHub App, for the repositories the profile lists. <see cref="IntegrateAsync"/> brings the
+/// <summary>What chargehand does with a pull request after a task's handover opened it (ADR 0046), as the GitHub App (on GitLab, with the forge token), for the repositories the profile lists. <see cref="IntegrateAsync"/> brings the
 /// branch up to date, marks the draft ready and merges it by policy; <see cref="FollowAsync"/> then watches the required checks and, when one fails, has a short session fix it, within a fixed number of
 /// attempts. Nothing here merges around a rule: a merge is auto-merge (GitHub waits for the rules) or a squash of a pull request GitHub already calls mergeable, pinned to the head commit.</summary>
-public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, DrivenCiFix? ciFix = null, Func<TimeSpan, CancellationToken, Task>? delay = null)
+public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, DrivenCiFix? ciFix = null, Func<TimeSpan, CancellationToken, Task>? delay = null, DrivenForge? forge = null)
 {
     public static readonly TimeSpan PollEvery = TimeSpan.FromSeconds(30);
 
@@ -45,6 +45,9 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
 
     public IntegrationMode Mode(RemoteRepository repository) => policy.Resolve(repository);
 
+    /// <summary>The repository of a remote URL on the forge the profile names (<see cref="RemoteRepository.Parse(string, DrivenForge?)"/>).</summary>
+    public RemoteRepository? Remote(string url) => RemoteRepository.Parse(url, forge);
+
     /// <summary>A pull request flagged for test integrity is asked about, never merged, on a repository that would merge.</summary>
     private IntegrationMode ModeFor(IntegrationTarget target) =>
         policy.Resolve(target.Repository) is IntegrationMode.Merge && target.TestIntegrity is not null ? IntegrationMode.Ask : policy.Resolve(target.Repository);
@@ -52,7 +55,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
     /// <summary>The sentence the pull request body says about what happens next, for a repository that is opted in; null where the draft-only text is still true (off, or a partial result).</summary>
     public string? Describe(RemoteRepository repository, bool partial) => partial ? null : policy.Resolve(repository) switch
     {
-        IntegrationMode.Merge => "Opened by chargehand as a draft. This repository lets chargehand mark it ready and enable auto-merge, so GitHub merges it only once every required check and rule passes; chargehand never bypasses a rule."
+        IntegrationMode.Merge => $"Opened by chargehand as a draft. This repository lets chargehand mark it ready and enable auto-merge, so {host.Name} merges it only once every required check and rule passes; chargehand never bypasses a rule."
             + (CiFix.Attempts > 0 ? $" If a required check fails, chargehand makes up to {CiFix.Attempts.ToString(CultureInfo.InvariantCulture)} attempts to fix it on this branch." : ""),
         IntegrationMode.Ask => "Opened by chargehand as a draft. This repository asks first: chargehand marks it ready for review and does not merge it.",
         _ => null,
@@ -125,7 +128,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                     throw;
                 return await MergeNowAsync(target, fresh.HeadSha, report, ct);
             }
-            return Say(report, IntegrationAction.AutoMergeEnabled, $"auto-merge (squash) enabled for {Short(pr.HeadSha)}; GitHub merges once the required checks pass");
+            return Say(report, IntegrationAction.AutoMergeEnabled, $"auto-merge (squash) enabled for {Short(pr.HeadSha)}; {host.Name} merges once the required checks pass");
         }
         catch (IntegrationException e)
         {
@@ -183,7 +186,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                     continue;
                 }
                 if (++polls > maxPolls)
-                    return Say(report, IntegrationAction.NeedsAttention, $"stopped watching after {CiFix.Wait} minutes: " + (decision.Action == CiFixAction.Done ? "GitHub has not merged it yet" : "the required checks have not all finished"));
+                    return Say(report, IntegrationAction.NeedsAttention, $"stopped watching after {CiFix.Wait} minutes: " + (decision.Action == CiFixAction.Done ? $"{host.Name} has not merged it yet" : "the required checks have not all finished"));
                 await _delay(PollEvery, ct);
             }
         }

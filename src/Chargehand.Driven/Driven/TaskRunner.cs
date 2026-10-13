@@ -328,7 +328,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
 
     /// <summary>The task's pull request is on a repository the profile opted in to integration (ADR 0046).</summary>
     private bool FollowsUp(HandoverOutcome? handed) =>
-        settings.Integration is { } integrator && handed?.PullRequest is not null && RemoteRepository.Parse(settings.RemoteUrl) is { } repository && integrator.Mode(repository) != IntegrationMode.Off;
+        settings.Integration is { } integrator && handed?.PullRequest is not null && integrator.Remote(settings.RemoteUrl) is { } repository && integrator.Mode(repository) != IntegrationMode.Off;
 
     /// <summary>After the handover, on an opted-in repository: mark the draft ready and merge it by policy, then watch its required checks and, when some fail, run short fix sessions on the same branch
     /// seeded from the last bundle (<see cref="CiFixSession"/>). The pull request exists whatever happens here, so a GitHub error or a cancel ends in a line of detail, never in a failed task.</summary>
@@ -338,7 +338,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     {
         var integrator = settings.Integration!;
         var pr = handed.PullRequest!;
-        var target = new IntegrationTarget(RemoteRepository.Parse(settings.RemoteUrl)!, pr.Number, branch, partial, task.Goal, handed.TestIntegrity?.Reason);
+        var target = new IntegrationTarget(integrator.Remote(settings.RemoteUrl)!, pr.Number, branch, partial, task.Goal, handed.TestIntegrity?.Reason);
         void Report(string detail) => Publish(task.Id, RunEventKind.Integrated, detail, s => s with { PrUrl = pr.Url, Branch = branch });
         SessionOutcome? fixSum = null;
         var fixes = 0;
@@ -583,7 +583,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         handover.RunAsync(new HandoverInput(run.RunId, run.OutDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, settings.BaseBranch,
             title, body, settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
             Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
-            Goal: task.Goal, PolicyNote: RemoteRepository.Parse(settings.RemoteUrl) is { } repository ? settings.Integration?.Describe(repository, partial) : null), ct);
+            Goal: task.Goal, PolicyNote: settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null), ct);
 
     private static SessionOutcome Total(SessionOutcome? earlier, SessionOutcome last)
     {
