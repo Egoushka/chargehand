@@ -21,6 +21,16 @@
       "min_items": 8
     },
     {
+      "name": "design/worker",
+      "dataset": "chargehand-design-worker",
+      "kind": "worker",
+      "preset": "design",
+      "files": ["prompts/preset/design.md", "presets/design.yaml"],
+      "quality_tolerance": 0.10,
+      "cost_tolerance": 0.30,
+      "min_items": 8
+    },
+    {
       "name": "code/writer",
       "dataset": "chargehand-code-writer",
       "kind": "worker",

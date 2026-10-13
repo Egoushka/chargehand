@@ -64,6 +64,7 @@ Each preset is a `preset/v1` file in `presets/`. Intake picks one action; when t
 | `strict` | 0.2.0 | `answer`, `split`, `improve`, `ask`, `deny` | `worker` | `provider/worker-model` |
 | `draft` | 0.1.0 | `answer`, `deny` | `draft`, with `checkout: false` | `provider/small-model` |
 | `review` | 0.1.0 | `answer` | `worker` | `provider/worker-model` |
+| `design` | 0.1.0 | `answer` | `worker` | `provider/worker-model` |
 
 | preset | input tokens per node | USD per node | compaction trigger | critic | approval |
 |---|---|---|---|---|---|
@@ -73,10 +74,13 @@ Each preset is a `preset/v1` file in `presets/`. Intake picks one action; when t
 | `strict` | 400,000 | 1.00 | 100,000 | `provider/critic-model` | above risk `low`, or an estimate above $0.50 |
 | `draft` | 60,000 | 0.05 | none | off | none |
 | `review` | 400,000 | 1.00 | none | off | none |
+| `design` | 400,000 | 1.00 | none | off | none |
 
 The profile's `models` map turns the placeholders into real model ids.
 
 `draft` writes a draft for a program caller from the caller's own inputs and returns it as an inline artifact; its claims cite those inputs. `review` reviews a change: the caller sends the goal, the diff and the test output as inputs, and each finding is a claim that cites the diff input or a file at the commit.
+
+`design` drafts an architecture decision record for a goal. The request text is the goal; the summary is the ADR draft in the repository's template shape (`docs/adr/template.md`: status, date, context, options with trade-offs, decision, consequences, reopen if), and each statement about what the code does today is a claim with a file citation, checked at the pinned commit like any other, then by the support check. It never writes a file: the maintainer saves the summary under the next ADR number.
 
 ### Permissions
 
