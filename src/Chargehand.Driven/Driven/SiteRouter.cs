@@ -1,0 +1,57 @@
+using System.Collections.Concurrent;
+using Chargehand.Contracts;
+using Chargehand.Runner;
+
+namespace Chargehand.Driven;
+
+/// <summary>Runs a task on the runner the scheduler placed it on (ADR 0058): the task runner of that runner's part of the batch, which is made when the first task gets there. A task that has a
+/// session on its runner stays on it. A task that could not start there because the runner did not answer comes back <see cref="TaskOutcome.Replace"/>, with the journal reset and the runner reported
+/// down, for the scheduler to place again.</summary>
+/// <param name="runnerOn">The task runner of a runner by name; it makes the runner's network and test services the first time, and throws when it cannot.</param>
+/// <param name="defaultRunner">The runner of a task with none: the first of the profile, which is the only one of a profile that names none.</param>
+/// <param name="report">The profile names its runners: the outcome says which one ran the task.</param>
+/// <param name="started">Tasks that have a session container, filled by the task runners' events; shared with them.</param>
+/// <param name="unreachable">Told a runner's name and why when a task could not start on it.</param>
+internal sealed class SiteRouter(Func<string, Task<TaskRunner>> runnerOn, string defaultRunner, bool report, BatchJournal? journal, ConcurrentDictionary<string, byte> started,
+    Action<string, string>? unreachable) : ITaskRunner
+{
+    public async Task<TaskOutcome> RunAsync(ResolvedTask task, IProgress<TaskUsage> progress, CancellationToken ct)
+    {
+        var name = string.IsNullOrEmpty(task.Runner) ? defaultRunner : task.Runner;
+        var entry = journal?.Entry(task.Id);
+        if (entry is { Phase: TaskPhase.HandedOver or TaskPhase.Failed, Outcome: { } done })
+            return done;
+        // A session may be running on the runner already: the task is not placed again, however it goes.
+        var begun = entry is { Phase: TaskPhase.Started or TaskPhase.Finished, RunId: not null };
+        if (report)
+            journal?.Update(task.Id, e => e with { Runner = name });
+        TaskRunner runner;
+        try
+        {
+            runner = await runnerOn(name);
+        }
+        catch (ChargehandException e) when (!begun && Unreachable(e) && !ct.IsCancellationRequested)
+        {
+            return Replace(task, name, e);
+        }
+        try
+        {
+            var outcome = await runner.RunAsync(task, progress, ct);
+            return report ? outcome with { Runner = name } : outcome;
+        }
+        catch (ChargehandException e) when (!begun && !started.ContainsKey(task.Id) && Unreachable(e) && !ct.IsCancellationRequested)
+        {
+            return Replace(task, name, e);
+        }
+    }
+
+    private static bool Unreachable(ChargehandException e) => e is RunnerUnreachableException;
+
+    private TaskOutcome Replace(ResolvedTask task, string runner, ChargehandException e)
+    {
+        unreachable?.Invoke(runner, e.Message);
+        started.TryRemove(task.Id, out _);
+        journal?.Update(task.Id, t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From, DependsOn: t.DependsOn, Size: t.Size, SplitFrom: t.SplitFrom, SizeFrom: t.SizeFrom));
+        return new TaskOutcome(task.Id, TaskState.NotStarted, null, $"runner '{runner}' could not be reached ({e.Message}); placing the task again", ErrorCode.ContainerUnavailable, Replace: true);
+    }
+}

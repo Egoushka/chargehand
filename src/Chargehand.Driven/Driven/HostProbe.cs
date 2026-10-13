@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace Chargehand.Driven;
 
@@ -7,7 +8,15 @@ namespace Chargehand.Driven;
 /// <param name="Load1">The one-minute load average.</param>
 /// <param name="Cpus">The processors the probing process sees.</param>
 /// <param name="MemoryPressureAvg10">Linux pressure stall information, <c>/proc/pressure/memory</c>: the percentage of the last ten seconds in which some task was stalled waiting for memory. Null where the host has none (macOS, a kernel without PSI).</param>
-public sealed record HostSnapshot(long? AvailableMb, long? TotalMb, long? SwapTotalMb, long? SwapFreeMb, double? Load1, int? Cpus, double? MemoryPressureAvg10 = null);
+/// <param name="State"><c>draining</c> when the host asks for no new session (a laptop on battery or with its lid closed, ADR 0058); null: ready. Left out of the runner's answer while ready, so a server older than this field still reads it.</param>
+/// <param name="StateReason">Why it is draining.</param>
+public sealed record HostSnapshot(long? AvailableMb, long? TotalMb, long? SwapTotalMb, long? SwapFreeMb, double? Load1, int? Cpus, double? MemoryPressureAvg10 = null, string? State = null, string? StateReason = null)
+{
+    public const string Draining = "draining";
+
+    [JsonIgnore]
+    public bool IsDraining => State == Draining;
+}
 
 /// <summary>Where the scheduler gets the host's snapshot: the local probe, or the runner over HTTP.</summary>
 public interface IHostSource

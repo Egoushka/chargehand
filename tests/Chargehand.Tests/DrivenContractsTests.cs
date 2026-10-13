@@ -225,6 +225,21 @@ public class DrivenContractsTests
     }
 
     [Fact]
+    public void A_task_event_names_its_runner()
+    {
+        const string json = """{"contract_version":"run-status/v1","run_id":"r","status":"running","event":"container_started","task_id":"t1","detail":"task t1: session container started on runner 'laptop'","runner":"laptop"}""";
+        using var doc = JsonDocument.Parse(json);
+        Assert.Empty(ContractSchemas.Validate(ContractSchemas.RunStatus, doc.RootElement));
+        var typed = JsonSerializer.Deserialize<RunStatus>(json, ContractJson.Options)!;
+        Assert.Equal("laptop", typed.Runner);
+        Assert.Contains("\"runner\":\"laptop\"", JsonSerializer.Serialize(typed, ContractJson.Options));
+        Assert.DoesNotContain("\"runner\"", JsonSerializer.Serialize(typed with { Runner = null }, ContractJson.Options), StringComparison.Ordinal);
+
+        using var empty = JsonDocument.Parse(json.Replace("\"runner\":\"laptop\"", "\"runner\":\"\"", StringComparison.Ordinal));
+        Assert.NotEmpty(ContractSchemas.Validate(ContractSchemas.RunStatus, empty.RootElement));
+    }
+
+    [Fact]
     public void A_session_progress_event_carries_tokens_and_a_stage()
     {
         const string json = """{"contract_version":"run-status/v1","run_id":"r","status":"running","event":"session_progress","task_id":"t1","tokens":48200,"turns":12,"stage":"write"}""";

@@ -152,7 +152,12 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspace
         }
         catch (HttpRequestException e)
         {
-            throw Unavailable($"the runner could not be reached: {e.Message}", null);
+            throw new RunnerUnreachableException($"the runner could not be reached: {e.Message}");
+        }
+        // The client's own timeout is a TaskCanceledException; read as a cancel it would stop a session whose runner merely did not answer.
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new RunnerUnreachableException($"the runner did not answer {method} {path} in time");
         }
         if (response.IsSuccessStatusCode)
             return response;
@@ -164,8 +169,13 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspace
         throw Unavailable($"the runner refused {method} {path}: {(int)response.StatusCode} {message ?? (text.Length > 200 ? text[..200] : text)}", (int)response.StatusCode);
     }
 
-    private static ChargehandException Unavailable(string message, int? status) =>
-        new(ErrorCode.ContainerUnavailable, message, status is 401 or 403
+    private static ChargehandException Unavailable(string message, int? status)
+    {
+        // 429 is the runner at its container limit: another runner may take the task, or this one later.
+        if (status is 429 or 502 or 503 or 504)
+            return new RunnerUnreachableException(message);
+        return new ChargehandException(ErrorCode.ContainerUnavailable, message, status is 401 or 403
             ? "Check the runner's key and its image allowlist (driven.runner in the profile)."
             : "Check that the runner service is running and reachable, then retry.");
+    }
 }
