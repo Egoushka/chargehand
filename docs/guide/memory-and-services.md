@@ -189,6 +189,25 @@ Tool names are explicit. A `*` inside a name is a glob (`search_*`), and a lone 
 
 Credentials stay out of argv and logs on both. On OpenCode the registration is named for the server and a keyed hash of its config, shared by every run at that location that uses the same config, held by count and removed when the last run ends.
 
+### Mapping services to a shipped preset
+
+A shipped preset cannot name your servers, and a copy of it is a preset file of your own (and one Prompt CI does not know). The profile's `preset_services` maps services to a preset by name instead: its list replaces the preset's own `services` for that preset. The `incident` preset ships with none and reads its evidence from whatever the profile maps:
+
+```json
+"mcp_servers": {
+  "logs":    { "url": "https://mcp.example.internal/logs",    "headers": { "Authorization": "Bearer {secret:logs-token}" } },
+  "metrics": { "url": "https://mcp.example.internal/metrics", "headers": { "Authorization": "Bearer {secret:metrics-token}" } }
+},
+"preset_services": {
+  "incident": [
+    { "server": "logs",    "tools": ["query_logs", "search_*"] },
+    { "server": "metrics", "tools": ["query_metrics"] }
+  ]
+}
+```
+
+Grant read tools only. Chargehand does not proxy tool calls and cannot tell a read from a write, so a server that offers writes under a name your glob matches would let the worker use it: name the tools, and filter at the gateway. Every `server` must be a key of `mcp_servers` (the profile fails to load otherwise), and a name is explicit or a glob, never a bare `*`. A run whose service does not connect goes on without it, and the `incident` prompt then tells the worker to say so and lower its confidence. `extensions check` checks the mapped tools against what the servers list.
+
 On OpenCode:
 
 - **Project configuration is off.** The OpenCode server chargehand starts, and `scripts/opencode-serve.sh`, set `OPENCODE_DISABLE_PROJECT_CONFIG=1` and `OPENCODE_CONFIG_PROJECT_DISABLE=1`, so a checkout's `opencode.json`, `.opencode`, `AGENTS.md` and project skills are not read: a checkout could otherwise start a command. If you start OpenCode another way, set both variables.

@@ -52,13 +52,19 @@ public sealed record Profile(
     DrivenSettings? Driven = null,
     PromptEnhancerSettings? PromptEnhancer = null,
     int MaxParallelNodes = 2,
-    AutomationSettings? Automation = null)
+    AutomationSettings? Automation = null,
+    IReadOnlyDictionary<string, IReadOnlyList<ServiceUse>>? PresetServices = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
 
     /// <summary>Where a request's repository may live (ADR 0023); worker_root alone when the profile names none.</summary>
     public IReadOnlyList<string> Roots => RepositoryRoots ?? [WorkerRoot];
+
+    /// <summary>The services a preset's node may use: the profile's list for the preset (<c>preset_services</c>), else the preset's own (ADR 0034).
+    /// A shipped preset names no server of anyone's profile, so the profile maps its own.</summary>
+    public IReadOnlyList<ServiceUse>? ServicesFor(string preset, IReadOnlyList<ServiceUse>? presetServices) =>
+        PresetServices is not null && PresetServices.TryGetValue(preset, out var mapped) ? mapped : presetServices;
 
     /// <summary>How long one command secret source may run before it is killed and the next source is tried (ADR 0034).</summary>
     internal TimeSpan CommandTimeout { get; init; } = TimeSpan.FromSeconds(15);
@@ -106,6 +112,12 @@ public sealed record Profile(
         if (profile.PromptEnhancer is { } enhancer)
             enhancer.Validate(servers);
         profile.Http?.Validate();
+        foreach (var (preset, uses) in profile.PresetServices ?? new Dictionary<string, IReadOnlyList<ServiceUse>>())
+            foreach (var use in uses)
+                if (!servers.ContainsKey(use.Server) || use.Tools.Count == 0 || use.Tools.Any(t => t.Length == 0 || t.All(c => c == '*')))
+                    throw new ChargehandException(ErrorCode.InvalidRequest,
+                        $"preset_services.{preset}: '{use.Server}' " + (servers.ContainsKey(use.Server) ? "needs explicit tool names (a glob is fine, a bare * is not)" : "is not an entry of mcp_servers"),
+                        "Fix preset_services in the profile; docs/guide/memory-and-services.md has an example.");
         profile.Driven?.Limits?.Validate();
         profile.Driven?.Governor?.Validate();
         profile.Driven?.Admission?.Validate();
