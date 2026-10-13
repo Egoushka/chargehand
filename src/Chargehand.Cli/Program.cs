@@ -17,6 +17,7 @@ using Chargehand.OpenCode;
 using Chargehand.Prompts;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
+using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Server;
 using Chargehand.Verification;
 using Microsoft.Extensions.Hosting;
