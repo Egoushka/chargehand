@@ -2,7 +2,7 @@ using Chargehand.Bench;
 
 namespace Chargehand.Tests;
 
-/// <summary>ADR 0050: a task set is checked as a whole before anything starts, and every rule names the repository or task it is about.</summary>
+/// <summary>ADR 0052: a task set is checked as a whole before anything starts, and every rule names the repository or task it is about.</summary>
 public class BenchTaskSetTests
 {
     private const string Sha = "0123456789abcdef0123456789abcdef01234567";
@@ -139,7 +139,7 @@ public class BenchTaskSetTests
     }
 
     [Fact]
-    public void The_shipped_set_is_valid_and_keeps_to_what_ADR_0050_promises()
+    public void The_shipped_set_is_valid_and_keeps_to_what_ADR_0052_promises()
     {
         var set = TaskSetLoader.Load(Chargehand.Tests.Repo.Path("benchmarks", "core.json"), out var problems);
         Assert.NotNull(set);

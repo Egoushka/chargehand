@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 
 namespace Chargehand.Bench;
 
-/// <summary>A benchmark task set (<c>bench-taskset/v1</c>): public repositories pinned by commit, and the tasks to run on them (ADR 0050). The goals are the only text a session
+/// <summary>A benchmark task set (<c>bench-taskset/v1</c>): public repositories pinned by commit, and the tasks to run on them (ADR 0052). The goals are the only text a session
 /// sees. The acceptance check of each task is a command chargehand runs itself on the task's branch after the batch; no session reads it.</summary>
 public sealed record TaskSet(
     string Schema,

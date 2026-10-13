@@ -144,7 +144,7 @@ if (argv is ["verify-branch", .. var verifyBranchArgs])
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Driven.VerifyBranchCli.RunAsync(verifyBranchArgs, Console.Out, Console.Error, stop.Token);
 }
-// Benchmarks (ADR 0050): a report is a file read; a run reads the profile for the images, the allowlist and the server it may reach.
+// Benchmarks (ADR 0052): a report is a file read; a run reads the profile for the images, the allowlist and the server it may reach.
 if (argv is ["bench", "report", .. var benchReportArgs])
     return Chargehand.Bench.BenchCli.Report(benchReportArgs, Console.Out, Console.Error);
 if (argv is ["bench", "run", .. var benchRunArgs])

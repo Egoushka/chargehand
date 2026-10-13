@@ -1,6 +1,6 @@
 using System.Net;
-using System.Net.ServerSentEvents;
 using System.Net.Http.Json;
+using System.Net.ServerSentEvents;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;

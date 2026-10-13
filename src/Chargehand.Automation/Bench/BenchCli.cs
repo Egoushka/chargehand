@@ -5,7 +5,7 @@ using Chargehand.Driven;
 
 namespace Chargehand.Bench;
 
-/// <summary><c>chargehand bench run &lt;taskset&gt;</c> and <c>chargehand bench report &lt;results.json&gt; [&lt;other.json&gt;]</c> (ADR 0050).</summary>
+/// <summary><c>chargehand bench run &lt;taskset&gt;</c> and <c>chargehand bench report &lt;results.json&gt; [&lt;other.json&gt;]</c> (ADR 0052).</summary>
 public static class BenchCli
 {
     public const string Usage = """

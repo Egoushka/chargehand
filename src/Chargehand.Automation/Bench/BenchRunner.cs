@@ -30,7 +30,7 @@ public sealed record BenchEnvironment(Func<BenchRepository, string?> ImageFor, I
     public static BenchEnvironment Empty { get; } = new(_ => null, [], null, TimeSpan.FromMinutes(15));
 }
 
-/// <summary>Runs a task set (ADR 0050): checks it, or runs it on a server and measures it. A real run clones each repository at its pin, sends one batch per repository through the
+/// <summary>Runs a task set (ADR 0052): checks it, or runs it on a server and measures it. A real run clones each repository at its pin, sends one batch per repository through the
 /// server's ordinary API, answers the question tasks in a second batch, runs every acceptance check in a fresh container on the task's branch, and writes <c>results.json</c> and
 /// <c>report.md</c>. Nothing here calls a model: the server's sessions do, and only in a real run.</summary>
 public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server, IAcceptanceRunner? acceptance, TextWriter output, TimeProvider? time = null)

@@ -109,7 +109,14 @@ public sealed class BenchRunnerTests : IDisposable
 
     private static Dictionary<string, object?> Row(string id, string status, string? branch = null, string? prUrl = null, string? error = null, string? detail = null, string? runId = null) => new()
     {
-        ["id"] = id, ["run_id"] = runId ?? $"run-{id}", ["status"] = status, ["branch"] = branch, ["pr_url"] = prUrl, ["error_code"] = error, ["detail"] = detail, ["tokens"] = 0,
+        ["id"] = id,
+        ["run_id"] = runId ?? $"run-{id}",
+        ["status"] = status,
+        ["branch"] = branch,
+        ["pr_url"] = prUrl,
+        ["error_code"] = error,
+        ["detail"] = detail,
+        ["tokens"] = 0,
     };
 
     private static ResultContract Batch(string runId, params Dictionary<string, object?>[] rows) =>
