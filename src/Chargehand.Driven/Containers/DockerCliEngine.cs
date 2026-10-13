@@ -11,13 +11,14 @@ namespace Chargehand.Containers;
 /// go before every call (a test runs a fake docker script as <c>sh script</c>, which avoids a busy-executable race on Linux).
 /// While a container runs, each inspect also measures its memory (ADR 0045, admission): the cgroup's <c>memory.peak</c> when <paramref name="cgroupRoot"/> shows the container's cgroup, else the
 /// largest <c>docker stats</c> reading, taken at most every <paramref name="statsEvery"/> (5 s). The largest value seen is kept until the container is removed, because its cgroup is gone once it exits.</summary>
-public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null, string cgroupRoot = "/sys/fs/cgroup", TimeSpan? statsEvery = null)
+public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null, string cgroupRoot = "/sys/fs/cgroup", TimeSpan? statsEvery = null, TimeSpan? retryEvery = null)
     : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine, IServiceEngine
 {
     private const int OutputCap = 64 * 1024;
 
     private readonly ConcurrentDictionary<string, Peak> _peaks = new(StringComparer.Ordinal);
     private readonly TimeSpan _statsEvery = statsEvery ?? TimeSpan.FromSeconds(5);
+    private readonly TimeSpan _retryEvery = retryEvery ?? TimeSpan.FromMilliseconds(250);
 
     private sealed record Peak(int Mb, long SampledAt);
 
@@ -242,19 +243,82 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
 
     public async Task WriteOutFileAsync(OutFileSpec spec, ReadOnlyMemory<byte> content, CancellationToken ct)
     {
-        var result = await RunStreamAsync(ContainerTemplate.OutFileArgs(spec, write: true), content, Stream.Null, ct);
+        var result = await RunHelperAsync(spec, write: true, content, Stream.Null, ct);
         if (result.ExitCode != 0)
             throw Unavailable($"writing {spec.Name} into the output volume failed", result, null);
     }
 
     public async Task<bool> ReadOutFileAsync(OutFileSpec spec, Stream destination, CancellationToken ct)
     {
-        var result = await RunStreamAsync(ContainerTemplate.OutFileArgs(spec, write: false), default, destination, ct);
+        var result = await RunHelperAsync(spec, write: false, default, destination, ct);
         if (result.ExitCode == ContainerTemplate.OutFileMissing)
             return false;
         if (result.ExitCode != 0)
             throw Unavailable($"reading {spec.Name} from the output volume failed", result, null);
         return true;
+    }
+
+    /// <summary>The most times one transfer helper is run for one call.</summary>
+    private const int HelperAttempts = 4;
+
+    /// <summary>Docker's own failure code, before the helper ran: the engine would not create or start it.</summary>
+    private const int DockerFailed = 125;
+
+    /// <summary>Runs the transfer helper, and asks again when the engine itself failed (<see cref="DockerFailed"/>): the engine blinked, or a copy under the helper's fixed name is left over from a call that was
+    /// killed between <c>create</c> and <c>start</c> (<c>--rm</c> removes only a container that ran). A leftover is removed first; docker's <c>rm</c> without <c>-f</c> refuses one that is running, which
+    /// is another transfer of the same run and is waited for. A call cancelled in flight removes the container it may have made. Nothing is repeated once bytes were copied out.</summary>
+    private async Task<DockerResult> RunHelperAsync(OutFileSpec spec, bool write, ReadOnlyMemory<byte> stdin, Stream stdout, CancellationToken ct)
+    {
+        var args = ContainerTemplate.OutFileArgs(spec, write);
+        var name = ContainerTemplate.TransferPrefix + spec.RunId;
+        var from = stdout.CanSeek ? stdout.Position : 0;
+        for (var attempt = 1; ; attempt++)
+        {
+            DockerResult result;
+            try
+            {
+                result = await RunStreamAsync(args, stdin, stdout, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                await TryRunAsync(["rm", "-f", name]);
+                throw;
+            }
+            if (result.ExitCode != DockerFailed || attempt == HelperAttempts || stdout.CanSeek && stdout.Position != from)
+                return result;
+            if (!(result.Stderr.Contains("is already in use", StringComparison.Ordinal) && await RemoveLeftoverAsync(name, ct)))
+                await Task.Delay(_retryEvery * attempt, ct);
+        }
+    }
+
+    /// <summary>Removes the container <paramref name="name"/> when it is chargehand's and not running.</summary>
+    private async Task<bool> RemoveLeftoverAsync(string name, CancellationToken ct) =>
+        await OwnsAsync(name, ct) && (await RunAsync(["rm", name], ct)).ExitCode == 0;
+
+    /// <summary>Removes the transfer helpers that exist but are not running, which a runner does at start: a call killed with the runner leaves its helper created and never started, and nothing else would
+    /// remove it. A helper that is running is a transfer still in progress and stays.</summary>
+    /// <returns>The names removed.</returns>
+    public async Task<IReadOnlyList<string>> RemoveStaleHelpersAsync(CancellationToken ct)
+    {
+        var listed = await RunAsync(["ps", "-a", "--filter", $"label={ContainerTemplate.RunLabel}", "--filter", "status=created", "--filter", "status=exited", "--filter", "status=dead", "--format", "{{.Names}}"], ct);
+        Require(listed, "docker ps failed");
+        List<string> removed = [];
+        foreach (var name in listed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(n => n.StartsWith(ContainerTemplate.TransferPrefix, StringComparison.Ordinal) && ContainerTemplate.IsPlainName(n)))
+            if ((await RunAsync(["rm", name], ct)).ExitCode == 0)
+                removed.Add(name);
+        return removed;
+    }
+
+    /// <summary>A cleanup that runs after a cancel: whatever it cannot do is left for the next start.</summary>
+    private async Task TryRunAsync(IEnumerable<string> args)
+    {
+        try
+        {
+            await RunAsync(args, CancellationToken.None);
+        }
+        catch (ChargehandException)
+        {
+        }
     }
 
     public async Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct)
