@@ -25,9 +25,10 @@ public sealed record PushCredential(string Value, PushCredentialKind Kind = Push
 /// <param name="Report">Told each step as it ends: <c>verify_finished</c>, <c>pushed</c>, <c>pr_opened</c>.</param>
 /// <param name="Partial">The session did not finish (ADR 0044): the tests are run and recorded, but a failing run, a timeout or a repository with no test command does not stop the push. A secret in the diff, a CI change and every other check still do.</param>
 /// <param name="PolicyNote">What the pull request body says chargehand does next (ADR 0046), for a repository that opted in to integration; null: the draft is not merged and chargehand will not merge it.</param>
+/// <param name="Goal">The task's goal; with it, a passing branch that changes only tests and build files is flagged unless the goal asks for that work (<see cref="TestIntegrity"/>). Null: not assessed.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
-    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null);
+    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null);
 
 /// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
 public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
@@ -53,7 +54,7 @@ public enum HandoverStatus { Pushed, PrFailed, NotPushed }
 /// <param name="Reason">Why it was not pushed, or why the pull request failed; a credential is never in it.</param>
 /// <param name="Changes">The branch against its base, once the bundle is fetched and the branch changes something; null before that.</param>
 public sealed record HandoverOutcome(HandoverStatus Status, string Reason, ErrorCode? Error, string? Branch, string? Commit, PullRequestRef? PullRequest, VerificationRecord? Verification,
-    IReadOnlyList<string> ChangedPaths, IReadOnlyList<string> ChangedVerificationPaths, IReadOnlyList<ScanFinding> Findings, ChangeSummary? Changes = null);
+    IReadOnlyList<string> ChangedPaths, IReadOnlyList<string> ChangedVerificationPaths, IReadOnlyList<ScanFinding> Findings, ChangeSummary? Changes = null, TestIntegrityFlag? TestIntegrity = null);
 
 /// <summary>One path the branch changes, from <c>git diff --numstat --no-renames</c>: a rename is a delete and an add. Null counts: a binary file.</summary>
 public sealed record FileChange(string Path, int? Added, int? Removed);
@@ -174,18 +175,19 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             return Refuse($"the push was rejected: {push.Tail}", ErrorCode.PushRejected, verification, changed, verificationPaths: verificationPaths, commit: commit);
         input.Report?.Invoke(new HandoverEvent(RunEventKind.Pushed, $"pushed {input.Branch}"));
 
+        var integrity = input.Goal is { } goal && verification is { ExitCode: 0, TimedOut: false } ? TestIntegrity.Assess(changed, goal) : null;
         var repository = RemoteRepository.Parse(input.RemoteUrl) ?? (input.AllowLocalRemote ? new RemoteRepository("local", "local") : null);
         if (repository is null)
-            return new(HandoverStatus.PrFailed, "the remote's owner and repository could not be read from its URL", ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes);
+            return new(HandoverStatus.PrFailed, "the remote's owner and repository could not be read from its URL", ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity);
         try
         {
-            var pr = await pullRequests.CreateDraftAsync(repository, input.Branch, input.BaseBranch, input.Title, DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote), ct);
+            var pr = await pullRequests.CreateDraftAsync(repository, input.Branch, input.BaseBranch, input.Title, DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity), ct);
             input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, "draft pull request opened", pr.Url));
-            return new(HandoverStatus.Pushed, "", null, input.Branch, commit, pr, verification, changed, verificationPaths, [], changes);
+            return new(HandoverStatus.Pushed, "", null, input.Branch, commit, pr, verification, changed, verificationPaths, [], changes, integrity);
         }
         catch (PullRequestException e)
         {
-            return new(HandoverStatus.PrFailed, Redact(e.Message, secrets), ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes);
+            return new(HandoverStatus.PrFailed, Redact(e.Message, secrets), ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity);
         }
     }
 
@@ -236,10 +238,14 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         && (url.StartsWith("https://", StringComparison.Ordinal) || url.StartsWith("ssh://", StringComparison.Ordinal) || ScpForm().IsMatch(url)
             || (allowLocal && url.StartsWith("file://", StringComparison.Ordinal)));
 
-    private static string DescribeBody(string body, List<string> changed, VerificationRecord? verification, IReadOnlyList<string> verificationPaths, string? policyNote)
+    private static string DescribeBody(string body, List<string> changed, VerificationRecord? verification, IReadOnlyList<string> verificationPaths, string? policyNote, TestIntegrityFlag? integrity)
     {
-        var text = new StringBuilder(body.TrimEnd()).Append("\n\n---\n\n");
-        text.Append(policyNote ?? "Opened by chargehand as a draft; it is not merged and chargehand will not merge it.").Append("\n\n");
+        var text = new StringBuilder();
+        if (integrity is not null)
+            text.Append(TestIntegrity.Warning(integrity)).Append("\n\n");
+        text.Append(body.TrimEnd()).Append("\n\n---\n\n");
+        // A flagged pull request is never merged, so the opted-in text about auto-merge would be untrue.
+        text.Append(integrity is not null && policyNote is not null ? "Opened by chargehand as a draft. Because of the warning above, chargehand marks it ready for review and does not merge it." : policyNote ?? "Opened by chargehand as a draft; it is not merged and chargehand will not merge it.").Append("\n\n");
         text.Append(verification is null
             ? "Verification: no test command was found, so nothing was run.\n"
             : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Verification (chargehand's own run in a fresh container): `{string.Join(' ', verification.Argv)}` exited {verification.ExitCode} in {verification.Duration.TotalSeconds:0}s.\n"));

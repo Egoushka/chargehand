@@ -322,7 +322,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     {
         var integrator = settings.Integration!;
         var pr = handed.PullRequest!;
-        var target = new IntegrationTarget(RemoteRepository.Parse(settings.RemoteUrl)!, pr.Number, branch, partial, task.Goal);
+        var target = new IntegrationTarget(RemoteRepository.Parse(settings.RemoteUrl)!, pr.Number, branch, partial, task.Goal, handed.TestIntegrity?.Reason);
         void Report(string detail) => Publish(task.Id, RunEventKind.Integrated, detail, s => s with { PrUrl = pr.Url, Branch = branch });
         SessionOutcome? fixSum = null;
         var fixes = 0;
@@ -549,7 +549,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         handover.RunAsync(new HandoverInput(run.RunId, run.OutDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, settings.BaseBranch,
             title, body, settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
             Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
-            PolicyNote: RemoteRepository.Parse(settings.RemoteUrl) is { } repository ? settings.Integration?.Describe(repository, partial) : null), ct);
+            Goal: task.Goal, PolicyNote: RemoteRepository.Parse(settings.RemoteUrl) is { } repository ? settings.Integration?.Describe(repository, partial) : null), ct);
 
     private static SessionOutcome Total(SessionOutcome? earlier, SessionOutcome last)
     {
@@ -727,7 +727,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             _ => TaskState.Failed,
         };
         var pushed = handed?.Status is HandoverStatus.Pushed or HandoverStatus.PrFailed;
-        var detail = state == TaskState.Completed ? null
+        var detail = state == TaskState.Completed ? handed?.TestIntegrity is { } flag ? $"test integrity: {flag.Reason}" : null
             : !partial || handed is null ? result.Summary
             : session.Status == SessionStatus.NeedsInput ? $"partial: needs input ({string.Join("; ", session.Questions)}); {(pushed ? handed.PullRequest is null ? "branch pushed, pull request failed" : "draft PR opened" : $"not handed over: {handed.Reason}")}{partialNote}"
             : pushed ? $"partial: stopped by {StopReason(session)}; {(handed.PullRequest is null ? "branch pushed, pull request failed" : "draft PR opened")}{partialNote}"

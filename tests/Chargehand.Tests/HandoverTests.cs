@@ -155,6 +155,53 @@ public class HandoverTests
         Assert.EndsWith("chargehand.bundle", verifier.Calls[0].BundlePath);
     }
 
+    private static void OnlyTests(string w)
+    {
+        File.Delete(Path.Combine(w, "retry.txt"));
+        Directory.CreateDirectory(Path.Combine(w, "tests"));
+        File.WriteAllText(Path.Combine(w, "tests", "RetryTests.cs"), "// skipped\n");
+    }
+
+    [Fact]
+    public async Task A_green_branch_that_only_changes_tests_for_another_goal_is_flagged_and_its_body_starts_with_the_warning()
+    {
+        using var f = new Fixture(edit: OnlyTests);
+        var prs = new FakePullRequests();
+        var outcome = await new Handover(new FakeVerifier(), prs).RunAsync(f.Input(with: i => i with { Goal = "Add a retry to the client", PolicyNote = "Opened by chargehand as a draft. This repository lets chargehand mark it ready and enable auto-merge." }), default);
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        Assert.Equal(["tests/RetryTests.cs"], outcome.TestIntegrity!.TestPaths);
+        var body = Assert.Single(prs.Created).Body;
+        Assert.StartsWith("> **Warning: test integrity.**", body);
+        Assert.DoesNotContain("enable auto-merge", body);
+        Assert.Contains("does not merge it", body);
+    }
+
+    [Theory]
+    [InlineData("Add tests for the retry")]
+    [InlineData(null)]
+    public async Task A_branch_that_only_changes_tests_is_not_flagged_when_the_goal_asks_for_tests_or_is_unknown(string? goal)
+    {
+        using var f = new Fixture(edit: OnlyTests);
+        var prs = new FakePullRequests();
+        var outcome = await new Handover(new FakeVerifier(), prs).RunAsync(f.Input(with: i => i with { Goal = goal }), default);
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        Assert.Null(outcome.TestIntegrity);
+        Assert.DoesNotContain("Warning", Assert.Single(prs.Created).Body);
+    }
+
+    [Fact]
+    public async Task A_branch_that_changes_production_code_too_is_not_flagged()
+    {
+        using var f = new Fixture(edit: w =>
+        {
+            Directory.CreateDirectory(Path.Combine(w, "tests"));
+            File.WriteAllText(Path.Combine(w, "tests", "RetryTests.cs"), "// test\n");
+        });
+        var outcome = await new Handover(new FakeVerifier(), new FakePullRequests()).RunAsync(f.Input(with: i => i with { Goal = "Add a retry" }), default);
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        Assert.Null(outcome.TestIntegrity);
+    }
+
     [Fact]
     public async Task The_outcome_carries_each_changed_path_with_its_line_counts_and_the_diff()
     {

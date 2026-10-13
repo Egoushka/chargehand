@@ -5,7 +5,8 @@ namespace Chargehand.Driven;
 
 /// <param name="Partial">The pull request holds unfinished work (ADR 0044): it stays a draft and is never merged.</param>
 /// <param name="TaskGoal">The task's goal, for the goal of a fix session.</param>
-public sealed record IntegrationTarget(RemoteRepository Repository, int Number, string Branch, bool Partial, string TaskGoal);
+/// <param name="TestIntegrity">Why the change only edits tests or build files for a goal that did not ask for that (<see cref="TestIntegrityFlag.Reason"/>); the pull request is then never merged, whatever the policy.</param>
+public sealed record IntegrationTarget(RemoteRepository Repository, int Number, string Branch, bool Partial, string TaskGoal, string? TestIntegrity = null);
 
 public enum IntegrationAction { None, Asked, AutoMergeEnabled, Merged, NeedsAttention, Failed }
 
@@ -36,11 +37,17 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
 
     private const string ConflictMarker = "<!-- chargehand-integration conflict -->";
 
+    private const string TestIntegrityMarker = "<!-- chargehand-integration test-integrity -->";
+
     private readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? ((span, ct) => Task.Delay(span, ct));
 
     public DrivenCiFix CiFix { get; } = ciFix ?? new DrivenCiFix();
 
     public IntegrationMode Mode(RemoteRepository repository) => policy.Resolve(repository);
+
+    /// <summary>A pull request flagged for test integrity is asked about, never merged, on a repository that would merge.</summary>
+    private IntegrationMode ModeFor(IntegrationTarget target) =>
+        policy.Resolve(target.Repository) is IntegrationMode.Merge && target.TestIntegrity is not null ? IntegrationMode.Ask : policy.Resolve(target.Repository);
 
     /// <summary>The sentence the pull request body says about what happens next, for a repository that is opted in; null where the draft-only text is still true (off, or a partial result).</summary>
     public string? Describe(RemoteRepository repository, bool partial) => partial ? null : policy.Resolve(repository) switch
@@ -54,7 +61,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
     /// <summary>Update the branch if it is behind, mark it ready, then merge or ask. A failure of GitHub is a result, not an exception: the pull request is there either way.</summary>
     public async Task<IntegrationResult> IntegrateAsync(IntegrationTarget target, Action<string> report, CancellationToken ct)
     {
-        var mode = policy.Resolve(target.Repository);
+        var mode = ModeFor(target);
         if (mode == IntegrationMode.Off)
             return new(IntegrationAction.None, "this repository is not opted in to integration");
         if (target.Partial)
@@ -89,6 +96,11 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
             }
             if (mode == IntegrationMode.Ask)
             {
+                if (target.TestIntegrity is { } why)
+                {
+                    await CommentOnceAsync(target, pr, TestIntegrityMarker, $"chargehand marked this pull request ready but does not merge it: {why}. A person decides.", ct);
+                    return Say(report, IntegrationAction.Asked, $"marked ready; not merged because of test integrity ({why})");
+                }
                 await CommentOnceAsync(target, pr, AskMarker, "chargehand marked this pull request ready. This repository's policy is \"ask\", so chargehand does not merge it; a person decides.", ct);
                 return Say(report, IntegrationAction.Asked, "marked ready; the repository's policy is ask, so it is left for a person to merge");
             }
@@ -125,7 +137,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
     /// at most <see cref="DrivenCiFix.Attempts"/> times per pull request and never twice for the same failing jobs (<see cref="CiFixPolicy"/>); the count is read from the pull request's own comments.</summary>
     public async Task<IntegrationResult> FollowAsync(IntegrationTarget target, CiFixSession fix, Action<string> report, CancellationToken ct)
     {
-        var mode = policy.Resolve(target.Repository);
+        var mode = ModeFor(target);
         if (mode == IntegrationMode.Off || target.Partial)
             return new(IntegrationAction.None, "not watched");
         var maxPolls = Math.Max(1, (int)(TimeSpan.FromMinutes(CiFix.Wait) / PollEvery));
