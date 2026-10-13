@@ -53,6 +53,7 @@ Any other command prints the usage and exits 2. `eval` and `prompts sync` need t
 | `GET /v1/overview` | `overview/v1`: server, runner and host health, session slots, rate-limit pause, the caller's spend against its caps, inbox counts |
 | `GET /v1/inbox` | `inbox/v1`: task questions with the request that answers them, pull requests waiting for a person, failures |
 | `GET /v1/batches/{id}`, `GET /v1/batches/{id}/tasks/{task}` | `batch/v1`, `batch-task/v1`: the task graph, sessions, budget and its source, spend with cache tokens, governor counts, pull requests, artifacts and the event timeline; one task's verification, test result, diff and questions |
+| `GET /v1/batches/{id}/tasks/{task}/sessions/{session}/transcript?bytes=` | `transcript/v1`: the end of one session's transcript (64 KiB by default, 256 KiB at most), whole lines with secrets redacted, for the owner and the batch's account; read on request and never stored ([ADR 0059](../adr/0059-session-transcript-for-the-console.md)) |
 | `GET /v1/pulls` | `pulls/v1`: the pull requests chargehand opened, their outcome and whether they wait for a person |
 | `GET /v1/analytics` | `analytics/v1`: tasks and runs over time by repository, account or size; pass rate, spend, tokens, continuations, the governor's false-stop proxy |
 | `GET /v1/repositories` | `repositories/v1`: checkouts under `repository_roots` with head, default branch, detected ecosystem and test command, open pull requests |

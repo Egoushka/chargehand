@@ -168,6 +168,27 @@ public class DrivenRunTests
 
         public int UsageReads;
 
+        /// <summary>The transcript each session left, by run id; a run not in it has none.</summary>
+        public Dictionary<string, string> Transcripts { get; } = [];
+
+        /// <summary>What reading a transcript throws (a runner that refuses or does not answer); null: it reads.</summary>
+        public Exception? TranscriptFails { get; set; }
+
+        /// <summary>The windows asked for, in order.</summary>
+        public List<(string RunId, int MaxBytes)> TranscriptReads { get; } = [];
+
+        public Task<byte[]?> ReadTranscriptTailAsync(string runId, int maxBytes, CancellationToken ct)
+        {
+            lock (TranscriptReads)
+                TranscriptReads.Add((runId, maxBytes));
+            if (TranscriptFails is not null)
+                throw TranscriptFails;
+            if (!Transcripts.TryGetValue(runId, out var text))
+                return Task.FromResult<byte[]?>(null);
+            var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+            return Task.FromResult<byte[]?>(bytes.Length <= maxBytes ? bytes : bytes[^maxBytes..]);
+        }
+
         /// <summary>The session image is newer than the server: its outcome and report carry a member the server does not know.</summary>
         public bool NewerSession { get; set; }
 

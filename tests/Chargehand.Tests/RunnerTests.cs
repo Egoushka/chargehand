@@ -16,7 +16,7 @@ public class RunnerTests
     private const string EgressImage = "registry.example/chargehand@sha256:2222222222222222222222222222222222222222222222222222222222222222";
     private const string Key = "runner-key-for-tests";
 
-    private sealed class FakeEngine : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine, IServiceEngine
+    private sealed class FakeEngine : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine, IOutTailEngine, IServiceEngine
     {
         public ServiceSpec? Service { get; private set; }
         public Task<string> StartServiceAsync(ServiceSpec spec, CancellationToken ct) { Service = spec; Calls.Add("service"); return Task.FromResult("ours1"); }
@@ -49,6 +49,14 @@ public class RunnerTests
             if (!OutFiles.TryGetValue(spec.Name, out var bytes))
                 return false;
             await destination.WriteAsync(bytes, ct);
+            return true;
+        }
+        public async Task<bool> ReadOutTailAsync(OutFileSpec spec, int maxBytes, Stream destination, CancellationToken ct)
+        {
+            Calls.Add($"out-tail {spec.OutVolume} {spec.Name} {maxBytes}");
+            if (!OutFiles.TryGetValue(spec.Name, out var bytes))
+                return false;
+            await destination.WriteAsync(bytes.AsMemory(Math.Max(0, bytes.Length - maxBytes)), ct);
             return true;
         }
         public WorkspaceSpec? Prepared { get; private set; }
@@ -272,6 +280,65 @@ public class RunnerTests
         Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.GetAsync(OutUrl("session-outcome.json", image: other))).StatusCode);
         Assert.True((await r.Http.GetAsync(OutUrl("session-outcome.json", run: "a;b"))).StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Forbidden);
         Assert.Empty(r.Engine.Calls);
+    }
+
+    private const string Transcript = "stream.jsonl";
+
+    [Fact]
+    public async Task The_end_of_a_transcript_is_served_as_a_tail_through_the_client_and_never_the_whole_file()
+    {
+        await using var r = await Start();
+        r.Engine.OutFiles[Transcript] = Encoding.UTF8.GetBytes("0123456789");
+        var client = new RunnerClient(r.Http);
+        using var tail = new MemoryStream();
+
+        Assert.True(await client.ReadOutTailAsync(new OutFileSpec("run1", Image, "chargehand-out-run1", Transcript), 4, tail, default));
+
+        Assert.Equal("6789", Encoding.UTF8.GetString(tail.ToArray()));
+        Assert.Equal(["out-tail chargehand-out-run1 stream.jsonl 4"], r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_transcript_that_the_volume_does_not_have_reads_as_missing()
+    {
+        await using var r = await Start();
+
+        Assert.False(await new RunnerClient(r.Http).ReadOutTailAsync(new OutFileSpec("run1", Image, "chargehand-out-run1", Transcript), 1024, new MemoryStream(), default));
+    }
+
+    [Theory]
+    [InlineData("stream.jsonl", "")]                    // a transcript is never read whole
+    [InlineData("stream.jsonl", "&tail=0")]
+    [InlineData("stream.jsonl", "&tail=-5")]
+    [InlineData("stream.jsonl", "&tail=262145")]
+    [InlineData("stream.jsonl", "&tail=abc")]
+    [InlineData("stream.jsonl", "&tail=1e3")]
+    [InlineData("session-outcome.json", "&tail=100")]   // a tail is for the files that are only read as one
+    [InlineData("chargehand.bundle", "&tail=100")]
+    [InlineData("task.json", "&tail=100")]
+    public async Task A_tail_is_refused_for_every_other_file_and_for_a_count_outside_the_ceiling(string name, string query)
+    {
+        await using var r = await Start();
+        r.Engine.OutFiles[name] = [1, 2, 3];
+
+        var response = await r.Http.GetAsync(OutUrl(name) + query);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_tail_needs_a_listed_image_and_the_runner_key_and_the_ceiling_itself_is_served()
+    {
+        await using var r = await Start();
+        var other = "registry.example/other@sha256:3333333333333333333333333333333333333333333333333333333333333333";
+        r.Engine.OutFiles[Transcript] = new byte[10];
+        using var anonymous = new HttpClient { BaseAddress = r.Address };
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.GetAsync(OutUrl(Transcript, image: other) + "&tail=100")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(OutUrl(Transcript) + "&tail=100")).StatusCode);
+        Assert.Empty(r.Engine.Calls);
+        Assert.Equal(HttpStatusCode.OK, (await r.Http.GetAsync(OutUrl(Transcript) + "&tail=262144")).StatusCode);
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace Chargehand.Driven;
@@ -56,6 +57,36 @@ public static partial class DiffScan
         return kinds;
     }
 
+    /// <summary>Text with what <see cref="ScanText"/> finds replaced by <c>[redacted:&lt;kind&gt;]</c> (a credential literal by <c>[redacted]</c>), and the kinds that were found (ADR 0059). For a transcript, which is
+    /// JSON lines: a literal is also looked for in its JSON-escaped form, and a private key is taken from its header to its footer, or, with no footer, to the end of the JSON string it is in. Like the scan, it finds the common accidents and the
+    /// credentials the server holds; it cannot know a password the model read from a repository's file.</summary>
+    public static (string Text, IReadOnlyList<string> Kinds) Redact(string text, IReadOnlyList<string> literals)
+    {
+        var kinds = new List<string>();
+        if (PrivateKeyBlock().IsMatch(text))
+        {
+            text = PrivateKeyBlock().Replace(text, "[redacted:private-key]");
+            kinds.Add("private-key");
+        }
+        foreach (var (kind, pattern) in Patterns)
+            if (pattern.IsMatch(text))
+            {
+                text = pattern.Replace(text, $"[redacted:{kind}]");
+                kinds.Add(kind);
+            }
+        var found = false;
+        foreach (var literal in literals.Where(l => l.Length >= 8))
+            foreach (var form in new[] { literal, JsonSerializer.Serialize(literal)[1..^1] }.Distinct())
+                if (text.Contains(form, StringComparison.Ordinal))
+                {
+                    text = text.Replace(form, "[redacted]", StringComparison.Ordinal);
+                    found = true;
+                }
+        if (found)
+            kinds.Add("credential-literal");
+        return (text, kinds);
+    }
+
     /// <summary>The changed paths that configure a CI system. Pushing a branch that changes them can run them, with the repository's secrets, so
     /// chargehand does not push such a branch unless it is told to.</summary>
     public static IReadOnlyList<string> CiPaths(IReadOnlyList<string> paths) => [.. paths.Where(p => Ci().IsMatch(p))];
@@ -65,6 +96,9 @@ public static partial class DiffScan
 
     [GeneratedRegex(@"-----BEGIN [A-Z ]*PRIVATE KEY-----")]
     private static partial Regex PrivateKey();
+
+    [GeneratedRegex(@"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(-----END [A-Z ]*PRIVATE KEY-----|(?=\x22)|$)", RegexOptions.Singleline)]
+    private static partial Regex PrivateKeyBlock();
 
     [GeneratedRegex(@"gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,}")]
     private static partial Regex GithubToken();

@@ -150,6 +150,22 @@ public static class RunnerServer
         app.MapGet("/out/{runId}/{name}", (HttpContext ctx, string runId, string name, CancellationToken ct) => Guard(async () =>
         {
             var image = ctx.Request.Query["image"].ToString();
+            // A transcript is served as a tail and never whole (ADR 0059): a file of that kind without ?tail is refused, and so is ?tail on any other file.
+            if (ctx.Request.Query.ContainsKey("tail") || ContainerTemplate.OutFilesTail.Contains(name, StringComparer.Ordinal))
+            {
+                if (!int.TryParse(ctx.Request.Query["tail"], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var bytes))
+                    return Refuse("the end of a transcript is read with ?tail=<bytes>");
+                if (policy.RefuseOutTail(image, name, bytes) is { } tailRefusal)
+                    return Refuse(tailRefusal);
+                if (engine is not IOutTailEngine tailer)
+                    return Reply(StatusCodes.Status501NotImplemented, "this runner's engine cannot read the end of a file in an output volume");
+                var tailSpec = new OutFileSpec(runId, image, RunnerPolicy.OutPrefix + runId, name);
+                _ = ContainerTemplate.OutTailArgs(tailSpec, bytes);
+                using var tail = new MemoryStream();
+                return await tailer.ReadOutTailAsync(tailSpec, bytes, tail, ct)
+                    ? HttpResults.Bytes(tail.ToArray(), "application/octet-stream")
+                    : Reply(StatusCodes.Status404NotFound, $"no {name} in the output volume");
+            }
             if (engine is not IOutVolumeEngine volumes)
                 return Reply(StatusCodes.Status501NotImplemented, "this runner's engine cannot read an output volume");
             if (policy.RefuseOutFile(image, name, write: false) is { } refusal)

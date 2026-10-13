@@ -205,6 +205,55 @@ public class ContainerTemplateTests
         Assert.Throws<ArgumentException>(() => ContainerTemplate.BundleWorkspaceArgs(BundleSpec(branch, commit)));
 
     [Fact]
+    public void The_transcript_is_read_only_as_a_tail_by_a_helper_with_the_volume_read_only_and_no_network()
+    {
+        var spec = new OutFileSpec("run1", Image, "chargehand-out-run1", ContainerTemplate.TranscriptFile);
+
+        var args = ContainerTemplate.OutTailArgs(spec, 65536);
+
+        string After(string flag) => args[args.ToList().IndexOf(flag) + 1];
+        Assert.Equal(("none", "ALL", "10001:10001", "chargehand-out-run1:/out:ro"), (After("--network"), After("--cap-drop"), After("--user"), After("-v")));
+        Assert.Contains("--read-only", args);
+        Assert.Equal(["transfer", "stream.jsonl", "65536"], args.TakeLast(3));
+        Assert.Equal(ContainerTemplate.OutTailScript, After("-c"));
+        // Never whole: the transcript is not among the files that are copied out or in, and a tail is for no other file.
+        Assert.DoesNotContain(ContainerTemplate.TranscriptFile, ContainerTemplate.OutFilesOut);
+        Assert.DoesNotContain(ContainerTemplate.TranscriptFile, ContainerTemplate.OutFilesIn);
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutFileArgs(spec, write: false));
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutFileArgs(spec, write: true));
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutTailArgs(spec with { Name = "session-outcome.json" }, 100));
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutTailArgs(spec with { Name = "../stream.jsonl" }, 100));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(ContainerTemplate.MaxTailBytes + 1)]
+    public void A_tail_outside_one_to_the_ceiling_is_refused_before_a_container_starts(int bytes) =>
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutTailArgs(new OutFileSpec("run1", Image, "chargehand-out-run1", ContainerTemplate.TranscriptFile), bytes));
+
+    [Fact]
+    public void The_tail_script_gives_the_end_of_the_file_and_exit_three_for_a_missing_one()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(Path.Combine(dir.Path, "stream.jsonl"), "0123456789");
+        string[] Run(string name, string bytes)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("/bin/sh") { RedirectStandardOutput = true };
+            foreach (var a in new[] { "-c", ContainerTemplate.OutTailScript.Replace("/out/", dir.Path + "/"), "transfer", name, bytes })
+                psi.ArgumentList.Add(a);
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            var output = p.StandardOutput.ReadToEnd();
+            p.WaitForExit();
+            return [output, p.ExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture)];
+        }
+
+        Assert.Equal(["6789", "0"], Run("stream.jsonl", "4"));
+        Assert.Equal(["0123456789", "0"], Run("stream.jsonl", "100"));
+        Assert.Equal(["", "3"], Run("nothing.jsonl", "4"));
+    }
+
+    [Fact]
     public void The_governors_log_is_a_file_the_server_may_read_out_of_a_session_s_volume_and_never_write_into_one()
     {
         Assert.Contains(ContainerTemplate.GovernorFile, ContainerTemplate.OutFilesOut);

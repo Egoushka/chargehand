@@ -350,6 +350,16 @@ public static partial class ContainerTemplate
     /// <summary>The session's running token tally, rewritten while it works; the host polls it so the caps bind before the task ends.</summary>
     public const string UsageFile = "session-usage.json";
 
+    /// <summary>The session's stream (<c>stream-json</c>, one event per line, the session's own credentials redacted): its transcript (ADR 0059). It is far too large to copy out whole, so it is not among
+    /// <see cref="OutFilesOut"/>; the runner serves only the end of it, and only as a tail.</summary>
+    public const string TranscriptFile = "stream.jsonl";
+
+    /// <summary>The files the runner serves only as a tail of at most <see cref="MaxTailBytes"/>, never whole (ADR 0059).</summary>
+    public static readonly IReadOnlyList<string> OutFilesTail = [TranscriptFile];
+
+    /// <summary>The most bytes of a file's end one tail read returns.</summary>
+    public const int MaxTailBytes = 256 * 1024;
+
     /// <summary>Exit code of the read helper when the file is not there.</summary>
     public const int OutFileMissing = 3;
 
@@ -361,6 +371,8 @@ public static partial class ContainerTemplate
 
     private const string OutWriteScript = "set -e\ncat > \"/out/$1\"\n";
     private const string OutReadScript = "[ -f \"/out/$1\" ] || exit 3\nexec cat \"/out/$1\"\n";
+    /// <summary>The tail helper's script: the name is <c>$1</c> and the byte count <c>$2</c>; exit 3 when the file is not there.</summary>
+    public const string OutTailScript = "[ -f \"/out/$1\" ] || exit 3\nexec tail -c \"$2\" \"/out/$1\"\n";
 
     /// <summary>The arguments after <c>docker</c> for the helper that writes (stdin to the file) or reads (the file to stdout) one fixed-name file of the output volume:
     /// foreground, removed when it ends, no network, read-only root, the volume read-only for a read. The name reaches the script only as <c>$1</c>.</summary>
@@ -371,6 +383,25 @@ public static partial class ContainerTemplate
         Check(NamePattern(), spec.OutVolume, "out volume");
         if (!(write ? OutFilesIn : OutFilesOut).Contains(spec.Name, StringComparer.Ordinal))
             throw new ArgumentException($"'{spec.Name}' is not a file chargehand {(write ? "writes into" : "reads out of")} an output volume");
+        return Helper(spec, write, write ? OutWriteScript : OutReadScript);
+    }
+
+    /// <summary>The same helper for the end of a file that is only ever read as a tail (<see cref="OutFilesTail"/>, ADR 0059): the volume read-only, the name as <c>$1</c> and the byte count, a plain
+    /// number within <see cref="MaxTailBytes"/>, as <c>$2</c>.</summary>
+    public static IReadOnlyList<string> OutTailArgs(OutFileSpec spec, int bytes)
+    {
+        Check(RunIdPattern(), spec.RunId, "run id");
+        Check(ImagePattern(), spec.Image, "image (must be name@sha256:<64 hex> or a local image id)");
+        Check(NamePattern(), spec.OutVolume, "out volume");
+        if (!OutFilesTail.Contains(spec.Name, StringComparer.Ordinal))
+            throw new ArgumentException($"'{spec.Name}' is not a file chargehand reads the end of");
+        if (bytes is < 1 or > MaxTailBytes)
+            throw new ArgumentException($"a tail is 1 to {MaxTailBytes} bytes", nameof(bytes));
+        return [.. Helper(spec, write: false, OutTailScript), bytes.ToString(CultureInfo.InvariantCulture)];
+    }
+
+    private static IReadOnlyList<string> Helper(OutFileSpec spec, bool write, string script)
+    {
         return
         [
             "run", "--rm", "--init", "-i",
@@ -388,7 +419,7 @@ public static partial class ContainerTemplate
             "-v", write ? $"{spec.OutVolume}:/out" : $"{spec.OutVolume}:/out:ro",
             "--entrypoint", "sh",
             spec.Image,
-            "-c", write ? OutWriteScript : OutReadScript, "transfer", spec.Name,
+            "-c", script, "transfer", spec.Name,
         ];
     }
 

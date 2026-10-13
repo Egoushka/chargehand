@@ -31,6 +31,11 @@ public interface ISessionVolumes
 
     /// <summary>The session's running tally while it works; null if it has not written one yet or the file is unreadable.</summary>
     Task<TaskUsage?> ReadUsageAsync(string runId, CancellationToken ct);
+
+    /// <summary>At most <paramref name="maxBytes"/> from the end of the session's transcript (<c>stream.jsonl</c>, ADR 0059), for the console; null if the volume has no transcript, or if this deployment cannot read the end
+    /// of a file (the default). It is not part of a task's own work: nothing in a batch reads it.</summary>
+    /// <exception cref="ChargehandException">The runner refused the read or could not be reached.</exception>
+    Task<byte[]?> ReadTranscriptTailAsync(string runId, int maxBytes, CancellationToken ct) => Task.FromResult<byte[]?>(null);
 }
 
 /// <summary>Used where the engine cannot move files through a volume: a batch then ends each task as <c>container_unavailable</c> before any session container starts.</summary>
