@@ -2,9 +2,11 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using Chargehand.Budget;
 using Chargehand.Contracts;
-using Chargehand.Memory;
+using Chargehand.Kernel;
+using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Memory.Api;
 using Chargehand.Runtime;
 using Chargehand.Sandbox;
 using Chargehand.Signing;
@@ -90,6 +92,7 @@ public sealed record Profile(
         profile.Driven?.Integrator?.Validate();
         profile.Driven?.Services?.Validate(profile.Driven.Images);
         profile.Driven?.Forge?.Validate();
+        profile.Driven?.ValidateRunners();
         profile.Automation?.Validate(profile.Driven);
         return profile;
     }
@@ -401,8 +404,9 @@ public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecr
 /// <param name="MaxConcurrentRuns">Runs executing at once; 1 (the default) runs them one at a time, as ADR 0011's per-model limit assumes.
 /// Raise it only when the model's rate limit allows: every run's workers draw on it.</param>
 /// <param name="Accounts">Accounts besides the implicit <c>owner</c> that <c>ApiKeySecret</c> opens (ADR 0050); their keys come from <c>chargehand accounts add</c>.</param>
+/// <param name="Ui">Serve the web UI at <c>/ui/</c> (ADR 0054) and the operator console at <c>/console/</c> (ADR 0056). Off by default.</param>
 public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null,
-    int MaxConcurrentRuns = 1, IReadOnlyList<AccountSettings>? Accounts = null)
+    int MaxConcurrentRuns = 1, IReadOnlyList<AccountSettings>? Accounts = null, bool Ui = false)
 {
     /// <summary>Throws an invalid_request error naming the key when an account cannot work.</summary>
     internal void Validate()
@@ -413,32 +417,6 @@ public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string L
         problems.AddRange((Accounts ?? []).GroupBy(a => a.Name).Where(g => g.Count() > 1).Select(g => $"accounts: name '{g.Key}' is used more than once"));
         if (problems.Count > 0)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"http: {string.Join("; ", problems)}", "Fix http.accounts in the profile; docs/guide/server.md lists the keys.");
-    }
-}
-
-/// <summary>A caller of the server besides the owner (ADR 0050). It sees and cancels only its own runs. Every cap left out is no cap; a window is a UTC calendar day or month.</summary>
-/// <param name="Name">Lowercase letters, digits and hyphens; <c>owner</c> is the implicit account of <c>api_key_secret</c> and cannot be declared.</param>
-/// <param name="MaxUsdPerDay">Dollars the account's runs may cost in a UTC day, by the results' usage (priced runs only; a subscription run counts tokens).</param>
-/// <param name="MaxConcurrentRuns">Runs of this account that are unfinished at once (queued or running).</param>
-/// <param name="Driven">Whether the account may start a batch (a request with a <c>driven</c> block): a batch pushes branches and opens pull requests with the server's credential.</param>
-/// <param name="Repositories">Directories the account's runs may name as <c>context.repository.path</c>, itself or below; null: any the server allows.</param>
-public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, decimal? MaxUsdPerMonth = null, long? MaxTokensPerDay = null, long? MaxTokensPerMonth = null,
-    int? MaxConcurrentRuns = null, bool Driven = false, IReadOnlyList<string>? Repositories = null)
-{
-    public const string Owner = "owner";
-
-    public static bool ValidName(string name) => Regex.IsMatch(name, "^[a-z][a-z0-9-]{0,31}$");
-
-    internal IEnumerable<string> Problems()
-    {
-        if (!ValidName(Name)) yield return "name must be lowercase letters, digits and hyphens, starting with a letter, at most 32 characters";
-        if (Name == Owner) yield return "owner is the account of api_key_secret; pick another name";
-        if (MaxUsdPerDay is <= 0) yield return "max_usd_per_day must be above 0";
-        if (MaxUsdPerMonth is <= 0) yield return "max_usd_per_month must be above 0";
-        if (MaxTokensPerDay is <= 0) yield return "max_tokens_per_day must be above 0";
-        if (MaxTokensPerMonth is <= 0) yield return "max_tokens_per_month must be above 0";
-        if (MaxConcurrentRuns is < 1) yield return "max_concurrent_runs must be at least 1";
-        if (Repositories?.Any(r => !Path.IsPathRooted(r)) == true) yield return "repositories must be absolute paths";
     }
 }
 
@@ -456,7 +434,9 @@ public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, 
 /// <param name="Forge">Which code host the remotes are on and how to reach it; null: GitLab for <c>gitlab.com</c> and hosts named <c>gitlab.*</c>, GitHub for every other host.</param>
 /// <param name="Planning">ADR 0049: size, split and number a batch's tasks with one cheap read-only run before it starts; null: off (a request can still ask with <c>driven.plan</c>).</param>
 /// <param name="Learning">ADR 0045's learning loop: how long and how often pull request outcomes are read back, and the retro after a batch; null: the defaults of <see cref="DrivenLearning"/> (retro off).</param>
-public sealed record DrivenSettings(
+/// <param name="Runners">ADR 0058: several runner services, each with its own limits, platform and the server's address as its egress reaches it; set instead of <c>Runner</c>, never with it.</param>
+/// <param name="ImageVariants">ADR 0058: for an image of <c>Images</c> (which <c>Services.Images</c> draws from), the image to use on a runner of another platform.</param>
+public sealed partial record DrivenSettings(
     bool Enabled = false,
     int MaxParallel = 2,
     int MaxParallelTotal = 4,
@@ -473,7 +453,9 @@ public sealed record DrivenSettings(
     DrivenSharedServices? Services = null,
     DrivenForge? Forge = null,
     DrivenPlanning? Planning = null,
-    DrivenLearning? Learning = null);
+    DrivenLearning? Learning = null,
+    IReadOnlyList<DrivenRunnerEntry>? Runners = null,
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? ImageVariants = null);
 
 /// <summary>The learning loop (ADR 0045): each finished task leaves a record, the server reads the outcome of its pull request back from the forge, and <c>chargehand learn report</c> sums them up.
 /// The records are always written; these keys tune the read-back and the optional retro.</summary>
@@ -508,18 +490,25 @@ public sealed record DrivenPlanning(bool Enabled = false, string Preset = "cheap
     }
 }
 
-/// <summary>When the host has room for another session (ADR 0045). A task starts only if available memory minus <c>ReserveMb</c> covers its container's memory limit;
-/// a running task is never stopped for it.</summary>
+/// <summary>When the host has room for another session (ADR 0045). A task starts only if available memory minus <c>ReserveMb</c> covers its memory request, the working set
+/// that sessions of its repository have measured (not the container's limit), and memory pressure is low; a running task is never stopped for it.</summary>
 /// <param name="ReserveMb">Memory left for everything else on the host.</param>
 /// <param name="MaxLoadPerCpu">A one-minute load per processor above this holds new starts; null: no load rule.</param>
-public sealed record DrivenAdmission(int ReserveMb = 1024, double? MaxLoadPerCpu = null)
+/// <param name="DefaultRequestMb">The request of a task whose repository has too few recorded peaks, and no other repository does either. Clamped to 512 MiB and the container limit.</param>
+/// <param name="MaxMemoryPressure">Linux pressure stall information: new starts wait while <c>some avg10</c> of <c>/proc/pressure/memory</c> is above this percentage. A host without it skips the rule; 100 turns it off.</param>
+public sealed record DrivenAdmission(int ReserveMb = 1024, double? MaxLoadPerCpu = null, int DefaultRequestMb = 1536, double MaxMemoryPressure = 10.0)
 {
+    /// <summary>The least a task's request may be, whatever the history says (MiB).</summary>
+    public const int MinRequestMb = 512;
+
     /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
     internal void Validate()
     {
         var problems = new List<string>();
         if (ReserveMb < 0) problems.Add("reserve_mb must be at least 0");
         if (MaxLoadPerCpu is <= 0) problems.Add("max_load_per_cpu must be above 0");
+        if (DefaultRequestMb < MinRequestMb) problems.Add($"default_request_mb must be at least {MinRequestMb}");
+        if (MaxMemoryPressure is <= 0 or > 100) problems.Add("max_memory_pressure must be above 0 and at most 100");
         if (problems.Count > 0)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.admission: {string.Join("; ", problems)}", "Fix driven.admission in the profile; docs/guide/driven.md lists the keys.");
     }
@@ -618,7 +607,7 @@ public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes
 /// metrics there, tagged with the batch, task and trace (ADR 0042); unset, it exports nothing.</param>
 public sealed record DrivenNetwork(IReadOnlyList<string>? Allow = null, string? Outside = null, string? McpForward = null, string? ModelUrl = null, string? OtlpUrl = null);
 
-/// <summary>The runner service that holds the container engine's socket; null means the server calls the engine itself.</summary>
+/// <summary>The runner service that holds the container engine's socket; null means the server calls the engine itself. One runner, named <see cref="DrivenSettings.DefaultRunnerName"/>: <c>driven.runners</c> (ADR 0058) lists several.</summary>
 public sealed record DrivenRunner(string Url, string ApiKeySecret);
 
 /// <summary>How a tracker item id becomes a goal (ADR 0039): call <c>Tool</c> on <c>Server</c> (a key of <c>mcp_servers</c>) with <c>{ref}</c> in

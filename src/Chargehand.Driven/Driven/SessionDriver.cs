@@ -4,9 +4,10 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using Chargehand.Budget;
 using Chargehand.Config;
 using Chargehand.Containers;
+using Chargehand.Kernel;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.Runtime;
 
 namespace Chargehand.Driven;
@@ -81,7 +82,7 @@ public static partial class SessionDriver
     /// <summary>The governor decisions <c>session-outcome.json</c> carries; the log file has every one.</summary>
     public const int MaxGovernorDecisions = 50;
 
-    public const string GovernorFile = "governor.jsonl";
+    public const string GovernorFile = ContainerTemplate.GovernorFile;
 
     private static readonly JsonSerializerOptions LineJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 

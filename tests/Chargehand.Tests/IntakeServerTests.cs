@@ -1,5 +1,6 @@
 using Chargehand.Automation;
 using Chargehand.Config;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 using Chargehand.Server;
 
@@ -27,7 +28,11 @@ public class IntakeServerTests
 
             var comment = Assert.Single(github.Posted).Body;
             var run = comment.Split('`')[1];
-            var start = (await log.ReadAsync(run, default)).Start!;
+            // The comment names the run when it is accepted; its start record is written a moment later by the run itself.
+            StartRecord? start = null;
+            for (var i = 0; i < 200 && (start = (await log.ReadAsync(run, default)).Start) is null; i++)
+                await Task.Delay(50);
+            Assert.NotNull(start);
             Assert.Equal("driven", start.Request.Context.Preset);
             Assert.Equal("issue-7", Assert.Single(start.Request.Driven!.Tasks).Id);
         }

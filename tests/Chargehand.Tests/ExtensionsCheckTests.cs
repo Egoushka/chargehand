@@ -1,4 +1,5 @@
 using Chargehand.Config;
+using Chargehand.Kernel;
 using Chargehand.Mcp;
 using static Chargehand.Tests.MemoryConfigTests;
 

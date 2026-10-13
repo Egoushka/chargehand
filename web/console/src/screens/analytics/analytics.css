@@ -1,0 +1,156 @@
+/* Analytics: the grid of panels and the rows of the SVG charts. Charts, legends and tooltips are src/charts/charts.css. */
+.an-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.an-wide {
+  grid-column: 1 / -1;
+}
+
+.kpi-src {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-subtle);
+  font: 400 11px / 14px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.an-notes {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* ---------- pass rate: name, whisker, counts ---------- */
+.passrate {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.passrate__row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(0, 1.8fr) minmax(190px, auto);
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 28px;
+}
+
+.passrate__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.passrate__repo {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.passrate__value {
+  font-size: 12px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------- duration ---------- */
+.hist .plot {
+  overflow: hidden;
+}
+
+.hist__labels {
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+  margin-top: 4px;
+  color: var(--text-subtle);
+  font-size: 11px;
+  line-height: 14px;
+  text-align: center;
+}
+
+/* ---------- budget and governor ---------- */
+.budgets {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.budgets__row {
+  display: grid;
+  gap: 2px;
+}
+
+.budgets__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.falsestop {
+  display: grid;
+  gap: 2px;
+}
+
+@media (max-width: 767px) {
+  .an-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  /* The whisker takes a row of its own under the name and the counts. */
+  .passrate__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-3);
+    padding: var(--space-1) 0;
+  }
+
+  .passrate__row > .plot {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .passrate__row--axis {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0;
+  }
+
+  .passrate__row--axis > span {
+    display: none;
+  }
+
+  .passrate__row--axis > .plot {
+    grid-row: 1;
+  }
+
+  /* A panel's aside drops under its title instead of squeezing the title to dots. */
+  .an-screen .ch-panel__head {
+    flex-wrap: wrap;
+    padding-block: var(--space-2);
+    row-gap: 0;
+  }
+
+  .an-screen .ch-panel__title {
+    white-space: normal;
+  }
+
+  .an-screen .ch-panel__aside {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+}

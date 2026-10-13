@@ -9,11 +9,14 @@ namespace Chargehand.Runner;
 /// <param name="OutsideNetworks">Networks besides <c>bridge</c> a session container's egress proxy may be joined to: the network the chargehand server sits on, so a session can reach it through a forward.</param>
 /// <param name="SourceRoots">Directories a workspace's read-only source may be under (chargehand's checkouts). None: no workspace is prepared, because a source path names a host directory.</param>
 /// <param name="ServiceImages">Images a test service may be started from (ADR 0048), by digest. None: the runner starts no service.</param>
+/// <param name="MaxBundleBytes">The most a repository bundle the server sends may be (ADR 0058): the size of <c>source.bundle</c>, which is streamed into the output volume and never held in memory.</param>
 /// <param name="Forwards">The forwards (<c>listen-port=host:port</c>) an egress container may carry: how a session calls the chargehand server back. The server names them in its request and the runner starts only these, so a server cannot point an egress container at any other host. None: an egress container carries no forward.</param>
 public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressImage, int MaxContainers = 8, int MaxMemoryMb = 16_384, double MaxCpus = 4, int MaxPids = 1024,
     IReadOnlyList<string>? SourceRoots = null, IReadOnlyList<string>? OutsideNetworks = null, IReadOnlyList<string>? Forwards = null,
-    IReadOnlyList<string>? ServiceImages = null)
+    IReadOnlyList<string>? ServiceImages = null, long MaxBundleBytes = RunnerPolicy.DefaultMaxBundleBytes)
 {
+    public const long DefaultMaxBundleBytes = 512L * 1024 * 1024;
+
     public const string WorkPrefix = "chargehand-work-";
     public const string OutPrefix = "chargehand-out-";
     public const string NetworkPrefix = "chargehand-net-";
@@ -66,6 +69,24 @@ public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressIma
             : "the source is not under one of the runner's source roots";
     }
 
+    /// <summary>A workspace from a bundle (ADR 0058) names no host path, so it needs no source root: a listed image, the run's work volume and a branch and commit the template checks.</summary>
+    public string? RefuseBundleWorkspace(RunnerBundleWorkspace workspace)
+    {
+        if (!Images.Contains(workspace.Image, StringComparer.Ordinal))
+            return "image is not on the runner's allowlist";
+        return workspace.WorkVolume == WorkPrefix + workspace.RunId ? null : $"the volume must be {WorkPrefix}<run id>";
+    }
+
+    /// <summary>The repository bundle's size, which the request states before a byte is read, must be within <see cref="MaxBundleBytes"/>.</summary>
+    public string? RefuseBundleSize(long contentLength) => contentLength switch
+    {
+        < 0 => "the bundle's Content-Length is negative",
+        var length when length > MaxBundleBytes => $"the bundle is {Size(length)}, above the runner's limit of {Size(MaxBundleBytes)} (--max-bundle-mb)",
+        _ => null,
+    };
+
+    private static string Size(long bytes) => bytes >= 1024 * 1024 ? $"{bytes / (1024 * 1024)} MiB" : $"{bytes} bytes";
+
     /// <summary>A file helper touches one run's output volume: a listed image and a fixed name, <c>task.json</c> and <c>seed.bundle</c> in and the result files out, whatever the caller asks.</summary>
     public string? RefuseOutFile(string image, string name, bool write)
     {
@@ -74,6 +95,16 @@ public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressIma
         return (write ? Containers.ContainerTemplate.OutFilesIn : Containers.ContainerTemplate.OutFilesOut).Contains(name, StringComparer.Ordinal)
             ? null
             : $"the runner {(write ? "writes" : "reads")} only {string.Join(", ", write ? Containers.ContainerTemplate.OutFilesIn : Containers.ContainerTemplate.OutFilesOut)}";
+    }
+
+    /// <summary>The end of a transcript (ADR 0059): a listed image, one of the files that are read only as a tail, and a number of bytes within the ceiling. The whole file is never served.</summary>
+    public string? RefuseOutTail(string image, string name, int bytes)
+    {
+        if (!Images.Contains(image, StringComparer.Ordinal))
+            return "image is not on the runner's allowlist";
+        if (!Containers.ContainerTemplate.OutFilesTail.Contains(name, StringComparer.Ordinal))
+            return $"the runner serves the end of only {string.Join(", ", Containers.ContainerTemplate.OutFilesTail)}";
+        return bytes is >= 1 and <= Containers.ContainerTemplate.MaxTailBytes ? null : $"a tail is 1 to {Containers.ContainerTemplate.MaxTailBytes} bytes";
     }
 
     public static string? RefuseVolume(string name) =>

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 using Chargehand.Prompts;
 using Chargehand.Results;
 using Chargehand.Runtime;

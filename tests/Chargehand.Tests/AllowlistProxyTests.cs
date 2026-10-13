@@ -131,7 +131,7 @@ public class AllowlistProxyTests
     [Fact]
     public async Task Disposing_right_after_start_never_throws()
     {
-        for (var i = 0; i < 500; i++)
+        for (var i = 0; i < 5000; i++)
         {
             var proxy = new AllowlistProxy(new AllowlistMatcher(["allowed.test"]));
             await proxy.StartAsync(new IPEndPoint(IPAddress.Loopback, 0), default);

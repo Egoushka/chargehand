@@ -2,6 +2,7 @@ using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Kernel;
 
 namespace Chargehand.Tests;
 
@@ -88,6 +89,21 @@ public class DrivenContinuationTests
         Assert.Equal($"chargehand/{rig.Engine.Started[0].RunId}", row.GetProperty("branch").GetString());
         Assert.Equal("partial: stopped by turn_limit; draft PR opened", row.GetProperty("detail").GetString());
         Assert.Equal(3600, row.GetProperty("tokens").GetInt64());
+    }
+
+    [Fact]
+    public async Task A_partial_pull_request_has_the_short_title_behind_its_prefix_and_the_whole_goal_in_the_body()
+    {
+        const string goal = "Pair the app with a server by QR code (TRK-71). On the first-run server step, add a scan button that reads the pairing code and fills in the address.";
+        using var rig = new DrivenRunTests.Rig(outcomes: (_, g) => Progressing(g));
+        await rig.Run.RunAsync(Request(new DrivenTask("t1", Goal: goal)), BatchId, Token, default);
+        var handover = Assert.Single(rig.Handover.Inputs);
+        Assert.Equal("[partial] Pair the app with a server by QR code (TRK-71)", handover.Title);
+        Assert.Contains($"\n\nGoal:\n\n{goal}", handover.Body);
+
+        using var titled = new DrivenRunTests.Rig(outcomes: (_, g) => Progressing(g));
+        await titled.Run.RunAsync(Request(new DrivenTask("t1", Goal: goal, Title: "Pair the app by QR")), BatchId, Token, default);
+        Assert.Equal("[partial] Pair the app by QR", Assert.Single(titled.Handover.Inputs).Title);
     }
 
     [Theory]

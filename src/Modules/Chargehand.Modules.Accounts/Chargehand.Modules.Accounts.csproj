@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Accounts and run tokens.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
+    <ProjectReference Include="..\..\Shared\Chargehand.Kernel\Chargehand.Kernel.csproj" />
+    <ProjectReference Include="..\Chargehand.Modules.Ledger\Chargehand.Modules.Ledger.csproj" />
+  </ItemGroup>
+
+</Project>

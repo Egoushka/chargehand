@@ -2,12 +2,14 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Chargehand.Budget;
 using Chargehand.Config;
 using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Egress;
+using Chargehand.Kernel;
+using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Verification;
@@ -45,6 +47,13 @@ public class DrivenRunTests
         private readonly HashSet<string> _held = [];
         /// <summary>Called with the number of the start (1-based) once it is recorded; what it returns is thrown.</summary>
         public Func<int, Exception?>? OnStart { get; set; }
+
+        /// <summary>The peak memory (MiB) every container reports; null: the engine cannot measure it.</summary>
+        public int? PeakMb { get; set; }
+        /// <summary>The peak a container reports, by its id; overrides <see cref="PeakMb"/> where it answers.</summary>
+        public Func<string, int?>? PeakOf { get; set; }
+
+        private int? Peak(string id) => PeakOf?.Invoke(id) ?? PeakMb;
 
         /// <summary>Containers docker no longer knows.</summary>
         public HashSet<string> Gone { get; } = [];
@@ -99,25 +108,34 @@ public class DrivenRunTests
             return Task.CompletedTask;
         }
 
+        /// <summary>The next this many inspections find the runner silent (ADR 0058); -1: always.</summary>
+        public int SilentInspections { get; set; }
+
         public Task<ContainerState> InspectAsync(string id, CancellationToken ct)
         {
             bool running;
             lock (_gate)
             {
+                if (SilentInspections != 0 && !id.StartsWith("chargehand-egress", StringComparison.Ordinal))
+                {
+                    if (SilentInspections > 0)
+                        SilentInspections--;
+                    return Task.FromException<ContainerState>(new Chargehand.Runner.RunnerUnreachableException("the runner could not be reached: no route to host"));
+                }
                 if (Gone.Contains(id))
                     return Task.FromResult(new ContainerState(ContainerStatus.Missing, null, false));
                 if (_held.Contains(id) && !_stopped.Contains(id))
-                    return Task.FromResult(new ContainerState(ContainerStatus.Running, null, false));
+                    return Task.FromResult(new ContainerState(ContainerStatus.Running, null, false, Peak(id)));
                 _inspections[id] = _inspections.GetValueOrDefault(id) + 1;
                 running = (HoldRunning || _inspections[id] <= RunFor) && !_stopped.Contains(id);
             }
-            return Task.FromResult(running ? new ContainerState(ContainerStatus.Running, null, false) : new ContainerState(ContainerStatus.Exited, 0, false));
+            return Task.FromResult(running ? new ContainerState(ContainerStatus.Running, null, false, Peak(id)) : new ContainerState(ContainerStatus.Exited, 0, false, Peak(id)));
         }
 
         public Task RemoveAsync(string id, CancellationToken ct) { Record($"rm {id}"); return Task.CompletedTask; }
         public Task KillAllAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> OwnsAsync(string id, CancellationToken ct) => throw new NotSupportedException();
-        public Task<int> CountAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<int> CountAsync(CancellationToken ct) => OnList is null ? Task.FromResult(Resources.Containers.Count) : throw OnList;
         public Task<EngineResources> ListAsync(CancellationToken ct)
         {
             Record("list");
@@ -152,6 +170,27 @@ public class DrivenRunTests
 
         public int UsageReads;
 
+        /// <summary>The transcript each session left, by run id; a run not in it has none.</summary>
+        public Dictionary<string, string> Transcripts { get; } = [];
+
+        /// <summary>What reading a transcript throws (a runner that refuses or does not answer); null: it reads.</summary>
+        public Exception? TranscriptFails { get; set; }
+
+        /// <summary>The windows asked for, in order.</summary>
+        public List<(string RunId, int MaxBytes)> TranscriptReads { get; } = [];
+
+        public Task<byte[]?> ReadTranscriptTailAsync(string runId, int maxBytes, CancellationToken ct)
+        {
+            lock (TranscriptReads)
+                TranscriptReads.Add((runId, maxBytes));
+            if (TranscriptFails is not null)
+                throw TranscriptFails;
+            if (!Transcripts.TryGetValue(runId, out var text))
+                return Task.FromResult<byte[]?>(null);
+            var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+            return Task.FromResult<byte[]?>(bytes.Length <= maxBytes ? bytes : bytes[^maxBytes..]);
+        }
+
         /// <summary>The session image is newer than the server: its outcome and report carry a member the server does not know.</summary>
         public bool NewerSession { get; set; }
 
@@ -160,6 +199,9 @@ public class DrivenRunTests
 
         /// <summary>The <c>progress.md</c> a session leaves, from its run id and goal; null: it leaves none.</summary>
         public Func<string, string, string?>? Progress { get; set; }
+
+        /// <summary>The <c>governor.jsonl</c> a session leaves, from its run id and goal; null: it leaves none.</summary>
+        public Func<string, string, string?>? GovernorLog { get; set; }
 
         public Task<TaskUsage?> ReadUsageAsync(string runId, CancellationToken ct)
         {
@@ -184,11 +226,17 @@ public class DrivenRunTests
             return Task.CompletedTask;
         }
 
+        /// <summary>The run ids whose output was fetched, in order.</summary>
+        public List<string> Fetched { get; } = [];
+
         public Task FetchOutputAsync(string runId, string directory, CancellationToken ct)
         {
             string goal;
             lock (_goals)
+            {
+                Fetched.Add(runId);
                 goal = _goals[runId];
+            }
             if (NoOutput.Contains(runId))
                 return Task.CompletedTask;
             var status = script(goal);
@@ -204,6 +252,8 @@ public class DrivenRunTests
                 File.WriteAllText(Path.Combine(directory, "chargehand.bundle"), "bundle");
             if (Progress?.Invoke(runId, goal) is { } progress)
                 File.WriteAllText(Path.Combine(directory, "progress.md"), progress);
+            if (GovernorLog?.Invoke(runId, goal) is { } governorLog)
+                File.WriteAllText(Path.Combine(directory, "governor.jsonl"), governorLog);
             return Task.CompletedTask;
         }
     }
@@ -254,6 +304,10 @@ public class DrivenRunTests
         public DrivenRun Run { get; private set; }
         public FakeVolumes Volumes { get; }
         public Profile Profile { get; }
+
+        /// <summary>The commit the fake checkout is at, whatever the request pins.</summary>
+        public string CheckoutCommit { get; set; } = Commit;
+
         private readonly DrivenServices? _services;
         private readonly string? _state;
         private readonly ILearningStore? _learning;
@@ -263,28 +317,34 @@ public class DrivenRunTests
             DrivenLimits? limits = null, Func<string, string, SessionOutcome?>? outcomes = null, DrivenIntegrator? integrator = null, IIntegrationHost? integration = null,
             DrivenForge? forge = null, Func<RemoteRepository, string, IForge>? forgeFor = null, string remote = "https://github.com/o/r.git",
             IBatchPlanner? planner = null, IStackSeeder? stacker = null, DrivenPlanning? planning = null, ILearningStore? learning = null, DrivenLearning? learningSettings = null,
-            IBatchRetro? retro = null, IRetroSink? retroSink = null, DrivenGovernor? governor = null)
+            IBatchRetro? retro = null, IRetroSink? retroSink = null, DrivenGovernor? governor = null, IBranchSeeder? brancher = null, IReadOnlyList<AccountSettings>? accounts = null,
+            IHostSource? host = null, DrivenAdmission? admission = null, int maxParallel = 2, bool records = false)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
             {
                 ClaudeCode = apiKey ? new ClaudeCodeSettings("2.1.283", ApiKeySecret: "gateway-key") : new ClaudeCodeSettings("2.1.283", OauthTokenSecret: "claude-code-oauth-token"),
-                Driven = new DrivenSettings(enabled, MaxParallel: 2, Images: [Image], PushSecret: PushSecret,
+                Driven = new DrivenSettings(enabled, MaxParallel: maxParallel, Admission: admission, Images: [Image], PushSecret: PushSecret,
                     Network: new DrivenNetwork(McpForward: mcpForward, ModelUrl: modelUrl, OtlpUrl: otlpUrl), Limits: limits, Integrator: integrator, Forge: forge, Planning: planning, Learning: learningSettings, Governor: governor),
                 Telemetry = telemetry,
+                Http = accounts is null ? null : new HttpSettings("api-key", Accounts: accounts),
                 Prices = new Dictionary<string, ModelPrice> { ["p/small"] = new(0.1m, 0.5m, 0.01m, 0.125m), ["provider/claude-sonnet-5-5"] = new(3m, 15m, 0.3m, 3.75m) },
             };
             Volumes = volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed), outcomes);
             var services = enabled
                 ? new DrivenServices(Engine, Engine, Volumes, _ => throw new NotSupportedException("the handover is faked"), null,
-                    (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", Commit, remote, "main")), resolver ?? new NoEvidenceProblems(),
-                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1), Integration: integration, ForgeFor: forgeFor, Planner: planner, Stacker: stacker, Retro: retro, RetroSink: retroSink)
+                    (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", CheckoutCommit, remote, "main")), resolver ?? new NoEvidenceProblems(),
+                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1), Host: host, Integration: integration, ForgeFor: forgeFor, Planner: planner, Stacker: stacker, Retro: retro, RetroSink: retroSink, Brancher: brancher)
                 : null;
             _services = services;
             _state = durable ? Path.Combine(Dir.Path, "batches") : null;
             _learning = learning;
-            Run = new DrivenRun(Profile, Log, Repo.Root, services, _state, learning);
+            Records = records ? new BatchRecords(Path.Combine(Dir.Path, "records")) : null;
+            Run = new DrivenRun(Profile, Log, Repo.Root, services, _state, learning, Records);
         }
+
+        /// <summary>What the batch's events and its tasks' sessions are kept in; null: nothing is kept.</summary>
+        public BatchRecords? Records { get; }
 
         public string StateDirectory => _state!;
 
@@ -292,7 +352,7 @@ public class DrivenRunTests
         public DrivenRun Restart()
         {
             Run.Dispose();
-            return Run = new DrivenRun(Profile, Log, Repo.Root, _services, _state, _learning);
+            return Run = new DrivenRun(Profile, Log, Repo.Root, _services, _state, _learning, Records);
         }
 
         public void Dispose()

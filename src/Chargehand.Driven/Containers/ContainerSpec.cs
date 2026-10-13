@@ -71,6 +71,20 @@ public interface IWorkspaceEngine
     Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct);
 }
 
+/// <summary>The helper that fills a workspace volume on an engine that cannot see the server's checkouts (ADR 0058): the same clone and branch as <see cref="WorkspaceSpec"/>, made from
+/// <c>source.bundle</c> in the run's output volume, which the server sent first.</summary>
+/// <param name="Image">A session image (it has git).</param>
+/// <param name="OutVolume">The run's output volume, mounted read-only; it holds <see cref="ContainerTemplate.SourceBundleFile"/>.</param>
+/// <param name="WorkVolume">A new, empty named volume.</param>
+/// <param name="Branch">Created at <paramref name="Commit"/>; under <c>chargehand/</c>.</param>
+public sealed record BundleWorkspaceSpec(string RunId, string Image, string OutVolume, string WorkVolume, string Branch, string Commit);
+
+/// <summary>Fills a workspace volume from a bundle in the run's output volume. The Docker CLI and the runner implement it.</summary>
+public interface IBundleWorkspaceEngine
+{
+    Task PrepareBundleWorkspaceAsync(BundleWorkspaceSpec spec, CancellationToken ct);
+}
+
 /// <summary>One file of a session's output volume, moved by a throwaway helper (ADR 0039).</summary>
 /// <param name="Image">A session image (it has <c>sh</c> and <c>cat</c>).</param>
 /// <param name="OutVolume">The run's output volume.</param>
@@ -82,15 +96,33 @@ public interface IOutVolumeEngine
 {
     Task WriteOutFileAsync(OutFileSpec spec, ReadOnlyMemory<byte> content, CancellationToken ct);
 
+    /// <summary>Writes a file of <paramref name="length"/> bytes that is too large to hold in memory (the repository's bundle, ADR 0058). The default reads it into memory; the Docker CLI and the runner
+    /// client pass it on as a stream.</summary>
+    async Task WriteOutStreamAsync(OutFileSpec spec, Stream content, long length, CancellationToken ct)
+    {
+        using var buffer = new MemoryStream(checked((int)length));
+        await content.CopyToAsync(buffer, ct);
+        await WriteOutFileAsync(spec, buffer.ToArray(), ct);
+    }
+
     /// <returns>False when the volume has no such file; nothing was written to <paramref name="destination"/> then.</returns>
     Task<bool> ReadOutFileAsync(OutFileSpec spec, Stream destination, CancellationToken ct);
+}
+
+/// <summary>Reads the end of a file in a session's output volume (ADR 0059): at most <paramref name="maxBytes"/> of it, for the files of <see cref="ContainerTemplate.OutFilesTail"/> only. It is separate from
+/// <see cref="IOutVolumeEngine"/> so that an engine, or a runner, that predates it is simply not asked.</summary>
+public interface IOutTailEngine
+{
+    /// <returns>False when the volume has no such file; nothing was written to <paramref name="destination"/> then.</returns>
+    Task<bool> ReadOutTailAsync(OutFileSpec spec, int maxBytes, Stream destination, CancellationToken ct);
 }
 
 public enum ContainerStatus { Running, Exited, Missing }
 
 /// <param name="ExitCode">Set once the container has exited.</param>
 /// <param name="OomKilled">The kernel killed it for memory.</param>
-public sealed record ContainerState(ContainerStatus Status, int? ExitCode, bool OomKilled);
+/// <param name="MemoryPeakMb">The most memory the container has used so far, in MiB: its cgroup's <c>memory.peak</c>, else the largest sampled use. Null when the engine could not measure it.</param>
+public sealed record ContainerState(ContainerStatus Status, int? ExitCode, bool OomKilled, int? MemoryPeakMb = null);
 
 /// <summary>Starts, signals, inspects and removes session containers (ADR 0039). The Docker CLI implements it on a machine that has
 /// Docker; the runner service (a later task) implements it over HTTP where the server must not hold the socket.</summary>

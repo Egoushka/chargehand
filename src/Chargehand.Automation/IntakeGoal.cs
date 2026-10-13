@@ -29,6 +29,17 @@ public static partial class IntakeGoal
         return text.ToString();
     }
 
+    /// <summary>The most comments one review round takes; <c>request/v1</c> allows 50 answers to a task.</summary>
+    public const int MaxRoundComments = 50;
+
+    /// <summary>One reviewer's comment as an entry of the round's answers (ADR 0051): who said it and where, and the text cut to <see cref="MaxComment"/>. The author is allowed, so the text is the
+    /// instruction; line breaks are indented to keep the entry one bullet.</summary>
+    public static string ReviewAnswer(string author, string? path, int? line, string body)
+    {
+        var where = path is null ? $"comment by {author}" : $"review comment by {author} on {path}{(line is null ? "" : $" line {line.Value.ToString(CultureInfo.InvariantCulture)}")}";
+        return $"{where}: {Cut(body.Trim(), MaxComment).ReplaceLineEndings("\n").Replace("\n", "\n  ", StringComparison.Ordinal)}";
+    }
+
     /// <summary>A reply that answers a session's questions: it goes into the continuation's goal verbatim, so it is cut to what <c>request/v1</c> allows.</summary>
     public static string Answer(string reply) => Cut(reply.Trim(), MaxAnswer);
 

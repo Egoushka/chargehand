@@ -10,7 +10,7 @@ public class GitHubIntakeHostTests
 {
     private sealed class FixedToken : IInstallationTokens
     {
-        public Task<string> GetAsync(CancellationToken ct) => Task.FromResult("ghs_secrettoken");
+        public Task<string> GetAsync(string owner, string repository, CancellationToken ct) => Task.FromResult("ghs_secrettoken");
     }
 
     private sealed class Canned(Func<HttpRequestMessage, string?, HttpResponseMessage> answer) : HttpMessageHandler
@@ -84,6 +84,45 @@ public class GitHubIntakeHostTests
 
         Assert.Equal(["11:7:alice:@chargehand go", "12:9::"], comments.Select(c => $"{c.Id}:{c.IssueNumber}:{c.Author}:{c.Body}"));
         Assert.Equal("https://api.example.test/repos/octo/repo/issues/comments?sort=created&direction=asc&since=2026-10-13T10%3A00%3A00Z&per_page=100&page=1", handler.Requests.Single().Url);
+    }
+
+    [Fact]
+    public async Task A_pull_request_names_its_head_branch_and_where_it_lives_and_whether_it_is_open()
+    {
+        var handler = new Canned((_, _) => Json("""
+            {"number":9,"state":"open","head":{"ref":"chargehand/run-1","repo":{"full_name":"octo/repo"}},"base":{"ref":"main","repo":{"full_name":"octo/repo"}}}
+            """));
+        var pull = await Host(handler).GetPullAsync("octo/repo", 9, default);
+
+        Assert.Equal(new IntakePull(9, "chargehand/run-1", "octo/repo", "octo/repo", true), pull);
+        Assert.Equal("https://api.example.test/repos/octo/repo/pulls/9", handler.Requests.Single().Url);
+
+        var gone = new Canned((_, _) => Json("""{"number":9,"state":"closed","head":{"ref":"x","repo":null},"base":{"ref":"main","repo":{"full_name":"octo/repo"}}}"""));
+        Assert.Equal(new IntakePull(9, "x", null, "octo/repo", false), await Host(gone).GetPullAsync("octo/repo", 9, default));
+    }
+
+    [Fact]
+    public async Task Review_comments_carry_their_pull_request_file_line_and_whether_they_reply()
+    {
+        var handler = new Canned((_, _) => Json("""
+            [{"id":31,"pull_request_url":"https://api.example.test/repos/octo/repo/pulls/9","user":{"login":"alice"},"body":"Use a constant.","path":"src/Retry.cs","line":12,"original_line":10,"updated_at":"2026-10-13T10:00:05Z"},
+             {"id":32,"pull_request_url":"https://api.example.test/repos/octo/repo/pulls/9","user":{"login":"bob"},"body":"Why?","path":"src/Retry.cs","line":null,"original_line":7,"in_reply_to_id":31,"updated_at":"2026-10-13T10:00:06Z"},
+             {"id":33,"pull_request_url":"https://api.example.test/repos/octo/repo/pulls/9","user":null,"body":null,"path":"README.md","line":null,"updated_at":"2026-10-13T10:00:07Z"}]
+            """));
+        var comments = await Host(handler).ReviewCommentsSinceAsync("octo/repo", new DateTimeOffset(2026, 10, 13, 10, 0, 0, TimeSpan.Zero), default);
+
+        Assert.Equal(["31:9:alice:src/Retry.cs:12:False", "32:9:bob:src/Retry.cs:7:True", "33:9::README.md::False"], comments.Select(c => $"{c.Id}:{c.PullNumber}:{c.Author}:{c.Path}:{c.Line}:{c.IsReply}"));
+        Assert.Equal("https://api.example.test/repos/octo/repo/pulls/comments?sort=created&direction=asc&since=2026-10-13T10%3A00%3A00Z&per_page=100&page=1", handler.Requests.Single().Url);
+    }
+
+    [Fact]
+    public async Task The_conversation_of_a_pull_request_is_its_comment_bodies_in_order()
+    {
+        var handler = new Canned((_, _) => Json("""[{"id":1,"body":"first"},{"id":2,"body":null},{"id":3,"body":"third"}]"""));
+        var bodies = await Host(handler).CommentBodiesAsync("octo/repo", 9, default);
+
+        Assert.Equal(["first", "", "third"], bodies);
+        Assert.StartsWith("https://api.example.test/repos/octo/repo/issues/9/comments?", handler.Requests.Single().Url);
     }
 
     [Fact]

@@ -50,8 +50,11 @@ public sealed class AllowlistProxy(AllowlistMatcher matcher, Func<string, Cancel
                 }, CancellationToken.None);
             }
         }
-        // Stop() can land between the cancellation check and the accept: then the accept throws "Not listening".
-        catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException || (e is InvalidOperationException && ct.IsCancellationRequested)) { }
+        // Stop() can land between the cancellation check and the accept: then the accept throws "Not listening". Or it can close the
+        // socket under a pending accept, which fails as OperationAborted rather than as a cancellation.
+        catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException
+            || (e is InvalidOperationException or SocketException { SocketErrorCode: SocketError.OperationAborted } && ct.IsCancellationRequested))
+        { }
     }
 
     private async Task Handle(TcpClient client, CancellationToken ct)

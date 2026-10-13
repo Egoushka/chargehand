@@ -8,6 +8,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -32,9 +34,14 @@ namespace Chargehand.Server;
 /// <param name="Accounts">The accounts besides the owner that the profile declares (ADR 0050).</param>
 /// <param name="AccountKeysFile">The file that holds their keys, as salted hashes; null: no account key opens anything.</param>
 /// <param name="Clock">The time the accounts' day and month windows are cut by; null: the system's.</param>
+/// <param name="Ui">Serve the web UI at /ui/ (ADR 0054) and the operator console at /console/ (ADR 0056).</param>
+/// <param name="Profile">The profile, for the console's read routes (CHARGEHAND-209): the owner's <c>system</c> and <c>repositories</c> views and intake's settings. Null: those views are empty.</param>
+/// <param name="SecretPresent">Whether a secret item resolves, for an account's credential state; null: it is not known.</param>
+/// <param name="IntakeStatePath">Intake's state file (<c>intake/github.json</c>) for <c>GET /v1/intake</c>; null: none.</param>
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
     IReadOnlyList<string>? AllowedHosts = null, int MaxConcurrentRuns = 1, int MaxSessionCalls = 2, string? StateDirectory = null,
-    IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null);
+    IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null, bool Ui = false,
+    Profile? Profile = null, Func<string, bool>? SecretPresent = null, string? IntakeStatePath = null);
 
 /// <summary>
 /// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
@@ -89,9 +96,15 @@ public static partial class ChargehandServer
         var app = builder.Build();
         app.UseHostFiltering();
         var expected = Encoding.UTF8.GetBytes($"Bearer {settings.ApiKey}");
-        var accounts = settings.Accounts is { Count: > 0 } declared && settings.AccountKeysFile is { } keysFile ? new AccountDirectory(declared, new AccountKeyStore(keysFile)) : null;
+        var accounts = settings.Accounts is { Count: > 0 } declared && settings.AccountKeysFile is { } keysFile ? new AccountDirectory(declared, new AccountKeyStore(keysFile), new AccountKeyUse(AccountKeyUse.FileFor(keysFile), settings.Clock)) : null;
         app.Use(async (ctx, next) =>
         {
+            // The UI's and the console's files are public and carry no data; the page calls the routes below with a key (ADR 0054, 0056).
+            if (settings.Ui && (WebUi.Serves(ctx.Request.Path) || WebConsole.Serves(ctx.Request.Path)))
+            {
+                await next(ctx);
+                return;
+            }
             var header = ctx.Request.Headers.Authorization.ToString();
             if (CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(header), expected))
             {
@@ -145,7 +158,7 @@ public static partial class ChargehandServer
             if (runs.Halted)
                 return Json(new { errors = new[] { RunService.HaltedMessage } }, StatusCodes.Status503ServiceUnavailable);
             string? parent = null;
-            var who = Principal.Of(ctx);
+            var who = PrincipalHttp.Of(ctx);
             if (ctx.Items[RunScope.ItemKey] is RunTokenClaims scope)
             {
                 var applied = RunScope.Apply(scope, request, runs.Ledger);
@@ -166,6 +179,17 @@ public static partial class ChargehandServer
             await Task.WhenAny(run.Done, Task.Delay(Wait(ctx.Request.Headers["Prefer"]), ctx.RequestAborted));
             return Reply(run);
         });
+
+        if (settings.Ui)
+        {
+            WebUi.Map(app);
+            WebConsole.Map(app);
+        }
+
+        ConsoleRoutes.Map(app, settings, log, driven);
+
+        app.MapGet("/v1/accounts/me", async (HttpContext ctx, RunService runs) =>
+            Json(await AccountStanding.ReadAsync(PrincipalHttp.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
 
         app.MapGet("/v1/runs", async (HttpContext ctx) =>
         {
@@ -188,8 +212,14 @@ public static partial class ChargehandServer
             var limit = 50;
             if (q.TryGetValue("limit", out var limitText) && (!int.TryParse(limitText, out limit) || limit is < 1 or > 500))
                 return Json(Problem("limit must be 1 to 500"), StatusCodes.Status400BadRequest);
-            var who = Principal.Of(ctx);
-            return Json(new { runs = await log.ListAsync(new RunListQuery(status, since, limit, who is { IsOwner: false } ? who.Name : null), ctx.RequestAborted) }, StatusCodes.Status200OK);
+            string? kind = q.TryGetValue("kind", out var kindText) ? kindText.ToString() : null;
+            if (kind is not (null or "single" or "batch"))
+                return Json(Problem("kind must be single or batch"), StatusCodes.Status400BadRequest);
+            var who = PrincipalHttp.Of(ctx);
+            // An account's list is its own runs whatever it asks; only the owner may pick an actor.
+            var actor = who is { IsOwner: false } ? who.Name : q.TryGetValue("actor", out var actorText) ? actorText.ToString() : null;
+            var query = new RunListQuery(status, since, limit, actor, kind, q.TryGetValue("repository", out var repository) ? repository.ToString() : null, q.TryGetValue("run_id", out var runId) ? runId.ToString() : null);
+            return Json(new { runs = await log.ListAsync(query, ctx.RequestAborted) }, StatusCodes.Status200OK);
         });
 
         // What finished driven tasks taught (ADR 0045), the table of `chargehand learn report` as JSON.
@@ -199,14 +229,14 @@ public static partial class ChargehandServer
             if (ctx.Request.Query.TryGetValue("since", out var sinceText) && (since = Chargehand.Driven.LearningReport.ParseSince(sinceText.ToString(), DateTimeOffset.UtcNow)) is null)
                 return Json(Problem("since must be a number of days such as 30d, or an ISO 8601 time"), StatusCodes.Status400BadRequest);
             // An account sees the tasks of its own batches (ADR 0050); the owner sees all.
-            var who = Principal.Of(ctx);
+            var who = PrincipalHttp.Of(ctx);
             var entries = driven?.Learning is { } store ? (await store.ReadAsync(ctx.RequestAborted)).Where(e => Principal.Sees(who, e.Record.Actor)).ToList() : [];
             return Json(Chargehand.Driven.LearningReport.Build(entries, since), StatusCodes.Status200OK);
         });
 
         app.MapPost("/v1/runs/{id}/cancel", async (string id, HttpContext ctx, RunService runs) =>
         {
-            var who = Principal.Of(ctx);
+            var who = PrincipalHttp.Of(ctx);
             if (runs.Cancel(id, who))
                 return Json(new { run_id = id, status = "cancelling" }, StatusCodes.Status202Accepted);
             return await Stored(log, id, ctx.RequestAborted) is not { } stored || !Principal.Sees(who, stored.Actor)
@@ -228,7 +258,7 @@ public static partial class ChargehandServer
 
         app.MapGet("/v1/runs/{id}", async (string id, HttpContext ctx, RunService runs) =>
         {
-            var who = Principal.Of(ctx);
+            var who = PrincipalHttp.Of(ctx);
             if (runs.Find(id) is { } run)
                 return Principal.Sees(who, run.Actor) ? Reply(run) : HttpResults.NotFound();
             var status = await Stored(log, id, ctx.RequestAborted);
@@ -245,7 +275,7 @@ public static partial class ChargehandServer
 
         app.MapGet("/v1/runs/{id}/events", async (string id, HttpContext ctx, RunService runs) =>
         {
-            var who = Principal.Of(ctx);
+            var who = PrincipalHttp.Of(ctx);
             if (runs.Find(id) is { } run)
                 return Principal.Sees(who, run.Actor) ? TypedResults.ServerSentEvents(Sse(run.Events(ctx.RequestAborted))) : HttpResults.NotFound();
             // Finished, lost, or running in another process: one event from the log.
@@ -306,27 +336,27 @@ public static partial class ChargehandServer
     internal static TimeSpan Wait(string? prefer) =>
         PreferWait().Match(prefer ?? "") is { Success: true } m ? TimeSpan.FromSeconds(Math.Min(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), MaxWaitSeconds)) : DefaultWait;
 
-    private static object Problem(string message) => new { errors = new[] { message } };
+    internal static object Problem(string message) => new { errors = new[] { message } };
 
     /// <summary>The refusal as the response: its status, the code and the window in the body, and when the window resets as Retry-After.</summary>
     private static IResult Refused(HttpContext ctx, AccountRefusal refusal)
     {
         if (refusal.ResetsAt is { } resets)
             ctx.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling((resets - ctx.RequestServices.GetRequiredService<RunService>().Now).TotalSeconds)).ToString(CultureInfo.InvariantCulture);
-        return Json(refusal.Body, refusal.Status);
+        return Json(refusal.Body(), refusal.Status);
     }
 
     /// <summary>Records who the request is. The MCP transport ties a session to the user it started with, so an account cannot use another's session id.</summary>
     private static void Identify(HttpContext ctx, Principal who)
     {
-        ctx.Items[Principal.ItemKey] = who;
+        ctx.Items[PrincipalHttp.ItemKey] = who;
         ctx.User = new ClaimsPrincipal(new ClaimsIdentity([new System.Security.Claims.Claim(ClaimTypes.NameIdentifier, who.Name)], "chargehand"));
     }
 
-    private static IResult? OwnerOnly(HttpContext ctx) =>
-        Principal.Of(ctx) is { IsOwner: false } ? Json(Problem("only the owner's key may do that"), StatusCodes.Status403Forbidden) : null;
+    internal static IResult? OwnerOnly(HttpContext ctx) =>
+        PrincipalHttp.Of(ctx) is { IsOwner: false } ? Json(Problem("only the owner's key may do that"), StatusCodes.Status403Forbidden) : null;
 
-    private static IResult Json(object value, int status) => HttpResults.Json(value, ContractJson.Options, statusCode: status);
+    internal static IResult Json(object value, int status) => HttpResults.Json(value, ContractJson.Options, statusCode: status);
 
     private static async IAsyncEnumerable<SseItem<string>> Sse(IAsyncEnumerable<RunStatus> events)
     {

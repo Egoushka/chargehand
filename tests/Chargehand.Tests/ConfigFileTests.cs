@@ -98,6 +98,31 @@ public class ConfigFileTests
     }
 
     [Theory]
+    [InlineData("""{"schema":"profile/v1","driven":{"max_parallel":16,"max_parallel_total":32,"max_session_calls":8}}""", true)]
+    [InlineData("""{"schema":"profile/v1","driven":{"max_parallel":17}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"max_parallel_total":33}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"max_session_calls":9}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"max_parallel":0}}""", false)]
+    public void The_schema_bounds_the_driven_parallelism(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
+    [Theory]
+    [InlineData("""{"schema":"profile/v1","driven":{"admission":{"reserve_mb":2048,"max_load_per_cpu":1.5,"default_request_mb":1536,"max_memory_pressure":10}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","driven":{"admission":{"max_memory_pressure":100}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","driven":{"admission":{"default_request_mb":511}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"admission":{"max_memory_pressure":0}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"admission":{"max_memory_pressure":101}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"admission":{"request_mb":1536}}}""", false)]
+    public void The_schema_checks_driven_admission(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
+    [Theory]
     [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2,"private_key_secret":"app-key","repositories":{"o/r":"merge","o/s":"ask"},"always_ask":["o/servers"],"ci_fix":{"max_attempts":3,"max_turns":20,"max_minutes":15,"wait_minutes":20}}}}""", true)]
     [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2}}}""", false)] // the key's secret item is required
     [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2,"private_key_secret":"k","repositories":{"o/r":"yes"}}}}""", false)]

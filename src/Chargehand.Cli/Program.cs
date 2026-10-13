@@ -8,8 +8,11 @@ using Chargehand.ClaudeCode;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Evals;
+using Chargehand.Kernel;
 using Chargehand.Mcp;
-using Chargehand.Memory;
+using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Memory.Api;
 using Chargehand.OpenCode;
 using Chargehand.Prompts;
 using Chargehand.RunLog;
@@ -62,6 +65,11 @@ const string Usage = """
       extensions check [--preset <name>] [--probe <query>]
                                    connects each mcp_servers entry, checks the memory mappings and the presets' services
                                    against the tools it lists; one line per item, exit 1 on a problem; --probe also runs one recall
+      bench run <taskset.json> [--dry-run|--baseline] [--only <ids>] [--remote <template>] [--max-tokens <n>] [--max-usd <n>] [--out <dir>]
+                                   measures driven batches on a task set of public repositories: pass rate, honest stops, spend, governor decisions
+                                   (--dry-run and --baseline call no model; `chargehand bench run` alone prints its full usage)
+      bench report <results.json> [<other.json>]
+                                   renders a benchmark's results again, or compares two runs
       init [<repo path>] [--profile <out path>] [--force]
                                    reads a repository's marker files, prints its ecosystems, the proposed context.verify and the
                                    package hosts the driven egress allowlist lacks, and writes a starter profile (never over a file without --force)
@@ -79,6 +87,12 @@ if (argv.Count >= 2 && argv[0] == "--profile")
     profilePath = argv[1];
     argv.RemoveRange(0, 2);
 }
+// `bench run <set> --profile <path>` reads like the other verbs' global option.
+if (argv is ["bench", ..] && argv.IndexOf("--profile") is var benchProfileAt and >= 0 && benchProfileAt + 1 < argv.Count)
+{
+    profilePath = argv[benchProfileAt + 1];
+    argv.RemoveRange(benchProfileAt, 2);
+}
 // Offline and profile-free: a verifier holds a result and a public key, nothing else (ADR 0036).
 if (argv is ["verify", .. var verifyArgs])
     return Chargehand.Signing.VerifyCli.Run(verifyArgs, Console.Out, Console.Error);
@@ -90,18 +104,7 @@ if (argv is ["watch" or "cancel", var watchRun, .. var watchOptions])
 {
     using var stop = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-    var (client, problem) = Chargehand.Watch.WatchCli.Connect(watchOptions, Environment.GetEnvironmentVariable, () =>
-    {
-        try
-        {
-            var p = Profile.Load(profilePath);
-            return p.Http is { } http ? ($"http://{(http.Listen is "0.0.0.0" or "::" ? "127.0.0.1" : http.Listen)}:{http.Port}", p.Secret(http.ApiKeySecret)) : null;
-        }
-        catch (Exception e) when (e is ChargehandException or InvalidOperationException)
-        {
-            return null;
-        }
-    });
+    var (client, problem) = Chargehand.Watch.WatchCli.Connect(watchOptions, Environment.GetEnvironmentVariable, ProfileServer);
     if (client is null)
     {
         Console.Error.WriteLine(problem);
@@ -143,6 +146,33 @@ if (argv is ["verify-branch", .. var verifyBranchArgs])
     using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Driven.VerifyBranchCli.RunAsync(verifyBranchArgs, Console.Out, Console.Error, stop.Token);
+}
+// Benchmarks (ADR 0052): a report is a file read; a run reads the profile for the images, the allowlist and the server it may reach.
+if (argv is ["bench", "report", .. var benchReportArgs])
+    return Chargehand.Bench.BenchCli.Report(benchReportArgs, Console.Out, Console.Error);
+if (argv is ["bench", "run", .. var benchRunArgs])
+{
+    Profile benchProfile;
+    try
+    {
+        benchProfile = Profile.Load(profilePath);
+    }
+    catch (ChargehandException e)
+    {
+        Console.Error.WriteLine($"{profilePath}: {e.Message}");
+        Console.Error.WriteLine(e.Action);
+        return 2;
+    }
+    using var stop = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Bench.BenchCli.RunAsync(benchRunArgs, benchProfile, DrivenPresetAllow(), BenchLimits(), () => BenchEngines(benchProfile),
+        connectArgs => Chargehand.Watch.WatchCli.Connect(connectArgs, Environment.GetEnvironmentVariable, ProfileServer), Environment.GetEnvironmentVariable,
+        Directory.GetCurrentDirectory(), Console.Out, Console.Error, stop.Token);
+}
+if (argv is ["bench", ..])
+{
+    Console.Error.WriteLine(Chargehand.Bench.BenchCli.Usage);
+    return 2;
 }
 // Profile-free: init writes the profile, and doctor reports one that does not load.
 if (argv is ["init", .. var initArgs])
@@ -254,6 +284,49 @@ IReadOnlyList<string> DrivenPresetAllow()
     }
 }
 
+/// <summary>The server and key the profile's http block names, for a client verb that was given neither.</summary>
+(string Url, string Key)? ProfileServer()
+{
+    try
+    {
+        var p = Profile.Load(profilePath);
+        return p.Http is { } http ? ($"http://{(http.Listen is "0.0.0.0" or "::" ? "127.0.0.1" : http.Listen)}:{http.Port}", p.Secret(http.ApiKeySecret)) : null;
+    }
+    catch (Exception e) when (e is ChargehandException or InvalidOperationException)
+    {
+        return null;
+    }
+}
+
+/// <summary>The container limits of the driven preset, so a benchmark's acceptance check gets what a session's own test run got.</summary>
+Chargehand.Bench.AcceptanceLimits BenchLimits()
+{
+    var (installRoot, _) = InstallPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory, "");
+    try
+    {
+        return Preset.Load(Path.Combine(installRoot, "presets"), "driven").Driven is { } d ? new(d.MemoryMb, d.Cpus, d.Pids) : new(4096, 2, 512);
+    }
+    catch (Exception e) when (e is not OperationCanceledException)
+    {
+        return new(4096, 2, 512);
+    }
+}
+
+/// <summary>The engine a benchmark's acceptance checks start containers with: the runner service when the profile names one, else this machine's Docker.</summary>
+(Chargehand.Containers.IContainerEngine, Chargehand.Containers.IWorkspaceEngine, Chargehand.Containers.IOutVolumeEngine) BenchEngines(Profile p)
+{
+    // A benchmark's acceptance checks read the server's checkouts, so they use a runner that shares its disk (ADR 0058).
+    if (p.Driven?.ResolvedRunners().FirstOrDefault(r => r.Workspace == Chargehand.Config.WorkspaceMode.Shared) is { } runner)
+    {
+        var http = new HttpClient { BaseAddress = new Uri(runner.Url) };
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", p.Secret(runner.ApiKeySecret));
+        var client = new Chargehand.Runner.RunnerClient(http);
+        return (client, client, client);
+    }
+    var docker = new Chargehand.Containers.DockerCliEngine();
+    return (docker, docker, docker);
+}
+
 async Task<int> Run()
 {
     var input = await Console.In.ReadToEndAsync(ct);
@@ -319,16 +392,25 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
 {
     // Batch state and the run-token key sit next to the run log (ADR 0043).
     var stateDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches");
+    // What the operator console reads about a batch (events, sessions, governor decisions, checks) sits there too, one directory per batch.
+    var records = new Chargehand.Driven.BatchRecords(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "records"));
     if (profile.Driven is not { Enabled: true } driven)
-        return new Chargehand.Driven.DrivenRun(profile, runLog, root, null, learning: learning);
+        return new Chargehand.Driven.DrivenRun(profile, runLog, root, null, learning: learning, records: records);
     Chargehand.Containers.IContainerEngine engine;
     Chargehand.Containers.IWorkspaceEngine workspace;
     Chargehand.Driven.IHostSource hostSource;
-    if (driven.Runner is { } runner)
+    IReadOnlyList<Chargehand.Driven.RunnerSite>? sites = null;
+    Chargehand.Runner.RunnerClient RunnerClientFor(Chargehand.Config.DrivenRunnerEntry runner)
     {
-        var http = new HttpClient { BaseAddress = new Uri(runner.Url) };
+        // The client times each call out itself (a control call, or a transfer of repository size), so the HttpClient's 100 seconds must not cut a transfer short (ADR 0058).
+        var http = new HttpClient { BaseAddress = new Uri(runner.Url), Timeout = Timeout.InfiniteTimeSpan };
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", profile.Secret(runner.ApiKeySecret));
-        var client = new Chargehand.Runner.RunnerClient(http);
+        return new Chargehand.Runner.RunnerClient(http);
+    }
+    var bundles = new Chargehand.Driven.RepositoryBundles(Path.Combine(profile.WorkerRoot, ".driven", "bundles"));
+    if (driven.ResolvedRunners() is [var runner, ..])
+    {
+        var client = RunnerClientFor(runner);
         (engine, workspace, hostSource) = (client, client, client);
     }
     else
@@ -340,6 +422,15 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     Chargehand.Driven.ISessionVolumes volumes = engine is Chargehand.Containers.IOutVolumeEngine files && driven.Images is { Count: > 0 } images
         ? new Chargehand.Driven.EngineSessionVolumes(files, images[0])
         : new Chargehand.Driven.UnavailableSessionVolumes();
+    // A profile that names its runners (ADR 0058) gets a pool: each runner has its own client, and its volumes' helper starts the image for its platform.
+    if (driven.NamesRunners)
+        sites = [.. driven.ResolvedRunners().Select(entry =>
+        {
+            var client = RunnerClientFor(entry);
+            return new Chargehand.Driven.RunnerSite(entry, client, entry.Workspace == Chargehand.Config.WorkspaceMode.Bundle ? new Chargehand.Driven.BundleWorkspaceEngine(client, client, bundles) : client, driven.Images is { Count: > 0 } list
+                ? new Chargehand.Driven.EngineSessionVolumes(client, driven.ImageFor(list[0], entry.Platform))
+                : new Chargehand.Driven.UnavailableSessionVolumes(), client);
+        })];
     // The planning and retro runs belong to the account of the batch they serve (ADR 0050).
     Chargehand.Driven.PlanRunner childRun = async (request, runId, parentRunId, token) =>
         await orchestrator.RunAsync(request, token, runId, parentRunId: parentRunId, actor: (await runLog.ReadAsync(parentRunId, token)).Start?.Actor);
@@ -350,8 +441,8 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         Integration: IntegrationHost(driven), ForgeFor: (remote, token) => new Chargehand.Driven.GitLabForge(
             new HttpClient { BaseAddress = Chargehand.Driven.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token),
         Planner: new Chargehand.Driven.ModelPlanner(childRun, driven.Planning?.Preset ?? "cheap"),
-        Retro: new Chargehand.Driven.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap")),
-        stateDirectory, learning);
+        Retro: new Chargehand.Driven.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap"), Runners: sites),
+        stateDirectory, learning, records);
 }
 
 // GitHub's API root: api.github.com, or the Enterprise host the profile's driven.forge names. The E2E switch exists for scripts/driven-e2e.sh only.
@@ -361,7 +452,7 @@ Uri GitHubApiRoot(Chargehand.Config.DrivenSettings driven) =>
 // The App's token source lives as long as the process, so a token is fetched once an hour at most (ADR 0046). The key is read from the secret store only when a token is needed.
 Chargehand.Driven.IIntegrationHost? IntegrationHost(Chargehand.Config.DrivenSettings driven)
 {
-    if (driven.Integrator is not { AppId: { } appId, InstallationId: { } installationId, PrivateKeySecret: { } privateKeySecret })
+    if (driven.Integrator is not { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId })
         return null;
     var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
     return new Chargehand.Driven.GitHubIntegrationHost(api,
@@ -371,12 +462,26 @@ Chargehand.Driven.IIntegrationHost? IntegrationHost(Chargehand.Config.DrivenSett
 // GitHub intake (ADR 0051): null unless the profile has automation.github. It reads and comments as the integrator's GitHub App; its state sits next to the run log.
 Chargehand.Automation.GitHubIntake? GitHubIntake()
 {
-    if (profile.Automation?.Github is not { } github || profile.Driven is not { Integrator: { AppId: { } appId, InstallationId: { } installationId, PrivateKeySecret: { } privateKeySecret } } driven)
+    if (profile.Automation?.Github is not { } github || profile.Driven is not { Integrator: { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId } } driven)
         return null;
     var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
     var tokens = new Chargehand.Driven.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System);
     var state = Chargehand.Automation.IntakeState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"));
     return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, integrator: new Chargehand.Driven.IntegratorPolicy(driven.Integrator));
+}
+
+// The console's account view says whether a credential's secret item resolves, never its value.
+bool SecretResolves(string item)
+{
+    try
+    {
+        _ = profile.Secret(item);
+        return true;
+    }
+    catch (InvalidOperationException)
+    {
+        return false;
+    }
 }
 
 async Task<int> Serve()
@@ -388,12 +493,22 @@ async Task<int> Serve()
     }
     using var tracing = Tracing();
     var (runtime, runtimeVersion) = await Connect();
-    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
+    if (Chargehand.ClaudeCode.AccountRuntimes.Unsupported(runtime, http.Accounts) is { } unsupported)
+    {
+        Console.Error.WriteLine(unsupported);
+        return 2;
+    }
+    // An account's runs use its own model credential, or are refused (ADR 0053).
+    Func<string?, IWorkerRuntime>? runtimeFor = http.Accounts is { Count: > 0 } accounts
+        ? new Chargehand.ClaudeCode.AccountRuntimes(runtime, new AccountCredentials(accounts), profile.Secret).For : null;
+    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer(), runtimeFor: runtimeFor);
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
-        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath)), orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake());
+        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
+        Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json")),
+        orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake());
     await app.StartAsync(ct);
-    Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp)");
+    Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", UI /ui/, console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);
     return 0;
 }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using Chargehand.Config;
+using Chargehand.Modules.Accounts.Api;
 
 namespace Chargehand.Server;
 
@@ -82,6 +83,7 @@ public static class AccountsCli
         Add("tokens/month", a.MaxTokensPerMonth);
         Add("concurrent", a.MaxConcurrentRuns);
         caps.Add(a.Driven ? "driven allowed" : "no driven");
+        caps.Add(a.Model is not null ? (a.Model.BaseUrl is null ? "own API key" : "own gateway key") : a.AllowServerCredential ? "server's model key" : "no model key (runs refused)");
         if (a.Repositories is { Count: > 0 })
             caps.Add($"{a.Repositories.Count} repositories");
         return string.Join(", ", caps);

@@ -2,6 +2,8 @@ using System.Diagnostics;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Kernel;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 
@@ -98,9 +100,22 @@ public class ProfileTests
         Assert.Equal(new DrivenAdmission(2048), Profile.Load(dir.Write("reserve.json", """{"schema":"profile/v1","driven":{"admission":{"reserve_mb":2048}}}""")).Driven!.Admission);
     }
 
+    [Fact]
+    public void Driven_admission_asks_for_1536_MiB_and_holds_starts_above_10_percent_memory_pressure_unless_the_profile_says_otherwise()
+    {
+        using var dir = new TempDir();
+        var defaults = Profile.Load(dir.Write("local.json", """{"schema":"profile/v1","driven":{"admission":{}}}""")).Driven!.Admission!;
+        Assert.Equal((1536, 10.0, 1024, null), (defaults.DefaultRequestMb, defaults.MaxMemoryPressure, defaults.ReserveMb, defaults.MaxLoadPerCpu));
+        var set = Profile.Load(dir.Write("set.json", """{"schema":"profile/v1","driven":{"admission":{"default_request_mb":2048,"max_memory_pressure":25.5}}}""")).Driven!.Admission!;
+        Assert.Equal((2048, 25.5), (set.DefaultRequestMb, set.MaxMemoryPressure));
+    }
+
     [Theory]
     [InlineData("""{"reserve_mb":-1}""")]
     [InlineData("""{"max_load_per_cpu":0}""")]
+    [InlineData("""{"default_request_mb":511}""")]
+    [InlineData("""{"max_memory_pressure":0}""")]
+    [InlineData("""{"max_memory_pressure":100.5}""")]
     public void A_driven_admission_setting_that_cannot_work_is_refused(string admission)
     {
         using var dir = new TempDir();

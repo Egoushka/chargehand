@@ -1,0 +1,26 @@
+/* Accounts: the selected row and the phone card. Tables, meters, pills, panels and switches are the design system's. */
+.account-row {
+  cursor: pointer;
+  padding-block: var(--space-1);
+}
+
+.account-row .ch-td {
+  overflow: visible;
+}
+
+.account-row .ch-meter__head {
+  min-width: 0;
+}
+
+.account-card[data-selected="true"] {
+  background: var(--row-selected);
+}
+
+.account-key-when {
+  text-align: right;
+}
+
+.link--plain {
+  color: var(--text);
+  font-weight: 600;
+}

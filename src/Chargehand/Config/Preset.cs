@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 using Chargehand.Runtime;
 using YamlDotNet.Serialization;
 

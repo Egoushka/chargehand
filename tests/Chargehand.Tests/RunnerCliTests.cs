@@ -35,6 +35,21 @@ public class RunnerCliTests
         Assert.Contains("--service-images: 'postgres:16'", error.ToString());
     }
 
+    [Fact]
+    public void The_most_a_repository_bundle_may_be_is_512_MiB_unless_the_runner_is_told_otherwise()
+    {
+        string[] basic = ["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress];
+
+        Assert.Equal(512L * 1024 * 1024, RunnerCli.Parse(basic, key: "k", TextWriter.Null)!.Policy.MaxBundleBytes);
+        Assert.Equal(64L * 1024 * 1024, RunnerCli.Parse([.. basic, "--max-bundle-mb", "64"], key: "k", TextWriter.Null)!.Policy.MaxBundleBytes);
+        foreach (var bad in new[] { "0", "-1", "4097", "lots" })
+        {
+            var error = new StringWriter();
+            Assert.Null(RunnerCli.Parse([.. basic, "--max-bundle-mb", bad], key: "k", error));
+            Assert.Contains($"--max-bundle-mb has an invalid value '{bad}'", error.ToString());
+        }
+    }
+
     [Theory]
     [InlineData("--listen", "127.0.0.1:4310", "--egress-image", Egress)]                                   // no images
     [InlineData("--listen", "127.0.0.1:4310", "--images", Image)]                                          // no egress image
@@ -99,5 +114,25 @@ public class RunnerCliTests
         var quiet = new StringWriter();
         Assert.NotNull(RunnerCli.Parse(["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress, "--source-roots", "/srv/w", "--outside-networks", "n", "--forwards", "4300=h:4300"], key: "k", quiet));
         Assert.Equal("", quiet.ToString());
+    }
+
+    [Fact]
+    public async Task At_start_the_runner_clears_helpers_a_killed_run_left_and_says_how_many()
+    {
+        using var dir = new TempDir();
+        var script = dir.Write("docker", "#!/bin/sh\ncase \"$1\" in ps) printf 'chargehand-xfer-run1\\nchargehand-prep-run2\\n';; esac\n");
+        var error = new StringWriter();
+        await RunnerCli.ClearLeftoversAsync(new Chargehand.Containers.DockerCliEngine("/bin/sh", [script]), error, default);
+        Assert.Contains("2 leftover helper containers", error.ToString());
+    }
+
+    [Fact]
+    public async Task An_engine_that_does_not_answer_at_start_is_a_note_and_not_a_reason_to_stay_down()
+    {
+        using var dir = new TempDir();
+        var script = dir.Write("docker", "#!/bin/sh\necho 'Cannot connect to the Docker daemon' >&2\nexit 1\n");
+        var error = new StringWriter();
+        await RunnerCli.ClearLeftoversAsync(new Chargehand.Containers.DockerCliEngine("/bin/sh", [script]), error, default);
+        Assert.Contains("Cannot connect", error.ToString());
     }
 }

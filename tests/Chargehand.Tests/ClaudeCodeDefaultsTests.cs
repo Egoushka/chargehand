@@ -1,5 +1,6 @@
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
 namespace Chargehand.Tests;
 

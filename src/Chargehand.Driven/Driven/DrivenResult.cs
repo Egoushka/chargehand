@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 using Chargehand.Results;
 using Chargehand.Verification;
 
@@ -182,17 +183,24 @@ public static class DrivenResult
         bool cancelledByCaller = false, BatchPlan? plan = null, BatchRetro? retro = null)
     {
         var chain = new PromptChain([], new AsSent($"claude-code/{claudeVersion}", "driven", "batch", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
-        var rows = outcome.Tasks.Select(t => new
+        // A row says which runner ran the task only when the profile names its runners (ADR 0058), so a one-runner profile's artifact is what it always was.
+        var rows = outcome.Tasks.Select(t =>
         {
-            id = t.Id,
-            run_id = t.RunId,
-            status = Snake(t.State.ToString()),
-            branch = t.Branch,
-            pr_url = t.PrUrl,
-            usd = priced ? (decimal?)t.Usd : null,
-            tokens = t.Tokens,
-            error_code = t.Error is { } e ? Snake(e.ToString()) : null,
-            detail = t.Detail,
+            var row = new Dictionary<string, object?>
+            {
+                ["id"] = t.Id,
+                ["run_id"] = t.RunId,
+                ["status"] = Snake(t.State.ToString()),
+                ["branch"] = t.Branch,
+                ["pr_url"] = t.PrUrl,
+                ["usd"] = priced ? (decimal?)t.Usd : null,
+                ["tokens"] = t.Tokens,
+                ["error_code"] = t.Error is { } e ? Snake(e.ToString()) : null,
+                ["detail"] = t.Detail,
+            };
+            if (t.Runner is not null)
+                row["runner"] = t.Runner;
+            return row;
         }).ToList();
         var artifact = Inline("driven-batch", "application/json", new { credential_delivery = credentialDelivery, tasks = rows });
         Artifact[] artifacts = [artifact, .. plan is null ? [] : new[] { Inline("plan", "application/json", plan) }, .. retro is null ? [] : new[] { Inline("retro", "application/json", retro) }];

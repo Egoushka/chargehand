@@ -170,4 +170,157 @@ public class ContainerTemplateTests
 
         Assert.Equal("?? z.txt", Run(work, "git", "status", "--porcelain").Trim());
     }
+
+    private const string Image = "registry.example/session@sha256:1111111111111111111111111111111111111111111111111111111111111111";
+
+    private static BundleWorkspaceSpec BundleSpec(string branch = "chargehand/run1", string commit = "abc1234def5678abc1234def5678abc1234def56") =>
+        new("run1", Image, "chargehand-out-run1", "chargehand-work-run1", branch, commit);
+
+    [Fact]
+    public void The_bundle_workspace_helper_has_no_network_a_read_only_root_the_bundle_volume_read_only_and_no_host_path()
+    {
+        var args = ContainerTemplate.BundleWorkspaceArgs(BundleSpec());
+        string After(string flag) => args[args.ToList().IndexOf(flag) + 1];
+
+        Assert.Equal("none", After("--network"));
+        Assert.Contains("--read-only", args);
+        Assert.Equal("ALL", After("--cap-drop"));
+        Assert.Equal("no-new-privileges", After("--security-opt"));
+        Assert.Equal("10001:10001", After("--user"));
+        Assert.Equal(["chargehand-out-run1:/in:ro", "chargehand-work-run1:/work"], args.Select((a, i) => (a, i)).Where(x => x.a == "-v").Select(x => args[x.i + 1]));
+        // No host directory is mounted: both volumes are named.
+        Assert.DoesNotContain(args, a => a.Contains(":/src", StringComparison.Ordinal));
+        Assert.DoesNotContain("--privileged", args);
+        Assert.Equal(["prepare", "chargehand/run1", "abc1234def5678abc1234def5678abc1234def56"], args.TakeLast(3));
+        // The branch and the commit reach the script as arguments, never inside its text.
+        Assert.DoesNotContain("chargehand/run1", ContainerTemplate.BundleWorkspaceScript, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("branch-without-prefix", "abc1234")]
+    [InlineData("chargehand/run1; rm -rf /", "abc1234")]
+    [InlineData("chargehand/run1", "not-a-commit")]
+    [InlineData("chargehand/run1", "$(id)")]
+    public void The_bundle_workspace_helper_refuses_a_branch_or_commit_that_could_become_code(string branch, string commit) =>
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.BundleWorkspaceArgs(BundleSpec(branch, commit)));
+
+    [Fact]
+    public void The_transcript_is_read_only_as_a_tail_by_a_helper_with_the_volume_read_only_and_no_network()
+    {
+        var spec = new OutFileSpec("run1", Image, "chargehand-out-run1", ContainerTemplate.TranscriptFile);
+
+        var args = ContainerTemplate.OutTailArgs(spec, 65536);
+
+        string After(string flag) => args[args.ToList().IndexOf(flag) + 1];
+        Assert.Equal(("none", "ALL", "10001:10001", "chargehand-out-run1:/out:ro"), (After("--network"), After("--cap-drop"), After("--user"), After("-v")));
+        Assert.Contains("--read-only", args);
+        Assert.Equal(["transfer", "stream.jsonl", "65536"], args.TakeLast(3));
+        Assert.Equal(ContainerTemplate.OutTailScript, After("-c"));
+        // Never whole: the transcript is not among the files that are copied out or in, and a tail is for no other file.
+        Assert.DoesNotContain(ContainerTemplate.TranscriptFile, ContainerTemplate.OutFilesOut);
+        Assert.DoesNotContain(ContainerTemplate.TranscriptFile, ContainerTemplate.OutFilesIn);
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutFileArgs(spec, write: false));
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutFileArgs(spec, write: true));
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutTailArgs(spec with { Name = "session-outcome.json" }, 100));
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutTailArgs(spec with { Name = "../stream.jsonl" }, 100));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(ContainerTemplate.MaxTailBytes + 1)]
+    public void A_tail_outside_one_to_the_ceiling_is_refused_before_a_container_starts(int bytes) =>
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutTailArgs(new OutFileSpec("run1", Image, "chargehand-out-run1", ContainerTemplate.TranscriptFile), bytes));
+
+    [Fact]
+    public void The_tail_script_gives_the_end_of_the_file_and_exit_three_for_a_missing_one()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(Path.Combine(dir.Path, "stream.jsonl"), "0123456789");
+        string[] Run(string name, string bytes)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("/bin/sh") { RedirectStandardOutput = true };
+            foreach (var a in new[] { "-c", ContainerTemplate.OutTailScript.Replace("/out/", dir.Path + "/"), "transfer", name, bytes })
+                psi.ArgumentList.Add(a);
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            var output = p.StandardOutput.ReadToEnd();
+            p.WaitForExit();
+            return [output, p.ExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture)];
+        }
+
+        Assert.Equal(["6789", "0"], Run("stream.jsonl", "4"));
+        Assert.Equal(["0123456789", "0"], Run("stream.jsonl", "100"));
+        Assert.Equal(["", "3"], Run("nothing.jsonl", "4"));
+    }
+
+    [Fact]
+    public void The_governors_log_is_a_file_the_server_may_read_out_of_a_session_s_volume_and_never_write_into_one()
+    {
+        Assert.Contains(ContainerTemplate.GovernorFile, ContainerTemplate.OutFilesOut);
+        Assert.Contains(ContainerTemplate.GovernorFile, ContainerTemplate.OptionalOutFiles);
+        Assert.DoesNotContain(ContainerTemplate.GovernorFile, ContainerTemplate.OutFilesIn);
+        var read = ContainerTemplate.OutFileArgs(new OutFileSpec("run1", Image, "chargehand-out-run1", ContainerTemplate.GovernorFile), write: false);
+        Assert.Equal("governor.jsonl", read[^1]);
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutFileArgs(new OutFileSpec("run1", Image, "chargehand-out-run1", ContainerTemplate.GovernorFile), write: true));
+        // The session's own name for it is the same constant.
+        Assert.Equal(ContainerTemplate.GovernorFile, Chargehand.Driven.SessionDriver.GovernorFile);
+    }
+
+    [Fact]
+    public void The_bundle_is_a_file_the_server_may_write_into_a_session_s_volume_and_nothing_may_read_back()
+    {
+        Assert.Contains(ContainerTemplate.SourceBundleFile, ContainerTemplate.OutFilesIn);
+        Assert.DoesNotContain(ContainerTemplate.SourceBundleFile, ContainerTemplate.OutFilesOut);
+        var write = ContainerTemplate.OutFileArgs(new OutFileSpec("run1", Image, "chargehand-out-run1", ContainerTemplate.SourceBundleFile), write: true);
+        Assert.Equal("source.bundle", write[^1]);
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutFileArgs(new OutFileSpec("run1", Image, "chargehand-out-run1", ContainerTemplate.SourceBundleFile), write: false));
+    }
+
+    [Fact]
+    public void The_bundle_workspace_script_makes_the_same_workspace_as_the_path_one_from_a_bundle_of_the_commit()
+    {
+        // The script runs here with its paths pointed at temporary directories, over a real bundle made as the server makes it (HEAD of a checkout detached at the commit).
+        using var dir = new TempDir();
+        var (source, work, home) = (Path.Combine(dir.Path, "src"), Path.Combine(dir.Path, "work"), Path.Combine(dir.Path, "home"));
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(home);
+        string Run(string where, params string[] args)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(args[0]) { WorkingDirectory = where, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var a in args.Skip(1))
+                psi.ArgumentList.Add(a);
+            psi.Environment["GIT_CONFIG_GLOBAL"] = Path.Combine(home, ".gitconfig");
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            var output = p.StandardOutput.ReadToEnd();
+            var error = p.StandardError.ReadToEnd();
+            p.WaitForExit();
+            Assert.True(p.ExitCode == 0, error);
+            return output;
+        }
+        Run(source, "git", "init", "-q", "-b", "main");
+        File.WriteAllText(Path.Combine(source, "a.txt"), "a");
+        Run(source, "git", "add", "-A");
+        Run(source, "git", "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "one");
+        File.WriteAllText(Path.Combine(source, "b.txt"), "b");
+        Run(source, "git", "add", "-A");
+        Run(source, "git", "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "two");
+        var commit = Run(source, "git", "rev-parse", "HEAD").Trim();
+        Run(source, "git", "checkout", "-q", "--detach", commit);
+        var bundle = Path.Combine(dir.Path, "source.bundle");
+        Run(source, "git", "bundle", "create", bundle, "HEAD");
+
+        var script = ContainerTemplate.BundleWorkspaceScript.Replace("/in/source.bundle", bundle).Replace("/work", work).Replace("export HOME=/tmp", $"export HOME={home}");
+        Run(dir.Path, "sh", "-c", script, "prepare", "chargehand/run1", commit);
+
+        Assert.Equal("chargehand/run1", Run(work, "git", "rev-parse", "--abbrev-ref", "HEAD").Trim());
+        Assert.Equal(commit, Run(work, "git", "rev-parse", "HEAD").Trim());
+        Assert.Equal(["two", "one"], Run(work, "git", "log", "--format=%s").Trim().Split('\n'));
+        Assert.Equal("ab", File.ReadAllText(Path.Combine(work, "a.txt")) + File.ReadAllText(Path.Combine(work, "b.txt")));
+        Assert.Equal("", Run(work, "git", "status", "--porcelain").Trim());
+        Assert.Equal("/dev/null", Run(work, "git", "config", "core.hooksPath").Trim());
+        // The toolchains' caches stay out of the snapshot commit, as for the path workspace.
+        Directory.CreateDirectory(Path.Combine(work, ".nuget", "packages"));
+        File.WriteAllText(Path.Combine(work, ".nuget", "packages", "y"), "cache");
+        Assert.Equal("", Run(work, "git", "status", "--porcelain").Trim());
+    }
 }
