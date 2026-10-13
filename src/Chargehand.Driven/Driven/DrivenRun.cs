@@ -19,10 +19,12 @@ namespace Chargehand.Driven;
 /// <param name="HandoverFor">The handover of a batch; null: <see cref="Handover"/> with a <see cref="ContainerVerifier"/> on <see cref="Engine"/> and <see cref="PullRequestsFor"/>.</param>
 /// <param name="Integration">What the integrator does on GitHub as the App (ADR 0046); null: nothing is integrated on GitHub even if the profile has a <c>driven.integrator</c> block.</param>
 /// <param name="ForgeFor">The forge of a remote that is not on GitHub, given the API token (<c>driven.forge.token_secret</c>, else the push credential); null: such a batch is refused.</param>
+/// <param name="Planner">Plans a batch before it runs (ADR 0049); null: a batch that asks for a plan reports it skipped.</param>
+/// <param name="Stacker">Makes the starting branch of a task that depends on others (ADR 0049); null: <see cref="GitStackSeeder"/>, with git on this host.</param>
 public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Workspace, ISessionVolumes Volumes, Func<PushCredential, IPullRequests> PullRequestsFor, ITaskSource? TaskSource,
     Func<RepositoryRef, string, CancellationToken, Task<DrivenCheckout>> Checkout, IEvidenceResolver Resolver, Func<string, string> Secret,
     Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? SupportCheck = null, Func<ContainerVerifierSettings, PushCredential, IBranchHandover>? HandoverFor = null,
-    TimeSpan? Poll = null, IHostSource? Host = null, IIntegrationHost? Integration = null, Func<RemoteRepository, string, IForge>? ForgeFor = null);
+    TimeSpan? Poll = null, IHostSource? Host = null, IIntegrationHost? Integration = null, Func<RemoteRepository, string, IForge>? ForgeFor = null, IBatchPlanner? Planner = null, IStackSeeder? Stacker = null);
 
 /// <summary>A request with a <c>driven</c> block, from start to the batch's result (ADR 0039): tasks resolved, the batch network up, tasks run under the batch's limits by
 /// <see cref="TaskRunner"/>, the network down, and one <c>result/v1</c> that lists the tasks. Every refusal (driven sessions off, no push credential, no image) is a failed
@@ -188,9 +190,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     {
         var settings = profile.Driven ?? new DrivenSettings();
         // Throws when the profile has driven sessions off, so a refused request touches nothing else.
-        var (ready, unresolved) = resume is null
+        var (resolved, unresolved) = resume is null
             ? await DrivenBatch.PrepareAsync(request, settings, services?.TaskSource, ct, new ContinuationSource(log))
             : ([.. resume.Tasks.Select(t => Resumed(request, t))], resume.Unresolved);
+        IReadOnlyList<ResolvedTask> ready = resolved;
         var s = services ?? throw new ChargehandException(ErrorCode.ContainerUnavailable, "driven sessions are on, but no container engine is set up for them", "Check driven.runner in the profile, or install Docker.");
         var claude = profile.ClaudeCode ?? throw new ChargehandException(ErrorCode.InvalidRequest, "driven sessions need a claude_code block in the profile", "Add claude_code with an api_key_secret or an oauth_token_secret.");
         var image = settings.Images is { Count: > 0 } images ? images[0] : throw new ChargehandException(ErrorCode.InvalidRequest, "driven.images is empty", "List the session image by digest in driven.images.");
@@ -217,8 +220,15 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         // A subscription token without a gateway of the operator's goes only to the batch's egress container, which exchanges a per-task token for it (ADR 0039,
         // decision 9). An API key, or a key a gateway issued, stays in the session's environment: the exchange is measured on the subscription only.
         var exchange = !priced && model is null ? new ModelGatewaySpec(modelEnvironment.Values.Single(), resume?.TokenKey ?? ModelTokens.NewKey()) : null;
+        // Planning (ADR 0049) changes sizes, goals and the chain of tasks before they are saved, so a restart carries the planned batch and does not plan again.
+        var plan = resume?.Plan;
+        if (resume is null && (request.Driven!.Plan ?? settings.Planning?.Enabled ?? false))
+        {
+            (ready, plan) = await PlanAsync(request, ready, runId, request.Driven.Plan is not null ? "request" : "profile", s.Planner, ct);
+            progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Plan) with { Detail = plan.Describe() });
+        }
         var journal = _store is null ? null : new BatchJournal(_store, resume ?? new BatchState(runId, started, traceId, request, exchange?.TokenKey,
-            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From))], unresolved));
+            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From, DependsOn: t.DependsOn, Size: t.Size, SplitFrom: t.SplitFrom))], unresolved, plan));
 
         var otlp = DrivenOtlpRoute.Parse(settings.Network?.OtlpUrl,
             new[] { forward is null ? (int?)null : port, model?.ForwardPort }.OfType<int>());
@@ -268,14 +278,15 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true || otlp is not null, otlp,
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared);
-            var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress, journal: journal, detaching: detaching);
+            var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress, journal: journal, detaching: detaching, stacker: s.Stacker);
             ran = await new BatchScheduler(runner, admission: _admission, taskMemoryMb: drivenPreset.MemoryMb).RunAsync(ready, limits, ct, o =>
             {
                 if (detaching())
                     return;
                 journal?.Finish(o);
                 progress?.Invoke(TaskFinished(runId, o));
-            }, (id, why) => progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.SessionProgress) with { TaskId = id, Detail = $"task {id}: {why}" }));
+            }, (id, why) => progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.SessionProgress) with { TaskId = id, Detail = $"task {id}: {why}" }),
+            o => progress?.Invoke(TaskFinished(runId, o)));
         }
         finally
         {
@@ -287,18 +298,37 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             }
         }
 
-        // In request order: tasks that did not resolve were never started.
-        var all = request.Driven.Tasks.Select(t => unresolved.FirstOrDefault(u => u.Id == t.Id) ?? ran.Tasks.First(o => o.Id == t.Id)).ToList();
+        // In request order, a task the plan split in place: tasks that did not resolve were never started.
+        List<TaskOutcome> all = [];
+        foreach (var t in request.Driven.Tasks)
+            all.AddRange(unresolved.FirstOrDefault(u => u.Id == t.Id) is { } none
+                ? [none]
+                : ready.Where(r => r.Id == t.Id || r.SplitFrom == t.Id).Select(r => ran.Tasks.First(o => o.Id == r.Id)));
         span?.SetTag("chargehand.driven.pr_urls", all.Select(o => o.PrUrl).OfType<string>().ToArray());
         span?.SetTag("chargehand.driven.tokens", all.Sum(o => o.Tokens));
         return DrivenResult.BuildBatch(runId, traceId, "", new BatchOutcome(all, ran.Action, ran.Error), Delivery(model, exchange), priced, claude.Version,
-            cancelledByCaller: ct.IsCancellationRequested && cancelledByCaller());
+            cancelledByCaller: ct.IsCancellationRequested && cancelledByCaller(), plan);
+    }
+
+    /// <summary>Asks the planner (ADR 0049) and applies what it says; a planner that is missing, fails or is unusable leaves the batch as the caller sent it and says so in the plan. A cancel is not caught.</summary>
+    private static async Task<(IReadOnlyList<ResolvedTask> Tasks, BatchPlan Plan)> PlanAsync(RunRequest request, IReadOnlyList<ResolvedTask> tasks, string runId, string source, IBatchPlanner? planner, CancellationToken ct)
+    {
+        if (planner is null)
+            return (tasks, PlanApplier.Skipped(source, "this server has no planner", null, tasks));
+        try
+        {
+            return PlanApplier.Apply(tasks, await planner.ProposeAsync(new PlanInput(request, tasks, runId), ct), source);
+        }
+        catch (Exception e) when (e is PlanException or ChargehandException or HttpRequestException or IOException)
+        {
+            return (tasks, PlanApplier.Skipped(source, e.Message, null, tasks));
+        }
     }
 
     private static ResolvedTask Resumed(RunRequest request, TaskEntry entry)
     {
         var asked = request.Driven?.Tasks.FirstOrDefault(t => t.Id == entry.Id);
-        return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, asked?.Size, asked?.BudgetUsd, entry.From);
+        return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, entry.Size ?? asked?.Size, asked?.BudgetUsd, entry.From, entry.DependsOn ?? asked?.DependsOn, SplitFrom: entry.SplitFrom);
     }
 
     private static RunStatus TaskFinished(string runId, TaskOutcome o) =>

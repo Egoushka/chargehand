@@ -118,6 +118,53 @@ public class DrivenContractsTests
     }
 
     [Fact]
+    public void Task_dependencies_and_the_plan_flag_validate_and_round_trip()
+    {
+        var json = Request("""{"tasks":[{"id":"a","goal":"g"},{"id":"b","goal":"g","depends_on":["a"]},{"id":"c","goal":"g","depends_on":["a","b"]}],"plan":true}""");
+        Assert.Empty(Validate(json));
+        var request = JsonSerializer.Deserialize<RunRequest>(json, ContractJson.Options)!;
+        Assert.Equal(["a", "b"], request.Driven!.Tasks[2].DependsOn);
+        Assert.True(request.Driven.Plan);
+        Assert.Empty(DrivenRules.Problems(request));
+        Assert.Empty(Validate(JsonSerializer.Serialize(request, ContractJson.Options)));
+    }
+
+    [Theory]
+    [InlineData("""{"tasks":[{"id":"a","goal":"g","depends_on":["A B"]}]}""")]                              // id shape
+    [InlineData("""{"tasks":[{"id":"a","goal":"g"},{"id":"b","goal":"g","depends_on":["a","a"]}]}""")]       // repeated
+    [InlineData("""{"tasks":[{"id":"a","goal":"g","depends_on":"b"}]}""")]                                  // not a list
+    [InlineData("""{"tasks":[{"id":"a","goal":"g"}],"plan":"yes"}""")]                                      // not a boolean
+    public void A_malformed_dependency_or_plan_flag_is_refused(string driven) => Assert.NotEmpty(Validate(Request(driven)));
+
+    [Theory]
+    [InlineData("""{"tasks":[{"id":"a","goal":"g","depends_on":["zzz"]}]}""", "task 'a': depends_on names 'zzz', which is not a task of this batch")]
+    [InlineData("""{"tasks":[{"id":"a","goal":"g","depends_on":["a"]}]}""", "task 'a': depends_on names the task itself")]
+    [InlineData("""{"tasks":[{"id":"a","goal":"g"},{"id":"b","goal":"g","depends_on":["a","a"]}]}""", "task 'b': depends_on names 'a' more than once")]
+    [InlineData("""{"tasks":[{"id":"a","goal":"g","depends_on":["c"]},{"id":"b","goal":"g","depends_on":["a"]},{"id":"c","goal":"g","depends_on":["b"]}]}""", "tasks depend on each other in a cycle: a -> c -> b -> a")]
+    [InlineData("""{"tasks":[{"id":"a","goal":"g"},{"id":"b","continue_from":{"run_id":"run-1","task_id":"x"},"answers":["y"],"depends_on":["a"]}]}""", "task 'b': depends_on and continue_from start from different work; use one")]
+    public void The_rule_check_names_an_unknown_dependency_a_self_dependency_a_repeat_a_cycle_and_a_mix_with_continue_from(string driven, string problem)
+    {
+        var request = JsonSerializer.Deserialize<RunRequest>(Request(driven), ContractJson.Options)!;
+        Assert.Contains(problem, DrivenRules.Problems(request));
+    }
+
+    [Fact]
+    public void A_diamond_of_dependencies_is_not_a_cycle()
+    {
+        var request = JsonSerializer.Deserialize<RunRequest>(Request("""{"tasks":[{"id":"a","goal":"g"},{"id":"b","goal":"g","depends_on":["a"]},{"id":"c","goal":"g","depends_on":["a"]},{"id":"d","goal":"g","depends_on":["b","c"]}]}"""), ContractJson.Options)!;
+        Assert.Empty(DrivenRules.Problems(request));
+    }
+
+    [Fact]
+    public void The_plan_event_validates()
+    {
+        const string json = """{"contract_version":"run-status/v1","run_id":"r","status":"running","event":"plan","detail":"plan: t1 S."}""";
+        using var doc = JsonDocument.Parse(json);
+        Assert.Empty(ContractSchemas.Validate(ContractSchemas.RunStatus, doc.RootElement));
+        Assert.Equal(RunEventKind.Plan, JsonSerializer.Deserialize<RunStatus>(json, ContractJson.Options)!.Event);
+    }
+
+    [Fact]
     public void The_question_event_validates()
     {
         const string json = """{"contract_version":"run-status/v1","run_id":"r","status":"running","event":"question","task_id":"t1","detail":"task t1: the session asked:\n- Which database?"}""";
@@ -135,6 +182,7 @@ public class DrivenContractsTests
     [InlineData(ErrorCode.PrFailed, "pr_failed")]
     [InlineData(ErrorCode.Cancelled, "cancelled")]
     [InlineData(ErrorCode.TasksIncomplete, "tasks_incomplete")]
+    [InlineData(ErrorCode.MergeConflict, "merge_conflict")]
     public void The_new_error_codes_serialise_and_validate(ErrorCode code, string wire)
     {
         Assert.Equal($"\"{wire}\"", JsonSerializer.Serialize(code, ContractJson.Options));

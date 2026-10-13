@@ -334,7 +334,8 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         driven.TaskSource is { } source ? new Chargehand.Mcp.McpTaskSource(source, mcpPool) : null,
         orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck, Host: hostSource,
         Integration: IntegrationHost(driven), ForgeFor: (remote, token) => new Chargehand.Driven.GitLabForge(
-            new HttpClient { BaseAddress = Chargehand.Driven.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token)), stateDirectory);
+            new HttpClient { BaseAddress = Chargehand.Driven.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token),
+        Planner: new Chargehand.Driven.ModelPlanner((request, runId, parentRunId, token) => orchestrator.RunAsync(request, token, runId, parentRunId: parentRunId), driven.Planning?.Preset ?? "cheap")), stateDirectory);
 }
 
 // GitHub's API root: api.github.com, or the Enterprise host the profile's driven.forge names. The E2E switch exists for scripts/driven-e2e.sh only.

@@ -21,7 +21,14 @@ public sealed record TaskLimits(long MaxTokens, decimal? MaxUsd);
 /// <param name="Size">The request's size class for the governor's budget; null: M.</param>
 /// <param name="BudgetUsd">The request's own budget for the task, in place of the size class's.</param>
 /// <param name="From">Set when the task continues an earlier batch's task (ADR 0045); <paramref name="Goal"/> then already carries the earlier goal, its questions and the answers.</param>
-public sealed record ResolvedTask(string Id, string? Ref, string Goal, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null, ContinuedFrom? From = null);
+/// <param name="DependsOn">Ids of tasks of the batch that must end <c>completed</c> first (ADR 0049).</param>
+/// <param name="Upstream">The branches of the finished tasks in <paramref name="DependsOn"/>, in that order; the scheduler fills it when the task starts.</param>
+/// <param name="SplitFrom">Set when the planning step made this task out of a larger one (ADR 0049): the id of that task, which the chain's last link keeps.</param>
+public sealed record ResolvedTask(string Id, string? Ref, string Goal, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null, ContinuedFrom? From = null,
+    IReadOnlyList<string>? DependsOn = null, IReadOnlyList<UpstreamWork>? Upstream = null, string? SplitFrom = null);
+
+/// <summary>A finished task a later one starts from (ADR 0049): its last session, whose output volume holds the bundle of its branch, and the branch and pull request it ended in.</summary>
+public sealed record UpstreamWork(string Id, string RunId, string Branch, string? PrUrl);
 
 /// <summary>The earlier task a task continues: its last session (whose output volume may hold a handoff) and the work it kept; null: it made no commits, so the new task starts from the base commit.</summary>
 public sealed record ContinuedFrom(string LastRun, KeptWork? Kept);

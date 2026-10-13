@@ -28,9 +28,10 @@ public sealed record PushCredential(string Value, PushCredentialKind Kind = Push
 /// <param name="PolicyNote">What the pull request body says chargehand does next (ADR 0046), for a repository that opted in to integration; null: the draft is not merged and chargehand will not merge it.</param>
 /// <param name="UpdateReused">The title and body replace those of a pull request the host already had for the branch (a task continued on it), as a finished task's replace the <c>[partial]</c> ones. Off, a reused pull request is left as it is.</param>
 /// <param name="Goal">The task's goal; with it, a passing branch that changes only tests and build files is flagged unless the goal asks for that work (<see cref="TestIntegrity"/>). Null: not assessed.</param>
+/// <param name="FallbackBaseBranch">For a pull request stacked on another task's branch (ADR 0049), <paramref name="BaseBranch"/> is that branch: if the host refuses it, the pull request is opened against this one instead and says so.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
-    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false);
+    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false, string? FallbackBaseBranch = null);
 
 /// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
 public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
@@ -184,7 +185,16 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         try
         {
             var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity);
-            var pr = await pullRequests.CreateDraftAsync(repository, input.Branch, input.BaseBranch, input.Title, prBody, ct);
+            PullRequestRef pr;
+            try
+            {
+                pr = await pullRequests.CreateDraftAsync(repository, input.Branch, input.BaseBranch, input.Title, prBody, ct);
+            }
+            catch (PullRequestException) when (input.FallbackBaseBranch is { } fallback && fallback != input.BaseBranch)
+            {
+                prBody = $"{prBody.TrimEnd()}\n\nThis pull request is based on `{fallback}`, not on `{input.BaseBranch}`: the host did not accept that branch as a base (it may be gone). The branch holds the earlier task's work as well.\n";
+                pr = await pullRequests.CreateDraftAsync(repository, input.Branch, fallback, input.Title, prBody, ct);
+            }
             var detail = "draft pull request opened";
             if (pr.Reused && input.UpdateReused)
             {
@@ -239,7 +249,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
     }
 
     /// <summary>A clean environment: no user git configuration, no prompts, no askpass, no inherited credentials; PATH only, so git and ssh are found.</summary>
-    private static Dictionary<string, string> GitEnvironment(string home) => new(StringComparer.Ordinal)
+    internal static Dictionary<string, string> GitEnvironment(string home) => new(StringComparer.Ordinal)
     {
         ["PATH"] = Environment.GetEnvironmentVariable("PATH") ?? "/usr/bin:/bin",
         ["HOME"] = home,
@@ -322,12 +332,12 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
     [GeneratedRegex(@"^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+:[A-Za-z0-9_./-]+$")]
     private static partial Regex ScpForm();
 
-    private sealed record GitResult(int ExitCode, string Stdout, string Stderr, bool Truncated)
+    internal sealed record GitResult(int ExitCode, string Stdout, string Stderr, bool Truncated)
     {
         public string Tail => ((Stderr.Length > 0 ? Stderr : Stdout).Trim() is var t && t.Length > 400 ? t[^400..] : t);
     }
 
-    private static class Git
+    internal static class Git
     {
         public static async Task<GitResult> RunAsync(string directory, IReadOnlyDictionary<string, string> env, IReadOnlyList<string> args, TimeSpan timeout, CancellationToken ct, int maxBytes = 1024 * 1024)
         {
