@@ -265,9 +265,9 @@ public class MemoryConfigTests
         var hindsight = JsonSerializer.Deserialize<MemoryProviderSettings>(Hindsight, Profile.Json)!;
         var chronicle = JsonSerializer.Deserialize<MemoryProviderSettings>(Chronicle, Profile.Json)!;
 
-        Assert.Empty(MemoryMapping.Validate(hindsight, servers));
-        Assert.Empty(MemoryMapping.Validate(chronicle, servers));
-        Assert.Empty(MemoryMapping.Validate([hindsight, chronicle], servers));
+        Assert.Empty(MemoryMapping.Validate(hindsight, servers.Keys));
+        Assert.Empty(MemoryMapping.Validate(chronicle, servers.Keys));
+        Assert.Empty(MemoryMapping.Validate([hindsight, chronicle], servers.Keys));
     }
 
     [Fact]
@@ -276,8 +276,8 @@ public class MemoryConfigTests
         var servers = new Dictionary<string, McpServerSettings> { ["gw"] = new(Url: "https://mcp.example.internal/mcp") };
         var hindsight = JsonSerializer.Deserialize<MemoryProviderSettings>(Hindsight, Profile.Json)!;
 
-        Assert.Empty(MemoryMapping.Validate(hindsight, servers));
-        Assert.Contains("duplicate", Assert.Single(MemoryMapping.Validate([hindsight, hindsight], servers)), StringComparison.Ordinal);
+        Assert.Empty(MemoryMapping.Validate(hindsight, servers.Keys));
+        Assert.Contains("duplicate", Assert.Single(MemoryMapping.Validate([hindsight, hindsight], servers.Keys)), StringComparison.Ordinal);
     }
 
     [Theory]

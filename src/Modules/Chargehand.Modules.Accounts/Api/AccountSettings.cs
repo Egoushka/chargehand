@@ -17,6 +17,13 @@ public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, 
 
     public static bool ValidName(string name) => Regex.IsMatch(name, "^[a-z][a-z0-9-]{0,31}$");
 
+    /// <summary>The problems of the profile's <c>http.accounts</c>: each account's own, named by <c>accounts.&lt;name&gt;</c>, and a name used twice. Empty when the list is valid.</summary>
+    public static IReadOnlyList<string> Problems(IReadOnlyList<AccountSettings> accounts) =>
+    [
+        .. accounts.SelectMany(account => account.Problems().Select(p => $"accounts.{account.Name}: {p}")),
+        .. accounts.GroupBy(a => a.Name).Where(g => g.Count() > 1).Select(g => $"accounts: name '{g.Key}' is used more than once"),
+    ];
+
     public IEnumerable<string> Problems()
     {
         if (!ValidName(Name)) yield return "name must be lowercase letters, digits and hyphens, starting with a letter, at most 32 characters";

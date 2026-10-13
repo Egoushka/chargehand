@@ -1,14 +1,15 @@
 using System.Collections.Frozen;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
-namespace Chargehand.Config;
+namespace Chargehand.Modules.Memory.Api;
 
 /// <summary>
-/// The rules a memory provider's tool mapping must meet before a run reads it (ADR 0034). <see cref="Profile.Load"/> applies
+/// The rules a memory provider's tool mapping must meet before a run reads it (ADR 0034). Loading the profile applies
 /// them and throws the problems as one error; <c>chargehand extensions check</c> reuses them. A problem names the entry and the
 /// fault and never quotes an argument value, a URL or argv: any of them may hold a credential.
 /// </summary>
-public static class MemoryMapping
+public static partial class MemoryMapping
 {
     /// <summary>What a recall tool's arguments may use: the request text, the entry's namespace, the entry's fact cap (an integer).</summary>
     public static readonly IReadOnlySet<string> RecallPlaceholders = new[] { "query", "namespace", "max_facts" }.ToFrozenSet();
@@ -23,9 +24,10 @@ public static class MemoryMapping
     /// <summary>What an invalidate tool's arguments may use.</summary>
     public static readonly IReadOnlySet<string> InvalidatePlaceholders = new[] { "namespace", "id", "reason" }.ToFrozenSet();
 
-    /// <summary>The problems in the list as a whole: each entry's own (see <see cref="Validate(MemoryProviderSettings, IReadOnlyDictionary{string, McpServerSettings})"/>)
+    /// <summary>The problems in the list as a whole: each entry's own (see <see cref="Validate(MemoryProviderSettings, IEnumerable{string})"/>)
     /// and a name used twice. Empty when the list is valid.</summary>
-    public static IReadOnlyList<string> Validate(IReadOnlyList<MemoryProviderSettings> providers, IReadOnlyDictionary<string, McpServerSettings> servers)
+    /// <param name="servers">The names of the profile's <c>mcp_servers</c>.</param>
+    public static IReadOnlyList<string> Validate(IReadOnlyList<MemoryProviderSettings> providers, IEnumerable<string> servers)
     {
         var problems = new List<string>();
         var names = new HashSet<string>(StringComparer.Ordinal);
@@ -41,18 +43,20 @@ public static class MemoryMapping
     /// <summary>The problems in one entry, one string per fault: an unknown server (the message names the key and the defined
     /// ones), a bad name, a missing tool, a placeholder the tool does not offer or a malformed brace, a results mapping that
     /// cannot work, and limits below 1. Empty when the entry is valid. A name used twice is a fault of the list, not of an entry.</summary>
-    public static IReadOnlyList<string> Validate(MemoryProviderSettings provider, IReadOnlyDictionary<string, McpServerSettings> servers)
+    /// <param name="servers">The names of the profile's <c>mcp_servers</c>.</param>
+    public static IReadOnlyList<string> Validate(MemoryProviderSettings provider, IEnumerable<string> servers)
     {
+        var defined = servers.Order(StringComparer.Ordinal).ToList();
         var problems = new List<string>();
         var who = Who(provider);
         void Fail(string reason) => problems.Add($"{who}: {reason}");
 
-        if (!McpServerSettings.ValidName(provider.Name ?? ""))
+        if (!NamePattern().IsMatch(provider.Name ?? ""))
             Fail("the name must be lowercase letters, digits and hyphens, starting with a letter");
         if (string.IsNullOrEmpty(provider.Server))
             Fail("server is required");
-        else if (!servers.ContainsKey(provider.Server))
-            Fail($"server '{provider.Server}' is not defined in mcp_servers (defined: {(servers.Count == 0 ? "none" : string.Join(", ", servers.Keys.Order(StringComparer.Ordinal)))})");
+        else if (!defined.Contains(provider.Server, StringComparer.Ordinal))
+            Fail($"server '{provider.Server}' is not defined in mcp_servers (defined: {(defined.Count == 0 ? "none" : string.Join(", ", defined))})");
         if (provider.Namespace is { Length: 0 })
             Fail("namespace must not be empty; leave it out to use the name");
         foreach (var (field, value) in new[] { ("max_facts", provider.MaxFacts), ("max_chars", provider.MaxChars), ("max_fact_chars", provider.MaxFactChars), ("timeout_seconds", provider.TimeoutSeconds) })
@@ -166,4 +170,8 @@ public static class MemoryMapping
 
     /// <summary>Placeholders are names, so a message may quote them; anything else between braces might be a value.</summary>
     private static bool IsIdentifier(string name) => (char.IsAsciiLetter(name[0]) || name[0] == '_') && name.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
+
+    /// <summary>The rule of an <c>mcp_servers</c> name, which a memory's name follows too: it labels the source in prompts and span tags.</summary>
+    [GeneratedRegex("^[a-z][a-z0-9-]*$")]
+    private static partial Regex NamePattern();
 }
