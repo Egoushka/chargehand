@@ -83,6 +83,7 @@ public sealed record Profile(
         profile.Driven?.Limits?.Validate();
         profile.Driven?.Governor?.Validate();
         profile.Driven?.Admission?.Validate();
+        profile.Driven?.Planning?.Validate();
         profile.Driven?.Integrator?.Validate();
         profile.Driven?.Services?.Validate(profile.Driven.Images);
         profile.Driven?.Forge?.Validate();
@@ -410,6 +411,7 @@ public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string L
 /// <param name="Integrator">ADR 0046: merge by policy and fix failing CI as a GitHub App; null: draft pull requests only, as before.</param>
 /// <param name="Services">ADR 0048: package caches, test services and a session image by ecosystem; null: none, as before.</param>
 /// <param name="Forge">Which code host the remotes are on and how to reach it; null: GitLab for <c>gitlab.com</c> and hosts named <c>gitlab.*</c>, GitHub for every other host.</param>
+/// <param name="Planning">ADR 0049: size, split and number a batch's tasks with one cheap read-only run before it starts; null: off (a request can still ask with <c>driven.plan</c>).</param>
 public sealed record DrivenSettings(
     bool Enabled = false,
     int MaxParallel = 2,
@@ -425,7 +427,21 @@ public sealed record DrivenSettings(
     DrivenAdmission? Admission = null,
     DrivenIntegrator? Integrator = null,
     DrivenSharedServices? Services = null,
-    DrivenForge? Forge = null);
+    DrivenForge? Forge = null,
+    DrivenPlanning? Planning = null);
+
+/// <summary>The planning step before a batch (ADR 0049): one read-only run through the orchestrator's own pipeline, on a cheap preset, so no new model client or credential is involved.</summary>
+/// <param name="Enabled">Plan every batch; a request's <c>driven.plan</c> overrides it either way. Off by default.</param>
+/// <param name="Preset">The preset the run uses; it must be read-only. Default <c>cheap</c>.</param>
+public sealed record DrivenPlanning(bool Enabled = false, string Preset = "cheap")
+{
+    /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
+    internal void Validate()
+    {
+        if (string.IsNullOrWhiteSpace(Preset))
+            throw new ChargehandException(ErrorCode.InvalidRequest, "driven.planning: preset must not be empty", "Fix driven.planning in the profile; docs/guide/driven.md lists the keys.");
+    }
+}
 
 /// <summary>When the host has room for another session (ADR 0045). A task starts only if available memory minus <c>ReserveMb</c> covers its container's memory limit;
 /// a running task is never stopped for it.</summary>

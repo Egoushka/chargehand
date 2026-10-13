@@ -47,7 +47,7 @@ Any other command prints the usage and exits 2. `eval` and `prompts sync` need t
 | `GET /v1/runs/{id}` | `202` while queued or running, `200` and `result/v1` once finished, `410` if the process that ran it ended first, `404` if unknown |
 | `GET /v1/runs` | run summaries, newest first, filtered by `status` and `since`; [Run the HTTP server](server.md#routes) |
 | `POST /v1/runs/{id}/cancel`, `POST /v1/halt`, `POST /v1/resume` | cancel one run, cancel every run and refuse new ones, and lift that; a cancelled run ends `failed` with `cancelled` ([driven sessions](driven.md#limits-and-the-kill-switch)) |
-| `GET /v1/runs/{id}/events` | server-sent events `accepted`, `started`, `intake`, `node_started`, `node_finished`, `run_finished`; a driven batch adds `container_started`, `session_progress`, `verify_finished`, `pushed`, `pr_opened`, `task_finished`, `governor`, `integrated`, `question` ([driven guide](driven.md#watching-a-batch)) |
+| `GET /v1/runs/{id}/events` | server-sent events `accepted`, `started`, `intake`, `node_started`, `node_finished`, `run_finished`; a driven batch adds `container_started`, `session_progress`, `verify_finished`, `pushed`, `pr_opened`, `task_finished`, `governor`, `integrated`, `question`, `plan` ([driven guide](driven.md#watching-a-batch)) |
 | `/v1/mcp` | MCP over Streamable HTTP: tool `orchestrate`, `inputSchema` `request/v1`, `outputSchema` `result/v1` |
 
 Every route needs `Authorization: Bearer <key>`. [Run the HTTP server](server.md#routes) has the details.
@@ -139,6 +139,7 @@ A failed `result/v1` carries `error`: a fixed `code`, the `message`, `retryable`
 | `pr_failed` | the branch was pushed but the draft pull request did not open; the result names the branch | yes |
 | `cancelled` | a run or a driven batch was cancelled (`POST /v1/runs/{id}/cancel` or `POST /v1/halt`); nothing more is pushed | no |
 | `tasks_incomplete` | a driven batch ended with at least one task that has no draft pull request, and was not cancelled; the result names them | no |
+| `merge_conflict` | a driven task that depends on several others could not start: merging their branches conflicted; the task's detail names the paths | no |
 | `internal` | anything else | no |
 
 Over HTTP, a request the server refuses before a run exists stays a `400` with `errors` ([ADR 0022](../adr/0022-error-codes-in-result-v1.md)).

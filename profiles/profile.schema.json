@@ -160,6 +160,15 @@
             "max_continuations": { "type": "integer", "minimum": 0, "maximum": 5, "description": "Further sessions on the same branch after one is stopped by the turn limit or the wall clock with work committed (ADR 0044). Each gets max_turns and max_minutes again; max_tokens is shared. Default 2; 0: none." }
           }
         },
+        "planning": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "ADR 0049's planning step: before a batch starts, one cheap read-only run through the orchestrator sizes tasks that have no size (S, M, L), splits a large task into an ordered chain and gives tasks that would take the same next number (migrations, ADR files) their own. The caller's size and depends_on always win. The plan is the batch result's plan artifact. A request's driven.plan overrides enabled.",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Plan every batch. Default false." },
+            "preset": { "type": "string", "minLength": 1, "description": "The preset the run uses; it must be read-only. Default cheap." }
+          }
+        },
         "admission": {
           "type": "object",
           "additionalProperties": false,

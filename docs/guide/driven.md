@@ -112,6 +112,7 @@ While a batch runs, its own run (`GET /v1/runs/{batch}`, a `202` with `run-statu
 | `governor` | one per decision the session's governor logged (below), published when the session ends | `detail`: mode, action, signal, rule, turn, and spend against the budget when priced |
 | `integrated` | a step of the integrator on an opted-in repository (below): marked ready, branch updated, auto-merge enabled, merged, a CI fix attempt started or pushed, or why it stopped | `detail`; `pr_url` and `branch` |
 | `question` | a session ended with a question for a person (`needs_input`), published when the session ends, before the handover ([answering a question](#answering-a-question)) | `detail`: `task t1: the session asked:` and one `- <question>` line each |
+| `plan` | the planning step ended, before any task starts ([planning a batch](#planning-a-batch)) | `detail`: one line, each task's size, chains and assigned numbers, and what the planner read; or `plan skipped:` and why |
 
 A task's own run id is known only when it ends, so `GET /v1/runs/{task}` is `404` until then; follow the batch. `turns` and `stage` come from the session image's driver: an image built before they existed reports `tokens` only, and one built before `cache_read`, `cache_write` and `usd_estimate` omits those.
 
@@ -248,6 +249,31 @@ The request is refused as `invalid_request` before anything starts when the earl
 
 Not built yet: a code index of the base commit mounted read-only into sessions (decided in the ADR, deferred), a readiness wait for services, a size or age limit on cache volumes.
 
+### Tasks that depend on each other
+
+Independent tasks all start from the base commit. For work that builds on other work, give a task `depends_on`, a list of task ids of the same batch ([ADR 0049](../adr/0049-dependent-tasks-and-planning.md)):
+
+```json
+{ "driven": { "tasks": [
+  { "id": "model",    "goal": "Add the Invoice model and its migration" },
+  { "id": "endpoint", "goal": "Add GET /invoices on top of the model", "depends_on": ["model"] },
+  { "id": "report",   "goal": "Add the monthly report", "depends_on": ["model", "endpoint"] } ] } }
+```
+
+A task starts when all its dependencies ended `completed`, whatever order the list is in; it holds no slot while it waits. If a dependency fails, asks a question or is cancelled, the task is `not_started` with `not started: the task it depends on, 'model', failed` (down the chain, with a `task_finished` event each). A `[partial]` task is `failed`, so it releases nothing.
+
+The dependent's session starts from its dependencies' work. With one dependency, its branch is the dependent's starting point under the dependent's own name, and the draft pull request is opened against the dependency's branch, so it shows only the dependent's change (the body says so, and to merge the other first). If the host refuses that base, it is opened against the default branch and says so. With several, chargehand merges their branches into one, in the order listed, before any container starts; the pull request is against the default branch, and its diff includes theirs. A merge that conflicts fails the task as `merge_conflict`, naming the other task and up to 20 conflicting paths; nothing is started for it. The integrator leaves a task with dependencies alone. Unknown ids, a task depending on itself or twice on the same id, a cycle, and `depends_on` together with `continue_from` are refused as `invalid_request` before anything starts. A batch restart picks the chain up where it stood. The work a dependent starts from is what the dependency's last session left; commits the CI fixer added after it are not in it.
+
+### Planning a batch
+
+Off by default. `driven.planning.enabled` in the profile, or `driven.plan: true` on a request (`false` turns it off for one request), runs one cheap read-only run before the batch: the orchestrator on the `cheap` preset (`driven.planning.preset`), in the batch's repository at the base commit, recorded in the run log as a child of the batch. It costs a read-only run and is not part of the batch's caps. It does three things, and chargehand applies only what the rules below allow:
+
+1. **Sizes** each task S, M or L for the governor's budget. A task with a `size` from the caller keeps it.
+2. **Splits** a task it sizes L into 2 to 4 ordered parts, `t-1 → t-2 → … → t`: the last link keeps the id, the tracker reference and the tasks that depend on `t`, the first takes `t`'s own `depends_on`. Not split: a task with `size`, `budget_usd`, `max_turns` or `max_minutes` from the caller, one that continues another, or when the batch would pass 20 tasks.
+3. **Assigns numbers** to tasks that would each take the next number of a sequence (migrations, ADR files): it reads the repository for the scheme and the latest number, and each task's goal gets `Plan: use migration number 0043 for this task...`. A value given twice stays with the first task.
+
+The plan is the `plan` artifact of the batch result (what it checked, each task's size and where it came from, chains, assigned numbers, proposals it dropped and why, and `not_checked`) and a `plan` event. It never adds a dependency between your tasks. If the planner fails or answers with nothing usable, the batch runs as you sent it and the plan says `skipped` and why. Whether the tasks conflict in any way other than the numbers it assigned is not checked.
+
 ## Try it end to end
 
 `scripts/driven-e2e.sh` runs the whole path against a real model, by hand, never in CI. It needs Docker, the .NET SDK, python3, `claude` on `PATH` at the version inside the session image, a session image pushed to a registry (build `images/session/Dockerfile`; the profile takes the image by digest), and an Anthropic API key with a **low spend limit set in the console**:
@@ -302,6 +328,6 @@ An `http` URL is reached through a second forward on the batch's egress containe
 
 ## Configure it
 
-The profile's `driven` block (`schemas` and `profiles/profile.schema.json` document each key): `enabled` (default false), `max_parallel`, `max_parallel_total`, `max_session_calls` (research and review runs executing at once across all sessions, default 2: with more sessions than slots, sessions wait on each other), `images` (by digest), `network.allow`, `limits` (see "Limits and the kill switch"), `runner` (URL and the secret item for its key), `push_secret`, `integrator` (merge by policy and fix failing CI as a GitHub App, "Merging by policy" above), `forge` (GitLab or GitHub Enterprise: the kind, an API root and the GitLab token, "GitLab" above), and `task_source` (how a tracker item id becomes a goal through a mapped MCP tool), and `services` (package caches, test services and a session image by ecosystem, "Shared services" above). `network.outside` and `network.mcp_forward` (`host:port` of the chargehand server as the egress container reaches it) let a session call chargehand for research and review. `network.otlp_url` turns on Claude Code's own telemetry (above). `images[0]` is the session image and the egress image. Keep `enabled` false in any shared profile. A request adds `driven: { tasks: [{id, ref | goal, max_turns?, max_minutes?}], max_parallel, max_tokens_total | max_usd_total }` and `context.repository`.
+The profile's `driven` block (`schemas` and `profiles/profile.schema.json` document each key): `enabled` (default false), `max_parallel`, `max_parallel_total`, `max_session_calls` (research and review runs executing at once across all sessions, default 2: with more sessions than slots, sessions wait on each other), `images` (by digest), `network.allow`, `limits` (see "Limits and the kill switch"), `runner` (URL and the secret item for its key), `push_secret`, `integrator` (merge by policy and fix failing CI as a GitHub App, "Merging by policy" above), `forge` (GitLab or GitHub Enterprise: the kind, an API root and the GitLab token, "GitLab" above), `planning` (`enabled`, `preset`; off by default, "Planning a batch" above), and `task_source` (how a tracker item id becomes a goal through a mapped MCP tool), and `services` (package caches, test services and a session image by ecosystem, "Shared services" above). `network.outside` and `network.mcp_forward` (`host:port` of the chargehand server as the egress container reaches it) let a session call chargehand for research and review. `network.otlp_url` turns on Claude Code's own telemetry (above). `images[0]` is the session image and the egress image. Keep `enabled` false in any shared profile. A request adds `driven: { tasks: [{id, ref | goal, max_turns?, max_minutes?, size?, depends_on?}], plan?, max_parallel, max_tokens_total | max_usd_total }` and `context.repository`.
 
 `chargehand init <repo>` writes a starter `driven` block with the package hosts that repository needs in `network.allow`, and `chargehand doctor` checks the images, the runner, the secrets and that `network.allow` covers the repositories under `repository_roots` ([reference](reference.md#commands)).
