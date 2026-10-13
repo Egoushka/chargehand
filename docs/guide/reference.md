@@ -26,6 +26,7 @@ From a checkout, every command runs as `dotnet run --project src/Chargehand.Cli 
 | `extensions check [--preset <name>] [--probe <query>]` | connects every `mcp_servers` entry, lists its tools, and checks each `memory` mapping, the `prompt_enhancer` and each preset's `services` against them; one line per item, with an action on every problem. It reads every preset in `presets/`, or only `--preset`. `--probe` also runs one recall per memory and prints how many facts came back | 0 nothing wrong, 1 a problem, 2 usage error or a profile that does not load |
 | `init [<repo path>] [--profile <out>] [--force]` | detects the repository's ecosystems from marker files, prints the proposed `context.verify` and the package hosts the driven preset does not allow, and writes a starter profile | 1 when the profile file exists and `--force` is not given, 2 on a usage error |
 | `doctor [--profile <path>]` | checks a setup and prints one `ok`, `warn` or `fail` line per check, with the fix | 1 when a check fails, 2 on a usage error |
+| `release-notes <repo path> --from <ref> [--to <ref>]` | prints a `request/v1` for the `release-notes` preset from the range's first-parent git log, for `run` or the HTTP interface; needs no profile and makes no network call | 1 when a ref is unknown, `--from` is not an ancestor of `--to` or the range is empty, 2 on a usage error |
 
 Any other command prints the usage and exits 2. `eval` and `prompts sync` need the profile's `telemetry` block.
 
@@ -64,6 +65,7 @@ Each preset is a `preset/v1` file in `presets/`. Intake picks one action; when t
 | `strict` | 0.2.0 | `answer`, `split`, `improve`, `ask`, `deny` | `worker` | `provider/worker-model` |
 | `draft` | 0.1.0 | `answer`, `deny` | `draft`, with `checkout: false` | `provider/small-model` |
 | `review` | 0.1.0 | `answer` | `worker` | `provider/worker-model` |
+| `release-notes` | 0.1.0 | `answer` | `worker` | `provider/worker-model` |
 
 | preset | input tokens per node | USD per node | compaction trigger | critic | approval |
 |---|---|---|---|---|---|
@@ -73,10 +75,13 @@ Each preset is a `preset/v1` file in `presets/`. Intake picks one action; when t
 | `strict` | 400,000 | 1.00 | 100,000 | `provider/critic-model` | above risk `low`, or an estimate above $0.50 |
 | `draft` | 60,000 | 0.05 | none | off | none |
 | `review` | 400,000 | 1.00 | none | off | none |
+| `release-notes` | 400,000 | 1.00 | none | off | none |
 
 The profile's `models` map turns the placeholders into real model ids.
 
 `draft` writes a draft for a program caller from the caller's own inputs and returns it as an inline artifact; its claims cite those inputs. `review` reviews a change: the caller sends the goal, the diff and the test output as inputs, and each finding is a claim that cites the diff input or a file at the commit.
+
+`release-notes` drafts Keep a Changelog notes for the commits between two refs. Workers have no shell and no git history, so the log reaches them as inputs: `chargehand release-notes <repo path> --from <tag or commit> [--to <ref>]` reads the range's first-parent log with local git (no forge API, no profile, no network) and prints a `request/v1` with `context.repository` pinned to the target commit, one input `range`, and one input per commit whose id is the first 12 hex characters of its hash and whose text is its subject (a merge commit takes the pull request title from its body). It lists at most 200 commits, newest first, and the `range` input says how many older ones it left out. Pipe the request to `chargehand run`, or post it to `POST /v1/runs` or the MCP tool. The summary is the notes (`## [VERSION] - YYYY-MM-DD`, then `### Added` and the other sections; the maintainer fills in the version and date). Each line is also a claim that cites its commit twice: as evidence of kind `commit`, whose existence the resolver checks in the checkout, and as the commit's input, which the support check compares with the line. A claim that cites a commit the checkout lacks moves to `open_questions`. The preset opens no version-bump pull request; a driven task can do that with the notes as its goal.
 
 ### Permissions
 

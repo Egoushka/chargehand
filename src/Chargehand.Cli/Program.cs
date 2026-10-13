@@ -61,6 +61,8 @@ const string Usage = """
                                    reads a repository's marker files, prints its ecosystems, the proposed context.verify and the
                                    package hosts the driven egress allowlist lacks, and writes a starter profile (never over a file without --force)
       doctor [--profile <path>]    checks a setup, one ok/warn/fail line per check with the fix; exit 1 when a check fails
+      release-notes <repo path> --from <tag or commit> [--to <ref>]
+                                   prints a request/v1 for the release-notes preset, the range's commits as inputs (git only); pipe it to run
     prompts/ and presets/ come from the current directory when it has both (a checkout), else from the install; the
     run log is the profile's run_log, else runs/run-log.jsonl in a checkout, else a per-user file (README).
     """;
@@ -142,6 +144,9 @@ if (argv is ["verify-branch", .. var verifyBranchArgs])
 // Profile-free: init writes the profile, and doctor reports one that does not load.
 if (argv is ["init", .. var initArgs])
     return Chargehand.Onboarding.InitCli.Run(initArgs, Directory.GetCurrentDirectory(), profilePath, DrivenPresetAllow(), Console.Out, Console.Error);
+// Profile-free: it reads a repository's git log and prints a request for `run` (CHARGEHAND-191).
+if (argv is ["release-notes", .. var releaseNotesArgs])
+    return await Chargehand.ReleaseNotes.ReleaseNotesCli.RunAsync(releaseNotesArgs, Directory.GetCurrentDirectory(), Console.Out, Console.Error, CancellationToken.None);
 if (argv is ["doctor", .. var doctorArgs])
 {
     using var stop = new CancellationTokenSource();

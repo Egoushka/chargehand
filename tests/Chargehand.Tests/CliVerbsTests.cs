@@ -10,6 +10,7 @@ public class CliVerbsTests
     [InlineData("runner")]
     [InlineData("session")]
     [InlineData("verify-branch")]
+    [InlineData("release-notes")]
     public void A_profile_free_verb_is_dispatched_in_the_cli(string verb)
     {
         var source = File.ReadAllText(Repo.Path("src", "Chargehand.Cli", "Program.cs"));
@@ -20,6 +21,7 @@ public class CliVerbsTests
     [InlineData("egress")]
     [InlineData("runner")]
     [InlineData("runs")]
+    [InlineData("release-notes")]
     public void A_verb_a_person_types_is_in_the_usage(string verb)
     {
         var source = File.ReadAllText(Repo.Path("src", "Chargehand.Cli", "Program.cs"));
