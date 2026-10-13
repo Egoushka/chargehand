@@ -218,6 +218,25 @@ public class DrivenResultTests
     }
 
     [Fact]
+    public async Task A_flagged_branch_says_so_in_the_summary_and_the_verification_artifact_and_an_unflagged_one_does_not()
+    {
+        using var repo = new Repo();
+        var flag = new TestIntegrityFlag(["tests/RetryTests.cs"], ["scripts/check.sh"]);
+        var result = await Build(Input(repo, handover: Pushed(repo) with { TestIntegrity = flag }), AllSupported);
+        AssertValid(result);
+        Assert.StartsWith("Added a retry.", result.Summary);
+        Assert.Contains($"Test integrity: {flag.Reason}.", result.Summary);
+        var integrity = Artifact(result, "verification").GetProperty("test_integrity");
+        Assert.True(integrity.GetProperty("flagged").GetBoolean());
+        Assert.Equal(["tests/RetryTests.cs"], integrity.GetProperty("test_paths").EnumerateArray().Select(p => p.GetString()));
+        Assert.Equal(["scripts/check.sh"], integrity.GetProperty("build_paths").EnumerateArray().Select(p => p.GetString()));
+
+        var plain = await Build(Input(repo), AllSupported);
+        Assert.Equal("Added a retry.", plain.Summary);
+        Assert.Equal(JsonValueKind.Null, Artifact(plain, "verification").GetProperty("test_integrity").ValueKind);
+    }
+
+    [Fact]
     public async Task The_review_artifact_lists_the_nested_runs_and_the_session_log_is_a_reference_never_inline()
     {
         using var repo = new Repo();

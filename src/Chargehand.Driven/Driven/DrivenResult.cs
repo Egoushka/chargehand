@@ -113,7 +113,8 @@ public static class DrivenResult
             questions.Add($"The session reported {report.Dropped} more claims than chargehand reads ({DrivenReport.MaxClaims}); they were not checked.");
 
         var scope = new EvidenceScope(input.RepositoryPath, commit, [], [], "", []);
-        var contract = Result(ResultStatus.Completed, report.Summary, claims, evidence, questions, CompletedConfidence);
+        var summary = handover.TestIntegrity is { } integrity ? $"{report.Summary}\n\nTest integrity: {integrity.Reason}." : report.Summary;
+        var contract = Result(ResultStatus.Completed, summary, claims, evidence, questions, CompletedConfidence);
         contract = ResultAssembler.MoveUnresolved(contract, await resolver.ResolveAsync(contract, scope, ct));
         if (supportCheck is not null && contract.Claims.Count > 0)
             contract = await supportCheck(contract, scope, ct);
@@ -160,6 +161,7 @@ public static class DrivenResult
                 duration_seconds = Math.Round(v.Duration.TotalSeconds, 1),
                 output_tail = v.OutputTail,
                 changed_verification_paths = handover.ChangedVerificationPaths,
+                test_integrity = handover.TestIntegrity is { } flag ? new { flagged = true, reason = flag.Reason, test_paths = flag.TestPaths, build_paths = flag.BuildPaths } : null,
             }));
     }
 

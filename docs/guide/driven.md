@@ -34,7 +34,7 @@ chargehand checks the branch itself and pushes only if every check passes:
 | the push of `chargehand/<run>` (one ref, never forced) is accepted by a credential that cannot push the default branch | `push_rejected` |
 | the draft pull request opens | `pr_failed`, with the pushed branch named |
 
-A green draft pull request is evidence that a command passed in a container, not that the change is right. The session can still edit the tests or the build script so the command passes; the `verification` artifact lists those paths.
+A green draft pull request is evidence that a command passed in a container, not that the change is right. The session can still edit the tests or the build script so the command passes; the `verification` artifact lists those paths. When every changed path is a test, fixture, snapshot or build file (`scripts/`, `Makefile`, `package.json` as a whole, project and solution files, CI configuration) and the task's goal does not mention test, spec, build, CI, coverage, fixture or snapshot work, the result is flagged: the `verification` artifact gets `test_integrity` (`flagged`, `reason`, `test_paths`, `build_paths`; null otherwise), the result summary and the task detail say so, the pull request body starts with a warning, and the integrator treats the pull request like `ask` whatever the policy says: it marks it ready, comments why and never merges it. A goal that asks for tests is not flagged. The check is path rules plus a word list, so it is a warning for a reader, not proof.
 
 ## Merging by policy
 
