@@ -18,6 +18,10 @@ public sealed record IntakePendingBody(string Id, string Repository, int Pull, s
 /// in the log), <c>wait</c> (no free slot), <c>cap</c> (the daily cap), <c>notask</c>, <c>busy</c>, <c>rounds</c> (review rounds used up).</param>
 public sealed record IntakeNoticeBody(string Reason, string Trigger);
 
+/// <summary>What intake did with a trigger, newest first (CHARGEHAND-214). <paramref name="Outcome"/> is <c>started</c>, <c>continued</c>, <c>round_started</c>, <c>queued</c> or <c>ignored</c>; for <c>ignored</c> the
+/// <paramref name="Reason"/> is <c>author_not_allowed</c>, <c>active</c>, <c>author</c>, <c>cap</c>, <c>gone</c>, <c>not_chargehand_branch</c> or <c>review_rounds_off</c>. <paramref name="Author"/> is the login that set the label or wrote the comment.</summary>
+public sealed record IntakeTriggerBody(DateTimeOffset At, string Trigger, string Outcome, string? Reason, string? Author);
+
 /// <param name="HandledLabels">Label triggers seen, acted on or ignored; a trigger is handled once.</param>
 public sealed record IntakeHandledBody(int Total, int Labels, int Comments, int Reviews, int Rounds);
 
@@ -25,7 +29,7 @@ public sealed record IntakeHandledBody(int Total, int Labels, int Comments, int 
 public sealed record IntakeBody(string ContractVersion, DateTimeOffset GeneratedAt, bool Enabled, bool StatePresent, DateTimeOffset? StateSavedAt, IReadOnlyList<IntakeRepositoryBody> Watched,
     IReadOnlyList<string> AllowedAuthors, string? Label, string? Mention, int? PollSeconds, IntakeCaps? Caps, IntakeStarts? Starts, int Running, IReadOnlyList<IntakeTaskBody> Tasks,
     IReadOnlyList<IntakePendingBody> PendingReviews, IntakeHandledBody Handled, IReadOnlyList<IntakeNoticeBody> Notices, IReadOnlyDictionary<string, DateTimeOffset> CommentCursors,
-    IReadOnlyList<string> NotRecorded);
+    IReadOnlyList<string> NotRecorded, IReadOnlyList<IntakeTriggerBody>? Triggers = null);
 
 internal static class ConsoleIntake
 {
@@ -33,11 +37,12 @@ internal static class ConsoleIntake
 
     private const int MaxTasks = 100;
     private const int MaxNotices = 200;
+    private const int MaxTriggers = 100;
 
     private static readonly IReadOnlyList<string> NotRecorded =
     [
-        "A trigger from an author who is not allowed is marked handled and ignored without a reason; only the cases intake comments on (see notices) carry one.",
-        "Handled keys and notices are not timestamped, so they are not ordered.",
+        "Triggers are logged from the release that added the log, the latest 200: a trigger handled before has only its key in the handled counts, and a review comment that was not a request (anyone's comment on a pull request that is not chargehand's) is not logged.",
+        "Handled keys and notices are not timestamped, so they are not ordered; the triggers log is.",
         "The state file is the poller's last save: a change since then is not visible, and the read does not wait for a poll.",
     ];
 
@@ -73,7 +78,8 @@ internal static class ConsoleIntake
             new IntakeHandledBody(state.Handled.Count, state.Handled.Count(k => k.StartsWith("label:", StringComparison.Ordinal)), state.Handled.Count(k => k.StartsWith("comment:", StringComparison.Ordinal)),
                 state.Handled.Count(k => k.StartsWith("review:", StringComparison.Ordinal)), state.Handled.Count(k => k.StartsWith("round:", StringComparison.Ordinal))),
             [.. state.Notified.Select(Notice).OrderBy(n => n.Reason, StringComparer.Ordinal).ThenBy(n => n.Trigger, StringComparer.Ordinal).Take(MaxNotices)],
-            state.CommentCursor, problem is null ? NotRecorded : [problem, .. NotRecorded]);
+            state.CommentCursor, problem is null ? NotRecorded : [problem, .. NotRecorded],
+            [.. state.Triggers.OrderByDescending(t => t.At).Take(MaxTriggers).Select(t => new IntakeTriggerBody(t.At, t.Key, t.Outcome, t.Reason, t.Author))]);
     }
 
     /// <summary>A notified key is <c>&lt;reason&gt;:&lt;trigger&gt;</c>.</summary>

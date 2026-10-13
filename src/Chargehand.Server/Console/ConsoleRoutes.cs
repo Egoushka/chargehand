@@ -91,7 +91,8 @@ internal static class ConsoleRoutes
         app.MapGet("/v1/intake", (HttpContext ctx) => OwnerOnly(ctx) ?? Json(ConsoleIntake.Build(Context(ctx))));
 
         app.MapGet("/v1/accounts", async (HttpContext ctx) =>
-            OwnerOnly(ctx) ?? Json(await ConsoleAccounts.BuildAsync(Context(ctx), settings.AccountKeysFile is { } file ? new AccountKeyStore(file) : null, ctx.RequestAborted)));
+            OwnerOnly(ctx) ?? Json(await ConsoleAccounts.BuildAsync(Context(ctx), settings.AccountKeysFile is { } file ? new AccountKeyStore(file) : null,
+                settings.AccountKeysFile is { } keysFile ? new AccountKeyUse(AccountKeyUse.FileFor(keysFile)) : null, ctx.RequestAborted)));
 
         app.MapGet("/v1/system", async (HttpContext ctx) =>
             OwnerOnly(ctx) ?? Json(await ConsoleSystem.BuildAsync(Context(ctx), ctx.RequestAborted)));

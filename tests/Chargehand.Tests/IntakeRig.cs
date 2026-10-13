@@ -227,6 +227,9 @@ internal sealed class IntakeRig : IDisposable
 
     private string StatePath => Path.Combine(_dir.Path, "intake", "github.json");
 
+    /// <summary>The state file itself, for a test that checks what is written to disk.</summary>
+    public string StateFile => StatePath;
+
     public IntakeState State => IntakeState.Load(StatePath);
 
     private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy);

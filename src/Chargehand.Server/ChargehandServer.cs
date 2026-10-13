@@ -94,7 +94,7 @@ public static partial class ChargehandServer
         var app = builder.Build();
         app.UseHostFiltering();
         var expected = Encoding.UTF8.GetBytes($"Bearer {settings.ApiKey}");
-        var accounts = settings.Accounts is { Count: > 0 } declared && settings.AccountKeysFile is { } keysFile ? new AccountDirectory(declared, new AccountKeyStore(keysFile)) : null;
+        var accounts = settings.Accounts is { Count: > 0 } declared && settings.AccountKeysFile is { } keysFile ? new AccountDirectory(declared, new AccountKeyStore(keysFile), new AccountKeyUse(AccountKeyUse.FileFor(keysFile), settings.Clock)) : null;
         app.Use(async (ctx, next) =>
         {
             // The UI's and the console's files are public and carry no data; the page calls the routes below with a key (ADR 0054, 0056).

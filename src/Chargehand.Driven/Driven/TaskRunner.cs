@@ -80,12 +80,13 @@ public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, stri
 /// session's tally changes, and the handover's <c>verify_finished</c>, <c>pushed</c> and <c>pr_opened</c>. With a <paramref name="journal"/> the task's progress is saved, and a task it shows as begun is taken up where it
 /// stood after a server restart (ADR 0043). <paramref name="detaching"/> says the server is stopping rather than the run being cancelled: the session container is then left running for the next process.
 /// A task with <see cref="ResolvedTask.Upstream"/> (ADR 0049) starts from the branches of the tasks it depends on: <paramref name="stacker"/> makes one branch of them, named for this task, and its bundle seeds
-/// the first session. With a <paramref name="learning"/> store, a task that ends writes what it taught (ADR 0045).</summary>
+/// the first session. With a <paramref name="learning"/> store, a task that ends writes what it taught (ADR 0045). With <paramref name="records"/>, each session, its governor log, the pull request's checks and the CI fix
+/// attempts are kept for the console (CHARGEHAND-214).</summary>
 public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspace, ISessionVolumes volumes, IBranchHandover handover, IRunLog log, TaskTokenMinter mint,
     TaskRunnerSettings settings, IEvidenceResolver resolver,
     Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? supportCheck, Func<ResultContract, ResultContract>? sign,
     TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, BatchJournal? journal = null, Func<bool>? detaching = null, IStackSeeder? stacker = null, ILearningStore? learning = null, IBranchSeeder? brancher = null,
-    Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null) : ITaskRunner
+    Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null, BatchRecords? records = null) : ITaskRunner
 {
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultUsagePoll = TimeSpan.FromSeconds(5);
@@ -152,6 +153,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         string? lastHead = null;
         var stackDirectory = Path.Combine(settings.ScratchRoot, $"{runId}-stack");
         var ended = false;
+        // The session that has begun and has no record yet: written when its outcome is read, or, if it is cut short, when the task ends.
+        (string RunId, DateTimeOffset Started, string Role)? open = null;
         // A child of the batch's span: the task's result carries the batch's trace id, so it resolves in Langfuse.
         using var span = Telemetry.Source.StartActivity(DrivenTelemetry.TaskSpan);
         span?.SetTag("chargehand.run_id", runId);
@@ -203,8 +206,10 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             {
                 sessionStarted = DateTimeOffset.UtcNow;
                 journal?.Update(task.Id, e => e with { SessionStarted = sessionStarted });
+                open = (runId, sessionStarted, continuation == 0 ? "first" : "continuation");
                 container = await StartSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, Remaining(prior), prior?.UsdEstimate ?? 0, seed, sessionStarted, startDetail, span, traceId, budget, ct);
             }
+            open ??= (runId, sessionStarted, continuation == 0 ? "first" : "continuation");
             containers[runId] = container;
             SessionOutcome session;
             string? reportJson;
@@ -221,6 +226,9 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 decisions.AddRange(session.Governor ?? []);
                 foreach (var d in session.Governor ?? [])
                     Publish(task.Id, RunEventKind.Governor, Describe(d));
+                RecordSession(task, open!.Value.Role, runId, sessionStarted, sessionEnded, session);
+                RecordGovernor(task, runId, outDirectory, session);
+                open = null;
                 if (session.Status == SessionStatus.NeedsInput)
                     Publish(task.Id, RunEventKind.Question, session.Questions.Count > 0 ? $"the session asked:\n{string.Join('\n', session.Questions.Select(q => $"- {q}"))}" : "the session asked for input but named no question");
                 using (var call = Telemetry.Source.StartActivity(DrivenTelemetry.SessionSpan, ActivityKind.Client, span?.Context ?? default, startTime: sessionStarted))
@@ -267,12 +275,15 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 try
                 {
                     sessionStarted = DateTimeOffset.UtcNow;
+                    open = (runId, sessionStarted, "continuation");
                     container = await StartSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, Remaining(prior), prior?.UsdEstimate ?? 0, seed, sessionStarted, startDetail, span, traceId, budget, ct);
                 }
                 catch (Exception e) when (IsStartFailure(e, ct))
                 {
                     // The work so far is on the previous session's bundle: carry on with it as if that session were the last (it is, now).
                     startFailure = $"continuation {continuation} could not be started: {e.Message}";
+                    RecordCutShort(task, open!.Value, e);
+                    open = null;
                     continuation--;
                     runs.RemoveAt(runs.Count - 1);
                     (runId, outDirectory) = (previousRun, previousOut);
@@ -329,6 +340,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         }
         catch (Exception e)
         {
+            if (open is { } cut && !Detaching)
+                RecordCutShort(task, cut, e);
             span?.SetTag("chargehand.task.state", e is OperationCanceledException ? "cancelled" : "failed");
             span?.SetTag("chargehand.error.code", e is OperationCanceledException ? "cancelled" : JsonNamingPolicy.SnakeCaseLower.ConvertName(ChargehandException.ErrorOf(e).Code.ToString()));
             span?.SetStatus(ActivityStatusCode.Error);
@@ -392,12 +405,23 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             var outDirectory = Path.Combine(settings.ScratchRoot, "out", fixRun);
             Directory.CreateDirectory(outDirectory);
             var sessionStarted = DateTimeOffset.UtcNow;
-            var container = await StartSessionAsync(task, fixRun, branch, request.Goal, integrator.CiFix.Turns, integrator.CiFix.Minutes, (tokensLeft, usdLeft), running.UsdEstimate ?? 0, seed, sessionStarted,
-                $"session container started (CI fix attempt {request.Attempt} of {request.MaxAttempts})", span, traceId, budget, token);
-            containers[fixRun] = container;
-            await WaitAsync(container, fixRun, task.Id, integrator.CiFix.Minutes, progress, sessionStarted, running, token);
-            await Tolerant(task.Id, () => volumes.FetchOutputAsync(fixRun, outDirectory, token), token);
-            var session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, "no_outcome", 0, 0, 0, 0, null, null, [], false);
+            SessionOutcome session;
+            try
+            {
+                var container = await StartSessionAsync(task, fixRun, branch, request.Goal, integrator.CiFix.Turns, integrator.CiFix.Minutes, (tokensLeft, usdLeft), running.UsdEstimate ?? 0, seed, sessionStarted,
+                    $"session container started (CI fix attempt {request.Attempt} of {request.MaxAttempts})", span, traceId, budget, token);
+                containers[fixRun] = container;
+                await WaitAsync(container, fixRun, task.Id, integrator.CiFix.Minutes, progress, sessionStarted, running, token);
+                await Tolerant(task.Id, () => volumes.FetchOutputAsync(fixRun, outDirectory, token), token);
+                session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, "no_outcome", 0, 0, 0, 0, null, null, [], false);
+            }
+            catch (Exception e)
+            {
+                RecordCutShort(task, (fixRun, sessionStarted, "ci_fix"), e);
+                throw;
+            }
+            RecordSession(task, "ci_fix", fixRun, sessionStarted, DateTimeOffset.UtcNow, session);
+            RecordGovernor(task, fixRun, outDirectory, session);
             fixSum = fixSum is null ? session : Total(fixSum, session);
             progress.Report(Capped(fixSum.InputTokens + fixSum.OutputTokens + total.InputTokens + total.OutputTokens, settings.Priced ? (fixSum.CostUsd ?? 0) + (total.CostUsd ?? 0) : 0, ended: true));
             if (session is not { Status: SessionStatus.Completed, BundleWritten: true } || session.Commits <= seededCommits)
@@ -414,13 +438,26 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             return new CiFixResult(true, "chargehand's own tests passed and the commits are on the branch");
         }
 
+        string? lastChecks = null;
+        var watch = new IntegrationWatch(
+            o =>
+            {
+                // A look at the checks is kept when it differs from the one before.
+                var key = $"{o.HeadSha}|{o.MergeStatus}|{o.Decision}|{string.Join(',', o.Checks.Select(c => $"{c.Name}:{c.Required}:{c.Outcome}"))}";
+                if (key == lastChecks)
+                    return;
+                lastChecks = key;
+                records?.Append(settings.BatchId, new ChecksRecord(task.Id, o.At, pr.Number, o.HeadSha, o.MergeStatus, o.IsDraft, o.AutoMerge, o.Decision,
+                    [.. o.Checks.Select(c => new CheckRecord(c.Name, c.Required, JsonNamingPolicy.SnakeCaseLower.ConvertName(c.Outcome.ToString()), c.JobId))]));
+            },
+            a => records?.Append(settings.BatchId, new CiAttemptRecord(task.Id, a.Attempt, a.MaxAttempts, a.At, a.JobsKey, a.Failing, a.Pushed, a.Detail)));
         try
         {
             var first = await integrator.IntegrateAsync(target, Report, ct, headMoved);
             var detail = $"integration: {first.Detail}";
             if (first.Action is IntegrationAction.Asked or IntegrationAction.AutoMergeEnabled)
             {
-                var last = await integrator.FollowAsync(target, Fix, Report, ct, headMoved);
+                var last = await integrator.FollowAsync(target, Fix, Report, ct, headMoved, watch);
                 detail += $"; {last.Detail}{(fixes > 0 ? string.Create(CultureInfo.InvariantCulture, $" ({fixes} CI fix attempt(s) pushed)") : "")}";
             }
             return (detail, fixSum is null ? null : Total(fixSum, total));
@@ -475,6 +512,65 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 "Send the task again with a goal of its own.");
         await RestoreBundleAsync(from.LastRun, ct, from.Runner);
         return (bundle, ReadProgress(Path.Combine(settings.ScratchRoot, "out", from.LastRun)));
+    }
+
+    /// <summary>Keeps one session for the console (CHARGEHAND-214), with the runner it ran on.</summary>
+    private void RecordSession(ResolvedTask task, string role, string runId, DateTimeOffset started, DateTimeOffset ended, SessionOutcome session)
+    {
+        if (records is null)
+            return;
+        records.Append(settings.BatchId, new SessionRecord(task.Id, runId, role, RunnerOf(task), started, ended, JsonNamingPolicy.SnakeCaseLower.ConvertName(session.Status.ToString()),
+            session.Reason.Length > 0 ? session.Reason : null, session.Turns, session.InputTokens, session.OutputTokens, session.CacheReadTokens, session.CacheWriteTokens, session.UsdEstimate,
+            settings.Priced ? session.CostUsd : null, session.ExitCode, session.Commits));
+    }
+
+    /// <summary>A session that ended before its outcome could be read: a cancel, or a failure to start or to read it back.</summary>
+    private void RecordCutShort(ResolvedTask task, (string RunId, DateTimeOffset Started, string Role) session, Exception e)
+    {
+        if (records is null)
+            return;
+        var cancelled = e is OperationCanceledException;
+        records.Append(settings.BatchId, new SessionRecord(task.Id, session.RunId, session.Role, RunnerOf(task), session.Started, DateTimeOffset.UtcNow, cancelled ? "cancelled" : "error",
+            cancelled ? null : ChargehandException.ErrorOf(e).Message, 0, 0, 0, 0, 0, null, null, null, 0));
+    }
+
+    private static string? RunnerOf(ResolvedTask task) => string.IsNullOrEmpty(task.Runner) ? null : task.Runner;
+
+    /// <summary>The session's <c>governor.jsonl</c> in full; the outcome file only has the first <see cref="SessionDriver.MaxGovernorDecisions"/>, which stand in for a runner too old to serve the log.</summary>
+    private void RecordGovernor(ResolvedTask task, string runId, string outDirectory, SessionOutcome session)
+    {
+        if (records is null)
+            return;
+        var all = ReadGovernorLog(outDirectory) ?? session.Governor ?? [];
+        if (all.Count > 0)
+            records.Append(settings.BatchId, new GovernorRecord(task.Id, runId, all.Count, [.. all.Take(BatchRecords.MaxDecisionsPerSession)]));
+    }
+
+    private static List<GovernorDecision>? ReadGovernorLog(string directory)
+    {
+        var file = Path.Combine(directory, ContainerTemplate.GovernorFile);
+        if (!File.Exists(file))
+            return null;
+        List<GovernorDecision> decisions = [];
+        try
+        {
+            foreach (var line in File.ReadLines(file))
+            {
+                try
+                {
+                    if (JsonSerializer.Deserialize<GovernorDecision>(line, OutcomeJson) is { } decision)
+                        decisions.Add(decision);
+                }
+                catch (JsonException)
+                {
+                }
+            }
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        return decisions;
     }
 
     private static string StopReason(SessionOutcome session) =>

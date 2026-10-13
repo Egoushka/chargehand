@@ -205,6 +205,19 @@ public class ContainerTemplateTests
         Assert.Throws<ArgumentException>(() => ContainerTemplate.BundleWorkspaceArgs(BundleSpec(branch, commit)));
 
     [Fact]
+    public void The_governors_log_is_a_file_the_server_may_read_out_of_a_session_s_volume_and_never_write_into_one()
+    {
+        Assert.Contains(ContainerTemplate.GovernorFile, ContainerTemplate.OutFilesOut);
+        Assert.Contains(ContainerTemplate.GovernorFile, ContainerTemplate.OptionalOutFiles);
+        Assert.DoesNotContain(ContainerTemplate.GovernorFile, ContainerTemplate.OutFilesIn);
+        var read = ContainerTemplate.OutFileArgs(new OutFileSpec("run1", Image, "chargehand-out-run1", ContainerTemplate.GovernorFile), write: false);
+        Assert.Equal("governor.jsonl", read[^1]);
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutFileArgs(new OutFileSpec("run1", Image, "chargehand-out-run1", ContainerTemplate.GovernorFile), write: true));
+        // The session's own name for it is the same constant.
+        Assert.Equal(ContainerTemplate.GovernorFile, Chargehand.Driven.SessionDriver.GovernorFile);
+    }
+
+    [Fact]
     public void The_bundle_is_a_file_the_server_may_write_into_a_session_s_volume_and_nothing_may_read_back()
     {
         Assert.Contains(ContainerTemplate.SourceBundleFile, ContainerTemplate.OutFilesIn);

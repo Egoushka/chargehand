@@ -103,6 +103,8 @@ export interface KeyBody {
   label?: string | null;
   created: string;
   revoked?: string | null;
+  /** The time of the key's last request, written at most once a minute; absent for a key not used since the server began to record it. */
+  last_used?: string | null;
 }
 
 /** An account as `accounts/v1` lists it, and as the owner's `overview/v1` carries it: its standing without the server-wide `halted` and `presets`. */

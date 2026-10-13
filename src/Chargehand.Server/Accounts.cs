@@ -122,11 +122,89 @@ public sealed class AccountKeyStore(string path)
     }
 }
 
-/// <summary>The accounts the profile declares, and the keys that open them. A key whose account the profile no longer declares opens nothing.</summary>
-public sealed class AccountDirectory(IReadOnlyList<AccountSettings> declared, AccountKeyStore keys)
+/// <summary>The accounts the profile declares, and the keys that open them. A key whose account the profile no longer declares opens nothing. With <paramref name="use"/>, the time a key opens a request is kept.</summary>
+public sealed class AccountDirectory(IReadOnlyList<AccountSettings> declared, AccountKeyStore keys, AccountKeyUse? use = null)
 {
-    public Principal? Authenticate(string bearer) =>
-        keys.Authenticate(bearer) is { } key && declared.FirstOrDefault(a => a.Name == key.Account) is { } account ? new Principal(account.Name, account) : null;
+    public Principal? Authenticate(string bearer)
+    {
+        if (keys.Authenticate(bearer) is not { } key || declared.FirstOrDefault(a => a.Name == key.Account) is not { } account)
+            return null;
+        use?.Record(key.Id);
+        return new Principal(account.Name, account);
+    }
+}
+
+/// <summary>When each account key last opened a request (CHARGEHAND-214): its id and a time, nothing about the request, the caller or the address. The keys file is written by <c>chargehand accounts</c>, so
+/// the times live in a file of their own beside it, which only the server writes. A key's time is written when it has none and then at most once a minute, so a busy key costs a write a minute and a
+/// time read from the file can be up to a minute behind. A key that is revoked or never used has no entry.</summary>
+public sealed class AccountKeyUse(string path, TimeProvider? clock = null)
+{
+    public static readonly TimeSpan WriteEvery = TimeSpan.FromMinutes(1);
+
+    private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower, WriteIndented = true };
+
+    private readonly object _lock = new();
+    private Dictionary<string, DateTimeOffset>? _times;
+    private readonly Dictionary<string, DateTimeOffset> _written = [];
+
+    /// <summary>The use file that goes with a keys file.</summary>
+    public static string FileFor(string keysFile) => Path.Combine(Path.GetDirectoryName(Path.GetFullPath(keysFile))!, "accounts-use.json");
+
+    public void Record(string keyId)
+    {
+        var now = (clock ?? TimeProvider.System).GetUtcNow();
+        lock (_lock)
+        {
+            _times ??= Load();
+            _times[keyId] = now;
+            if (_written.TryGetValue(keyId, out var last) && now - last < WriteEvery)
+                return;
+            _written[keyId] = now;
+            Save(_times);
+        }
+    }
+
+    /// <summary>Key id to the time it was last seen, as the file holds it; empty when there is no file or it cannot be read.</summary>
+    public IReadOnlyDictionary<string, DateTimeOffset> Read()
+    {
+        lock (_lock)
+            return Load();
+    }
+
+    private Dictionary<string, DateTimeOffset> Load()
+    {
+        try
+        {
+            return File.Exists(path) ? JsonSerializer.Deserialize<Dictionary<string, DateTimeOffset>>(File.ReadAllText(path), Json) ?? [] : [];
+        }
+        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
+    private void Save(Dictionary<string, DateTimeOffset> times)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+            var temp = $"{path}.{Guid.NewGuid():N}.tmp";
+            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
+            if (!OperatingSystem.IsWindows())
+                options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            using (var file = new FileStream(temp, options))
+            {
+                JsonSerializer.Serialize(file, times, Json);
+                file.Flush(flushToDisk: true);
+            }
+            File.Move(temp, path, overwrite: true);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // A time that cannot be written must not refuse a request.
+            Console.Error.WriteLine($"chargehand: could not write {path}: {e.Message}");
+        }
+    }
 }
 
 /// <summary>Why an account's run was not started. <c>Window</c>, <c>Unit</c>, <c>Limit</c>, <c>Spent</c>, <c>Remaining</c> and <c>ResetsAt</c> are set for

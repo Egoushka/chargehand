@@ -177,6 +177,41 @@ public class CiFixTests
     }
 
     [Fact]
+    public async Task The_watch_is_told_each_look_at_the_checks_and_each_fix_attempt_as_the_integrator_sees_them()
+    {
+        var ci = new Ci();
+        var host = HostFor(ci);
+        var script = host.Script!;
+        host.Script = h => h.Calls.Count(c => c == "get") >= 4 && ci.Fixes >= 1 ? script(h) with { Merged = true } : script(h);
+        List<CheckObservation> looks = [];
+        List<CiAttemptObservation> attempts = [];
+
+        await Make(host).FollowAsync(Target(), ci.Session(), _ => { }, default, watch: new IntegrationWatch(looks.Add, attempts.Add));
+
+        Assert.Equal("fix", looks[0].Decision);
+        Assert.Equal(("build", true, CheckOutcome.Failed, 900L), (looks[0].Checks[0].Name, looks[0].Checks[0].Required, looks[0].Checks[0].Outcome, looks[0].Checks[0].JobId));
+        Assert.Equal("head0", looks[0].HeadSha);
+        Assert.Contains(looks, l => l.HeadSha == "head1" && l.Checks.All(c => c.Outcome == CheckOutcome.Passed));
+        var attempt = Assert.Single(attempts);
+        Assert.Equal((1, 3, true, "tests passed"), (attempt.Attempt, attempt.MaxAttempts, attempt.Pushed, attempt.Detail));
+        Assert.Equal(["build"], attempt.Failing);
+        Assert.Equal(CiFixPolicy.JobsKey(["build"]), attempt.JobsKey);
+    }
+
+    [Fact]
+    public async Task A_fix_session_that_throws_is_told_to_the_watch_as_an_attempt_that_pushed_nothing()
+    {
+        var host = HostFor(new Ci());
+        List<CiAttemptObservation> attempts = [];
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Make(host).FollowAsync(Target(), (_, _) => throw new InvalidOperationException("the runner is gone"), _ => { }, default,
+            watch: new IntegrationWatch(null, attempts.Add)));
+
+        var attempt = Assert.Single(attempts);
+        Assert.Equal((1, false, "the runner is gone"), (attempt.Attempt, attempt.Pushed, attempt.Detail));
+    }
+
+    [Fact]
     public async Task The_same_jobs_failing_after_a_fix_are_given_up_on_with_one_comment_and_no_second_session()
     {
         var ci = new Ci { FailingAfter = _ => ["build"] };

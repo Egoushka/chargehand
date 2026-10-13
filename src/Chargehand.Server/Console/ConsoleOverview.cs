@@ -45,7 +45,7 @@ internal static class ConsoleOverview
         var server = new OverviewServer(ConsoleSystem.Version, c.Runs.Halted, held.Count, held.Count(r => r.Latest.Status == RunState.Queued), held.Count(r => r.Latest.Status == RunState.Running), RunService.MaxUnfinished,
             who.IsOwner ? c.Profile?.Http?.MaxConcurrentRuns : null);
         var driven = await DrivenAsync(c, who, ct);
-        var accounts = who.IsOwner ? (await ConsoleAccounts.BuildAsync(c, null, ct)).Accounts : null;
+        var accounts = who.IsOwner ? (await ConsoleAccounts.BuildAsync(c, null, null, ct)).Accounts : null;
         var inbox = await ConsoleInbox.CountsAsync(c, who, ct);
         return new OverviewBody(Contract, c.Now, who.IsOwner ? "owner" : "account", who.Name, server, driven, standing, accounts, inbox, who.IsOwner ? OwnerNotRecorded : AccountNotRecorded);
     }
