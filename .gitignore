@@ -22,7 +22,7 @@ profiles/local.*
 !deploy/compose/.env.example
 /deploy/compose/profile.json
 .private-terms
-runs/
+/runs/
 
 # graft local graph cache (regenerable)
 /graft/
