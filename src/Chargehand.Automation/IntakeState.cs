@@ -10,9 +10,15 @@ public enum IntakePhase { Running, Asked, Done }
 /// <param name="Size">The size class the task ran with; a continuation keeps it.</param>
 /// <param name="AskedCommentId">The id of the comment that carries the session's questions; only a comment after it answers them.</param>
 /// <param name="PrUrl">The pull request the task opened, once it did.</param>
-/// <param name="Branch">The task's branch, once it pushed one.</param>
+/// <param name="Branch">The task's branch, once it pushed one; a review round's, from the start.</param>
+/// <param name="Round">The number of the review round this task is (shared with the CI fix attempts of the pull request); null for a task started from an issue. <paramref name="Issue"/> is then the pull request's number.</param>
 public sealed record IntakeTask(string Repository, int Issue, string BatchRunId, string TaskId, DateTimeOffset Started, string Size, IntakePhase Phase = IntakePhase.Running,
-    long? AskedCommentId = null, string? PrUrl = null, string? Branch = null);
+    long? AskedCommentId = null, string? PrUrl = null, string? Branch = null, int? Round = null);
+
+/// <summary>A comment on a chargehand pull request that waits for a review round (ADR 0051): read once, kept here until a round takes it or the pull request makes it moot.</summary>
+/// <param name="Id"><c>r&lt;id&gt;</c> for an inline review comment, <c>c&lt;id&gt;</c> for a conversation comment: two id spaces, one list.</param>
+/// <param name="Path">The file an inline comment is on; null for a conversation comment.</param>
+public sealed record PendingReview(string Id, string Repository, int Pull, string Author, string Body, string? Path, int? Line, DateTimeOffset At);
 
 /// <summary>What intake remembers between polls and across a restart (ADR 0051), in one JSON file written whole through a temporary file. <see cref="Handled"/> holds every trigger that was acted on
 /// or ignored, by key (<c>label:owner/repo#12:&lt;event id&gt;</c>, <c>comment:owner/repo:&lt;comment id&gt;</c>), and it only grows: a trigger seen once is never acted on again.</summary>
@@ -39,6 +45,11 @@ public sealed class IntakeState
     /// <summary>Per labelled issue (<c>owner/repo#12</c>), its update time when its label events were last settled: an issue GitHub reports unchanged is not looked at again.</summary>
     public Dictionary<string, DateTimeOffset> LabelSeen { get; init; } = [];
 
+    /// <summary>Per repository, the update time of the newest inline review comment read.</summary>
+    public Dictionary<string, DateTimeOffset> ReviewCursor { get; init; } = [];
+
+    public List<PendingReview> Pending { get; init; } = [];
+
     public HashSet<string> Handled { get; init; } = [];
 
     /// <summary>Comments intake wrote about a trigger (a wait, a refusal), by key, so each is written once.</summary>
@@ -58,6 +69,8 @@ public sealed class IntakeState
         {
             CommentCursor = state.CommentCursor ?? [],
             LabelSeen = state.LabelSeen ?? [],
+            ReviewCursor = state.ReviewCursor ?? [],
+            Pending = state.Pending ?? [],
             Handled = state.Handled ?? [],
             Notified = state.Notified ?? [],
             Tasks = state.Tasks ?? [],

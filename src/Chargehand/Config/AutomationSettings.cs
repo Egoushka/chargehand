@@ -22,8 +22,10 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null)
 /// <param name="MaxUsdTotal">The dollar cap of a triggered batch (default 5); binds where the credential is priced.</param>
 /// <param name="MaxConcurrent">Triggered batches running at once (default 2); a trigger over it waits for a slot.</param>
 /// <param name="MaxStartsPerDay">Triggered batches started in any 24 hours (default 10); a trigger over it is refused.</param>
+/// <param name="MaxReviewRounds">Review rounds per pull request (default 3, 0 to turn the loop off): comments of allowed authors on a chargehand pull request start a session on its branch. The CI fixer's attempts count
+/// against the same cap of 3 per pull request, so rounds and fix attempts together never pass it (ADR 0051).</param>
 public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, AutomationRepository>? Repositories = null, IReadOnlyList<string>? AllowedAuthors = null, string Label = "chargehand",
-    string Mention = "@chargehand", int PollSeconds = 120, string BudgetClass = "M", long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int MaxStartsPerDay = 10)
+    string Mention = "@chargehand", int PollSeconds = 120, string BudgetClass = "M", long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int MaxStartsPerDay = 10, int MaxReviewRounds = 3)
 {
     public const int MinPollSeconds = 30;
 
@@ -51,6 +53,7 @@ public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, Automa
         if (MaxUsdTotal <= 0) problems.Add("max_usd_total must be above 0");
         if (MaxConcurrent is < 1 or > 10) problems.Add("max_concurrent must be 1 to 10");
         if (MaxStartsPerDay is < 1 or > 1000) problems.Add("max_starts_per_day must be 1 to 1000");
+        if (MaxReviewRounds is < 0 or > DrivenCiFix.AttemptCap) problems.Add($"max_review_rounds must be 0 to {DrivenCiFix.AttemptCap}");
         if (problems.Count > 0)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"automation.github: {string.Join("; ", problems)}", "Fix automation.github in the profile; docs/guide/intake.md lists the keys.");
     }

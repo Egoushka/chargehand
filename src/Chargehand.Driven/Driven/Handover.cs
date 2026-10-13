@@ -260,7 +260,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         ["LC_ALL"] = "C",
     };
 
-    private static bool RemoteAllowed(string url, bool allowLocal) =>
+    internal static bool RemoteAllowed(string url, bool allowLocal) =>
         url.Length > 0 && !url.StartsWith('-')
         && (url.StartsWith("https://", StringComparison.Ordinal) || url.StartsWith("ssh://", StringComparison.Ordinal) || ScpForm().IsMatch(url)
             || (allowLocal && url.StartsWith("file://", StringComparison.Ordinal)));

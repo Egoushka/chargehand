@@ -254,6 +254,10 @@ public class DrivenRunTests
         public DrivenRun Run { get; private set; }
         public FakeVolumes Volumes { get; }
         public Profile Profile { get; }
+
+        /// <summary>The commit the fake checkout is at, whatever the request pins.</summary>
+        public string CheckoutCommit { get; set; } = Commit;
+
         private readonly DrivenServices? _services;
         private readonly string? _state;
         private readonly ILearningStore? _learning;
@@ -263,7 +267,7 @@ public class DrivenRunTests
             DrivenLimits? limits = null, Func<string, string, SessionOutcome?>? outcomes = null, DrivenIntegrator? integrator = null, IIntegrationHost? integration = null,
             DrivenForge? forge = null, Func<RemoteRepository, string, IForge>? forgeFor = null, string remote = "https://github.com/o/r.git",
             IBatchPlanner? planner = null, IStackSeeder? stacker = null, DrivenPlanning? planning = null, ILearningStore? learning = null, DrivenLearning? learningSettings = null,
-            IBatchRetro? retro = null, IRetroSink? retroSink = null, DrivenGovernor? governor = null)
+            IBatchRetro? retro = null, IRetroSink? retroSink = null, DrivenGovernor? governor = null, IBranchSeeder? brancher = null)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
@@ -277,8 +281,8 @@ public class DrivenRunTests
             Volumes = volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed), outcomes);
             var services = enabled
                 ? new DrivenServices(Engine, Engine, Volumes, _ => throw new NotSupportedException("the handover is faked"), null,
-                    (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", Commit, remote, "main")), resolver ?? new NoEvidenceProblems(),
-                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1), Integration: integration, ForgeFor: forgeFor, Planner: planner, Stacker: stacker, Retro: retro, RetroSink: retroSink)
+                    (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", CheckoutCommit, remote, "main")), resolver ?? new NoEvidenceProblems(),
+                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1), Integration: integration, ForgeFor: forgeFor, Planner: planner, Stacker: stacker, Retro: retro, RetroSink: retroSink, Brancher: brancher)
                 : null;
             _services = services;
             _state = durable ? Path.Combine(Dir.Path, "batches") : null;

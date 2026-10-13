@@ -22,7 +22,7 @@ public class AutomationProfileTests
         var github = Load("""{"repositories":{"octo/repo":{"path":"/srv/repos/repo"}},"allowed_authors":["alice"]}""").Automation!.Github!;
 
         Assert.Equal(("chargehand", "@chargehand", 120, "M", 2, 10), (github.Label, github.Mention, github.PollSeconds, github.BudgetClass, github.MaxConcurrent, github.MaxStartsPerDay));
-        Assert.Equal((2_000_000L, 5m), (github.MaxTokensTotal, github.MaxUsdTotal));
+        Assert.Equal((2_000_000L, 5m, 3), (github.MaxTokensTotal, github.MaxUsdTotal, github.MaxReviewRounds));
         Assert.Equal("/srv/repos/repo", github.Repositories!["octo/repo"].Path);
     }
 
@@ -41,6 +41,8 @@ public class AutomationProfileTests
     [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"budget_class":"XL"}""", "budget_class")]
     [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_concurrent":0}""", "max_concurrent")]
     [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_starts_per_day":0}""", "max_starts_per_day")]
+    [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_review_rounds":4}""", "max_review_rounds")]
+    [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_review_rounds":-1}""", "max_review_rounds")]
     public void A_value_that_cannot_work_is_refused_when_the_profile_loads(string github, string problem)
     {
         var e = Assert.Throws<ChargehandException>(() => Load(github));
@@ -63,13 +65,14 @@ public class AutomationProfileTests
     }
 
     [Theory]
-    [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}},"allowed_authors":["alice","bot[bot]"],"label":"chargehand","mention":"@chargehand","poll_seconds":120,"budget_class":"S","max_tokens_total":1000000,"max_usd_total":2.5,"max_concurrent":2,"max_starts_per_day":10}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}},"allowed_authors":["alice","bot[bot]"],"label":"chargehand","mention":"@chargehand","poll_seconds":120,"budget_class":"S","max_tokens_total":1000000,"max_usd_total":2.5,"max_concurrent":2,"max_starts_per_day":10,"max_review_rounds":0}}}""", true)]
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}},"allowed_authors":[]}}}""", true)]
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}}}}}""", false)] // allowed_authors has no default
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"allowed_authors":["a"]}}}""", false)]
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}},"allowed_authors":["a"],"poll_seconds":10}}}""", false)]
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}},"allowed_authors":["a"],"token":"x"}}}""", false)] // the App is driven.integrator
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":"/p"},"allowed_authors":["a"]}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}},"allowed_authors":["a"],"max_review_rounds":4}}}""", false)] // three rounds at most, like the CI fixer
     public void The_schema_checks_automation_github(string profile, bool valid)
     {
         using var doc = JsonDocument.Parse(profile);
@@ -84,8 +87,11 @@ public class AutomationProfileTests
         var state = IntakeState.Load(path);
         var now = new DateTimeOffset(2026, 10, 13, 12, 0, 0, TimeSpan.Zero);
         state.Handled.Add("comment:octo/repo:5");
+        state.ReviewCursor["octo/repo"] = now;
+        state.Pending.Add(new PendingReview("r31", "octo/repo", 9, "alice", "Use a constant.", "src/Retry.cs", 12, now));
+        state.Pending.Add(new PendingReview("c40", "octo/repo", 9, "alice", "@chargehand go on", null, null, now));
         state.CommentCursor["octo/repo"] = now;
-        state.Tasks.Add(new IntakeTask("octo/repo", 7, "run-1", "issue-7", now, "M", IntakePhase.Asked, 99, "https://github.example.test/octo/repo/pull/1", "chargehand/x"));
+        state.Tasks.Add(new IntakeTask("octo/repo", 7, "run-1", "issue-7", now, "M", IntakePhase.Asked, 99, "https://github.example.test/octo/repo/pull/1", "chargehand/x", 2));
         state.Starts.Add(now);
         state.Starts.Add(now - TimeSpan.FromDays(2));
         state.Save(now);
@@ -94,6 +100,8 @@ public class AutomationProfileTests
         Assert.Equal(["comment:octo/repo:5"], loaded.Handled);
         Assert.Equal(now, loaded.CommentCursor["octo/repo"]);
         Assert.Equal(state.Tasks, loaded.Tasks);
+        Assert.Equal(state.Pending, loaded.Pending);
+        Assert.Equal(now, loaded.ReviewCursor["octo/repo"]);
         Assert.Equal([now], loaded.Starts);
         Assert.False(File.Exists(path + ".tmp"));
     }

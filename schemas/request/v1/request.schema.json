@@ -76,7 +76,7 @@
                   "run_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$", "description": "The earlier driven batch's run id; it must be in this server's run log." },
                   "task_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$", "description": "The task's id in that batch." }
                 },
-                "description": "Start this task from an earlier batch's task that ended needs_input, or stopped with its work kept: the same branch, from the kept bundle, with that task's goal, the questions it asked and the given answers in the prompt. The task needs neither goal nor ref, and the repository commit must be the one the earlier task started at. The earlier task's output is kept for at least 7 days. Two tasks cannot continue the same one."
+                "description": "Start this task from an earlier batch's task that ended needs_input, or stopped with its work kept: the same branch, from the kept bundle, with that task's goal, the questions it asked and the given answers in the prompt. A task that completed with its branch pushed can be continued too (a review round, ADR 0051): the branch is fetched from the remote as it is now, answers are required (the comments to address), and the pull request keeps its title and body. The task needs neither goal nor ref, and the repository commit must be the one the earlier task started at. The earlier task's output is kept for at least 7 days. Two tasks cannot continue the same one."
               }
             }
           }

@@ -42,22 +42,37 @@ public static class CiFixPolicy
 }
 
 /// <summary>The hidden line chargehand puts in a pull request comment for each fix attempt (and when it gives up). The pull request is where the count lives, so a restart, or a later batch,
-/// cannot start a fourth attempt.</summary>
+/// cannot start a fourth attempt. Review rounds (ADR 0051) leave a line of their own in the same count.</summary>
 public static partial class FixMarker
 {
     public static string Attempt(FixAttempt attempt) => $"<!-- chargehand-ci-fix attempt={attempt.Number.ToString(CultureInfo.InvariantCulture)} jobs={attempt.JobsKey} -->";
 
     public static string GaveUp(string jobsKey) => $"<!-- chargehand-ci-fix-gave-up jobs={jobsKey} -->";
 
-    /// <summary>The attempts the comments record, in order of attempt number.</summary>
+    /// <summary>The <see cref="FixAttempt.JobsKey"/> of a review round: it is no set of failing jobs, so it never equals one.</summary>
+    public const string ReviewKey = "review";
+
+    /// <summary>The hidden line in the comment that starts a review round (ADR 0051). <paramref name="comments"/> are the reviewers' comments it answers, <c>r&lt;id&gt;</c> for an inline review comment and
+    /// <c>c&lt;id&gt;</c> for a conversation comment. A review round counts as an attempt: a pull request has one cap for CI fix attempts and review rounds together, and <paramref name="number"/> continues their numbering.</summary>
+    public static string ReviewRound(int number, IEnumerable<string> comments) => $"<!-- chargehand-review-round attempt={number.ToString(CultureInfo.InvariantCulture)} comments={string.Join(',', comments)} -->";
+
+    /// <summary>The attempts the comments record, CI fix attempts and review rounds alike, in order of attempt number.</summary>
     public static IReadOnlyList<FixAttempt> Parse(IEnumerable<string> comments) =>
-        [.. comments.SelectMany(c => AttemptMarker().Matches(c).Select(m => new FixAttempt(int.Parse(m.Groups["n"].Value, CultureInfo.InvariantCulture), m.Groups["k"].Value)))
+        [.. comments.SelectMany(c => AttemptMarker().Matches(c).Select(m => new FixAttempt(int.Parse(m.Groups["n"].Value, CultureInfo.InvariantCulture), m.Groups["k"].Value))
+                .Concat(RoundMarker().Matches(c).Select(m => new FixAttempt(int.Parse(m.Groups["n"].Value, CultureInfo.InvariantCulture), ReviewKey))))
             .DistinctBy(a => a.Number).OrderBy(a => a.Number)];
+
+    /// <summary>The reviewers' comments (<c>r123</c>, <c>c456</c>) that review rounds were already started for.</summary>
+    public static IReadOnlySet<string> ReviewedComments(IEnumerable<string> comments) =>
+        comments.SelectMany(c => RoundMarker().Matches(c)).SelectMany(m => m.Groups["c"].Value.Split(',')).ToHashSet(StringComparer.Ordinal);
 
     public static bool HasGaveUp(IEnumerable<string> comments, string jobsKey) => comments.Any(c => c.Contains(GaveUp(jobsKey), StringComparison.Ordinal));
 
     [GeneratedRegex(@"<!-- chargehand-ci-fix attempt=(?<n>\d{1,3}) jobs=(?<k>[0-9a-f]{12}) -->")]
     private static partial Regex AttemptMarker();
+
+    [GeneratedRegex(@"<!-- chargehand-review-round attempt=(?<n>\d{1,3}) comments=(?<c>[rc]\d{1,19}(?:,[rc]\d{1,19})*) -->")]
+    private static partial Regex RoundMarker();
 }
 
 /// <summary>A required job that failed, with the end of its log.</summary>

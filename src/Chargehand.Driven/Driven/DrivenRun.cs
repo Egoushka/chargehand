@@ -23,11 +23,12 @@ namespace Chargehand.Driven;
 /// <param name="Stacker">Makes the starting branch of a task that depends on others (ADR 0049); null: <see cref="GitStackSeeder"/>, with git on this host.</param>
 /// <param name="Retro">Writes the retro after a batch when <c>driven.learning.retro</c> is on (ADR 0045); null: such a batch reports the retro skipped.</param>
 /// <param name="RetroSink">Gets each written retro besides the batch result (ADR 0045); null: nowhere. No tracker write path exists yet, so none ships.</param>
+/// <param name="Brancher">Fetches the pushed branch a review round continues (ADR 0051); null: <see cref="GitBranchSeeder"/>, with git on this host.</param>
 public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Workspace, ISessionVolumes Volumes, Func<PushCredential, IPullRequests> PullRequestsFor, ITaskSource? TaskSource,
     Func<RepositoryRef, string, CancellationToken, Task<DrivenCheckout>> Checkout, IEvidenceResolver Resolver, Func<string, string> Secret,
     Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? SupportCheck = null, Func<ContainerVerifierSettings, PushCredential, IBranchHandover>? HandoverFor = null,
     TimeSpan? Poll = null, IHostSource? Host = null, IIntegrationHost? Integration = null, Func<RemoteRepository, string, IForge>? ForgeFor = null, IBatchPlanner? Planner = null, IStackSeeder? Stacker = null,
-    IBatchRetro? Retro = null, IRetroSink? RetroSink = null);
+    IBatchRetro? Retro = null, IRetroSink? RetroSink = null, IBranchSeeder? Brancher = null);
 
 /// <summary>A request with a <c>driven</c> block, from start to the batch's result (ADR 0039): tasks resolved, the batch network up, tasks run under the batch's limits by
 /// <see cref="TaskRunner"/>, the network down, and one <c>result/v1</c> that lists the tasks. Every refusal (driven sessions off, no push credential, no image) is a failed
@@ -255,9 +256,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var integrator = settings.Integrator is { } integration && (forge ?? s.Integration) is { } integrationHost
             ? new Integrator(new IntegratorPolicy(integration), integrationHost, integration.CiFix, forge: settings.Forge) : null;
         span?.SetTag("chargehand.base_commit", checkout.Commit);
-        // A kept bundle is a branch from the commit its task started at; fetched into a workspace at another commit it would not apply.
-        if (ready.FirstOrDefault(t => t.From?.Kept is { } kept && kept.Base != checkout.Commit) is { } moved)
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"task '{moved.Id}' continues work that started at commit {moved.From!.Kept!.Base}, but this request's repository is at {checkout.Commit}",
+        // A kept bundle, and a pushed branch, are branches from the commit their task started at; fetched into a workspace at another commit they would not apply.
+        if (ready.FirstOrDefault(t => (t.From?.Kept?.Base ?? t.From?.Pushed?.Base) is { } startedAt && startedAt != checkout.Commit) is { } moved)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"task '{moved.Id}' continues work that started at commit {moved.From!.Kept?.Base ?? moved.From.Pushed!.Base}, but this request's repository is at {checkout.Commit}",
                 "Send the request with context.repository.commit set to the commit the earlier task started at.");
         span?.SetTag("chargehand.credential_delivery", Delivery(model, exchange));
         List<string> forwards = [];
@@ -291,7 +292,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true || otlp is not null, otlp,
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor, RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge));
-            var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress, journal: journal, detaching: detaching, stacker: s.Stacker, learning: learning);
+            var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress, journal: journal, detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher);
             ran = await new BatchScheduler(runner, admission: _admission, taskMemoryMb: drivenPreset.MemoryMb).RunAsync(ready, limits, ct, o =>
             {
                 if (detaching())

@@ -192,7 +192,7 @@ public class DrivenAnswersTests
     {
         { "no-such-run", "is not a finished driven batch in the run log" },
         { "no-such-task", "has no such task" },
-        { "completed", "ended completed and kept no work" },
+        { "failed", "ended failed and kept no work" },
         { "no-answers", "ended needs_input: give answers" },
         { "moved", "started at commit" },
     };
@@ -201,7 +201,7 @@ public class DrivenAnswersTests
     [MemberData(nameof(Refusals))]
     public async Task A_reference_that_cannot_be_continued_is_refused_before_anything_starts(string case_, string message)
     {
-        using var rig = new DrivenRunTests.Rig(outcomes: Script(first: _ => case_ == "completed" ? Done() : Asked(2)));
+        using var rig = new DrivenRunTests.Rig(outcomes: Script(first: _ => case_ == "failed" ? new SessionOutcome(SessionStatus.Failed, "session_error", 0, 0, 0, 0, null, null, [], false) : Asked(2)));
         var earlier = await rig.Run.RunAsync(Ask(), First, Token, default);
         if (case_ == "moved")
         {

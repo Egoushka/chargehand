@@ -82,7 +82,7 @@ public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, stri
 public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspace, ISessionVolumes volumes, IBranchHandover handover, IRunLog log, TaskTokenMinter mint,
     TaskRunnerSettings settings, IEvidenceResolver resolver,
     Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? supportCheck, Func<ResultContract, ResultContract>? sign,
-    TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, BatchJournal? journal = null, Func<bool>? detaching = null, IStackSeeder? stacker = null, ILearningStore? learning = null) : ITaskRunner
+    TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, BatchJournal? journal = null, Func<bool>? detaching = null, IStackSeeder? stacker = null, ILearningStore? learning = null, IBranchSeeder? brancher = null) : ITaskRunner
 {
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultUsagePoll = TimeSpan.FromSeconds(5);
@@ -111,7 +111,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         }
         var attach = resumed is not null && restartSeed is null;
         var runId = resumed?.RunId ?? Orchestrator.NewRunId();
-        var branch = resumed?.Branch ?? task.From?.Kept?.Branch ?? $"chargehand/{runId}";
+        var branch = resumed?.Branch ?? task.From?.Kept?.Branch ?? task.From?.Pushed?.Branch ?? $"chargehand/{runId}";
         var started = resumed?.Started ?? DateTimeOffset.UtcNow;
         var preset = settings.Preset;
         var maxTurns = task.MaxTurns ?? preset.MaxTurns;
@@ -155,7 +155,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             if (resumed is null && task.From is { } from)
             {
                 // The earlier task's bundle seeds the first session, and the handoff its last session left goes after the goal.
-                var (bundle, handoff) = await KeptWorkAsync(from, ct);
+                var (bundle, handoff) = await KeptWorkAsync(from, branch, outDirectory, Path.Combine(settings.ScratchRoot, $"{runId}-branch"), ct);
                 seed = bundle;
                 goal = handoff is null ? goal : $"{goal}\n\nThe handoff the earlier session left:\n\n{Truncated(handoff, ProgressInGoal)}";
             }
@@ -449,8 +449,17 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
 
     /// <summary>What a task that continues an earlier one starts from: the bundle the earlier task kept (null: it made no commits) and the handoff its last session left (null: none).</summary>
     /// <exception cref="ChargehandException">The earlier task kept a bundle and its output volume no longer holds it.</exception>
-    private async Task<(string? Bundle, string? Handoff)> KeptWorkAsync(ContinuedFrom from, CancellationToken ct)
+    private async Task<(string? Bundle, string? Handoff)> KeptWorkAsync(ContinuedFrom from, string branch, string outDirectory, string directory, CancellationToken ct)
     {
+        if (from.Pushed is not null)
+        {
+            // A finished task's branch is read from the remote, not from an output volume: a person or the CI fixer may have pushed to it since, and the push must be a fast-forward.
+            var bundlePath = Path.Combine(outDirectory, "branch.bundle");
+            var made = await (brancher ?? new GitBranchSeeder()).BuildAsync(new BranchSeedRequest(branch, settings.SourcePath, settings.BaseCommit, settings.RemoteUrl, settings.Push, settings.ScratchRoot, directory,
+                bundlePath, settings.AllowLocalRemote), ct);
+            DeleteQuietly(directory);
+            return made.Made ? (bundlePath, null) : throw new ChargehandException(ErrorCode.SessionFailed, $"could not start from the pushed branch: {made.Failure}", "Send the comments again; the branch may have been deleted or rewritten.");
+        }
         var bundle = from.Kept is null ? null
             : await RestoreBundleAsync(from.Kept.BundleRun, ct) ?? throw new ChargehandException(ErrorCode.InvalidRequest,
                 $"the work of the task this one continues is gone: its output volume is kept for {ContinuationSource.KeptFor.TotalDays:0} days after it ended",
@@ -614,7 +623,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         handover.RunAsync(new HandoverInput(run.RunId, run.OutDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, stack?.PullRequestBase ?? settings.BaseBranch,
             title, stack is null ? body : $"{body}\n\n{stack.Note}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
             Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
-            Goal: task.Goal, UpdateReused: !partial, PolicyNote: stack is null && settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null,
+            Goal: task.Goal, UpdateReused: !partial && task.From?.Pushed is null, PolicyNote: stack is null && settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null,
             FallbackBaseBranch: stack?.PullRequestBase is null ? null : settings.BaseBranch), ct);
 
     /// <summary>How a task that depends on others is based (ADR 0049). <paramref name="PullRequestBase"/> is the dependency's branch when there is exactly one, so the pull request shows only this task's
