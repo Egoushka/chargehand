@@ -1,0 +1,39 @@
+/* Code colour: Shiki's CSS-variables theme writes var(--code-token-*) as the colour of each token, and these are the tokens it names.
+   They are the design's text tones, so they follow the theme and keep their contrast on the sunken surface and on added or removed lines. */
+.code-hl {
+  --code-foreground: var(--text);
+  --code-background: transparent;
+  --code-token-constant: var(--info-text);
+  --code-token-string: var(--ok-text);
+  --code-token-string-expression: var(--ok-text);
+  --code-token-comment: var(--text-muted);
+  --code-token-keyword: var(--accent-text);
+  --code-token-parameter: var(--text);
+  --code-token-function: var(--warn-text);
+  --code-token-punctuation: var(--text-muted);
+  --code-token-link: var(--info-text);
+}
+
+.code-hl__line {
+  display: inline;
+}
+
+/* The frame of a block of code: sunken, scrolling both ways, with the lines kept as written. */
+pre.code {
+  margin: 0;
+  padding: var(--space-3);
+  max-height: 640px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font: 400 12px / 18px var(--font-mono);
+  white-space: pre;
+}
+
+/* A diff line breaks where the phone asks, and a hunk or note line reads as the design's quiet line. */
+.ch-dl--wrap .ch-dl__c {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

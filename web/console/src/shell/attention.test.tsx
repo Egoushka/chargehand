@@ -70,7 +70,10 @@ describe('notices', () => {
   it('says so when a batch finishes or fails, from the runs the shell already reads', async () => {
     serveApi({ runs: [run(BATCH_A), run('run-20261013-124402-77bd0a')] });
     const { client } = renderConsole('/console/runs');
-    await screen.findAllByText('Running', { exact: false });
+    // The notice is raised when a run the shell saw running has ended: wait until it has seen them.
+    await waitFor(() =>
+      expect(client.getQueryData(['runs', { kind: 'batch', limit: 50 }])).toBeTruthy(),
+    );
 
     serveApi({
       runs: [

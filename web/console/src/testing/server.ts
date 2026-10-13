@@ -3,6 +3,7 @@ import { vi } from 'vitest';
 import type { AccountsBody } from '../api/accounts';
 import type { AnalyticsBody, AnalyticsBucket, AnalyticsGroupBy } from '../api/analytics';
 import type { BatchBody } from '../api/batch';
+import type { BatchTaskDetailBody } from '../api/batch-task';
 import type { InboxBody } from '../api/inbox';
 import type { IntakeBody } from '../api/intake';
 import type { OverviewBody } from '../api/overview';
@@ -12,6 +13,7 @@ import type { SystemBody } from '../api/system';
 import type { LearnReport, Me, RunSummary } from '../api/types';
 import * as adm from './admin';
 import * as fx from './fixtures';
+import * as rx from './fixtures-runs';
 import { analyticsBody, learnReport } from './learning';
 
 export interface Scenario {
@@ -21,6 +23,10 @@ export interface Scenario {
   inbox?: InboxBody;
   runs?: RunSummary[];
   batches?: Record<string, BatchBody>;
+  /** A task's own view by `<batch>/<task>`. */
+  tasks?: Record<string, BatchTaskDetailBody>;
+  /** The text of a run's event stream by path (`/v1/runs/<id>/events`): server-sent events. */
+  streams?: Record<string, string>;
   pulls?: PullsBody;
   system?: SystemBody | null;
   intake?: IntakeBody;
@@ -108,8 +114,13 @@ export function serveApi(scenario: Scenario = {}) {
       return Promise.resolve(json(scenario.repositories ?? adm.repositories(now)));
     if (path === '/v1/accounts')
       return Promise.resolve(json(scenario.accounts ?? adm.accounts(now)));
-    if (path === '/v1/runs' && (init?.method ?? 'GET') === 'GET')
-      return Promise.resolve(json({ runs: scenario.runs ?? [] }));
+    if (path === '/v1/runs' && method === 'GET') {
+      const query = new URLSearchParams(input.split('?')[1] ?? '');
+      const wanted = query.get('run_id');
+      const all = scenario.runs ?? (wanted ? [fx.run(wanted, {}, now)] : []);
+      const matching = wanted ? all.filter((r) => r.run_id === wanted) : all;
+      return Promise.resolve(json({ runs: matching.slice(0, Number(query.get('limit') ?? 50)) }));
+    }
     if (path === '/v1/runs' && method === 'POST')
       return Promise.resolve(
         json({ run_id: 'run-20261013-150000-abc123', status: 'queued' }, 202, {
@@ -123,7 +134,21 @@ export function serveApi(scenario: Scenario = {}) {
       const id = decodeURIComponent(batch[1] ?? '');
       return Promise.resolve(json(scenario.batches?.[id] ?? fx.batch(id, now)));
     }
-    if (path.endsWith('/events')) return Promise.resolve(new Response('', { status: 200 }));
+    const task = /^\/v1\/batches\/([^/]+)\/tasks\/([^/]+)$/.exec(path);
+    if (task) {
+      const id = decodeURIComponent(task[1] ?? '');
+      const name = decodeURIComponent(task[2] ?? '');
+      return Promise.resolve(
+        json(scenario.tasks?.[`${id}/${name}`] ?? rx.taskDetail(id, name, now)),
+      );
+    }
+    if (path.endsWith('/events'))
+      return Promise.resolve(
+        new Response(scenario.streams?.[path] ?? '', {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+      );
     if (path.startsWith('/v1/runs/'))
       return Promise.resolve(json({ status: 'running', run_id: path.split('/').pop() }, 202));
     return Promise.resolve(json({ errors: [`no route ${input}`] }, 404));
