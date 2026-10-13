@@ -14,9 +14,10 @@ public enum TaskPhase { Pending, Started, Finished, HandedOver, Failed }
 /// <param name="Best">The latest session whose bundle holds commits: what a continuation is seeded from and a partial handover hands over.</param>
 /// <param name="SessionGoal">The latest session's prompt when it is a continuation's (the goal plus the note); null: the task's goal.</param>
 /// <param name="StartDetail">The <c>container_started</c> text of a continuation, kept so a continuation redone after a restart says the same.</param>
+/// <param name="From">The earlier batch's task this one continues (ADR 0045); the goal above already carries its questions and the answers.</param>
 public sealed record TaskEntry(string Id, string? Ref, string Goal, TaskPhase Phase = TaskPhase.Pending, string? RunId = null, string? Branch = null, string? Container = null,
     DateTimeOffset? Started = null, TaskOutcome? Outcome = null, int Continuation = 0, SessionOutcome? Prior = null, IReadOnlyList<string>? Runs = null, DateTimeOffset? SessionStarted = null,
-    BestBundle? Best = null, string? SessionGoal = null, string? StartDetail = null);
+    BestBundle? Best = null, string? SessionGoal = null, string? StartDetail = null, ContinuedFrom? From = null);
 
 /// <param name="Commits">Commits past the base the bundle holds; a continuation has to add to them to go on.</param>
 public sealed record BestBundle(string RunId, int Commits);

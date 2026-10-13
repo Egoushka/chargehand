@@ -20,7 +20,17 @@ public sealed record TaskLimits(long MaxTokens, decimal? MaxUsd);
 /// <param name="MaxMinutes">The same for the session's wall clock.</param>
 /// <param name="Size">The request's size class for the governor's budget; null: M.</param>
 /// <param name="BudgetUsd">The request's own budget for the task, in place of the size class's.</param>
-public sealed record ResolvedTask(string Id, string? Ref, string Goal, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null);
+/// <param name="From">Set when the task continues an earlier batch's task (ADR 0045); <paramref name="Goal"/> then already carries the earlier goal, its questions and the answers.</param>
+public sealed record ResolvedTask(string Id, string? Ref, string Goal, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null, ContinuedFrom? From = null);
+
+/// <summary>The earlier task a task continues: its last session (whose output volume may hold a handoff) and the work it kept; null: it made no commits, so the new task starts from the base commit.</summary>
+public sealed record ContinuedFrom(string LastRun, KeptWork? Kept);
+
+/// <summary>What an unfinished task leaves for a later one, as the <c>kept-work</c> artifact of its result (ADR 0045). The bundle is in the output volume of <paramref name="BundleRun"/>.</summary>
+/// <param name="Branch">The task branch, <c>chargehand/&lt;first run id&gt;</c>; a continuation uses the same name, because the bundle holds that ref.</param>
+/// <param name="Commits">Commits past the base the bundle holds.</param>
+/// <param name="Base">The commit the earlier task started at; a continuation has to start at the same one.</param>
+public sealed record KeptWork(string Branch, string BundleRun, int Commits, string Base);
 
 /// <summary>Runs one task to its end: the container, the session, the handover. It reports usage as it goes and stops when cancelled.</summary>
 public interface ITaskRunner

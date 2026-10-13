@@ -106,7 +106,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         }
         var attach = resumed is not null && restartSeed is null;
         var runId = resumed?.RunId ?? Orchestrator.NewRunId();
-        var branch = resumed?.Branch ?? $"chargehand/{runId}";
+        var branch = resumed?.Branch ?? task.From?.Kept?.Branch ?? $"chargehand/{runId}";
         var started = resumed?.Started ?? DateTimeOffset.UtcNow;
         var preset = settings.Preset;
         var maxTurns = task.MaxTurns ?? preset.MaxTurns;
@@ -123,12 +123,14 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             var (again, allRuns) = (runId, runs.ToList());
             journal?.Update(task.Id, e => e with { RunId = again, Runs = allRuns, Container = null });
         }
-        var best = resumed?.Best is { } kept ? new BestRun(kept.RunId, Path.Combine(settings.ScratchRoot, "out", kept.RunId), kept.Commits) : null;
+        // A task that continues an earlier one starts with that task's bundle as its best, so a session that adds nothing to it neither continues nor loses it (ADR 0045).
+        var best = (resumed?.Best ?? (resumed is null && task.From?.Kept is { } carried ? new BestBundle(carried.BundleRun, carried.Commits) : null)) is { } kept
+            ? new BestRun(kept.RunId, Path.Combine(settings.ScratchRoot, "out", kept.RunId), kept.Commits) : null;
         var containers = new Dictionary<string, string?>();
         var outDirectory = Path.Combine(settings.ScratchRoot, "out", runId);
         string? seed = restartSeed;
         var goal = resumed?.SessionGoal ?? task.Goal;
-        var startDetail = resumed?.StartDetail ?? "session container started";
+        var startDetail = resumed?.StartDetail ?? (task.From is null ? "session container started" : "session container started (continues an earlier task's work)");
         string? startFailure = null;
         var ended = false;
         // A child of the batch's span: the task's result carries the batch's trace id, so it resolves in Langfuse.
@@ -140,6 +142,13 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         try
         {
             Directory.CreateDirectory(outDirectory);
+            if (resumed is null && task.From is { } from)
+            {
+                // The earlier task's bundle seeds the first session, and the handoff its last session left goes after the goal.
+                var (bundle, handoff) = await KeptWorkAsync(from, ct);
+                seed = bundle;
+                goal = handoff is null ? goal : $"{goal}\n\nThe handoff the earlier session left:\n\n{Truncated(handoff, ProgressInGoal)}";
+            }
             if (resumed is null)
                 journal?.Update(task.Id, e => e with
                 {
@@ -152,7 +161,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                     Prior = null,
                     Runs = [runId],
                     SessionStarted = DateTimeOffset.UtcNow,
-                    Best = null,
+                    Best = best is null ? null : new BestBundle(best.RunId, best.Commits),
                     SessionGoal = null,
                     StartDetail = null
                 });
@@ -185,6 +194,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, state.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, state.ExitCode, [], false);
                 foreach (var d in session.Governor ?? [])
                     Publish(task.Id, RunEventKind.Governor, Describe(d));
+                if (session.Status == SessionStatus.NeedsInput)
+                    Publish(task.Id, RunEventKind.Question, session.Questions.Count > 0 ? $"the session asked:\n{string.Join('\n', session.Questions.Select(q => $"- {q}"))}" : "the session asked for input but named no question");
                 using (var call = Telemetry.Source.StartActivity(DrivenTelemetry.SessionSpan, ActivityKind.Client, span?.Context ?? default, startTime: sessionStarted))
                 {
                     DrivenTelemetry.TagSession(call, session, settings.Prices ?? new Dictionary<string, ModelPrice>(), settings.UsageOnSpans);
@@ -260,7 +271,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             var scratchClone = Path.Combine(settings.ScratchRoot, handoverRun.Item1);
             var children = (await log.ListAsync(new RunListQuery(Since: started, Limit: 200), ct)).Where(r => r.ParentRunId is { } parent && runs.Contains(parent)).ToList();
             var result = await DrivenResult.BuildTaskAsync(new DrivenTaskInput(task.Id, runId, traceId, settings.Model, settings.ClaudeVersion, total, reportJson, handed, children,
-                Directory.Exists(scratchClone) ? scratchClone : settings.SourcePath, settings.BaseCommit, settings.Priced), resolver, supportCheck, ct);
+                Directory.Exists(scratchClone) ? scratchClone : settings.SourcePath, settings.BaseCommit, settings.Priced,
+                partial ? new KeptWork(branch, best!.RunId, best.Commits, settings.BaseCommit) : null), resolver, supportCheck, ct);
             if (sign is not null)
                 result = sign(result);
             await log.AppendAsync(new StartRecord(runId, started, traceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId, ProcessBoot.Id), CancellationToken.None);
@@ -295,6 +307,9 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             // A server that is stopping leaves an unfinished task as it is: the next process takes it up (ADR 0043).
             if (ended || !Detaching)
             {
+                if (task.From is { } continued)
+                    foreach (var earlierRun in new[] { continued.LastRun, continued.Kept?.BundleRun }.OfType<string>())
+                        DeleteQuietly(Path.Combine(settings.ScratchRoot, "out", earlierRun));
                 // A start cancelled in flight can leave the container docker already made; the name is fixed, so remove it by name.
                 containers.TryAdd(runId, null);
                 foreach (var (run, name) in containers)
@@ -401,6 +416,18 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             return null;
         }
         return File.Exists(bundle) ? bundle : null;
+    }
+
+    /// <summary>What a task that continues an earlier one starts from: the bundle the earlier task kept (null: it made no commits) and the handoff its last session left (null: none).</summary>
+    /// <exception cref="ChargehandException">The earlier task kept a bundle and its output volume no longer holds it.</exception>
+    private async Task<(string? Bundle, string? Handoff)> KeptWorkAsync(ContinuedFrom from, CancellationToken ct)
+    {
+        var bundle = from.Kept is null ? null
+            : await RestoreBundleAsync(from.Kept.BundleRun, ct) ?? throw new ChargehandException(ErrorCode.InvalidRequest,
+                $"the work of the task this one continues is gone: its output volume is kept for {ContinuationSource.KeptFor.TotalDays:0} days after it ended",
+                "Send the task again with a goal of its own.");
+        await RestoreBundleAsync(from.LastRun, ct);
+        return (bundle, ReadProgress(Path.Combine(settings.ScratchRoot, "out", from.LastRun)));
     }
 
     private static string StopReason(SessionOutcome session) =>
