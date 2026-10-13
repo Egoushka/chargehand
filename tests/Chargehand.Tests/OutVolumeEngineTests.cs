@@ -247,19 +247,19 @@ public class OutVolumeEngineTests
         using var dir = new TempDir();
         var (docker, log) = FakeEngine(dir, """
             case "$1" in
-              ps) printf 'chargehand-xfer-run1\nchargehand-run2\nchargehand-xfer-run3\nchargehand-prep-run4\nchargehand-egress-b1\n';;
+              ps) printf 'chargehand-xfer-run1\nchargehand-run2\nchargehand-xfer-run3\nchargehand-prep-run4\nchargehand-egress-b1\nchargehand-svc-pg-b1\n';;
               rm) if [ "$2" = chargehand-xfer-run3 ]; then exit 1; fi;;
             esac
             """);
         var removed = await Quick(docker).RemoveStaleHelpersAsync(default);
         // run3 could not be removed (it ended meanwhile, or the engine refused): it is not counted, and the rest still go.
-        Assert.Equal(["chargehand-xfer-run1"], removed);
+        Assert.Equal(["chargehand-xfer-run1", "chargehand-prep-run4"], removed);
         var calls = File.ReadAllLines(log);
         var listed = calls[0];
         foreach (var part in new[] { "ps -a", "label=chargehand.run", "status=created", "status=exited", "status=dead" })
             Assert.Contains(part, listed);
         Assert.DoesNotContain("status=running", listed);
-        Assert.Equal(["rm chargehand-xfer-run1", "rm chargehand-xfer-run3"], calls[1..]);
+        Assert.Equal(["rm chargehand-xfer-run1", "rm chargehand-xfer-run3", "rm chargehand-prep-run4"], calls[1..]);
     }
 
     [DockerFact]
@@ -362,7 +362,7 @@ public class OutVolumeEngineTests
         var calls = File.ReadAllText(log);
         // Removed without -f, as the transfers' own retry does: a helper that is running is another transfer of the run and is not killed.
         Assert.True(calls.IndexOf("\nrm chargehand-xfer-run1", StringComparison.Ordinal) < calls.IndexOf("run --rm --init -i --name chargehand-xfer-run1", StringComparison.Ordinal));
-        Assert.True(calls.IndexOf("\nrm chargehand-prep-run1", StringComparison.Ordinal) < calls.IndexOf("run --rm --init --name chargehand-prep-run1", StringComparison.Ordinal));
+        Assert.True(calls.IndexOf("\nrm chargehand-prep-run1", StringComparison.Ordinal) < calls.LastIndexOf("run --rm --init --name chargehand-prep-run1", StringComparison.Ordinal));
         Assert.DoesNotContain("rm -f chargehand-", calls);
     }
 
@@ -381,5 +381,93 @@ public class OutVolumeEngineTests
         var calls = File.ReadAllLines(log);
         Assert.Contains("rm -f chargehand-xfer-run1", calls);
         Assert.Contains("rm -f chargehand-prep-run1", calls);
+    }
+
+    private static readonly string PrepConflict = Conflict.Replace("xfer", "prep", StringComparison.Ordinal);
+
+    private static readonly WorkspaceSpec CloneSpec = new("run1", Image, "/srv/checkouts/r", "chargehand-work-run1", "chargehand/run1", "abc1234");
+
+    private static readonly BundleWorkspaceSpec BundleSpec = new("run1", Image, "chargehand-out-run1", "chargehand-work-run1", "chargehand/run1", "abc1234def5678abc1234def5678abc1234def56");
+
+    private static Task Prepare(DockerCliEngine engine, bool bundle, CancellationToken ct = default) =>
+        bundle ? engine.PrepareBundleWorkspaceAsync(BundleSpec, ct) : engine.PrepareWorkspaceAsync(CloneSpec, ct);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_workspace_helper_left_Created_under_the_run_name_is_removed_and_the_workspace_is_prepared_again(bool bundle)
+    {
+        using var dir = new TempDir();
+        var stale = System.IO.Path.Combine(dir.Path, "stale");
+        File.WriteAllText(stale, "");
+        var (docker, log) = FakeEngine(dir, $$"""
+            case "$1" in
+              run) if [ -e '{{stale}}' ]; then echo '{{PrepConflict}}' >&2; exit 125; fi;;
+              inspect) echo run1;;
+              rm) rm -f '{{stale}}';;
+            esac
+            """);
+
+        await Prepare(Quick(docker), bundle);
+
+        Assert.Equal(["volume", "run", "inspect", "rm", "run"], Verbs(log));
+        var calls = File.ReadAllLines(log);
+        Assert.Contains("rm chargehand-prep-run1", calls);
+        Assert.DoesNotContain(calls, c => c.StartsWith("volume rm", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task An_engine_that_blinks_is_asked_again_for_a_workspace_helper_and_the_work_volume_stays(bool bundle)
+    {
+        using var dir = new TempDir();
+        var count = System.IO.Path.Combine(dir.Path, "count");
+        var (docker, log) = FakeEngine(dir, $$"""
+            case "$1" in
+              run)
+                n=$(cat '{{count}}' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '{{count}}'
+                if [ $n -lt 3 ]; then echo 'error during connect: connection refused' >&2; exit 125; fi;;
+            esac
+            """);
+
+        await Prepare(Quick(docker), bundle);
+
+        Assert.Equal(["volume", "run", "run", "run"], Verbs(log));
+        Assert.DoesNotContain(File.ReadAllLines(log), c => c.StartsWith("volume rm", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_workspace_helper_name_held_by_a_container_that_is_not_chargehands_is_left_alone_and_the_volume_is_removed(bool bundle)
+    {
+        using var dir = new TempDir();
+        var (docker, log) = FakeEngine(dir, $$"""
+            case "$1" in
+              run) echo '{{PrepConflict}}' >&2; exit 125;;
+              inspect) echo '<no value>';;
+            esac
+            """);
+
+        var e = await Assert.ThrowsAsync<ChargehandException>(() => Prepare(Quick(docker), bundle));
+
+        Assert.Equal(ErrorCode.ContainerUnavailable, e.Code);
+        Assert.Contains("is already in use", e.Message);
+        Assert.Equal(4, Verbs(log).Count(v => v == "run"));
+        Assert.DoesNotContain("rm", Verbs(log));
+        Assert.Contains("volume rm -f chargehand-work-run1", File.ReadAllLines(log));
+    }
+
+    [Fact]
+    public async Task A_workspace_cancelled_in_flight_removes_the_helper_docker_may_have_created_and_never_started()
+    {
+        using var dir = new TempDir();
+        var (docker, log) = FakeEngine(dir, "case \"$1\" in run) sleep 30;; esac");
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Quick(docker).PrepareWorkspaceAsync(CloneSpec, cts.Token));
+
+        Assert.Contains("rm -f chargehand-prep-run1", File.ReadAllLines(log));
     }
 }

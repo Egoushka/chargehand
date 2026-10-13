@@ -220,7 +220,7 @@ public static partial class ContainerTemplate
         return
         [
             "run", "--rm", "--init",
-            "--name", $"chargehand-prep-{spec.RunId}",
+            "--name", PrepPrefix + spec.RunId,
             "--label", $"{RunLabel}={spec.RunId}",
             "--network", "none",
             "--read-only",
@@ -265,7 +265,7 @@ public static partial class ContainerTemplate
         return
         [
             "run", "--rm", "--init",
-            "--name", $"chargehand-prep-{spec.RunId}",
+            "--name", PrepPrefix + spec.RunId,
             "--label", $"{RunLabel}={spec.RunId}",
             "--network", "none",
             "--read-only",
@@ -352,6 +352,9 @@ public static partial class ContainerTemplate
 
     /// <summary>A transfer helper is named <c>chargehand-xfer-&lt;run&gt;</c>: one name per run, so a copy left under it by a killed call blocks every later transfer of that run.</summary>
     public const string TransferPrefix = "chargehand-xfer-";
+
+    /// <summary>A workspace helper (from a source directory or from a bundle) is named <c>chargehand-prep-&lt;run&gt;</c>, with the same fixed-name risk as <see cref="TransferPrefix"/>.</summary>
+    public const string PrepPrefix = "chargehand-prep-";
 
     private const string OutWriteScript = "set -e\ncat > \"/out/$1\"\n";
     private const string OutReadScript = "[ -f \"/out/$1\" ] || exit 3\nexec cat \"/out/$1\"\n";

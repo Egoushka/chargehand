@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A killed workspace preparation no longer blocks later ones for the same run (CHARGEHAND-215). The helper that clones a session's workspace is named `chargehand-prep-<run>` and had the flaw the transfer helper had: a call cancelled between `docker create` and `docker start` left a created container under that name, and every later preparation for the run failed with a name conflict (`exit 125`). Both workspace helpers (from a source directory and from a bundle), the transfers and the bundle stream now share one runner: a conflict with a stopped container that carries chargehand's label removes it (`docker rm` without `-f`) and runs again, a call cancelled in flight removes the helper it may have made, and a failure of docker itself (`125`) is run again up to 4 times; a bundle stream is read once, so it removes the leftover first and is not repeated. At start the runner removes workspace helpers that are not running, as it does transfer helpers.
+
 ## [0.9.2] - 2026-10-13
 
 Driven sessions can run on several runners, including another machine such as a Mac (arm64 session images, a launchd runner that drains on battery or lid close), the integrator finds the GitHub App's installation on each repository's owner, and a killed transfer no longer blocks a run's output. The operator console gains its design system, shell, Overview and Needs you, on new read routes.
