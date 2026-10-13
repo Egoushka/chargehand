@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-10-13
+
+The console works behind a single-sign-on proxy.
+
 ### Fixed
 
 - The console works behind a single-sign-on proxy on the same host (e.g. Pangolin): its API calls send same-origin cookies, so the proxy's session cookie reaches it; before, they were sent with none and the proxy redirected them to its login page ("Failed to fetch"). chargehand still authenticates only by the bearer key and ignores cookies.
@@ -816,7 +820,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.9.4...HEAD
+[0.9.4]: https://github.com/Egoushka/chargehand/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/Egoushka/chargehand/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/Egoushka/chargehand/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/Egoushka/chargehand/compare/v0.9.0...v0.9.1
