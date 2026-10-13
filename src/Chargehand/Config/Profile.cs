@@ -90,6 +90,7 @@ public sealed record Profile(
         profile.Driven?.Integrator?.Validate();
         profile.Driven?.Services?.Validate(profile.Driven.Images);
         profile.Driven?.Forge?.Validate();
+        profile.Driven?.ValidateRunners();
         profile.Automation?.Validate(profile.Driven);
         return profile;
     }
@@ -481,7 +482,9 @@ public sealed record AccountModel(string? ApiKeySecret = null, string? BaseUrl =
 /// <param name="Forge">Which code host the remotes are on and how to reach it; null: GitLab for <c>gitlab.com</c> and hosts named <c>gitlab.*</c>, GitHub for every other host.</param>
 /// <param name="Planning">ADR 0049: size, split and number a batch's tasks with one cheap read-only run before it starts; null: off (a request can still ask with <c>driven.plan</c>).</param>
 /// <param name="Learning">ADR 0045's learning loop: how long and how often pull request outcomes are read back, and the retro after a batch; null: the defaults of <see cref="DrivenLearning"/> (retro off).</param>
-public sealed record DrivenSettings(
+/// <param name="Runners">ADR 0058: several runner services, each with its own limits, platform and the server's address as its egress reaches it; set instead of <c>Runner</c>, never with it.</param>
+/// <param name="ImageVariants">ADR 0058: for an image of <c>Images</c> (which <c>Services.Images</c> draws from), the image to use on a runner of another platform.</param>
+public sealed partial record DrivenSettings(
     bool Enabled = false,
     int MaxParallel = 2,
     int MaxParallelTotal = 4,
@@ -498,7 +501,9 @@ public sealed record DrivenSettings(
     DrivenSharedServices? Services = null,
     DrivenForge? Forge = null,
     DrivenPlanning? Planning = null,
-    DrivenLearning? Learning = null);
+    DrivenLearning? Learning = null,
+    IReadOnlyList<DrivenRunnerEntry>? Runners = null,
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? ImageVariants = null);
 
 /// <summary>The learning loop (ADR 0045): each finished task leaves a record, the server reads the outcome of its pull request back from the forge, and <c>chargehand learn report</c> sums them up.
 /// The records are always written; these keys tune the read-back and the optional retro.</summary>
@@ -643,7 +648,7 @@ public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes
 /// metrics there, tagged with the batch, task and trace (ADR 0042); unset, it exports nothing.</param>
 public sealed record DrivenNetwork(IReadOnlyList<string>? Allow = null, string? Outside = null, string? McpForward = null, string? ModelUrl = null, string? OtlpUrl = null);
 
-/// <summary>The runner service that holds the container engine's socket; null means the server calls the engine itself.</summary>
+/// <summary>The runner service that holds the container engine's socket; null means the server calls the engine itself. One runner, named <see cref="DrivenSettings.DefaultRunnerName"/>: <c>driven.runners</c> (ADR 0058) lists several.</summary>
 public sealed record DrivenRunner(string Url, string ApiKeySecret);
 
 /// <summary>How a tracker item id becomes a goal (ADR 0039): call <c>Tool</c> on <c>Server</c> (a key of <c>mcp_servers</c>) with <c>{ref}</c> in

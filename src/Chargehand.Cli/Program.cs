@@ -312,7 +312,8 @@ Chargehand.Bench.AcceptanceLimits BenchLimits()
 /// <summary>The engine a benchmark's acceptance checks start containers with: the runner service when the profile names one, else this machine's Docker.</summary>
 (Chargehand.Containers.IContainerEngine, Chargehand.Containers.IWorkspaceEngine, Chargehand.Containers.IOutVolumeEngine) BenchEngines(Profile p)
 {
-    if (p.Driven?.Runner is { } runner)
+    // A benchmark's acceptance checks read the server's checkouts, so they use a runner that shares its disk (ADR 0058).
+    if (p.Driven?.ResolvedRunners().FirstOrDefault(r => r.Workspace == Chargehand.Config.WorkspaceMode.Shared) is { } runner)
     {
         var http = new HttpClient { BaseAddress = new Uri(runner.Url) };
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", p.Secret(runner.ApiKeySecret));
@@ -393,7 +394,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     Chargehand.Containers.IContainerEngine engine;
     Chargehand.Containers.IWorkspaceEngine workspace;
     Chargehand.Driven.IHostSource hostSource;
-    if (driven.Runner is { } runner)
+    if (driven.ResolvedRunners() is [var runner, ..])
     {
         var http = new HttpClient { BaseAddress = new Uri(runner.Url) };
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", profile.Secret(runner.ApiKeySecret));
@@ -453,6 +454,11 @@ async Task<int> Serve()
     if (profile.Http is not { } http)
     {
         Console.Error.WriteLine("profile has no http settings (ADR 0018)");
+        return 2;
+    }
+    if (profile.Driven is { Enabled: true } driven && driven.ResolvedRunners().Count > 1)
+    {
+        Console.Error.WriteLine("driven.runners lists several runners, and this build starts sessions on one (ADR 0058: scheduling across runners is the next change)");
         return 2;
     }
     using var tracing = Tracing();
