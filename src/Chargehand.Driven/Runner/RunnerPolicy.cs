@@ -97,6 +97,16 @@ public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressIma
             : $"the runner {(write ? "writes" : "reads")} only {string.Join(", ", write ? Containers.ContainerTemplate.OutFilesIn : Containers.ContainerTemplate.OutFilesOut)}";
     }
 
+    /// <summary>The end of a transcript (ADR 0059): a listed image, one of the files that are read only as a tail, and a number of bytes within the ceiling. The whole file is never served.</summary>
+    public string? RefuseOutTail(string image, string name, int bytes)
+    {
+        if (!Images.Contains(image, StringComparer.Ordinal))
+            return "image is not on the runner's allowlist";
+        if (!Containers.ContainerTemplate.OutFilesTail.Contains(name, StringComparer.Ordinal))
+            return $"the runner serves the end of only {string.Join(", ", Containers.ContainerTemplate.OutFilesTail)}";
+        return bytes is >= 1 and <= Containers.ContainerTemplate.MaxTailBytes ? null : $"a tail is 1 to {Containers.ContainerTemplate.MaxTailBytes} bytes";
+    }
+
     public static string? RefuseVolume(string name) =>
         name.StartsWith(WorkPrefix, StringComparison.Ordinal) || name.StartsWith(OutPrefix, StringComparison.Ordinal) ? null : $"a volume must start with {WorkPrefix} or {OutPrefix}";
 

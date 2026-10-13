@@ -8,6 +8,7 @@ using Chargehand.Contracts;
 using Chargehand.Egress;
 using Chargehand.Results;
 using Chargehand.RunLog;
+using Chargehand.Runner;
 using Chargehand.Signing;
 using Chargehand.Verification;
 using Chargehand.Workspace;
@@ -197,6 +198,75 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         {
             Console.Error.WriteLine($"chargehand: could not prune the batch records: {e.Message}");
         }
+    }
+
+    private readonly object _literalsGate = new();
+    private readonly Dictionary<string, (DateTimeOffset At, IReadOnlyList<string> Values)> _literals = [];
+
+    /// <summary>The end of a session's transcript for the console (ADR 0059), read from the session's output volume on the runner that ran it (<paramref name="runner"/>; null: each runner in turn) and made
+    /// safe to show: whole lines, long ones cut, secrets redacted by pattern and by the credentials this server holds for <paramref name="actor"/>'s batch. Nothing is kept: the transcript stays where the
+    /// session wrote it, and goes no further than the response.</summary>
+    /// <param name="maxBytes">Within <see cref="Transcript.MinBytes"/> and <see cref="Transcript.MaxBytes"/>.</param>
+    public async Task<TranscriptRead> ReadTranscriptAsync(string sessionRunId, string? runner, int maxBytes, string? actor, CancellationToken ct)
+    {
+        if (services is null)
+            return new TranscriptRead(null, "driven_off");
+        maxBytes = Math.Clamp(maxBytes, Transcript.MinBytes, Transcript.MaxBytes);
+        var sites = SitesOf(services);
+        var wanted = string.IsNullOrEmpty(runner) ? sites : [.. sites.Where(s => s.Name == runner)];
+        if (wanted.Count == 0)
+            return new TranscriptRead(null, "runner_unknown");
+        string? problem = null;
+        foreach (var site in wanted)
+        {
+            try
+            {
+                if (await site.Volumes.ReadTranscriptTailAsync(sessionRunId, maxBytes, ct) is { } raw)
+                    return new TranscriptRead(Transcript.Prepare(raw, maxBytes, CredentialLiterals(actor)), null);
+            }
+            catch (RunnerUnreachableException)
+            {
+                problem = "runner_unreachable";
+            }
+            catch (ChargehandException e)
+            {
+                // A runner older than this feature refuses the parameter or the name; anything else is the engine failing.
+                problem = e.Message.Contains(": 403 ", StringComparison.Ordinal) || e.Message.Contains(": 501 ", StringComparison.Ordinal) ? "runner_too_old" : "runner_error";
+            }
+        }
+        return new TranscriptRead(null, problem ?? "session_gone");
+    }
+
+    /// <summary>The values of the credentials this server holds that a session could have printed: the model's (the batch account's own, else the server's), the push and forge tokens, the runners' keys and the
+    /// owner's API key. Resolved from the profile's sources and remembered for a minute, because a source can be a command.</summary>
+    private IReadOnlyList<string> CredentialLiterals(string? actor)
+    {
+        var key = actor ?? "";
+        lock (_literalsGate)
+            if (_literals.TryGetValue(key, out var known) && DateTimeOffset.UtcNow - known.At < TimeSpan.FromMinutes(1))
+                return known.Values;
+        List<string?> items =
+        [
+            profile.ClaudeCode?.ApiKeySecret, profile.ClaudeCode?.OauthTokenSecret, profile.Driven?.PushSecret, profile.Driven?.Forge?.TokenSecret, profile.Http?.ApiKeySecret,
+            .. profile.Driven?.ResolvedRunners().Select(r => r.ApiKeySecret) ?? [],
+            .. profile.Http?.Accounts?.Where(a => a.Name == actor).Select(a => a.Model?.ApiKeySecret) ?? [],
+        ];
+        List<string> values = [];
+        foreach (var item in items.OfType<string>().Where(i => i.Length > 0).Distinct())
+        {
+            try
+            {
+                if (services!.Secret(item) is { Length: > 0 } value)
+                    values.Add(value);
+            }
+            catch (Exception e) when (e is InvalidOperationException or ChargehandException)
+            {
+                // A secret that does not resolve is not in any transcript.
+            }
+        }
+        lock (_literalsGate)
+            _literals[key] = (DateTimeOffset.UtcNow, values);
+        return values;
     }
 
     /// <summary>The batches a restart interrupted: saved state with no run record (ADR 0043). State whose run record exists is a leftover and is deleted.</summary>

@@ -11,7 +11,7 @@ namespace Chargehand.Runner;
 /// that did not answer, not a cancel, so give the client an infinite <see cref="HttpClient.Timeout"/> when files of repository size travel through it (ADR 0058).</summary>
 /// <param name="maxDownloadBytes">The most a file read out of an output volume may be (the session's bundle); more is refused before it is copied, as the Docker CLI engine refuses it.</param>
 public sealed class RunnerClient(HttpClient http, long maxDownloadBytes = DockerCliEngine.OutFileCap)
-    : IContainerEngine, IWorkspaceEngine, IBundleWorkspaceEngine, IOutVolumeEngine, IServiceEngine, IHostSource
+    : IContainerEngine, IWorkspaceEngine, IBundleWorkspaceEngine, IOutVolumeEngine, IOutTailEngine, IServiceEngine, IHostSource
 {
     public static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(100);
 
@@ -89,6 +89,31 @@ public sealed class RunnerClient(HttpClient http, long maxDownloadBytes = Docker
 
         ChargehandException TooLarge() => new(ErrorCode.ContainerUnavailable, $"a file in the output volume is larger than {maxDownloadBytes / (1024 * 1024)} MiB",
             "The session wrote more than chargehand will copy out; nothing from it is used.");
+    }
+
+    /// <summary>The end of a session's transcript (ADR 0059): at most <paramref name="maxBytes"/>, read by the runner with <c>tail -c</c>. A runner that predates this refuses the name (403) or the parameter
+    /// and reads as an error the caller treats as "not available".</summary>
+    public async Task<bool> ReadOutTailAsync(OutFileSpec spec, int maxBytes, Stream destination, CancellationToken ct)
+    {
+        HttpResponseMessage response;
+        try
+        {
+            response = await SendRaw(HttpMethod.Get, $"{OutPath(spec)}&tail={maxBytes.ToString(System.Globalization.CultureInfo.InvariantCulture)}", null, ct);
+        }
+        catch (ChargehandException e) when (e.Message.Contains("404", StringComparison.Ordinal))
+        {
+            return false;
+        }
+        using (response)
+        {
+            if (response.Content.Headers.ContentLength is { } length && length > maxBytes)
+                throw new ChargehandException(ErrorCode.ContainerUnavailable, $"the runner sent {length} bytes of a tail of {maxBytes}", "Update the runner.");
+            var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+            if (bytes.Length > maxBytes)
+                throw new ChargehandException(ErrorCode.ContainerUnavailable, $"the runner sent {bytes.Length} bytes of a tail of {maxBytes}", "Update the runner.");
+            await destination.WriteAsync(bytes, ct);
+        }
+        return true;
     }
 
     private static string OutPath(OutFileSpec spec) =>
