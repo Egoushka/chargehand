@@ -67,15 +67,20 @@ public sealed class JsonlRunLog(string path) : IRunLog
             if ((query.Kind is { } wantedKind && wantedKind != kind) || (query.Repository is { } wantedRepository && wantedRepository != repository) || (query.RunId is { } wantedId && wantedId != start.RunId))
                 continue;
             finished.TryGetValue(start.RunId, out var run);
-            var state = run is not null ? RunStatus.StateOf(run.Result.Status) : start.OwnerAlive() ? RunState.Running : RunState.Lost;
-            if (query.Status is { } wanted && wanted != state)
+            var summary = SummaryOf(start, run);
+            if (query.Status is { } wanted && wanted != summary.Status)
                 continue;
-            rows.Add(new RunSummary("run-summary/v1", start.RunId, state, run?.Preset ?? start.Request.Context.Preset, start.Started, start.ParentRunId,
-                null, run?.Finished, run?.Result.Usage.Usd, ArtifactField(run?.Result, "branch", "branch"), ArtifactField(run?.Result, "pull-request", "url"), run?.Result.Error?.Code, start.Actor,
-                kind, repository, run is null ? null : run.Result.Usage.Input + run.Result.Usage.Output, start.Request.Context.Repository?.Commit));
+            rows.Add(summary);
         }
         return [.. rows.OrderByDescending(r => r.StartedAt).Take(Math.Clamp(query.Limit, 1, 500))];
     }
+
+    /// <summary>The run-summary/v1 row of a run: from its start record and, once it finished, its run record.</summary>
+    public static RunSummary SummaryOf(StartRecord start, RunRecord? run) =>
+        new("run-summary/v1", start.RunId, run is not null ? RunStatus.StateOf(run.Result.Status) : start.OwnerAlive() ? RunState.Running : RunState.Lost, run?.Preset ?? start.Request.Context.Preset,
+            start.Started, start.ParentRunId, null, run?.Finished, run?.Result.Usage.Usd, ArtifactField(run?.Result, "branch", "branch"), ArtifactField(run?.Result, "pull-request", "url"),
+            run?.Result.Error?.Code, start.Actor, start.Request.Driven is null ? "single" : "batch", start.Request.Context.Repository?.Path,
+            run is null ? null : run.Result.Usage.Input + run.Result.Usage.Output, start.Request.Context.Repository?.Commit);
 
     public async Task<ActorSpend> SpendAsync(string actor, DateTimeOffset since, CancellationToken ct)
     {

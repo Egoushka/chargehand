@@ -16,6 +16,9 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - The ceilings of `driven.max_parallel` and `driven.max_parallel_total` rise from 4 and 8 to 16 and 32, and `request/v1`'s `driven.max_parallel` from 4 to 16 (a looser bound, so existing requests stay valid). Memory admission, the pressure guard and the rate-limit pause govern how many sessions run. The runner's `--max-containers` (default 8) counts every labelled container, so raise it with `max_parallel_total`, or `POST /start` answers 429.
+- Read routes for an operator console (CHARGEHAND-209): `GET /v1/overview`, `/v1/inbox`, `/v1/batches/{id}`, `/v1/batches/{id}/tasks/{task}`, `/v1/pulls`, `/v1/analytics`, `/v1/repositories` for the owner and for an account (an account sees its own runs, batches, tasks, pull requests and spend only), and `/v1/intake`, `/v1/accounts`, `/v1/system` for the owner alone. They read the run log, `learning.jsonl`, the saved batch state and `intake/github.json`; none writes, and a body never holds a key, a token or a secret value (the profile is shown as settings, secret items as set or not). Each body is versioned by `contract_version` (`overview/v1`, `inbox/v1`, `batch/v1`, `batch-task/v1`, `pulls/v1`, `analytics/v1`, `repositories/v1`, `intake/v1`, `accounts/v1`, `system/v1`) and lists what the server does not record in `not_recorded` ([guide](docs/guide/server.md#console-routes)).
+- The server keeps the events of its last 25 finished runs (2000 each) in memory for the console's timeline, and a batch that waits on a provider usage or rate limit now says so with a `session_progress` event (`new starts are held until <time>`).
+- `LearningSeries`: the learning records over time by day, week or month and by repository, account or size class (spend, tokens with cache, pass rate, continuations, the governor's false-stop proxy).
 
 ## [0.9.0] - 2026-10-13
 

@@ -147,6 +147,43 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
 
     public RunHandle? Find(string runId) => _runs.GetValueOrDefault(runId);
 
+    /// <summary>The runs this process holds (queued or running), sessions' research and review calls included.</summary>
+    public IReadOnlyList<RunHandle> Held => [.. _runs.Values];
+
+    /// <summary>How many finished runs' events are kept for the console, and how many events of one run.</summary>
+    internal const int ArchivedRuns = 25;
+    internal const int ArchivedEvents = 2000;
+
+    private readonly object _archiveLock = new();
+    private readonly Dictionary<string, IReadOnlyList<RunStatus>> _archive = [];
+    private readonly Queue<string> _archiveOrder = new();
+
+    /// <summary>A run's events: all of them while this process holds it, the last <see cref="ArchivedEvents"/> of each of the last <see cref="ArchivedRuns"/> finished runs after, null otherwise
+    /// (a run of another process, or from before a restart: events live in memory only).</summary>
+    public IReadOnlyList<RunStatus>? Events(string runId)
+    {
+        if (_runs.GetValueOrDefault(runId) is { } run)
+            return run.History;
+        lock (_archiveLock)
+            return _archive.GetValueOrDefault(runId);
+    }
+
+    private void Archive(RunHandle run)
+    {
+        var history = run.History;
+        if (history.Count > ArchivedEvents)
+            history = [.. history.Skip(history.Count - ArchivedEvents)];
+        lock (_archiveLock)
+        {
+            if (_archive.TryAdd(run.Id, history))
+                _archiveOrder.Enqueue(run.Id);
+            else
+                _archive[run.Id] = history;
+            while (_archiveOrder.Count > ArchivedRuns)
+                _archive.Remove(_archiveOrder.Dequeue());
+        }
+    }
+
     private async Task Execute(RunHandle run, RunRequest request, string? parentRunId, string? chargeTo, BatchState? resume = null)
     {
         var gate = chargeTo is null ? _gate : _childGate;
@@ -180,7 +217,9 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         }
         finally
         {
-            // The run record is in the log by now; later reads go there.
+            // The run record is in the log by now; later reads go there. A research or review call's events are not worth a slot.
+            if (!run.IsChild)
+                Archive(run);
             _runs.TryRemove(run.Id, out _);
             run.Dispose();
         }
