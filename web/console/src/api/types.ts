@@ -118,19 +118,38 @@ export interface Me {
   presets: string[];
 }
 
-/** GET /v1/learn. */
+/** Pull requests of a group by what became of them; `open` includes those whose outcome was never read. */
+export interface LearnPrCounts {
+  total: number;
+  merged_unchanged: number;
+  merged_edited: number;
+  merged: number;
+  closed: number;
+  open: number;
+}
+
+/**
+ * GET /v1/learn: one row per repository and size class. Spend is the dollar equivalent of the tokens, over the `spend_known`
+ * tasks that could be priced (nearest-rank percentiles); a rate is a share of `tasks`, or null when its denominator is none.
+ */
 export interface LearnGroup {
   repository: string;
   size_class: string;
   tasks: number;
-  /** How many of the tasks have a known spend; the percentiles are over these. */
-  spend_known?: number;
-  completion_rate: number;
-  partial_rate: number;
+  spend_known: number;
   spend_median_usd: number | null;
   spend_p80_usd: number | null;
+  completed: number;
+  partial: number;
+  completion_rate: number;
+  partial_rate: number;
+  /** Tasks with at least one checkpoint decision, acted on or only logged. */
+  checkpointed: number;
   checkpoint_rate: number;
-  prs: { total: number };
+  /** Of those, the ones that completed: the false-stop proxy of ADR 0045. */
+  checkpointed_completed: number;
+  checkpointed_completed_rate: number | null;
+  prs: LearnPrCounts;
   merged_unchanged_rate: number | null;
 }
 

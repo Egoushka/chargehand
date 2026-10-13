@@ -1,9 +1,17 @@
 // The API as the browser sees it: answered in the browser from the test fixtures, so a smoke test needs no server and no network.
 import type { Page } from '@playwright/test';
+import * as adm from '../src/testing/admin';
 import * as fx from '../src/testing/fixtures';
+import {
+  analyticsBody,
+  finishedBatch,
+  finishedRuns,
+  learnReport,
+  RETRO_TEXT,
+} from '../src/testing/learning';
 import * as st from '../src/testing/start';
 
-export const ORIGIN = 'http://127.0.0.1:4173';
+export const ORIGIN = `http://127.0.0.1:${process.env.CONSOLE_E2E_PORT ?? '4173'}`;
 export const LOGIN = fx.LOGIN;
 
 export interface Mock {
@@ -16,6 +24,8 @@ export interface Options {
   replies?: Record<string, { status?: number; body: unknown }>;
   account?: boolean;
   empty?: boolean;
+  /** Answer `/v1/learn` and the finished batch runs with the records of Analytics and Learning. */
+  insight?: boolean;
 }
 
 /** Answers every /v1 call from the fixtures, and records what was asked. */
@@ -32,10 +42,13 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
       options.replies?.[`${request.method()} ${pathname}`] ?? options.replies?.[pathname];
     if (replace) return route.fulfill({ status: replace.status ?? 200, json: replace.body });
     const now = Date.now();
+    const query = new URL(request.url()).searchParams;
     const runs =
       options.empty || options.account
         ? []
-        : [fx.run(fx.BATCH_A, {}, now), fx.run(fx.BATCH_B, { tokens: 205_000 }, now)];
+        : options.insight && query.get('kind') === 'batch'
+          ? finishedRuns(now)
+          : [fx.run(fx.BATCH_A, {}, now), fx.run(fx.BATCH_B, { tokens: 205_000 }, now)];
     switch (pathname) {
       case '/v1/accounts/me':
         return route.fulfill({
@@ -58,11 +71,43 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
       case '/v1/repositories':
         return route.fulfill({ json: st.repositories(now) });
       case '/v1/learn':
-        return route.fulfill({ json: st.learn() });
+        // Start a batch and Learning read the same route and want different invented records: `insight` picks Learning's.
+        return route.fulfill({
+          json: !options.insight
+            ? st.learn()
+            : options.empty
+              ? { since: null, tasks: 0, groups: [] }
+              : learnReport(query.get('since') ?? undefined, now),
+        });
+      case '/v1/analytics': {
+        // The Repositories screen reads this route too, with its own invented history; `insight` picks Analytics'.
+        if (!options.insight) return route.fulfill({ json: adm.repositoryHistory(now) });
+        const body = analyticsBody(
+          {
+            since: query.get('since') ?? undefined,
+            bucket: (query.get('bucket') as 'day' | null) ?? undefined,
+            group_by: (query.get('group_by') as 'none' | null) ?? undefined,
+          },
+          now,
+        );
+        return route.fulfill({
+          json: options.empty
+            ? { ...body, tasks: { ...body.tasks, tasks: 0, points: [] }, runs: [] }
+            : body,
+        });
+      }
       case '/v1/system':
         return options.account
           ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })
-          : route.fulfill({ json: fx.system(now) });
+          : route.fulfill({ json: adm.systemFull(now) });
+      case '/v1/intake':
+        return options.account
+          ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })
+          : route.fulfill({ json: adm.intake({}, now) });
+      case '/v1/accounts':
+        return options.account
+          ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })
+          : route.fulfill({ json: adm.accounts(now) });
       case '/v1/runs':
         if (request.method() === 'POST')
           return route.fulfill({
@@ -76,8 +121,21 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
         return route.fulfill({ json: { halted: pathname === '/v1/halt' } });
       default: {
         const batch = /^\/v1\/batches\/([^/]+)$/.exec(pathname);
-        if (batch)
-          return route.fulfill({ json: fx.batch(decodeURIComponent(batch[1] ?? ''), now) });
+        if (batch) {
+          const id = decodeURIComponent(batch[1] ?? '');
+          // The finished batches of the run list carry budgets, and the newest two a retro.
+          const finished = finishedRuns(now).findIndex((r) => r.run_id === id);
+          return route.fulfill({
+            json:
+              finished < 0
+                ? fx.batch(id, now)
+                : finishedBatch(id, now, {
+                    minutesAgo: 60 + finished * 120,
+                    retro:
+                      finished < 2 ? { status: 'written', tasks: 3, text: RETRO_TEXT } : undefined,
+                  }),
+          });
+        }
         if (pathname.endsWith('/events'))
           return route.fulfill({ contentType: 'text/event-stream', body: '' });
         if (pathname.startsWith('/v1/runs/'))

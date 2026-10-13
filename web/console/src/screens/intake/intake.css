@@ -1,0 +1,41 @@
+/* Intake: the starts chart and a few text rules. Panels, tables, pills, meters and badges are the design system's. */
+.starts-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.starts-chart text {
+  fill: var(--text-muted);
+  font: 11px / 14px var(--font-sans);
+}
+
+.starts-chart .base {
+  stroke: var(--border-hover);
+}
+
+.starts-chart .cap {
+  stroke: var(--border-strong);
+  stroke-dasharray: 4 4;
+  fill: none;
+}
+
+.starts-chart .neutralf {
+  fill: var(--neutral-9);
+}
+
+.starts-chart .dangerf {
+  fill: var(--danger-mark);
+}
+
+.intake-round {
+  text-align: right;
+}
+
+.intake-where {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+}

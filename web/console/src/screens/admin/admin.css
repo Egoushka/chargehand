@@ -1,0 +1,108 @@
+/* Shared by the intake, repositories, accounts and system screens. Panels, tables, meters, pills and badges are the design system's. */
+
+/* The tag beside an affordance the server has no route for yet. */
+.later {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-1);
+  color: var(--text-muted);
+  font: 500 11px / 14px var(--font-sans);
+  white-space: nowrap;
+}
+
+.g2e {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.g3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.list {
+  display: grid;
+}
+
+.sep-top {
+  border-top: 1px solid var(--border);
+}
+
+.wide-scroll {
+  overflow-x: auto;
+}
+
+/* A table cell whose text matters more than a single line: it wraps instead of cutting. */
+.ch-td.wrap {
+  padding-block: var(--space-2);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.li__meta.wrap {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.code {
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font: 400 12px / 18px var(--font-mono);
+  white-space: pre;
+}
+
+.not-recorded {
+  display: grid;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.not-recorded li {
+  position: relative;
+  padding-left: var(--space-4);
+}
+
+.not-recorded li::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  left: 0;
+  width: 6px;
+  height: 1px;
+  background: var(--text-subtle);
+}
+
+.unknown__why {
+  font-size: 12px;
+}
+
+@media (max-width: 767px) {
+  .g2e,
+  .g3 {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  /* One column on a phone: the panels of both stacks follow each other in the order each screen gives them (--o). */
+  .g2e > .stack {
+    display: contents;
+  }
+
+  .g2e > .stack > * {
+    order: var(--o, 5);
+  }
+}

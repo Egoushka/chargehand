@@ -1,12 +1,18 @@
 // A fake server for tests: answers the routes the console calls from the fixtures, and records what was asked.
 import { vi } from 'vitest';
+import type { AccountsBody } from '../api/accounts';
+import type { AnalyticsBody, AnalyticsBucket, AnalyticsGroupBy } from '../api/analytics';
 import type { BatchBody } from '../api/batch';
 import type { InboxBody } from '../api/inbox';
+import type { IntakeBody } from '../api/intake';
 import type { OverviewBody } from '../api/overview';
 import type { PullsBody } from '../api/pulls';
+import type { RepositoriesBody } from '../api/repositories';
 import type { SystemBody } from '../api/system';
-import type { Me, RunSummary } from '../api/types';
+import type { LearnReport, Me, RunSummary } from '../api/types';
+import * as adm from './admin';
 import * as fx from './fixtures';
+import { analyticsBody, learnReport } from './learning';
 
 export interface Scenario {
   key?: string;
@@ -17,6 +23,13 @@ export interface Scenario {
   batches?: Record<string, BatchBody>;
   pulls?: PullsBody;
   system?: SystemBody | null;
+  intake?: IntakeBody;
+  repositories?: RepositoriesBody;
+  accounts?: AccountsBody;
+  /** Replaces the generated `analytics/v1` for every range. */
+  analytics?: AnalyticsBody;
+  /** Replaces the generated `/v1/learn` report for every range. */
+  learn?: LearnReport;
   /** Answers by exact path (before the query), replacing the defaults: `[status, body, headers]`. */
   replies?: Record<string, [number, unknown, Record<string, string>?]>;
   /** A route that never answers: for a loading state. */
@@ -57,13 +70,44 @@ export function serveApi(scenario: Scenario = {}) {
       return Promise.resolve(json(scenario.overview ?? fx.overview({}, now)));
     if (path === '/v1/inbox')
       return Promise.resolve(json(scenario.inbox ?? fx.inbox(undefined, now)));
+    if (path === '/v1/analytics') {
+      const q = new URLSearchParams(input.split('?')[1] ?? '');
+      return Promise.resolve(
+        json(
+          scenario.analytics ??
+            analyticsBody(
+              {
+                since: q.get('since') ?? undefined,
+                bucket: (q.get('bucket') as AnalyticsBucket | null) ?? undefined,
+                group_by: (q.get('group_by') as AnalyticsGroupBy | null) ?? undefined,
+              },
+              now,
+            ),
+        ),
+      );
+    }
+    if (path === '/v1/learn')
+      return Promise.resolve(
+        json(
+          scenario.learn ??
+            learnReport(
+              new URLSearchParams(input.split('?')[1] ?? '').get('since') ?? undefined,
+              now,
+            ),
+        ),
+      );
     if (path === '/v1/pulls') return Promise.resolve(json(scenario.pulls ?? fx.pulls(now)));
     if (path === '/v1/system')
       return Promise.resolve(
         scenario.system === null
           ? json({ errors: ['owner only'] }, 403)
-          : json(scenario.system ?? fx.system(now)),
+          : json(scenario.system ?? adm.systemFull(now)),
       );
+    if (path === '/v1/intake') return Promise.resolve(json(scenario.intake ?? adm.intake({}, now)));
+    if (path === '/v1/repositories')
+      return Promise.resolve(json(scenario.repositories ?? adm.repositories(now)));
+    if (path === '/v1/accounts')
+      return Promise.resolve(json(scenario.accounts ?? adm.accounts(now)));
     if (path === '/v1/runs' && (init?.method ?? 'GET') === 'GET')
       return Promise.resolve(json({ runs: scenario.runs ?? [] }));
     if (path === '/v1/runs' && method === 'POST')

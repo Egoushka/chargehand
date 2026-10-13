@@ -1,0 +1,85 @@
+/* Learning: the table's footnote, the grid under it, and the text of a lesson or a retro. */
+.ln-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.ln-wide {
+  grid-column: 1 / -1;
+}
+
+.ln-foot {
+  padding: var(--space-3);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.li__meta.ln-wrap {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+.ln-right {
+  text-align: right;
+}
+
+.ln-cap {
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.ln-lesson,
+.ln-retro {
+  align-items: start;
+}
+
+.ln-lesson__text {
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.ln-lines {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-5);
+  overflow-wrap: anywhere;
+}
+
+.ln-src {
+  color: var(--text-subtle);
+  font: 400 11px / 14px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.ln-table {
+  min-width: 930px;
+}
+
+@media (max-width: 767px) {
+  .ln-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  /* A panel's aside drops under its title instead of squeezing the title to dots. */
+  .ln-screen .ch-panel__head {
+    flex-wrap: wrap;
+    padding-block: var(--space-2);
+    row-gap: 0;
+  }
+
+  .ln-screen .ch-panel__title {
+    white-space: normal;
+  }
+
+  .ln-screen .ch-panel__aside {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+}

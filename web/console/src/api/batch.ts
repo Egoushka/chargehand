@@ -28,10 +28,22 @@ export interface BatchLimitsBody {
   plan?: boolean | null;
 }
 
-/** A task's budget in the governor's dollar equivalent, and where it came from (ADR 0045). */
+/**
+ * Where a task's budget came from (ADR 0045): `task` (the request's `budget_usd`), `flat` (the profile's or the built-in budget of
+ * its size class), `history` (the `percentile`th percentile of the spend of `n` past tasks, for `scope` `repository` or `all`) or
+ * `none` (no governor).
+ */
+export interface BudgetSourceBody {
+  kind: 'task' | 'flat' | 'history' | 'none';
+  n?: number | null;
+  percentile?: number | null;
+  scope?: 'repository' | 'all' | null;
+}
+
+/** A task's budget in the governor's dollar equivalent, and where it came from. */
 export interface BudgetBody {
   usd?: number | null;
-  source: 'task' | 'flat' | 'history' | 'none';
+  source: BudgetSourceBody;
 }
 
 /** `usd_estimate` is the dollar equivalent of the tokens, also on a subscription; `usd` is the priced cost and is absent where the credential has no price. */
