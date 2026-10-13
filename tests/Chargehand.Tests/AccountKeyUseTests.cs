@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Chargehand.Modules.Accounts.Api;
 using Chargehand.Server;
 
 namespace Chargehand.Tests;

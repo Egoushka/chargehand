@@ -1,4 +1,5 @@
 using Chargehand.Driven;
+using Chargehand.Modules.Accounts.Api;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,7 +23,7 @@ internal static class ConsoleRoutes
         // Block bodies where a lambda would be one call: an expression body that is a statement also converts to RequestDelegate, which discards the result and answers 200 with no body.
         app.MapGet("/v1/overview", async (HttpContext ctx) =>
         {
-            return Json(await ConsoleOverview.BuildAsync(Context(ctx), Principal.Of(ctx)!, ctx.RequestAborted));
+            return Json(await ConsoleOverview.BuildAsync(Context(ctx), PrincipalHttp.Of(ctx)!, ctx.RequestAborted));
         });
 
         app.MapGet("/v1/inbox", async (HttpContext ctx) =>
@@ -32,21 +33,21 @@ internal static class ConsoleRoutes
                 return Json(ChargehandServer.Problem("since must be a number of days such as 14d, or an ISO 8601 time"), StatusCodes.Status400BadRequest);
             if (Limit(ctx, 100, 500) is not { } limit)
                 return Json(ChargehandServer.Problem("limit must be 1 to 500"), StatusCodes.Status400BadRequest);
-            return Json(await ConsoleInbox.BuildAsync(c, Principal.Of(ctx), since, limit, ctx.RequestAborted));
+            return Json(await ConsoleInbox.BuildAsync(c, PrincipalHttp.Of(ctx), since, limit, ctx.RequestAborted));
         });
 
         app.MapGet("/v1/batches/{id}", async (string id, HttpContext ctx) =>
         {
             if (Limit(ctx, 500, 2000, "events", 0) is not { } events)
                 return Json(ChargehandServer.Problem("events must be 0 to 2000"), StatusCodes.Status400BadRequest);
-            return await ConsoleBatches.BatchAsync(Context(ctx), Principal.Of(ctx), id, events, ctx.RequestAborted) is { } body ? Json(body) : HttpResults.NotFound();
+            return await ConsoleBatches.BatchAsync(Context(ctx), PrincipalHttp.Of(ctx), id, events, ctx.RequestAborted) is { } body ? Json(body) : HttpResults.NotFound();
         });
 
         app.MapGet("/v1/batches/{id}/tasks/{task}", async (string id, string task, HttpContext ctx) =>
         {
             if (Limit(ctx, 500, 2000, "events", 0) is not { } events)
                 return Json(ChargehandServer.Problem("events must be 0 to 2000"), StatusCodes.Status400BadRequest);
-            return await ConsoleBatches.TaskAsync(Context(ctx), Principal.Of(ctx), id, task, events, ctx.RequestAborted) is { } body ? Json(body) : HttpResults.NotFound();
+            return await ConsoleBatches.TaskAsync(Context(ctx), PrincipalHttp.Of(ctx), id, task, events, ctx.RequestAborted) is { } body ? Json(body) : HttpResults.NotFound();
         });
 
         // The end of a session's transcript (ADR 0059): the batch's own account and the owner, never stored, never cached.
@@ -55,7 +56,7 @@ internal static class ConsoleRoutes
             if (Limit(ctx, Transcript.DefaultBytes, Transcript.MaxBytes, "bytes", Transcript.MinBytes) is not { } bytes)
                 return Json(ChargehandServer.Problem($"bytes must be {Transcript.MinBytes} to {Transcript.MaxBytes}"), StatusCodes.Status400BadRequest);
             ctx.Response.Headers.CacheControl = "no-store";
-            return await ConsoleTranscripts.BuildAsync(Context(ctx), Principal.Of(ctx), id, task, session, bytes, ctx.RequestAborted) is { } body ? Json(body) : HttpResults.NotFound();
+            return await ConsoleTranscripts.BuildAsync(Context(ctx), PrincipalHttp.Of(ctx), id, task, session, bytes, ctx.RequestAborted) is { } body ? Json(body) : HttpResults.NotFound();
         });
 
         app.MapGet("/v1/pulls", async (HttpContext ctx) =>
@@ -72,7 +73,7 @@ internal static class ConsoleRoutes
                 return Json(ChargehandServer.Problem("awaiting must be true or false"), StatusCodes.Status400BadRequest);
             if (Limit(ctx, 100, 500) is not { } limit)
                 return Json(ChargehandServer.Problem("limit must be 1 to 500"), StatusCodes.Status400BadRequest);
-            return Json(await ConsolePulls.BuildAsync(c, Principal.Of(ctx), q.TryGetValue("repository", out var repository) ? repository.ToString() : null, state,
+            return Json(await ConsolePulls.BuildAsync(c, PrincipalHttp.Of(ctx), q.TryGetValue("repository", out var repository) ? repository.ToString() : null, state,
                 q.TryGetValue("awaiting", out var awaiting) && bool.Parse(awaiting.ToString()), since, limit, ctx.RequestAborted));
         });
 
@@ -89,12 +90,12 @@ internal static class ConsoleRoutes
             var groupBy = q.TryGetValue("group_by", out var groupText) ? groupText.ToString() : "none";
             if (!LearningSeries.Groupings.Contains(groupBy))
                 return Json(ChargehandServer.Problem($"group_by must be one of {string.Join(", ", LearningSeries.Groupings)}"), StatusCodes.Status400BadRequest);
-            return Json(await ConsoleAnalytics.BuildAsync(c, Principal.Of(ctx), since, bucket, groupBy, q.TryGetValue("account", out var account) ? account.ToString() : null, ctx.RequestAborted));
+            return Json(await ConsoleAnalytics.BuildAsync(c, PrincipalHttp.Of(ctx), since, bucket, groupBy, q.TryGetValue("account", out var account) ? account.ToString() : null, ctx.RequestAborted));
         });
 
         app.MapGet("/v1/repositories", async (HttpContext ctx) =>
         {
-            return Json(await ConsoleRepositories.BuildAsync(Context(ctx), Principal.Of(ctx), ctx.RequestAborted));
+            return Json(await ConsoleRepositories.BuildAsync(Context(ctx), PrincipalHttp.Of(ctx), ctx.RequestAborted));
         });
 
         ConsoleActions.Map(app, Context);

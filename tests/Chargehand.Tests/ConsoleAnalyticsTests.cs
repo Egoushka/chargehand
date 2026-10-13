@@ -4,6 +4,7 @@ using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Accounts.Api;
 
 namespace Chargehand.Tests;
 
