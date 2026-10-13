@@ -4,6 +4,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Incident;
 using Chargehand.Mcp;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 
