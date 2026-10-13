@@ -9,11 +9,9 @@ using Chargehand.Results;
 using Chargehand.RunLog;
 using Chargehand.Signing;
 using Chargehand.Verification;
+using Chargehand.Workspace;
 
 namespace Chargehand.Driven;
-
-/// <summary>chargehand's own checkout of the request's commit and where it came from.</summary>
-public sealed record DrivenCheckout(string Directory, string Commit, string RemoteUrl, string BaseBranch);
 
 /// <summary>What a batch needs from the outside world; the CLI builds it from the profile when driven sessions are on, a test supplies fakes.</summary>
 /// <param name="Secret">Resolves a secret item by name (the profile's sources).</param>

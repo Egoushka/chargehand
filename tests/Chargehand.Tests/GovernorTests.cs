@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Chargehand.Config;
 using Chargehand.Driven;
 
 namespace Chargehand.Tests;

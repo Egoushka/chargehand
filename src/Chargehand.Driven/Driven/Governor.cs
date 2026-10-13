@@ -3,20 +3,13 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Chargehand.Config;
 
 namespace Chargehand.Driven;
-
-/// <summary>What the governor does with its decisions: <c>off</c> makes none, <c>observe</c> logs them to <c>governor.jsonl</c> and acts on none (ADR 0045's first release),
-/// <c>enforce</c> also stops the session on a checkpoint or a stop.</summary>
-[JsonConverter(typeof(SnakeCaseEnum<GovernorMode>))]
-public enum GovernorMode { Off, Observe, Enforce }
 
 /// <summary>The rungs of ADR 0045's ladder. A warn has no channel into the session yet (the driver closes its stdin), so it is only logged.</summary>
 [JsonConverter(typeof(SnakeCaseEnum<GovernorAction>))]
 public enum GovernorAction { Warn, Checkpoint, Stop }
-
-/// <summary>Writes an enum as its snake_case name wherever it is serialized: <c>task.json</c>, <c>session-outcome.json</c> and <c>governor.jsonl</c> use different options.</summary>
-public sealed class SnakeCaseEnum<T>() : JsonStringEnumConverter<T>(JsonNamingPolicy.SnakeCaseLower) where T : struct, Enum;
 
 /// <summary>The governor's settings for one session, in <c>task.json</c>: the profile's <c>driven.governor</c> with the task's budget resolved.</summary>
 /// <param name="BudgetUsd">The task's budget in the dollar equivalent of <see cref="SessionUsage.UsdEstimate"/>; null: no spend rule.</param>
@@ -295,4 +288,18 @@ public sealed partial class Governor
 
     [GeneratedRegex(@"&&|\|\||;|\|")]
     private static partial Regex CommandSeparators();
+}
+
+public static class DrivenGovernorExtensions
+{
+    /// <summary>The settings a session of a task gets: its own budget, else its size class's (M when it names none), and what earlier sessions of the task spent.</summary>
+    public static SessionGovernor ToSession(this DrivenGovernor settings, string? size, decimal? taskBudget, decimal priorUsd)
+    {
+        var sizeClass = size ?? "M";
+        var d = new SessionGovernor();
+        return new SessionGovernor(settings.Mode, taskBudget ?? (settings.Budgets ?? DrivenGovernor.DefaultBudgets).GetValueOrDefault(sizeClass, DrivenGovernor.DefaultBudgets[sizeClass]), priorUsd, sizeClass,
+            settings.RepeatCalls ?? d.RepeatCalls, settings.RepeatFailures ?? d.RepeatFailures, settings.FailingCalls ?? d.FailingCalls, settings.ProbeCommands ?? d.ProbeCommands,
+            settings.NoGrowthTurns ?? d.NoGrowthTurns, settings.RewarnTurns ?? d.RewarnTurns, settings.ContextTokens ?? d.ContextTokens, settings.CheckpointAt ?? d.CheckpointAt,
+            settings.ProbePatterns, settings.WaitPatterns);
+    }
 }

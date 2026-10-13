@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Chargehand.Tests" />
+    <InternalsVisibleTo Include="Chargehand.Driven" />
   </ItemGroup>
 
   <ItemGroup>
