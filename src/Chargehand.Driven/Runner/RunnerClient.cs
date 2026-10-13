@@ -7,9 +7,16 @@ using Chargehand.Driven;
 namespace Chargehand.Runner;
 
 /// <summary>An <see cref="IContainerEngine"/> over the runner's HTTP API (ADR 0039), for a server that must not hold the container engine's
-/// socket. The <see cref="HttpClient"/> carries the base address and the bearer key.</summary>
-public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine, IServiceEngine, IHostSource
+/// socket. The <see cref="HttpClient"/> carries the base address and the bearer key. A call that gets no answer within <see cref="ControlTimeout"/> (a transfer: <see cref="TransferTimeout"/>) is a runner
+/// that did not answer, not a cancel, so give the client an infinite <see cref="HttpClient.Timeout"/> when files of repository size travel through it (ADR 0058).</summary>
+/// <param name="maxDownloadBytes">The most a file read out of an output volume may be (the session's bundle); more is refused before it is copied, as the Docker CLI engine refuses it.</param>
+public sealed class RunnerClient(HttpClient http, long maxDownloadBytes = DockerCliEngine.OutFileCap)
+    : IContainerEngine, IWorkspaceEngine, IBundleWorkspaceEngine, IOutVolumeEngine, IServiceEngine, IHostSource
 {
+    public static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(100);
+
+    public static readonly TimeSpan TransferTimeout = TimeSpan.FromMinutes(30);
+
     public async Task<string> StartAsync(ContainerSpec spec, CancellationToken ct)
     {
         var body = new RunnerStart(spec.RunId, spec.ImageDigest, spec.WorkVolume, spec.OutVolume, spec.Network, new Dictionary<string, string>(spec.Env),
@@ -24,15 +31,26 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspace
     public Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct) =>
         Send(HttpMethod.Post, "/workspace", new RunnerWorkspace(spec.RunId, spec.Image, spec.SourcePath, spec.WorkVolume, spec.Branch, spec.Commit), ct);
 
-    public Task WriteOutFileAsync(OutFileSpec spec, ReadOnlyMemory<byte> content, CancellationToken ct) =>
-        SendRaw(HttpMethod.Put, OutPath(spec), new ByteArrayContent(content.ToArray()), ct);
+    public Task PrepareBundleWorkspaceAsync(BundleWorkspaceSpec spec, CancellationToken ct) =>
+        Send(HttpMethod.Post, "/workspace/bundle", new RunnerBundleWorkspace(spec.RunId, spec.Image, spec.WorkVolume, spec.Branch, spec.Commit), ct);
+
+    public async Task WriteOutFileAsync(OutFileSpec spec, ReadOnlyMemory<byte> content, CancellationToken ct) =>
+        (await SendRaw(HttpMethod.Put, OutPath(spec), new ByteArrayContent(content.ToArray()), ct)).Dispose();
+
+    /// <summary>Sends the file as the request body with its length, so the runner can refuse it by size before reading it and passes it on as it arrives.</summary>
+    public async Task WriteOutStreamAsync(OutFileSpec spec, Stream content, long length, CancellationToken ct)
+    {
+        using var body = new StreamContent(content, 81920);
+        body.Headers.ContentLength = length;
+        (await SendRaw(HttpMethod.Put, OutPath(spec), body, ct, transfer: true)).Dispose();
+    }
 
     public async Task<bool> ReadOutFileAsync(OutFileSpec spec, Stream destination, CancellationToken ct)
     {
         HttpResponseMessage response;
         try
         {
-            response = await SendRaw(HttpMethod.Get, OutPath(spec), null, ct, HttpCompletionOption.ResponseHeadersRead);
+            response = await SendRaw(HttpMethod.Get, OutPath(spec), null, ct, HttpCompletionOption.ResponseHeadersRead, transfer: true);
         }
         catch (ChargehandException e) when (e.Message.Contains("404", StringComparison.Ordinal))
         {
@@ -40,10 +58,37 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspace
         }
         using (response)
         {
+            if (response.Content.Headers.ContentLength is { } length && length > maxDownloadBytes)
+                throw TooLarge();
             await using var body = await response.Content.ReadAsStreamAsync(ct);
-            await body.CopyToAsync(destination, ct);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TransferTimeout);
+            var buffer = new byte[81920];
+            long total = 0;
+            try
+            {
+                int n;
+                while ((n = await body.ReadAsync(buffer, timeout.Token)) > 0)
+                {
+                    total += n;
+                    if (total > maxDownloadBytes)
+                        throw TooLarge();
+                    await destination.WriteAsync(buffer.AsMemory(0, n), ct);
+                }
+            }
+            catch (IOException e)
+            {
+                throw new RunnerUnreachableException($"the runner stopped sending {spec.Name}: {e.Message}");
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                throw new RunnerUnreachableException($"the runner did not finish sending {spec.Name} in time");
+            }
         }
         return true;
+
+        ChargehandException TooLarge() => new(ErrorCode.ContainerUnavailable, $"a file in the output volume is larger than {maxDownloadBytes / (1024 * 1024)} MiB",
+            "The session wrote more than chargehand will copy out; nothing from it is used.");
     }
 
     private static string OutPath(OutFileSpec spec) =>
@@ -138,8 +183,10 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspace
     }
 
     private async Task<HttpResponseMessage> SendRaw(HttpMethod method, string path, object? body, CancellationToken ct,
-        HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead)
+        HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead, bool transfer = false)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(transfer ? TransferTimeout : ControlTimeout);
         using var request = new HttpRequestMessage(method, path);
         if (body is HttpContent raw)
             request.Content = raw;
@@ -148,20 +195,20 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspace
         HttpResponseMessage response;
         try
         {
-            response = await http.SendAsync(request, completion, ct);
+            response = await http.SendAsync(request, completion, timeout.Token);
         }
         catch (HttpRequestException e)
         {
             throw new RunnerUnreachableException($"the runner could not be reached: {e.Message}");
         }
-        // The client's own timeout is a TaskCanceledException; read as a cancel it would stop a session whose runner merely did not answer.
-        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        // A timeout (the client's, or ours) is a cancellation to .NET; read as one it would stop a session whose runner merely did not answer.
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             throw new RunnerUnreachableException($"the runner did not answer {method} {path} in time");
         }
         if (response.IsSuccessStatusCode)
             return response;
-        var text = await response.Content.ReadAsStringAsync(ct);
+        var text = await response.Content.ReadAsStringAsync(timeout.Token);
         string? message = null;
         try { message = JsonDocument.Parse(text).RootElement.GetProperty("error").GetString(); }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException) { }

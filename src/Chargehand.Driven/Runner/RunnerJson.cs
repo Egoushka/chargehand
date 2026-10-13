@@ -30,6 +30,10 @@ public sealed record RunnerModelGateway(string Credential, string TokenKey, stri
 /// <summary>A workspace to prepare; the runner builds the helper's command line from <see cref="Chargehand.Containers.ContainerTemplate.WorkspaceArgs"/>.</summary>
 public sealed record RunnerWorkspace(string RunId, string Image, string SourcePath, string WorkVolume, string Branch, string Commit);
 
+/// <summary>A workspace to prepare from <c>source.bundle</c> in the run's output volume (ADR 0058); the runner derives the volume's name from the run id and builds the helper's command line from
+/// <see cref="Chargehand.Containers.ContainerTemplate.BundleWorkspaceArgs"/>.</summary>
+public sealed record RunnerBundleWorkspace(string RunId, string Image, string WorkVolume, string Branch, string Commit);
+
 public sealed record RunnerResources(List<string> Containers, List<string> Networks, List<string> Volumes);
 
 /// <param name="MemoryPeakMb">Left out of the reply when the runner's engine could not measure it, so a server older than this field still reads the reply.</param>
