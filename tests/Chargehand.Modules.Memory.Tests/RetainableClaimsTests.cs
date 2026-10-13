@@ -2,7 +2,7 @@ using System.Globalization;
 using Chargehand.Contracts;
 using Chargehand.Modules.Memory.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Memory.Tests;
 
 /// <summary>Goal 0.6: retain only claims whose citations resolved, with locators, repository and commit.</summary>
 public class RetainableClaimsTests
