@@ -86,7 +86,7 @@ public class DrivenResumeTests
     [Fact]
     public async Task A_batch_and_its_tasks_carry_the_account_and_a_resumed_batch_keeps_it()
     {
-        using var rig = new DrivenRunTests.Rig(durable: true);
+        using var rig = new DrivenRunTests.Rig(durable: true, accounts: [new("alice", Driven: true, AllowServerCredential: true)]);
         var state = await StopMidBatch(rig, "alice");
         Assert.Equal("alice", state.Actor);
         Assert.Equal("alice", (await rig.Log.ReadAsync(BatchId, default)).Start!.Actor);

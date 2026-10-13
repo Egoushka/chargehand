@@ -388,7 +388,15 @@ async Task<int> Serve()
     }
     using var tracing = Tracing();
     var (runtime, runtimeVersion) = await Connect();
-    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
+    if (Chargehand.ClaudeCode.AccountRuntimes.Unsupported(runtime, http.Accounts) is { } unsupported)
+    {
+        Console.Error.WriteLine(unsupported);
+        return 2;
+    }
+    // An account's runs use its own model credential, or are refused (ADR 0052).
+    Func<string?, IWorkerRuntime>? runtimeFor = http.Accounts is { Count: > 0 } accounts
+        ? new Chargehand.ClaudeCode.AccountRuntimes(runtime, new AccountCredentials(accounts), profile.Secret).For : null;
+    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer(), runtimeFor: runtimeFor);
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath)), orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake());

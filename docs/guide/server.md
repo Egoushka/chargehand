@@ -66,6 +66,8 @@ The caller sends the key as `Authorization: Bearer chk1...` on every route, `/v1
 | `max_concurrent_runs` | unfinished runs (queued or running) at once |
 | `driven` | may start a batch; default `false`, because a batch pushes branches and opens pull requests with the server's credential |
 | `repositories` | absolute directories; `context.repository.path` must be one of them or below it, and every request must name a repository. Absent: any the server allows |
+| `model` | the account's own model credential, see [below](#an-accounts-own-model-key): `api_key_secret` and optional `base_url` |
+| `allow_server_credential` | an account with no `model` may spend the server's model credential; default `false`: its runs are refused with `model_credential_missing` |
 
 The single `api_key_secret` keeps working unchanged as the `owner` account, with no migration.
 
@@ -80,7 +82,23 @@ The single `api_key_secret` keeps working unchanged as the `owner` account, with
 
 A request that is admitted has its `budget_usd` (for a batch also `max_usd_total` and `max_tokens_total`) cut to what the tightest window has left. `concurrency_exceeded` is `429`; `driven_not_allowed`, `repository_not_allowed` and `continue_not_allowed` are `403`, in the same body. Over MCP the tool error starts with the code. A run already underway can overshoot a cap by its own budget.
 
-**Not isolated.** Accounts share the worker runtime and its credential, the model's rate limit, the checkouts, the memory providers (a fact one account's run retained can be recalled by another), and for batches the runner, the container engine, the push credential and the package caches. Separate runners and networks per account are CHARGEHAND-202.
+### An account's own model key
+
+By default an account would spend the server's model credential, one bill and one rate limit for everyone ([ADR 0052](../adr/0052-accounts-bring-their-own-model-key.md)). Give it its own:
+
+```json
+{ "name": "alice", "model": { "api_key_secret": "alice-anthropic-key" } }
+{ "name": "ci", "driven": true, "model": { "api_key_secret": "ci-gateway-key", "base_url": "https://gateway.example.com/anthropic" } }
+{ "name": "bob", "allow_server_credential": true }
+```
+
+`api_key_secret` is a secret-store item, resolved like the server's other secrets when the account's first run needs it (a change needs a restart; `chargehand doctor` checks it resolves). An API key alone goes to Anthropic; with `base_url` it is the key an Anthropic-compatible gateway issued, and goes there. Its read-only runs (intake, workers, the support check) and its batches use that key and no other: each account has a runtime of its own, so a run never sees another account's key. Spend on it is priced as API usage: a batch needs a dollar cap and the account's dollar caps bind.
+
+An account with neither `model` nor `allow_server_credential: true` is refused at admission: `403`, `error.code` `model_credential_missing` (over MCP the tool error starts with it). The owner, the CLI and stdio always use the server's credential. **A subscription token is the owner's only**: `oauth_token_secret` is rejected in `model`, because a subscription is one person's plan, has no dollar price for a cap to bind, and lending it out spends the owner's limits. `model` needs the `claude_code` runtime; the server will not start with it on OpenCode, which keeps its provider credentials in its own server.
+
+In a batch the key reaches the session container as `ANTHROPIC_API_KEY` (`credential_delivery: environment`), or, with `base_url`, as a gateway key (`gateway_key`) through a forward on the batch's egress container; the server's own `driven.network.model_url` is never used for an account's key. An API key is not exchanged for a per-task token (see [driven](driven.md#the-model-credential)): use a gateway key for an account whose repositories you do not trust.
+
+**Not isolated.** Accounts share the worker root and the checkouts, the server's model credential and rate limit (those without a `model` of their own), the memory providers (a fact one account's run retained can be recalled by another), and for batches the runner, the container engine, the push credential and the package caches. Separate runners and networks per account are CHARGEHAND-202.
 
 ## Binding and allowed hosts
 
