@@ -62,8 +62,8 @@ maintainer's approval and a new session-image digest.
    memory limit is free; sessions get swap equal to memory. Needs: nothing in code; the runner redeploys.
 7. · **A cancelled batch reports `cancelled`**: new status values (additive) and an owner record on resume. Needs:
    nothing.
-8. · **A question gets an answer**: `tasks[].answers` and `continue_from` start a task from another task's work.
-   Needs: 1.
+8. ▶ **A question gets an answer** (ADR 0045): `tasks[].answers` and `continue_from` start a task from another task's
+   kept work, on the same branch; a `question` run event; the output volume kept for 7 days. Needs: 1.
 9. · **Task dependencies, then planning**: `depends_on` with stacked branches or a merge between tasks; then a cheap
    planning step that sizes tasks (S, M, L), splits large ones into a chain and assigns shared numbers. Needs: 3.
 10. · **Shared services**: first an environment note in the prompt (what the container has, how to run the tests);

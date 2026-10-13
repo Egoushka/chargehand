@@ -14,8 +14,9 @@ namespace Chargehand.Driven;
 /// <param name="Children">The runs the session started through its token (research, review): their run-store rows.</param>
 /// <param name="RepositoryPath">chargehand's scratch clone that holds the branch commit, for the citations.</param>
 /// <param name="Priced">The credential has a dollar price (an API key): the result carries dollars; else they are unknown, never 0.</param>
+/// <param name="Kept">The work an unfinished task leaves for a continuation (ADR 0045); null: none.</param>
 public sealed record DrivenTaskInput(string TaskId, string RunId, string TraceId, string Model, string ClaudeVersion, SessionOutcome Session, string? ReportJson,
-    HandoverOutcome? Handover, IReadOnlyList<RunSummary> Children, string RepositoryPath, string BaseCommit, bool Priced);
+    HandoverOutcome? Handover, IReadOnlyList<RunSummary> Children, string RepositoryPath, string BaseCommit, bool Priced, KeptWork? Kept = null);
 
 /// <summary>Builds the <c>result/v1</c> of one driven task and of a batch (ADR 0039). A task's claims are the session's, cited against the branch commit that chargehand has in its own
 /// clone and run through the same resolver and support check as any other result. The tests appear twice and never merged: <c>verification</c> is chargehand's own run in a fresh
@@ -39,6 +40,8 @@ public static class DrivenResult
             artifacts.Add(new Artifact("session-log", "application/jsonl", streamHash, Uri: $"volume:{RunnerNames.Out(input.RunId)}/stream.jsonl"));
         if (s.GovernorLogSha256 is { } governorHash)
             artifacts.Add(new Artifact("governor-log", "application/jsonl", governorHash, Uri: $"volume:{RunnerNames.Out(input.RunId)}/{SessionDriver.GovernorFile}"));
+        if (input.Kept is { } kept)
+            artifacts.Add(Inline(ContinuationSource.KeptWorkKind, "application/json", kept));
 
         ResultContract Result(ResultStatus status, string summary, IReadOnlyList<Claim>? claims = null, IReadOnlyList<Evidence>? evidence = null, IReadOnlyList<string>? questions = null,
             double confidence = 0, ResultError? error = null) =>

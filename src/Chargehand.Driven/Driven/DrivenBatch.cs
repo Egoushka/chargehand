@@ -11,9 +11,9 @@ public static class DrivenBatch
     public const int ParallelCeiling = 4;
 
     /// <returns>The tasks ready to run, and the ones that failed to resolve (their outcome, already final).</returns>
-    /// <exception cref="ChargehandException">The profile has driven sessions off; ids repeat; or a task names a <c>ref</c> and no task source is configured.</exception>
+    /// <exception cref="ChargehandException">The profile has driven sessions off; ids repeat; a task names a <c>ref</c> and no task source is configured; or a task continues one the run log cannot continue from.</exception>
     public static async Task<(IReadOnlyList<ResolvedTask> Ready, IReadOnlyList<TaskOutcome> Failed)> PrepareAsync(RunRequest request, DrivenSettings profile, ITaskSource? source,
-        CancellationToken ct)
+        CancellationToken ct, ContinuationSource? continuations = null)
     {
         if (!profile.Enabled)
             throw new ChargehandException(ErrorCode.InvalidRequest, "driven sessions are off in this profile", "Set driven.enabled to true in the profile, and configure driven.images and the runner or Docker.");
@@ -28,6 +28,11 @@ public static class DrivenBatch
         List<TaskOutcome> failed = [];
         foreach (var task in driven.Tasks)
         {
+            if (task.ContinueFrom is not null)
+            {
+                ready.Add(await (continuations ?? throw new ChargehandException(ErrorCode.InvalidRequest, "a task continues an earlier one, but there is no run log to read it from")).ResolveAsync(task, ct));
+                continue;
+            }
             if (task.Goal is { Length: > 0 } goal)
             {
                 ready.Add(new ResolvedTask(task.Id, task.Ref, goal, task.MaxTurns, task.MaxMinutes, task.Size, task.BudgetUsd));

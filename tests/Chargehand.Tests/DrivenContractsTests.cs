@@ -75,6 +75,57 @@ public class DrivenContractsTests
         Assert.Empty(DrivenRules.Problems(new RequestDriven([new DrivenTask("a", null, "g"), new DrivenTask("b", null, "g")])));
     }
 
+    [Fact]
+    public void A_task_that_continues_another_validates_without_a_goal_and_round_trips_its_answers()
+    {
+        var json = Request("""{"tasks":[{"id":"t1","continue_from":{"run_id":"run-20261012-101010-abcdef","task_id":"t1"},"answers":["Postgres","Yes"]}]}""");
+        Assert.Empty(Validate(json));
+        var task = JsonSerializer.Deserialize<RunRequest>(json, ContractJson.Options)!.Driven!.Tasks.Single();
+        Assert.Equal(new ContinueFrom("run-20261012-101010-abcdef", "t1"), task.ContinueFrom);
+        Assert.Equal(["Postgres", "Yes"], task.Answers);
+        Assert.Contains("\"continue_from\":{\"run_id\":", JsonSerializer.Serialize(task, ContractJson.Options));
+    }
+
+    [Theory]
+    [InlineData("""{"tasks":[{"id":"t1","goal":"g","answers":["a"]}]}""", false)]                                                  // answers need continue_from (a rule, not the schema)
+    [InlineData("""{"tasks":[{"id":"t1","continue_from":{"run_id":"r1"}}]}""", true)]                                              // task_id missing
+    [InlineData("""{"tasks":[{"id":"t1","continue_from":{"run_id":"R 1","task_id":"t1"}}]}""", true)]                              // run id shape
+    [InlineData("""{"tasks":[{"id":"t1","continue_from":{"run_id":"r1","task_id":"t1","x":1}}]}""", true)]                         // unknown member
+    [InlineData("""{"tasks":[{"id":"t1","continue_from":{"run_id":"r1","task_id":"t1"},"answers":[""]}]}""", true)]                // empty answer
+    [InlineData("""{"tasks":[{"id":"t1","continue_from":{"run_id":"r1","task_id":"t1"},"answers":"Postgres"}]}""", true)]          // answers is a list
+    public void A_malformed_continuation_is_refused_by_the_schema_or_the_rule_check(string driven, bool bySchema)
+    {
+        Assert.Equal(bySchema, Validate(Request(driven)).Count > 0);
+        if (!bySchema)
+            Assert.Contains(DrivenRules.Problems(JsonSerializer.Deserialize<RunRequest>(Request(driven), ContractJson.Options)!), p => p.Contains("answers need continue_from"));
+    }
+
+    [Fact]
+    public void The_rule_check_names_the_continuation_mistakes_the_schema_cannot()
+    {
+        var from = new ContinueFrom("run-1", "t1");
+        var problems = DrivenRules.Problems(new RequestDriven([
+            new DrivenTask("a", Goal: "g", ContinueFrom: from),
+            new DrivenTask("b", ContinueFrom: from, Answers: [" "]),
+            new DrivenTask("c", ContinueFrom: new ContinueFrom("Run 1", "t1")),
+            new DrivenTask("d", Goal: "g", Answers: ["x"])]));
+        Assert.Contains(problems, p => p == "task 'a': continue_from takes the earlier task's goal; leave out goal and ref");
+        Assert.Contains(problems, p => p == "task 'b': answers must not be empty");
+        Assert.Contains(problems, p => p == "task 'c': continue_from needs a run id and a task id");
+        Assert.Contains(problems, p => p == "task 'd': answers need continue_from");
+        Assert.Contains(problems, p => p == "tasks 'a', 'b' all continue run-1/t1: they would share its branch");
+        Assert.Empty(DrivenRules.Problems(new RequestDriven([new DrivenTask("a", ContinueFrom: from, Answers: ["x"]), new DrivenTask("b", ContinueFrom: new ContinueFrom("run-1", "t2"))])));
+    }
+
+    [Fact]
+    public void The_question_event_validates()
+    {
+        const string json = """{"contract_version":"run-status/v1","run_id":"r","status":"running","event":"question","task_id":"t1","detail":"task t1: the session asked:\n- Which database?"}""";
+        using var doc = JsonDocument.Parse(json);
+        Assert.Empty(ContractSchemas.Validate(ContractSchemas.RunStatus, doc.RootElement));
+        Assert.Equal(RunEventKind.Question, JsonSerializer.Deserialize<RunStatus>(json, ContractJson.Options)!.Event);
+    }
+
     [Theory]
     [InlineData(ErrorCode.ContainerUnavailable, "container_unavailable")]
     [InlineData(ErrorCode.CredentialUnavailable, "credential_unavailable")]

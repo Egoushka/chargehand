@@ -154,8 +154,24 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         }
         await Sweep(listed.Containers, ContainerRunId, name => services.Engine.RemoveAsync(name, ct));
         await Sweep(listed.Networks, name => IdAfter(name, "chargehand-net-"), name => services.Engine.RemoveNetworkAsync(name, ct));
-        await Sweep(listed.Volumes, name => IdAfter(name, "chargehand-work-") ?? IdAfter(name, "chargehand-out-"), name => services.Engine.RemoveVolumeAsync(name, ct));
+        var kept = await KeptForContinuationAsync(listed.Volumes, ct);
+        // An output volume kept for a continuation is no leftover; a work volume never is one.
+        await Sweep(listed.Volumes, name => IdAfter(name, "chargehand-work-") ?? (IdAfter(name, "chargehand-out-") is { } id && !kept.Contains(id) ? id : null), name => services.Engine.RemoveVolumeAsync(name, ct));
         return removed;
+    }
+
+    /// <summary>The runs whose output volume a later task may still continue from (ADR 0045): a task that ended with kept work, in the last <see cref="ContinuationSource.KeptFor"/>, and the
+    /// session that holds its bundle.</summary>
+    private async Task<HashSet<string>> KeptForContinuationAsync(IEnumerable<string> volumes, CancellationToken ct)
+    {
+        HashSet<string> kept = [];
+        foreach (var run in volumes.Select(v => IdAfter(v, "chargehand-out-")).OfType<string>())
+            if ((await log.ReadAsync(run, ct)).Run is { } record && DateTimeOffset.UtcNow - record.Finished <= ContinuationSource.KeptFor && ContinuationSource.KeptWorkOf(record.Result) is { } work)
+            {
+                kept.Add(run);
+                kept.Add(work.BundleRun);
+            }
+        return kept;
     }
 
     private static string? IdAfter(string name, string prefix) => name.StartsWith(prefix, StringComparison.Ordinal) ? name[prefix.Length..] : null;
@@ -169,7 +185,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var settings = profile.Driven ?? new DrivenSettings();
         // Throws when the profile has driven sessions off, so a refused request touches nothing else.
         var (ready, unresolved) = resume is null
-            ? await DrivenBatch.PrepareAsync(request, settings, services?.TaskSource, ct)
+            ? await DrivenBatch.PrepareAsync(request, settings, services?.TaskSource, ct, new ContinuationSource(log))
             : ([.. resume.Tasks.Select(t => Resumed(request, t))], resume.Unresolved);
         var s = services ?? throw new ChargehandException(ErrorCode.ContainerUnavailable, "driven sessions are on, but no container engine is set up for them", "Check driven.runner in the profile, or install Docker.");
         var claude = profile.ClaudeCode ?? throw new ChargehandException(ErrorCode.InvalidRequest, "driven sessions need a claude_code block in the profile", "Add claude_code with an api_key_secret or an oauth_token_secret.");
@@ -199,13 +215,17 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         // decision 9). An API key, or a key a gateway issued, stays in the session's environment: the exchange is measured on the subscription only.
         var exchange = !priced && model is null ? new ModelGatewaySpec(modelEnvironment.Values.Single(), resume?.TokenKey ?? ModelTokens.NewKey()) : null;
         var journal = _store is null ? null : new BatchJournal(_store, resume ?? new BatchState(runId, started, traceId, request, exchange?.TokenKey,
-            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal))], unresolved));
+            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From))], unresolved));
 
         var otlp = DrivenOtlpRoute.Parse(settings.Network?.OtlpUrl,
             new[] { forward is null ? (int?)null : port, model?.ForwardPort }.OfType<int>());
 
         var checkout = await s.Checkout(request.Context.Repository!, request.Context.Preset, ct);
         span?.SetTag("chargehand.base_commit", checkout.Commit);
+        // A kept bundle is a branch from the commit its task started at; fetched into a workspace at another commit it would not apply.
+        if (ready.FirstOrDefault(t => t.From?.Kept is { } kept && kept.Base != checkout.Commit) is { } moved)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"task '{moved.Id}' continues work that started at commit {moved.From!.Kept!.Base}, but this request's repository is at {checkout.Commit}",
+                "Send the request with context.repository.commit set to the commit the earlier task started at.");
         span?.SetTag("chargehand.credential_delivery", Delivery(model, exchange));
         List<string> forwards = [];
         if (forward is not null)
@@ -256,7 +276,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     private static ResolvedTask Resumed(RunRequest request, TaskEntry entry)
     {
         var asked = request.Driven?.Tasks.FirstOrDefault(t => t.Id == entry.Id);
-        return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, asked?.Size, asked?.BudgetUsd);
+        return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, asked?.Size, asked?.BudgetUsd, entry.From);
     }
 
     private static RunStatus TaskFinished(string runId, TaskOutcome o) =>
