@@ -351,6 +351,17 @@ Chargehand.Driven.IIntegrationHost? IntegrationHost(Chargehand.Config.DrivenSett
         new Chargehand.Driven.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System));
 }
 
+// GitHub intake (ADR 0049): null unless the profile has automation.github. It reads and comments as the integrator's GitHub App; its state sits next to the run log.
+Chargehand.Automation.GitHubIntake? GitHubIntake()
+{
+    if (profile.Automation?.Github is not { } github || profile.Driven is not { Integrator: { AppId: { } appId, InstallationId: { } installationId, PrivateKeySecret: { } privateKeySecret } } driven)
+        return null;
+    var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
+    var tokens = new Chargehand.Driven.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System);
+    var state = Chargehand.Automation.IntakeState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"));
+    return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, integrator: new Chargehand.Driven.IntegratorPolicy(driven.Integrator));
+}
+
 async Task<int> Serve()
 {
     if (profile.Http is not { } http)
@@ -363,7 +374,7 @@ async Task<int> Serve()
     var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
-        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches")), orchestrator, runLog, DrivenRunFor(orchestrator));
+        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches")), orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp)");
     await app.WaitForShutdownAsync(ct);

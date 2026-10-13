@@ -38,7 +38,8 @@ public sealed record Profile(
     SigningSettings? Signing = null,
     DrivenSettings? Driven = null,
     PromptEnhancerSettings? PromptEnhancer = null,
-    int MaxParallelNodes = 2)
+    int MaxParallelNodes = 2,
+    AutomationSettings? Automation = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
@@ -86,6 +87,7 @@ public sealed record Profile(
         profile.Driven?.Integrator?.Validate();
         profile.Driven?.Services?.Validate(profile.Driven.Images);
         profile.Driven?.Forge?.Validate();
+        profile.Automation?.Validate(profile.Driven);
         return profile;
     }
 

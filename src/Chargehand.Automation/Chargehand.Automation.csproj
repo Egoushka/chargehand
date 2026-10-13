@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Work that starts without a caller: intake from GitHub issues and comments. References Driven; neither Core nor Driven may reference it (ADR 0047, ADR 0049). -->
+  <PropertyGroup>
+    <PackageId>Chargehand.Automation</PackageId>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
+    <ProjectReference Include="..\Chargehand.Driven\Chargehand.Driven.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Chargehand.Tests" />
+  </ItemGroup>
+
+</Project>
