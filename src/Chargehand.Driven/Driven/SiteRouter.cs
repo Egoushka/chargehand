@@ -51,7 +51,7 @@ internal sealed class SiteRouter(Func<string, Task<TaskRunner>> runnerOn, string
     {
         unreachable?.Invoke(runner, e.Message);
         started.TryRemove(task.Id, out _);
-        journal?.Update(task.Id, t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From, DependsOn: t.DependsOn, Size: t.Size, SplitFrom: t.SplitFrom, SizeFrom: t.SizeFrom));
+        journal?.Update(task.Id, t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From, DependsOn: t.DependsOn, Size: t.Size, SplitFrom: t.SplitFrom, SizeFrom: t.SizeFrom, Title: t.Title));
         return new TaskOutcome(task.Id, TaskState.NotStarted, null, $"runner '{runner}' could not be reached ({e.Message}); placing the task again", ErrorCode.ContainerUnavailable, Replace: true);
     }
 }
