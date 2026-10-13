@@ -329,7 +329,7 @@ public class OutVolumeEngineTests
         Assert.Contains("-v chargehand-out-run1:/in:ro -v chargehand-work-run1:/work", calls);
     }
 
-    /// <summary>A <c>docker</c> that answers a second <c>run --name X</c> with the daemon's conflict until <c>rm -f X</c>: what a helper left Created by an interrupted run does.</summary>
+    /// <summary>A <c>docker</c> that answers a second <c>run --name X</c> with the daemon's conflict until <c>rm X</c> (chargehand's own container, not running): what a helper left Created by an interrupted run does.</summary>
     private static (string Script, string Log) ConflictingDocker(TempDir dir, params string[] leftover)
     {
         var state = System.IO.Path.Combine(dir.Path, "exists");
@@ -338,6 +338,8 @@ public class OutVolumeEngineTests
             File.WriteAllText(System.IO.Path.Combine(state, name), "");
         return FakeDocker(dir, $"""
             case "$1" in
+              inspect) for a in "$@"; do last="$a"; done
+                       if [ -e '{state}'/"$last" ]; then echo run1; else echo "Error: No such object: $last" >&2; exit 1; fi;;
               rm) for a in "$@"; do rm -f '{state}'/"$a"; done;;
               run) name=""; prev=""
                    for a in "$@"; do if [ "$prev" = "--name" ]; then name="$a"; fi; prev="$a"; done
@@ -358,7 +360,26 @@ public class OutVolumeEngineTests
         await engine.PrepareBundleWorkspaceAsync(new BundleWorkspaceSpec("run1", Image, "chargehand-out-run1", "chargehand-work-run1", "chargehand/run1", "abc1234def5678abc1234def5678abc1234def56"), default);
 
         var calls = File.ReadAllText(log);
-        Assert.True(calls.IndexOf("rm -f chargehand-xfer-run1", StringComparison.Ordinal) < calls.IndexOf("run --rm --init -i --name chargehand-xfer-run1", StringComparison.Ordinal));
-        Assert.True(calls.IndexOf("rm -f chargehand-prep-run1", StringComparison.Ordinal) < calls.IndexOf("run --rm --init --name chargehand-prep-run1", StringComparison.Ordinal));
+        // Removed without -f, as the transfers' own retry does: a helper that is running is another transfer of the run and is not killed.
+        Assert.True(calls.IndexOf("\nrm chargehand-xfer-run1", StringComparison.Ordinal) < calls.IndexOf("run --rm --init -i --name chargehand-xfer-run1", StringComparison.Ordinal));
+        Assert.True(calls.IndexOf("\nrm chargehand-prep-run1", StringComparison.Ordinal) < calls.IndexOf("run --rm --init --name chargehand-prep-run1", StringComparison.Ordinal));
+        Assert.DoesNotContain("rm -f chargehand-", calls);
+    }
+
+    [Fact]
+    public async Task A_bundle_transfer_and_a_bundle_workspace_cancelled_in_flight_remove_the_helper_docker_may_have_created()
+    {
+        using var dir = new TempDir();
+        var (docker, log) = FakeDocker(dir, "case \"$1\" in run) sleep 30;; esac");
+        var engine = new DockerCliEngine("/bin/sh", [docker]);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => engine.WriteOutStreamAsync(Spec("source.bundle"), new MemoryStream(new byte[10]), 10, cts.Token));
+        using var cts2 = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => engine.PrepareBundleWorkspaceAsync(
+            new BundleWorkspaceSpec("run1", Image, "chargehand-out-run1", "chargehand-work-run1", "chargehand/run1", "abc1234def5678abc1234def5678abc1234def56"), cts2.Token));
+
+        var calls = File.ReadAllLines(log);
+        Assert.Contains("rm -f chargehand-xfer-run1", calls);
+        Assert.Contains("rm -f chargehand-prep-run1", calls);
     }
 }

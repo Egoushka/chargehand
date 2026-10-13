@@ -7,7 +7,7 @@ section: "Guides"
 
 A driven batch can use more than one runner service ([ADR 0058](../adr/0058-several-runners.md)): the server and its runner stay where they are, and a second machine, such as a laptop with Docker, takes sessions too. One server keeps one run log, one budget and one list of accounts.
 
-**Status: on main, not yet released. The profile keys, scheduling across runners, restarts, the events and the remote workspace (a runner that does not share the server's disk) are built; the arm64 images and the Mac setup come after.**
+**Status: on main, not yet released. Built: the profile keys, scheduling across runners, restarts, the events, the remote workspace, the arm64 session images (published by the next release; until then there is no arm64 image on the registry) and the Mac runner (keep-awake, draining, the engine's own memory figures, the launchd scripts). The Mac setup has run here against a real OrbStack engine on loopback; it has not been installed as a login agent or reached over the private network, so the steps below end with checks.**
 
 ## The profile
 
@@ -42,7 +42,7 @@ A profile with `driven.runner` is the same as `driven.runners` with one entry na
 
 ## Images by platform
 
-The release workflow publishes `chargehand-session` for `linux/amd64` and `linux/arm64` as one multi-platform image (from the change that adds arm64 images; before it the images are amd64 only). Pin the index digest in `driven.images` and every runner pulls the variant for its engine.
+The release workflow publishes `chargehand-session` and `chargehand-session-jdk` for `linux/amd64` and `linux/arm64` as one multi-platform image each: the release job pushes amd64, and the `session-arm64` job builds arm64 natively on an arm64 runner (no emulation: the image runs dotnet, node and npm while it builds), then turns each tag into an index of the two and prints the index digests to pin. Releases before that one are amd64 only. Pin the index digest in `driven.images` and every runner pulls the variant for its engine.
 
 A digest from before that, or an image built for one platform, is used as written on a runner of any platform. To start another image on a runner of another platform, map it:
 
@@ -103,3 +103,49 @@ CHARGEHAND_RUNNER_KEY=... chargehand runner --listen <private-address>:4310 --al
 ```
 
 (`--outside-networks bridge` for the default network.) The runner does not need the server's checkouts, and the server does not need the runner's engine.
+
+## A Mac as a runner
+
+A Mac with OrbStack runs `chargehand runner` natively, as a launchd login agent. What is different from a runner in a container (ADR 0058):
+
+- **The engine is a virtual machine, with its own memory.** OrbStack's `memory_mib` caps it (3072 on the Mac this was written on, against a session's 4096 MiB limit, so nothing starts until it is raised: `orbctl config set memory_mib 10240`, then restart OrbStack). `GET /host` therefore reports the engine's machine, not the Mac: the runner starts a throwaway container of the session image (no network, no mount, no name) and reads its `/proc` (`--host-source engine`, the default off Linux). The session image has to be on the engine already; the install script pulls it.
+- **The runner never holds the engine's socket.** A `tecnativa/docker-socket-proxy` container (the same pinned image as the box's compose file, which has an arm64 variant) mounts it read-only and listens on `127.0.0.1:2375`; the runner's `DOCKER_HOST` points there. Same security cost as on the server: the proxy filters by API section, not by request body, so the runner's fixed container template is the real gate.
+- **It listens on the private network's address only.** `--listen <address>` takes an address, not `0.0.0.0`; the launcher refuses `0.0.0.0`, `::`, and any address outside 100.64/10, `fd7a:115c:a1e0::/48` and loopback (override: `ALLOW_NON_TAILNET_ADDRESS=yes`), and waits for the address to appear on an interface before it starts (the private network can come up after login).
+- **The key is in the Keychain, not in a file.** The launcher reads the generic password `chargehand-runner` when it starts. The plist, the launcher and the configuration hold no secret.
+- **The Mac stays awake while a session runs** (`--keep-awake on`): every 10 seconds the runner counts running session containers (not each batch's egress proxy or test services) and, while there is one, holds `caffeinate -i -m -s -w <runner pid>`; it lets go when none runs, and `-w` ends it if the runner dies. `-s` (no system sleep) only holds on AC power, and it is UNKNOWN whether it keeps a MacBook awake with the lid closed and no external display.
+- **It drains instead of promising what it cannot keep** (`--drain-on battery,lid`, and the drain file): `GET /host` adds `"state": "draining"` and a reason while the Mac is on battery power, has its lid closed, or `~/.chargehand/runner/drain` exists. The server places no new task there; sessions already there go on. `install-runner.sh drain` and `undrain` make and remove the file. The runner still accepts a start that was already on its way. A Mac that sleeps anyway is an unreachable runner: skipped for new tasks, waited for up to 10 minutes by the sessions it has.
+
+**On the Mac** (with the release that has the arm64 images, and chargehand installed under `~/.chargehand/app` the way the local server's is):
+
+```bash
+cd deploy/macos
+./install-runner.sh init                       # writes ~/.chargehand/runner.conf
+$EDITOR ~/.chargehand/runner.conf              # LISTEN_ADDRESS (tailscale ip -4), SESSION_IMAGE (the index digest), FORWARDS (4300=<server's private address>:4300)
+security add-generic-password -a "$USER" -s chargehand-runner -w     # prompts for the runner key: the value of the server's secret item for this runner
+orbctl config set memory_mib 10240             # then restart OrbStack
+./install-runner.sh install --dry-run          # prints every command, runs none
+./install-runner.sh install                    # pulls the image, starts the socket proxy, loads the agent
+./install-runner.sh status
+```
+
+**On the server**, in the profile (the secret item is a new one; its value is the key above):
+
+```json
+"runners": [
+  { "name": "box", "url": "http://runner:4310", "api_key_secret": "chargehand-runner-key", "max_sessions": 4 },
+  { "name": "mac", "url": "http://<the Mac's private address or name>:4310", "api_key_secret": "chargehand-mac-runner-key",
+    "platform": "linux/arm64", "max_sessions": 2, "weight": 0.5, "reserve_mb": 3072, "workspace": "bundle",
+    "forwards": { "mcp": "<the server's private address>:4300" } }
+]
+```
+
+`driven.images` takes the index digest (the box's runner pulls the amd64 variant, the Mac's the arm64 one); with a digest from an amd64-only release, name the Mac's image in `image_variants` instead. The server's port 4300 has to be reachable on the private network (not only on loopback) for the Mac's egress containers, and `http.allowed_hosts` keeps `chargehand-driven`, which a session calls it by.
+
+**On the private network**: allow the server to reach the Mac's runner (TCP 4310) and the Mac to reach the server (TCP 4300; the egress containers' traffic leaves the Mac with the Mac's own address). With Tailscale tags:
+
+```json
+{ "action": "accept", "src": ["tag:chargehand-server"], "dst": ["tag:chargehand-runner:4310"] },
+{ "action": "accept", "src": ["tag:chargehand-runner"], "dst": ["tag:chargehand-server:4300"] }
+```
+
+**Checks**, in this order: from the server, `curl -H "Authorization: Bearer $KEY" http://<mac>:4310/host` shows the engine's memory; from a container on the Mac, `docker run --rm busybox wget -qO- http://<server>:4300/` reaches the server (it answers 401: whether OrbStack's containers reach the private network, and what a VPN client such as WARP does to that path, is UNKNOWN until this passes); `chargehand doctor` on the server shows `runner mac` and `runner mac images`; a one-task batch shows `on runner 'mac'` in its events.

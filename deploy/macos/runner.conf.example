@@ -1,0 +1,33 @@
+# chargehand runner on this Mac (ADR 0058, docs/guide/runners.md, "A Mac as a runner").
+# Copy to ~/.chargehand/runner.conf (install-runner.sh init does) and fill in the blanks. Read by run-runner.sh as shell variables.
+# No secret is ever kept here: the runner's key is a generic password in the login Keychain, service chargehand-runner.
+
+# This Mac's address on the private network (Tailscale: `tailscale ip -4`). The runner listens on this address only. Required.
+# 0.0.0.0, ::, and any address outside the private network's range (100.64/10, fd7a:115c:a1e0::/48, or loopback) are refused, so the runner is never open on Wi-Fi.
+LISTEN_ADDRESS=
+PORT=4310
+
+# Other names the server uses to reach this runner (the private network's DNS name), comma separated. LISTEN_ADDRESS is always allowed.
+ALLOWED_HOSTS=
+
+# The session image by digest: the multi-platform index digest of the release (docs: "Images by platform"). It must be the one driven.images names on the server. Required.
+SESSION_IMAGE=
+
+# The server as the egress containers on this Mac reach it: listen-port=host:port (the server's address on the private network). The same port as the server's driven.network.mcp_forward.
+# Without it a session cannot call the server for research and review.
+FORWARDS=
+
+MAX_CONTAINERS=8
+MAX_BUNDLE_MB=512
+
+# Stop taking new sessions while on battery power or with the lid closed (battery,lid), or empty for neither. `install-runner.sh drain` also stops them by hand.
+DRAIN_ON=battery,lid
+
+# How to run chargehand. The default is the build under ~/.chargehand/app that the local server uses.
+CLI=
+
+# The Keychain item that holds the runner's key (add it with `security add-generic-password -a "$USER" -s chargehand-runner -w`).
+KEYCHAIN_SERVICE=chargehand-runner
+
+# Where the socket proxy listens on loopback. The runner talks to the engine through it and never holds the engine's socket.
+DOCKER_PROXY_PORT=2375
