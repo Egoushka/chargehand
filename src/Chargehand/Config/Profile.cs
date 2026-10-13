@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Chargehand.Budget;
 using Chargehand.Contracts;
-using Chargehand.Memory;
+using Chargehand.Modules.Memory.Api;
 using Chargehand.Runtime;
 using Chargehand.Sandbox;
 using Chargehand.Signing;

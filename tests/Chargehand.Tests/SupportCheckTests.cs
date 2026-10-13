@@ -1,5 +1,5 @@
 using Chargehand.Contracts;
-using Chargehand.Memory;
+using Chargehand.Modules.Memory.Api;
 using Chargehand.RunLog;
 using Chargehand.Verification;
 

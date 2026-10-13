@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Mcp;
-using Chargehand.Memory;
+using Chargehand.Modules.Memory.Api;
 using ModelContextProtocol.Protocol;
 using static Chargehand.Tests.MemoryConfigTests;
 

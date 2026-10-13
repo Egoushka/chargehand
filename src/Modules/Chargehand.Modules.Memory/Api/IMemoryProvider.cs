@@ -1,4 +1,4 @@
-namespace Chargehand.Memory;
+namespace Chargehand.Modules.Memory.Api;
 
 /// <summary>Where a memory lives: which configured backend, and a namespace inside it (ADR 0008).</summary>
 public sealed record MemoryScope(string Backend, string Namespace);

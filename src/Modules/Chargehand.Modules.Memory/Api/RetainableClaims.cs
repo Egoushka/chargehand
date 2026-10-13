@@ -1,8 +1,9 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
-namespace Chargehand.Memory;
+namespace Chargehand.Modules.Memory.Api;
 
 /// <param name="Locators">The <c>file</c> locators as cited, and <c>commit &lt;7 hex&gt;</c> for commit evidence, once each in citation order.</param>
 public sealed record RetainableClaim(string Text, IReadOnlyList<string> Locators, double Confidence);
@@ -47,9 +48,9 @@ public static partial class RetainableClaims
                 .ToList();
             if (locators.Count == 0)
                 skipped.Add($"not repository-anchored: {Preview(text)}");
-            else if (ChargehandException.Scrub(text) != text || locators.Any(l => ChargehandException.Scrub(l) != l))
+            else if (Redaction.Scrub(text) != text || locators.Any(l => Redaction.Scrub(l) != l))
                 // The preview is scrubbed too: a skipped claim is exactly the one that had something to hide.
-                skipped.Add($"redacted: {Preview(ChargehandException.Scrub(text))}");
+                skipped.Add($"redacted: {Preview(Redaction.Scrub(text))}");
             else
                 claims.Add(new RetainableClaim(text, locators, claim.Confidence));
         }
