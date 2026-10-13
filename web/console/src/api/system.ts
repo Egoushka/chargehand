@@ -199,6 +199,23 @@ export interface RunnerBody {
   host_snapshot?: HostBody | null;
 }
 
+/** One runner the profile lists, from the server's last probe of it (an answer under five seconds old is reused). */
+export interface RunnerStatusBody {
+  name: string;
+  host?: string | null;
+  /** The runner answered `GET /host`; null when driven sessions are off. */
+  reachable?: boolean | null;
+  error?: string | null;
+  elapsed_ms?: number | null;
+  /** Null when the runner did not answer or reports no state. */
+  draining?: boolean | null;
+  draining_reason?: string | null;
+  /** Sessions of this server admitted there; null with one runner. */
+  running?: number | null;
+  max_sessions?: number | null;
+  container_count?: number | null;
+}
+
 export interface ImageBody {
   reference: string;
   name: string;
@@ -206,7 +223,7 @@ export interface ImageBody {
   pinned: boolean;
 }
 
-/** `system/v1`: version, the redacted profile, presets, the runner and its live containers, and the pinned images. Owner only. */
+/** `system/v1`: version, the redacted profile, presets, the first runner and its live containers, every runner's state, and the pinned images. Owner only. */
 export interface SystemBody extends ContractMeta {
   contract_version: 'system/v1';
   version: string;
@@ -216,6 +233,8 @@ export interface SystemBody extends ContractMeta {
   profile?: ProfileView | null;
   presets: PresetBody[];
   runner: RunnerBody;
+  /** Absent from a server older than this field. */
+  runners?: RunnerStatusBody[] | null;
   images: ImageBody[];
 }
 

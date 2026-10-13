@@ -177,7 +177,7 @@ describe('System with data', () => {
     ).toBeTruthy();
   });
 
-  it('lists the runners the profile names and probes only the first', async () => {
+  it('lists each runner the profile names with its state, draining included', async () => {
     await open();
     const rows = within(screen.getByRole('table', { name: 'Runners' }))
       .getAllByRole('row')
@@ -193,7 +193,7 @@ describe('System with data', () => {
       'http://runner-a.example.test:4301',
       'linux/amd64',
       '1',
-      '4',
+      '3 / 4',
       'reachable',
     ]);
     expect(second).toEqual([
@@ -201,9 +201,19 @@ describe('System with data', () => {
       'http://runner-b.example.test:4301',
       'linux/arm64',
       '0.5',
-      '2',
-      'not probed',
+      '1 / 2',
+      'draining',
     ]);
+    expect(within(rows[1] as HTMLElement).getByTitle('draining: host update')).toBeTruthy();
+  });
+
+  it("falls back to the first runner's probe when the server does not serve runners", async () => {
+    await open({ system: { ...full, runners: null } });
+    const rows = within(screen.getByRole('table', { name: 'Runners' }))
+      .getAllByRole('row')
+      .slice(1);
+    expect(within(rows[0] as HTMLElement).getByText('reachable')).toBeTruthy();
+    expect(within(rows[1] as HTMLElement).getByText('unknown')).toBeTruthy();
   });
 
   it('shows the host the runner reads for admission: memory against the reserve, and load', async () => {
@@ -255,7 +265,7 @@ describe('System with data', () => {
     expect(screen.queryByRole('table', { name: 'Live containers' })).toBeNull();
     expect(panel('Live containers').getAllByRole('listitem')).toHaveLength(8);
     expect(panel('Presets and prompt versions').getAllByRole('listitem')).toHaveLength(4);
-    expect(panel('Runners').getByText('not probed')).toBeTruthy();
+    expect(panel('Runners').getByText('draining')).toBeTruthy();
     expect(panel('Live containers').getAllByRole('button', { name: 'Stop' })).toHaveLength(3);
   });
 });

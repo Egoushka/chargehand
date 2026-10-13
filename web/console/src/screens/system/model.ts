@@ -3,6 +3,7 @@ import type {
   ImageBody,
   PresetBody,
   RunnerBody,
+  RunnerStatusBody,
   SystemBody,
 } from '../../api/system';
 import { DASH, formatDuration, middleTruncate, shortId } from '../../lib/format';
@@ -39,6 +40,33 @@ export function runnerView(runner: RunnerBody): RunnerView {
     text: `reachable${runner.elapsed_ms != null ? ` in ${runner.elapsed_ms} ms` : ''}`,
     short: 'reachable',
   };
+}
+
+/** A listed runner's state from `runners`; a server without that field gives the first runner's probe only. */
+export function runnerStatusView(
+  status: RunnerStatusBody | undefined,
+  fallback?: RunnerBody,
+): RunnerView {
+  if (!status)
+    return fallback
+      ? runnerView(fallback)
+      : { status: 'off', text: 'no answer served', short: 'unknown', tone: 'off' };
+  if (status.reachable === true && status.draining)
+    return {
+      status: 'waiting',
+      text: `draining${status.draining_reason ? `: ${status.draining_reason}` : ''}`,
+      short: 'draining',
+      tone: 'warn',
+    };
+  return runnerView({
+    configured: true,
+    reachable: status.reachable,
+    error: status.error,
+    elapsed_ms: status.elapsed_ms,
+    containers: [],
+    networks: [],
+    volumes: [],
+  });
 }
 
 export interface ContainerRow {

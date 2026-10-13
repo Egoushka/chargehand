@@ -94,6 +94,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     /// <summary>The container engine (the runner, or Docker on this machine); null when driven sessions are off. The console reads its resource names and count and never changes anything through it.</summary>
     public IContainerEngine? Engine => services?.Engine;
 
+    /// <summary>The runners a profile names (ADR 0058) and their admission state; null with one runner.</summary>
+    public RunnerPool? Pool => _admission as RunnerPool;
+
     /// <summary>Where admission reads the host's free memory and load; null when driven sessions are off.</summary>
     public IHostSource? Host => services?.Host;
 

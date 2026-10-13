@@ -56,7 +56,7 @@ Any other command prints the usage and exits 2. `eval` and `prompts sync` need t
 | `GET /v1/pulls` | `pulls/v1`: the pull requests chargehand opened, their outcome and whether they wait for a person |
 | `GET /v1/analytics` | `analytics/v1`: tasks and runs over time by repository, account or size; pass rate, spend, tokens, continuations, the governor's false-stop proxy |
 | `GET /v1/repositories` | `repositories/v1`: checkouts under `repository_roots` with head, default branch, detected ecosystem and test command, open pull requests |
-| `GET /v1/intake`, `GET /v1/accounts`, `GET /v1/system` | `intake/v1`, `accounts/v1`, `system/v1`; the owner's alone: GitHub intake's settings and state; accounts with caps, spend and key state (never a key); version, redacted profile, presets, runner, live containers and pinned images |
+| `GET /v1/intake`, `GET /v1/accounts`, `GET /v1/system` | `intake/v1`, `accounts/v1`, `system/v1`; the owner's alone: GitHub intake's settings and state; accounts with caps, spend and key state (never a key); version, redacted profile, presets, the first runner with its live containers, every listed runner's state (`runners`: reachable, draining, sessions against `max_sessions`) and pinned images |
 | `/v1/mcp` | MCP over Streamable HTTP: tool `orchestrate`, `inputSchema` `request/v1`, `outputSchema` `result/v1` |
 
 Every route needs `Authorization: Bearer <key>`. [Run the HTTP server](server.md#routes) has the details, and [the console routes](server.md#console-routes) the shape of each body, who may call it and what the server does not record. The console bodies are versioned by `contract_version` and have no schema file under `schemas/`.
