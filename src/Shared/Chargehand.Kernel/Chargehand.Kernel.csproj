@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Types every module and host shares: build info, host health. Stays a few hundred lines; generic code goes to the kit.</Description>
+  </PropertyGroup>
+
+</Project>
