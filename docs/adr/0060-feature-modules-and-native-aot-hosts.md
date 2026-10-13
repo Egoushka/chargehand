@@ -70,3 +70,12 @@ Batches as state machines; Research, Gateway; the edges; then the old projects a
 Porting Tasks, Sessions and Batches needs more than two upward ports (the module cut is wrong); the port leaves both
 structures alive for more than one release cycle; or a host cannot publish with AOT for a reason the dependency's
 maintainers will not fix.
+
+## Amendment, 2026-10-14: an 18th module, Forge
+
+`driven.forge` (which code host the remotes are on and how to reach it) is read by Handover, which pushes and opens the
+pull request, and by Oversight, whose pull-request outcome tracker reads the request's state. Both sit on layer 4 and
+neither may reference the other. The owner chose a small module below both, `Chargehand.Modules.Forge` on layer 2,
+which holds the forge settings and their validation; not the Kernel, which stays types every module shares, and not an
+upward port. The forge ports (`IPullRequests`, `IIntegrationHost`) stay with the code that implements them until
+Handover is ported. The skeleton now has 18 feature modules and 25 projects.

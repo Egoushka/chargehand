@@ -1,7 +1,7 @@
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 
-namespace Chargehand.Config;
+namespace Chargehand.Modules.Forge.Api;
 
 /// <summary>Which code host a remote is on, when its host name does not say (ADR 0047's forge point). Unset, a remote on <c>gitlab.com</c> or a host whose first label is <c>gitlab</c> is GitLab and any other
 /// host is GitHub, as before.</summary>
@@ -11,7 +11,7 @@ namespace Chargehand.Config;
 public sealed record DrivenForge(string Kind, string? BaseUrl = null, string? TokenSecret = null)
 {
     /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
-    internal void Validate()
+    public void Validate()
     {
         var problems = new List<string>();
         if (Kind is not ("github" or "gitlab")) problems.Add("kind must be github or gitlab");
