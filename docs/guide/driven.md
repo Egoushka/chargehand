@@ -50,7 +50,7 @@ A green draft pull request is evidence that a command passed in a container, not
 
 **CI fixer.** On a listed repository, chargehand then watches the pull request's required checks (every 30 s, for `ci_fix.wait_minutes`, default 20, and the task keeps its slot meanwhile). When one fails and none is still running, it starts a short session on the same branch, seeded from the last bundle, whose goal names the failing jobs and carries the end of each job's log (fetched with the App token; given as data). The session's fix goes through the same handover as any branch (secret scan, no CI configuration, chargehand's own tests, an ordinary push of the same branch), and the pull request updates. At most 3 attempts per pull request, never twice for the same failing jobs, `ci_fix.max_turns` (20) and `ci_fix.max_minutes` (15) each, and its spend counts toward the task's caps. The count lives on the pull request, in a hidden marker in the comment chargehand posts before each attempt, so a restart or a second batch cannot exceed it. When attempts run out, or the same jobs fail again, chargehand comments once and leaves the pull request to a person. `ci_fix.max_attempts: 0` turns the fixer off.
 
-The App needs contents and pull requests write, checks, actions and commit statuses read, and nothing else: no administration, no workflows, no webhook, and installation on only the repositories chargehand may merge into. Profile:
+The App needs contents and pull requests write, checks, actions and commit statuses read, and nothing else (Issues read and write too, if [GitHub intake](intake.md) is on): no administration, no workflows, no webhook, and installation on only the repositories chargehand may merge into. Profile:
 
 ```json
 { "driven": { "integrator": {

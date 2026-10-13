@@ -49,7 +49,7 @@ public static partial class ChargehandServer
         + "a second agent's independent answer. Pin the checkout with context.repository (path, commit); bound cost with "
         + "context.preset (default, cheap, thorough, strict, draft) or context.budget_usd. Runs can take minutes.";
 
-    public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log, Chargehand.Driven.DrivenRun? driven = null)
+    public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log, Chargehand.Driven.DrivenRun? driven = null, Chargehand.Automation.GitHubIntake? intake = null)
     {
         var address = IPAddress.Parse(settings.Listen);
         IReadOnlyList<string> hosts = settings.AllowedHosts ?? [];
@@ -73,6 +73,9 @@ public static partial class ChargehandServer
 
         // Before the listener opens: interrupted batches are taken up and leftovers swept, so no new batch can be mistaken for one.
         builder.Services.AddHostedService(sp => new BatchResumer(sp.GetRequiredService<RunService>()));
+        // ADR 0049: only when the profile has automation.github. After the resumer, so a restart's own batches are counted before intake starts new ones.
+        if (intake is not null)
+            builder.Services.AddHostedService(sp => new IntakeService(intake, sp.GetRequiredService<RunService>()));
 
         var app = builder.Build();
         app.UseHostFiltering();
