@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-10-13
+
+The operator console at `/console/` is complete: runs, batches with their task graph, timeline, events, governor, spend, pull requests and diffs, tasks with their transcript, research results, a batch composer, analytics, learning, intake, repositories, accounts and system. The server keeps what it shows across restarts and gains actions on one task and on a pull request's checks. Driven pull requests get short titles, and a killed workspace preparation no longer blocks later ones.
+
+### Upgrade
+
+- Nothing to change in a profile. `/console/` is served when `http.ui` is true, beside `/ui/`.
+- Re-running a pull request's failed checks from the console needs the GitHub App's Actions permission set to write.
+
 ### Added
 
 - The operator console's **Analytics** and **Learning** screens (ADR 0056, CHARGEHAND-208), at `/console/analytics` and `/console/learning`. Analytics reads `GET /v1/analytics` (`analytics/v1`) and `GET /v1/learn`: spend and tokens over time stacked by repository, size or account (the owner), the cache-read share of input, pass rate by repository and size with its 95% Wilson interval, the wall time of finished batches, each size class's p80 spend against the budget a task of that size was last held to, the governor's false-stop rate per mode against the 5% that ADR 0045 asks for, continuations, and pull requests merged by how they were merged; a range, a bucket (day, week, month) and a grouping pick what is asked. Every mark says in a hover or on keyboard focus which route and field its number is read from, and every chart has its numbers as a table. A figure the server does not record is said so: the CI fixer's attempts, and a benchmark comparison (no route serves `chargehand bench` results). Learning shows each repository and size class with its median and p80 spend, completion, checkpoint and merge rates and how its budget is chosen (`driven.governor.history`: the owner sees the profile's numbers, an account the documented defaults), the budget in force for each size class with its source (`p80 of 23 past tasks, this repository`), the retros of the latest batches (a model's advice, shown as text) and the patterns a reader would see in the table, each with its counts. Time series are drawn by [uPlot](https://github.com/leeoniya/uPlot) 1.6.32 (released March 2025; 51 KB, 22 KB gzipped; MIT), which writes no style element; small bars and whiskers are plain SVG; every chart colour is a design token. The bundle grows by 104 KB (38 KB gzipped). Playwright can run on another port (`CONSOLE_E2E_PORT`), so two checkouts running it at once do not share a server.
@@ -803,7 +812,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/Egoushka/chargehand/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/Egoushka/chargehand/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/Egoushka/chargehand/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Egoushka/chargehand/compare/v0.8.8...v0.9.0
