@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-13
+
+More driven sessions fit on one host: admission asks for a session's measured working set (the p90 of past peaks) instead of its whole memory limit, with a memory-pressure guard, and the parallelism ceilings rise. Also the foundation of the new operator console at `/console/` and the profile half of several runners.
+
+### Upgrade
+
+- Deploy the server and the runner together (one image): a 0.9.0 server reads the new runner fields strictly. Batches resume across the restart as before.
+- A runner that should host more than 8 chargehand containers (sessions, their egress proxies and services all count) needs `--max-containers` raised; otherwise starts past 8 get 429 and the task fails.
+
 ### Added
 
 - An operator console at `/console/` (ADR 0056, CHARGEHAND-210), the foundation of the page that will replace `/ui/`. A Vite, React and TypeScript app in `web/console/` (TanStack Router and Query, Vitest, Playwright, Biome), built into files that the server embeds; it is served under `http.ui`, beside `/ui/`, with the same rules: files need no key, the key is pasted, kept in `sessionStorage` and sent as the bearer header, and the Content-Security-Policy allows no inline script or style and no other origin. Hashed assets are cached for a year, `index.html` is not, and a path that is not a file falls back to `index.html` for client routes. This release has the shell: sign-in, a placeholder for each planned screen, a typed client for the existing routes (with events read over `fetch`) and the runs table. A `dotnet build` without the web build still works: `/console/` then answers `503` with a page that says it is not built. The Docker image builds the console in a Node stage; CI checks, tests and builds it (a `web` job); `scripts/check.sh` runs the web steps when Node is installed and says so when it skips them. Packages are pinned exactly, installed from the lockfile without install scripts, and none is younger than 14 days. Amends ADR 0054 for the console.
@@ -746,7 +755,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/Egoushka/chargehand/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Egoushka/chargehand/compare/v0.8.8...v0.9.0
 [0.8.8]: https://github.com/Egoushka/chargehand/compare/v0.8.7...v0.8.8
 [0.8.7]: https://github.com/Egoushka/chargehand/compare/v0.8.6...v0.8.7
