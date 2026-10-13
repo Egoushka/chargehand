@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using Chargehand.Contracts;
 
-namespace Chargehand.RunLog;
+namespace Chargehand.Modules.Ledger.Api;
 
 /// <summary>
 /// Cache report (decision: cache doctor → cache report): reads, writes and hit rate per call, and per node the
@@ -67,26 +67,36 @@ public static class CacheReport
     }
 
     /// <summary>The first instruction entry, prompt block or as-sent field that differs between two calls.</summary>
-    public static string? FirstChange(CallRecord a, CallRecord b)
+    public static string? FirstChange(CallRecord a, CallRecord b) =>
+        FirstInstructionChange(a, b) ?? FirstBlockChange(a, b) ?? FirstAsSentChange(a.PromptChain.AsSent, b.PromptChain.AsSent);
+
+    private static string? FirstInstructionChange(CallRecord a, CallRecord b)
     {
         var ia = a.Instructions ?? [];
         var ib = b.Instructions ?? [];
         for (var i = 0; i < Math.Max(ia.Count, ib.Count); i++)
             if (ia.ElementAtOrDefault(i) != ib.ElementAtOrDefault(i))
                 return $"instruction entry `{(ib.ElementAtOrDefault(i) ?? ia[i]).Key}` ({Short(ia.ElementAtOrDefault(i)?.Sha256)} → {Short(ib.ElementAtOrDefault(i)?.Sha256)})";
+        return null;
+    }
+
+    private static string? FirstBlockChange(CallRecord a, CallRecord b)
+    {
         var ba = a.PromptChain.Blocks;
         var bb = b.PromptChain.Blocks;
         for (var i = 0; i < Math.Max(ba.Count, bb.Count); i++)
             if (ba.ElementAtOrDefault(i)?.Sha256 != bb.ElementAtOrDefault(i)?.Sha256)
                 return $"block `{(bb.ElementAtOrDefault(i) ?? ba[i]).Name}` ({Short(ba.ElementAtOrDefault(i)?.Sha256)} → {Short(bb.ElementAtOrDefault(i)?.Sha256)})";
-        var (sa, sb) = (a.PromptChain.AsSent, b.PromptChain.AsSent);
-        return sa.OpencodeVersion != sb.OpencodeVersion ? "as_sent.opencode_version"
-            : sa.Model != sb.Model ? "as_sent.model"
-            : sa.Agent != sb.Agent ? "as_sent.agent"
-            : sa.ToolsSha256 != sb.ToolsSha256 ? "as_sent.tools_sha256"
-            : sa.Date != sb.Date ? "as_sent.date"
-            : null;
+        return null;
     }
+
+    private static string? FirstAsSentChange(AsSent a, AsSent b) =>
+        a.OpencodeVersion != b.OpencodeVersion ? "as_sent.opencode_version"
+        : a.Model != b.Model ? "as_sent.model"
+        : a.Agent != b.Agent ? "as_sent.agent"
+        : a.ToolsSha256 != b.ToolsSha256 ? "as_sent.tools_sha256"
+        : a.Date != b.Date ? "as_sent.date"
+        : null;
 
     private static string Owner(IReadOnlyList<CallRecord> calls, string session) =>
         calls.FirstOrDefault(c => c.SessionId == session)?.NodeId is { } node ? $"from {node}" : $"from session {session}";

@@ -1,4 +1,4 @@
-namespace Chargehand.RunLog;
+namespace Chargehand.Modules.Ledger.Api;
 
 /// <summary>A gateway spend-log row, as exported by the environment (the orchestrator never queries the gateway).</summary>
 public sealed record SpendRow(string Model, long PromptTokens, long CompletionTokens, DateTimeOffset StartTime, decimal Spend);
