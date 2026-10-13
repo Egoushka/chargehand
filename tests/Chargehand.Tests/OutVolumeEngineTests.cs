@@ -94,4 +94,86 @@ public class OutVolumeEngineTests
             await engine.RemoveVolumeAsync(volume, default);
         }
     }
+
+    [Fact]
+    public async Task A_stream_is_piped_to_the_helper_as_it_is_read_and_the_helper_gets_the_bundle_volume_to_write()
+    {
+        using var dir = new TempDir();
+        var stdin = System.IO.Path.Combine(dir.Path, "stdin");
+        var (docker, log) = FakeDocker(dir, $"cat > '{stdin}'");
+        var engine = new DockerCliEngine("/bin/sh", [docker]);
+        var bytes = new byte[300_000];
+        new Random(7).NextBytes(bytes);
+
+        await engine.WriteOutStreamAsync(Spec("source.bundle"), new MemoryStream(bytes), bytes.Length, default);
+
+        Assert.Equal(bytes, File.ReadAllBytes(stdin));
+        var call = File.ReadAllText(log);
+        Assert.Contains("run --rm --init -i --name chargehand-xfer-run1", call);
+        Assert.Contains("-v chargehand-out-run1:/out ", call);
+        Assert.EndsWith("transfer source.bundle", call.Trim());
+    }
+
+    [Fact]
+    public async Task A_stream_the_helper_does_not_take_is_container_unavailable()
+    {
+        using var dir = new TempDir();
+        var engine = new DockerCliEngine("/bin/sh", [FakeDocker(dir, "echo 'no space left on device' >&2; exit 1").Script]);
+
+        var e = await Assert.ThrowsAsync<ChargehandException>(() => engine.WriteOutStreamAsync(Spec("source.bundle"), new MemoryStream(new byte[1000]), 1000, default));
+
+        Assert.Equal(ErrorCode.ContainerUnavailable, e.Code);
+        Assert.Contains("no space left", e.Message);
+    }
+
+    [Fact]
+    public async Task The_bundle_workspace_makes_the_work_volume_then_runs_the_helper_and_a_failure_removes_the_volume()
+    {
+        using var dir = new TempDir();
+        var (docker, log) = FakeDocker(dir, "case \"$*\" in *'/in:ro'*) echo 'fatal: bad bundle' >&2; exit 128;; esac");
+        var engine = new DockerCliEngine("/bin/sh", [docker]);
+        var spec = new BundleWorkspaceSpec("run1", Image, "chargehand-out-run1", "chargehand-work-run1", "chargehand/run1", "abc1234def5678abc1234def5678abc1234def56");
+
+        var e = await Assert.ThrowsAsync<ChargehandException>(() => engine.PrepareBundleWorkspaceAsync(spec, default));
+
+        Assert.Contains("fatal: bad bundle", e.Message);
+        var calls = File.ReadAllText(log);
+        var (create, run, remove) = (calls.IndexOf("volume create --label chargehand.run=run1 chargehand-work-run1", StringComparison.Ordinal), calls.IndexOf("run --rm --init --name chargehand-prep-run1", StringComparison.Ordinal),
+            calls.IndexOf("volume rm -f chargehand-work-run1", StringComparison.Ordinal));
+        Assert.True(create >= 0 && create < run && run < remove, calls);
+        Assert.Contains("-v chargehand-out-run1:/in:ro -v chargehand-work-run1:/work", calls);
+    }
+
+    /// <summary>A <c>docker</c> that answers a second <c>run --name X</c> with the daemon's conflict until <c>rm -f X</c>: what a helper left Created by an interrupted run does.</summary>
+    private static (string Script, string Log) ConflictingDocker(TempDir dir, params string[] leftover)
+    {
+        var state = System.IO.Path.Combine(dir.Path, "exists");
+        Directory.CreateDirectory(state);
+        foreach (var name in leftover)
+            File.WriteAllText(System.IO.Path.Combine(state, name), "");
+        return FakeDocker(dir, $"""
+            case "$1" in
+              rm) for a in "$@"; do rm -f '{state}'/"$a"; done;;
+              run) name=""; prev=""
+                   for a in "$@"; do if [ "$prev" = "--name" ]; then name="$a"; fi; prev="$a"; done
+                   if [ -e '{state}'/"$name" ]; then echo "docker: Error response from daemon: Conflict. The container name \"/$name\" is already in use." >&2; exit 125; fi
+                   cat > /dev/null;;
+            esac
+            """);
+    }
+
+    [Fact]
+    public async Task A_helper_left_Created_by_an_interrupted_run_does_not_block_the_bundle_transfer_or_its_workspace()
+    {
+        using var dir = new TempDir();
+        var (docker, log) = ConflictingDocker(dir, "chargehand-xfer-run1", "chargehand-prep-run1");
+        var engine = new DockerCliEngine("/bin/sh", [docker]);
+
+        await engine.WriteOutStreamAsync(Spec("source.bundle"), new MemoryStream(new byte[100]), 100, default);
+        await engine.PrepareBundleWorkspaceAsync(new BundleWorkspaceSpec("run1", Image, "chargehand-out-run1", "chargehand-work-run1", "chargehand/run1", "abc1234def5678abc1234def5678abc1234def56"), default);
+
+        var calls = File.ReadAllText(log);
+        Assert.True(calls.IndexOf("rm -f chargehand-xfer-run1", StringComparison.Ordinal) < calls.IndexOf("run --rm --init -i --name chargehand-xfer-run1", StringComparison.Ordinal));
+        Assert.True(calls.IndexOf("rm -f chargehand-prep-run1", StringComparison.Ordinal) < calls.IndexOf("run --rm --init --name chargehand-prep-run1", StringComparison.Ordinal));
+    }
 }

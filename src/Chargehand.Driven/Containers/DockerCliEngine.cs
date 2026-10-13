@@ -12,7 +12,7 @@ namespace Chargehand.Containers;
 /// While a container runs, each inspect also measures its memory (ADR 0045, admission): the cgroup's <c>memory.peak</c> when <paramref name="cgroupRoot"/> shows the container's cgroup, else the
 /// largest <c>docker stats</c> reading, taken at most every <paramref name="statsEvery"/> (5 s). The largest value seen is kept until the container is removed, because its cgroup is gone once it exits.</summary>
 public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null, string cgroupRoot = "/sys/fs/cgroup", TimeSpan? statsEvery = null)
-    : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine, IServiceEngine
+    : IContainerEngine, IWorkspaceEngine, IBundleWorkspaceEngine, IOutVolumeEngine, IServiceEngine
 {
     private const int OutputCap = 64 * 1024;
 
@@ -240,16 +240,39 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
         }
     }
 
+    public async Task PrepareBundleWorkspaceAsync(BundleWorkspaceSpec spec, CancellationToken ct)
+    {
+        var args = ContainerTemplate.BundleWorkspaceArgs(spec);
+        await RemoveLeftoverHelperAsync(args, ct);
+        await CreateVolumeAsync(spec.WorkVolume, spec.RunId, ct);
+        var result = await RunAsync(args, ct);
+        if (result.ExitCode != 0)
+        {
+            await RemoveVolumeAsync(spec.WorkVolume, CancellationToken.None);
+            throw Unavailable("preparing the workspace from the bundle failed", result, null);
+        }
+    }
+
     public async Task WriteOutFileAsync(OutFileSpec spec, ReadOnlyMemory<byte> content, CancellationToken ct)
     {
-        var result = await RunStreamAsync(ContainerTemplate.OutFileArgs(spec, write: true), content, Stream.Null, ct);
+        var result = await RunStreamAsync(ContainerTemplate.OutFileArgs(spec, write: true), content, null, Stream.Null, ct);
+        if (result.ExitCode != 0)
+            throw Unavailable($"writing {spec.Name} into the output volume failed", result, null);
+    }
+
+    /// <summary>Streams <paramref name="content"/> to the helper's stdin: the repository's bundle is never held whole in memory.</summary>
+    public async Task WriteOutStreamAsync(OutFileSpec spec, Stream content, long length, CancellationToken ct)
+    {
+        var args = ContainerTemplate.OutFileArgs(spec, write: true);
+        await RemoveLeftoverHelperAsync(args, ct);
+        var result = await RunStreamAsync(args, default, content, Stream.Null, ct);
         if (result.ExitCode != 0)
             throw Unavailable($"writing {spec.Name} into the output volume failed", result, null);
     }
 
     public async Task<bool> ReadOutFileAsync(OutFileSpec spec, Stream destination, CancellationToken ct)
     {
-        var result = await RunStreamAsync(ContainerTemplate.OutFileArgs(spec, write: false), default, destination, ct);
+        var result = await RunStreamAsync(ContainerTemplate.OutFileArgs(spec, write: false), default, null, destination, ct);
         if (result.ExitCode == ContainerTemplate.OutFileMissing)
             return false;
         if (result.ExitCode != 0)
@@ -286,6 +309,15 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
     {
         RequirePlain(name);
         await RunAsync(["volume", "rm", "-f", name], ct);
+    }
+
+    /// <summary>A helper has a fixed name per run, and one that a restart interrupted between create and start is still there under it: <c>docker run --name</c> would answer "the container name is already in
+    /// use". Removing whatever holds the name first makes the helper idempotent (ADR 0058, the bundle transfer; the same prefixes as every other helper, so the runner's cleanup at start finds them too).</summary>
+    private async Task RemoveLeftoverHelperAsync(IReadOnlyList<string> args, CancellationToken ct)
+    {
+        var at = args.ToList().IndexOf("--name");
+        if (at >= 0 && at + 1 < args.Count)
+            await RemoveAsync(args[at + 1], ct);
     }
 
     private static void RequirePlain(string name)
@@ -346,9 +378,9 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
         }
     }
 
-    /// <summary>Like <see cref="RunAsync"/> but with bytes in and bytes out: <paramref name="stdin"/> goes to the process, its stdout is copied to <paramref name="stdout"/> up to
-    /// <see cref="OutFileCap"/> (more kills the process).</summary>
-    private async Task<DockerResult> RunStreamAsync(IEnumerable<string> args, ReadOnlyMemory<byte> stdin, Stream stdout, CancellationToken ct)
+    /// <summary>Like <see cref="RunAsync"/> but with bytes in and bytes out: <paramref name="stdin"/> (or, when set, everything <paramref name="stdinStream"/> yields) goes to the process, its stdout is copied
+    /// to <paramref name="stdout"/> up to <see cref="OutFileCap"/> (more kills the process).</summary>
+    private async Task<DockerResult> RunStreamAsync(IEnumerable<string> args, ReadOnlyMemory<byte> stdin, Stream? stdinStream, Stream stdout, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(docker) { RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
         foreach (var a in leadingArgs ?? [])
@@ -373,7 +405,10 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
             {
                 try
                 {
-                    await process.StandardInput.BaseStream.WriteAsync(stdin, ct);
+                    if (stdinStream is not null)
+                        await stdinStream.CopyToAsync(process.StandardInput.BaseStream, ct);
+                    else
+                        await process.StandardInput.BaseStream.WriteAsync(stdin, ct);
                     process.StandardInput.Close();
                 }
                 catch (IOException)

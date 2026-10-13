@@ -97,6 +97,19 @@ public static class RunnerServer
             return Ok(new { });
         }));
 
+        app.MapPost("/workspace/bundle", (HttpContext ctx, CancellationToken ct) => Guard(async () =>
+        {
+            var workspace = await Body<RunnerBundleWorkspace>(ctx, ct);
+            if (engine is not IBundleWorkspaceEngine preparer)
+                return Reply(StatusCodes.Status501NotImplemented, "this runner's engine cannot prepare workspaces from a bundle");
+            if (policy.RefuseBundleWorkspace(workspace) is { } refusal)
+                return Refuse(refusal);
+            var spec = new BundleWorkspaceSpec(workspace.RunId, workspace.Image, RunnerPolicy.OutPrefix + workspace.RunId, workspace.WorkVolume, workspace.Branch, workspace.Commit);
+            _ = ContainerTemplate.BundleWorkspaceArgs(spec); // the runner validates every value itself, whatever its engine does
+            await preparer.PrepareBundleWorkspaceAsync(spec, ct);
+            return Ok(new { });
+        }));
+
         app.MapPut("/out/{runId}/{name}", (HttpContext ctx, string runId, string name, CancellationToken ct) => Guard(async () =>
         {
             var image = ctx.Request.Query["image"].ToString();
@@ -106,6 +119,18 @@ public static class RunnerServer
                 return Refuse(refusal);
             var spec = new OutFileSpec(runId, image, RunnerPolicy.OutPrefix + runId, name);
             _ = ContainerTemplate.OutFileArgs(spec, write: true);
+            // The repository's bundle (ADR 0058) is far larger than a seed: it says its length first, is checked against the runner's limit, and goes to the helper as it arrives.
+            if (name == ContainerTemplate.SourceBundleFile)
+            {
+                if (ctx.Request.ContentLength is not { } length)
+                    return Reply(StatusCodes.Status411LengthRequired, "the bundle needs a Content-Length");
+                if (policy.RefuseBundleSize(length) is { } tooLarge)
+                    return Reply(StatusCodes.Status413PayloadTooLarge, tooLarge);
+                if (ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } bundleLimit)
+                    bundleLimit.MaxRequestBodySize = policy.MaxBundleBytes;
+                await volumes.WriteOutStreamAsync(spec, ctx.Request.Body, length, ct);
+                return Ok(new { });
+            }
             // A seed is a bundle, far over the 64 KiB the other calls get.
             if (name == ContainerTemplate.SeedFile && ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
                 limit.MaxRequestBodySize = MaxSeedBytes;

@@ -239,11 +239,59 @@ public static partial class ContainerTemplate
         ];
     }
 
+    /// <summary>The script of the workspace helper for a bundle (ADR 0058): the clone comes from <c>/in/source.bundle</c>, which is a file and not another user's directory, so there is no ownership check to
+    /// get past (no <c>safe.directory</c>). The bundle holds the pinned commit's history under <c>HEAD</c>; the clone is made without a checkout and the branch is created at the commit. Everything else is as
+    /// <see cref="WorkspaceScript"/>: no hooks, the toolchains' caches excluded from the snapshot commit, the branch and the commit reach it only as arguments.</summary>
+    public const string BundleWorkspaceScript =
+        "set -e\n"
+        + "export HOME=/tmp\n"
+        + "git clone --quiet --no-hardlinks --template= --no-checkout /in/source.bundle /work\n"
+        + "mkdir -p /work/.git/info\n"
+        + "printf '%s\\n' '/.dotnet/' '/.nuget/' '/.gradle/' '/.m2/' >> /work/.git/info/exclude\n"
+        + "git -C /work checkout --quiet -b \"$1\" \"$2\"\n"
+        + "git -C /work config user.name chargehand\n"
+        + "git -C /work config user.email chargehand@localhost\n"
+        + "git -C /work config core.hooksPath /dev/null\n";
+
+    /// <summary>The arguments after <c>docker</c> for a bundle workspace helper: as <see cref="WorkspaceArgs"/>, with the run's output volume read-only at <c>/in</c> in place of a source directory.</summary>
+    public static IReadOnlyList<string> BundleWorkspaceArgs(BundleWorkspaceSpec spec)
+    {
+        Check(RunIdPattern(), spec.RunId, "run id");
+        Check(ImagePattern(), spec.Image, "image (must be name@sha256:<64 hex> or a local image id)");
+        Check(NamePattern(), spec.OutVolume, "out volume");
+        Check(NamePattern(), spec.WorkVolume, "work volume");
+        Check(WorkspaceBranchPattern(), spec.Branch, "branch (chargehand/<name>)");
+        Check(CommitPattern(), spec.Commit, "commit (7 to 40 hex characters)");
+        return
+        [
+            "run", "--rm", "--init",
+            "--name", $"chargehand-prep-{spec.RunId}",
+            "--label", $"{RunLabel}={spec.RunId}",
+            "--network", "none",
+            "--read-only",
+            "--tmpfs", "/tmp:rw,nosuid,size=256m",
+            "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges",
+            "--user", "10001:10001",
+            "--pids-limit", "128",
+            "--memory", "512m",
+            "--cpus", "1",
+            "-v", $"{spec.OutVolume}:/in:ro",
+            "-v", $"{spec.WorkVolume}:/work",
+            "--entrypoint", "sh",
+            spec.Image,
+            "-c", BundleWorkspaceScript, "prepare", spec.Branch, spec.Commit,
+        ];
+    }
+
     /// <summary>The previous session's bundle, which a continuation session starts from (ADR 0044).</summary>
     public const string SeedFile = "seed.bundle";
 
+    /// <summary>The repository at the pinned commit, as a git bundle, which the server sends to a runner that cannot see its checkouts (ADR 0058).</summary>
+    public const string SourceBundleFile = "source.bundle";
+
     /// <summary>The files chargehand writes into a session's output volume.</summary>
-    public static readonly IReadOnlyList<string> OutFilesIn = ["task.json", SeedFile];
+    public static readonly IReadOnlyList<string> OutFilesIn = ["task.json", SeedFile, SourceBundleFile];
 
     /// <summary>The files chargehand reads out of it: the bundle, the report, the outcome, the running token tally and the handoff of a stopped session. Nothing else leaves the volume.</summary>
     public static readonly IReadOnlyList<string> OutFilesOut = ["chargehand.bundle", "driven-report.json", "session-outcome.json", UsageFile, HandoffFile, ProgressFile];

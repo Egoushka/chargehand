@@ -331,13 +331,15 @@ public class MultiRunnerRunTests
         using var rig = new Rig(boxMb: 30000, laptopMb: 9000);
         rig.Box.Host.Throws = new RunnerUnreachableException("down");
         rig.Laptop.Host.Throws = new RunnerUnreachableException("down");
-        using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+        using var stop = new CancellationTokenSource();
 
-        var result = await rig.RunAsync(Request("one"), ct: stop.Token, cancelledByCaller: true);
+        var batch = rig.RunAsync(Request("one"), cancelledByCaller: true, ct: stop.Token);
+        await Until(() => rig.Events.Any(e => e.Event == RunEventKind.SessionProgress && e.Detail!.Contains("waiting for a runner (box: unreachable (down)", StringComparison.Ordinal)));
+        await stop.CancelAsync();
+        var result = await batch;
 
         // Cancelled while it waited: the task never started, and the hold said why.
         Assert.Equal(ErrorCode.Cancelled, result.Error!.Code);
-        Assert.Contains(rig.Events, e => e.Event == RunEventKind.SessionProgress && e.Detail!.Contains("waiting for a runner (box: unreachable (down)", StringComparison.Ordinal));
         Assert.Empty(rig.Box.Engine.Started);
         Assert.Empty(rig.Laptop.Engine.Started);
     }
