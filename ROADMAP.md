@@ -81,7 +81,7 @@ maintainer's approval and a new session-image digest.
 12. ▶ **Learning loop** (ADR 0045, in review; built and tested with fakes, not yet run on a real batch): per task, size
     estimate, budget, spend, stop reason and governor decisions in a record next to the run log; the human outcome of
     each pull request (merged unchanged, edited, closed), read back through the forge; `chargehand learn report` and
-    `GET /v1/learn`; a retro after each batch, off by default. Not built: filing the retro to the maintainer's tracker
+    `GET /v1/learn`; a retro after each batch, off by default; budgets per size class from the percentile of past spend. Not built: filing the retro to the maintainer's tracker
     inbox, which needs a tracker write path (`IRetroSink` is the hook). Needs: 3, 9. Real-run data stays in the
     maintainer's datasets; `evals/` keeps synthetic examples only.
 
