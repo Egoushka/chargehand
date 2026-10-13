@@ -481,6 +481,11 @@
           "type": "string",
           "description": "Secret-store item holding the API key every caller sends as a bearer token. It opens the implicit owner account: every run, no caps."
         },
+        "ui": {
+          "type": "boolean",
+          "default": false,
+          "description": "Serve the web UI at /ui/ (ADR 0054): static files, no key needed to load them; the page signs in with an API key and calls the same routes. Off by default."
+        },
         "accounts": {
           "type": "array",
           "description": "Accounts besides the owner (ADR 0050). Their keys come from `chargehand accounts add <name>`, stored as salted hashes in accounts.json beside the run log; a key of an account removed here opens nothing. An account lists, reads and cancels only its own runs; it never halts the server.",

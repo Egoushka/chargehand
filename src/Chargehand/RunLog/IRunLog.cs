@@ -33,7 +33,10 @@ public sealed record ActorSpend(decimal Usd, long Tokens);
 /// <param name="Status">Only runs in this state; null for all.</param>
 /// <param name="Since">Only runs started at or after this time.</param>
 /// <param name="Actor">Only this account's runs (ADR 0050); null for all.</param>
-public sealed record RunListQuery(RunState? Status = null, DateTimeOffset? Since = null, int Limit = 50, string? Actor = null);
+/// <param name="Kind">Only <c>single</c> or only <c>batch</c> runs; null for both.</param>
+/// <param name="Repository">Only runs whose <c>context.repository.path</c> is exactly this; null for all.</param>
+/// <param name="RunId">Only this run; null for all.</param>
+public sealed record RunListQuery(RunState? Status = null, DateTimeOffset? Since = null, int Limit = 50, string? Actor = null, string? Kind = null, string? Repository = null, string? RunId = null);
 
 /// <summary>Everything the log holds for one run.</summary>
 public sealed record RunEntry(StartRecord? Start, RunRecord? Run, IReadOnlyList<CallRecord> Calls);

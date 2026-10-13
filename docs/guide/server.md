@@ -91,6 +91,7 @@ A request that is admitted has its `budget_usd` (for a batch also `max_usd_total
 | `http.allowed_hosts` | none | host names accepted besides `localhost` and `127.0.0.1` |
 | `http.api_key_secret` | required | the secret item that holds the bearer key (the `owner`) |
 | `http.accounts` | none | named accounts with their own keys and caps, see above |
+| `http.ui` | `false` | serve the [web UI](web-ui.md) at `/ui/` |
 
 The server compares each request's `Host` header with `localhost`, `127.0.0.1` and `allowed_hosts`, and answers any other host with `400`. That check guards against DNS rebinding. When `listen` is not loopback, the server refuses to start unless `allowed_hosts` names at least one host, because beyond loopback the check must name the server. Bind a private network only ([ADR 0024](../adr/0024-server-on-a-private-network-and-release-images.md)). The server sends no CORS headers and caps request bodies at 1 MB.
 
@@ -101,7 +102,8 @@ With no `repository_roots`, `serve` allows repositories under `worker_root` only
 | route | answers |
 |---|---|
 | `POST /v1/runs` | `200` with `result/v1` when the run finishes within the wait; `202` with `run-status/v1` when it does not; `400` with `errors` for a bad request; `429` when 10 runs are unfinished |
-| `GET /v1/runs?status=&since=&limit=` | `200` with `{"runs": [run-summary/v1, ...]}`, newest first: state, preset, cost, branch and pull request link when the result has them, and the error code of a failed run. `status` is a run state (`queued`, `running`, `lost`, `completed`, `needs_input`, `failed`, `denied`), `since` an ISO 8601 time, `limit` 1 to 500 (default 50); `400` for a bad value |
+| `GET /v1/accounts/me` | `200` with the caller's account: `name`, `owner`, `driven`, `repositories`, `limits`, `spend.day` and `spend.month` (`usd`, `tokens`, `resets_at`, the figures its caps are checked against), `unfinished_runs`, `halted` and `presets`; for the [web UI](web-ui.md) |
+| `GET /v1/runs?status=&since=&limit=` | `200` with `{"runs": [run-summary/v1, ...]}`, newest first: state, preset, cost, branch and pull request link when the result has them, and the error code of a failed run. `status` is a run state (`queued`, `running`, `lost`, `completed`, `needs_input`, `failed`, `denied`), `since` an ISO 8601 time, `limit` 1 to 500 (default 50); `400` for a bad value. Also `kind=single|batch`, `repository=<exact path>`, `run_id=` and, for the owner only, `actor=`; each row also says `kind`, `repository`, `commit` and `tokens` |
 | `GET /v1/learn?since=` | `200` with what finished driven tasks taught, the table of `chargehand learn report` as JSON: `{"since", "tasks", "groups": [{"repository", "size_class", "tasks", "spend_median_usd", "spend_p80_usd", "completion_rate", "partial_rate", "checkpoint_rate", "checkpointed_completed_rate", "prs", "merged_unchanged_rate", ...}]}`; `since` is `30d` or an ISO 8601 time, `400` for another value; an empty report when driven sessions are off. Needs the API key; a run token is refused, and an account sees only the tasks of its own batches ([the learning loop](driven.md#the-learning-loop)) |
 | `POST /v1/runs/{id}/cancel` | `202` when this server holds the run and starts cancelling it; the run ends `failed` with error code `cancelled`. `404` for an unknown id, `409` when the run has finished or another process runs it |
 | `POST /v1/halt` | `200` with the number of runs it cancelled; from then on `POST /v1/runs` and the MCP tool are refused with `503` until `POST /v1/resume` |
@@ -109,8 +111,9 @@ With no `repository_roots`, `serve` allows repositories under `worker_root` only
 | `GET /v1/runs/{id}` | `202` with `run-status/v1` while queued or running; `200` with `result/v1` once finished; `410` when the process that ran it ended first; `404` for an unknown id |
 | `GET /v1/runs/{id}/events` | server-sent events for the run; `404` for an unknown id |
 | `/v1/mcp` | MCP over Streamable HTTP, see [the MCP page](mcp.md) |
+| `/ui/` | the [web UI](web-ui.md): static files, served only when `http.ui` is `true`, without a key (the page calls the routes above with one) |
 
-Every route answers `401` without a valid key and `400` for a host it does not accept. With accounts, the run routes answer for the caller's own runs (see [accounts](#accounts-and-named-keys)). [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs) covers `200`, `202`, `400`, `401`, `404`, `410` and `429` on these routes.
+Every route answers `401` without a valid key (the [web UI](web-ui.md)'s static files under `/ui/`, when it is on, are the one exception) and `400` for a host it does not accept. With accounts, the run routes answer for the caller's own runs (see [accounts](#accounts-and-named-keys)). [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs) covers `200`, `202`, `400`, `401`, `404`, `410` and `429` on these routes.
 
 ### POST /v1/runs
 

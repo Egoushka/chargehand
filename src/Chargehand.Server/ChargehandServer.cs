@@ -32,9 +32,10 @@ namespace Chargehand.Server;
 /// <param name="Accounts">The accounts besides the owner that the profile declares (ADR 0050).</param>
 /// <param name="AccountKeysFile">The file that holds their keys, as salted hashes; null: no account key opens anything.</param>
 /// <param name="Clock">The time the accounts' day and month windows are cut by; null: the system's.</param>
+/// <param name="Ui">Serve the web UI at /ui/ (ADR 0054).</param>
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
     IReadOnlyList<string>? AllowedHosts = null, int MaxConcurrentRuns = 1, int MaxSessionCalls = 2, string? StateDirectory = null,
-    IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null);
+    IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null, bool Ui = false);
 
 /// <summary>
 /// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
@@ -92,6 +93,12 @@ public static partial class ChargehandServer
         var accounts = settings.Accounts is { Count: > 0 } declared && settings.AccountKeysFile is { } keysFile ? new AccountDirectory(declared, new AccountKeyStore(keysFile)) : null;
         app.Use(async (ctx, next) =>
         {
+            // The UI's files are public and carry no data; the page calls the routes below with a key (ADR 0054).
+            if (settings.Ui && WebUi.Serves(ctx.Request.Path))
+            {
+                await next(ctx);
+                return;
+            }
             var header = ctx.Request.Headers.Authorization.ToString();
             if (CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(header), expected))
             {
@@ -167,6 +174,12 @@ public static partial class ChargehandServer
             return Reply(run);
         });
 
+        if (settings.Ui)
+            WebUi.Map(app);
+
+        app.MapGet("/v1/accounts/me", async (HttpContext ctx, RunService runs) =>
+            Json(await AccountStanding.ReadAsync(Principal.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
+
         app.MapGet("/v1/runs", async (HttpContext ctx) =>
         {
             var q = ctx.Request.Query;
@@ -188,8 +201,14 @@ public static partial class ChargehandServer
             var limit = 50;
             if (q.TryGetValue("limit", out var limitText) && (!int.TryParse(limitText, out limit) || limit is < 1 or > 500))
                 return Json(Problem("limit must be 1 to 500"), StatusCodes.Status400BadRequest);
+            string? kind = q.TryGetValue("kind", out var kindText) ? kindText.ToString() : null;
+            if (kind is not (null or "single" or "batch"))
+                return Json(Problem("kind must be single or batch"), StatusCodes.Status400BadRequest);
             var who = Principal.Of(ctx);
-            return Json(new { runs = await log.ListAsync(new RunListQuery(status, since, limit, who is { IsOwner: false } ? who.Name : null), ctx.RequestAborted) }, StatusCodes.Status200OK);
+            // An account's list is its own runs whatever it asks; only the owner may pick an actor.
+            var actor = who is { IsOwner: false } ? who.Name : q.TryGetValue("actor", out var actorText) ? actorText.ToString() : null;
+            var query = new RunListQuery(status, since, limit, actor, kind, q.TryGetValue("repository", out var repository) ? repository.ToString() : null, q.TryGetValue("run_id", out var runId) ? runId.ToString() : null);
+            return Json(new { runs = await log.ListAsync(query, ctx.RequestAborted) }, StatusCodes.Status200OK);
         });
 
         // What finished driven tasks taught (ADR 0045), the table of `chargehand learn report` as JSON.

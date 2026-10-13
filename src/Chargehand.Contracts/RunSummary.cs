@@ -14,4 +14,8 @@ public sealed record RunSummary(
     string? Branch = null,
     string? PrUrl = null,
     ErrorCode? ErrorCode = null,
-    string? Actor = null);
+    string? Actor = null,
+    string? Kind = null,
+    string? Repository = null,
+    long? Tokens = null,
+    string? Commit = null);

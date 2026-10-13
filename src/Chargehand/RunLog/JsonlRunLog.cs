@@ -62,12 +62,17 @@ public sealed class JsonlRunLog(string path) : IRunLog
                 continue;
             if (query.Actor is { } actor && start.Actor != actor)
                 continue;
+            var kind = start.Request.Driven is null ? "single" : "batch";
+            var repository = start.Request.Context.Repository?.Path;
+            if ((query.Kind is { } wantedKind && wantedKind != kind) || (query.Repository is { } wantedRepository && wantedRepository != repository) || (query.RunId is { } wantedId && wantedId != start.RunId))
+                continue;
             finished.TryGetValue(start.RunId, out var run);
             var state = run is not null ? RunStatus.StateOf(run.Result.Status) : start.OwnerAlive() ? RunState.Running : RunState.Lost;
             if (query.Status is { } wanted && wanted != state)
                 continue;
             rows.Add(new RunSummary("run-summary/v1", start.RunId, state, run?.Preset ?? start.Request.Context.Preset, start.Started, start.ParentRunId,
-                null, run?.Finished, run?.Result.Usage.Usd, ArtifactField(run?.Result, "branch", "branch"), ArtifactField(run?.Result, "pull-request", "url"), run?.Result.Error?.Code, start.Actor));
+                null, run?.Finished, run?.Result.Usage.Usd, ArtifactField(run?.Result, "branch", "branch"), ArtifactField(run?.Result, "pull-request", "url"), run?.Result.Error?.Code, start.Actor,
+                kind, repository, run is null ? null : run.Result.Usage.Input + run.Result.Usage.Output, start.Request.Context.Repository?.Commit));
         }
         return [.. rows.OrderByDescending(r => r.StartedAt).Take(Math.Clamp(query.Limit, 1, 500))];
     }

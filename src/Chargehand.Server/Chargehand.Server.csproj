@@ -11,6 +11,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The web UI (ADR 0054): static files served at /ui/, embedded so the release image needs no extra folder. -->
+    <EmbeddedResource Include="Ui\**\*" LogicalName="ui/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Chargehand.Tests" />
   </ItemGroup>
 
