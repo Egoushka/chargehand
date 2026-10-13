@@ -18,7 +18,8 @@ if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
     npm test
     npm run build
     if node -e "process.exit(require('fs').existsSync(require('@playwright/test').chromium.executablePath()) ? 0 : 1)" 2>/dev/null; then
-      npm run test:e2e
+      # A free port unless one is given: Playwright reuses a server already on its port, which may be another checkout's build.
+      CONSOLE_E2E_PORT="${CONSOLE_E2E_PORT:-$(node -e "const s=require('net').createServer().listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})")}" npm run test:e2e
     else
       echo "check: SKIPPED the console smoke test: Chromium for Playwright is not installed (cd web/console && npx playwright install chromium). CI runs it." >&2
     fi
