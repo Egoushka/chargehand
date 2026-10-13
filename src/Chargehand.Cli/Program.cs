@@ -80,6 +80,8 @@ const string Usage = """
       doctor [--profile <path>]    checks a setup, one ok/warn/fail line per check with the fix; exit 1 when a check fails
       incident <repo path> [--commit <ref>]
                                    reads an alert on stdin (Alertmanager or Grafana webhook JSON, or text) and prints a request/v1 for the incident preset; pipe it to run
+      release-notes <repo path> --from <tag or commit> [--to <ref>]
+                                   prints a request/v1 for the release-notes preset, the range's commits as inputs (git only); pipe it to run
     prompts/ and presets/ come from the current directory when it has both (a checkout), else from the install; the
     run log is the profile's run_log, else runs/run-log.jsonl in a checkout, else a per-user file (README).
     """;
@@ -186,6 +188,9 @@ if (argv is ["init", .. var initArgs])
 // Profile-free: it maps an alert to a request for `run` (CHARGEHAND-192).
 if (argv is ["incident", .. var incidentArgs])
     return await Chargehand.Incident.IncidentCli.RunAsync(incidentArgs, Directory.GetCurrentDirectory(), Console.In, Console.Out, Console.Error, DateTimeOffset.UtcNow, CancellationToken.None);
+// Profile-free: it reads a repository's git log and prints a request for `run` (CHARGEHAND-191).
+if (argv is ["release-notes", .. var releaseNotesArgs])
+    return await Chargehand.ReleaseNotes.ReleaseNotesCli.RunAsync(releaseNotesArgs, Directory.GetCurrentDirectory(), Console.Out, Console.Error, CancellationToken.None);
 if (argv is ["doctor", .. var doctorArgs])
 {
     using var stop = new CancellationTokenSource();

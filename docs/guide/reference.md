@@ -28,6 +28,7 @@ From a checkout, every command runs as `dotnet run --project src/Chargehand.Cli 
 | `init [<repo path>] [--profile <out>] [--force]` | detects the repository's ecosystems from marker files, prints the proposed `context.verify` and the package hosts the driven preset does not allow, and writes a starter profile | 1 when the profile file exists and `--force` is not given, 2 on a usage error |
 | `doctor [--profile <path>]` | checks a setup and prints one `ok`, `warn` or `fail` line per check, with the fix | 1 when a check fails, 2 on a usage error |
 | `incident <repo path> [--commit <ref>] < alert` | prints a `request/v1` for the `incident` preset from an Alertmanager or Grafana webhook payload, or plain alert text, on stdin; needs no profile and makes no network call | 1 when the alert has nothing to diagnose or the commit is unknown, 2 on a usage error |
+| `release-notes <repo path> --from <ref> [--to <ref>]` | prints a `request/v1` for the `release-notes` preset from the range's first-parent git log, for `run` or the HTTP interface; needs no profile and makes no network call | 1 when a ref is unknown, `--from` is not an ancestor of `--to` or the range is empty, 2 on a usage error |
 
 Any other command prints the usage and exits 2. `eval` and `prompts sync` need the profile's `telemetry` block.
 
@@ -80,6 +81,7 @@ Each preset is a `preset/v1` file in `presets/`. Intake picks one action; when t
 | `review` | 0.1.0 | `answer` | `worker` | `provider/worker-model` |
 | `design` | 0.1.0 | `answer` | `worker` | `provider/worker-model` |
 | `incident` | 0.1.0 | `answer` | `worker` | `provider/worker-model` |
+| `release-notes` | 0.1.0 | `answer` | `worker` | `provider/worker-model` |
 
 | preset | input tokens per node | USD per node | compaction trigger | critic | approval |
 |---|---|---|---|---|---|
@@ -91,6 +93,7 @@ Each preset is a `preset/v1` file in `presets/`. Intake picks one action; when t
 | `review` | 400,000 | 1.00 | none | off | none |
 | `design` | 400,000 | 1.00 | none | off | none |
 | `incident` | 400,000 | 1.00 | none | off | none |
+| `release-notes` | 400,000 | 1.00 | none | off | none |
 
 The profile's `models` map turns the placeholders into real model ids.
 
@@ -108,6 +111,7 @@ chargehand incident ./checkout < payload.json |
 ```
 
 or pipe it to `chargehand run`. A receiver that can call a command (a small script behind Alertmanager's webhook) does the same two steps.
+`release-notes` drafts Keep a Changelog notes for the commits between two refs. Workers have no shell and no git history, so the log reaches them as inputs: `chargehand release-notes <repo path> --from <tag or commit> [--to <ref>]` reads the range's first-parent log with local git (no forge API, no profile, no network) and prints a `request/v1` with `context.repository` pinned to the target commit, one input `range`, and one input per commit whose id is the first 12 hex characters of its hash and whose text is its subject (a merge commit takes the pull request title from its body). It lists at most 200 commits, newest first, and the `range` input says how many older ones it left out. Pipe the request to `chargehand run`, or post it to `POST /v1/runs` or the MCP tool. The summary is the notes (`## [VERSION] - YYYY-MM-DD`, then `### Added` and the other sections; the maintainer fills in the version and date). Each line is also a claim that cites its commit twice: as evidence of kind `commit`, whose existence the resolver checks in the checkout, and as the commit's input, which the support check compares with the line. A claim that cites a commit the checkout lacks moves to `open_questions`. The preset opens no version-bump pull request; a driven task can do that with the notes as its goal.
 
 ### Permissions
 

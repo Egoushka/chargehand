@@ -106,7 +106,7 @@ public class GateTests
     {
         var cells = EvalCell.Load(Repo.Path("evals", "cells.json"));
         var (affected, uncovered) = EvalRunner.Affected(cells, ["prompts/preset/cheap.md", "prompts/preset/default.md", "src/Chargehand/Orchestrator.cs"]);
-        Assert.Equal(["cheap/worker"], affected.Select(c => c.Name));
+        Assert.Equal(["cheap/worker", "review/worker", "design/worker", "release-notes/worker", "code/writer", "driven/session", "draft/draft", "intake"], cells.Select(c => c.Name));
         Assert.Equal(["prompts/preset/default.md"], uncovered);
     }
 
@@ -136,7 +136,7 @@ public class GateTests
     public void Shipped_cells_and_example_items_load()
     {
         var cells = EvalCell.Load(Repo.Path("evals", "cells.json"));
-        Assert.Equal(["cheap/worker", "review/worker", "design/worker", "incident/worker", "code/writer", "driven/session", "draft/draft", "intake"], cells.Select(c => c.Name));
+        Assert.Equal(["cheap/worker", "review/worker", "design/worker", "incident/worker", "release-notes/worker", "code/writer", "driven/session", "draft/draft", "intake"], cells.Select(c => c.Name));
         foreach (var file in cells.SelectMany(c => c.Files))
             Assert.True(File.Exists(Repo.Path(file)), file);
         foreach (var line in File.ReadAllLines(Repo.Path("evals", "example.jsonl")))

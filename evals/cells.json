@@ -41,6 +41,16 @@
       "min_items": 8
     },
     {
+      "name": "release-notes/worker",
+      "dataset": "chargehand-release-notes-worker",
+      "kind": "worker",
+      "preset": "release-notes",
+      "files": ["prompts/preset/release-notes.md", "presets/release-notes.yaml"],
+      "quality_tolerance": 0.10,
+      "cost_tolerance": 0.30,
+      "min_items": 8
+    },
+    {
       "name": "code/writer",
       "dataset": "chargehand-code-writer",
       "kind": "worker",
