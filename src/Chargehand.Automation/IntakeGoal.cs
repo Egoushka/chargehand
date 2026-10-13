@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace Chargehand.Automation;
 
-/// <summary>The goal of a task started from an issue (ADR 0049). The issue and the comment are text a person wrote on GitHub: the goal says so and fences them, so an instruction in them is read as
+/// <summary>The goal of a task started from an issue (ADR 0051). The issue and the comment are text a person wrote on GitHub: the goal says so and fences them, so an instruction in them is read as
 /// part of the work to do and not as an instruction to the session. The first line is the issue's title, which is what the pull request's title is cut from.</summary>
 public static partial class IntakeGoal
 {

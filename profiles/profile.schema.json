@@ -298,7 +298,7 @@
     "automation": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Work that starts without a caller (ADR 0049). Unset: nothing is watched.",
+      "description": "Work that starts without a caller (ADR 0051). Unset: nothing is watched.",
       "properties": {
         "github": {
           "type": "object",

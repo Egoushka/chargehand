@@ -3,14 +3,14 @@ using Chargehand.Contracts;
 
 namespace Chargehand.Config;
 
-/// <summary>ADR 0049: work that starts without a caller. Unset, nothing is watched. Plain data in Core, read by <c>Chargehand.Automation</c>, as the <c>driven</c> records are (ADR 0047).</summary>
+/// <summary>ADR 0051: work that starts without a caller. Unset, nothing is watched. Plain data in Core, read by <c>Chargehand.Automation</c>, as the <c>driven</c> records are (ADR 0047).</summary>
 /// <param name="Github">Issues and comments on GitHub that start a driven batch; null: not watched.</param>
 public sealed record AutomationSettings(AutomationGitHub? Github = null)
 {
     internal void Validate(DrivenSettings? driven) => Github?.Validate(driven);
 }
 
-/// <summary>A label on an issue, or a mention of the bot in a comment, by an allowed author starts a driven batch of one task (ADR 0049). chargehand polls: the server is not reachable from GitHub.
+/// <summary>A label on an issue, or a mention of the bot in a comment, by an allowed author starts a driven batch of one task (ADR 0051). chargehand polls: the server is not reachable from GitHub.
 /// It reads and comments as the GitHub App of <c>driven.integrator</c>, which needs the Issues permission (read and write) besides the ones ADR 0046 lists.</summary>
 /// <param name="Repositories">The repositories watched, <c>owner/repo</c> to the server's checkout of it (under <c>repository_roots</c>). Opt-in: a repository not listed is never read.</param>
 /// <param name="AllowedAuthors">Logins whose label or comment starts a batch. Required; an empty list means nothing triggers, and a comment or label from anyone else is ignored.</param>

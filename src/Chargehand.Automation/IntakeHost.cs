@@ -19,7 +19,7 @@ public sealed record IntakeComment(long Id, int IssueNumber, string Author, stri
 /// <param name="Actor">The login of the person who applied the label.</param>
 public sealed record LabelEvent(long Id, string Actor);
 
-/// <summary>What intake does on GitHub (ADR 0049), each call as the GitHub App. It reads issues and comments and writes comments, nothing else.</summary>
+/// <summary>What intake does on GitHub (ADR 0051), each call as the GitHub App. It reads issues and comments and writes comments, nothing else.</summary>
 public interface IIntakeHost
 {
     /// <summary>The open issues and pull requests that carry <paramref name="label"/>.</summary>

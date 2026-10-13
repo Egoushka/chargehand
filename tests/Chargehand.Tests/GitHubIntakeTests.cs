@@ -6,7 +6,7 @@ using Chargehand.Driven;
 
 namespace Chargehand.Tests;
 
-/// <summary>ADR 0049: an issue label or an @-mention by an allowed author starts a driven batch of one task; a reply to its questions continues it. GitHub, the batch starter, the run log and the clock are fakes.</summary>
+/// <summary>ADR 0051: an issue label or an @-mention by an allowed author starts a driven batch of one task; a reply to its questions continues it. GitHub, the batch starter, the run log and the clock are fakes.</summary>
 public class GitHubIntakeTests
 {
     private static AutomationGitHub Settings(int concurrent = 2, int perDay = 10) =>
