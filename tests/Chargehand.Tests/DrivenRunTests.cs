@@ -11,6 +11,7 @@ using Chargehand.Egress;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Verification;
+using Chargehand.Workspace;
 
 namespace Chargehand.Tests;
 

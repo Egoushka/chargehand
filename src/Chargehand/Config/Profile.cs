@@ -4,7 +4,6 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Chargehand.Budget;
 using Chargehand.Contracts;
-using Chargehand.Driven;
 using Chargehand.Memory;
 using Chargehand.Runtime;
 using Chargehand.Sandbox;
@@ -448,16 +447,6 @@ public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IR
     decimal? CheckpointAt = null, IReadOnlyList<string>? ProbePatterns = null, IReadOnlyList<string>? WaitPatterns = null)
 {
     public static IReadOnlyDictionary<string, decimal> DefaultBudgets { get; } = new Dictionary<string, decimal> { ["S"] = 1.5m, ["M"] = 4m, ["L"] = 10m };
-
-    /// <summary>The settings a session of a task gets: its own budget, else its size class's (M when it names none), and what earlier sessions of the task spent.</summary>
-    public SessionGovernor ToSession(string? size, decimal? taskBudget, decimal priorUsd)
-    {
-        var sizeClass = size ?? "M";
-        var d = new SessionGovernor();
-        return new SessionGovernor(Mode, taskBudget ?? (Budgets ?? DefaultBudgets).GetValueOrDefault(sizeClass, DefaultBudgets[sizeClass]), priorUsd, sizeClass,
-            RepeatCalls ?? d.RepeatCalls, RepeatFailures ?? d.RepeatFailures, FailingCalls ?? d.FailingCalls, ProbeCommands ?? d.ProbeCommands, NoGrowthTurns ?? d.NoGrowthTurns,
-            RewarnTurns ?? d.RewarnTurns, ContextTokens ?? d.ContextTokens, CheckpointAt ?? d.CheckpointAt, ProbePatterns, WaitPatterns);
-    }
 
     /// <summary>Throws an invalid_request error naming the key when a value cannot work: a count below 1, a share outside (0, 1], a budget not above 0, a pattern that does not compile.</summary>
     internal void Validate()

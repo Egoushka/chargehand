@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The driven infrastructure: containers, egress, the runner client, sessions, batches, the integrator. Core cannot reference it (ADR 0047). -->
+  <PropertyGroup>
+    <PackageId>Chargehand.Driven</PackageId>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Chargehand.Tests" />
+  </ItemGroup>
+
+</Project>

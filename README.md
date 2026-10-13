@@ -219,6 +219,7 @@ chargehand call, and a run makes up to four (one research, up to three reviews).
 | path | contents |
 |---|---|
 | `src/Chargehand` | orchestrator: intake, task graph, worker node, evidence resolver, prompt registry, memory, run log |
+| `src/Chargehand.Driven` | driven writing sessions: containers, egress proxy, runner client, sessions, batches, governor, integrator (references the orchestrator; [ADR 0047](docs/adr/0047-core-and-driven-assemblies.md)) |
 | `src/Chargehand.Contracts` | contract package: schemas, C# types, validator (versioned by schema major) |
 | `src/Chargehand.OpenCode` | OpenCode V2 client and worker-runtime adapter |
 | `src/Chargehand.ClaudeCode` | Claude Code worker-runtime adapter |

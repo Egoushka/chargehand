@@ -20,6 +20,10 @@ Hooks: `git config core.hooksPath .githooks` (denylist + gitleaks on pre-commit,
 Conventional Commits on commit-msg). Never `--no-verify`. A linked worktree has no `.private-terms` of its own; the
 hooks read the main checkout's, so don't copy it in.
 
+## Layout
+
+`src/Chargehand` (Core) never references `src/Chargehand.Driven` (containers, egress, runner, sessions, batches, integrator); `ArchitectureTests` fails if it does (ADR 0047). Server and Cli reference both.
+
 ## Public vs private — the rule for every file
 
 The repo is public. Never commit: IP addresses, hostnames, key aliases, employer or project

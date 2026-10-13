@@ -222,7 +222,7 @@ public sealed class Orchestrator(
         profile.SupportCheck ? (contract, scope, ct) => SupportCheck.RunAsync(runtime, ParseModel(profile.IntakeModel), contract, scope, ct) : null;
 
     /// <summary>The clone of the request's commit that driven sessions start from (the same checkout and refusals as a worker's), with the source's remote and default branch.</summary>
-    public async Task<Driven.DrivenCheckout> CheckoutForDrivenAsync(RepositoryRef repo, string presetName, CancellationToken ct)
+    public async Task<DrivenCheckout> CheckoutForDrivenAsync(RepositoryRef repo, string presetName, CancellationToken ct)
     {
         var (_, kind) = AnswerKind(Preset.Load(Path.Combine(rootDirectory, "presets"), presetName));
         var (directory, commit, _) = await Checkout(repo, kind, ct);
@@ -230,7 +230,7 @@ public sealed class Orchestrator(
         var remote = await Git(source, ct, "config", "--get", "remote.origin.url")
             ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{repo.Path} has no remote.origin.url to push to", "Add an origin remote to the repository.");
         var head = await Git(source, ct, "symbolic-ref", "--short", "refs/remotes/origin/HEAD");
-        return new Driven.DrivenCheckout(directory, commit, remote, head is not null && head.StartsWith("origin/", StringComparison.Ordinal) ? head["origin/".Length..] : "main");
+        return new DrivenCheckout(directory, commit, remote, head is not null && head.StartsWith("origin/", StringComparison.Ordinal) ? head["origin/".Length..] : "main");
     }
 
     private static ResultError Cancelled() => new(ErrorCode.Cancelled, "the run was cancelled", false, "Start the task again if it is still wanted; nothing was pushed.");
