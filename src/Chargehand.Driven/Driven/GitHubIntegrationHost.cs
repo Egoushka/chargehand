@@ -48,6 +48,11 @@ public interface IIntegrationHost
 
     /// <summary>The end of a CI job's log, at most <paramref name="maxChars"/> characters, ANSI codes and timestamps removed.</summary>
     Task<string> JobLogTailAsync(RemoteRepository repository, long jobId, int maxChars, CancellationToken ct);
+
+    /// <summary>Runs the failed jobs again (CHARGEHAND-214): the workflow runs that the given jobs belong to, failed jobs only. A forge without this says so.</summary>
+    /// <returns>How many workflow runs were re-run.</returns>
+    Task<int> RerunFailedJobsAsync(RemoteRepository repository, IReadOnlyList<long> jobIds, CancellationToken ct) =>
+        throw new IntegrationException($"{Name} cannot re-run checks from here");
 }
 
 /// <summary>The GitHub implementation: REST for the branch update, merge, comment and logs, GraphQL for what REST cannot do (ready for review, auto-merge) and for which checks are required.
@@ -129,6 +134,29 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
 
     public async Task CommentAsync(RemoteRepository repository, int number, string body, CancellationToken ct) =>
         await RestAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", new { body }, "the comment", ct);
+
+    /// <summary>Each job's workflow run (<c>GET actions/jobs/{id}</c>), then <c>rerun-failed-jobs</c> once per run. Needs the App's Actions permission to write; without it GitHub answers 403 and the message says so.</summary>
+    public async Task<int> RerunFailedJobsAsync(RemoteRepository repository, IReadOnlyList<long> jobIds, CancellationToken ct)
+    {
+        HashSet<long> runs = [];
+        foreach (var job in jobIds.Distinct())
+        {
+            var text = await RestAsync(repository, HttpMethod.Get, $"{RepoPath(repository)}/actions/jobs/{job.ToString(CultureInfo.InvariantCulture)}", null, "the job", ct);
+            try
+            {
+                using var doc = JsonDocument.Parse(text);
+                if (doc.RootElement.TryGetProperty("run_id", out var run) && run.TryGetInt64(out var id))
+                    runs.Add(id);
+            }
+            catch (JsonException)
+            {
+                throw new IntegrationException("GitHub answered with a body that is not a job");
+            }
+        }
+        foreach (var run in runs)
+            await RestAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/actions/runs/{run.ToString(CultureInfo.InvariantCulture)}/rerun-failed-jobs", null, "re-running the failed jobs (the App needs the Actions permission to write)", ct);
+        return runs.Count;
+    }
 
     public async Task<string> JobLogTailAsync(RemoteRepository repository, long jobId, int maxChars, CancellationToken ct)
     {

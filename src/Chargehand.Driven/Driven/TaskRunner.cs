@@ -91,7 +91,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     TaskRunnerSettings settings, IEvidenceResolver resolver,
     Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? supportCheck, Func<ResultContract, ResultContract>? sign,
     TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, BatchJournal? journal = null, Func<bool>? detaching = null, IStackSeeder? stacker = null, ILearningStore? learning = null, IBranchSeeder? brancher = null,
-    Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null, BatchRecords? records = null) : ITaskRunner
+    Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null, BatchRecords? records = null, BatchControl? control = null) : ITaskRunner
 {
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultUsagePoll = TimeSpan.FromSeconds(5);
@@ -222,7 +222,17 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             while (true)
             {
                 var seeded = best?.Commits ?? 0;
-                var state = await WaitAsync(container, runId, task.Id, maxMinutes, progress, sessionStarted, prior, ct);
+                ContainerState state;
+                var live = container;
+                control?.SessionStarted(task.Id, () => engine.SignalAsync(live, "SIGKILL", CancellationToken.None));
+                try
+                {
+                    state = await WaitAsync(container, runId, task.Id, maxMinutes, progress, sessionStarted, prior, ct);
+                }
+                finally
+                {
+                    control?.SessionEnded(task.Id);
+                }
                 var sessionEnded = DateTimeOffset.UtcNow;
 
                 await Tolerant(task.Id, () => volumes.FetchOutputAsync(runId, outDirectory, ct), ct);

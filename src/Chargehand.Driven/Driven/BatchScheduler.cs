@@ -15,7 +15,7 @@ namespace Chargehand.Driven;
 /// <param name="admission">Shared by every batch of the server; null: tasks start by count and caps only. With several runners (ADR 0058) it also names the one a task runs on; a task whose runner
 /// could not be reached before its session started (<see cref="TaskOutcome.Replace"/>) is asked for again, up to <see cref="MaxPlacements"/> times in all.</param>
 /// <param name="taskRequestMb">What the host must have free for a task: the working set its repository's sessions have measured (<see cref="MemoryRequest"/>), not its container's limit.</param>
-public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null, IAdmission? admission = null, int taskRequestMb = 0)
+public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null, IAdmission? admission = null, int taskRequestMb = 0, BatchControl? control = null)
 {
     /// <summary>The longest wait for a limit to lift; past it the batch stops and the caller retries.</summary>
     public static readonly TimeSpan MaxPause = TimeSpan.FromHours(6);
@@ -113,6 +113,15 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
                 {
                     if (!Pending(i))
                         continue;
+                    if (control?.IsCancelled(tasks[i].Id) == true)
+                    {
+                        // An operator cancelled it before it started.
+                        var stopped = new TaskOutcome(tasks[i].Id, TaskState.Cancelled, null, "cancelled by the operator before it started", ErrorCode.Cancelled);
+                        outcomes[i] = stopped;
+                        onSkipped?.Invoke(stopped);
+                        again = true;
+                        continue;
+                    }
                     var cause = Dependencies(i).Select(d => outcomes[d]).FirstOrDefault(o => o is { State: not TaskState.Completed });
                     if (cause is null)
                         continue;
@@ -207,6 +216,8 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
 
         while (true)
         {
+            // A task an operator cancelled before it started never does.
+            SkipDependents();
             // Start what fits, in order.
             while (notStartedReason is null && !ct.IsCancellationRequested && running.Count < limits.MaxParallel && DateTimeOffset.UtcNow >= pausedUntil && NextReady() is { } index && Fits())
             {
@@ -223,6 +234,7 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
                 var state = new Running(limits.PerTask, CancellationTokenSource.CreateLinkedTokenSource(ct)) { Runner = placed?.Runner };
                 lock (gate)
                     running[index] = state;
+                control?.Started(task.Id, state.Cts);
                 var progress = new SyncProgress(u =>
                 {
                     lock (gate)
@@ -267,6 +279,7 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
                 if (!state.Task!.IsCompleted)
                     continue;
                 var outcome = await state.Task;
+                control?.Ended(outcome.Id);
                 if (outcome.Replace)
                 {
                     // Its runner did not answer before the session started: nothing ran, so the task takes no part in the caps and is placed again, elsewhere if it can be.

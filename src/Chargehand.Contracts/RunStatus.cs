@@ -39,7 +39,7 @@ public sealed record RunStatus(
 /// <summary>Lost: the process that ran it ended before it finished. The last four mirror result/v1's status.</summary>
 public enum RunState { Queued, Running, Lost, Completed, NeedsInput, Failed, Denied }
 
-public enum RunEventKind { Accepted, Started, Intake, NodeStarted, NodeFinished, RunFinished, ContainerStarted, SessionProgress, VerifyFinished, Pushed, PrOpened, TaskFinished, Governor, Integrated, Question, Plan }
+public enum RunEventKind { Accepted, Started, Intake, NodeStarted, NodeFinished, RunFinished, ContainerStarted, SessionProgress, VerifyFinished, Pushed, PrOpened, TaskFinished, Governor, Integrated, Question, Plan, Operator }
 
 /// <summary>The <c>change</c> skill's step a driven session is on, by its latest tool call: research, write, test, review (the order <c>chargehand runs adherence</c> checks).</summary>
 public enum SessionStage { Research, Write, Test, Review }
