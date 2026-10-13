@@ -21,18 +21,28 @@ namespace Chargehand.Driven;
 /// <param name="ForgeFor">The forge of a remote that is not on GitHub, given the API token (<c>driven.forge.token_secret</c>, else the push credential); null: such a batch is refused.</param>
 /// <param name="Planner">Plans a batch before it runs (ADR 0049); null: a batch that asks for a plan reports it skipped.</param>
 /// <param name="Stacker">Makes the starting branch of a task that depends on others (ADR 0049); null: <see cref="GitStackSeeder"/>, with git on this host.</param>
+/// <param name="Retro">Writes the retro after a batch when <c>driven.learning.retro</c> is on (ADR 0045); null: such a batch reports the retro skipped.</param>
+/// <param name="RetroSink">Gets each written retro besides the batch result (ADR 0045); null: nowhere. No tracker write path exists yet, so none ships.</param>
 public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Workspace, ISessionVolumes Volumes, Func<PushCredential, IPullRequests> PullRequestsFor, ITaskSource? TaskSource,
     Func<RepositoryRef, string, CancellationToken, Task<DrivenCheckout>> Checkout, IEvidenceResolver Resolver, Func<string, string> Secret,
     Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? SupportCheck = null, Func<ContainerVerifierSettings, PushCredential, IBranchHandover>? HandoverFor = null,
-    TimeSpan? Poll = null, IHostSource? Host = null, IIntegrationHost? Integration = null, Func<RemoteRepository, string, IForge>? ForgeFor = null, IBatchPlanner? Planner = null, IStackSeeder? Stacker = null);
+    TimeSpan? Poll = null, IHostSource? Host = null, IIntegrationHost? Integration = null, Func<RemoteRepository, string, IForge>? ForgeFor = null, IBatchPlanner? Planner = null, IStackSeeder? Stacker = null,
+    IBatchRetro? Retro = null, IRetroSink? RetroSink = null);
 
 /// <summary>A request with a <c>driven</c> block, from start to the batch's result (ADR 0039): tasks resolved, the batch network up, tasks run under the batch's limits by
 /// <see cref="TaskRunner"/>, the network down, and one <c>result/v1</c> that lists the tasks. Every refusal (driven sessions off, no push credential, no image) is a failed
 /// result with a code, recorded like any run. How the model credential reaches a session, recorded on the batch result: a subscription token goes only to the batch's egress container,
 /// which exchanges a per-task token for it (<c>token_exchange</c>); a key an operator's gateway issued is in the session's environment (<c>gateway_key</c>); a plain API key too
 /// (<c>environment</c>).</summary>
-public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory, DrivenServices? services, string? stateDirectory = null) : IDisposable
+/// <param name="learning">Where each finished task's record is written and pull request outcomes are read back (ADR 0045); null: nothing is recorded.</param>
+public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory, DrivenServices? services, string? stateDirectory = null, ILearningStore? learning = null) : IDisposable
 {
+    /// <summary>The learning records this server keeps, for <c>GET /v1/learn</c>; null when none are kept.</summary>
+    public ILearningStore? Learning => learning;
+
+    /// <summary>How often <see cref="RefreshPrOutcomesAsync"/> should run.</summary>
+    public TimeSpan PrCheckEvery => TimeSpan.FromMinutes((profile.Driven?.Learning ?? new DrivenLearning()).PrCheckMinutes);
+
     public const string CredentialDelivery = "environment";
 
     /// <summary>The real credential is only in the batch's egress container; a session holds a per-task token worth nothing outside its run and network.</summary>
@@ -231,7 +241,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Plan) with { Detail = plan.Describe() });
         }
         var journal = _store is null ? null : new BatchJournal(_store, resume ?? new BatchState(runId, started, traceId, request, exchange?.TokenKey,
-            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From, DependsOn: t.DependsOn, Size: t.Size, SplitFrom: t.SplitFrom))], unresolved, plan, actor));
+            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From, DependsOn: t.DependsOn, Size: t.Size, SplitFrom: t.SplitFrom, SizeFrom: t.SizeFrom))], unresolved, plan, actor));
 
         var otlp = DrivenOtlpRoute.Parse(settings.Network?.OtlpUrl,
             new[] { forward is null ? (int?)null : port, model?.ForwardPort }.OfType<int>());
@@ -280,8 +290,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 forward is null ? null : $"{BatchNetworkInfo.ServiceUrl(port)}/v1/mcp", drivenPreset, limits.PerTask, priced, modelEnvironment, push,
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true || otlp is not null, otlp,
-                profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor);
-            var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress, journal: journal, detaching: detaching, stacker: s.Stacker);
+                profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor, RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge));
+            var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheck, sign, s.Poll, publish: progress, journal: journal, detaching: detaching, stacker: s.Stacker, learning: learning);
             ran = await new BatchScheduler(runner, admission: _admission, taskMemoryMb: drivenPreset.MemoryMb).RunAsync(ready, limits, ct, o =>
             {
                 if (detaching())
@@ -301,6 +311,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             }
         }
 
+        var retro = detaching() || ct.IsCancellationRequested ? null : await RetroAsync(request, runId, ct);
         // In request order, a task the plan split in place: tasks that did not resolve were never started.
         List<TaskOutcome> all = [];
         foreach (var t in request.Driven.Tasks)
@@ -310,8 +321,68 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         span?.SetTag("chargehand.driven.pr_urls", all.Select(o => o.PrUrl).OfType<string>().ToArray());
         span?.SetTag("chargehand.driven.tokens", all.Sum(o => o.Tokens));
         return DrivenResult.BuildBatch(runId, traceId, "", new BatchOutcome(all, ran.Action, ran.Error), Delivery(model, exchange), priced, claude.Version,
-            cancelledByCaller: ct.IsCancellationRequested && cancelledByCaller(), plan);
+            cancelledByCaller: ct.IsCancellationRequested && cancelledByCaller(), plan, retro);
     }
+
+    /// <summary>The retro after a batch (ADR 0045); null while <c>driven.learning.retro</c> is off. One that cannot be written is reported skipped with the reason, and never changes the batch's result.
+    /// A cancel is not caught.</summary>
+    private async Task<BatchRetro?> RetroAsync(RunRequest request, string runId, CancellationToken ct)
+    {
+        if (profile.Driven?.Learning is not { Retro: true })
+            return null;
+        if (learning is null || services?.Retro is not { } writer)
+            return BatchRetro.Skipped("this server keeps no learning records or has no retro writer");
+        var records = (await learning.ReadAsync(ct)).Where(e => e.Record.BatchId == runId).Select(e => e.Record).ToList();
+        if (records.Count == 0)
+            return BatchRetro.Skipped("no task of the batch left a learning record");
+        BatchRetro retro;
+        try
+        {
+            retro = await writer.WriteAsync(new RetroInput(request, runId, records), ct);
+        }
+        catch (Exception e) when (e is RetroException or ChargehandException or HttpRequestException or IOException)
+        {
+            return BatchRetro.Skipped(e.Message, records.Count);
+        }
+        if (services.RetroSink is { } sink)
+        {
+            try
+            {
+                await sink.PublishAsync(runId, retro, ct);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                Console.Error.WriteLine($"chargehand: the retro sink failed for batch {runId}: {e.Message}");
+            }
+        }
+        return retro;
+    }
+
+    /// <summary>The forge to ask about a pull request's outcome (ADR 0045): on GitHub the App's host, on any other forge the forge token (<c>driven.forge.token_secret</c>, else the push credential). Null when
+    /// that credential is not configured or does not resolve: the outcomes of that forge's pull requests are then not read.</summary>
+    public IIntegrationHost? ReadHost(RemoteRepository repository)
+    {
+        if (services is null)
+            return null;
+        if (repository.Forge == ForgeKind.GitHub)
+            return services.Integration;
+        var settings = profile.Driven ?? new DrivenSettings();
+        if (services.ForgeFor is not { } forgeFor || (settings.Forge?.TokenSecret ?? settings.PushSecret) is not { } item)
+            return null;
+        try
+        {
+            return forgeFor(repository, services.Secret(item));
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>One pass of reading back what became of the pull requests of recent tasks (ADR 0045). Does nothing without learning records or a forge credential.</summary>
+    /// <returns>The outcomes written.</returns>
+    public Task<int> RefreshPrOutcomesAsync(CancellationToken ct) =>
+        learning is null ? Task.FromResult(0) : new PrOutcomeTracker(learning, ReadHost).RefreshAsync((profile.Driven?.Learning ?? new DrivenLearning()).PrDays, ct);
 
     /// <summary>Asks the planner (ADR 0049) and applies what it says; a planner that is missing, fails or is unusable leaves the batch as the caller sent it and says so in the plan. A cancel is not caught.</summary>
     private static async Task<(IReadOnlyList<ResolvedTask> Tasks, BatchPlan Plan)> PlanAsync(RunRequest request, IReadOnlyList<ResolvedTask> tasks, string runId, string source, IBatchPlanner? planner, CancellationToken ct)
@@ -331,7 +402,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     private static ResolvedTask Resumed(RunRequest request, TaskEntry entry)
     {
         var asked = request.Driven?.Tasks.FirstOrDefault(t => t.Id == entry.Id);
-        return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, entry.Size ?? asked?.Size, asked?.BudgetUsd, entry.From, entry.DependsOn ?? asked?.DependsOn, SplitFrom: entry.SplitFrom);
+        return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, entry.Size ?? asked?.Size, asked?.BudgetUsd, entry.From, entry.DependsOn ?? asked?.DependsOn, SplitFrom: entry.SplitFrom, SizeFrom: entry.SizeFrom);
     }
 
     private static RunStatus TaskFinished(string runId, TaskOutcome o) =>

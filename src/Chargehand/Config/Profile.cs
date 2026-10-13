@@ -86,6 +86,7 @@ public sealed record Profile(
         profile.Driven?.Governor?.Validate();
         profile.Driven?.Admission?.Validate();
         profile.Driven?.Planning?.Validate();
+        profile.Driven?.Learning?.Validate();
         profile.Driven?.Integrator?.Validate();
         profile.Driven?.Services?.Validate(profile.Driven.Images);
         profile.Driven?.Forge?.Validate();
@@ -454,6 +455,7 @@ public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, 
 /// <param name="Services">ADR 0048: package caches, test services and a session image by ecosystem; null: none, as before.</param>
 /// <param name="Forge">Which code host the remotes are on and how to reach it; null: GitLab for <c>gitlab.com</c> and hosts named <c>gitlab.*</c>, GitHub for every other host.</param>
 /// <param name="Planning">ADR 0049: size, split and number a batch's tasks with one cheap read-only run before it starts; null: off (a request can still ask with <c>driven.plan</c>).</param>
+/// <param name="Learning">ADR 0045's learning loop: how long and how often pull request outcomes are read back, and the retro after a batch; null: the defaults of <see cref="DrivenLearning"/> (retro off).</param>
 public sealed record DrivenSettings(
     bool Enabled = false,
     int MaxParallel = 2,
@@ -470,7 +472,28 @@ public sealed record DrivenSettings(
     DrivenIntegrator? Integrator = null,
     DrivenSharedServices? Services = null,
     DrivenForge? Forge = null,
-    DrivenPlanning? Planning = null);
+    DrivenPlanning? Planning = null,
+    DrivenLearning? Learning = null);
+
+/// <summary>The learning loop (ADR 0045): each finished task leaves a record, the server reads the outcome of its pull request back from the forge, and <c>chargehand learn report</c> sums them up.
+/// The records are always written; these keys tune the read-back and the optional retro.</summary>
+/// <param name="Retro">After each batch, one cheap read-only run over the batch's records writes a short retro on the batch result. Off by default.</param>
+/// <param name="RetroPreset">The preset the retro run uses; it must be read-only. Default <c>cheap</c>.</param>
+/// <param name="PrDays">How long after a task finished its pull request is read again until it is merged or closed. Default 14.</param>
+/// <param name="PrCheckMinutes">How often the server looks at the open ones. Default 60.</param>
+public sealed record DrivenLearning(bool Retro = false, string RetroPreset = "cheap", int PrDays = 14, int PrCheckMinutes = 60)
+{
+    /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
+    internal void Validate()
+    {
+        var problems = new List<string>();
+        if (string.IsNullOrWhiteSpace(RetroPreset)) problems.Add("retro_preset must not be empty");
+        if (PrDays < 1) problems.Add("pr_days must be at least 1");
+        if (PrCheckMinutes < 1) problems.Add("pr_check_minutes must be at least 1");
+        if (problems.Count > 0)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.learning: {string.Join("; ", problems)}", "Fix driven.learning in the profile; docs/guide/driven.md lists the keys.");
+    }
+}
 
 /// <summary>The planning step before a batch (ADR 0049): one read-only run through the orchestrator's own pipeline, on a cheap preset, so no new model client or credential is involved.</summary>
 /// <param name="Enabled">Plan every batch; a request's <c>driven.plan</c> overrides it either way. Off by default.</param>
@@ -506,9 +529,10 @@ public sealed record DrivenAdmission(int ReserveMb = 1024, double? MaxLoadPerCpu
 /// <see cref="SessionGovernor"/>'s default.</summary>
 /// <param name="Mode"><c>off</c>, <c>observe</c> (the default: decisions are logged, none acted on) or <c>enforce</c> (a checkpoint or a stop ends the session).</param>
 /// <param name="Budgets">The flat budget per size class (S, M, L) in the dollar equivalent, until enough history exists for a percentile.</param>
+/// <param name="History">When a size class has enough finished tasks, its budget is a percentile of their spend; null: the defaults of <see cref="DrivenGovernorHistory"/>.</param>
 public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IReadOnlyDictionary<string, decimal>? Budgets = null, int? RepeatCalls = null,
     int? RepeatFailures = null, int? FailingCalls = null, int? ProbeCommands = null, int? NoGrowthTurns = null, int? RewarnTurns = null, long? ContextTokens = null,
-    decimal? CheckpointAt = null, IReadOnlyList<string>? ProbePatterns = null, IReadOnlyList<string>? WaitPatterns = null)
+    decimal? CheckpointAt = null, IReadOnlyList<string>? ProbePatterns = null, IReadOnlyList<string>? WaitPatterns = null, DrivenGovernorHistory? History = null)
 {
     public static IReadOnlyDictionary<string, decimal> DefaultBudgets { get; } = new Dictionary<string, decimal> { ["S"] = 1.5m, ["M"] = 4m, ["L"] = 10m };
 
@@ -525,6 +549,7 @@ public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IR
         foreach (var (size, budget) in Budgets ?? new Dictionary<string, decimal>())
             if (size is not ("S" or "M" or "L") || budget <= 0)
                 problems.Add($"budgets.{size} must be one of S, M, L with a value above 0");
+        History?.Validate(problems);
         foreach (var pattern in (ProbePatterns ?? []).Concat(WaitPatterns ?? []))
             try
             {
@@ -536,6 +561,18 @@ public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IR
             }
         if (problems.Count > 0)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.governor: {string.Join("; ", problems)}", "Fix driven.governor in the profile; docs/guide/driven.md lists the keys.");
+    }
+}
+
+/// <summary>Budgets from past spend (ADR 0045): once a size class has <paramref name="MinTasks"/> finished tasks in the last <paramref name="WindowDays"/> days for the repository (else for all
+/// repositories), its budget is the <paramref name="Percentile"/>th percentile of their spend; below that the flat budget applies, and a task's own <c>budget_usd</c> always wins.</summary>
+public sealed record DrivenGovernorHistory(int MinTasks = 20, int WindowDays = 60, int Percentile = 80)
+{
+    internal void Validate(List<string> problems)
+    {
+        if (MinTasks < 1) problems.Add("history.min_tasks must be at least 1");
+        if (WindowDays < 1) problems.Add("history.window_days must be at least 1");
+        if (Percentile is < 1 or > 100) problems.Add("history.percentile must be 1 to 100");
     }
 }
 

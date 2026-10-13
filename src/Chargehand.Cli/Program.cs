@@ -36,6 +36,9 @@ const string Usage = """
       runs adherence <stream.jsonl>...
                                    whether driven sessions kept to the change skill's steps, from their stored streams
       runs kill --all              removes every driven-session container and batch network by label (works with the server down)
+      learn report [--since <days>d|<time>]
+                                   what finished driven tasks taught, per repository and size class: spend, completion, governor checkpoints,
+                                   how their pull requests ended (reads learning.jsonl next to the run log; the server writes it)
       watch <run-id> [--url <server>]
                                    one line per event of a run on a server until its result; exit 0 completed, 1 failed, 3 needs input
                                    (server: --url or CHARGEHAND_URL, key: CHARGEHAND_API_KEY, else the profile's http block)
@@ -150,7 +153,7 @@ if (argv is ["doctor", .. var doctorArgs])
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Onboarding.DoctorCli.RunAsync(doctorArgs, profilePath, new Chargehand.Onboarding.SystemDoctorEnvironment(), DrivenPresetAllow(), Console.Out, Console.Error, stop.Token);
 }
-if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions" or "runs" or "accounts"))
+if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions" or "runs" or "accounts" or "learn"))
 {
     Console.Error.WriteLine(Usage);
     return 2;
@@ -170,6 +173,8 @@ catch (ChargehandException e)
 var (root, runLogPath) = InstallPaths.Resolve(profile.RunLog, Directory.GetCurrentDirectory(), AppContext.BaseDirectory,
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify));
 var runLog = new JsonlRunLog(runLogPath);
+// What finished driven tasks taught (ADR 0045): the server appends to it, `learn report` reads it.
+var learning = new Chargehand.Driven.JsonlLearningStore(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "learning.jsonl"));
 // One pool for memory and services (ADR 0034). Connections open on first use, so a command that uses neither never connects; disposed when the process ends.
 await using var mcpPool = new McpConnectionPool(profile.McpServers ?? new Dictionary<string, McpServerSettings>(), profile.Secret);
 var services = new ServiceResolver(mcpPool);
@@ -191,6 +196,8 @@ switch (argv)
         return await Show(id);
     case ["runs", "kill", "--all"]:
         return await Chargehand.Containers.RunsCli.KillAllAsync(new Chargehand.Containers.DockerCliEngine(), Console.Out, Console.Error, ct);
+    case ["learn", "report", .. var learnOptions]:
+        return await Chargehand.Driven.LearningCli.RunAsync(learnOptions, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow, ct);
     case ["reconcile", var id]:
         return await Reconcile(id);
     case ["cache", var id]:
@@ -313,7 +320,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     // Batch state and the run-token key sit next to the run log (ADR 0043).
     var stateDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches");
     if (profile.Driven is not { Enabled: true } driven)
-        return new Chargehand.Driven.DrivenRun(profile, runLog, root, null);
+        return new Chargehand.Driven.DrivenRun(profile, runLog, root, null, learning: learning);
     Chargehand.Containers.IContainerEngine engine;
     Chargehand.Containers.IWorkspaceEngine workspace;
     Chargehand.Driven.IHostSource hostSource;
@@ -333,15 +340,18 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     Chargehand.Driven.ISessionVolumes volumes = engine is Chargehand.Containers.IOutVolumeEngine files && driven.Images is { Count: > 0 } images
         ? new Chargehand.Driven.EngineSessionVolumes(files, images[0])
         : new Chargehand.Driven.UnavailableSessionVolumes();
+    // The planning and retro runs belong to the account of the batch they serve (ADR 0050).
+    Chargehand.Driven.PlanRunner childRun = async (request, runId, parentRunId, token) =>
+        await orchestrator.RunAsync(request, token, runId, parentRunId: parentRunId, actor: (await runLog.ReadAsync(parentRunId, token)).Start?.Actor);
     return new Chargehand.Driven.DrivenRun(profile, runLog, root, new Chargehand.Driven.DrivenServices(engine, workspace, volumes,
         push => new Chargehand.Driven.GitHubPullRequests(new HttpClient { BaseAddress = GitHubApiRoot(driven) }, push.Value),
         driven.TaskSource is { } source ? new Chargehand.Mcp.McpTaskSource(source, mcpPool) : null,
         orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck, Host: hostSource,
         Integration: IntegrationHost(driven), ForgeFor: (remote, token) => new Chargehand.Driven.GitLabForge(
             new HttpClient { BaseAddress = Chargehand.Driven.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token),
-        Planner: new Chargehand.Driven.ModelPlanner(async (request, runId, parentRunId, token) =>
-            // The planning run belongs to the account of the batch it plans (ADR 0050).
-            await orchestrator.RunAsync(request, token, runId, parentRunId: parentRunId, actor: (await runLog.ReadAsync(parentRunId, token)).Start?.Actor), driven.Planning?.Preset ?? "cheap")), stateDirectory);
+        Planner: new Chargehand.Driven.ModelPlanner(childRun, driven.Planning?.Preset ?? "cheap"),
+        Retro: new Chargehand.Driven.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap")),
+        stateDirectory, learning);
 }
 
 // GitHub's API root: api.github.com, or the Enterprise host the profile's driven.forge names. The E2E switch exists for scripts/driven-e2e.sh only.
