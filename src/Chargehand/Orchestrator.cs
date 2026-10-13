@@ -29,7 +29,7 @@ namespace Chargehand;
 /// <param name="services">Resolves a preset's <c>services</c> into the grants workers get; null: a preset's services are ignored (ADR 0034).</param>
 /// <param name="sandboxFor">Picks the sandbox a writing preset's tests run in (ADR 0035); the platform's, per the profile, if null.</param>
 /// <param name="enhancer">The profile's prompt enhancer, already behind its guard, or null (ADR 0040, ADR 0041). It sees each request's text and reports the outcome; it never changes what is sent.</param>
-/// <param name="runtimeFor">The runtime a run of the given account uses (ADR 0052), which throws for an account that may use no model credential; null: <paramref name="runtime"/> for every run.</param>
+/// <param name="runtimeFor">The runtime a run of the given account uses (ADR 0053), which throws for an account that may use no model credential; null: <paramref name="runtime"/> for every run.</param>
 public sealed class Orchestrator(
     Profile profile,
     IWorkerRuntime runtime,
@@ -91,7 +91,7 @@ public sealed class Orchestrator(
         {
             if (request.Driven is not null)
                 throw new ChargehandException(ErrorCode.InvalidRequest, "a request with a driven block runs only through chargehand serve", "Send it to the server's POST /v1/runs or its MCP tool.");
-            // The account's own credential, or a refusal, before anything is spent (ADR 0052).
+            // The account's own credential, or a refusal, before anything is spent (ADR 0053).
             var worker = runtimeFor?.Invoke(actor) ?? runtime;
             var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
             var (kindName, kind) = AnswerKind(preset);
@@ -224,7 +224,7 @@ public sealed class Orchestrator(
     }
 
     /// <summary>The support check a driven task's claims go through, or null when the profile has it off.</summary>
-    /// <param name="actor">The account whose batch it is: the check's model calls go on that account's credential (ADR 0052).</param>
+    /// <param name="actor">The account whose batch it is: the check's model calls go on that account's credential (ADR 0053).</param>
     public Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? DrivenSupportCheck(string? actor) =>
         profile.SupportCheck ? (contract, scope, ct) => SupportCheck.RunAsync(runtimeFor?.Invoke(actor) ?? runtime, ParseModel(profile.IntakeModel), contract, scope, ct) : null;
 

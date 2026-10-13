@@ -393,7 +393,7 @@ async Task<int> Serve()
         Console.Error.WriteLine(unsupported);
         return 2;
     }
-    // An account's runs use its own model credential, or are refused (ADR 0052).
+    // An account's runs use its own model credential, or are refused (ADR 0053).
     Func<string?, IWorkerRuntime>? runtimeFor = http.Accounts is { Count: > 0 } accounts
         ? new Chargehand.ClaudeCode.AccountRuntimes(runtime, new AccountCredentials(accounts), profile.Secret).For : null;
     var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer(), runtimeFor: runtimeFor);

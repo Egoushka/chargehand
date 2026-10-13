@@ -5,7 +5,7 @@ using Chargehand.Runtime;
 
 namespace Chargehand.ClaudeCode;
 
-/// <summary>The worker runtime a run of an account uses (ADR 0052): the server's own, or one over the account's API key (and gateway), made on the account's first run and kept. Each
+/// <summary>The worker runtime a run of an account uses (ADR 0053): the server's own, or one over the account's API key (and gateway), made on the account's first run and kept. Each
 /// account's runtime has its own sessions and its own environment, so no run sees another account's key.</summary>
 /// <param name="secret">Resolves a secret item through the profile's sources.</param>
 public sealed class AccountRuntimes(IWorkerRuntime server, AccountCredentials credentials, Func<string, string> secret)

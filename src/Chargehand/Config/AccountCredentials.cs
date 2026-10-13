@@ -2,7 +2,7 @@ using Chargehand.Contracts;
 
 namespace Chargehand.Config;
 
-/// <summary>Whose model credential a run uses (ADR 0052): the owner's runs, a CLI run and an account that may use it take the server's; an account with a <c>model</c> block takes its own;
+/// <summary>Whose model credential a run uses (ADR 0053): the owner's runs, a CLI run and an account that may use it take the server's; an account with a <c>model</c> block takes its own;
 /// any other account is refused. Pure over the profile's accounts, so the server, the runtimes and the driven runner decide the same way.</summary>
 public sealed class AccountCredentials(IReadOnlyList<AccountSettings>? accounts)
 {
