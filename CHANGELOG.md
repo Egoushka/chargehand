@@ -10,6 +10,11 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - The operator console's **Start a batch** screen (ADR 0056, CHARGEHAND-208), at `/console/new`. A preset, a repository from `GET /v1/repositories` with the commit filled from its HEAD, and a list of tasks: id, size, optional budget, a multi-line goal and the tasks each waits for (a dependency that would close a loop is not offered). A layered dependency graph and an estimate show each task's budget as the server will choose it (its own `budget_usd`, else p80 of past tasks of its size in the repository, else across repositories, else the flat budget) with the source of every figure, from `GET /v1/learn`. Planning, `max_parallel` and the token and dollar caps are fields; the checks mirror `schemas/request/v1` and the server's driven rules and the account's limits, and show at the field. A JSON view is the same request and round-trips with the form, keeping what the form has no control for. Templates are kept in the browser's `localStorage`; tasks can be imported from pasted text (a line each, or a JSON list); another screen can open the form filled in through the router's state (a clone of a batch). **Start batch** sends `POST /v1/runs` with `Prefer: wait=0` and opens the new run. GitHub issues are not imported: the server has no route that lists them. Tests: Vitest for the model, the checks, the estimate and the screen; Playwright with axe-core at 1280 and 375 px in both themes.
+- `driven.tasks[].title` in `request/v1` (additive, CHARGEHAND-215): the title of the task's pull request, one line of at most 200 characters. The server refuses a blank title or one with a line break. A restarted batch keeps it.
+
+### Changed
+
+- A driven task's pull request title is short (CHARGEHAND-215). Until now it was the first 72 characters of the goal's first line, cut mid-word, so a goal written as one paragraph made a title that started a sentence and stopped. Now it is the task's `title` when the request gives one, else the first sentence of the goal (a sentence ends at a line break, or at `.`, `!` or `?` followed by white space), cut at a word to at most 72 characters, without the punctuation it ends in. The pull request body now holds the whole goal under `Goal:`, finished or `[partial]`, cut at 12000 characters.
 
 ### Fixed
 

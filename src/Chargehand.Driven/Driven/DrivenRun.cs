@@ -305,7 +305,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Plan) with { Detail = plan.Describe() });
         }
         var journal = _store is null ? null : new BatchJournal(_store, resume ?? new BatchState(runId, started, traceId, request, tokenKey,
-            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From, DependsOn: t.DependsOn, Size: t.Size, SplitFrom: t.SplitFrom, SizeFrom: t.SizeFrom))], unresolved, plan, actor));
+            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From, DependsOn: t.DependsOn, Size: t.Size, SplitFrom: t.SplitFrom, SizeFrom: t.SizeFrom, Title: t.Title))], unresolved, plan, actor));
 
         var checkout = await s.Checkout(request.Context.Repository!, request.Context.Preset, ct);
         // A forge other than GitHub acts with one token, both to open the pull request and to integrate it.
@@ -539,7 +539,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     private static ResolvedTask Resumed(RunRequest request, TaskEntry entry)
     {
         var asked = request.Driven?.Tasks.FirstOrDefault(t => t.Id == entry.Id);
-        return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, entry.Size ?? asked?.Size, asked?.BudgetUsd, entry.From, entry.DependsOn ?? asked?.DependsOn, SplitFrom: entry.SplitFrom, SizeFrom: entry.SizeFrom,
+        return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, entry.Size ?? asked?.Size, asked?.BudgetUsd, entry.From, entry.DependsOn ?? asked?.DependsOn, SplitFrom: entry.SplitFrom, SizeFrom: entry.SizeFrom, Title: entry.Title,
             // A task whose session may be running stays on its runner (ADR 0058); one that had not begun is placed again. An empty name stands for a state written before runners had names.
             Runner: entry.Phase == TaskPhase.Pending ? null : entry.Runner ?? "");
     }
