@@ -6,7 +6,7 @@ namespace Chargehand.Tests;
 /// <summary>ADR 0049 with real git: the dependencies' bundles become one branch under the new task's name, merged in the order listed, and a conflict names its paths.</summary>
 public sealed class GitStackSeederTests : IDisposable
 {
-    private static readonly string[] Identity = ["-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false"];
+    private static readonly string[] Identity = ["-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "-c", "gc.auto=0"];
 
     private readonly TempDir _dir = new();
     private readonly string _source;
@@ -105,6 +105,24 @@ public sealed class GitStackSeederTests : IDisposable
         Assert.Equal("b", made.ConflictWith);
         Assert.Null(made.Failure);
         Assert.False(File.Exists(Path.Combine(_dir.Path, "seed.bundle")));
+    }
+
+    [Fact]
+    public async Task Git_run_for_a_scratch_clone_starts_no_background_maintenance_that_could_outlive_the_call()
+    {
+        // `git fetch` and `git merge` spawn `git maintenance run --auto --detach`, whose repack deletes loose objects after the awaited call has returned.
+        var trace = Path.Combine(_dir.Path, "trace2.jsonl");
+        var env = Handover.GitEnvironment(_scratch);
+        env["GIT_TRACE2_EVENT"] = trace;
+        Directory.CreateDirectory(_scratch);
+        var clone = Path.Combine(_scratch, "clone");
+        Assert.Equal(0, (await Handover.Git.RunAsync(_scratch, env, ["clone", "--quiet", "--no-hardlinks", "--template=", "--", _source, clone], TimeSpan.FromMinutes(1), default)).ExitCode);
+        var a = Session("a", "a.txt", "ONE\ntwo\nthree\n");
+        var fetch = await Handover.Git.RunAsync(clone, env, ["fetch", "--quiet", a.BundlePath, $"refs/heads/{a.Branch}:refs/heads/{a.Branch}"], TimeSpan.FromMinutes(1), default);
+
+        Assert.Equal(0, fetch.ExitCode);
+        Assert.Contains("\"fetch\"", File.ReadAllText(trace));          // the trace did record the commands
+        Assert.DoesNotContain("\"maintenance\",\"run\"", File.ReadAllText(trace));
     }
 
     [Fact]

@@ -6,7 +6,7 @@ namespace Chargehand.Tests;
 /// <summary>ADR 0051 with real git: the pushed branch of a finished task is fetched from the remote into a scratch clone and bundled against the base commit, the way a session's own bundle is.</summary>
 public sealed class GitBranchSeederTests : IDisposable
 {
-    private static readonly string[] Identity = ["-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false"];
+    private static readonly string[] Identity = ["-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "-c", "gc.auto=0"];
 
     private readonly TempDir _dir = new();
     private readonly string _source;

@@ -169,6 +169,7 @@ public class ConsoleActionTests
         var task = Assert.Single(retried.GetProperty("tasks").EnumerateArray());
         Assert.Equal(("t1", "boom once"), (task.GetProperty("id").GetString(), task.GetProperty("goal").GetString()));
         Assert.Contains(h.Rig.Records!.ReadEvents(batch)!, e => e.Event == RunEventKind.Operator && e.Detail!.StartsWith($"task t1: retry started as run {run}", StringComparison.Ordinal));
+        Assert.True(await Eventually(async () => (await h.Server.Http.GetAsync($"/v1/runs/{run}")).StatusCode == HttpStatusCode.OK));   // the retried batch has finished writing before the directory goes
     }
 
     [Fact]
@@ -177,6 +178,7 @@ public class ConsoleActionTests
         await using var h = await StartHeldAsync();
         var batch = await StartAsync(h.Server, Batch(1, "one"));
         Assert.True(await Eventually(async () => await TaskState(h.Server.Http, batch, "t1") == "running"));
+        Assert.True(await Eventually(() => Task.FromResult(h.Rig.Engine.Started.Count == 1)));   // "running" is the admitted task: its container may not have started yet
 
         Assert.Equal(HttpStatusCode.Conflict, (await Post(h.Server.Http, $"/v1/batches/{batch}/tasks/t1/retry")).StatusCode);
         Assert.Single(h.Rig.Engine.Started);
@@ -229,7 +231,7 @@ public class ConsoleActionTests
 
         Assert.Equal(HttpStatusCode.Accepted, retried.StatusCode);
         var run = (await retried.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("run_id").GetString()!;
-        Assert.Equal("alice", (await rig.Log.ReadAsync(run, default)).Start?.Actor);
+        Assert.True(await Eventually(async () => (await rig.Log.ReadAsync(run, default)).Start?.Actor == "alice"));   // the run's start record is written after the 202
     }
 
     [Fact]

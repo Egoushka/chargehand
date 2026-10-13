@@ -342,7 +342,8 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         public static async Task<GitResult> RunAsync(string directory, IReadOnlyDictionary<string, string> env, IReadOnlyList<string> args, TimeSpan timeout, CancellationToken ct, int maxBytes = 1024 * 1024)
         {
             var psi = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
-            foreach (var a in args)
+            // fetch and merge would start a detached `git maintenance` that repacks after this call has returned, racing with the next command and with the removal of the scratch clone.
+            foreach (var a in (string[])["-c", "maintenance.auto=false", "-c", "gc.auto=0", .. args])
                 psi.ArgumentList.Add(a);
             psi.Environment.Clear();
             foreach (var (k, v) in env)
