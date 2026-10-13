@@ -20,6 +20,14 @@ public sealed record IntakeTask(string Repository, int Issue, string BatchRunId,
 /// <param name="Path">The file an inline comment is on; null for a conversation comment.</param>
 public sealed record PendingReview(string Id, string Repository, int Pull, string Author, string Body, string? Path, int? Line, DateTimeOffset At);
 
+/// <summary>What intake did with a trigger, and when: the console's answer to "why did nothing start" (CHARGEHAND-214).</summary>
+/// <param name="Key">The trigger's key as <see cref="IntakeState.Handled"/> holds it (<c>label:owner/repo#12:&lt;event id&gt;</c>, <c>comment:owner/repo:&lt;comment id&gt;</c>).</param>
+/// <param name="Outcome"><c>started</c>, <c>continued</c> (an answer), <c>round_started</c> (review comments), <c>queued</c> (a review comment waits for a round) or <c>ignored</c>.</param>
+/// <param name="Reason">For <c>ignored</c>: <c>author_not_allowed</c>, <c>active</c> (already working on the issue), <c>author</c> (a merge repository takes issues of allowed authors only), <c>cap</c>, <c>gone</c> (the earlier run is not in the log),
+/// <c>not_chargehand_branch</c> or <c>review_rounds_off</c>.</param>
+/// <param name="Author">The GitHub login that set the label or wrote the comment, where there is one.</param>
+public sealed record IntakeTrigger(DateTimeOffset At, string Key, string Outcome, string? Reason = null, string? Author = null);
+
 /// <summary>What intake remembers between polls and across a restart (ADR 0051), in one JSON file written whole through a temporary file. <see cref="Handled"/> holds every trigger that was acted on
 /// or ignored, by key (<c>label:owner/repo#12:&lt;event id&gt;</c>, <c>comment:owner/repo:&lt;comment id&gt;</c>), and it only grows: a trigger seen once is never acted on again.</summary>
 public sealed class IntakeState
@@ -57,6 +65,11 @@ public sealed class IntakeState
 
     public List<IntakeTask> Tasks { get; init; } = [];
 
+    /// <summary>What intake did with the latest <see cref="MaxTriggers"/> triggers, oldest first. <see cref="Handled"/> says a trigger was seen; this says when and what came of it.</summary>
+    public List<IntakeTrigger> Triggers { get; init; } = [];
+
+    public const int MaxTriggers = 200;
+
     /// <summary>When triggered batches started, for the daily cap; entries older than a day are dropped when the state is saved.</summary>
     public List<DateTimeOffset> Starts { get; init; } = [];
 
@@ -75,6 +88,7 @@ public sealed class IntakeState
             Notified = state.Notified ?? [],
             Tasks = state.Tasks ?? [],
             Starts = state.Starts ?? [],
+            Triggers = state.Triggers ?? [],
         };
     }
 
@@ -86,6 +100,8 @@ public sealed class IntakeState
     public void Save(DateTimeOffset now)
     {
         Starts.RemoveAll(s => s <= now - TimeSpan.FromDays(1));
+        if (Triggers.Count > MaxTriggers)
+            Triggers.RemoveRange(0, Triggers.Count - MaxTriggers);
         if (_path is null)
             return;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);

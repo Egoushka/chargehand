@@ -59,6 +59,16 @@ export interface IntakeNoticeBody {
   trigger: string;
 }
 
+/** What intake did with a trigger, newest first. `reason` is set for `ignored`: `author_not_allowed`, `active`, `author`, `cap`, `gone`, `not_chargehand_branch` or `review_rounds_off`. Never the comment's text. */
+export interface IntakeTriggerBody {
+  at: string;
+  trigger: string;
+  outcome: 'started' | 'continued' | 'round_started' | 'queued' | 'ignored';
+  reason?: string | null;
+  /** The login that set the label or wrote the comment. */
+  author?: string | null;
+}
+
 /** Triggers handled so far; a trigger is handled once. */
 export interface IntakeHandledBody {
   total: number;
@@ -90,6 +100,8 @@ export interface IntakeBody extends ContractMeta {
   handled: IntakeHandledBody;
   notices: IntakeNoticeBody[];
   comment_cursors: Record<string, string>;
+  /** The latest 100 triggers and what came of them. */
+  triggers?: IntakeTriggerBody[];
 }
 
 export const intakeQuery = () =>

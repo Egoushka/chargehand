@@ -81,7 +81,7 @@ public static partial class SessionDriver
     /// <summary>The governor decisions <c>session-outcome.json</c> carries; the log file has every one.</summary>
     public const int MaxGovernorDecisions = 50;
 
-    public const string GovernorFile = "governor.jsonl";
+    public const string GovernorFile = ContainerTemplate.GovernorFile;
 
     private static readonly JsonSerializerOptions LineJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 

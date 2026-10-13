@@ -43,10 +43,14 @@ public sealed record RateLimitPause(string BatchRunId, string TaskId, DateTimeOf
 /// which exchanges a per-task token for it (<c>token_exchange</c>); a key an operator's gateway issued is in the session's environment (<c>gateway_key</c>); a plain API key too
 /// (<c>environment</c>).</summary>
 /// <param name="learning">Where each finished task's record is written and pull request outcomes are read back (ADR 0045); null: nothing is recorded.</param>
-public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory, DrivenServices? services, string? stateDirectory = null, ILearningStore? learning = null) : IDisposable
+/// <param name="records">Where a batch's events and its tasks' sessions, governor decisions, checks and CI fix attempts are kept for the console (CHARGEHAND-214); null: they are not.</param>
+public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory, DrivenServices? services, string? stateDirectory = null, ILearningStore? learning = null, BatchRecords? records = null) : IDisposable
 {
     /// <summary>The learning records this server keeps, for <c>GET /v1/learn</c>; null when none are kept.</summary>
     public ILearningStore? Learning => learning;
+
+    /// <summary>The batch records this server keeps for the console; null when none are kept.</summary>
+    public BatchRecords? Records => records;
 
     /// <summary>How often <see cref="RefreshPrOutcomesAsync"/> should run.</summary>
     public TimeSpan PrCheckEvery => TimeSpan.FromMinutes((profile.Driven?.Learning ?? new DrivenLearning()).PrCheckMinutes);
@@ -112,6 +116,16 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     {
         actor ??= resume?.Actor;
         var started = resume?.Started ?? DateTimeOffset.UtcNow;
+        // The batch's events go to disk as well as to the caller, so its timeline outlives a restart (CHARGEHAND-214).
+        if (records is not null)
+        {
+            var caller = progress;
+            progress = e =>
+            {
+                records.AppendEvent(runId, e);
+                caller?.Invoke(e);
+            };
+        }
         // A server that is stopping, as against a caller who cancels, leaves the batch for the next process to carry on; only when its state is saved.
         bool Detaching() => _store is not null && ct.IsCancellationRequested && cancelledByCaller?.Invoke() != true;
         // As for an orchestrator run: under serve the request's activity is not recorded, and a parent-based sampler would drop the batch's spans.
@@ -163,12 +177,29 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         _store?.Delete(runId);
         _pauses.TryRemove(runId, out _);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
+        PruneRecords();
         return result;
+    }
+
+    /// <summary>Deletes the records of the oldest batches (<see cref="BatchRecords.Prune"/>), never those of a batch that has saved state.</summary>
+    private void PruneRecords()
+    {
+        if (records is null)
+            return;
+        try
+        {
+            records.Prune(_store?.List().Select(b => b.RunId).ToHashSet(StringComparer.Ordinal) ?? []);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine($"chargehand: could not prune the batch records: {e.Message}");
+        }
     }
 
     /// <summary>The batches a restart interrupted: saved state with no run record (ADR 0043). State whose run record exists is a leftover and is deleted.</summary>
     public async Task<IReadOnlyList<BatchState>> UnfinishedAsync(CancellationToken ct)
     {
+        PruneRecords();
         if (_store is null || services is null)
             return [];
         List<BatchState> open = [];
@@ -368,7 +399,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", route.Model?.BaseUrl, route.Forward is not null || route.Model?.Forwarded == true || route.Otlp is not null, route.Otlp,
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, route.Exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor, RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge));
             var runner = new TaskRunner(site.Engine, site.Workspace, site.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheckFor?.Invoke(actor), sign, s.Poll, publish: Stamp(site.Name), journal: journal,
-                detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf, outageGrace: s.OutageGrace);
+                detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf, outageGrace: s.OutageGrace, records: records);
             return new SiteBatch(site, net, runner);
         }
         async Task<TaskRunner> RunnerOn(string name)

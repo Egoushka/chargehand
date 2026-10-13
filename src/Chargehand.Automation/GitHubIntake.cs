@@ -103,7 +103,10 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             if (key is not null && !state.Handled.Contains(key))
             {
                 if (!Allowed(applied!.Actor))
+                {
                     state.Handled.Add(key);
+                    Log(key, "ignored", "author_not_allowed", applied.Actor);
+                }
                 else
                     outcome = await StartAsync(key, name, repository, issue, null, null, starter, ct);
             }
@@ -147,6 +150,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         if (!Allowed(comment.Author))
         {
             state.Handled.Add(key);
+            Log(key, "ignored", "author_not_allowed", comment.Author);
             return Outcome.Settled;
         }
         if (answers)
@@ -156,7 +160,9 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         {
             state.Handled.Add(key);
             if (settings.MaxReviewRounds > 0)
-                await QueueAsync(new PendingReview($"c{comment.Id.ToString(CultureInfo.InvariantCulture)}", name, issue.Number, comment.Author, comment.Body, null, null, comment.UpdatedAt), ct);
+                await QueueAsync(key, new PendingReview($"c{comment.Id.ToString(CultureInfo.InvariantCulture)}", name, issue.Number, comment.Author, comment.Body, null, null, comment.UpdatedAt), true, ct);
+            else
+                Log(key, "ignored", "review_rounds_off", comment.Author);
             return Outcome.Settled;
         }
         return await StartAsync(key, name, repository, issue, comment.Body, comment.Author, starter, ct);
@@ -168,6 +174,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         {
             await NotifyOnceAsync($"active:{key}", name, issue.Number, $"chargehand is already working on this issue (run `{active.BatchRunId}`); it will answer here when that run ends.", ct);
             state.Handled.Add(key);
+            Log(key, "ignored", "active");
             return Outcome.Settled;
         }
         // A repository the integrator merges into does not take work from text an allowed author did not write: the issue's body steers the session, and a merge is the end of a check, not of a review.
@@ -175,6 +182,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         {
             await NotifyOnceAsync($"author:{key}", name, issue.Number, $"chargehand did not start: this repository merges chargehand's pull requests once their checks pass, so it only works from an issue written by an allowed author, and this one was written by {issue.Author}.", ct);
             state.Handled.Add(key);
+            Log(key, "ignored", "author", issue.Author);
             return Outcome.Settled;
         }
         if (await CapsAsync(key, name, issue.Number, $"Comment {settings.Mention} again later.", ct) is { } held)
@@ -206,6 +214,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             await NotifyOnceAsync($"gone:{key}", name, earlier.Issue, $"chargehand cannot continue run `{earlier.BatchRunId}`: it is no longer in the run log. Comment {settings.Mention} to start the task again.", ct);
             state.Replace(earlier, earlier with { Phase = IntakePhase.Done });
             state.Handled.Add(key);
+            Log(key, "ignored", "gone", reply.Author);
             return Outcome.Settled;
         }
         var taskId = TaskId(earlier.Issue);
@@ -226,6 +235,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         {
             await NotifyOnceAsync($"cap:{key}", name, issue, $"chargehand did not start: {settings.MaxStartsPerDay.ToString(CultureInfo.InvariantCulture)} triggered batches have started in the last 24 hours, which is the limit. {retry}", ct);
             state.Handled.Add(key);
+            Log(key, "ignored", "cap");
             return Outcome.Settled;
         }
         return null;
@@ -248,6 +258,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         state.Tasks.Add(track(run));
         state.Starts.Add(now);
         state.Handled.Add(key);
+        Log(key, key.StartsWith("round:", StringComparison.Ordinal) ? "round_started" : replaces is not null ? "continued" : "started");
         settled?.Invoke();
         state.Save(now);
         await TryCommentAsync(name, issue, announce(run), ct);
@@ -269,21 +280,31 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             if (state.Handled.Contains(key) || comment.Body.Contains(Marker, StringComparison.Ordinal))
                 continue;
             state.Handled.Add(key);
+            // Only a queued review comment is logged: a comment of anyone on any pull request of the repository is read, and most of them are not requests.
             if (Allowed(comment.Author) && (!comment.IsReply || Mentions(comment.Body)))
-                await QueueAsync(new PendingReview($"r{comment.Id.ToString(CultureInfo.InvariantCulture)}", name, comment.PullNumber, comment.Author, comment.Body, comment.Path, comment.Line, comment.UpdatedAt), ct);
+                await QueueAsync(key, new PendingReview($"r{comment.Id.ToString(CultureInfo.InvariantCulture)}", name, comment.PullNumber, comment.Author, comment.Body, comment.Path, comment.Line, comment.UpdatedAt), false, ct);
         }
         state.ReviewCursor[name] = next;
         state.Save(now);
     }
 
     /// <summary>Keeps a comment for a round when the pull request is a chargehand's own: its head branch is <c>chargehand/*</c> in the repository itself, not a fork.</summary>
-    private async Task QueueAsync(PendingReview comment, CancellationToken ct)
+    private async Task QueueAsync(string key, PendingReview comment, bool asked, CancellationToken ct)
     {
         if (!IsChargehandBranch(await PullAsync(comment.Repository, comment.Pull, ct)))
+        {
+            // A comment that names the bot on someone else's pull request was a request; a review comment there is not.
+            if (asked)
+                Log(key, "ignored", "not_chargehand_branch", comment.Author);
             return;
+        }
         state.Pending.Add(comment);
+        Log(key, "queued", null, comment.Author);
         state.Save(_time.GetUtcNow());
     }
+
+    private void Log(string key, string outcome, string? reason = null, string? author = null) =>
+        state.Triggers.Add(new IntakeTrigger(_time.GetUtcNow(), key, outcome, reason, author));
 
     private async Task<IntakePull> PullAsync(string repository, int number, CancellationToken ct)
     {

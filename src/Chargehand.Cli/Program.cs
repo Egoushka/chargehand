@@ -389,8 +389,10 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
 {
     // Batch state and the run-token key sit next to the run log (ADR 0043).
     var stateDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches");
+    // What the operator console reads about a batch (events, sessions, governor decisions, checks) sits there too, one directory per batch.
+    var records = new Chargehand.Driven.BatchRecords(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "records"));
     if (profile.Driven is not { Enabled: true } driven)
-        return new Chargehand.Driven.DrivenRun(profile, runLog, root, null, learning: learning);
+        return new Chargehand.Driven.DrivenRun(profile, runLog, root, null, learning: learning, records: records);
     Chargehand.Containers.IContainerEngine engine;
     Chargehand.Containers.IWorkspaceEngine workspace;
     Chargehand.Driven.IHostSource hostSource;
@@ -437,7 +439,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
             new HttpClient { BaseAddress = Chargehand.Driven.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token),
         Planner: new Chargehand.Driven.ModelPlanner(childRun, driven.Planning?.Preset ?? "cheap"),
         Retro: new Chargehand.Driven.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap"), Runners: sites),
-        stateDirectory, learning);
+        stateDirectory, learning, records);
 }
 
 // GitHub's API root: api.github.com, or the Enterprise host the profile's driven.forge names. The E2E switch exists for scripts/driven-e2e.sh only.

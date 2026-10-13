@@ -177,6 +177,9 @@ public class DrivenRunTests
         /// <summary>The <c>progress.md</c> a session leaves, from its run id and goal; null: it leaves none.</summary>
         public Func<string, string, string?>? Progress { get; set; }
 
+        /// <summary>The <c>governor.jsonl</c> a session leaves, from its run id and goal; null: it leaves none.</summary>
+        public Func<string, string, string?>? GovernorLog { get; set; }
+
         public Task<TaskUsage?> ReadUsageAsync(string runId, CancellationToken ct)
         {
             Interlocked.Increment(ref UsageReads);
@@ -226,6 +229,8 @@ public class DrivenRunTests
                 File.WriteAllText(Path.Combine(directory, "chargehand.bundle"), "bundle");
             if (Progress?.Invoke(runId, goal) is { } progress)
                 File.WriteAllText(Path.Combine(directory, "progress.md"), progress);
+            if (GovernorLog?.Invoke(runId, goal) is { } governorLog)
+                File.WriteAllText(Path.Combine(directory, "governor.jsonl"), governorLog);
             return Task.CompletedTask;
         }
     }
@@ -290,7 +295,7 @@ public class DrivenRunTests
             DrivenForge? forge = null, Func<RemoteRepository, string, IForge>? forgeFor = null, string remote = "https://github.com/o/r.git",
             IBatchPlanner? planner = null, IStackSeeder? stacker = null, DrivenPlanning? planning = null, ILearningStore? learning = null, DrivenLearning? learningSettings = null,
             IBatchRetro? retro = null, IRetroSink? retroSink = null, DrivenGovernor? governor = null, IBranchSeeder? brancher = null, IReadOnlyList<AccountSettings>? accounts = null,
-            IHostSource? host = null, DrivenAdmission? admission = null, int maxParallel = 2)
+            IHostSource? host = null, DrivenAdmission? admission = null, int maxParallel = 2, bool records = false)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
@@ -311,8 +316,12 @@ public class DrivenRunTests
             _services = services;
             _state = durable ? Path.Combine(Dir.Path, "batches") : null;
             _learning = learning;
-            Run = new DrivenRun(Profile, Log, Repo.Root, services, _state, learning);
+            Records = records ? new BatchRecords(Path.Combine(Dir.Path, "records")) : null;
+            Run = new DrivenRun(Profile, Log, Repo.Root, services, _state, learning, Records);
         }
+
+        /// <summary>What the batch's events and its tasks' sessions are kept in; null: nothing is kept.</summary>
+        public BatchRecords? Records { get; }
 
         public string StateDirectory => _state!;
 
@@ -320,7 +329,7 @@ public class DrivenRunTests
         public DrivenRun Restart()
         {
             Run.Dispose();
-            return Run = new DrivenRun(Profile, Log, Repo.Root, _services, _state, _learning);
+            return Run = new DrivenRun(Profile, Log, Repo.Root, _services, _state, _learning, Records);
         }
 
         public void Dispose()

@@ -37,6 +37,17 @@ internal sealed class ConsoleContext(ServerSettings settings, RunService runs, I
         }
     }
 
+    /// <summary>A batch's events: those kept on disk when there are any (they outlive a restart), else those this process holds. <c>Source</c> says which.</summary>
+    public (IReadOnlyList<RunStatus>? Events, string? Source) EventsOf(string runId)
+    {
+        if (driven?.Records?.ReadEvents(runId) is { } kept)
+            return (kept, "records");
+        return runs.Events(runId) is { } held ? (held, "memory") : (null, null);
+    }
+
+    /// <summary>The sessions, governor logs, checks and CI fix attempts kept for a batch's tasks (CHARGEHAND-214); empty when none are.</summary>
+    public BatchTaskRecords TaskRecordsOf(string runId) => driven?.Records?.ReadTasks(runId) ?? BatchTaskRecords.Empty;
+
     public async Task<IReadOnlyList<LearningEntry>> LearningAsync(CancellationToken ct) =>
         driven?.Learning is { } store ? await store.ReadAsync(ct) : [];
 

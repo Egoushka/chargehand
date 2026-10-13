@@ -19,10 +19,13 @@ internal sealed class ConsoleRig : IAsyncDisposable
 
     public const string Commit = "abc1234def5678abc1234def5678abc1234def56";
 
-    private ConsoleRig(TestServer server, JsonlLearningStore learning, string batches, string intake, DrivenRun driven, Profile profile, string root)
+    private ConsoleRig(TestServer server, JsonlLearningStore learning, string batches, string intake, DrivenRun driven, Profile profile, string root, BatchRecords records)
     {
-        (Server, Learning, BatchDirectory, IntakePath, Driven, Profile, Root) = (server, learning, batches, intake, driven, profile, root);
+        (Server, Learning, BatchDirectory, IntakePath, Driven, Profile, Root, Records) = (server, learning, batches, intake, driven, profile, root, records);
     }
+
+    /// <summary>The events, sessions, governor logs and checks the server keeps for the console; tests seed what an earlier process would have left.</summary>
+    public BatchRecords Records { get; }
 
     public TestServer Server { get; }
 
@@ -54,6 +57,7 @@ internal sealed class ConsoleRig : IAsyncDisposable
         string root = "", batches = "", intake = "";
         DrivenRun? driven = null;
         JsonlLearningStore? learning = null;
+        BatchRecords? records = null;
         Profile? built = null;
         var runtime = new ScriptedRuntime(Runs.DraftReply);
         if (hold)
@@ -62,7 +66,8 @@ internal sealed class ConsoleRig : IAsyncDisposable
             driven: (dir, log) =>
             {
                 learning = new JsonlLearningStore(Path.Combine(dir, "learning.jsonl"));
-                return driven = new DrivenRun(built!, log, Repo.Root, services?.Invoke(dir), batches, learning);
+                records = new BatchRecords(Path.Combine(dir, "records"));
+                return driven = new DrivenRun(built!, log, Repo.Root, services?.Invoke(dir), batches, learning, records);
             },
             // The server's settings are made before its driven run, so the profile is made here.
             tweak: (dir, settings) =>
@@ -71,7 +76,7 @@ internal sealed class ConsoleRig : IAsyncDisposable
                 built = profile?.Invoke(dir) ?? Runs.Profile(dir);
                 return settings with { Profile = built, SecretPresent = secretPresent, IntakeStatePath = intake, Accounts = accountsFor?.Invoke(dir) ?? settings.Accounts };
             });
-        return new ConsoleRig(server, learning!, batches, intake, driven!, built!, root);
+        return new ConsoleRig(server, learning!, batches, intake, driven!, built!, root, records!);
     }
 
     /// <summary>A key for <paramref name="account"/>; the account must be declared.</summary>

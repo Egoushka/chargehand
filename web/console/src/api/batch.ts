@@ -47,10 +47,73 @@ export interface TaskSpendBody {
   continuations: number;
 }
 
+/** One governor decision in full, from the session's `governor.jsonl`; `session` is the run id of the session that made it. */
+export interface GovernorDecisionBody {
+  at: string;
+  session: string;
+  turn: number;
+  mode: string;
+  action: 'warn' | 'checkpoint' | 'stop';
+  signal: string;
+  rule: string;
+  values: Record<string, string>;
+  spend_usd?: number | null;
+  budget_usd?: number | null;
+  size_class?: string | null;
+  acted: boolean;
+  budget_source?: {
+    kind: string;
+    n?: number | null;
+    percentile?: number | null;
+    scope?: string | null;
+  } | null;
+}
+
 export interface GovernorBody {
   mode?: string | null;
   stop_reason?: string | null;
   decisions: GovernorCount[];
+  /** Every decision of the task's sessions, oldest first; absent for a task that ran before they were kept. */
+  log?: GovernorDecisionBody[] | null;
+  /** How many decisions the sessions' logs held; more than `log` when a session's was cut. */
+  log_total?: number | null;
+}
+
+export interface CheckBody {
+  name: string;
+  required: boolean;
+  outcome: 'pending' | 'passed' | 'failed' | 'other';
+  job_id?: number | null;
+}
+
+/** The checks of a task's pull request at one look of the integrator's watch. `decision` is `wait`, `done`, `fix`, `give_up`, `merged` or `closed`. */
+export interface CheckSnapshotBody {
+  at: string;
+  pull: number;
+  head_sha: string;
+  merge_status: string;
+  draft: boolean;
+  auto_merge: boolean;
+  decision: string;
+  checks: CheckBody[];
+}
+
+export interface CiAttemptBody {
+  attempt: number;
+  max_attempts: number;
+  at: string;
+  jobs_key: string;
+  failing: string[];
+  pushed: boolean;
+  detail: string;
+}
+
+/** What the integrator saw of a task's pull request. `history` is in the task view only. */
+export interface CiBody {
+  checks?: CheckSnapshotBody | null;
+  looks: number;
+  attempts: CiAttemptBody[];
+  history?: CheckSnapshotBody[] | null;
 }
 
 /** Where a running task's session stands, from its latest `session_progress` event. */
@@ -65,9 +128,25 @@ export interface TaskLiveBody {
   cache_write?: number | null;
 }
 
+/** A session of a task. `role` is `first`, `continuation` or `ci_fix`; the rest is absent for a session still running or one that ran before they were kept. */
 export interface TaskSessionBody {
   run_id: string;
   role: string;
+  runner?: string | null;
+  started?: string | null;
+  ended?: string | null;
+  /** The outcome's status, or `cancelled` / `error` for a session cut short. */
+  status?: string | null;
+  reason?: string | null;
+  turns?: number | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_tokens?: number | null;
+  cache_write_tokens?: number | null;
+  usd_estimate?: number | null;
+  usd?: number | null;
+  exit_code?: number | null;
+  commits?: number | null;
 }
 
 export interface TaskLinkBody {
@@ -108,6 +187,7 @@ export interface BatchTaskBody {
   answered_by: TaskLinkBody[];
   answer?: AnswerHint | null;
   pull_request?: PullRequestBody | null;
+  ci?: CiBody | null;
 }
 
 export interface ArtifactRef {
@@ -133,6 +213,8 @@ export interface TimelineBody {
   available: boolean;
   total: number;
   events: RunStatus[];
+  /** `records` (kept on disk, survives a restart) or `memory`; absent when not available. */
+  source?: 'records' | 'memory' | null;
 }
 
 /** `batch/v1`: one driven batch. */
