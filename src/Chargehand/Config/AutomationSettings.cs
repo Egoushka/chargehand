@@ -32,8 +32,8 @@ public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, Automa
     internal void Validate(DrivenSettings? driven)
     {
         var problems = new List<string>();
-        if (driven is not { Enabled: true, Integrator: { AppId: not null, InstallationId: not null, PrivateKeySecret: not null } })
-            problems.Add("needs driven.enabled and the GitHub App of driven.integrator (app_id, installation_id, private_key_secret), which reads and comments");
+        if (driven is not { Enabled: true, Integrator: { AppId: not null, PrivateKeySecret: not null } })
+            problems.Add("needs driven.enabled and the GitHub App of driven.integrator (app_id, private_key_secret), which reads and comments");
         if (Repositories is not { Count: > 0 })
             problems.Add("repositories must list at least one owner/repo");
         foreach (var (name, repository) in Repositories ?? new Dictionary<string, AutomationRepository>())

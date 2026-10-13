@@ -10,7 +10,7 @@ public class GitHubIntakeHostTests
 {
     private sealed class FixedToken : IInstallationTokens
     {
-        public Task<string> GetAsync(CancellationToken ct) => Task.FromResult("ghs_secrettoken");
+        public Task<string> GetAsync(string owner, string repository, CancellationToken ct) => Task.FromResult("ghs_secrettoken");
     }
 
     private sealed class Canned(Func<HttpRequestMessage, string?, HttpResponseMessage> answer) : HttpMessageHandler

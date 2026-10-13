@@ -131,6 +131,37 @@ public class DrivenIntegrationTests
         Assert.Contains("integration stopped: GitHub answered 502", Row(result).GetProperty("detail").GetString());
     }
 
+    /// <summary>GitHub answers 404 to every installation lookup: the App is installed on no owner.</summary>
+    private sealed class NoInstallation : HttpMessageHandler
+    {
+        public List<string> Paths { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Paths.Add(request.RequestUri!.AbsolutePath);
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NotFound) { Content = new StringContent("""{"message":"Not Found"}""") });
+        }
+    }
+
+    [Fact]
+    public async Task A_repository_the_app_is_not_installed_on_is_said_so_and_the_task_stays_completed_with_its_draft()
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var handler = new NoInstallation();
+        var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.example.test/") };
+        using var tokens = new GitHubInstallationTokens(http, 1, null, () => rsa.ExportRSAPrivateKeyPem(), TimeProvider.System);
+        using var rig = new DrivenRunTests.Rig(integrator: Config(), integration: new GitHubIntegrationHost(http, tokens));
+
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        var detail = Row(result).GetProperty("detail").GetString();
+        Assert.Contains("integration stopped: the GitHub App is not installed on o", detail);
+        Assert.DoesNotContain("Resource not accessible", detail);
+        Assert.Equal(["/repos/o/r/installation"], handler.Paths);
+        Assert.Single(rig.Handover.Inputs);
+    }
+
     [Fact]
     public async Task A_failing_required_check_starts_a_fix_session_on_the_same_branch_seeded_from_the_last_bundle_and_its_push_is_the_second_handover()
     {
@@ -206,9 +237,9 @@ public class DrivenIntegrationTests
 
         public Task UpdateBranchAsync(RemoteRepository repository, int number, string expectedHeadSha, CancellationToken ct) => inner.UpdateBranchAsync(repository, number, expectedHeadSha, ct);
 
-        public Task MarkReadyAsync(string nodeId, CancellationToken ct) => inner.MarkReadyAsync(nodeId, ct);
+        public Task MarkReadyAsync(RemoteRepository repository, string nodeId, CancellationToken ct) => inner.MarkReadyAsync(repository, nodeId, ct);
 
-        public Task EnableAutoMergeAsync(string nodeId, string headSha, CancellationToken ct) => inner.EnableAutoMergeAsync(nodeId, headSha, ct);
+        public Task EnableAutoMergeAsync(RemoteRepository repository, string nodeId, string headSha, CancellationToken ct) => inner.EnableAutoMergeAsync(repository, nodeId, headSha, ct);
 
         public Task MergeNowAsync(RemoteRepository repository, int number, string headSha, CancellationToken ct) => inner.MergeNowAsync(repository, number, headSha, ct);
 

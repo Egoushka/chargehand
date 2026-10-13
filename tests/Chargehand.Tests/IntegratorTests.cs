@@ -58,14 +58,14 @@ internal sealed class FakeIntegrationHost : IIntegrationHost
         return Task.CompletedTask;
     }
 
-    public Task MarkReadyAsync(string nodeId, CancellationToken ct)
+    public Task MarkReadyAsync(RemoteRepository repository, string nodeId, CancellationToken ct)
     {
         Calls.Add("ready");
         Current = Current with { IsDraft = false, MergeStatus = StatusAfterReady };
         return Task.CompletedTask;
     }
 
-    public Task EnableAutoMergeAsync(string nodeId, string headSha, CancellationToken ct)
+    public Task EnableAutoMergeAsync(RemoteRepository repository, string nodeId, string headSha, CancellationToken ct)
     {
         Calls.Add($"auto-merge {headSha}");
         if (AutoMergeRefused is not null)

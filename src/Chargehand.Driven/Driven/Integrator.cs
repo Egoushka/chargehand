@@ -95,7 +95,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
             }
             if (pr.IsDraft)
             {
-                await host.MarkReadyAsync(pr.NodeId, ct);
+                await host.MarkReadyAsync(target.Repository, pr.NodeId, ct);
                 report("marked ready for review");
                 pr = await host.GetAsync(target.Repository, target.Number, ct);
             }
@@ -120,7 +120,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                 return await MergeNowAsync(target, pr.HeadSha, report, ct);
             try
             {
-                await host.EnableAutoMergeAsync(pr.NodeId, pr.HeadSha, ct);
+                await host.EnableAutoMergeAsync(target.Repository, pr.NodeId, pr.HeadSha, ct);
             }
             catch (IntegrationException)
             {
