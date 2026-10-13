@@ -37,10 +37,16 @@ public class DrivenContractsTests
     [InlineData("""{"tasks":[{"id":"t1"}]}""")]                                                            // neither ref nor goal
     [InlineData("""{"tasks":[]}""")]                                                                       // no tasks
     [InlineData("""{"tasks":[{"id":"t1","goal":"g"}],"draft_pr":false}""")]                                // not a draft
-    [InlineData("""{"tasks":[{"id":"t1","goal":"g"}],"max_parallel":5}""")]                                // above the ceiling
+    [InlineData("""{"tasks":[{"id":"t1","goal":"g"}],"max_parallel":17}""")]                               // above the ceiling
     [InlineData("""{"tasks":[{"id":"T 1","goal":"g"}]}""")]                                                // id shape
     [InlineData("""{"tasks":[{"id":"t1","goal":"g","extra":1}]}""")]                                       // unknown member
     public void A_malformed_driven_block_is_refused(string driven) => Assert.NotEmpty(Validate(Request(driven)));
+
+    [Fact]
+    public void Sixteen_tasks_at_once_are_allowed_by_the_schema()
+    {
+        Assert.Empty(Validate(Request("""{"tasks":[{"id":"t1","goal":"g"}],"max_parallel":16}""")));
+    }
 
     [Fact]
     public void Twenty_one_tasks_are_refused()

@@ -141,8 +141,8 @@
       "description": "Driven writing sessions (ADR 0039): each task runs in its own container and ends in a draft pull request. Off unless enabled.",
       "properties": {
         "enabled": { "type": "boolean", "description": "Default false." },
-        "max_parallel": { "type": "integer", "minimum": 1, "maximum": 4, "description": "Tasks running at once in one batch. Default 2." },
-        "max_parallel_total": { "type": "integer", "minimum": 1, "maximum": 8, "description": "Tasks running at once across batches. Default 4." },
+        "max_parallel": { "type": "integer", "minimum": 1, "maximum": 16, "description": "Tasks running at once in one batch. Default 2. How many really run is governed by admission (memory, pressure, load) and the rate-limit pause." },
+        "max_parallel_total": { "type": "integer", "minimum": 1, "maximum": 32, "description": "Tasks running at once across batches. Default 4. The runner's --max-containers must allow them." },
         "max_session_calls": { "type": "integer", "minimum": 1, "maximum": 8, "description": "Research and review runs that sessions may have executing at once, across all sessions. Default 2; with more sessions than this, a session's call waits for a slot." },
         "images": { "type": "array", "items": { "type": "string", "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$" }, "description": "Session images by digest; nothing else may run." },
         "limits": {
@@ -183,10 +183,12 @@
         "admission": {
           "type": "object",
           "additionalProperties": false,
-          "description": "ADR 0045's admission: a task starts only when the host's available memory minus reserve_mb covers its container's memory limit (and, when set, the load is under max_load_per_cpu). Running tasks are never stopped for it; with nothing of this server running, one task starts anyway.",
+          "description": "ADR 0045's admission: a task starts only when the host's available memory minus reserve_mb covers the task's memory request (the 90th percentile of the peak memory that sessions of its repository used, else default_request_mb; never above the container's memory limit, never below 512 MiB), memory pressure is under max_memory_pressure and, when set, the load is under max_load_per_cpu. Running tasks are never stopped for it; with nothing of this server running, one task starts anyway.",
           "properties": {
             "reserve_mb": { "type": "integer", "minimum": 0, "description": "Memory left for everything else on the host. Default 1024." },
-            "max_load_per_cpu": { "type": "number", "exclusiveMinimum": 0, "description": "A one-minute load average per processor above this holds new starts. Default: no load rule." }
+            "max_load_per_cpu": { "type": "number", "exclusiveMinimum": 0, "description": "A one-minute load average per processor above this holds new starts. Default: no load rule." },
+            "default_request_mb": { "type": "integer", "minimum": 512, "description": "The memory request of a task while fewer than 10 session peaks are recorded for its repository and for all repositories. Clamped to the container's memory limit. Default 1536." },
+            "max_memory_pressure": { "type": "number", "exclusiveMinimum": 0, "maximum": 100, "description": "New starts wait while the host's memory pressure (Linux PSI, some avg10 of /proc/pressure/memory, in percent) is above this. A host without PSI skips the rule; 100 turns it off. Default 10." }
           }
         },
         "services": {

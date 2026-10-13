@@ -81,7 +81,7 @@
             }
           }
         },
-        "max_parallel": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "max_parallel": { "type": "integer", "minimum": 1, "maximum": 16 },
         "max_tokens_total": { "type": "integer", "minimum": 1, "description": "Input plus output tokens over the batch. Binds in both credential modes." },
         "max_usd_total": { "type": "number", "exclusiveMinimum": 0, "description": "Dollars over the batch; enforced only where the credential is priced (an API key)." },
         "draft_pr": { "const": true, "description": "Always true: pull requests are opened as drafts and never merged." },

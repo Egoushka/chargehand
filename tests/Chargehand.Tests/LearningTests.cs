@@ -151,6 +151,47 @@ public class LearningTests
     }
 
     [Fact]
+    public async Task The_record_carries_the_peak_memory_the_engine_measured_and_none_when_it_could_not()
+    {
+        using var stores = new Stores();
+        using var rig = new DrivenRunTests.Rig(learning: stores.Store, outcomes: (_, _) => Done(1m));
+        rig.Engine.PeakMb = 289;
+        rig.Engine.RunFor = 2;
+        await rig.Run.RunAsync(One(), BatchId, Token, default);
+        Assert.Equal(289, Assert.Single(await Records(stores.Store)).MemoryPeakMb);
+
+        using var blind = new Stores();
+        using var unmeasured = new DrivenRunTests.Rig(learning: blind.Store, outcomes: (_, _) => Done(1m));
+        await unmeasured.Run.RunAsync(One(), BatchId, Token, default);
+        Assert.Null(Assert.Single(await Records(blind.Store)).MemoryPeakMb);
+    }
+
+    [Fact]
+    public async Task A_continued_tasks_record_holds_the_largest_peak_of_its_sessions()
+    {
+        using var stores = new Stores();
+        using var rig = new DrivenRunTests.Rig(learning: stores.Store, outcomes: (_, goal) => IsContinuation(goal) ? Done(0.5m) : Stopped(SessionStatus.Stalled, "checkpoint_spend", 1.25m));
+        var first = (string?)null;
+        rig.Engine.PeakOf = id => (first ??= id) == id ? 2400 : 700;   // the first session was the big one
+        await rig.Run.RunAsync(One(), BatchId, Token, default);
+        var r = Assert.Single(await Records(stores.Store));
+        Assert.Equal(1, r.Spend.Continuations);
+        Assert.Equal(2400, r.MemoryPeakMb);
+    }
+
+    [Fact]
+    public async Task The_progress_event_carries_the_peak_so_far()
+    {
+        var volumes = new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed) { Usage = new TaskUsage(48_200, 0, 12, SessionStage.Write) };
+        using var rig = new DrivenRunTests.Rig(volumes: volumes);
+        rig.Engine.RunFor = 3;
+        rig.Engine.PeakMb = 612;
+        List<RunStatus> events = [];
+        await rig.Run.RunAsync(One(), BatchId, Token, default, e => { lock (events) events.Add(e); });
+        Assert.Equal(612, events.Single(e => e.Event == RunEventKind.SessionProgress).MemoryPeakMb);
+    }
+
+    [Fact]
     public async Task A_continued_task_adds_its_sessions_spend_and_decisions_and_counts_the_continuation()
     {
         var first = new[] { Decision(GovernorAction.Warn, "repeated_call"), Decision(GovernorAction.Checkpoint, "spend", acted: true) };

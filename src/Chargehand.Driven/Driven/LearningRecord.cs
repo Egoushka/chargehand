@@ -59,8 +59,10 @@ public sealed record LearningPr(string Url, int Number, RemoteRepository Remote,
 /// <param name="StopReason">How the last session ended: <c>completed</c>, <c>turn_limit</c>, <c>checkpoint_spend</c>, <c>budget_spent</c>, ...</param>
 /// <param name="GovernorMode"><c>off</c>, <c>observe</c> or <c>enforce</c>; null: no governor in the sessions.</param>
 /// <param name="Actor">The account that started the batch (ADR 0050); null: the owner, or a batch from before accounts. An account's <c>GET /v1/learn</c> sees only its own.</param>
+/// <param name="MemoryPeakMb">The most memory any of the task's session containers used (MiB), read from its cgroup while it ran (ADR 0045, admission); null: not measured (a record from before it, or an engine that could not).</param>
 public sealed record LearningRecord(string BatchId, string TaskId, string RunId, DateTimeOffset At, string Repository, string SizeClass, string SizeFrom, LearningBudget Budget,
-    LearningSpend Spend, string Outcome, string? StopReason, string? GovernorMode, IReadOnlyList<GovernorCount> Governor, bool TestIntegrityFlagged, LearningPr? Pr = null, string? Actor = null)
+    LearningSpend Spend, string Outcome, string? StopReason, string? GovernorMode, IReadOnlyList<GovernorCount> Governor, bool TestIntegrityFlagged, LearningPr? Pr = null, string? Actor = null,
+    int? MemoryPeakMb = null)
 {
     /// <summary>The task had at least one checkpoint decision, acted on or only logged.</summary>
     public bool Checkpointed => Governor.Any(g => g.Action == "checkpoint" && g.Count > 0);

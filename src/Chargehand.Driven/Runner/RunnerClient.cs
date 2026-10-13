@@ -54,7 +54,7 @@ public sealed class RunnerClient(HttpClient http) : IContainerEngine, IWorkspace
     public async Task<ContainerState> InspectAsync(string id, CancellationToken ct)
     {
         var reply = await Send<RunnerInspect>(HttpMethod.Get, $"/inspect/{Uri.EscapeDataString(id)}", null, ct);
-        return new ContainerState(Enum.Parse<ContainerStatus>(reply.Status, ignoreCase: true), reply.ExitCode, reply.OomKilled);
+        return new ContainerState(Enum.Parse<ContainerStatus>(reply.Status, ignoreCase: true), reply.ExitCode, reply.OomKilled, reply.MemoryPeakMb);
     }
 
     /// <summary>A task cleans up by the container's fixed name even when it never started one, and the runner answers 404 for a name it does not own or that

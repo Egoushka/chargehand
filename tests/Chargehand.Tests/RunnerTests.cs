@@ -24,12 +24,13 @@ public class RunnerTests
         public List<string> Calls { get; } = [];
         public HashSet<string> Owned { get; } = ["ours1"];
         public int Count { get; set; }
+        public int? PeakMb { get; set; }
         public ContainerSpec? Started { get; private set; }
         public EgressSpec? Egress { get; private set; }
 
         public Task<string> StartAsync(ContainerSpec spec, CancellationToken ct) { Started = spec; Calls.Add("start"); return Task.FromResult("ours1"); }
         public Task SignalAsync(string id, string signal, CancellationToken ct) { Calls.Add($"signal {id} {signal}"); return Task.CompletedTask; }
-        public Task<ContainerState> InspectAsync(string id, CancellationToken ct) { Calls.Add($"inspect {id}"); return Task.FromResult(new ContainerState(ContainerStatus.Exited, 3, true)); }
+        public Task<ContainerState> InspectAsync(string id, CancellationToken ct) { Calls.Add($"inspect {id}"); return Task.FromResult(new ContainerState(ContainerStatus.Exited, 3, true, PeakMb)); }
         public Task RemoveAsync(string id, CancellationToken ct) { Calls.Add($"rm {id}"); return Task.CompletedTask; }
         public Task<EngineResources> ListAsync(CancellationToken ct) { Calls.Add("list"); return Task.FromResult(new EngineResources(["chargehand-run1"], ["chargehand-net-b1"], ["chargehand-work-run1"])); }
         public Task KillAllAsync(CancellationToken ct) { Calls.Add("kill-all"); return Task.CompletedTask; }
@@ -419,6 +420,39 @@ public class RunnerTests
         Assert.Contains("\"available_mb\":2300", await http.GetStringAsync("/host"));
         Assert.Equal(snapshot, await new RunnerClient(http).ReadAsync(default));
         await app.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task The_host_route_carries_memory_pressure_and_leaves_it_out_where_the_host_has_none()
+    {
+        var withPsi = new HostSnapshot(2300, 16000, 2048, 1500, 0.75, 8, 3.25);
+        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage)), new FakeEngine(), new FixedHost(withPsi));
+        await app.StartAsync();
+        using var http = Runner.Authorized(new Uri(app.Urls.First()), Key);
+        Assert.Contains("\"memory_pressure_avg10\":3.25", await http.GetStringAsync("/host"));
+        Assert.Equal(withPsi, await new RunnerClient(http).ReadAsync(default));
+        await app.DisposeAsync();
+
+        var withoutPsi = new HostSnapshot(2300, 16000, 2048, 1500, 0.75, 8);
+        var mac = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage)), new FakeEngine(), new FixedHost(withoutPsi));
+        await mac.StartAsync();
+        using var macHttp = Runner.Authorized(new Uri(mac.Urls.First()), Key);
+        Assert.DoesNotContain("memory_pressure", await macHttp.GetStringAsync("/host"));
+        Assert.Null((await new RunnerClient(macHttp).ReadAsync(default))!.MemoryPressureAvg10);
+        await mac.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Inspect_carries_the_containers_memory_peak_and_leaves_it_out_when_the_engine_has_none()
+    {
+        await using var r = await Start();
+        var client = new RunnerClient(r.Http);
+        r.Engine.PeakMb = 289;
+        Assert.Contains("\"memory_peak_mb\":289", await r.Http.GetStringAsync("/inspect/ours1"));
+        Assert.Equal(new ContainerState(ContainerStatus.Exited, 3, true, 289), await client.InspectAsync("ours1", default));
+        r.Engine.PeakMb = null;
+        Assert.DoesNotContain("memory_peak_mb", await r.Http.GetStringAsync("/inspect/ours1"));   // a server older than the field reads the same reply as before
+        Assert.Equal(new ContainerState(ContainerStatus.Exited, 3, true), await client.InspectAsync("ours1", default));
     }
 
     [Fact]

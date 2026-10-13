@@ -46,6 +46,13 @@ public class DrivenRunTests
         /// <summary>Called with the number of the start (1-based) once it is recorded; what it returns is thrown.</summary>
         public Func<int, Exception?>? OnStart { get; set; }
 
+        /// <summary>The peak memory (MiB) every container reports; null: the engine cannot measure it.</summary>
+        public int? PeakMb { get; set; }
+        /// <summary>The peak a container reports, by its id; overrides <see cref="PeakMb"/> where it answers.</summary>
+        public Func<string, int?>? PeakOf { get; set; }
+
+        private int? Peak(string id) => PeakOf?.Invoke(id) ?? PeakMb;
+
         /// <summary>Containers docker no longer knows.</summary>
         public HashSet<string> Gone { get; } = [];
         public EngineResources Resources { get; set; } = new([], [], []);
@@ -107,11 +114,11 @@ public class DrivenRunTests
                 if (Gone.Contains(id))
                     return Task.FromResult(new ContainerState(ContainerStatus.Missing, null, false));
                 if (_held.Contains(id) && !_stopped.Contains(id))
-                    return Task.FromResult(new ContainerState(ContainerStatus.Running, null, false));
+                    return Task.FromResult(new ContainerState(ContainerStatus.Running, null, false, Peak(id)));
                 _inspections[id] = _inspections.GetValueOrDefault(id) + 1;
                 running = (HoldRunning || _inspections[id] <= RunFor) && !_stopped.Contains(id);
             }
-            return Task.FromResult(running ? new ContainerState(ContainerStatus.Running, null, false) : new ContainerState(ContainerStatus.Exited, 0, false));
+            return Task.FromResult(running ? new ContainerState(ContainerStatus.Running, null, false, Peak(id)) : new ContainerState(ContainerStatus.Exited, 0, false, Peak(id)));
         }
 
         public Task RemoveAsync(string id, CancellationToken ct) { Record($"rm {id}"); return Task.CompletedTask; }
@@ -267,13 +274,14 @@ public class DrivenRunTests
             DrivenLimits? limits = null, Func<string, string, SessionOutcome?>? outcomes = null, DrivenIntegrator? integrator = null, IIntegrationHost? integration = null,
             DrivenForge? forge = null, Func<RemoteRepository, string, IForge>? forgeFor = null, string remote = "https://github.com/o/r.git",
             IBatchPlanner? planner = null, IStackSeeder? stacker = null, DrivenPlanning? planning = null, ILearningStore? learning = null, DrivenLearning? learningSettings = null,
-            IBatchRetro? retro = null, IRetroSink? retroSink = null, DrivenGovernor? governor = null, IBranchSeeder? brancher = null, IReadOnlyList<AccountSettings>? accounts = null)
+            IBatchRetro? retro = null, IRetroSink? retroSink = null, DrivenGovernor? governor = null, IBranchSeeder? brancher = null, IReadOnlyList<AccountSettings>? accounts = null,
+            IHostSource? host = null, DrivenAdmission? admission = null, int maxParallel = 2)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
             {
                 ClaudeCode = apiKey ? new ClaudeCodeSettings("2.1.283", ApiKeySecret: "gateway-key") : new ClaudeCodeSettings("2.1.283", OauthTokenSecret: "claude-code-oauth-token"),
-                Driven = new DrivenSettings(enabled, MaxParallel: 2, Images: [Image], PushSecret: PushSecret,
+                Driven = new DrivenSettings(enabled, MaxParallel: maxParallel, Admission: admission, Images: [Image], PushSecret: PushSecret,
                     Network: new DrivenNetwork(McpForward: mcpForward, ModelUrl: modelUrl, OtlpUrl: otlpUrl), Limits: limits, Integrator: integrator, Forge: forge, Planning: planning, Learning: learningSettings, Governor: governor),
                 Telemetry = telemetry,
                 Http = accounts is null ? null : new HttpSettings("api-key", Accounts: accounts),
@@ -283,7 +291,7 @@ public class DrivenRunTests
             var services = enabled
                 ? new DrivenServices(Engine, Engine, Volumes, _ => throw new NotSupportedException("the handover is faked"), null,
                     (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", CheckoutCommit, remote, "main")), resolver ?? new NoEvidenceProblems(),
-                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1), Integration: integration, ForgeFor: forgeFor, Planner: planner, Stacker: stacker, Retro: retro, RetroSink: retroSink, Brancher: brancher)
+                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1), Host: host, Integration: integration, ForgeFor: forgeFor, Planner: planner, Stacker: stacker, Retro: retro, RetroSink: retroSink, Brancher: brancher)
                 : null;
             _services = services;
             _state = durable ? Path.Combine(Dir.Path, "batches") : null;

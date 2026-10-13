@@ -8,13 +8,13 @@ namespace Chargehand.Driven;
 /// cap while tasks are still running has them cancelled; so has a task that reports more than its own cap (live usage reaches the scheduler while the task
 /// runs, so the caps bind before it ends). A task that ended on a usage or rate limit holds new starts until the limit lifts (its reset time, else a fixed backoff; a reset
 /// further off than <see cref="MaxPause"/> stops the batch instead); running tasks go on. An unavailable provider stops new starts and says how to switch to an
-/// API key; nothing switches by itself. With an <paramref name="admission"/>, a task also waits until the host has memory for its container (ADR 0045); a running task is
+/// API key; nothing switches by itself. With an <paramref name="admission"/>, a task also waits until the host has memory for its request (ADR 0045); a running task is
 /// never stopped for it. A task with <c>DependsOn</c> starts only once all of those ended <c>completed</c>, with their branches in <see cref="ResolvedTask.Upstream"/> (ADR 0049); one whose
 /// dependency failed, asked a question, was cancelled or was not started is <c>not_started</c> with that reason and holds no slot. A halt (the token) cancels what runs and starts nothing more.</summary>
 /// <param name="backoff">How long a limit that names no reset holds new starts; <see cref="UsageLimit.DefaultBackoff"/> when null.</param>
 /// <param name="admission">Shared by every batch of the server; null: tasks start by count and caps only.</param>
-/// <param name="taskMemoryMb">The memory limit of a task's container, which the host must have free.</param>
-public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null, HostAdmission? admission = null, int taskMemoryMb = 0)
+/// <param name="taskRequestMb">What the host must have free for a task: the working set its repository's sessions have measured (<see cref="MemoryRequest"/>), not its container's limit.</param>
+public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null, HostAdmission? admission = null, int taskRequestMb = 0)
 {
     /// <summary>The longest wait for a limit to lift; past it the batch stops and the caller retries.</summary>
     public static readonly TimeSpan MaxPause = TimeSpan.FromHours(6);
@@ -170,7 +170,7 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
             AdmissionDecision decision;
             try
             {
-                decision = await admission!.TryAdmitAsync(taskMemoryMb, ct);
+                decision = await admission!.TryAdmitAsync(taskRequestMb, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

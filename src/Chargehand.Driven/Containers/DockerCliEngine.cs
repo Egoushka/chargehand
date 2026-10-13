@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using Chargehand.Contracts;
 
@@ -6,10 +8,18 @@ namespace Chargehand.Containers;
 
 /// <summary>An <see cref="IContainerEngine"/> that calls the <c>docker</c> CLI (ADR 0039). Arguments go through
 /// <see cref="ProcessStartInfo.ArgumentList"/>, never a shell string; every name is checked before it reaches docker. <paramref name="leadingArgs"/>
-/// go before every call (a test runs a fake docker script as <c>sh script</c>, which avoids a busy-executable race on Linux).</summary>
-public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null) : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine, IServiceEngine
+/// go before every call (a test runs a fake docker script as <c>sh script</c>, which avoids a busy-executable race on Linux).
+/// While a container runs, each inspect also measures its memory (ADR 0045, admission): the cgroup's <c>memory.peak</c> when <paramref name="cgroupRoot"/> shows the container's cgroup, else the
+/// largest <c>docker stats</c> reading, taken at most every <paramref name="statsEvery"/> (5 s). The largest value seen is kept until the container is removed, because its cgroup is gone once it exits.</summary>
+public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<string>? leadingArgs = null, string cgroupRoot = "/sys/fs/cgroup", TimeSpan? statsEvery = null)
+    : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine, IServiceEngine
 {
     private const int OutputCap = 64 * 1024;
+
+    private readonly ConcurrentDictionary<string, Peak> _peaks = new(StringComparer.Ordinal);
+    private readonly TimeSpan _statsEvery = statsEvery ?? TimeSpan.FromSeconds(5);
+
+    private sealed record Peak(int Mb, long SampledAt);
 
     /// <summary>The most a file read out of an output volume may be (a bundle of the session's branch).</summary>
     public const long OutFileCap = 256L * 1024 * 1024;
@@ -69,21 +79,91 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
     public async Task<ContainerState> InspectAsync(string id, CancellationToken ct)
     {
         RequirePlain(id);
-        var result = await RunAsync(["inspect", "--format", "{{.State.Status}} {{.State.ExitCode}} {{.State.OOMKilled}}", id], ct);
+        var result = await RunAsync(["inspect", "--format", "{{.State.Status}} {{.State.ExitCode}} {{.State.OOMKilled}} {{.Id}}", id], ct);
         if (result.ExitCode != 0)
             return result.Stderr.Contains("No such", StringComparison.OrdinalIgnoreCase)
                 ? new ContainerState(ContainerStatus.Missing, null, false)
                 : throw Unavailable("docker inspect failed", result, null);
         var parts = result.Stdout.Trim().Split(' ');
-        if (parts.Length != 3 || !int.TryParse(parts[1], out var exit))
+        if (parts.Length is not (3 or 4) || !int.TryParse(parts[1], out var exit))
             throw Unavailable("docker inspect answered something unexpected", result, null);
         var running = parts[0] is "running" or "created" or "restarting" or "paused";
-        return new ContainerState(running ? ContainerStatus.Running : ContainerStatus.Exited, running ? null : exit, parts[2] == "true");
+        int? peak = parts[0] == "running" ? await SamplePeakAsync(id, parts.Length == 4 ? parts[3] : null, ct) : _peaks.TryGetValue(id, out var seen) ? seen.Mb : null;
+        return new ContainerState(running ? ContainerStatus.Running : ContainerStatus.Exited, running ? null : exit, parts[2] == "true", peak);
+    }
+
+    /// <summary>Measures a running container and keeps the largest value. A reading that fails is skipped: the memory figure must never fail an inspect.</summary>
+    private async Task<int?> SamplePeakAsync(string key, string? fullId, CancellationToken ct)
+    {
+        _peaks.TryGetValue(key, out var seen);
+        var now = Stopwatch.GetTimestamp();
+        var sampled = fullId is null ? null : CgroupPeakMb(fullId);
+        if (sampled is null && (seen is null || Stopwatch.GetElapsedTime(seen.SampledAt, now) >= _statsEvery))
+            sampled = await StatsMbAsync(key, ct);
+        if (sampled is not { } mb)
+            return seen?.Mb;
+        return _peaks.AddOrUpdate(key, new Peak(mb, now), (_, old) => new Peak(Math.Max(old.Mb, mb), now)).Mb;
+    }
+
+    private async Task<int?> StatsMbAsync(string key, CancellationToken ct)
+    {
+        try
+        {
+            var stats = await RunAsync(["stats", "--no-stream", "--format", "{{.MemUsage}}", key], ct);
+            return stats.ExitCode == 0 ? ParseUsageMb(stats.Stdout) : null;
+        }
+        catch (ChargehandException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The container's <c>memory.peak</c> in MiB, rounded up, from its cgroup under the systemd driver's or the cgroupfs driver's path; null when the file is not there or not readable
+    /// (an older kernel, a runner that does not see the host's cgroups).</summary>
+    private int? CgroupPeakMb(string fullId)
+    {
+        foreach (var path in new[] { Path.Combine(cgroupRoot, "system.slice", $"docker-{fullId}.scope", "memory.peak"), Path.Combine(cgroupRoot, "docker", fullId, "memory.peak") })
+        {
+            try
+            {
+                if (long.TryParse(File.ReadAllText(path).Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var bytes))
+                    return (int)Math.Min(int.MaxValue, (bytes + (1 << 20) - 1) >> 20);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+        return null;
+    }
+
+    /// <summary>The use half of <c>docker stats</c>' <c>285.1MiB / 3GiB</c>, in MiB rounded up; null when it is not a size.</summary>
+    internal static int? ParseUsageMb(string text)
+    {
+        var use = text.Split('/')[0].Trim();
+        var unit = use.Length;
+        while (unit > 0 && char.IsLetter(use[unit - 1]))
+            unit--;
+        if (unit <= 0 || !double.TryParse(use[..unit], NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            return null;
+        double? mib = use[unit..] switch
+        {
+            "B" => value / (1 << 20),
+            "KiB" => value / 1024,
+            "MiB" => value,
+            "GiB" => value * 1024,
+            "TiB" => value * 1024 * 1024,
+            "kB" => value * 1000 / (1 << 20),
+            "MB" => value * 1_000_000 / (1 << 20),
+            "GB" => value * 1_000_000_000 / (1 << 20),
+            _ => null,
+        };
+        return mib is { } v and >= 0 and < int.MaxValue ? (int)Math.Ceiling(v) : null;
     }
 
     public async Task RemoveAsync(string id, CancellationToken ct)
     {
         RequirePlain(id);
+        _peaks.TryRemove(id, out _);
         await RunAsync(["rm", "-f", id], ct);
     }
 
@@ -92,6 +172,7 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
         var listed = await RunAsync(["ps", "-aq", "--filter", $"label={ContainerTemplate.RunLabel}"], ct);
         Require(listed, "docker ps failed");
         var ids = listed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(ContainerTemplate.IsPlainName).ToList();
+        _peaks.Clear();
         if (ids.Count > 0)
             await RunAsync(["rm", "-f", .. ids], ct);
         var networks = await RunAsync(["network", "ls", "-q", "--filter", $"label={ContainerTemplate.RunLabel}"], ct);

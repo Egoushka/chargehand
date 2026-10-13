@@ -157,7 +157,7 @@ public static class RunnerServer
             if (!await engine.OwnsAsync(id, ct))
                 return NotOurs();
             var state = await engine.InspectAsync(id, ct);
-            return Ok(new RunnerInspect(state.Status.ToString().ToLowerInvariant(), state.ExitCode, state.OomKilled));
+            return Ok(new RunnerInspect(state.Status.ToString().ToLowerInvariant(), state.ExitCode, state.OomKilled, state.MemoryPeakMb));
         }));
 
         app.MapGet("/logs/{id}", (HttpContext ctx, string id, CancellationToken ct) => Guard(async () =>
