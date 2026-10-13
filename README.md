@@ -227,7 +227,7 @@ chargehand call, and a run makes up to four (one research, up to three reviews).
 | `src/Chargehand.OpenCode` | OpenCode V2 client and worker-runtime adapter |
 | `src/Chargehand.ClaudeCode` | Claude Code worker-runtime adapter |
 | `src/Chargehand.Mcp` | MCP client: one connection per profile `mcp_servers` entry (Streamable HTTP, SSE or stdio), secret placeholders |
-| `src/Chargehand.Automation` | work that starts without a caller: GitHub intake from issue labels and mentions (references Driven; [ADR 0051](docs/adr/0051-intake-from-github.md)) |
+| `src/Chargehand.Automation` | work that starts without a caller: GitHub intake from issue labels and mentions ([ADR 0051](docs/adr/0051-intake-from-github.md)), and the quality benchmark `chargehand bench` ([ADR 0052](docs/adr/0052-quality-benchmark-on-public-repositories.md)); references Driven |
 | `src/Chargehand.Server` | HTTP interface and MCP server |
 | `src/Chargehand.Cli` | CLI entry point, packed as the `Chargehand` dnx tool and MCP server |
 | `.mcp/server.json` | MCP Registry entry, packed into the tool; the pack stamps the version over `0.0.0` |

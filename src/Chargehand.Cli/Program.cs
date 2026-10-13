@@ -62,6 +62,11 @@ const string Usage = """
       extensions check [--preset <name>] [--probe <query>]
                                    connects each mcp_servers entry, checks the memory mappings and the presets' services
                                    against the tools it lists; one line per item, exit 1 on a problem; --probe also runs one recall
+      bench run <taskset.json> [--dry-run|--baseline] [--only <ids>] [--remote <template>] [--max-tokens <n>] [--max-usd <n>] [--out <dir>]
+                                   measures driven batches on a task set of public repositories: pass rate, honest stops, spend, governor decisions
+                                   (--dry-run and --baseline call no model; `chargehand bench run` alone prints its full usage)
+      bench report <results.json> [<other.json>]
+                                   renders a benchmark's results again, or compares two runs
       init [<repo path>] [--profile <out path>] [--force]
                                    reads a repository's marker files, prints its ecosystems, the proposed context.verify and the
                                    package hosts the driven egress allowlist lacks, and writes a starter profile (never over a file without --force)
@@ -79,6 +84,12 @@ if (argv.Count >= 2 && argv[0] == "--profile")
     profilePath = argv[1];
     argv.RemoveRange(0, 2);
 }
+// `bench run <set> --profile <path>` reads like the other verbs' global option.
+if (argv is ["bench", ..] && argv.IndexOf("--profile") is var benchProfileAt and >= 0 && benchProfileAt + 1 < argv.Count)
+{
+    profilePath = argv[benchProfileAt + 1];
+    argv.RemoveRange(benchProfileAt, 2);
+}
 // Offline and profile-free: a verifier holds a result and a public key, nothing else (ADR 0036).
 if (argv is ["verify", .. var verifyArgs])
     return Chargehand.Signing.VerifyCli.Run(verifyArgs, Console.Out, Console.Error);
@@ -90,18 +101,7 @@ if (argv is ["watch" or "cancel", var watchRun, .. var watchOptions])
 {
     using var stop = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-    var (client, problem) = Chargehand.Watch.WatchCli.Connect(watchOptions, Environment.GetEnvironmentVariable, () =>
-    {
-        try
-        {
-            var p = Profile.Load(profilePath);
-            return p.Http is { } http ? ($"http://{(http.Listen is "0.0.0.0" or "::" ? "127.0.0.1" : http.Listen)}:{http.Port}", p.Secret(http.ApiKeySecret)) : null;
-        }
-        catch (Exception e) when (e is ChargehandException or InvalidOperationException)
-        {
-            return null;
-        }
-    });
+    var (client, problem) = Chargehand.Watch.WatchCli.Connect(watchOptions, Environment.GetEnvironmentVariable, ProfileServer);
     if (client is null)
     {
         Console.Error.WriteLine(problem);
@@ -143,6 +143,33 @@ if (argv is ["verify-branch", .. var verifyBranchArgs])
     using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Driven.VerifyBranchCli.RunAsync(verifyBranchArgs, Console.Out, Console.Error, stop.Token);
+}
+// Benchmarks (ADR 0052): a report is a file read; a run reads the profile for the images, the allowlist and the server it may reach.
+if (argv is ["bench", "report", .. var benchReportArgs])
+    return Chargehand.Bench.BenchCli.Report(benchReportArgs, Console.Out, Console.Error);
+if (argv is ["bench", "run", .. var benchRunArgs])
+{
+    Profile benchProfile;
+    try
+    {
+        benchProfile = Profile.Load(profilePath);
+    }
+    catch (ChargehandException e)
+    {
+        Console.Error.WriteLine($"{profilePath}: {e.Message}");
+        Console.Error.WriteLine(e.Action);
+        return 2;
+    }
+    using var stop = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Bench.BenchCli.RunAsync(benchRunArgs, benchProfile, DrivenPresetAllow(), BenchLimits(), () => BenchEngines(benchProfile),
+        connectArgs => Chargehand.Watch.WatchCli.Connect(connectArgs, Environment.GetEnvironmentVariable, ProfileServer), Environment.GetEnvironmentVariable,
+        Directory.GetCurrentDirectory(), Console.Out, Console.Error, stop.Token);
+}
+if (argv is ["bench", ..])
+{
+    Console.Error.WriteLine(Chargehand.Bench.BenchCli.Usage);
+    return 2;
 }
 // Profile-free: init writes the profile, and doctor reports one that does not load.
 if (argv is ["init", .. var initArgs])
@@ -252,6 +279,48 @@ IReadOnlyList<string> DrivenPresetAllow()
     {
         return [];
     }
+}
+
+/// <summary>The server and key the profile's http block names, for a client verb that was given neither.</summary>
+(string Url, string Key)? ProfileServer()
+{
+    try
+    {
+        var p = Profile.Load(profilePath);
+        return p.Http is { } http ? ($"http://{(http.Listen is "0.0.0.0" or "::" ? "127.0.0.1" : http.Listen)}:{http.Port}", p.Secret(http.ApiKeySecret)) : null;
+    }
+    catch (Exception e) when (e is ChargehandException or InvalidOperationException)
+    {
+        return null;
+    }
+}
+
+/// <summary>The container limits of the driven preset, so a benchmark's acceptance check gets what a session's own test run got.</summary>
+Chargehand.Bench.AcceptanceLimits BenchLimits()
+{
+    var (installRoot, _) = InstallPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory, "");
+    try
+    {
+        return Preset.Load(Path.Combine(installRoot, "presets"), "driven").Driven is { } d ? new(d.MemoryMb, d.Cpus, d.Pids) : new(4096, 2, 512);
+    }
+    catch (Exception e) when (e is not OperationCanceledException)
+    {
+        return new(4096, 2, 512);
+    }
+}
+
+/// <summary>The engine a benchmark's acceptance checks start containers with: the runner service when the profile names one, else this machine's Docker.</summary>
+(Chargehand.Containers.IContainerEngine, Chargehand.Containers.IWorkspaceEngine, Chargehand.Containers.IOutVolumeEngine) BenchEngines(Profile p)
+{
+    if (p.Driven?.Runner is { } runner)
+    {
+        var http = new HttpClient { BaseAddress = new Uri(runner.Url) };
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", p.Secret(runner.ApiKeySecret));
+        var client = new Chargehand.Runner.RunnerClient(http);
+        return (client, client, client);
+    }
+    var docker = new Chargehand.Containers.DockerCliEngine();
+    return (docker, docker, docker);
 }
 
 async Task<int> Run()

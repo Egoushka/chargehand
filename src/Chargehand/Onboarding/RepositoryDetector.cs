@@ -107,6 +107,19 @@ public static partial class RepositoryDetector
         return new RepositoryScan(ecosystems, verify);
     }
 
+    /// <summary>The package hosts an ecosystem's restore needs (<c>dotnet</c>, <c>node</c>, <c>python</c>, <c>go</c>, <c>rust</c>, <c>gradle</c>, <c>maven</c>); none for any other name.</summary>
+    public static IReadOnlyList<string> HostsFor(string ecosystem) => ecosystem switch
+    {
+        "dotnet" => DotNetHosts,
+        "node" => NodeHosts,
+        "python" => PythonHosts,
+        "go" => GoHosts,
+        "rust" => RustHosts,
+        "gradle" => GradleHosts,
+        "maven" => MavenHosts,
+        _ => [],
+    };
+
     /// <summary>Hosts of <paramref name="needed"/> that no entry of <paramref name="allow"/> lets through, in the order given. An entry that is not a valid
     /// allowlist entry is ignored, as the egress proxy would refuse it.</summary>
     public static IReadOnlyList<string> Uncovered(IEnumerable<string> needed, IEnumerable<string> allow)
