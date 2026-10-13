@@ -10,6 +10,7 @@ using Chargehand.Contracts;
 using Chargehand.Egress;
 using Chargehand.Results;
 using Chargehand.RunLog;
+using Chargehand.Runner;
 using Chargehand.Runtime;
 using Chargehand.Verification;
 
@@ -83,12 +84,16 @@ public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, stri
 public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspace, ISessionVolumes volumes, IBranchHandover handover, IRunLog log, TaskTokenMinter mint,
     TaskRunnerSettings settings, IEvidenceResolver resolver,
     Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? supportCheck, Func<ResultContract, ResultContract>? sign,
-    TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, BatchJournal? journal = null, Func<bool>? detaching = null, IStackSeeder? stacker = null, ILearningStore? learning = null, IBranchSeeder? brancher = null) : ITaskRunner
+    TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, BatchJournal? journal = null, Func<bool>? detaching = null, IStackSeeder? stacker = null, ILearningStore? learning = null, IBranchSeeder? brancher = null,
+    Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null) : ITaskRunner
 {
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultUsagePoll = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultGrace = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan WallClockSlack = TimeSpan.FromMinutes(5);
+
+    /// <summary>How long a task waits for a runner that stops answering during a session (ADR 0058): a laptop that sleeps, a path that flaps. Past it the task fails and the session is swept later.</summary>
+    public static readonly TimeSpan DefaultOutageGrace = TimeSpan.FromMinutes(10);
 
     private static readonly JsonSerializerOptions OutcomeJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
@@ -210,7 +215,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 var state = await WaitAsync(container, runId, task.Id, maxMinutes, progress, sessionStarted, prior, ct);
                 var sessionEnded = DateTimeOffset.UtcNow;
 
-                await volumes.FetchOutputAsync(runId, outDirectory, ct);
+                await Tolerant(task.Id, () => volumes.FetchOutputAsync(runId, outDirectory, ct), ct);
                 journal?.Update(task.Id, e => e with { Phase = TaskPhase.Finished });
                 session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, state.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, state.ExitCode, [], false);
                 decisions.AddRange(session.Governor ?? []);
@@ -391,7 +396,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 $"session container started (CI fix attempt {request.Attempt} of {request.MaxAttempts})", span, traceId, budget, token);
             containers[fixRun] = container;
             await WaitAsync(container, fixRun, task.Id, integrator.CiFix.Minutes, progress, sessionStarted, running, token);
-            await volumes.FetchOutputAsync(fixRun, outDirectory, token);
+            await Tolerant(task.Id, () => volumes.FetchOutputAsync(fixRun, outDirectory, token), token);
             var session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, "no_outcome", 0, 0, 0, 0, null, null, [], false);
             fixSum = fixSum is null ? session : Total(fixSum, session);
             progress.Report(Capped(fixSum.InputTokens + fixSum.OutputTokens + total.InputTokens + total.OutputTokens, settings.Priced ? (fixSum.CostUsd ?? 0) + (total.CostUsd ?? 0) : 0, ended: true));
@@ -433,7 +438,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         e is ChargehandException or HttpRequestException or IOException || (e is TaskCanceledException && !ct.IsCancellationRequested);
 
     /// <summary>The bundle of an earlier session on the host: the file the task kept, or else read again from that session's output volume (a restart may have cleared the scratch directory).</summary>
-    private async Task<string?> RestoreBundleAsync(string run, CancellationToken ct)
+    private async Task<string?> RestoreBundleAsync(string run, CancellationToken ct, string? runner = null)
     {
         var directory = Path.Combine(settings.ScratchRoot, "out", run);
         var bundle = Path.Combine(directory, "chargehand.bundle");
@@ -442,9 +447,9 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         Directory.CreateDirectory(directory);
         try
         {
-            await volumes.FetchOutputAsync(run, directory, ct);
+            await Tolerant(null, () => VolumesOf(runner).FetchOutputAsync(run, directory, ct), ct);
         }
-        catch (ChargehandException)
+        catch (ChargehandException e) when (e is not RunnerUnreachableException)
         {
             return null;
         }
@@ -465,10 +470,10 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             return made.Made ? (bundlePath, null) : throw new ChargehandException(ErrorCode.SessionFailed, $"could not start from the pushed branch: {made.Failure}", "Send the comments again; the branch may have been deleted or rewritten.");
         }
         var bundle = from.Kept is null ? null
-            : await RestoreBundleAsync(from.Kept.BundleRun, ct) ?? throw new ChargehandException(ErrorCode.InvalidRequest,
+            : await RestoreBundleAsync(from.Kept.BundleRun, ct, from.Runner) ?? throw new ChargehandException(ErrorCode.InvalidRequest,
                 $"the work of the task this one continues is gone: its output volume is kept for {ContinuationSource.KeptFor.TotalDays:0} days after it ended",
                 "Send the task again with a goal of its own.");
-        await RestoreBundleAsync(from.LastRun, ct);
+        await RestoreBundleAsync(from.LastRun, ct, from.Runner);
         return (bundle, ReadProgress(Path.Combine(settings.ScratchRoot, "out", from.LastRun)));
     }
 
@@ -659,7 +664,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     {
         List<StackInput> inputs = [];
         foreach (var up in task.Upstream!)
-            inputs.Add(new StackInput(up.Id, up.Branch, await RestoreBundleAsync(up.RunId, ct) ?? throw new ChargehandException(ErrorCode.SessionFailed,
+            inputs.Add(new StackInput(up.Id, up.Branch, await RestoreBundleAsync(up.RunId, ct, up.Runner) ?? throw new ChargehandException(ErrorCode.SessionFailed,
                 $"the work of task '{up.Id}', which this task depends on, is gone: its output volume is no longer there", "Send the tasks again, in one batch.")));
         var bundle = Path.Combine(outDirectory, "stack.bundle");
         var made = await (stacker ?? new GitStackSeeder()).BuildAsync(new StackRequest(branch, settings.SourcePath, settings.BaseCommit, settings.ScratchRoot, directory, bundle, inputs), ct);
@@ -706,15 +711,15 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     /// <summary>A task begun before a restart whose container is gone and whose output volume holds no outcome: there is nothing to take up.</summary>
     private async Task<bool> GoneWithoutOutputAsync(TaskEntry entry, CancellationToken ct)
     {
-        if ((await engine.InspectAsync(entry.Container ?? $"chargehand-{entry.RunId}", ct)).Status != ContainerStatus.Missing)
+        if ((await Tolerant(entry.Id, () => engine.InspectAsync(entry.Container ?? $"chargehand-{entry.RunId}", ct), ct)).Status != ContainerStatus.Missing)
             return false;
         var directory = Path.Combine(settings.ScratchRoot, "out", entry.RunId!);
         Directory.CreateDirectory(directory);
         try
         {
-            await volumes.FetchOutputAsync(entry.RunId!, directory, ct);
+            await Tolerant(entry.Id, () => volumes.FetchOutputAsync(entry.RunId!, directory, ct), ct);
         }
-        catch (ChargehandException)
+        catch (ChargehandException e) when (e is not RunnerUnreachableException)
         {
             return true;
         }
@@ -745,7 +750,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         {
             while (true)
             {
-                var state = await engine.InspectAsync(container, ct);
+                var state = await Tolerant(taskId, () => engine.InspectAsync(container, ct), ct);
                 var peak = NotePeak(taskId, state);
                 if (state.Status != ContainerStatus.Running)
                     return state;
@@ -803,6 +808,35 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         if (state.MemoryPeakMb is { } mb)
             return _memoryPeaks.AddOrUpdate(taskId, mb, (_, seen) => Math.Max(seen, mb));
         return _memoryPeaks.TryGetValue(taskId, out var known) ? known : null;
+    }
+
+    /// <summary>The volumes of the runner a task ran on: this runner's own unless the task came from another one (ADR 0058).</summary>
+    private ISessionVolumes VolumesOf(string? runner) => runner is null || volumesOf is null ? volumes : volumesOf(runner);
+
+    private Task<object?> Tolerant(string? taskId, Func<Task> call, CancellationToken ct) => Tolerant<object?>(taskId, async () => { await call(); return null; }, ct);
+
+    /// <summary>Runs a call to the runner, and when the runner does not answer (<see cref="RunnerUnreachableException"/>) asks again every poll until it has been silent for the outage grace
+    /// (ADR 0058). A refusal is not waited out. A cancel ends the wait.</summary>
+    private async Task<T> Tolerant<T>(string? taskId, Func<Task<T>> call, CancellationToken ct)
+    {
+        DateTimeOffset? silentSince = null;
+        while (true)
+        {
+            try
+            {
+                return await call();
+            }
+            catch (RunnerUnreachableException e) when (!ct.IsCancellationRequested)
+            {
+                var grace = outageGrace ?? DefaultOutageGrace;
+                if (silentSince is null && taskId is not null)
+                    Publish(taskId, RunEventKind.SessionProgress, $"the runner does not answer ({e.Message}); waiting for it up to {grace.TotalMinutes:0.#} minutes");
+                silentSince ??= DateTimeOffset.UtcNow;
+                if (DateTimeOffset.UtcNow - silentSince > grace)
+                    throw;
+                await Task.Delay(poll ?? DefaultPoll, ct);
+            }
+        }
     }
 
     private void Publish(string taskId, RunEventKind kind, string detail, Func<RunStatus, RunStatus>? with = null)

@@ -172,6 +172,8 @@ Because the request is lower than the limit, the host can be oversubscribed when
 
 With admission as the governor, the ceilings are `max_parallel` at most 16 per batch and `max_parallel_total` at most 32 (they were 4 and 8, from when a task counted at its whole container limit). Sessions that call chargehand for research and review share `max_session_calls` slots (at most 8); with many sessions at once, raise it or those calls queue. The runner's `--max-containers` (default 8, at most 64) counts every labelled container, running or not, including each batch's egress proxy and test services: set it above `max_parallel_total` plus those, or `POST /start` answers 429 and the task fails.
 
+With several runners ([Several runners](runners.md), ADR 0058) the rule is applied to each runner's own `GET /host`, with that runner's `reserve_mb`, and the task goes to the one with the most free memory.
+
 ```json
 { "driven": { "max_parallel": 8, "max_parallel_total": 16, "admission": { "reserve_mb": 2048, "max_load_per_cpu": 1.5, "default_request_mb": 1536, "max_memory_pressure": 10 } } }
 ```

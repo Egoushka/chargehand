@@ -394,11 +394,16 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     Chargehand.Containers.IContainerEngine engine;
     Chargehand.Containers.IWorkspaceEngine workspace;
     Chargehand.Driven.IHostSource hostSource;
-    if (driven.ResolvedRunners() is [var runner, ..])
+    IReadOnlyList<Chargehand.Driven.RunnerSite>? sites = null;
+    Chargehand.Runner.RunnerClient RunnerClientFor(Chargehand.Config.DrivenRunnerEntry runner)
     {
         var http = new HttpClient { BaseAddress = new Uri(runner.Url) };
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", profile.Secret(runner.ApiKeySecret));
-        var client = new Chargehand.Runner.RunnerClient(http);
+        return new Chargehand.Runner.RunnerClient(http);
+    }
+    if (driven.ResolvedRunners() is [var runner, ..])
+    {
+        var client = RunnerClientFor(runner);
         (engine, workspace, hostSource) = (client, client, client);
     }
     else
@@ -410,6 +415,15 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     Chargehand.Driven.ISessionVolumes volumes = engine is Chargehand.Containers.IOutVolumeEngine files && driven.Images is { Count: > 0 } images
         ? new Chargehand.Driven.EngineSessionVolumes(files, images[0])
         : new Chargehand.Driven.UnavailableSessionVolumes();
+    // A profile that names its runners (ADR 0058) gets a pool: each runner has its own client, and its volumes' helper starts the image for its platform.
+    if (driven.NamesRunners)
+        sites = [.. driven.ResolvedRunners().Select(entry =>
+        {
+            var client = RunnerClientFor(entry);
+            return new Chargehand.Driven.RunnerSite(entry, client, client, driven.Images is { Count: > 0 } list
+                ? new Chargehand.Driven.EngineSessionVolumes(client, driven.ImageFor(list[0], entry.Platform))
+                : new Chargehand.Driven.UnavailableSessionVolumes(), client);
+        })];
     // The planning and retro runs belong to the account of the batch they serve (ADR 0050).
     Chargehand.Driven.PlanRunner childRun = async (request, runId, parentRunId, token) =>
         await orchestrator.RunAsync(request, token, runId, parentRunId: parentRunId, actor: (await runLog.ReadAsync(parentRunId, token)).Start?.Actor);
@@ -420,7 +434,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         Integration: IntegrationHost(driven), ForgeFor: (remote, token) => new Chargehand.Driven.GitLabForge(
             new HttpClient { BaseAddress = Chargehand.Driven.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token),
         Planner: new Chargehand.Driven.ModelPlanner(childRun, driven.Planning?.Preset ?? "cheap"),
-        Retro: new Chargehand.Driven.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap")),
+        Retro: new Chargehand.Driven.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap"), Runners: sites),
         stateDirectory, learning);
 }
 
@@ -470,9 +484,9 @@ async Task<int> Serve()
         Console.Error.WriteLine("profile has no http settings (ADR 0018)");
         return 2;
     }
-    if (profile.Driven is { Enabled: true } driven && driven.ResolvedRunners().Count > 1)
+    if (profile.Driven is { Enabled: true } driven && driven.ResolvedRunners().FirstOrDefault(r => r.Workspace == Chargehand.Config.WorkspaceMode.Bundle) is { } remote)
     {
-        Console.Error.WriteLine("driven.runners lists several runners, and this build starts sessions on one (ADR 0058: scheduling across runners is the next change)");
+        Console.Error.WriteLine($"driven.runners.{remote.Name} has workspace bundle, which this build cannot send yet (ADR 0058: the remote workspace is the next change)");
         return 2;
     }
     using var tracing = Tracing();

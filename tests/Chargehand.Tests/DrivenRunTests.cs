@@ -106,11 +106,20 @@ public class DrivenRunTests
             return Task.CompletedTask;
         }
 
+        /// <summary>The next this many inspections find the runner silent (ADR 0058); -1: always.</summary>
+        public int SilentInspections { get; set; }
+
         public Task<ContainerState> InspectAsync(string id, CancellationToken ct)
         {
             bool running;
             lock (_gate)
             {
+                if (SilentInspections != 0 && !id.StartsWith("chargehand-egress", StringComparison.Ordinal))
+                {
+                    if (SilentInspections > 0)
+                        SilentInspections--;
+                    return Task.FromException<ContainerState>(new Chargehand.Runner.RunnerUnreachableException("the runner could not be reached: no route to host"));
+                }
                 if (Gone.Contains(id))
                     return Task.FromResult(new ContainerState(ContainerStatus.Missing, null, false));
                 if (_held.Contains(id) && !_stopped.Contains(id))
@@ -191,11 +200,17 @@ public class DrivenRunTests
             return Task.CompletedTask;
         }
 
+        /// <summary>The run ids whose output was fetched, in order.</summary>
+        public List<string> Fetched { get; } = [];
+
         public Task FetchOutputAsync(string runId, string directory, CancellationToken ct)
         {
             string goal;
             lock (_goals)
+            {
+                Fetched.Add(runId);
                 goal = _goals[runId];
+            }
             if (NoOutput.Contains(runId))
                 return Task.CompletedTask;
             var status = script(goal);
