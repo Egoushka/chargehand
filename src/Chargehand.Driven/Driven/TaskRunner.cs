@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -90,6 +91,9 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     private static readonly TimeSpan WallClockSlack = TimeSpan.FromMinutes(5);
 
     private static readonly JsonSerializerOptions OutcomeJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+
+    /// <summary>The most memory (MiB) any session container of a task has used, by task id; tasks of a batch run at once on one runner instance.</summary>
+    private readonly ConcurrentDictionary<string, int> _memoryPeaks = new();
 
     private sealed record BestRun(string RunId, string OutDirectory, int Commits);
 
@@ -742,12 +746,15 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             while (true)
             {
                 var state = await engine.InspectAsync(container, ct);
+                var peak = NotePeak(taskId, state);
                 if (state.Status != ContainerStatus.Running)
                     return state;
                 if (DateTimeOffset.UtcNow - since > TimeSpan.FromMinutes(maxMinutes) + WallClockSlack)
                 {
                     await engine.SignalAsync(container, "SIGKILL", CancellationToken.None);
-                    return await engine.InspectAsync(container, CancellationToken.None);
+                    var killed = await engine.InspectAsync(container, CancellationToken.None);
+                    NotePeak(taskId, killed);
+                    return killed;
                 }
                 if (usageClock.Elapsed >= (poll ?? DefaultUsagePoll))
                 {
@@ -767,7 +774,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                                 CacheWrite = usage.CacheWrite is { } write ? write + (prior?.CacheWriteTokens ?? 0) : null,
                                 UsdEstimatePartial = usage.UsdEstimatePartial || prior is { UsdEstimatePartial: true }
                             };
-                            Publish(taskId, RunEventKind.SessionProgress, Describe(whole), s => s with { Tokens = whole.Tokens, Turns = whole.Turns, Stage = whole.Stage, UsdEstimate = whole.UsdEstimate, CacheRead = whole.CacheRead, CacheWrite = whole.CacheWrite, UsdEstimatePartial = whole.UsdEstimatePartial ? true : null });
+                            Publish(taskId, RunEventKind.SessionProgress, Describe(whole), s => s with { Tokens = whole.Tokens, Turns = whole.Turns, Stage = whole.Stage, UsdEstimate = whole.UsdEstimate, CacheRead = whole.CacheRead, CacheWrite = whole.CacheWrite, UsdEstimatePartial = whole.UsdEstimatePartial ? true : null, MemoryPeakMb = peak });
                         }
                     }
                     if (usage is not null && usage.Tokens > reported)
@@ -788,6 +795,14 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             await engine.SignalAsync(container, "SIGKILL", CancellationToken.None);
             throw;
         }
+    }
+
+    /// <summary>Keeps the largest peak the engine reported for the task; null while none was.</summary>
+    private int? NotePeak(string taskId, ContainerState state)
+    {
+        if (state.MemoryPeakMb is { } mb)
+            return _memoryPeaks.AddOrUpdate(taskId, mb, (_, seen) => Math.Max(seen, mb));
+        return _memoryPeaks.TryGetValue(taskId, out var known) ? known : null;
     }
 
     private void Publish(string taskId, RunEventKind kind, string detail, Func<RunStatus, RunStatus>? with = null)
@@ -868,7 +883,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             new LearningSpend(spent.UsdEstimate, spent.UsdEstimatePartial, spent.InputTokens, spent.OutputTokens, spent.CacheReadTokens, spent.CacheWriteTokens, spent.Turns, continuations),
             partial ? LearningOutcome.Partial : outcome.State switch { TaskState.Completed => LearningOutcome.Completed, TaskState.NeedsInput => LearningOutcome.NeedsInput, _ => LearningOutcome.Failed },
             StopReason(last), settings.Governor is { } governor ? JsonNamingPolicy.SnakeCaseLower.ConvertName(governor.Mode.ToString()) : null, Summarize(decisions), handed?.TestIntegrity is not null,
-            pr is not null && settings.Remote is { } remote ? new LearningPr(pr.Url, pr.Number, remote, head) : null, settings.Actor);
+            pr is not null && settings.Remote is { } remote ? new LearningPr(pr.Url, pr.Number, remote, head) : null, settings.Actor,
+            _memoryPeaks.TryGetValue(task.Id, out var peakMb) ? peakMb : null);
         try
         {
             await learning.AppendAsync(record, CancellationToken.None);
@@ -900,8 +916,11 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         return BudgetHistory.Choose(governor, task.Size, task.BudgetUsd, LearningRepository(), records, DateTimeOffset.UtcNow);
     }
 
-    private string LearningRepository() =>
-        settings.Remote is { } remote ? remote.Host is null ? $"{remote.Owner}/{remote.Name}" : $"{remote.Host}/{remote.Owner}/{remote.Name}" : settings.Request.Context.Repository?.Path ?? "unknown";
+    private string LearningRepository() => RepositoryKey(settings.Remote, settings.Request.Context.Repository?.Path);
+
+    /// <summary>How learning records name a repository, so budgets and admission requests find the records of the one they are for.</summary>
+    internal static string RepositoryKey(RemoteRepository? remote, string? path) =>
+        remote is not null ? remote.Host is null ? $"{remote.Owner}/{remote.Name}" : $"{remote.Host}/{remote.Owner}/{remote.Name}" : path ?? "unknown";
 
     internal static IReadOnlyList<GovernorCount> Summarize(IEnumerable<GovernorDecision> decisions) =>
         [.. decisions.GroupBy(d => (d.Signal, Action: JsonNamingPolicy.SnakeCaseLower.ConvertName(d.Action.ToString())))

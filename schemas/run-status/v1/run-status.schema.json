@@ -34,6 +34,7 @@
     "usd_estimate_partial": { "type": "boolean", "description": "Driven sessions, session_progress: true when some message's model had no price, so usd_estimate sums only the priced ones; absent otherwise." },
     "cache_read": { "type": "integer", "minimum": 0, "description": "Driven sessions, session_progress: cache-read tokens the task's session has used so far." },
     "cache_write": { "type": "integer", "minimum": 0, "description": "Driven sessions, session_progress: cache-creation tokens the task's session has used so far." },
+    "memory_peak_mb": { "type": "integer", "minimum": 0, "description": "Driven sessions, session_progress: the most memory (MiB) the task's session containers have used so far, as the container engine measured it; absent when it could not." },
     "actor": { "type": "string", "minLength": 1, "description": "The account that started the run (ADR 0050); absent for a run started from the CLI." }
   }
 }

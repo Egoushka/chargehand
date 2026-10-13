@@ -58,7 +58,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     private readonly SemaphoreSlim _global = new(Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4));
 
     private readonly HostAdmission? _admission = services?.Host is { } host
-        ? new HostAdmission(host, profile.Driven?.Admission ?? new DrivenAdmission(), log: message => Console.Error.WriteLine($"chargehand: {message}"))
+        ? new HostAdmission(host, profile.Driven?.Admission ?? new DrivenAdmission(), services.Poll, log: message => Console.Error.WriteLine($"chargehand: {message}"))
         : null;
 
     public void Dispose()
@@ -298,7 +298,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", model?.BaseUrl, forward is not null || model?.Forwarded == true || otlp is not null, otlp,
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor, RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge));
             var runner = new TaskRunner(s.Engine, s.Workspace, s.Volumes, handover, log, mint, task, s.Resolver, s.SupportCheckFor?.Invoke(actor), sign, s.Poll, publish: progress, journal: journal, detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher);
-            ran = await new BatchScheduler(runner, admission: _admission, taskMemoryMb: drivenPreset.MemoryMb).RunAsync(ready, limits, ct, o =>
+            var requestMb = await AdmissionRequestAsync(TaskRunner.RepositoryKey(task.Remote, request.Context.Repository?.Path), drivenPreset.MemoryMb, ct);
+            ran = await new BatchScheduler(runner, admission: _admission, taskRequestMb: requestMb).RunAsync(ready, limits, ct, o =>
             {
                 if (detaching())
                     return;
@@ -403,6 +404,29 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         {
             return (tasks, PlanApplier.Skipped(source, e.Message, null, tasks));
         }
+    }
+
+    /// <summary>What the host must have free for each task of the batch (ADR 0045, admission): the working set this repository's sessions have measured, else the profile's default, never above the
+    /// container's limit. Read once per batch; without a host to ask there is no admission and nothing to read.</summary>
+    private async Task<int> AdmissionRequestAsync(string repository, int limitMb, CancellationToken ct)
+    {
+        if (_admission is null)
+            return limitMb;
+        IReadOnlyList<LearningRecord> records = [];
+        if (learning is not null)
+        {
+            try
+            {
+                records = [.. (await learning.ReadAsync(ct)).Select(e => e.Record)];
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine($"chargehand: could not read the learning records for the admission request: {e.Message}");
+            }
+        }
+        var choice = MemoryRequest.Choose(profile.Driven?.Admission ?? new DrivenAdmission(), limitMb, repository, records, DateTimeOffset.UtcNow);
+        Console.Error.WriteLine($"chargehand: admission: a task asks the host for {choice.Describe()}; its container is limited to {limitMb} MiB");
+        return choice.Mb;
     }
 
     private static ResolvedTask Resumed(RunRequest request, TaskEntry entry)

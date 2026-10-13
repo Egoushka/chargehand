@@ -80,6 +80,9 @@ public class DrivenBatchTests
         Assert.Equal(1, Parallel(1, 3));
         Assert.Equal(3, Parallel(4, 3));
         Assert.Equal(4, Parallel(4, 8));
+        Assert.Equal(16, Parallel(16, 16));
+        Assert.Equal(DrivenBatch.ParallelCeiling, Parallel(40, 40));
+        Assert.Equal(16, DrivenBatch.ParallelCeiling);
     }
 
     [Fact]

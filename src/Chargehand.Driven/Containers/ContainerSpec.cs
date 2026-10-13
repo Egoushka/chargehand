@@ -90,7 +90,8 @@ public enum ContainerStatus { Running, Exited, Missing }
 
 /// <param name="ExitCode">Set once the container has exited.</param>
 /// <param name="OomKilled">The kernel killed it for memory.</param>
-public sealed record ContainerState(ContainerStatus Status, int? ExitCode, bool OomKilled);
+/// <param name="MemoryPeakMb">The most memory the container has used so far, in MiB: its cgroup's <c>memory.peak</c>, else the largest sampled use. Null when the engine could not measure it.</param>
+public sealed record ContainerState(ContainerStatus Status, int? ExitCode, bool OomKilled, int? MemoryPeakMb = null);
 
 /// <summary>Starts, signals, inspects and removes session containers (ADR 0039). The Docker CLI implements it on a machine that has
 /// Docker; the runner service (a later task) implements it over HTTP where the server must not hold the socket.</summary>

@@ -32,7 +32,8 @@ public sealed record RunnerWorkspace(string RunId, string Image, string SourcePa
 
 public sealed record RunnerResources(List<string> Containers, List<string> Networks, List<string> Volumes);
 
-public sealed record RunnerInspect(string Status, int? ExitCode, bool OomKilled);
+/// <param name="MemoryPeakMb">Left out of the reply when the runner's engine could not measure it, so a server older than this field still reads the reply.</param>
+public sealed record RunnerInspect(string Status, int? ExitCode, bool OomKilled, int? MemoryPeakMb = null);
 
 public static class RunnerJson
 {

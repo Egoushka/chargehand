@@ -7,8 +7,8 @@ namespace Chargehand.Driven;
 /// preset.</summary>
 public static class DrivenBatch
 {
-    /// <summary>The most tasks of one batch that run at once, whatever the profile says, until it is measured on the hosts that run them.</summary>
-    public const int ParallelCeiling = 4;
+    /// <summary>The most tasks of one batch that run at once, whatever the profile says. Memory admission and the rate-limit pause govern how many really run (ADR 0045); this only stops a typo.</summary>
+    public const int ParallelCeiling = 16;
 
     /// <returns>The tasks ready to run, and the ones that failed to resolve (their outcome, already final).</returns>
     /// <exception cref="ChargehandException">The profile has driven sessions off; ids repeat; a task names a <c>ref</c> and no task source is configured; or a task continues one the run log cannot continue from.</exception>

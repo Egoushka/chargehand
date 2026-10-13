@@ -114,6 +114,98 @@ public class DockerEngineTests
         Assert.Equal(new ContainerState(status, exit, oom), state);
     }
 
+    private const string FullId = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    /// <summary>A fake docker that answers <c>inspect</c> with a state (running until a file named <c>exited</c> exists) and the id, and <c>stats</c> with the first line of a file named <c>stats</c>.</summary>
+    private static (string Docker, string Log) MemoryDocker(TempDir dir, string stats = "285.1MiB / 3GiB")
+    {
+        dir.Write("stats", stats + "\n");
+        return FakeDocker(dir, $"case \"$1\" in\ninspect) if [ -f '{dir.Path}/exited' ]; then echo 'exited 0 false {FullId}'; else echo 'running 0 false {FullId}'; fi ;;\nstats) head -n 1 '{dir.Path}/stats' ;;\nesac");
+    }
+
+    private static string PeakFile(TempDir dir, string driver = "systemd") => driver == "systemd"
+        ? System.IO.Path.Combine(dir.Path, "cgroup", "system.slice", $"docker-{FullId}.scope", "memory.peak")
+        : System.IO.Path.Combine(dir.Path, "cgroup", "docker", FullId, "memory.peak");
+
+    private static DockerCliEngine MeasuringEngine(TempDir dir, string docker, TimeSpan? statsEvery = null) => new("/bin/sh", [docker], System.IO.Path.Combine(dir.Path, "cgroup"), statsEvery ?? TimeSpan.Zero);
+
+    private static void WritePeak(TempDir dir, string driver, long bytes) => dir.Write(System.IO.Path.GetRelativePath(dir.Path, PeakFile(dir, driver)), $"{bytes}\n");
+
+    [Theory]
+    [InlineData("systemd")]
+    [InlineData("cgroupfs")]
+    public async Task A_running_container_reports_the_peak_of_its_cgroup_in_mebibytes_rounded_up_and_docker_stats_is_not_asked(string driver)
+    {
+        using var dir = new TempDir();
+        var (docker, log) = MemoryDocker(dir);
+        WritePeak(dir, driver, 302_649_344);   // 288.6 MiB
+        var state = await MeasuringEngine(dir, docker).InspectAsync("chargehand-run-1", default);
+        Assert.Equal(new ContainerState(ContainerStatus.Running, null, false, 289), state);
+        Assert.DoesNotContain(File.ReadAllLines(log), c => c.StartsWith("stats", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Without_the_hosts_cgroups_the_largest_docker_stats_reading_stands_in_for_the_peak()
+    {
+        using var dir = new TempDir();
+        var (docker, log) = MemoryDocker(dir, "285.1MiB / 3GiB");
+        var engine = MeasuringEngine(dir, docker);
+        Assert.Equal(286, (await engine.InspectAsync("chargehand-run-1", default)).MemoryPeakMb);
+        dir.Write("stats", "1.5GiB / 3GiB\n");
+        Assert.Equal(1536, (await engine.InspectAsync("chargehand-run-1", default)).MemoryPeakMb);
+        dir.Write("stats", "400MiB / 3GiB\n");
+        Assert.Equal(1536, (await engine.InspectAsync("chargehand-run-1", default)).MemoryPeakMb);   // a peak never goes down
+        Assert.Contains("stats --no-stream --format {{.MemUsage}} chargehand-run-1", File.ReadAllLines(log));
+    }
+
+    [Fact]
+    public async Task Docker_stats_is_asked_at_most_once_per_interval()
+    {
+        using var dir = new TempDir();
+        var (docker, log) = MemoryDocker(dir);
+        var engine = MeasuringEngine(dir, docker, statsEvery: TimeSpan.FromMinutes(5));
+        for (var i = 0; i < 3; i++)
+            Assert.Equal(286, (await engine.InspectAsync("chargehand-run-1", default)).MemoryPeakMb);
+        Assert.Single(File.ReadAllLines(log), c => c.StartsWith("stats", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task The_peak_outlives_the_container_until_it_is_removed()
+    {
+        using var dir = new TempDir();
+        var (docker, _) = MemoryDocker(dir);
+        var engine = MeasuringEngine(dir, docker);
+        WritePeak(dir, "systemd", 600L << 20);
+        Assert.Equal(600, (await engine.InspectAsync("chargehand-run-1", default)).MemoryPeakMb);
+        Directory.Delete(System.IO.Path.GetDirectoryName(PeakFile(dir))!, recursive: true);   // an exited container's cgroup is gone
+        dir.Write("exited", "");
+        var exited = await engine.InspectAsync("chargehand-run-1", default);
+        Assert.Equal(new ContainerState(ContainerStatus.Exited, 0, false, 600), exited);
+        await engine.RemoveAsync("chargehand-run-1", default);
+        Assert.Null((await engine.InspectAsync("chargehand-run-1", default)).MemoryPeakMb);
+    }
+
+    [Fact]
+    public async Task A_container_whose_memory_cannot_be_read_still_inspects()
+    {
+        using var dir = new TempDir();
+        var (docker, _) = FakeDocker(dir, $"case \"$1\" in\ninspect) echo 'running 0 false {FullId}' ;;\nstats) echo 'Error: nope' >&2; exit 1 ;;\nesac");
+        Assert.Equal(new ContainerState(ContainerStatus.Running, null, false), await MeasuringEngine(dir, docker).InspectAsync("chargehand-run-1", default));
+        var (odd, _) = MemoryDocker(dir, "-- / --");
+        Assert.Null((await MeasuringEngine(dir, odd).InspectAsync("chargehand-run-1", default)).MemoryPeakMb);
+    }
+
+    [Theory]
+    [InlineData("285.1MiB / 3GiB", 286)]
+    [InlineData("0B / 0B", 0)]
+    [InlineData("1.5GiB / 4GiB", 1536)]
+    [InlineData("512KiB / 1GiB", 1)]
+    [InlineData("12MB / 1GB", 12)]
+    [InlineData("-- / --", null)]
+    [InlineData("lots / 3GiB", null)]
+    [InlineData("", null)]
+    public void Docker_stats_use_is_read_as_mebibytes_rounded_up(string text, int? mb) => Assert.Equal(mb, DockerCliEngine.ParseUsageMb(text));
+
     [Fact]
     public async Task Inspect_of_an_unknown_container_is_missing()
     {
