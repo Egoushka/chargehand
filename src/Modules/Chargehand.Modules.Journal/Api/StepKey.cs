@@ -16,5 +16,11 @@ public readonly record struct StepKey(string Batch, string Name)
     /// task before the start, so a restarted server finds the same key.</summary>
     public static StepKey Session(string batch, string task, string run) => new(batch, $"session/{task}/{run}");
 
+    /// <summary>The push of the branch a session run made, by the run that is handed over; a CI-fix session has its own run id, so its own key.</summary>
+    public static StepKey Push(string batch, string run) => new(batch, $"handover/{run}/push");
+
+    /// <summary>The draft pull request for the branch a session run made (see <see cref="Push"/>).</summary>
+    public static StepKey PullRequest(string batch, string run) => new(batch, $"handover/{run}/pr");
+
     public override string ToString() => $"{Batch}: {Name}";
 }

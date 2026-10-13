@@ -22,6 +22,8 @@ public sealed class DrivenJournalTests : IDisposable
         Assert.Equal(new StepKey("b", "prep/r"), StepKey.Prep("b", "r"));
         Assert.Equal(new StepKey("b", "xfer/r/task"), StepKey.Transfer("b", "r", "task"));
         Assert.Equal(new StepKey("b", "session/t1/r"), StepKey.Session("b", "t1", "r"));
+        Assert.Equal(new StepKey("b", "handover/r/push"), StepKey.Push("b", "r"));
+        Assert.Equal(new StepKey("b", "handover/r/pr"), StepKey.PullRequest("b", "r"));
     }
 
     [Fact]
