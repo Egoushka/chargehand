@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- An operator console at `/console/` (ADR 0056, CHARGEHAND-210), the foundation of the page that will replace `/ui/`. A Vite, React and TypeScript app in `web/console/` (TanStack Router and Query, Vitest, Playwright, Biome), built into files that the server embeds; it is served under `http.ui`, beside `/ui/`, with the same rules: files need no key, the key is pasted, kept in `sessionStorage` and sent as the bearer header, and the Content-Security-Policy allows no inline script or style and no other origin. Hashed assets are cached for a year, `index.html` is not, and a path that is not a file falls back to `index.html` for client routes. This release has the shell: sign-in, a placeholder for each planned screen, a typed client for the existing routes (with events read over `fetch`) and the runs table. A `dotnet build` without the web build still works: `/console/` then answers `503` with a page that says it is not built. The Docker image builds the console in a Node stage; CI checks, tests and builds it (a `web` job); `scripts/check.sh` runs the web steps when Node is installed and says so when it skips them. Packages are pinned exactly, installed from the lockfile without install scripts, and none is younger than 14 days. Amends ADR 0054 for the console.
+
 ## [0.9.0] - 2026-10-13
 
 Driven sessions are governed: a governor watches spend and stuck signals (observe mode by default), stopped work continues in a fresh session or becomes a partial draft PR, tasks can depend on each other and answer questions, admission looks at free memory, and an optional GitHub App integrator merges through required checks. The orchestrator core ships apart from the driven infrastructure, with accounts that bring their own model key, GitLab, intake from GitHub issues and review comments, budgets learned from past spend, a web UI, a one-file install, `init` and `doctor`, a quality benchmark harness and a review workflow for any repository.

@@ -1,8 +1,18 @@
 # chargehand serve with the Claude Code worker runtime (ADR 0024). OpenCode is not in the image: a profile that uses it
 # points opencode.url at a server the deployment runs next to this container.
+# The operator console (ADR 0056) is built here and embedded in the server. Node and the npm packages stay in this stage: the image gets the built files only.
+# The Node version must equal web/console/.nvmrc (CI checks it). Dependencies install from the lockfile, without install scripts.
+FROM node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS web
+WORKDIR /web
+COPY web/console/package.json web/console/package-lock.json web/console/.npmrc ./
+RUN npm ci --ignore-scripts
+COPY web/console/ ./
+RUN npm run build
+
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY . .
+COPY --from=web /web/dist web/console/dist
 RUN dotnet publish src/Chargehand.Cli -c Release -o /out
 
 # The runner (`chargehand runner`, ADR 0039) starts containers through the docker CLI. The server never has the engine's socket, so the CLI is inert

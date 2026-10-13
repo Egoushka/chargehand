@@ -470,7 +470,7 @@ async Task<int> Serve()
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui), orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake());
     await app.StartAsync(ct);
-    Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", UI /ui/" : "")})");
+    Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", UI /ui/, console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);
     return 0;
 }

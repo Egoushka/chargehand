@@ -484,7 +484,7 @@
         "ui": {
           "type": "boolean",
           "default": false,
-          "description": "Serve the web UI at /ui/ (ADR 0054): static files, no key needed to load them; the page signs in with an API key and calls the same routes. Off by default."
+          "description": "Serve the web UI at /ui/ (ADR 0054) and the operator console at /console/ (ADR 0056): static files, no key needed to load them; the page signs in with an API key and calls the same routes. Off by default."
         },
         "accounts": {
           "type": "array",

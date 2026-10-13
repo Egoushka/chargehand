@@ -48,6 +48,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # tags: the schema test compares published schemas with the latest release tag
+      # ADR 0056: the console is built first and embedded, so the .NET tests check the files the server serves. Without this step the server still builds and serves a "not built" page.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/console/.nvmrc
+          cache: npm
+          cache-dependency-path: web/console/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: web/console
+      - run: npm run build
+        working-directory: web/console
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
@@ -57,6 +67,46 @@ jobs:
       - run: dotnet test --no-build -c Release
       - name: The current version has a changelog section
         run: scripts/release-notes.sh "$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)" > /dev/null
+
+  # ADR 0056: the operator console (web/console) is checked, tested and built apart from dotnet. The smoke test drives the built
+  # app in Chromium with the API mocked in the browser, under the same Content-Security-Policy the server sends: no server, no network.
+  web:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/console
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/console/.nvmrc
+          cache: npm
+          cache-dependency-path: web/console/package-lock.json
+      - name: The Dockerfile builds with the Node version in .nvmrc
+        working-directory: .
+        run: grep -q "^FROM node:$(cat web/console/.nvmrc)-" Dockerfile
+      - run: npm ci --ignore-scripts
+      - name: Lint and format (biome)
+        run: npm run lint
+      - name: Types (tsc)
+        run: npm run typecheck
+      - name: Unit tests (vitest)
+        run: npm test
+      - name: Build (vite)
+        run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Smoke test (playwright)
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            web/console/playwright-report/
+            web/console/test-results/
+          retention-days: 7
 
   # ADR 0027: the dnx tool packs, carries the Directory.Build.props version in .mcp/server.json, starts from an empty
   # directory and lists orchestrate over stdio. McpServerJsonTests (build job) checks server.json against the schema.
@@ -133,7 +183,7 @@ jobs:
   # merges without the build jobs, and a job renamed or added here needs no change to the ruleset.
   ci-gate:
     if: always()
-    needs: [changes, build, package, plugin, compose, secrets, commits, dependencies]
+    needs: [changes, build, web, package, plugin, compose, secrets, commits, dependencies]
     runs-on: ubuntu-latest
     steps:
       - env:

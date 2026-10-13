@@ -32,7 +32,7 @@ namespace Chargehand.Server;
 /// <param name="Accounts">The accounts besides the owner that the profile declares (ADR 0050).</param>
 /// <param name="AccountKeysFile">The file that holds their keys, as salted hashes; null: no account key opens anything.</param>
 /// <param name="Clock">The time the accounts' day and month windows are cut by; null: the system's.</param>
-/// <param name="Ui">Serve the web UI at /ui/ (ADR 0054).</param>
+/// <param name="Ui">Serve the web UI at /ui/ (ADR 0054) and the operator console at /console/ (ADR 0056).</param>
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
     IReadOnlyList<string>? AllowedHosts = null, int MaxConcurrentRuns = 1, int MaxSessionCalls = 2, string? StateDirectory = null,
     IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null, bool Ui = false);
@@ -93,8 +93,8 @@ public static partial class ChargehandServer
         var accounts = settings.Accounts is { Count: > 0 } declared && settings.AccountKeysFile is { } keysFile ? new AccountDirectory(declared, new AccountKeyStore(keysFile)) : null;
         app.Use(async (ctx, next) =>
         {
-            // The UI's files are public and carry no data; the page calls the routes below with a key (ADR 0054).
-            if (settings.Ui && WebUi.Serves(ctx.Request.Path))
+            // The UI's and the console's files are public and carry no data; the page calls the routes below with a key (ADR 0054, 0056).
+            if (settings.Ui && (WebUi.Serves(ctx.Request.Path) || WebConsole.Serves(ctx.Request.Path)))
             {
                 await next(ctx);
                 return;
@@ -175,7 +175,10 @@ public static partial class ChargehandServer
         });
 
         if (settings.Ui)
+        {
             WebUi.Map(app);
+            WebConsole.Map(app);
+        }
 
         app.MapGet("/v1/accounts/me", async (HttpContext ctx, RunService runs) =>
             Json(await AccountStanding.ReadAsync(Principal.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
