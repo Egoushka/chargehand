@@ -12,9 +12,10 @@ internal static class Skeleton
         // The published wire contract (schemas, result/v1): the one project outside the skeleton new code may use.
         ["Chargehand.Contracts"] = 0,
         ["Chargehand.Modules.Ledger"] = 1,
-        ["Chargehand.Modules.Accounts"] = 1,
         ["Chargehand.Modules.Memory"] = 1,
         ["Chargehand.Modules.Journal"] = 1,
+        // Accounts prices a request against the account's spend, which the Ledger keeps.
+        ["Chargehand.Modules.Accounts"] = 2,
         ["Chargehand.Modules.Runners"] = 2,
         ["Chargehand.Modules.Sessions"] = 2,
         ["Chargehand.Modules.Gateway"] = 2,

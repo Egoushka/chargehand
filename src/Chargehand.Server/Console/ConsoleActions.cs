@@ -1,5 +1,6 @@
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Accounts.Api;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,16 +16,16 @@ internal static class ConsoleActions
     public static void Map(WebApplication app, Func<HttpContext, ConsoleContext> context)
     {
         app.MapPost("/v1/batches/{id}/tasks/{task}/cancel", async (string id, string task, HttpContext ctx) =>
-            await CancelAsync(context(ctx), Principal.Of(ctx), id, task, ctx.RequestAborted));
+            await CancelAsync(context(ctx), PrincipalHttp.Of(ctx), id, task, ctx.RequestAborted));
 
         app.MapPost("/v1/batches/{id}/tasks/{task}/session/stop", async (string id, string task, HttpContext ctx) =>
-            await StopSessionAsync(context(ctx), Principal.Of(ctx), id, task, ctx.RequestAborted));
+            await StopSessionAsync(context(ctx), PrincipalHttp.Of(ctx), id, task, ctx.RequestAborted));
 
         app.MapPost("/v1/batches/{id}/tasks/{task}/retry", async (string id, string task, HttpContext ctx) =>
-            await RetryAsync(context(ctx), Principal.Of(ctx), id, task, ctx));
+            await RetryAsync(context(ctx), PrincipalHttp.Of(ctx), id, task, ctx));
 
         app.MapPost("/v1/pulls/{owner}/{repo}/{number:int}/checks/rerun", async (string owner, string repo, int number, HttpContext ctx) =>
-            await RerunChecksAsync(context(ctx), Principal.Of(ctx), owner, repo, number, ctx.RequestAborted));
+            await RerunChecksAsync(context(ctx), PrincipalHttp.Of(ctx), owner, repo, number, ctx.RequestAborted));
     }
 
     private static IResult Json(object body, int status) => ChargehandServer.Json(body, status);
@@ -95,7 +96,7 @@ internal static class ConsoleActions
         var request = start.Request with { Text = marker, Driven = start.Request.Driven with { Tasks = [again], MaxParallel = 1 } };
         var admitted = await runs.AdmitAsync(who, request, ct);
         if (admitted.Refusal is { } refusal)
-            return Json(refusal.Body, refusal.Status);
+            return Json(refusal.Body(), refusal.Status);
         if (runs.Start(admitted.Request, null, null, who?.Name) is not { } run)
             return Json(ChargehandServer.Problem($"{RunService.MaxUnfinished} runs are unfinished; retry later"), StatusCodes.Status429TooManyRequests);
         http.Response.Headers.Location = $"/v1/runs/{run.Id}";

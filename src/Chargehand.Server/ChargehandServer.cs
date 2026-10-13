@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 using Microsoft.AspNetCore.Builder;
@@ -157,7 +158,7 @@ public static partial class ChargehandServer
             if (runs.Halted)
                 return Json(new { errors = new[] { RunService.HaltedMessage } }, StatusCodes.Status503ServiceUnavailable);
             string? parent = null;
-            var who = Principal.Of(ctx);
+            var who = PrincipalHttp.Of(ctx);
             if (ctx.Items[RunScope.ItemKey] is RunTokenClaims scope)
             {
                 var applied = RunScope.Apply(scope, request, runs.Ledger);
@@ -188,7 +189,7 @@ public static partial class ChargehandServer
         ConsoleRoutes.Map(app, settings, log, driven);
 
         app.MapGet("/v1/accounts/me", async (HttpContext ctx, RunService runs) =>
-            Json(await AccountStanding.ReadAsync(Principal.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
+            Json(await AccountStanding.ReadAsync(PrincipalHttp.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
 
         app.MapGet("/v1/runs", async (HttpContext ctx) =>
         {
@@ -214,7 +215,7 @@ public static partial class ChargehandServer
             string? kind = q.TryGetValue("kind", out var kindText) ? kindText.ToString() : null;
             if (kind is not (null or "single" or "batch"))
                 return Json(Problem("kind must be single or batch"), StatusCodes.Status400BadRequest);
-            var who = Principal.Of(ctx);
+            var who = PrincipalHttp.Of(ctx);
             // An account's list is its own runs whatever it asks; only the owner may pick an actor.
             var actor = who is { IsOwner: false } ? who.Name : q.TryGetValue("actor", out var actorText) ? actorText.ToString() : null;
             var query = new RunListQuery(status, since, limit, actor, kind, q.TryGetValue("repository", out var repository) ? repository.ToString() : null, q.TryGetValue("run_id", out var runId) ? runId.ToString() : null);
@@ -228,14 +229,14 @@ public static partial class ChargehandServer
             if (ctx.Request.Query.TryGetValue("since", out var sinceText) && (since = Chargehand.Driven.LearningReport.ParseSince(sinceText.ToString(), DateTimeOffset.UtcNow)) is null)
                 return Json(Problem("since must be a number of days such as 30d, or an ISO 8601 time"), StatusCodes.Status400BadRequest);
             // An account sees the tasks of its own batches (ADR 0050); the owner sees all.
-            var who = Principal.Of(ctx);
+            var who = PrincipalHttp.Of(ctx);
             var entries = driven?.Learning is { } store ? (await store.ReadAsync(ctx.RequestAborted)).Where(e => Principal.Sees(who, e.Record.Actor)).ToList() : [];
             return Json(Chargehand.Driven.LearningReport.Build(entries, since), StatusCodes.Status200OK);
         });
 
         app.MapPost("/v1/runs/{id}/cancel", async (string id, HttpContext ctx, RunService runs) =>
         {
-            var who = Principal.Of(ctx);
+            var who = PrincipalHttp.Of(ctx);
             if (runs.Cancel(id, who))
                 return Json(new { run_id = id, status = "cancelling" }, StatusCodes.Status202Accepted);
             return await Stored(log, id, ctx.RequestAborted) is not { } stored || !Principal.Sees(who, stored.Actor)
@@ -257,7 +258,7 @@ public static partial class ChargehandServer
 
         app.MapGet("/v1/runs/{id}", async (string id, HttpContext ctx, RunService runs) =>
         {
-            var who = Principal.Of(ctx);
+            var who = PrincipalHttp.Of(ctx);
             if (runs.Find(id) is { } run)
                 return Principal.Sees(who, run.Actor) ? Reply(run) : HttpResults.NotFound();
             var status = await Stored(log, id, ctx.RequestAborted);
@@ -274,7 +275,7 @@ public static partial class ChargehandServer
 
         app.MapGet("/v1/runs/{id}/events", async (string id, HttpContext ctx, RunService runs) =>
         {
-            var who = Principal.Of(ctx);
+            var who = PrincipalHttp.Of(ctx);
             if (runs.Find(id) is { } run)
                 return Principal.Sees(who, run.Actor) ? TypedResults.ServerSentEvents(Sse(run.Events(ctx.RequestAborted))) : HttpResults.NotFound();
             // Finished, lost, or running in another process: one event from the log.
@@ -342,18 +343,18 @@ public static partial class ChargehandServer
     {
         if (refusal.ResetsAt is { } resets)
             ctx.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling((resets - ctx.RequestServices.GetRequiredService<RunService>().Now).TotalSeconds)).ToString(CultureInfo.InvariantCulture);
-        return Json(refusal.Body, refusal.Status);
+        return Json(refusal.Body(), refusal.Status);
     }
 
     /// <summary>Records who the request is. The MCP transport ties a session to the user it started with, so an account cannot use another's session id.</summary>
     private static void Identify(HttpContext ctx, Principal who)
     {
-        ctx.Items[Principal.ItemKey] = who;
+        ctx.Items[PrincipalHttp.ItemKey] = who;
         ctx.User = new ClaimsPrincipal(new ClaimsIdentity([new System.Security.Claims.Claim(ClaimTypes.NameIdentifier, who.Name)], "chargehand"));
     }
 
     internal static IResult? OwnerOnly(HttpContext ctx) =>
-        Principal.Of(ctx) is { IsOwner: false } ? Json(Problem("only the owner's key may do that"), StatusCodes.Status403Forbidden) : null;
+        PrincipalHttp.Of(ctx) is { IsOwner: false } ? Json(Problem("only the owner's key may do that"), StatusCodes.Status403Forbidden) : null;
 
     internal static IResult Json(object value, int status) => HttpResults.Json(value, ContractJson.Options, statusCode: status);
 

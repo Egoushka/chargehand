@@ -6,6 +6,7 @@ using Chargehand.Config;
 using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Egress;
+using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Results;
 using Chargehand.RunLog;

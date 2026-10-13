@@ -1,4 +1,5 @@
 using Chargehand.Contracts;
+using Chargehand.Modules.Accounts.Api;
 
 namespace Chargehand.Config;
 
@@ -7,9 +8,7 @@ namespace Chargehand.Config;
 public sealed class AccountCredentials(IReadOnlyList<AccountSettings>? accounts)
 {
     /// <summary>Why <paramref name="account"/> may not start a run, or null when it has a credential to run on.</summary>
-    public static string? Refusal(AccountSettings account) => account.Model is null && !account.AllowServerCredential
-        ? $"account '{account.Name}' has no model credential of its own and may not use the server's; set http.accounts[].model, or allow_server_credential to spend the server's"
-        : null;
+    public static string? Refusal(AccountSettings account) => AccountPolicy.CredentialRefusal(account);
 
     /// <summary>The account's own credential; null: the server's. Throws <see cref="ChargehandException"/> (<c>credential_unavailable</c>) for an account that may use neither, or
     /// that the profile no longer declares (a batch a restart took up).</summary>

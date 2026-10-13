@@ -1,4 +1,5 @@
 using Chargehand.Config;
+using Chargehand.Modules.Accounts.Api;
 
 namespace Chargehand.Server;
 

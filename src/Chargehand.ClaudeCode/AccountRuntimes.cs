@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Modules.Accounts.Api;
 using Chargehand.Runtime;
 
 namespace Chargehand.ClaudeCode;
