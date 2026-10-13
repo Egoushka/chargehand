@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace Chargehand.RunLog;
+namespace Chargehand.Modules.Ledger.Api;
 
 /// <summary>
 /// Routing suggestions from the run log, for review by hand (ADR 0019): per preset, node kind and model, the runs, their
@@ -25,24 +25,7 @@ public static class RoutingReport
 
     public static string Build(RunLogData data)
     {
-        var scores = data.Scores.Where(s => s.Name == "quality").GroupBy(s => s.RunId).ToDictionary(g => g.Key, g => g.Average(s => s.Value));
-        var calls = data.Calls.Where(c => c.Kind != "intake").GroupBy(c => c.RunId).ToDictionary(g => g.Key, g => g.ToList());
-        var rows = data.Runs.Where(r => calls.ContainsKey(r.RunId))
-            .GroupBy(r => (r.Preset, calls[r.RunId][0].Kind, Model: calls[r.RunId].GroupBy(c => c.Model).MaxBy(m => m.Count())!.Key))
-            .Select(g =>
-            {
-                var runCalls = g.SelectMany(r => calls[r.RunId]).ToList();
-                var prompt = runCalls.Sum(c => c.PromptTokens ?? 0);
-                var scored = g.Where(r => scores.ContainsKey(r.RunId)).Select(r => scores[r.RunId]).ToList();
-                // Unknown-cost runs (no price entry for the model) are left out of the average, not counted as $0.
-                var usd = g.Select(r => r.Result.Usage.Usd).Where(u => u is not null).Select(u => (double)u!.Value).ToList();
-                var seconds = g.Select(r => (r.Finished - r.Started).TotalSeconds).ToList();
-                return new Row(g.Key.Preset, g.Key.Kind, g.Key.Model, g.Count(), g.Count(r => r.Result.Status == Contracts.ResultStatus.Completed), scored.Count,
-                    scored.Count == 0 ? null : scored.Average(), (double)prompt / g.Count(), prompt == 0 ? null : (double)runCalls.Sum(c => c.Tokens?.CacheRead ?? 0) / prompt,
-                    usd.Count == 0 ? null : usd.Average(), usd.Count == 0 ? null : Percentile(usd, 0.9), Percentile(seconds, 0.5), Percentile(seconds, 0.9));
-            })
-            .OrderBy(r => r.Preset, StringComparer.Ordinal).ThenBy(r => r.Kind, StringComparer.Ordinal).ThenByDescending(r => r.Runs).ToList();
-
+        var rows = Rows(data);
         var sb = new StringBuilder();
         sb.AppendLine("| preset | node kind | model | runs | completed | scored | score | prompt tokens/run | cache | usd/run | usd p90 | latency p50 | latency p90 | suggestion |");
         sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
@@ -51,14 +34,40 @@ public static class RoutingReport
             // The model with the most runs stands for the preset's default in this cell.
             var @default = cell.First();
             foreach (var r in cell)
-                sb.AppendLine(CultureInfo.InvariantCulture, $"| {r.Preset} | {r.Kind} | {r.Model} | {r.Runs} | {r.Completed} | {r.Scored} | {r.Score?.ToString("0.00", CultureInfo.InvariantCulture) ?? "—"} | {r.PromptTokens:0} | " +
-                              $"{(r.CacheRate is { } c ? c.ToString("0%", CultureInfo.InvariantCulture) : "—")} | {r.Usd?.ToString("0.0000", CultureInfo.InvariantCulture) ?? "—"} | " +
-                              $"{r.UsdP90?.ToString("0.0000", CultureInfo.InvariantCulture) ?? "—"} | {r.LatencyP50:0}s | {r.LatencyP90:0}s | {Suggest(r, @default)} |");
+                sb.AppendLine(Line(r, @default));
         }
         sb.AppendLine().AppendLine(CultureInfo.InvariantCulture, $"Suggestions only: a model is a candidate once it and the default each have {MinRuns} scored runs, it scores within " +
                                    $"{QualityTolerance:0.00} of the default and costs at least {CostSaving:0%} less. Models never switch within a node.");
         return sb.ToString();
     }
+
+    private static List<Row> Rows(RunLogData data)
+    {
+        var scores = data.Scores.Where(s => s.Name == "quality").GroupBy(s => s.RunId).ToDictionary(g => g.Key, g => g.Average(s => s.Value));
+        var calls = data.Calls.Where(c => c.Kind != "intake").GroupBy(c => c.RunId).ToDictionary(g => g.Key, g => g.ToList());
+        return data.Runs.Where(r => calls.ContainsKey(r.RunId))
+            .GroupBy(r => (r.Preset, calls[r.RunId][0].Kind, Model: calls[r.RunId].GroupBy(c => c.Model).MaxBy(m => m.Count())!.Key))
+            .Select(g => ToRow(g.Key, [.. g], calls, scores))
+            .OrderBy(r => r.Preset, StringComparer.Ordinal).ThenBy(r => r.Kind, StringComparer.Ordinal).ThenByDescending(r => r.Runs).ToList();
+    }
+
+    private static Row ToRow((string Preset, string Kind, string Model) key, List<RunRecord> runs, Dictionary<string, List<CallRecord>> calls, Dictionary<string, double> scores)
+    {
+        var runCalls = runs.SelectMany(r => calls[r.RunId]).ToList();
+        var prompt = runCalls.Sum(c => c.PromptTokens ?? 0);
+        var scored = runs.Where(r => scores.ContainsKey(r.RunId)).Select(r => scores[r.RunId]).ToList();
+        // Unknown-cost runs (no price entry for the model) are left out of the average, not counted as $0.
+        var usd = runs.Select(r => r.Result.Usage.Usd).Where(u => u is not null).Select(u => (double)u!.Value).ToList();
+        var seconds = runs.Select(r => (r.Finished - r.Started).TotalSeconds).ToList();
+        return new Row(key.Preset, key.Kind, key.Model, runs.Count, runs.Count(r => r.Result.Status == Contracts.ResultStatus.Completed), scored.Count,
+            scored.Count == 0 ? null : scored.Average(), (double)prompt / runs.Count, prompt == 0 ? null : (double)runCalls.Sum(c => c.Tokens?.CacheRead ?? 0) / prompt,
+            usd.Count == 0 ? null : usd.Average(), usd.Count == 0 ? null : Percentile(usd, 0.9), Percentile(seconds, 0.5), Percentile(seconds, 0.9));
+    }
+
+    private static string Line(Row r, Row @default) =>
+        string.Create(CultureInfo.InvariantCulture, $"| {r.Preset} | {r.Kind} | {r.Model} | {r.Runs} | {r.Completed} | {r.Scored} | {r.Score?.ToString("0.00", CultureInfo.InvariantCulture) ?? "—"} | {r.PromptTokens:0} | ")
+        + $"{(r.CacheRate is { } c ? c.ToString("0%", CultureInfo.InvariantCulture) : "—")} | {r.Usd?.ToString("0.0000", CultureInfo.InvariantCulture) ?? "—"} | "
+        + string.Create(CultureInfo.InvariantCulture, $"{r.UsdP90?.ToString("0.0000", CultureInfo.InvariantCulture) ?? "—"} | {r.LatencyP50:0}s | {r.LatencyP90:0}s | {Suggest(r, @default)} |");
 
     private static string Suggest(Row r, Row @default)
     {

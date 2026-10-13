@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Chargehand.Contracts;
 
-namespace Chargehand.RunLog;
+namespace Chargehand.Modules.Ledger.Api;
 
 /// <summary>Every record in the log, for reports.</summary>
 public sealed record RunLogData(IReadOnlyList<StartRecord> Starts, IReadOnlyList<RunRecord> Runs, IReadOnlyList<CallRecord> Calls, IReadOnlyList<ScoreRecord> Scores);
@@ -17,13 +17,13 @@ public sealed class JsonlRunLog(string path) : IRunLog
 {
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
-    public Task AppendAsync(StartRecord record, CancellationToken ct) => Append("start", JsonSerializer.SerializeToNode(record, ContractJson.Options)!, ct);
+    public Task AppendAsync(StartRecord record, CancellationToken ct) => Append("start", JsonSerializer.SerializeToNode(record, LedgerJsonContext.Default.StartRecord)!, ct);
 
-    public Task AppendAsync(CallRecord record, CancellationToken ct) => Append("call", JsonSerializer.SerializeToNode(record, ContractJson.Options)!, ct);
+    public Task AppendAsync(CallRecord record, CancellationToken ct) => Append("call", JsonSerializer.SerializeToNode(record, LedgerJsonContext.Default.CallRecord)!, ct);
 
-    public Task AppendAsync(RunRecord record, CancellationToken ct) => Append("run", JsonSerializer.SerializeToNode(record, ContractJson.Options)!, ct);
+    public Task AppendAsync(RunRecord record, CancellationToken ct) => Append("run", JsonSerializer.SerializeToNode(record, LedgerJsonContext.Default.RunRecord)!, ct);
 
-    public Task AppendAsync(ScoreRecord record, CancellationToken ct) => Append("score", JsonSerializer.SerializeToNode(record, ContractJson.Options)!, ct);
+    public Task AppendAsync(ScoreRecord record, CancellationToken ct) => Append("score", JsonSerializer.SerializeToNode(record, LedgerJsonContext.Default.ScoreRecord)!, ct);
 
     public async Task<RunEntry> ReadAsync(string runId, CancellationToken ct)
     {
@@ -37,13 +37,13 @@ public sealed class JsonlRunLog(string path) : IRunLog
             switch (node["type"]?.GetValue<string>())
             {
                 case "start":
-                    start = node.Deserialize<StartRecord>(ContractJson.Options);
+                    start = node.Deserialize(LedgerJsonContext.Default.StartRecord);
                     break;
                 case "run":
-                    run = node.Deserialize<RunRecord>(ContractJson.Options);
+                    run = node.Deserialize(LedgerJsonContext.Default.RunRecord);
                     break;
                 case "call":
-                    calls.Add(node.Deserialize<CallRecord>(ContractJson.Options)!);
+                    calls.Add(node.Deserialize(LedgerJsonContext.Default.CallRecord)!);
                     break;
             }
         }
@@ -58,13 +58,7 @@ public sealed class JsonlRunLog(string path) : IRunLog
         var rows = new List<RunSummary>();
         foreach (var start in data.Starts.GroupBy(s => s.RunId).Select(g => g.Last()))
         {
-            if (query.Since is { } since && start.Started < since)
-                continue;
-            if (query.Actor is { } actor && start.Actor != actor)
-                continue;
-            var kind = start.Request.Driven is null ? "single" : "batch";
-            var repository = start.Request.Context.Repository?.Path;
-            if ((query.Kind is { } wantedKind && wantedKind != kind) || (query.Repository is { } wantedRepository && wantedRepository != repository) || (query.RunId is { } wantedId && wantedId != start.RunId))
+            if (!Matches(query, start))
                 continue;
             finished.TryGetValue(start.RunId, out var run);
             var summary = SummaryOf(start, run);
@@ -73,6 +67,17 @@ public sealed class JsonlRunLog(string path) : IRunLog
             rows.Add(summary);
         }
         return [.. rows.OrderByDescending(r => r.StartedAt).Take(Math.Clamp(query.Limit, 1, 500))];
+    }
+
+    /// <summary>Whether a start record passes the query's filters that do not need the run record.</summary>
+    private static bool Matches(RunListQuery query, StartRecord start)
+    {
+        var kind = start.Request.Driven is null ? "single" : "batch";
+        return (query.Since is not { } since || start.Started >= since)
+            && (query.Actor is not { } actor || start.Actor == actor)
+            && (query.Kind is not { } wantedKind || wantedKind == kind)
+            && (query.Repository is not { } wantedRepository || wantedRepository == start.Request.Context.Repository?.Path)
+            && (query.RunId is not { } wantedId || wantedId == start.RunId);
     }
 
     /// <summary>The run-summary/v1 row of a run: from its start record and, once it finished, its run record.</summary>
@@ -143,16 +148,16 @@ public sealed class JsonlRunLog(string path) : IRunLog
             switch (node["type"]?.GetValue<string>())
             {
                 case "start":
-                    starts.Add(node.Deserialize<StartRecord>(ContractJson.Options)!);
+                    starts.Add(node.Deserialize(LedgerJsonContext.Default.StartRecord)!);
                     break;
                 case "run":
-                    runs.Add(node.Deserialize<RunRecord>(ContractJson.Options)!);
+                    runs.Add(node.Deserialize(LedgerJsonContext.Default.RunRecord)!);
                     break;
                 case "call":
-                    calls.Add(node.Deserialize<CallRecord>(ContractJson.Options)!);
+                    calls.Add(node.Deserialize(LedgerJsonContext.Default.CallRecord)!);
                     break;
                 case "score":
-                    scores.Add(node.Deserialize<ScoreRecord>(ContractJson.Options)!);
+                    scores.Add(node.Deserialize(LedgerJsonContext.Default.ScoreRecord)!);
                     break;
             }
         return new(starts, runs, calls, scores);

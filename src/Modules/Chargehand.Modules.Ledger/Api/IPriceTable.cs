@@ -1,6 +1,6 @@
-using Chargehand.Runtime;
+using Chargehand.Kernel;
 
-namespace Chargehand.Budget;
+namespace Chargehand.Modules.Ledger.Api;
 
 /// <summary>Prices token counts with the orchestrator's own table, cache-write surcharge included (ADR 0011).</summary>
 public interface IPriceTable

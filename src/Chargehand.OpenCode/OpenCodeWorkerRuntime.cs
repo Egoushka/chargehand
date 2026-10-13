@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 using Chargehand.Runtime;
 
 namespace Chargehand.OpenCode;

@@ -42,7 +42,7 @@ internal static class ConsoleAnalytics
     }
 
     /// <summary>Runs group by account or repository; there is no size class on a run.</summary>
-    private static string? RunGroup(Chargehand.RunLog.StartRecord start, Chargehand.RunLog.RunRecord run, string groupBy) => groupBy switch
+    private static string? RunGroup(Chargehand.Modules.Ledger.Api.StartRecord start, Chargehand.Modules.Ledger.Api.RunRecord run, string groupBy) => groupBy switch
     {
         "account" => start.Actor ?? run.Actor ?? AccountSettings.Owner,
         "repository" => start.Request.Context.Repository?.Path,

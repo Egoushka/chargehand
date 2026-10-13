@@ -13,7 +13,7 @@ namespace Chargehand.Server;
 /// </summary>
 internal static class ConsoleRoutes
 {
-    public static void Map(WebApplication app, ServerSettings settings, Chargehand.RunLog.IRunLog log, DrivenRun? driven)
+    public static void Map(WebApplication app, ServerSettings settings, Chargehand.Modules.Ledger.Api.IRunLog log, DrivenRun? driven)
     {
         var secrets = new SecretPresence(settings.SecretPresent);
         ConsoleContext Context(HttpContext ctx) => new(settings, ctx.RequestServices.GetRequiredService<RunService>(), log, driven, secrets);

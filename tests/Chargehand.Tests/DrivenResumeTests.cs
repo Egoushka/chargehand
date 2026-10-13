@@ -1,5 +1,6 @@
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 using Chargehand.Server;
 using Chargehand.Verification;

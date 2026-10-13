@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using Chargehand.Contracts;
-using Chargehand.Runtime;
+using Chargehand.Kernel;
 
-namespace Chargehand.RunLog;
+namespace Chargehand.Modules.Ledger.Api;
 
 /// <summary>
 /// Append-only record of runs and model calls; joined to gateway spend afterwards (ADR 0011, ADR 0012). It is also
