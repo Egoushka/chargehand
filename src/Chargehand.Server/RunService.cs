@@ -72,11 +72,18 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         var day = log is not null && AccountPolicy.UsesDay(account) ? await log.SpendAsync(account.Name, AccountPolicy.DayStart(now), ct) : none;
         var month = log is not null && AccountPolicy.UsesMonth(account) ? await log.SpendAsync(account.Name, AccountPolicy.MonthStart(now), ct) : none;
         // ponytail: count-then-start is not atomic; two racing requests can exceed max_concurrent_runs by one.
-        var unfinished = _runs.Values.Count(r => !r.IsChild && r.Actor == account.Name);
+        var unfinished = Unfinished(account.Name);
         return AccountPolicy.Refusal(account, request, unfinished, day, month, now) is { } refusal
             ? (request, refusal)
             : (AccountPolicy.Clamp(account, request, day, month), null);
     }
+
+    /// <summary>Unfinished top-level runs (queued or running) that <paramref name="actor"/> started and this process holds.</summary>
+    public int Unfinished(string actor) => _runs.Values.Count(r => !r.IsChild && r.Actor == actor);
+
+    /// <summary>The presets the server accepts: the files in its presets directory.</summary>
+    public IReadOnlyList<string> Presets() =>
+        Directory.Exists(presetsDirectory) ? [.. Directory.EnumerateFiles(presetsDirectory, "*.yaml").Select(f => Path.GetFileNameWithoutExtension(f)).Order(StringComparer.Ordinal)] : [];
 
     /// <summary>Stops accepting runs and cancels every unfinished one. Returns how many it cancelled.</summary>
     public int Halt()
