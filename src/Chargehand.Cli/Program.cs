@@ -397,10 +397,12 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     IReadOnlyList<Chargehand.Driven.RunnerSite>? sites = null;
     Chargehand.Runner.RunnerClient RunnerClientFor(Chargehand.Config.DrivenRunnerEntry runner)
     {
-        var http = new HttpClient { BaseAddress = new Uri(runner.Url) };
+        // The client times each call out itself (a control call, or a transfer of repository size), so the HttpClient's 100 seconds must not cut a transfer short (ADR 0058).
+        var http = new HttpClient { BaseAddress = new Uri(runner.Url), Timeout = Timeout.InfiniteTimeSpan };
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", profile.Secret(runner.ApiKeySecret));
         return new Chargehand.Runner.RunnerClient(http);
     }
+    var bundles = new Chargehand.Driven.RepositoryBundles(Path.Combine(profile.WorkerRoot, ".driven", "bundles"));
     if (driven.ResolvedRunners() is [var runner, ..])
     {
         var client = RunnerClientFor(runner);
@@ -420,7 +422,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         sites = [.. driven.ResolvedRunners().Select(entry =>
         {
             var client = RunnerClientFor(entry);
-            return new Chargehand.Driven.RunnerSite(entry, client, client, driven.Images is { Count: > 0 } list
+            return new Chargehand.Driven.RunnerSite(entry, client, entry.Workspace == Chargehand.Config.WorkspaceMode.Bundle ? new Chargehand.Driven.BundleWorkspaceEngine(client, client, bundles) : client, driven.Images is { Count: > 0 } list
                 ? new Chargehand.Driven.EngineSessionVolumes(client, driven.ImageFor(list[0], entry.Platform))
                 : new Chargehand.Driven.UnavailableSessionVolumes(), client);
         })];
@@ -482,11 +484,6 @@ async Task<int> Serve()
     if (profile.Http is not { } http)
     {
         Console.Error.WriteLine("profile has no http settings (ADR 0018)");
-        return 2;
-    }
-    if (profile.Driven is { Enabled: true } driven && driven.ResolvedRunners().FirstOrDefault(r => r.Workspace == Chargehand.Config.WorkspaceMode.Bundle) is { } remote)
-    {
-        Console.Error.WriteLine($"driven.runners.{remote.Name} has workspace bundle, which this build cannot send yet (ADR 0058: the remote workspace is the next change)");
         return 2;
     }
     using var tracing = Tracing();

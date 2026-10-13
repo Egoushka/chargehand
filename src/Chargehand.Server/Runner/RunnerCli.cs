@@ -5,13 +5,13 @@ using Chargehand.Runner;
 namespace Chargehand.Server;
 
 /// <summary><c>chargehand runner --listen &lt;ip:port&gt; --images &lt;digest,...&gt; --egress-image &lt;digest&gt; [--max-containers N] [--allowed-hosts a,b]</c>:
-/// the runner service in front of the container engine (ADR 0039). Profile-free; the bearer key is the environment variable
+/// the runner service in front of the container engine (ADR 0039). <c>--max-bundle-mb</c> is the most a repository bundle the server sends may be (ADR 0058; default 512). Profile-free; the bearer key is the environment variable
 /// <c>CHARGEHAND_RUNNER_KEY</c>, never an argument, so it does not show in a process listing.</summary>
 public static class RunnerCli
 {
     public const string KeyVariable = "CHARGEHAND_RUNNER_KEY";
 
-    public const string Usage = "usage: chargehand runner --listen <ip:port> --images <name@sha256:...,...> --egress-image <name@sha256:...> [--max-containers N] [--allowed-hosts a,b] [--source-roots /dir,...] [--outside-networks name,...] [--forwards listen=host:port,...] [--service-images name@sha256:...,...]  (key: CHARGEHAND_RUNNER_KEY)";
+    public const string Usage = "usage: chargehand runner --listen <ip:port> --images <name@sha256:...,...> --egress-image <name@sha256:...> [--max-containers N] [--allowed-hosts a,b] [--source-roots /dir,...] [--outside-networks name,...] [--forwards listen=host:port,...] [--service-images name@sha256:...,...] [--max-bundle-mb N]  (key: CHARGEHAND_RUNNER_KEY)";
 
     public static RunnerSettings? Parse(IReadOnlyList<string> args, string? key, TextWriter error)
     {
@@ -28,6 +28,7 @@ public static class RunnerCli
         List<string> outside = [];
         List<string> forwards = [];
         List<string> serviceImages = [];
+        var maxBundleMb = (int)(RunnerPolicy.DefaultMaxBundleBytes / (1024 * 1024));
         for (var i = 0; i < args.Count; i += 2)
         {
             if (i + 1 >= args.Count)
@@ -51,6 +52,9 @@ public static class RunnerCli
                     break;
                 case "--forwards":
                     forwards = [.. args[i + 1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+                    break;
+                case "--max-bundle-mb" when int.TryParse(args[i + 1], out var mb) && mb is >= 1 and <= 4096:
+                    maxBundleMb = mb;
                     break;
                 case "--service-images":
                     serviceImages = [.. args[i + 1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
@@ -83,12 +87,12 @@ public static class RunnerCli
             return Fail(error, $"--forwards: '{badForward}' is not listen-port=host:port");
         // Each of these starts fine and then silently refuses work: say so now.
         if (roots.Count == 0)
-            error.WriteLine("note: no --source-roots, so the runner prepares no workspace");
+            error.WriteLine("note: no --source-roots, so the runner prepares no workspace from a path (a server that sends the repository as a bundle needs none)");
         if (outside.Count == 0)
             error.WriteLine("note: no --outside-networks, so an egress container can join no network but the default one");
         if (forwards.Count == 0)
             error.WriteLine("note: no --forwards, so an egress container carries no forward and a session cannot call the server back");
-        return new RunnerSettings(listen.Port, key, new RunnerPolicy(images, egress, max, SourceRoots: roots, OutsideNetworks: outside, Forwards: forwards, ServiceImages: serviceImages), listen.Address.ToString(), hosts);
+        return new RunnerSettings(listen.Port, key, new RunnerPolicy(images, egress, max, SourceRoots: roots, OutsideNetworks: outside, Forwards: forwards, ServiceImages: serviceImages, MaxBundleBytes: maxBundleMb * 1024L * 1024), listen.Address.ToString(), hosts);
     }
 
     public static async Task<int> RunAsync(IReadOnlyList<string> args, TextWriter error, CancellationToken ct)
@@ -107,7 +111,7 @@ public static class RunnerCli
         return 0;
     }
 
-    private static readonly HashSet<string> KnownOptions = ["--listen", "--images", "--egress-image", "--max-containers", "--outside-networks", "--forwards", "--source-roots", "--allowed-hosts", "--service-images"];
+    private static readonly HashSet<string> KnownOptions = ["--listen", "--images", "--egress-image", "--max-containers", "--outside-networks", "--forwards", "--source-roots", "--allowed-hosts", "--service-images", "--max-bundle-mb"];
 
     /// <summary>The reason first, on its own line, then the usage: the usage names every flag, so alone it does not say which argument was wrong.</summary>
     private static RunnerSettings? Fail(TextWriter error, string reason)

@@ -35,6 +35,21 @@ public class RunnerCliTests
         Assert.Contains("--service-images: 'postgres:16'", error.ToString());
     }
 
+    [Fact]
+    public void The_most_a_repository_bundle_may_be_is_512_MiB_unless_the_runner_is_told_otherwise()
+    {
+        string[] basic = ["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress];
+
+        Assert.Equal(512L * 1024 * 1024, RunnerCli.Parse(basic, key: "k", TextWriter.Null)!.Policy.MaxBundleBytes);
+        Assert.Equal(64L * 1024 * 1024, RunnerCli.Parse([.. basic, "--max-bundle-mb", "64"], key: "k", TextWriter.Null)!.Policy.MaxBundleBytes);
+        foreach (var bad in new[] { "0", "-1", "4097", "lots" })
+        {
+            var error = new StringWriter();
+            Assert.Null(RunnerCli.Parse([.. basic, "--max-bundle-mb", bad], key: "k", error));
+            Assert.Contains($"--max-bundle-mb has an invalid value '{bad}'", error.ToString());
+        }
+    }
+
     [Theory]
     [InlineData("--listen", "127.0.0.1:4310", "--egress-image", Egress)]                                   // no images
     [InlineData("--listen", "127.0.0.1:4310", "--images", Image)]                                          // no egress image

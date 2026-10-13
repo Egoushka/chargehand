@@ -7,7 +7,7 @@ section: "Guides"
 
 A driven batch can use more than one runner service ([ADR 0058](../adr/0058-several-runners.md)): the server and its runner stay where they are, and a second machine, such as a laptop with Docker, takes sessions too. One server keeps one run log, one budget and one list of accounts.
 
-**Status: on main, not yet released. The profile keys, the scheduling across runners with a shared disk, restarts and the events are built. A runner with `workspace: bundle` (a machine that does not share the server's disk) is refused at start until the remote workspace change; the arm64 images and the Mac setup come after it.**
+**Status: on main, not yet released. The profile keys, scheduling across runners, restarts, the events and the remote workspace (a runner that does not share the server's disk) are built; the arm64 images and the Mac setup come after.**
 
 ## The profile
 
@@ -37,8 +37,6 @@ A driven batch can use more than one runner service ([ADR 0058](../adr/0058-seve
 | `forwards` | none | The server's address as this runner's egress containers reach it. `mcp` (`host:port`), `model_url`, `otlp_url` and `outside` each replace the same key of `driven.network` for this runner. |
 
 `forwards` exists because `driven.network.mcp_forward` is a name on the server's Docker network (`chargehand:4300`), which means nothing on another machine. A `bundle` runner needs `forwards.mcp` while `network.mcp_forward` is set, and `forwards.model_url` or `forwards.otlp_url` while those name an `http` address; the profile is refused without them, because the alternative is a session that silently cannot call the server back. The runner's own `--forwards` must list each forward it will be asked to carry (`4300=server.example.net:4300`), as on the server's runner.
-
-A runner with `workspace: bundle` is refused at `chargehand serve` in this build: sending it the repository is the next change. Until then every runner shares the server's checkouts, as `--source-roots` has it.
 
 A profile with `driven.runner` is the same as `driven.runners` with one entry named `default` and every other key at its default; it needs no change, and it reports as before (no `runner` on events).
 
@@ -84,3 +82,24 @@ Each task's runner is saved with the batch before anything starts there, so a re
 ## What the events and the result say
 
 When the profile uses `driven.runners`, every event about a task (`container_started`, `session_progress`, `verify_finished`, `pushed`, `pr_opened`, `task_finished`) carries `runner`, `container_started` ends with `on runner '<name>'`, and each row of the `driven-batch` artifact has `runner`. A runner no task goes to has no network, egress container or test service made for the batch. With `driven.runner` nothing is added.
+
+## A runner on another machine
+
+A runner with `workspace: shared` mounts the server's checkout of the pinned commit read-only into the helper that fills a session's workspace, so the runner and the server must see the same disk. A runner on another machine cannot, so give it `workspace: bundle`:
+
+1. The server makes one git bundle of the pinned commit from its own checkout (`git bundle create <file> HEAD`; the checkout is detached at the commit). It holds the commit's whole history, the same objects a clone would fetch, and no configuration or hooks. It is made once per commit for all the tasks and sessions of the batches that need it and removed a day after it was last made.
+2. For each session the server sends it to the runner with `PUT /out/<run>/source.bundle`, as the request body with its length, so the runner can refuse it by size before reading a byte. The runner streams it into the run's output volume (through the same no-network helper that writes `task.json`) and never holds it in memory. The runner's limit is `--max-bundle-mb` (default 512, at most 4096); a bigger bundle is refused with 413 and the task fails with that reason.
+3. `POST /workspace/bundle` runs the workspace helper with the output volume mounted read-only in place of a source directory: it clones from the bundle, creates `chargehand/<run>` at the commit and leaves the same workspace the path variant leaves. The route names no host path, so the runner needs no `--source-roots`; a runner started without them refuses the path variant, so it cannot be asked to mount a host directory.
+4. The session ends as it always does: its bundle, report and outcome come back over `GET /out/...` into the server's scratch directory (streamed, refused above 256 MiB), and the server's handover does everything it did: clone its own checkout, fetch the bundle into it, scan the diff and every commit, check the branch, and push.
+
+**Where chargehand's own test run happens.** On the runner that ran the session, in a fresh container, as before. The server has no container engine, and that runner already holds the session's bundle, the batch's network with its allowlist, the test services and the caches. It asks the runner for a workspace again, in the same output volume, and the server sends the repository bundle again (the session had that volume writable, so the verification does not rely on what the session left; a bundle is content-addressed, so a changed `source.bundle` can make the verification fail but cannot make the commit mean something else). So the verdict is the laptop's, on its architecture. If the runner is away at that moment the task waits for it as for any call (10 minutes), then fails with the work kept in the output volume and the server's scratch copy.
+
+The runner for a remote machine, as the box's but with a listen address on the private network (see ADR 0058, "A runner on macOS"):
+
+```bash
+CHARGEHAND_RUNNER_KEY=... chargehand runner --listen <private-address>:4310 --allowed-hosts <private-address> \
+  --images registry.example/chargehand-session@sha256:<digest> --egress-image registry.example/chargehand-session@sha256:<digest> \
+  --forwards 4300=server.example.net:4300 --max-bundle-mb 512
+```
+
+(`--outside-networks bridge` for the default network.) The runner does not need the server's checkouts, and the server does not need the runner's engine.

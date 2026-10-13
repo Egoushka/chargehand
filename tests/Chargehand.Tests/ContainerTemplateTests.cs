@@ -170,4 +170,95 @@ public class ContainerTemplateTests
 
         Assert.Equal("?? z.txt", Run(work, "git", "status", "--porcelain").Trim());
     }
+
+    private const string Image = "registry.example/session@sha256:1111111111111111111111111111111111111111111111111111111111111111";
+
+    private static BundleWorkspaceSpec BundleSpec(string branch = "chargehand/run1", string commit = "abc1234def5678abc1234def5678abc1234def56") =>
+        new("run1", Image, "chargehand-out-run1", "chargehand-work-run1", branch, commit);
+
+    [Fact]
+    public void The_bundle_workspace_helper_has_no_network_a_read_only_root_the_bundle_volume_read_only_and_no_host_path()
+    {
+        var args = ContainerTemplate.BundleWorkspaceArgs(BundleSpec());
+        string After(string flag) => args[args.ToList().IndexOf(flag) + 1];
+
+        Assert.Equal("none", After("--network"));
+        Assert.Contains("--read-only", args);
+        Assert.Equal("ALL", After("--cap-drop"));
+        Assert.Equal("no-new-privileges", After("--security-opt"));
+        Assert.Equal("10001:10001", After("--user"));
+        Assert.Equal(["chargehand-out-run1:/in:ro", "chargehand-work-run1:/work"], args.Select((a, i) => (a, i)).Where(x => x.a == "-v").Select(x => args[x.i + 1]));
+        // No host directory is mounted: both volumes are named.
+        Assert.DoesNotContain(args, a => a.Contains(":/src", StringComparison.Ordinal));
+        Assert.DoesNotContain("--privileged", args);
+        Assert.Equal(["prepare", "chargehand/run1", "abc1234def5678abc1234def5678abc1234def56"], args.TakeLast(3));
+        // The branch and the commit reach the script as arguments, never inside its text.
+        Assert.DoesNotContain("chargehand/run1", ContainerTemplate.BundleWorkspaceScript, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("branch-without-prefix", "abc1234")]
+    [InlineData("chargehand/run1; rm -rf /", "abc1234")]
+    [InlineData("chargehand/run1", "not-a-commit")]
+    [InlineData("chargehand/run1", "$(id)")]
+    public void The_bundle_workspace_helper_refuses_a_branch_or_commit_that_could_become_code(string branch, string commit) =>
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.BundleWorkspaceArgs(BundleSpec(branch, commit)));
+
+    [Fact]
+    public void The_bundle_is_a_file_the_server_may_write_into_a_session_s_volume_and_nothing_may_read_back()
+    {
+        Assert.Contains(ContainerTemplate.SourceBundleFile, ContainerTemplate.OutFilesIn);
+        Assert.DoesNotContain(ContainerTemplate.SourceBundleFile, ContainerTemplate.OutFilesOut);
+        var write = ContainerTemplate.OutFileArgs(new OutFileSpec("run1", Image, "chargehand-out-run1", ContainerTemplate.SourceBundleFile), write: true);
+        Assert.Equal("source.bundle", write[^1]);
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.OutFileArgs(new OutFileSpec("run1", Image, "chargehand-out-run1", ContainerTemplate.SourceBundleFile), write: false));
+    }
+
+    [Fact]
+    public void The_bundle_workspace_script_makes_the_same_workspace_as_the_path_one_from_a_bundle_of_the_commit()
+    {
+        // The script runs here with its paths pointed at temporary directories, over a real bundle made as the server makes it (HEAD of a checkout detached at the commit).
+        using var dir = new TempDir();
+        var (source, work, home) = (Path.Combine(dir.Path, "src"), Path.Combine(dir.Path, "work"), Path.Combine(dir.Path, "home"));
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(home);
+        string Run(string where, params string[] args)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(args[0]) { WorkingDirectory = where, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var a in args.Skip(1))
+                psi.ArgumentList.Add(a);
+            psi.Environment["GIT_CONFIG_GLOBAL"] = Path.Combine(home, ".gitconfig");
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            var output = p.StandardOutput.ReadToEnd();
+            var error = p.StandardError.ReadToEnd();
+            p.WaitForExit();
+            Assert.True(p.ExitCode == 0, error);
+            return output;
+        }
+        Run(source, "git", "init", "-q", "-b", "main");
+        File.WriteAllText(Path.Combine(source, "a.txt"), "a");
+        Run(source, "git", "add", "-A");
+        Run(source, "git", "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "one");
+        File.WriteAllText(Path.Combine(source, "b.txt"), "b");
+        Run(source, "git", "add", "-A");
+        Run(source, "git", "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "two");
+        var commit = Run(source, "git", "rev-parse", "HEAD").Trim();
+        Run(source, "git", "checkout", "-q", "--detach", commit);
+        var bundle = Path.Combine(dir.Path, "source.bundle");
+        Run(source, "git", "bundle", "create", bundle, "HEAD");
+
+        var script = ContainerTemplate.BundleWorkspaceScript.Replace("/in/source.bundle", bundle).Replace("/work", work).Replace("export HOME=/tmp", $"export HOME={home}");
+        Run(dir.Path, "sh", "-c", script, "prepare", "chargehand/run1", commit);
+
+        Assert.Equal("chargehand/run1", Run(work, "git", "rev-parse", "--abbrev-ref", "HEAD").Trim());
+        Assert.Equal(commit, Run(work, "git", "rev-parse", "HEAD").Trim());
+        Assert.Equal(["two", "one"], Run(work, "git", "log", "--format=%s").Trim().Split('\n'));
+        Assert.Equal("ab", File.ReadAllText(Path.Combine(work, "a.txt")) + File.ReadAllText(Path.Combine(work, "b.txt")));
+        Assert.Equal("", Run(work, "git", "status", "--porcelain").Trim());
+        Assert.Equal("/dev/null", Run(work, "git", "config", "core.hooksPath").Trim());
+        // The toolchains' caches stay out of the snapshot commit, as for the path workspace.
+        Directory.CreateDirectory(Path.Combine(work, ".nuget", "packages"));
+        File.WriteAllText(Path.Combine(work, ".nuget", "packages", "y"), "cache");
+        Assert.Equal("", Run(work, "git", "status", "--porcelain").Trim());
+    }
 }
