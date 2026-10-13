@@ -1,7 +1,9 @@
+using System.Data.Common;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Chargehand.Contracts;
+using Chargehand.Modules.Journal.Api;
 
 namespace Chargehand.Driven;
 
@@ -69,6 +71,7 @@ public sealed class BatchRecords(string directory, TimeProvider? clock = null)
     private readonly Dictionary<string, int> _taskLineCounts = [];
     private readonly Dictionary<(string Batch, string Task), DateTimeOffset> _lastProgress = [];
     private readonly Dictionary<(string Batch, string Type, string Task), int> _perTask = [];
+    private readonly Dictionary<string, DrivenJournal> _journals = [];
 
     private TimeProvider Time => clock ?? TimeProvider.System;
 
@@ -76,7 +79,8 @@ public sealed class BatchRecords(string directory, TimeProvider? clock = null)
 
     private string Dir(string batch) => Path.Combine(directory, batch);
 
-    /// <summary>Appends an event of the batch. The result of a finished batch is left out (the run log has it), a detail is cut, and a task's progress is kept at most once in <see cref="ProgressEvery"/>.</summary>
+    /// <summary>Appends an event of the batch. The result of a finished batch is left out (the run log has it), a detail is cut, and a task's progress is kept at most once in <see cref="ProgressEvery"/>.
+    /// A batch given to <see cref="Journal"/> has each kept event appended to the journal too, until its <c>run_finished</c>.</summary>
     public void AppendEvent(string batch, RunStatus e)
     {
         if (!IsName(batch))
@@ -91,12 +95,59 @@ public sealed class BatchRecords(string directory, TimeProvider? clock = null)
                     return;
                 _lastProgress[(batch, task)] = now;
             }
+            // The batch's flow is forgotten before its run_finished (DrivenRun), so nothing after it goes to the journal.
+            var journal = _journals.GetValueOrDefault(batch);
+            if (e.Event == RunEventKind.RunFinished && _journals.Remove(batch))
+                journal = null;
             var count = CountOf(_eventCounts, batch, EventsFile);
             var closing = e.Event is RunEventKind.TaskFinished or RunEventKind.RunFinished;
             if (count >= MaxEvents + (closing ? 500 : 0))
                 return;
             Write(batch, EventsFile, JsonSerializer.Serialize(kept, ContractJson.Options));
             _eventCounts[batch] = count + 1;
+            if (journal is not null)
+                AppendToJournal(journal, batch, kept);
+        }
+    }
+
+    /// <summary>From now on the batch's events go to <paramref name="journal"/> as well (ADR 0061), so a client that reconnects, even to the next process, replays what it missed.</summary>
+    public void Journal(string batch, DrivenJournal journal)
+    {
+        lock (_gate)
+            _journals[batch] = journal;
+    }
+
+    /// <summary>The kind an event is journaled under: its <see cref="RunEventKind"/> in snake case, as the event stream names it.</summary>
+    public static string KindOf(RunStatus e) => JsonNamingPolicy.SnakeCaseLower.ConvertName((e.Event ?? RunEventKind.Started).ToString());
+
+    /// <summary>Journaled events back as run statuses with their sequence numbers; one that does not parse is left out.</summary>
+    public static IReadOnlyList<(long Sequence, RunStatus Event)> Parse(IEnumerable<BatchEvent> events)
+    {
+        List<(long, RunStatus)> parsed = [];
+        foreach (var e in events)
+        {
+            try
+            {
+                if (JsonSerializer.Deserialize(e.Payload, ContractJsonContext.Default.RunStatus) is { } status)
+                    parsed.Add((e.Sequence, status));
+            }
+            catch (JsonException)
+            {
+            }
+        }
+        return parsed;
+    }
+
+    private static void AppendToJournal(DrivenJournal journal, string batch, RunStatus e)
+    {
+        try
+        {
+            // Waited for under the lock, so the journal holds the events in the order they were published.
+            journal.AppendEventAsync(batch, KindOf(e), JsonSerializer.Serialize(e, ContractJsonContext.Default.RunStatus)).GetAwaiter().GetResult();
+        }
+        catch (Exception x) when (x is DbException or InvalidOperationException or ObjectDisposedException)
+        {
+            Console.Error.WriteLine($"chargehand: could not journal an event of batch {batch}: {x.Message}");
         }
     }
 
