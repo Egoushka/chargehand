@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Chargehand.Contracts;
 
 /// <summary>run-status/v1: a run that has not finished (HTTP 202 and 410 bodies), and the data of each progress event.</summary>
@@ -37,9 +39,12 @@ public sealed record RunStatus(
 }
 
 /// <summary>Lost: the process that ran it ended before it finished. The last four mirror result/v1's status.</summary>
+[JsonConverter(typeof(SnakeCaseEnumConverter<RunState>))]
 public enum RunState { Queued, Running, Lost, Completed, NeedsInput, Failed, Denied }
 
+[JsonConverter(typeof(SnakeCaseEnumConverter<RunEventKind>))]
 public enum RunEventKind { Accepted, Started, Intake, NodeStarted, NodeFinished, RunFinished, ContainerStarted, SessionProgress, VerifyFinished, Pushed, PrOpened, TaskFinished, Governor, Integrated, Question, Plan, Operator }
 
 /// <summary>The <c>change</c> skill's step a driven session is on, by its latest tool call: research, write, test, review (the order <c>chargehand runs adherence</c> checks).</summary>
+[JsonConverter(typeof(SnakeCaseEnumConverter<SessionStage>))]
 public enum SessionStage { Research, Write, Test, Review }
