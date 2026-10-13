@@ -79,7 +79,7 @@ public static partial class ChargehandServer
 
         // Before the listener opens: interrupted batches are taken up and leftovers swept, so no new batch can be mistaken for one.
         builder.Services.AddHostedService(sp => new BatchResumer(sp.GetRequiredService<RunService>()));
-        // ADR 0049: only when the profile has automation.github. After the resumer, so a restart's own batches are counted before intake starts new ones.
+        // ADR 0051: only when the profile has automation.github. After the resumer, so a restart's own batches are counted before intake starts new ones.
         if (intake is not null)
             builder.Services.AddHostedService(sp => new IntakeService(intake, sp.GetRequiredService<RunService>()));
 

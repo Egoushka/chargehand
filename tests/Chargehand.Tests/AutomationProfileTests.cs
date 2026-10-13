@@ -5,7 +5,7 @@ using Chargehand.Contracts;
 
 namespace Chargehand.Tests;
 
-/// <summary>ADR 0049: the profile's <c>automation.github</c> section is checked when it loads and by the schema, and intake's state survives a restart.</summary>
+/// <summary>ADR 0051: the profile's <c>automation.github</c> section is checked when it loads and by the schema, and intake's state survives a restart.</summary>
 public class AutomationProfileTests
 {
     private const string Driven = "\"enabled\":true,\"integrator\":{\"app_id\":1,\"installation_id\":2,\"private_key_secret\":\"app-key\"}";

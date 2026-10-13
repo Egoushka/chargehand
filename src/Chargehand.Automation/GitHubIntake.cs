@@ -8,7 +8,7 @@ using Chargehand.RunLog;
 
 namespace Chargehand.Automation;
 
-/// <summary>Starts driven batches from GitHub (ADR 0049). Each poll reads the watched repositories as the GitHub App: open issues that carry the trigger label, and the comments since a cursor. A label
+/// <summary>Starts driven batches from GitHub (ADR 0051). Each poll reads the watched repositories as the GitHub App: open issues that carry the trigger label, and the comments since a cursor. A label
 /// applied by an allowed author, or a comment of an allowed author that mentions the bot, starts a batch of one task whose goal is the issue; a reply of an allowed author to the questions of a task
 /// that asked starts a continuation with the reply as the answer. chargehand comments on the issue when the batch starts and when it ends. Everything it has acted on is recorded in
 /// <see cref="IntakeState"/> before the comment about it, so a restart cannot start a trigger twice.</summary>

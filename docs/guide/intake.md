@@ -5,7 +5,7 @@ order: 14
 section: "Guides"
 ---
 
-Intake ([ADR 0049](../adr/0049-intake-from-github.md)) turns an issue into a [driven](driven.md) batch of one task, so a person files an issue and gets a draft pull request. chargehand **polls** GitHub as the GitHub App of `driven.integrator`: the server is on a private network and GitHub cannot call it. Off unless the profile has `automation.github`. On `main`, not yet released; not run against GitHub, only against a fake host.
+Intake ([ADR 0051](../adr/0051-intake-from-github.md)) turns an issue into a [driven](driven.md) batch of one task, so a person files an issue and gets a draft pull request. chargehand **polls** GitHub as the GitHub App of `driven.integrator`: the server is on a private network and GitHub cannot call it. Off unless the profile has `automation.github`. On `main`, not yet released; not run against GitHub, only against a fake host.
 
 ## What starts a task
 

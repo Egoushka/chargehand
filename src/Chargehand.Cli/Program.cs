@@ -358,7 +358,7 @@ Chargehand.Driven.IIntegrationHost? IntegrationHost(Chargehand.Config.DrivenSett
         new Chargehand.Driven.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System));
 }
 
-// GitHub intake (ADR 0049): null unless the profile has automation.github. It reads and comments as the integrator's GitHub App; its state sits next to the run log.
+// GitHub intake (ADR 0051): null unless the profile has automation.github. It reads and comments as the integrator's GitHub App; its state sits next to the run log.
 Chargehand.Automation.GitHubIntake? GitHubIntake()
 {
     if (profile.Automation?.Github is not { } github || profile.Driven is not { Integrator: { AppId: { } appId, InstallationId: { } installationId, PrivateKeySecret: { } privateKeySecret } } driven)

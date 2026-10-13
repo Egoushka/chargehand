@@ -4,7 +4,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace Chargehand.Server;
 
-/// <summary>Runs GitHub intake while the server runs (ADR 0049): started with the host, after <see cref="BatchResumer"/> has taken up interrupted batches, and stopped with it. A triggered batch is
+/// <summary>Runs GitHub intake while the server runs (ADR 0051): started with the host, after <see cref="BatchResumer"/> has taken up interrupted batches, and stopped with it. A triggered batch is
 /// an ordinary run of this server's <see cref="RunService"/>.</summary>
 internal sealed class IntakeService(GitHubIntake intake, RunService runs) : IHostedService, IDisposable
 {

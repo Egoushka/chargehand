@@ -1,4 +1,4 @@
-# 0049. Intake from GitHub issues and comments
+# 0051. Intake from GitHub issues and comments
 
 - Status: accepted
 - Date: 2026-10-13

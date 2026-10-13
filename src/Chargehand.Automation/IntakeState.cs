@@ -14,7 +14,7 @@ public enum IntakePhase { Running, Asked, Done }
 public sealed record IntakeTask(string Repository, int Issue, string BatchRunId, string TaskId, DateTimeOffset Started, string Size, IntakePhase Phase = IntakePhase.Running,
     long? AskedCommentId = null, string? PrUrl = null, string? Branch = null);
 
-/// <summary>What intake remembers between polls and across a restart (ADR 0049), in one JSON file written whole through a temporary file. <see cref="Handled"/> holds every trigger that was acted on
+/// <summary>What intake remembers between polls and across a restart (ADR 0051), in one JSON file written whole through a temporary file. <see cref="Handled"/> holds every trigger that was acted on
 /// or ignored, by key (<c>label:owner/repo#12:&lt;event id&gt;</c>, <c>comment:owner/repo:&lt;comment id&gt;</c>), and it only grows: a trigger seen once is never acted on again.</summary>
 public sealed class IntakeState
 {

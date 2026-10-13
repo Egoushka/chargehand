@@ -5,7 +5,7 @@ using Chargehand.Driven;
 
 namespace Chargehand.Tests;
 
-/// <summary>ADR 0049: intake's calls to GitHub, as the App. They read issues, events and comments and write comments; the installation token is in the header and nowhere else.</summary>
+/// <summary>ADR 0051: intake's calls to GitHub, as the App. They read issues, events and comments and write comments; the installation token is in the header and nowhere else.</summary>
 public class GitHubIntakeHostTests
 {
     private sealed class FixedToken : IInstallationTokens
