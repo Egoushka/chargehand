@@ -1,110 +1,64 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { createMemoryHistory, RouterProvider } from '@tanstack/react-router';
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, screen, within } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { ApiError, Unauthorized } from './api/client';
 import { getKey, setKey } from './api/key';
-import type { Me, RunSummary } from './api/types';
-import { createAppRouter, createQueryClient } from './router';
+import { createQueryClient } from './router';
 import { SCREENS } from './shell/screens';
+import { LOGIN, me, run } from './testing/fixtures';
+import { renderConsole } from './testing/render';
+import { serveApi } from './testing/server';
 
-const me: Me = {
-  name: 'alice',
-  owner: false,
-  driven: false,
-  limits: { max_usd_per_day: 5 },
-  spend: {
-    day: { usd: 1.25, tokens: 300, resets_at: '2026-10-16T00:00:00Z' },
-    month: { usd: 3.25, tokens: 400, resets_at: '2026-11-01T00:00:00Z' },
-  },
-  unfinished_runs: 0,
-  halted: false,
-  presets: ['draft'],
-};
-
-const run = (id: string, over: Partial<RunSummary> = {}): RunSummary => ({
-  contract_version: 'run-summary/v1',
-  run_id: id,
-  preset: 'draft',
-  status: 'completed',
-  started_at: '2026-10-15T11:00:00Z',
-  usd: 0.5,
-  tokens: 1234,
-  repository: '/srv/app',
-  kind: 'single',
-  actor: 'alice',
-  ...over,
-});
-
-const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-
-/** A server that accepts one key and answers the routes the console calls. */
-function serve(validKey: string, runs: RunSummary[] = []) {
-  const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
-    const auth = (init?.headers as Record<string, string> | undefined)?.Authorization;
-    if (auth !== `Bearer ${validKey}`) return new Response('', { status: 401 });
-    if (path === '/v1/accounts/me') return reply(me);
-    if (path.startsWith('/v1/runs?')) return reply({ runs });
-    if (path.endsWith('/events')) return new Response('', { status: 200 });
-    if (path.startsWith('/v1/runs/')) return reply({ status: 'running', run_id: 'r-1' }, 202);
-    return reply({ errors: [`no route ${path}`] }, 404);
-  });
-  vi.stubGlobal('fetch', fetchMock);
-  return fetchMock;
-}
-
-function open(path: string) {
-  const router = createAppRouter({
-    basepath: '/console',
-    history: createMemoryHistory({ initialEntries: [path] }),
-  });
-  return render(
-    <QueryClientProvider client={createQueryClient()}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  );
-}
-
-beforeEach(() => vi.spyOn(console, 'error').mockImplementation(() => {}));
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
-});
+const runs = [
+  run('r-1', {
+    status: 'completed',
+    kind: 'single',
+    usd: 0.5,
+    tokens: 1234,
+    preset: 'draft',
+    repository: '/srv/app',
+    commit: undefined,
+  }),
+  run('r-2', {
+    status: 'failed',
+    kind: 'single',
+    error_code: 'cost_cap_reached',
+    usd: null,
+    tokens: 1234,
+    preset: 'draft',
+    repository: '/srv/app',
+    commit: undefined,
+  }),
+];
 
 describe('signing in', () => {
-  it('asks for a key first, and shows the runs table after a key the server accepts', async () => {
-    const fetchMock = serve('chk1.alice.secret', [
-      run('r-1'),
-      run('r-2', { status: 'failed', error_code: 'cost_cap_reached', usd: null }),
-    ]);
-    open('/console/runs');
+  it('asks for a key first, and shows the screen after a key the server accepts', async () => {
+    const { calls } = serveApi({ runs });
+    renderConsole('/console/runs', { key: null });
 
     const field = await screen.findByLabelText('API key');
-    expect(fetchMock).not.toHaveBeenCalled();
-    fireEvent.change(field, { target: { value: ' chk1.alice.secret ' } });
+    expect(calls).toHaveLength(0);
+    fireEvent.change(field, { target: { value: ` ${LOGIN} ` } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    const table = await screen.findByRole('table');
+    const table = await screen.findByRole('table', { name: 'Runs' });
     const rows = within(table).getAllByRole('row');
-    expect(rows).toHaveLength(3); // header + two runs
+    expect(rows).toHaveLength(3); // header and two runs
     expect(
       within(rows[1] as HTMLElement)
         .getByRole('link', { name: 'r-1' })
         .getAttribute('href'),
     ).toBe('/console/runs/r-1');
     expect(within(rows[2] as HTMLElement).getByText('cost_cap_reached')).toBeTruthy();
-    expect(getKey()).toBe('chk1.alice.secret');
-    expect(sessionStorage.getItem('chargehand.key')).toBe('chk1.alice.secret');
-    expect(screen.getByText(/alice · today \$1\.25 of \$5\.00/)).toBeTruthy();
-    const sent = fetchMock.mock.calls.map(
-      ([, init]) => (init?.headers as Record<string, string> | undefined)?.Authorization,
-    );
+    expect(getKey()).toBe(LOGIN);
+    expect(sessionStorage.getItem('chargehand.key')).toBe(LOGIN);
+    const sent = calls.map((c) => c.headers.Authorization);
     expect(sent.length).toBeGreaterThan(0);
-    expect(sent.every((auth) => auth === 'Bearer chk1.alice.secret')).toBe(true);
+    expect(sent.every((auth) => auth === `Bearer ${LOGIN}`)).toBe(true);
   });
 
   it('stores nothing for a key the server refuses', async () => {
-    serve('right');
-    open('/console/');
+    serveApi();
+    renderConsole('/console/', { key: null });
 
     fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'wrong' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
@@ -114,17 +68,19 @@ describe('signing in', () => {
     expect(sessionStorage.length).toBe(0);
   });
 
-  it('goes back to the sign-in screen on sign-out, and when a call is refused later', async () => {
-    serve('k');
-    setKey('k');
-    open('/console/runs');
-    fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+  it('goes back to the sign-in screen on sign-out from the account menu, and when a call is refused later', async () => {
+    serveApi();
+    renderConsole('/console/runs');
+    fireEvent.keyDown(await screen.findByRole('button', { name: 'Account' }), { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Sign out' }));
     expect(await screen.findByLabelText('API key')).toBeTruthy();
     expect(getKey()).toBeNull();
+  });
 
-    serve('another-key');
-    setKey('k');
-    open('/console/runs');
+  it('drops the key and says why when the server refuses it mid-session', async () => {
+    serveApi({ key: 'another-key' });
+    setKey(LOGIN);
+    renderConsole('/console/runs');
     expect((await screen.findByRole('alert')).textContent).toBe(
       'The server rejected the key. Sign in again.',
     );
@@ -133,52 +89,77 @@ describe('signing in', () => {
 
 describe('the screens', () => {
   it.each([...SCREENS.map((s) => [s.label, s.to] as const), ['Run', '/runs/r-1'] as const])(
-    'opens %s at %s',
+    'opens %s at %s with its own heading',
     async (label, to) => {
-      serve('k', [run('r-1')]);
-      setKey('k');
-      open(`/console${to === '/' ? '/' : to}`);
-
+      serveApi({ runs });
+      renderConsole(`/console${to === '/' ? '/' : to}`);
       expect((await screen.findByRole('heading', { level: 1 })).textContent).toContain(label);
     },
   );
 
-  it('marks the open screen in the navigation', async () => {
-    serve('k');
-    setKey('k');
-    open('/console/analytics');
-
-    await screen.findByRole('heading', { name: 'Analytics' });
-    expect(screen.getByRole('link', { name: 'Analytics' }).getAttribute('aria-current')).toBe(
+  it('marks the open screen in the navigation, and a run as part of Runs', async () => {
+    serveApi({ runs });
+    renderConsole('/console/analytics');
+    await screen.findByRole('heading', { level: 1, name: 'Analytics' });
+    const nav = screen.getByRole('navigation', { name: 'Main' });
+    expect(within(nav).getByRole('link', { name: 'Analytics' }).getAttribute('aria-current')).toBe(
       'page',
     );
-    expect(screen.getByRole('link', { name: 'Overview' }).getAttribute('aria-current')).toBeNull();
+    expect(
+      within(nav).getByRole('link', { name: 'Overview' }).getAttribute('aria-current'),
+    ).toBeNull();
+  });
+
+  it('keeps the owner-only screens out of an account’s navigation', async () => {
+    serveApi({ me: me({ name: 'ci-bot', owner: false }) });
+    renderConsole('/console/runs');
+    const nav = await screen.findByRole('navigation', { name: 'Main' });
+    await within(nav).findByRole('link', { name: 'Repositories' });
+    expect(within(nav).queryByRole('link', { name: 'System' })).toBeNull();
+    expect(within(nav).queryByRole('link', { name: 'Accounts and keys' })).toBeNull();
+    expect(within(nav).queryByRole('link', { name: 'Intake and automation' })).toBeNull();
   });
 
   it('shows only http and https pull request links', async () => {
-    serve('k', [
-      run('r-1', { pr_url: 'https://example.com/o/r/pull/7' }),
-      run('r-2', { pr_url: 'javascript:alert(1)' }),
-    ]);
-    setKey('k');
-    open('/console/runs');
-
+    serveApi({
+      runs: [
+        run('r-1', { pr_url: 'https://example.com/o/r/pull/7' }),
+        run('r-2', { pr_url: 'javascript:alert(1)' }),
+      ],
+    });
+    renderConsole('/console/runs');
     const links = (await screen.findAllByRole('link', { name: 'PR' })).map((a) =>
       a.getAttribute('href'),
     );
     expect(links).toEqual(['https://example.com/o/r/pull/7']);
   });
 
-  it('says what the server said when a list fails', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (path: string) =>
-        path === '/v1/accounts/me' ? reply(me) : reply({ errors: ['limit must be 1 to 500'] }, 400),
-      ),
-    );
-    setKey('k');
-    open('/console/runs');
+  it('says what the server said when a list fails, and offers a retry', async () => {
+    serveApi({ replies: { '/v1/runs': [400, { errors: ['limit must be 1 to 500'] }] } });
+    renderConsole('/console/runs');
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('limit must be 1 to 500');
+    expect(within(alert).getByRole('button', { name: 'Retry' })).toBeTruthy();
+  });
 
-    expect(await screen.findByText('limit must be 1 to 500')).toBeTruthy();
+  it('keeps the unknown route out of the app: a missing screen says so', async () => {
+    serveApi();
+    renderConsole('/console/nowhere');
+    expect((await screen.findByRole('heading', { level: 1 })).textContent).toBe('Not found');
+  });
+});
+
+describe('the query client', () => {
+  it('does not retry what asking again cannot fix, and retries a server error twice', () => {
+    const retry = createQueryClient().getDefaultOptions().queries?.retry as (
+      n: number,
+      e: Error,
+    ) => boolean;
+    expect(retry(0, new Unauthorized())).toBe(false);
+    expect(retry(0, new ApiError(400, ['bad']))).toBe(false);
+    expect(retry(0, new ApiError(404, ['gone']))).toBe(false);
+    expect(retry(0, new ApiError(503, ['down']))).toBe(true);
+    expect(retry(1, new ApiError(503, ['down']))).toBe(true);
+    expect(retry(2, new ApiError(503, ['down']))).toBe(false);
   });
 });
