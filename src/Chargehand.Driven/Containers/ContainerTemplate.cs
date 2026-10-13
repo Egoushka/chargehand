@@ -284,6 +284,45 @@ public static partial class ContainerTemplate
         ];
     }
 
+    /// <summary>The markers between the three files the host probe's script prints.</summary>
+    public const string ProbeLoadMarker = "#chargehand-loadavg";
+
+    public const string ProbePressureMarker = "#chargehand-pressure";
+
+    public const string ProbeCpusMarker = "#chargehand-cpus";
+
+    private const string HostProbeScript =
+        "cat /proc/meminfo\n"
+        + "echo '" + ProbeLoadMarker + "'\n"
+        + "cat /proc/loadavg\n"
+        + "echo '" + ProbePressureMarker + "'\n"
+        + "cat /proc/pressure/memory 2>/dev/null || true\n"
+        + "echo '" + ProbeCpusMarker + "'\n"
+        + "nproc\n";
+
+    /// <summary>The arguments after <c>docker</c> for the host probe (ADR 0058): a runner on a Mac cannot read the engine's memory from its own <c>/proc</c>, because the engine runs in a virtual machine, so it
+    /// asks a throwaway container, which sees the machine's. Foreground, removed when it ends, no network, no mount, a read-only root, nothing it could write to. It has no name and no label, so it can collide with
+    /// nothing, and does not count against the runner's container limit.</summary>
+    public static IReadOnlyList<string> HostProbeArgs(string image)
+    {
+        Check(ImagePattern(), image, "image (must be name@sha256:<64 hex> or a local image id)");
+        return
+        [
+            "run", "--rm", "--init",
+            "--network", "none",
+            "--read-only",
+            "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges",
+            "--user", "10001:10001",
+            "--pids-limit", "32",
+            "--memory", "64m",
+            "--cpus", "0.5",
+            "--entrypoint", "sh",
+            image,
+            "-c", HostProbeScript,
+        ];
+    }
+
     /// <summary>The previous session's bundle, which a continuation session starts from (ADR 0044).</summary>
     public const string SeedFile = "seed.bundle";
 

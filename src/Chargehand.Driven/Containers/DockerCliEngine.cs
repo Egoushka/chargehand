@@ -241,12 +241,41 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
         }
     }
 
+    /// <summary>How many session containers run now (ADR 0058, keep-awake): labelled containers that are running, less each batch's egress proxy and test services and the transfer, workspace and probe helpers.</summary>
+    public async Task<int> RunningSessionsAsync(CancellationToken ct)
+    {
+        var listed = await RunAsync(["ps", "--filter", $"label={ContainerTemplate.RunLabel}", "--filter", "status=running", "--format", "{{.Names}}"], ct);
+        Require(listed, "docker ps failed");
+        string[] notSessions = ["chargehand-egress-", "chargehand-svc-", "chargehand-prep-", "chargehand-xfer-"];
+        return listed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Count(name => name.StartsWith("chargehand-", StringComparison.Ordinal) && !notSessions.Any(p => name.StartsWith(p, StringComparison.Ordinal)));
+    }
+
+    /// <summary>The engine's own memory, load and processors, from a throwaway container (<see cref="ContainerTemplate.HostProbeArgs"/>); the text it printed.</summary>
+    public async Task<string> ProbeHostAsync(string image, CancellationToken ct)
+    {
+        var result = await RunAsync(ContainerTemplate.HostProbeArgs(image), ct);
+        if (result.ExitCode != 0)
+            throw Unavailable("probing the engine's host failed", result, null);
+        return result.Stdout;
+    }
+
     public async Task PrepareBundleWorkspaceAsync(BundleWorkspaceSpec spec, CancellationToken ct)
     {
         var args = ContainerTemplate.BundleWorkspaceArgs(spec);
-        await RemoveLeftoverHelperAsync(args, ct);
+        var name = NameOf(args);
+        await RemoveLeftoverAsync(name, ct);
         await CreateVolumeAsync(spec.WorkVolume, spec.RunId, ct);
-        var result = await RunAsync(args, ct);
+        DockerResult result;
+        try
+        {
+            result = await RunAsync(args, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            await TryRunAsync(["rm", "-f", name]);
+            throw;
+        }
         if (result.ExitCode != 0)
         {
             await RemoveVolumeAsync(spec.WorkVolume, CancellationToken.None);
@@ -265,8 +294,19 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
     public async Task WriteOutStreamAsync(OutFileSpec spec, Stream content, long length, CancellationToken ct)
     {
         var args = ContainerTemplate.OutFileArgs(spec, write: true);
-        await RemoveLeftoverHelperAsync(args, ct);
-        var result = await RunStreamAsync(args, default, content, Stream.Null, ct);
+        var name = NameOf(args);
+        // A stream is read once, so unlike the other transfers this one is not asked again: it removes what holds its name first, and a cancel removes what it may have created.
+        await RemoveLeftoverAsync(name, ct);
+        DockerResult result;
+        try
+        {
+            result = await RunStreamAsync(args, default, content, Stream.Null, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            await TryRunAsync(["rm", "-f", name]);
+            throw;
+        }
         if (result.ExitCode != 0)
             throw Unavailable($"writing {spec.Name} into the output volume failed", result, null);
     }
@@ -375,14 +415,8 @@ public sealed class DockerCliEngine(string docker = "docker", IReadOnlyList<stri
         await RunAsync(["volume", "rm", "-f", name], ct);
     }
 
-    /// <summary>A helper has a fixed name per run, and one that a restart interrupted between create and start is still there under it: <c>docker run --name</c> would answer "the container name is already in
-    /// use". Removing whatever holds the name first makes the helper idempotent (ADR 0058, the bundle transfer; the same prefixes as every other helper, so the runner's cleanup at start finds them too).</summary>
-    private async Task RemoveLeftoverHelperAsync(IReadOnlyList<string> args, CancellationToken ct)
-    {
-        var at = args.ToList().IndexOf("--name");
-        if (at >= 0 && at + 1 < args.Count)
-            await RemoveAsync(args[at + 1], ct);
-    }
+    /// <summary>The <c>--name</c> of a helper's command line.</summary>
+    private static string NameOf(IReadOnlyList<string> args) => args[args.ToList().IndexOf("--name") + 1];
 
     private static void RequirePlain(string name)
     {

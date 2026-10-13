@@ -1,6 +1,7 @@
 using System.Net;
 using Chargehand.Containers;
 using Chargehand.Contracts;
+using Chargehand.Driven;
 using Chargehand.Runner;
 
 namespace Chargehand.Server;
@@ -12,7 +13,7 @@ public static class RunnerCli
 {
     public const string KeyVariable = "CHARGEHAND_RUNNER_KEY";
 
-    public const string Usage = "usage: chargehand runner --listen <ip:port> --images <name@sha256:...,...> --egress-image <name@sha256:...> [--max-containers N] [--allowed-hosts a,b] [--source-roots /dir,...] [--outside-networks name,...] [--forwards listen=host:port,...] [--service-images name@sha256:...,...] [--max-bundle-mb N]  (key: CHARGEHAND_RUNNER_KEY)";
+    public const string Usage = "usage: chargehand runner --listen <ip:port> --images <name@sha256:...,...> --egress-image <name@sha256:...> [--max-containers N] [--allowed-hosts a,b] [--source-roots /dir,...] [--outside-networks name,...] [--forwards listen=host:port,...] [--service-images name@sha256:...,...] [--max-bundle-mb N] [--keep-awake on|off] [--drain-on battery,lid] [--drain-file /path] [--host-source auto|proc|engine]  (key: CHARGEHAND_RUNNER_KEY)";
 
     public static RunnerSettings? Parse(IReadOnlyList<string> args, string? key, TextWriter error)
     {
@@ -30,6 +31,10 @@ public static class RunnerCli
         List<string> forwards = [];
         List<string> serviceImages = [];
         var maxBundleMb = (int)(RunnerPolicy.DefaultMaxBundleBytes / (1024 * 1024));
+        var keepAwake = false;
+        var drainOn = "";
+        string? drainFile = null;
+        var hostSource = "auto";
         for (var i = 0; i < args.Count; i += 2)
         {
             if (i + 1 >= args.Count)
@@ -56,6 +61,18 @@ public static class RunnerCli
                     break;
                 case "--max-bundle-mb" when int.TryParse(args[i + 1], out var mb) && mb is >= 1 and <= 4096:
                     maxBundleMb = mb;
+                    break;
+                case "--keep-awake" when args[i + 1] is "on" or "off":
+                    keepAwake = args[i + 1] == "on";
+                    break;
+                case "--drain-on" when DrainRules.ParseOn(args[i + 1], null) is not null:
+                    drainOn = args[i + 1];
+                    break;
+                case "--drain-file" when args[i + 1].StartsWith('/') && !args[i + 1].Contains("..", StringComparison.Ordinal):
+                    drainFile = args[i + 1];
+                    break;
+                case "--host-source" when args[i + 1] is "auto" or "proc" or "engine":
+                    hostSource = args[i + 1];
                     break;
                 case "--service-images":
                     serviceImages = [.. args[i + 1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
@@ -93,7 +110,13 @@ public static class RunnerCli
             error.WriteLine("note: no --outside-networks, so an egress container can join no network but the default one");
         if (forwards.Count == 0)
             error.WriteLine("note: no --forwards, so an egress container carries no forward and a session cannot call the server back");
-        return new RunnerSettings(listen.Port, key, new RunnerPolicy(images, egress, max, SourceRoots: roots, OutsideNetworks: outside, Forwards: forwards, ServiceImages: serviceImages, MaxBundleBytes: maxBundleMb * 1024L * 1024), listen.Address.ToString(), hosts);
+        var drain = DrainRules.ParseOn(drainOn, drainFile)!;
+        if (keepAwake && !OperatingSystem.IsMacOS())
+            error.WriteLine("note: --keep-awake does nothing here: it holds a Mac awake with caffeinate");
+        if ((drain.OnBattery || drain.OnLidClosed) && !OperatingSystem.IsMacOS())
+            error.WriteLine("note: --drain-on battery and lid read macOS's pmset and ioreg, so they never drain here; --drain-file works everywhere");
+        return new RunnerSettings(listen.Port, key, new RunnerPolicy(images, egress, max, SourceRoots: roots, OutsideNetworks: outside, Forwards: forwards, ServiceImages: serviceImages, MaxBundleBytes: maxBundleMb * 1024L * 1024), listen.Address.ToString(), hosts,
+            new RunnerOptions(keepAwake, drain.Any ? drain : null, hostSource));
     }
 
     public static async Task<int> RunAsync(IReadOnlyList<string> args, TextWriter error, CancellationToken ct)
@@ -102,14 +125,22 @@ public static class RunnerCli
             return 2;
         var engine = new DockerCliEngine();
         await ClearLeftoversAsync(engine, error, ct);
-        var app = RunnerServer.Create(settings, engine);
+        var options = settings.Options ?? new RunnerOptions();
+        // The runner's own /proc, unless it is on a machine whose engine is a virtual machine: then the engine is asked (ADR 0058).
+        IHostSource host = options.HostSource == "engine" || (options.HostSource == "auto" && !OperatingSystem.IsLinux()) ? new EngineHostProbe(engine, settings.Policy.Images[0]) : new HostProbe();
+        if (options.Drain is { } rules)
+            host = new DrainingHost(host, new HostDrain(rules, new MacPowerReader()));
+        var app = RunnerServer.Create(settings, engine, host);
         await app.StartAsync(ct);
         error.WriteLine($"runner listening on {string.Join(", ", app.Urls)}");
+        using var holder = new CaffeinateHolder();
+        var awake = options.KeepAwake && OperatingSystem.IsMacOS() ? Task.Run(() => new KeepAwake(engine.RunningSessionsAsync, holder, log: message => error.WriteLine(message)).RunAsync(ct), CancellationToken.None) : Task.CompletedTask;
         try
         {
             await Task.Delay(Timeout.Infinite, ct);
         }
         catch (OperationCanceledException) { }
+        await awake;
         await app.StopAsync(CancellationToken.None);
         return 0;
     }
@@ -130,7 +161,7 @@ public static class RunnerCli
         }
     }
 
-    private static readonly HashSet<string> KnownOptions = ["--listen", "--images", "--egress-image", "--max-containers", "--outside-networks", "--forwards", "--source-roots", "--allowed-hosts", "--service-images", "--max-bundle-mb"];
+    private static readonly HashSet<string> KnownOptions = ["--listen", "--images", "--egress-image", "--max-containers", "--outside-networks", "--forwards", "--source-roots", "--allowed-hosts", "--service-images", "--max-bundle-mb", "--keep-awake", "--drain-on", "--drain-file", "--host-source"];
 
     /// <summary>The reason first, on its own line, then the usage: the usage names every flag, so alone it does not say which argument was wrong.</summary>
     private static RunnerSettings? Fail(TextWriter error, string reason)

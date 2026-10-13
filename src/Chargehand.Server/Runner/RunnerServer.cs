@@ -17,7 +17,14 @@ namespace Chargehand.Server;
 /// <param name="Port">0 picks a free one.</param>
 /// <param name="ApiKey">Required as a bearer token on every route.</param>
 /// <param name="Listen">Loopback unless the runner sits on a private network; then <paramref name="AllowedHosts"/> must name it.</param>
-public sealed record RunnerSettings(int Port, string ApiKey, RunnerPolicy Policy, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null);
+/// <param name="Options">How the runner looks after the machine it runs on (ADR 0058); null: it does not.</param>
+public sealed record RunnerSettings(int Port, string ApiKey, RunnerPolicy Policy, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null, RunnerOptions? Options = null);
+
+/// <summary>What a runner on a laptop adds (ADR 0058).</summary>
+/// <param name="KeepAwake">Hold the machine awake (<c>caffeinate</c>) while a session container runs. macOS only.</param>
+/// <param name="Drain">When <c>GET /host</c> says <c>draining</c>.</param>
+/// <param name="HostSource"><c>proc</c>: this machine's <c>/proc</c>; <c>engine</c>: ask the engine, for a machine whose engine is a virtual machine; <c>auto</c>: <c>proc</c> on Linux, <c>engine</c> elsewhere.</param>
+public sealed record RunnerOptions(bool KeepAwake = false, DrainRules? Drain = null, string HostSource = "auto");
 
 /// <summary>The runner (ADR 0039): the one process that holds the container engine's socket, in front of it a narrow HTTP API. Each route is one
 /// engine call with its inputs checked by <see cref="RunnerPolicy"/> and <see cref="ContainerTemplate"/>; a caller names a run, a listed image
