@@ -23,5 +23,9 @@ dotnet_diagnostic.CA1711.severity = none
 dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA1859.severity = none
 
+[src/{Shared,Modules,Runtimes,Hosts}/**.cs]
+# ADR 0060: the skeleton's complexity budget. CA1502 reads the threshold from src/CodeMetricsConfig.txt.
+dotnet_diagnostic.CA1502.severity = error
+
 [*.md]
 trim_trailing_whitespace = false

@@ -10,10 +10,43 @@
     <Project Path="src/Chargehand.Server/Chargehand.Server.csproj" />
     <Project Path="src/Chargehand/Chargehand.csproj" />
   </Folder>
+  <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/Chargehand.Kernel/Chargehand.Kernel.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/">
+    <Project Path="src/Modules/Chargehand.Modules.Accounts/Chargehand.Modules.Accounts.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Batches/Chargehand.Modules.Batches.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Console/Chargehand.Modules.Console.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Evaluation/Chargehand.Modules.Evaluation.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Gateway/Chargehand.Modules.Gateway.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Handover/Chargehand.Modules.Handover.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Intake/Chargehand.Modules.Intake.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Journal/Chargehand.Modules.Journal.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Ledger/Chargehand.Modules.Ledger.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Memory/Chargehand.Modules.Memory.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Onboarding/Chargehand.Modules.Onboarding.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Oversight/Chargehand.Modules.Oversight.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Research/Chargehand.Modules.Research.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Runners/Chargehand.Modules.Runners.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Sessions/Chargehand.Modules.Sessions.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Tasks/Chargehand.Modules.Tasks.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Watch/Chargehand.Modules.Watch.csproj" />
+  </Folder>
+  <Folder Name="/src/Runtimes/">
+    <Project Path="src/Runtimes/Chargehand.Runtimes.ClaudeCode/Chargehand.Runtimes.ClaudeCode.csproj" />
+    <Project Path="src/Runtimes/Chargehand.Runtimes.OpenCode/Chargehand.Runtimes.OpenCode.csproj" />
+  </Folder>
+  <Folder Name="/src/Hosts/">
+    <Project Path="src/Hosts/Chargehand.Hosts.Cli/Chargehand.Hosts.Cli.csproj" />
+    <Project Path="src/Hosts/Chargehand.Hosts.Runner/Chargehand.Hosts.Runner.csproj" />
+    <Project Path="src/Hosts/Chargehand.Hosts.Server/Chargehand.Hosts.Server.csproj" />
+    <Project Path="src/Hosts/Chargehand.Hosts.Session/Chargehand.Hosts.Session.csproj" />
+  </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/ContentEngineCall/ContentEngineCall.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Chargehand.Architecture.Tests/Chargehand.Architecture.Tests.csproj" />
     <Project Path="tests/Chargehand.Tests/Chargehand.Tests.csproj" />
   </Folder>
 </Solution>

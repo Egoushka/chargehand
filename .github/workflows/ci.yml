@@ -122,6 +122,18 @@ jobs:
       - run: dotnet pack src/Chargehand.Cli -c Release -o "$RUNNER_TEMP/package"
       - run: scripts/mcp-smoke.py "$RUNNER_TEMP/package"
 
+  # ADR 0060: every host of the rewrite skeleton (src/Hosts) publishes as a Native AOT binary with no warnings and runs.
+  aot:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - run: scripts/aot-smoke.sh linux-x64
+
   # Goal 0.5: the Claude Code plugin and its marketplace entry pass the pinned Claude Code validator.
   plugin:
     needs: changes
@@ -183,7 +195,7 @@ jobs:
   # merges without the build jobs, and a job renamed or added here needs no change to the ruleset.
   ci-gate:
     if: always()
-    needs: [changes, build, web, package, plugin, compose, secrets, commits, dependencies]
+    needs: [changes, build, web, package, aot, plugin, compose, secrets, commits, dependencies]
     runs-on: ubuntu-latest
     steps:
       - env:
