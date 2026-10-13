@@ -4,6 +4,9 @@
     "includes": [
       "**",
       "!**/dist",
+      "!design/tokens.json",
+      "!src/styles/tokens.css",
+      "!src/styles/bundle.css",
       "!**/node_modules",
       "!**/package-lock.json",
       "!**/playwright-report",

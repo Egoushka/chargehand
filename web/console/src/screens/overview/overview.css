@@ -1,0 +1,111 @@
+/* Overview: batch rows, slot squares, system rows. The panels, meters, KPI tiles and pills are the design system's. */
+.batchrow {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  color: inherit;
+  text-decoration: none;
+}
+
+.batchrow:last-child {
+  border-bottom: 0;
+}
+
+.batchrow:hover {
+  background: var(--row-hover);
+}
+
+.batchrow__top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.batchrow__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.batchrow__facts b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.slots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.slot {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+}
+
+.slot[data-on="true"] {
+  border-color: var(--info-mark);
+  background: var(--info-mark);
+}
+
+.sysrow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.sysrow:last-child {
+  border-bottom: 0;
+}
+
+.sysrow > :last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kpi-of {
+  color: var(--text-muted);
+  font: 500 13px / 20px var(--font-sans);
+}
+
+.o1 {
+  --o: 1;
+}
+.o2 {
+  --o: 2;
+}
+.o3 {
+  --o: 3;
+}
+.o4 {
+  --o: 4;
+}
+.o5 {
+  --o: 5;
+}
+.o6 {
+  --o: 6;
+}
+.o7 {
+  --o: 7;
+}
+.o8 {
+  --o: 8;
+}
+.o9 {
+  --o: 9;
+}

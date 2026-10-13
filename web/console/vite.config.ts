@@ -14,6 +14,8 @@ export default defineConfig({
     // Nothing is inlined into the page or the scripts: the policy allows no inline script or style.
     assetsInlineLimit: 0,
     sourcemap: false,
+    // One script is served as is, uncompressed, over a private network (ADR 0056); it was 342 KB, with the design system 526 KB.
+    chunkSizeWarningLimit: 700,
   },
   server: { port: 5173, proxy: { '/v1': server } },
   preview: { host: '127.0.0.1', port: 4173, strictPort: true, headers: SECURITY_HEADERS },

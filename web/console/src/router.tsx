@@ -6,15 +6,17 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router';
 import { ApiError, Unauthorized } from './api/client';
+import { NeedsYou } from './screens/needs-you/NeedsYou';
+import { Overview } from './screens/overview/Overview';
 import { Placeholder } from './screens/Placeholder';
-import { RunDetail } from './screens/RunDetail';
-import { Runs } from './screens/Runs';
+import { RunDetail } from './screens/run/RunDetail';
+import { Runs } from './screens/runs/Runs';
 import { Root } from './shell/Root';
-import { SCREENS } from './shell/screens';
+import { SCREENS, type ScreenPath } from './shell/screens';
 
-const blurb = (to: (typeof SCREENS)[number]['to']) => {
+const placeholder = (to: ScreenPath) => () => {
   const screen = SCREENS.find((s) => s.to === to);
-  return screen ? { title: screen.label, blurb: screen.blurb } : { title: to, blurb: '' };
+  return <Placeholder title={screen?.label ?? to} blurb={screen?.blurb ?? ''} />;
 };
 
 const rootRoute = createRootRoute({
@@ -26,18 +28,19 @@ function child<const TPath extends string>(path: TPath, component: () => React.J
   return createRoute({ getParentRoute: () => rootRoute, path, component });
 }
 
+// A screen lives in src/screens/<name>/. To build one of the placeholders, replace its line with the screen's component.
 const routeTree = rootRoute.addChildren([
-  child('/', () => <Placeholder {...blurb('/')} />),
+  child('/', Overview),
   child('runs', Runs),
   child('runs/$runId', RunDetail),
-  child('needs-you', () => <Placeholder {...blurb('/needs-you')} />),
-  child('new', () => <Placeholder {...blurb('/new')} />),
-  child('analytics', () => <Placeholder {...blurb('/analytics')} />),
-  child('learning', () => <Placeholder {...blurb('/learning')} />),
-  child('intake', () => <Placeholder {...blurb('/intake')} />),
-  child('repositories', () => <Placeholder {...blurb('/repositories')} />),
-  child('accounts', () => <Placeholder {...blurb('/accounts')} />),
-  child('system', () => <Placeholder {...blurb('/system')} />),
+  child('needs-you', NeedsYou),
+  child('new', placeholder('/new')),
+  child('analytics', placeholder('/analytics')),
+  child('learning', placeholder('/learning')),
+  child('intake', placeholder('/intake')),
+  child('repositories', placeholder('/repositories')),
+  child('accounts', placeholder('/accounts')),
+  child('system', placeholder('/system')),
 ]);
 
 /** The server serves the console at the base path Vite was built with (/console/). */
