@@ -82,6 +82,21 @@ jobs:
       - run: npx -y @anthropic-ai/claude-code@2.1.283 plugin validate --strict ./plugins/chargehand
       - run: npx -y @anthropic-ai/claude-code@2.1.283 plugin validate --strict .
 
+  # deploy/compose (docs/guide/install.md): the compose file parses in both modes with the example environment.
+  compose:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - working-directory: deploy/compose
+        run: |
+          cp .env.example .env
+          echo CHARGEHAND_API_KEY=ci >> .env
+          cp profile.core.json profile.json
+          docker compose config -q
+          docker compose --profile driven config -q
+
   secrets:
     runs-on: ubuntu-latest
     # On pull requests gitleaks-action lists the PR's commits through the API.
@@ -118,7 +133,7 @@ jobs:
   # merges without the build jobs, and a job renamed or added here needs no change to the ruleset.
   ci-gate:
     if: always()
-    needs: [changes, build, package, plugin, secrets, commits, dependencies]
+    needs: [changes, build, package, plugin, compose, secrets, commits, dependencies]
     runs-on: ubuntu-latest
     steps:
       - env:

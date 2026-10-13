@@ -46,7 +46,9 @@ workers read-only tools from a server. `chargehand extensions check` verifies th
 
 ## Quick start
 
-You need the .NET 10 SDK and one worker runtime.
+To run the server from the release images instead, with Docker Compose and no .NET SDK, see
+[Install with Docker Compose](docs/guide/install.md) (`deploy/compose/`). To run from a clone, you need the .NET 10 SDK
+and one worker runtime.
 
 1. Copy `profiles/example.json` to `profiles/local.json` and fill in your gateway, models, prices and secret-store
    item names. Profiles reference secrets by item name and never hold them.
