@@ -529,9 +529,10 @@ public sealed record DrivenAdmission(int ReserveMb = 1024, double? MaxLoadPerCpu
 /// <see cref="SessionGovernor"/>'s default.</summary>
 /// <param name="Mode"><c>off</c>, <c>observe</c> (the default: decisions are logged, none acted on) or <c>enforce</c> (a checkpoint or a stop ends the session).</param>
 /// <param name="Budgets">The flat budget per size class (S, M, L) in the dollar equivalent, until enough history exists for a percentile.</param>
+/// <param name="History">When a size class has enough finished tasks, its budget is a percentile of their spend; null: the defaults of <see cref="DrivenGovernorHistory"/>.</param>
 public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IReadOnlyDictionary<string, decimal>? Budgets = null, int? RepeatCalls = null,
     int? RepeatFailures = null, int? FailingCalls = null, int? ProbeCommands = null, int? NoGrowthTurns = null, int? RewarnTurns = null, long? ContextTokens = null,
-    decimal? CheckpointAt = null, IReadOnlyList<string>? ProbePatterns = null, IReadOnlyList<string>? WaitPatterns = null)
+    decimal? CheckpointAt = null, IReadOnlyList<string>? ProbePatterns = null, IReadOnlyList<string>? WaitPatterns = null, DrivenGovernorHistory? History = null)
 {
     public static IReadOnlyDictionary<string, decimal> DefaultBudgets { get; } = new Dictionary<string, decimal> { ["S"] = 1.5m, ["M"] = 4m, ["L"] = 10m };
 
@@ -548,6 +549,7 @@ public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IR
         foreach (var (size, budget) in Budgets ?? new Dictionary<string, decimal>())
             if (size is not ("S" or "M" or "L") || budget <= 0)
                 problems.Add($"budgets.{size} must be one of S, M, L with a value above 0");
+        History?.Validate(problems);
         foreach (var pattern in (ProbePatterns ?? []).Concat(WaitPatterns ?? []))
             try
             {
@@ -559,6 +561,18 @@ public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IR
             }
         if (problems.Count > 0)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.governor: {string.Join("; ", problems)}", "Fix driven.governor in the profile; docs/guide/driven.md lists the keys.");
+    }
+}
+
+/// <summary>Budgets from past spend (ADR 0045): once a size class has <paramref name="MinTasks"/> finished tasks in the last <paramref name="WindowDays"/> days for the repository (else for all
+/// repositories), its budget is the <paramref name="Percentile"/>th percentile of their spend; below that the flat budget applies, and a task's own <c>budget_usd</c> always wins.</summary>
+public sealed record DrivenGovernorHistory(int MinTasks = 20, int WindowDays = 60, int Percentile = 80)
+{
+    internal void Validate(List<string> problems)
+    {
+        if (MinTasks < 1) problems.Add("history.min_tasks must be at least 1");
+        if (WindowDays < 1) problems.Add("history.window_days must be at least 1");
+        if (Percentile is < 1 or > 100) problems.Add("history.percentile must be 1 to 100");
     }
 }
 

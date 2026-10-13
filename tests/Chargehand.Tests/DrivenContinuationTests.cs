@@ -134,8 +134,8 @@ public class DrivenContinuationTests
         List<RunStatus> events = [];
         await rig.Run.RunAsync(Request(new DrivenTask("t1", Goal: "one", Size: "L")), BatchId, Token, default, events.Add);
 
-        Assert.Equal(new SessionGovernor(BudgetUsd: 10m, PriorUsd: 0m, SizeClass: "L"), rig.Volumes.Tasks[0].Governor);
-        Assert.Equal(new SessionGovernor(BudgetUsd: 10m, PriorUsd: 1.25m, SizeClass: "L"), rig.Volumes.Tasks[1].Governor);
+        Assert.Equal(new SessionGovernor(BudgetUsd: 10m, PriorUsd: 0m, SizeClass: "L", BudgetSource: new BudgetSource("flat")), rig.Volumes.Tasks[0].Governor);
+        Assert.Equal(new SessionGovernor(BudgetUsd: 10m, PriorUsd: 1.25m, SizeClass: "L", BudgetSource: new BudgetSource("flat")), rig.Volumes.Tasks[1].Governor);
         Assert.Contains(events, e => e.Event == RunEventKind.Governor && e.Detail == "task t1: governor observe: warn on repeated_call (first hit) at turn 7, spend 1.20 of 10.00");
     }
 

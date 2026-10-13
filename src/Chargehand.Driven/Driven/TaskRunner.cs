@@ -138,7 +138,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         var startDetail = resumed?.StartDetail ?? (task.From is null ? "session container started" : "session container started (continues an earlier task's work)");
         string? startFailure = null;
         var stack = StackOf(task);
-        var budget = settings.Governor?.Budget(task.Size, task.BudgetUsd);
+        var budget = await BudgetAsync(task);
         List<GovernorDecision> decisions = [];
         string? lastHead = null;
         var stackDirectory = Path.Combine(settings.ScratchRoot, $"{runId}-stack");
@@ -194,7 +194,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             {
                 sessionStarted = DateTimeOffset.UtcNow;
                 journal?.Update(task.Id, e => e with { SessionStarted = sessionStarted });
-                container = await StartSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, Remaining(prior), prior?.UsdEstimate ?? 0, seed, sessionStarted, startDetail, span, traceId, ct);
+                container = await StartSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, Remaining(prior), prior?.UsdEstimate ?? 0, seed, sessionStarted, startDetail, span, traceId, budget, ct);
             }
             containers[runId] = container;
             SessionOutcome session;
@@ -258,7 +258,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 try
                 {
                     sessionStarted = DateTimeOffset.UtcNow;
-                    container = await StartSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, Remaining(prior), prior?.UsdEstimate ?? 0, seed, sessionStarted, startDetail, span, traceId, ct);
+                    container = await StartSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, Remaining(prior), prior?.UsdEstimate ?? 0, seed, sessionStarted, startDetail, span, traceId, budget, ct);
                 }
                 catch (Exception e) when (IsStartFailure(e, ct))
                 {
@@ -305,7 +305,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 var early = Outcome(task, runId, result, total, handed, settings.Priced, partial, startNote);
                 await LearnAsync(task, early, session, total, continuation, decisions, handed, partial, lastHead, budget);
                 journal?.Finish(early);
-                follow = await FollowUpAsync(task, handed!, Path.Combine(handoverRun.Item2, "chargehand.bundle"), best?.Commits ?? 0, branch, partial, total, containers, span, traceId, progress, sha => lastHead = sha, ct);
+                follow = await FollowUpAsync(task, handed!, Path.Combine(handoverRun.Item2, "chargehand.bundle"), best?.Commits ?? 0, branch, partial, total, containers, span, traceId, progress, sha => lastHead = sha, budget, ct);
             }
             var spent = follow.Spent ?? total;
             var outcome = Outcome(task, runId, result, spent, handed, settings.Priced, partial, startNote);
@@ -360,7 +360,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     /// seeded from the last bundle (<see cref="CiFixSession"/>). The pull request exists whatever happens here, so a GitHub error or a cancel ends in a line of detail, never in a failed task.</summary>
     /// <returns>The line for the task outcome, and the usage of the fix sessions added to the task's (null: none ran).</returns>
     private async Task<(string? Detail, SessionOutcome? Spent)> FollowUpAsync(ResolvedTask task, HandoverOutcome handed, string seedBundle, int seededCommits, string branch, bool partial, SessionOutcome total,
-        Dictionary<string, string?> containers, Activity? span, string traceId, IProgress<TaskUsage> progress, Action<string> headMoved, CancellationToken ct)
+        Dictionary<string, string?> containers, Activity? span, string traceId, IProgress<TaskUsage> progress, Action<string> headMoved, BudgetChoice? budget, CancellationToken ct)
     {
         var integrator = settings.Integration!;
         var pr = handed.PullRequest!;
@@ -384,7 +384,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             Directory.CreateDirectory(outDirectory);
             var sessionStarted = DateTimeOffset.UtcNow;
             var container = await StartSessionAsync(task, fixRun, branch, request.Goal, integrator.CiFix.Turns, integrator.CiFix.Minutes, (tokensLeft, usdLeft), running.UsdEstimate ?? 0, seed, sessionStarted,
-                $"session container started (CI fix attempt {request.Attempt} of {request.MaxAttempts})", span, traceId, token);
+                $"session container started (CI fix attempt {request.Attempt} of {request.MaxAttempts})", span, traceId, budget, token);
             containers[fixRun] = container;
             await WaitAsync(container, fixRun, task.Id, integrator.CiFix.Minutes, progress, sessionStarted, running, token);
             await volumes.FetchOutputAsync(fixRun, outDirectory, token);
@@ -510,7 +510,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
 
     /// <summary>The session's container, workspace and task file, up to the container's start.</summary>
     private async Task<string> StartSessionAsync(ResolvedTask task, string runId, string branch, string goal, int maxTurns, int maxMinutes, (long Tokens, decimal? Usd) left, decimal spentUsd,
-        string? seed, DateTimeOffset sessionStarted, string detail, Activity? span, string traceId, CancellationToken ct)
+        string? seed, DateTimeOffset sessionStarted, string detail, Activity? span, string traceId, BudgetChoice? budget, CancellationToken ct)
     {
         var preset = settings.Preset;
         await engine.CreateVolumeAsync(RunnerNames.Out(runId), runId, ct);
@@ -518,7 +518,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         if (seed is not null)
             await volumes.WriteSeedAsync(runId, seed, ct);
         await volumes.WriteTaskAsync(runId, new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices,
-            Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd), Environment: settings.Shared?.ForSession()), ct);
+            Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd, budget), Environment: settings.Shared?.ForSession()), ct);
 
         var gateway = settings.GatewayKey is not null && settings.Network.ModelUrl is not null;
         Dictionary<string, string> env = new(gateway ? new Dictionary<string, string>() : settings.ModelEnvironment, StringComparer.Ordinal)
@@ -587,10 +587,13 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     /// <summary>A governor decision as a run event's detail: what it would do, the signal and the rule, the turn, and the spend against the budget when known.</summary>
     internal static string Describe(GovernorDecision d)
     {
-        var spend = d.SpendUsd is { } usd && d.BudgetUsd is { } budget ? string.Create(CultureInfo.InvariantCulture, $", spend {usd:0.00} of {budget:0.00}") : "";
+        var spend = d.SpendUsd is { } usd && d.BudgetUsd is { } budget ? string.Create(CultureInfo.InvariantCulture, $", spend {usd:0.00} of {budget:0.00}{Source(d.BudgetSource)}") : "";
         var mode = d.Acted ? "" : $"{JsonNamingPolicy.SnakeCaseLower.ConvertName(d.Mode.ToString())}: ";
         return string.Create(CultureInfo.InvariantCulture, $"governor {mode}{JsonNamingPolicy.SnakeCaseLower.ConvertName(d.Action.ToString())} on {d.Signal} ({d.Rule.Replace('_', ' ')}) at turn {d.Turn}{spend}");
     }
+
+    private static string Source(BudgetSource? source) => source is { Kind: "history" } h
+        ? string.Create(CultureInfo.InvariantCulture, $" (p{h.Percentile} of {h.N} past tasks{(h.Scope == "all" ? ", all repositories" : "")})") : "";
 
     /// <summary>With a handoff (ADR 0045) the earlier commits are offered, not required: the handoff may show the approach failed, and then the session starts again from the base commit.</summary>
     private string ContinuationGoal(string goal, int number, SessionOutcome previous, string? progress)
@@ -865,6 +868,27 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         {
             Console.Error.WriteLine($"chargehand: could not write the learning record of task {task.Id}: {e.Message}");
         }
+    }
+
+    /// <summary>The task's budget (ADR 0045): its own, else a percentile of what past tasks of its size class cost when there are enough, else the flat one. Chosen once when the task starts, so its
+    /// sessions all hold it to the same figure. Null without a governor.</summary>
+    private async Task<BudgetChoice?> BudgetAsync(ResolvedTask task)
+    {
+        if (settings.Governor is not { } governor)
+            return null;
+        IReadOnlyList<LearningRecord> records = [];
+        if (learning is not null && task.BudgetUsd is null)
+        {
+            try
+            {
+                records = [.. (await learning.ReadAsync(CancellationToken.None)).Select(e => e.Record)];
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine($"chargehand: could not read the learning records for the budget of task {task.Id}: {e.Message}");
+            }
+        }
+        return BudgetHistory.Choose(governor, task.Size, task.BudgetUsd, LearningRepository(), records, DateTimeOffset.UtcNow);
     }
 
     private string LearningRepository() =>

@@ -183,6 +183,17 @@ public class GovernorTests
     }
 
     [Fact]
+    public void Every_decision_carries_where_the_budget_came_from()
+    {
+        var source = new BudgetSource("history", 23, 80, "repository");
+        var g = new Governor(new SessionGovernor(BudgetUsd: 4m, SizeClass: "M", BudgetSource: source));
+        var checkpoint = Assert.Single(g.OnEvent(Usage(1, 1), 1, 3.5m, Now));
+        Assert.Equal(source, checkpoint.BudgetSource);
+        Assert.Equal(source, Assert.Single(g.OnEvent(Usage(1, 1), 2, 4.1m, Now)).BudgetSource);
+        Assert.Null(Assert.Single(new Governor(new SessionGovernor(BudgetUsd: 4m)).OnEvent(Usage(1, 1), 1, 5m, Now), d => d.Action == GovernorAction.Stop).BudgetSource);
+    }
+
+    [Fact]
     public void Without_a_budget_or_a_priced_spend_there_is_no_spend_rule()
     {
         Assert.Empty(new Governor(new SessionGovernor()).OnEvent(Usage(1, 1), 1, 100m, Now));
