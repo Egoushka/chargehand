@@ -204,7 +204,7 @@ describe('Intake with data', () => {
     renderConsole('/console/intake');
     await screen.findByRole('table', { name: 'Trigger log' });
     expect(panel('Starts per day').getByRole('status').textContent).toMatch(
-      /The cap is full: the next start is possible at \d\d:\d\d/,
+      /The cap is full: the next start is possible at (\d{1,2} [A-Z][a-z]{2} )?\d\d:\d\d/,
     );
     expect(panel('Starts per day').getByRole('meter').getAttribute('data-level')).toBe('danger');
   });
