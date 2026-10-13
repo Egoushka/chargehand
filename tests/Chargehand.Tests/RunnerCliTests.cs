@@ -120,10 +120,10 @@ public class RunnerCliTests
     public async Task At_start_the_runner_clears_helpers_a_killed_run_left_and_says_how_many()
     {
         using var dir = new TempDir();
-        var script = dir.Write("docker", "#!/bin/sh\ncase \"$1\" in ps) printf 'chargehand-xfer-run1\\nchargehand-xfer-run2\\n';; esac\n");
+        var script = dir.Write("docker", "#!/bin/sh\ncase \"$1\" in ps) printf 'chargehand-xfer-run1\\nchargehand-prep-run2\\n';; esac\n");
         var error = new StringWriter();
         await RunnerCli.ClearLeftoversAsync(new Chargehand.Containers.DockerCliEngine("/bin/sh", [script]), error, default);
-        Assert.Contains("2 leftover transfer containers", error.ToString());
+        Assert.Contains("2 leftover helper containers", error.ToString());
     }
 
     [Fact]

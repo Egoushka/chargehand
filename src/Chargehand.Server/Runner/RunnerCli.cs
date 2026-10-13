@@ -145,7 +145,7 @@ public static class RunnerCli
         return 0;
     }
 
-    /// <summary>A runner that was killed mid-transfer leaves a helper container created and never started; the engine would keep it. An engine that does not answer now is a note: the first transfer of
+    /// <summary>A runner that was killed mid-transfer or mid-workspace leaves a helper container created and never started; the engine would keep it. An engine that does not answer now is a note: the first transfer of
     /// the run clears its own helper anyway.</summary>
     internal static async Task ClearLeftoversAsync(DockerCliEngine engine, TextWriter error, CancellationToken ct)
     {
@@ -153,11 +153,11 @@ public static class RunnerCli
         {
             var removed = await engine.RemoveStaleHelpersAsync(ct);
             if (removed.Count > 0)
-                error.WriteLine($"removed {removed.Count} leftover transfer containers: {string.Join(", ", removed)}");
+                error.WriteLine($"removed {removed.Count} leftover helper containers: {string.Join(", ", removed)}");
         }
         catch (ChargehandException e)
         {
-            error.WriteLine($"note: leftover transfer containers were not cleared ({e.Message})");
+            error.WriteLine($"note: leftover helper containers were not cleared ({e.Message})");
         }
     }
 
