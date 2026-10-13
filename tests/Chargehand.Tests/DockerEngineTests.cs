@@ -107,6 +107,7 @@ public class DockerEngineTests
     [InlineData("running 0 false", ContainerStatus.Running, null, false)]
     [InlineData("exited 137 true", ContainerStatus.Exited, 137, true)]
     [InlineData("exited 0 false", ContainerStatus.Exited, 0, false)]
+    [InlineData("created 0 false", ContainerStatus.Created, null, false)]
     public async Task Inspect_reads_state_exit_code_and_oom(string output, ContainerStatus status, int? exit, bool oom)
     {
         using var dir = new TempDir();

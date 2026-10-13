@@ -12,5 +12,9 @@ public readonly record struct StepKey(string Batch, string Name)
     /// <summary>A write into a run's output volume (<c>chargehand-xfer-&lt;run&gt;</c>); <paramref name="file"/> is the file's fixed name, so a restarted task finds the same key.</summary>
     public static StepKey Transfer(string batch, string run, string file) => new(batch, $"xfer/{run}/{file}");
 
+    /// <summary>A task's session start under one run id (<c>chargehand-&lt;run&gt;</c>): the output volume, the workspace, the task file and the container. The run id is the one saved for the
+    /// task before the start, so a restarted server finds the same key.</summary>
+    public static StepKey Session(string batch, string task, string run) => new(batch, $"session/{task}/{run}");
+
     public override string ToString() => $"{Batch}: {Name}";
 }
