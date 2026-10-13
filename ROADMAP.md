@@ -36,7 +36,7 @@ image.
   real profile.
   [Guide](docs/guide/driven.md).
 
-## Governed driven sessions · ▶ (ADR 0045, extends Stage 3)
+## Governed driven sessions · ✅ (0.9; ADR 0045, extends Stage 3)
 
 True when done: a driven session stops on spend and progress, not on a turn count, never loses its work, and a batch
 can chain tasks, share the box fairly and leave a reviewed branch. It takes a minor version when the first step ships.

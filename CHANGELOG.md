@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-13
+
+Driven sessions are governed: a governor watches spend and stuck signals (observe mode by default), stopped work continues in a fresh session or becomes a partial draft PR, tasks can depend on each other and answer questions, admission looks at free memory, and an optional GitHub App integrator merges through required checks. The orchestrator core ships apart from the driven infrastructure, with accounts that bring their own model key, GitLab, intake from GitHub issues and review comments, budgets learned from past spend, a web UI, a one-file install, `init` and `doctor`, a quality benchmark harness and a review workflow for any repository.
+
 ### Added
 
 - A web UI at `/ui/` (ADR 0054, CHARGEHAND-203), off unless `http.ui` is `true`. Plain HTML, CSS and ES modules embedded in the server, no build step, no third-party code. Sign in by pasting an API key (the owner's or an account's); it is kept in `sessionStorage` and sent as the bearer header, with no cookie and no server-side session. Every `/ui/` response carries a Content-Security-Policy that allows no inline script or style and no other origin, and run data is only ever rendered as text. Screens: the runs list (filters by state, kind, repository and, for the owner, actor; cost, tokens, branch, pull request link; refreshed every 5 seconds), a run's page (live events over `fetch`, the result with claims and citations linked to `path:line` at the commit when the repository has a web address, artifacts including the `changes` diff, a batch's task table, cancel), starting a run (goal, preset, repository, and for accounts allowed `driven`, a list of tasks), spend against the account's caps, the learning report (`GET /v1/learn`), and halt and resume for the owner. New, additive: `GET /v1/accounts/me` (name, rights, caps, spend in the UTC day and month, unfinished runs, halted, presets); `GET /v1/runs` filters `kind`, `repository`, `run_id` and, for the owner, `actor`; `run-summary/v1` gains optional `kind`, `repository`, `commit` and `tokens`; the profile gains `http.ui`. The static files are the one thing served without a key. The JavaScript is exercised by hand in a browser, not in CI.
@@ -48,6 +52,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Upgrade
 
+- **Accounts:** an entry in `http.accounts` with no `model` block is now refused with `403 model_credential_missing`. Add `"allow_server_credential": true` to every account that should keep spending the server's model credential, or give it a `model` block with its own `api_key_secret` (ADR 0053). The owner key, CLI runs and stdio are unaffected.
 - Deploy the server and the session image together for this release. The server now puts `prices` in `task.json`, and a session image built before the lenient parse (#218) rejects a `task.json` with an unknown member. From #218 on, session images ignore unknown members in `task.json` and the usage file, so later additive fields need no lockstep.
 - To use `driven.services.caches` or the JDK image, deploy the runner and the server from this release first (a session start with `caches` is refused as an unknown field by an older runner), then rebuild the session image: it carries `/cache/<ecosystem>` and the environment manifest. With `driven.services` unset an older runner and image keep working; only the environment note is new, and an older image ignores the `environment` member of `task.json`.
 
@@ -731,7 +736,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.8.8...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Egoushka/chargehand/compare/v0.8.8...v0.9.0
 [0.8.8]: https://github.com/Egoushka/chargehand/compare/v0.8.7...v0.8.8
 [0.8.7]: https://github.com/Egoushka/chargehand/compare/v0.8.6...v0.8.7
 [0.8.6]: https://github.com/Egoushka/chargehand/compare/v0.8.5...v0.8.6
