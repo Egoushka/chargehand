@@ -1,0 +1,160 @@
+/* The frame of every screen: rail, top bar, banners, main, and the phone's tab bar. */
+.app {
+  display: grid;
+  grid-template-columns: var(--size-rail) minmax(0, 1fr);
+  min-height: 100dvh;
+  position: relative;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app[data-rail="collapsed"] {
+  grid-template-columns: var(--size-rail-collapsed) minmax(0, 1fr);
+}
+
+.app__rail {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100dvh;
+  overflow-y: auto;
+}
+
+.app__rail .ch-rail__foot {
+  display: grid;
+  gap: 2px;
+  margin-top: auto;
+}
+
+.ch-rail--collapsed .ch-brand {
+  padding: 0;
+  justify-content: center;
+}
+
+.ch-rail--collapsed .ch-rail__foot {
+  justify-items: center;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 100dvh;
+}
+
+.main > main {
+  flex: 1;
+  min-width: 0;
+  outline: none;
+}
+
+.app .ch-topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font: 600 14px / 20px var(--font-sans);
+}
+
+.crumbs .sep {
+  color: var(--text-subtle);
+}
+
+.crumbs a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  color: var(--text);
+}
+
+.topbar__find {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 240px;
+  height: var(--size-control-md);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  background: var(--bg);
+  color: var(--text-subtle);
+  font: 400 13px / 20px var(--font-sans);
+  cursor: pointer;
+}
+
+.topbar__find:hover {
+  border-color: var(--text-subtle);
+}
+
+.topbar__find .ch-kbd {
+  margin-left: auto;
+}
+
+.banner-stack {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6) 0;
+}
+
+.banner-stack:empty {
+  display: none;
+}
+
+.signin {
+  display: grid;
+  gap: var(--space-4);
+  width: min(28rem, 100% - 2 * var(--space-4));
+  margin: 12vh auto 0;
+  padding: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  background: var(--surface);
+}
+
+.signin h1 {
+  font: 600 20px / 28px var(--font-sans);
+  letter-spacing: -0.01em;
+}
+
+/* ---------- phone ---------- */
+@media (max-width: 767px) {
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .main {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .app .ch-tabbar {
+    flex: none;
+  }
+
+  .app .ch-topbar {
+    height: calc(var(--size-topbar) + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) var(--space-2) 0 var(--space-4);
+  }
+
+  .banner-stack {
+    padding: var(--space-3) var(--space-4) 0;
+  }
+
+  .signin {
+    margin-top: calc(var(--space-8) + env(safe-area-inset-top, 0px));
+  }
+}

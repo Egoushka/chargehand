@@ -54,6 +54,9 @@ export function useHaltToggle() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (halt: boolean) => postJson<{ halted: boolean }>(halt ? '/v1/halt' : '/v1/resume'),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['me'] }),
+    onSuccess: () =>
+      Promise.all(
+        ['me', 'overview', 'runs'].map((key) => queryClient.invalidateQueries({ queryKey: [key] })),
+      ),
   });
 }
