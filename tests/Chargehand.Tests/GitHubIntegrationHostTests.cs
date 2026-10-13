@@ -11,7 +11,7 @@ public class GitHubIntegrationHostTests
 
     private sealed class FixedToken(string token = "ghs_secrettoken") : IInstallationTokens
     {
-        public Task<string> GetAsync(CancellationToken ct) => Task.FromResult(token);
+        public Task<string> GetAsync(string owner, string repository, CancellationToken ct) => Task.FromResult(token);
     }
 
     private sealed class Canned(Func<HttpRequestMessage, string?, HttpResponseMessage> answer) : HttpMessageHandler
@@ -78,8 +78,8 @@ public class GitHubIntegrationHostTests
     {
         var handler = new Canned((_, _) => Json("""{"data":{"ok":{}}}"""));
         var host = Host(handler);
-        await host.MarkReadyAsync("PR_node", default);
-        await host.EnableAutoMergeAsync("PR_node", "abc1234", default);
+        await host.MarkReadyAsync(Repo, "PR_node", default);
+        await host.EnableAutoMergeAsync(Repo, "PR_node", "abc1234", default);
 
         Assert.All(handler.Requests, r => Assert.Equal("https://api.example.test/graphql", r.Url));
         Assert.Contains("markPullRequestReadyForReview", handler.Requests[0].Body);
@@ -131,7 +131,7 @@ public class GitHubIntegrationHostTests
     public async Task A_graphql_error_is_an_integration_exception()
     {
         var handler = new Canned((_, _) => Json("""{"data":null,"errors":[{"message":"Pull request is in clean status"}]}"""));
-        var e = await Assert.ThrowsAsync<IntegrationException>(() => Host(handler).EnableAutoMergeAsync("PR_node", "abc1234", default));
+        var e = await Assert.ThrowsAsync<IntegrationException>(() => Host(handler).EnableAutoMergeAsync(Repo, "PR_node", "abc1234", default));
         Assert.Contains("clean status", e.Message);
     }
 
@@ -146,7 +146,51 @@ public class GitHubIntegrationHostTests
 
     private sealed class Failing : IInstallationTokens
     {
-        public Task<string> GetAsync(CancellationToken ct) => throw new GitHubAppException("no key");
+        public Task<string> GetAsync(string owner, string repository, CancellationToken ct) => throw new GitHubAppException("no key");
+    }
+
+    /// <summary>An App installed on some owners only, each with a token of its own.</summary>
+    private sealed class PerOwner(params string[] installedOn) : IInstallationTokens
+    {
+        public List<(string Owner, string Repository)> Asked { get; } = [];
+
+        public Task<string> GetAsync(string owner, string repository, CancellationToken ct)
+        {
+            Asked.Add((owner, repository));
+            return installedOn.Contains(owner, StringComparer.OrdinalIgnoreCase)
+                ? Task.FromResult($"ghs_{owner}")
+                : throw new GitHubAppException($"the GitHub App is not installed on {owner} (or has no access to {owner}/{repository}); install it there, or set the repository to off");
+        }
+    }
+
+    [Fact]
+    public async Task Every_call_acts_as_the_installation_on_the_owner_of_its_repository()
+    {
+        var handler = new Canned((request, _) => request.RequestUri!.AbsolutePath == "/graphql" ? Json("""{"data":{"ok":{}}}""") : Json("""{"behind_by":0}"""));
+        var tokens = new PerOwner("o", "acme-org");
+        var host = Host(handler, tokens);
+        var other = new RemoteRepository("acme-org", "mobile");
+
+        await host.MarkReadyAsync(other, "PR_other", default);
+        await host.EnableAutoMergeAsync(other, "PR_other", "abc1234", default);
+        await host.BehindByAsync(other, "main", "chargehand/run1", default);
+        await host.CommentAsync(Repo, 7, "x", default);
+        await host.MarkReadyAsync(Repo, "PR_node", default);
+
+        Assert.Equal(["Bearer ghs_acme-org", "Bearer ghs_acme-org", "Bearer ghs_acme-org", "Bearer ghs_o", "Bearer ghs_o"], handler.Requests.Select(r => r.Auth));
+        Assert.Equal([("acme-org", "mobile"), ("acme-org", "mobile"), ("acme-org", "mobile"), ("o", "r"), ("o", "r")], tokens.Asked);
+    }
+
+    [Fact]
+    public async Task A_repository_the_app_is_not_installed_on_is_said_so_and_nothing_is_sent_to_github()
+    {
+        var handler = new Canned((_, _) => Json("{}"));
+        var host = Host(handler, new PerOwner("o"));
+        var e = await Assert.ThrowsAsync<IntegrationException>(() => host.MarkReadyAsync(new RemoteRepository("acme-org", "mobile"), "PR_node", default));
+
+        Assert.Contains("the GitHub App is not installed on acme-org", e.Message);
+        Assert.DoesNotContain("Resource not accessible", e.Message);
+        Assert.Empty(handler.Requests);
     }
 
     [Fact]

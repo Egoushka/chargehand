@@ -103,13 +103,22 @@ public class ForgeSelectionTests
     }
 
     [Theory]
-    [InlineData("""{"app_id":7}""", "installation_id")]
+    [InlineData("""{"app_id":7}""", "private_key_secret")]
+    [InlineData("""{"private_key_secret":"k"}""", "app_id")]
     [InlineData("""{"installation_id":8,"private_key_secret":"k"}""", "app_id")]
     [InlineData("""{"app_id":7,"installation_id":8}""", "private_key_secret")]
-    public void The_three_app_keys_are_all_set_or_all_left_out(string block, string named)
+    public void The_app_id_and_the_key_are_both_set_or_both_left_out(string block, string named)
     {
         using var dir = new TempDir();
         var path = dir.Write("p.json", $$$"""{"schema":"profile/v1","driven":{"enabled":true,"integrator":{{{block}}}}}""");
         Assert.Contains(named, Assert.Throws<ChargehandException>(() => Profile.Load(path)).Message);
+    }
+
+    [Fact]
+    public void The_installation_id_is_optional_because_the_installation_is_looked_up_per_owner()
+    {
+        using var dir = new TempDir();
+        var integrator = Profile.Load(dir.Write("p.json", """{"schema":"profile/v1","driven":{"enabled":true,"integrator":{"app_id":7,"private_key_secret":"k","repositories":{"o/r":"merge"}}}}""")).Driven!.Integrator!;
+        Assert.Equal((7L, null), (integrator.AppId, integrator.InstallationId));
     }
 }

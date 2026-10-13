@@ -474,9 +474,9 @@ public class LearningTests
 
         public Task UpdateBranchAsync(RemoteRepository repository, int number, string expectedHeadSha, CancellationToken ct) => inner.UpdateBranchAsync(repository, number, expectedHeadSha, ct);
 
-        public Task MarkReadyAsync(string nodeId, CancellationToken ct) => inner.MarkReadyAsync(nodeId, ct);
+        public Task MarkReadyAsync(RemoteRepository repository, string nodeId, CancellationToken ct) => inner.MarkReadyAsync(repository, nodeId, ct);
 
-        public Task EnableAutoMergeAsync(string nodeId, string headSha, CancellationToken ct) => inner.EnableAutoMergeAsync(nodeId, headSha, ct);
+        public Task EnableAutoMergeAsync(RemoteRepository repository, string nodeId, string headSha, CancellationToken ct) => inner.EnableAutoMergeAsync(repository, nodeId, headSha, ct);
 
         public Task MergeNowAsync(RemoteRepository repository, int number, string headSha, CancellationToken ct) => inner.MergeNowAsync(repository, number, headSha, ct);
 

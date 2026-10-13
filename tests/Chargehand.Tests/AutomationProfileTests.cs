@@ -51,6 +51,13 @@ public class AutomationProfileTests
     }
 
     [Fact]
+    public void The_github_app_needs_no_installation_id_because_each_owners_installation_is_looked_up()
+    {
+        var github = Load("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"]}""", driven: "\"enabled\":true,\"integrator\":{\"app_id\":1,\"private_key_secret\":\"app-key\"}").Automation!.Github!;
+        Assert.Contains("octo/repo", github.Repositories!.Keys);
+    }
+
+    [Fact]
     public void The_section_needs_driven_sessions_and_their_github_app()
     {
         var e = Assert.Throws<ChargehandException>(() => Load("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"]}""", driven: "\"enabled\":true"));

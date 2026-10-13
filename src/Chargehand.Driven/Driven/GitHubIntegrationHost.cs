@@ -35,10 +35,11 @@ public interface IIntegrationHost
 
     Task UpdateBranchAsync(RemoteRepository repository, int number, string expectedHeadSha, CancellationToken ct);
 
-    Task MarkReadyAsync(string nodeId, CancellationToken ct);
+    /// <param name="repository">The pull request's repository: the App is installed per owner, so the call needs to know whose installation to act as.</param>
+    Task MarkReadyAsync(RemoteRepository repository, string nodeId, CancellationToken ct);
 
     /// <summary>Auto-merge with squash: GitHub merges once the required checks and reviews are met, for this head commit.</summary>
-    Task EnableAutoMergeAsync(string nodeId, string headSha, CancellationToken ct);
+    Task EnableAutoMergeAsync(RemoteRepository repository, string nodeId, string headSha, CancellationToken ct);
 
     /// <summary>A squash merge now, for a pull request GitHub already reports mergeable; refused if the head moved.</summary>
     Task MergeNowAsync(RemoteRepository repository, int number, string headSha, CancellationToken ct);
@@ -67,7 +68,7 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
 
     public async Task<PrSnapshot> GetAsync(RemoteRepository repository, int number, CancellationToken ct)
     {
-        using var data = await GraphQlAsync("the pull request's state", StateQuery, new { owner = repository.Owner, name = repository.Name, number }, ct);
+        using var data = await GraphQlAsync(repository, "the pull request's state", StateQuery, new { owner = repository.Owner, name = repository.Name, number }, ct);
         try
         {
             var pr = data.RootElement.GetProperty("repository").GetProperty("pullRequest");
@@ -97,7 +98,7 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
     public async Task<int> BehindByAsync(RemoteRepository repository, string baseBranch, string branch, CancellationToken ct)
     {
         var path = $"{RepoPath(repository)}/compare/{Uri.EscapeDataString(baseBranch)}...{Uri.EscapeDataString(branch)}";
-        var text = await RestAsync(HttpMethod.Get, path, null, "the comparison with the base branch", ct);
+        var text = await RestAsync(repository, HttpMethod.Get, path, null, "the comparison with the base branch", ct);
         try
         {
             using var doc = JsonDocument.Parse(text);
@@ -110,28 +111,28 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
     }
 
     public async Task UpdateBranchAsync(RemoteRepository repository, int number, string expectedHeadSha, CancellationToken ct) =>
-        await RestAsync(HttpMethod.Put, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/update-branch", new { expected_head_sha = expectedHeadSha }, "the branch update", ct);
+        await RestAsync(repository, HttpMethod.Put, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/update-branch", new { expected_head_sha = expectedHeadSha }, "the branch update", ct);
 
-    public async Task MarkReadyAsync(string nodeId, CancellationToken ct)
+    public async Task MarkReadyAsync(RemoteRepository repository, string nodeId, CancellationToken ct)
     {
-        using var _ = await GraphQlAsync("marking the pull request ready", "mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{isDraft}}}", new { id = nodeId }, ct);
+        using var _ = await GraphQlAsync(repository, "marking the pull request ready", "mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{isDraft}}}", new { id = nodeId }, ct);
     }
 
-    public async Task EnableAutoMergeAsync(string nodeId, string headSha, CancellationToken ct)
+    public async Task EnableAutoMergeAsync(RemoteRepository repository, string nodeId, string headSha, CancellationToken ct)
     {
-        using var _ = await GraphQlAsync("enabling auto-merge", "mutation($id:ID!,$oid:GitObjectID){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:SQUASH,expectedHeadOid:$oid}){pullRequest{number}}}",
+        using var _ = await GraphQlAsync(repository, "enabling auto-merge", "mutation($id:ID!,$oid:GitObjectID){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:SQUASH,expectedHeadOid:$oid}){pullRequest{number}}}",
             new { id = nodeId, oid = headSha }, ct);
     }
 
     public async Task MergeNowAsync(RemoteRepository repository, int number, string headSha, CancellationToken ct) =>
-        await RestAsync(HttpMethod.Put, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/merge", new { merge_method = "squash", sha = headSha }, "the merge", ct);
+        await RestAsync(repository, HttpMethod.Put, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/merge", new { merge_method = "squash", sha = headSha }, "the merge", ct);
 
     public async Task CommentAsync(RemoteRepository repository, int number, string body, CancellationToken ct) =>
-        await RestAsync(HttpMethod.Post, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", new { body }, "the comment", ct);
+        await RestAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", new { body }, "the comment", ct);
 
     public async Task<string> JobLogTailAsync(RemoteRepository repository, long jobId, int maxChars, CancellationToken ct)
     {
-        var token = await TokenAsync(ct);
+        var token = await TokenAsync(repository, ct);
         using var first = Request(HttpMethod.Get, $"{RepoPath(repository)}/actions/jobs/{jobId.ToString(CultureInfo.InvariantCulture)}/logs", null, token);
         var (status, location, text) = await SendAsync(first, "the job log", token, ct);
         // The log is a redirect to a signed address on another host; that request carries no credential.
@@ -169,11 +170,11 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
 
     private static string RepoPath(RemoteRepository repository) => $"repos/{Uri.EscapeDataString(repository.Owner)}/{Uri.EscapeDataString(repository.Name)}";
 
-    private async Task<string> TokenAsync(CancellationToken ct)
+    private async Task<string> TokenAsync(RemoteRepository repository, CancellationToken ct)
     {
         try
         {
-            return await tokens.GetAsync(ct);
+            return await tokens.GetAsync(repository.Owner, repository.Name, ct);
         }
         catch (GitHubAppException e)
         {
@@ -206,9 +207,9 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
         }
     }
 
-    private async Task<string> RestAsync(HttpMethod method, string path, object? body, string what, CancellationToken ct)
+    private async Task<string> RestAsync(RemoteRepository repository, HttpMethod method, string path, object? body, string what, CancellationToken ct)
     {
-        var token = await TokenAsync(ct);
+        var token = await TokenAsync(repository, ct);
         using var request = Request(method, path, body, token);
         var (status, _, text) = await SendAsync(request, what, token, ct);
         if ((int)status is < 200 or >= 300)
@@ -217,9 +218,9 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
     }
 
     /// <summary>The <c>data</c> member of a GraphQL answer; its first error is an <see cref="IntegrationException"/>.</summary>
-    private async Task<JsonDocument> GraphQlAsync(string what, string query, object variables, CancellationToken ct)
+    private async Task<JsonDocument> GraphQlAsync(RemoteRepository repository, string what, string query, object variables, CancellationToken ct)
     {
-        var token = await TokenAsync(ct);
+        var token = await TokenAsync(repository, ct);
         using var request = Request(HttpMethod.Post, "graphql", new { query, variables }, token);
         var (status, _, text) = await SendAsync(request, what, token, ct);
         if (status != HttpStatusCode.OK)

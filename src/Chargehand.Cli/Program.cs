@@ -447,7 +447,7 @@ Uri GitHubApiRoot(Chargehand.Config.DrivenSettings driven) =>
 // The App's token source lives as long as the process, so a token is fetched once an hour at most (ADR 0046). The key is read from the secret store only when a token is needed.
 Chargehand.Driven.IIntegrationHost? IntegrationHost(Chargehand.Config.DrivenSettings driven)
 {
-    if (driven.Integrator is not { AppId: { } appId, InstallationId: { } installationId, PrivateKeySecret: { } privateKeySecret })
+    if (driven.Integrator is not { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId })
         return null;
     var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
     return new Chargehand.Driven.GitHubIntegrationHost(api,
@@ -457,7 +457,7 @@ Chargehand.Driven.IIntegrationHost? IntegrationHost(Chargehand.Config.DrivenSett
 // GitHub intake (ADR 0051): null unless the profile has automation.github. It reads and comments as the integrator's GitHub App; its state sits next to the run log.
 Chargehand.Automation.GitHubIntake? GitHubIntake()
 {
-    if (profile.Automation?.Github is not { } github || profile.Driven is not { Integrator: { AppId: { } appId, InstallationId: { } installationId, PrivateKeySecret: { } privateKeySecret } } driven)
+    if (profile.Automation?.Github is not { } github || profile.Driven is not { Integrator: { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId } } driven)
         return null;
     var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
     var tokens = new Chargehand.Driven.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System);

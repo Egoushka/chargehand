@@ -38,7 +38,7 @@ A green draft pull request is evidence that a command passed in a container, not
 
 ## Merging by policy
 
-[ADR 0046](../adr/0046-integrator-and-ci-fixer.md). Off unless the profile has a `driven.integrator` block; with none, a task ends in a draft pull request and chargehand never touches it again. With one, chargehand acts on a finished task's pull request **as a GitHub App**, not with the push credential (which bypasses rulesets and so cannot enforce a policy). The App's JWT (RS256, signed with the key from the secret store) is exchanged for an installation token that is kept until shortly before it expires.
+[ADR 0046](../adr/0046-integrator-and-ci-fixer.md). Off unless the profile has a `driven.integrator` block; with none, a task ends in a draft pull request and chargehand never touches it again. With one, chargehand acts on a finished task's pull request **as a GitHub App**, not with the push credential (which bypasses rulesets and so cannot enforce a policy). The App's JWT (RS256, signed with the key from the secret store) is exchanged for an installation token that is kept until shortly before it expires. A GitHub App is installed once per account or organisation, so chargehand acts as the installation on each repository's owner: it asks GitHub which one covers the repository (`GET /repos/{owner}/{repo}/installation`, signed with the JWT), keeps the answer per owner for the life of the process and refreshes it when GitHub stops knowing the id (the App was uninstalled and installed again). An owner the App is installed on later is picked up at the next call, with no restart. A repository whose owner has no installation is reported as `the GitHub App is not installed on <owner> (or has no access to <owner>/<repo>); install it there, or set the repository to off` ("off" is leaving it out of `repositories`): the task still ends `completed` with its draft pull request, and the line is in its detail.
 
 | `driven.integrator.repositories["owner/repo"]` | what happens to the task's pull request |
 |---|---|
@@ -54,11 +54,13 @@ The App needs contents and pull requests write, checks, actions and commit statu
 
 ```json
 { "driven": { "integrator": {
-  "app_id": 123456, "installation_id": 7654321, "private_key_secret": "chargehand-app-key",
-  "repositories": { "owner/library": "merge", "owner/service": "ask" },
+  "app_id": 123456, "private_key_secret": "chargehand-app-key",
+  "repositories": { "owner/library": "merge", "owner/service": "ask", "some-organisation/app": "merge" },
   "always_ask": ["owner/infrastructure"],
   "ci_fix": { "max_attempts": 3, "max_turns": 20, "max_minutes": 15, "wait_minutes": 20 } } } }
 ```
+
+`installation_id` is optional and the profile usually leaves it out. Set, it pins that installation for the account it belongs to (chargehand reads the account's login once from `GET /app/installations/{id}`), so that owner's repositories skip the lookup; it reaches no other owner, and an id GitHub does not know is ignored. Before this key was optional a profile had one `installation_id` for every repository, which is why a repository on a second account or organisation was refused with `Resource not accessible by integration`.
 
 Not run against GitHub yet: the calls are checked against a fake host and recorded request shapes. The open points (rulesets and `isRequired`, `update-branch` on a draft, the job-log id) are listed in the ADR, and each fails without merging.
 
