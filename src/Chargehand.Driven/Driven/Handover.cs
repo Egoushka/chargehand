@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Verification;
 
