@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Driven;
@@ -47,7 +48,7 @@ public sealed class ModelRetro(PlanRunner run, string preset) : IBatchRetro
 
     public async Task<BatchRetro> WriteAsync(RetroInput input, CancellationToken ct)
     {
-        var runId = Orchestrator.NewRunId();
+        var runId = RunIds.New();
         var request = new RunRequest("request/v1", RetroPrompt(input.Records), new RequestContext(false, preset, Repository: input.Request.Context.Repository));
         var result = await run(request, runId, input.RunId, ct);
         if (result.Status != ResultStatus.Completed)

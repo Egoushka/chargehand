@@ -8,4 +8,9 @@
     <ProjectReference Include="..\..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
   </ItemGroup>
 
+  <!-- The options-validation source generator ([OptionsValidator]) behind SettingsValidation. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.10" />
+  </ItemGroup>
+
 </Project>

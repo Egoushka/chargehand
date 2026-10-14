@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
@@ -121,7 +122,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         // ponytail: count-then-add is not atomic; two racing calls can exceed the bound by one.
         if (chargeTo is null && _runs.Values.Count(r => !r.IsChild) >= MaxUnfinished)
             return null;
-        var run = new RunHandle(Orchestrator.NewRunId(), stopping) { IsChild = chargeTo is not null, Actor = actor, IsBatch = request.Driven is not null };
+        var run = new RunHandle(RunIds.New(), stopping) { IsChild = chargeTo is not null, Actor = actor, IsBatch = request.Driven is not null };
         _runs[run.Id] = run;
         run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
         _ = Task.Run(() => Execute(run, request, parentRunId, chargeTo));
