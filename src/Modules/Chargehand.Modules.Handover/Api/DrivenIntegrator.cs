@@ -1,6 +1,7 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.RegularExpressions;
-using Chargehand.Contracts;
 using Chargehand.Kernel;
+using Microsoft.Extensions.Options;
 
 namespace Chargehand.Modules.Handover.Api;
 
@@ -14,15 +15,14 @@ namespace Chargehand.Modules.Handover.Api;
 /// <param name="AlwaysAsk">Repositories that are <c>ask</c> whatever else says: this list wins, even over <c>merge</c> and over a repository not listed.</param>
 /// <param name="CiFix">The short session that fixes a failing required check; null: its defaults.</param>
 public sealed partial record DrivenIntegrator(long? AppId = null, long? InstallationId = null, string? PrivateKeySecret = null, IReadOnlyDictionary<string, string>? Repositories = null,
-    IReadOnlyList<string>? AlwaysAsk = null, DrivenCiFix? CiFix = null)
+    IReadOnlyList<string>? AlwaysAsk = null, DrivenCiFix? CiFix = null) : IValidatableObject
 {
     /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
-    public void Validate()
-    {
-        List<string> problems = [.. AppProblems(), .. RepositoryProblems(), .. CiFix?.Problems() ?? []];
-        if (problems.Count > 0)
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.integrator: {string.Join("; ", problems)}", "Fix driven.integrator in the profile; docs/guide/driven.md lists the keys.");
-    }
+    public void Validate() => SettingsValidation.ThrowIfFailed(new DrivenIntegratorValidator().Validate(null, this), "driven.integrator",
+        "Fix driven.integrator in the profile; docs/guide/driven.md lists the keys.");
+
+    IEnumerable<ValidationResult> IValidatableObject.Validate(ValidationContext validationContext) =>
+        SettingsValidation.Results([.. AppProblems(), .. RepositoryProblems(), .. CiFix?.Problems() ?? []]);
 
     private IEnumerable<string> AppProblems()
     {
@@ -47,6 +47,10 @@ public sealed partial record DrivenIntegrator(long? AppId = null, long? Installa
     [GeneratedRegex(@"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$")]
     private static partial Regex RepositoryName();
 }
+
+/// <summary><c>driven.integrator</c>'s validator, source-generated (ADR 0060).</summary>
+[OptionsValidator]
+public sealed partial class DrivenIntegratorValidator : IValidateOptions<DrivenIntegrator>;
 
 /// <summary>The CI fixer's limits (ADR 0046). A key left out keeps its default.</summary>
 /// <param name="MaxAttempts">Fix sessions per pull request, 0 to 3 (default 3); 0: no fixer.</param>

@@ -78,12 +78,14 @@ public sealed record Profile(
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
     };
 
-    /// <summary>What <see cref="Load"/> reads with (ADR 0060): <see cref="Json"/>'s options, each module's source-generated context for its own
-    /// sections first, then reflection for the sections still declared here.</summary>
+    /// <summary>What <see cref="Load"/> reads with (ADR 0060): <see cref="Json"/>'s options and no reflection. Each module's source-generated
+    /// context supplies its own sections; <see cref="ProfileJsonContext"/> the root and the sections declared here.</summary>
     internal static readonly JsonSerializerOptions LoadJson = new(Json)
     {
         TypeInfoResolver = JsonTypeInfoResolver.Combine(LedgerSettingsJsonContext.Default, AccountsSettingsJsonContext.Default,
-            MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, new DefaultJsonTypeInfoResolver()),
+            MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, HandoverSettingsJsonContext.Default, IntakeSettingsJsonContext.Default,
+            BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default,
+            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, ProfileJsonContext.Default),
     };
 
     /// <summary>Owner-visible defaults (this record's own default values) when the file does not exist.</summary>
