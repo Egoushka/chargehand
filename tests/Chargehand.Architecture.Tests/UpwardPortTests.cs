@@ -9,8 +9,8 @@ namespace Chargehand.Architecture.Tests;
 public class UpwardPortTests
 {
     /// <summary>
-    /// Full names of the allowed upward ports: the two the amendment allows, added by C3's Tasks slice. Until Batches and Research are ported, the old
-    /// Driven project implements both and <c>DrivenRun</c> wires them.
+    /// Full names of the allowed upward ports: the two the amendment allows, added by C3's Tasks slice. Research implements P4; until Batches is ported, the old
+    /// Driven project implements P3. <c>DrivenRun</c> wires both.
     /// </summary>
     internal static readonly HashSet<string> Allowed =
     [

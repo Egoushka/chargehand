@@ -1,7 +1,7 @@
 using System.Text.Json.Nodes;
 using Chargehand.Contracts;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Results;
-using Chargehand.Verification;
 
 namespace Chargehand.Tests;
 
@@ -80,7 +80,7 @@ public class ResultAssemblerTests
     public void Unresolved_claims_move_to_open_questions()
     {
         var contract = ResultAssembler.Assemble($"```json\n{GoodBlock}\n```", Envelope()).Contract!;
-        var moved = ResultAssembler.MoveUnresolved(contract, [new EvidenceFailure("e1", "line 7 beyond end of file (5 lines)")]);
+        var moved = EvidenceFailures.MoveUnresolved(contract, [new EvidenceFailure("e1", "line 7 beyond end of file (5 lines)")]);
         Assert.Empty(moved.Claims);
         Assert.Empty(moved.Evidence);
         Assert.Single(moved.OpenQuestions);
@@ -95,7 +95,7 @@ public class ResultAssemblerTests
             .Replace("\"evidence\":[\"e1\"]", "\"evidence\":[\"e1\",\"e2\"]")
             .Replace("\"locator\":\"src/calc.py:5-7\"}", "\"locator\":\"src/calc.py:5-7\"},{\"id\":\"e2\",\"kind\":\"file\",\"locator\":\"src/calc.py:99\"}");
         var contract = ResultAssembler.Assemble($"```json\n{two}\n```", Envelope()).Contract!;
-        var moved = ResultAssembler.MoveUnresolved(contract, [new EvidenceFailure("e2", "line 99 beyond end of file")]);
+        var moved = EvidenceFailures.MoveUnresolved(contract, [new EvidenceFailure("e2", "line 99 beyond end of file")]);
         Assert.Single(moved.Claims);
         Assert.Equal(["e1"], moved.Claims[0].Evidence);
         Assert.Single(moved.Evidence);

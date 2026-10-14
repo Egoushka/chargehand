@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Runtime;
 
 namespace Chargehand.OpenCode;

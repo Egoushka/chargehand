@@ -11,6 +11,7 @@ using Chargehand.Intake;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Nodes;
 using Chargehand.Plans;
