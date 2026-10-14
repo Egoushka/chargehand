@@ -3,6 +3,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
 
@@ -60,6 +61,33 @@ public class DrivenRestartCharacterizationTests
         // The re-attach reads the outcome again; the record written before the stop stands (CHARGEHAND-226).
         var session = Assert.Single(rig.Records.ReadTasks(BatchId).Sessions);
         Assert.Equal((entry.RunId, "first"), (session.RunId, session.Role));
+    }
+
+    [Fact]
+    public async Task A_task_restarted_after_its_session_ended_publishes_that_sessions_events_once()
+    {
+        var decision = new GovernorDecision(DateTimeOffset.UnixEpoch, 3, GovernorMode.Observe, GovernorAction.Warn, "repeated_call", "first_hit", new Dictionary<string, string>(), null, null, "M");
+        using var rig = new DrivenRunTests.Rig(durable: true, records: true,
+            outcomes: (_, _) => new SessionOutcome(SessionStatus.Completed, "", 9, 1000, 200, 4000, null, 0, [], true, Governor: [decision]));
+        using var stop = new CancellationTokenSource();
+        rig.Handover.OnPushed = n =>
+        {
+            if (n != 1)
+                return;
+            stop.Cancel();
+            throw new OperationCanceledException(stop.Token);
+        };
+        await rig.Run.RunAsync(Request("one"), BatchId, Token, stop.Token, null, () => false);
+        rig.Handover.OnPushed = null;
+        var state = Assert.Single(await rig.Restart().UnfinishedAsync(default));
+        Assert.Equal(TaskPhase.Finished, state.Tasks.Single().Phase);
+
+        var result = await rig.Run.RunAsync(state.Request, state.RunId, Token, default, null, () => false, state);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        // The re-attach reads the outcome again; its governor decision was published before the stop, and the console's timeline shows it once.
+        var events = new BatchRecords(rig.Records!.Root).ReadEvents(BatchId)!;
+        Assert.Single(events, e => e.Event == RunEventKind.Governor && e.TaskId == "t1");
     }
 
     /// <summary>Reports a tally past its cap and then returns its own outcome, as a task runner that finished does.</summary>
