@@ -79,3 +79,37 @@ neither may reference the other. The owner chose a small module below both, `Cha
 which holds the forge settings and their validation; not the Kernel, which stays types every module shares, and not an
 upward port. The forge ports (`IPullRequests`, `IIntegrationHost`) stay with the code that implements them until
 Handover is ported. The skeleton now has 18 feature modules and 25 projects.
+
+## Amendment, 2026-10-14: Oversight below Sessions, Handover below Tasks
+
+Porting Tasks, Handover and Oversight on the layers above needs five upward ports, more than the two the reopen
+condition allows: Tasks to Handover and Tasks to Oversight (same layer, so forbidden), Tasks to the Batches task state,
+Tasks to the Research proof, and Sessions to Oversight (the governor runs inside the session). The owner chose to
+re-layer the same 18 modules instead of adding ports or merging modules. Bottom to top:
+
+| Layer | Projects |
+|---|---|
+| 0 | Contracts |
+| 1 | Kernel |
+| 2 | Ledger, Memory, Journal, Forge |
+| 3 | Accounts, Oversight |
+| 4 | Runners, Sessions, Gateway |
+| 5 | Handover |
+| 6 | Tasks |
+| 7 | Batches, Research |
+| 8 | Intake, Console, Evaluation, Onboarding, Watch; Runtimes ClaudeCode, OpenCode |
+| 9 | Hosts Cli, Server, Runner, Session |
+
+Oversight needs only Forge, and Handover names nothing in Tasks, Oversight or Sessions once its verify command sits in
+Sessions or the Kernel, so three of the five edges point down. Two upward ports remain, both declared in `Tasks.Api`,
+implemented by the higher module and wired by the hosts:
+
+- P3, Tasks to Batches: `ITaskState`, the task's journal entry, updates, finish and records, which live in the batch
+  state today. It goes when the batch state is retired (ADR 0061).
+- P4, Tasks to Research: `ITaskResults`, building, checking and signing the task's result with the evidence resolver
+  Research owns.
+
+`UpwardPortTests` in `tests/Chargehand.Architecture.Tests` lists the allowed ports by type name and fails on any other
+interface or abstract type a higher skeleton project implements for a lower one. The list stays empty until the Tasks
+port adds P3 and P4. On the layer order, this supersedes the R7 target-architecture diagram, which put Tasks, Handover
+and Oversight together on one layer above Sessions; the governor now sits below Sessions, where it runs.
