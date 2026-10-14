@@ -103,6 +103,10 @@
           "type": "string",
           "format": "uri",
           "description": "Anthropic-compatible gateway the workers call (ANTHROPIC_BASE_URL). Unset: Anthropic directly; an inherited ANTHROPIC_BASE_URL is ignored."
+        },
+        "custom_headers_secret": {
+          "type": "string",
+          "description": "Secret item holding header lines (`Name: value`, one per line) the workers send to base_url as ANTHROPIC_CUSTOM_HEADERS, e.g. a gateway's virtual key. Needs base_url. Plain workers only: driven sessions do not use base_url."
         }
       },
       "not": {

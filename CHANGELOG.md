@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `claude_code.custom_headers_secret` (ADR 0062): a secret item holding header lines (`Name: value`, one per line) that Claude Code workers send to `claude_code.base_url` as `ANTHROPIC_CUSTOM_HEADERS`, for a gateway that identifies callers by a virtual key header. Needs `base_url`; an inherited `ANTHROPIC_CUSTOM_HEADERS` is removed. Header values are scanned for in driven transcripts like any model credential. Driven sessions still do not use `base_url`.
+
 ### Fixed
 
 - The console works behind a single-sign-on proxy on the same host (e.g. Pangolin): its API calls send same-origin cookies, so the proxy's session cookie reaches it; before, they were sent with none and the proxy redirected them to its login page ("Failed to fetch"). chargehand still authenticates only by the bearer key and ignores cookies.
