@@ -1,4 +1,7 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.RegularExpressions;
+using Chargehand.Kernel;
+using Microsoft.Extensions.Options;
 
 namespace Chargehand.Modules.Accounts.Api;
 
@@ -11,7 +14,7 @@ namespace Chargehand.Modules.Accounts.Api;
 /// <param name="Model">The account's own model credential (ADR 0053); its read-only runs and its batches use it instead of the server's.</param>
 /// <param name="AllowServerCredential">An account with no <paramref name="Model"/> may spend the server's model credential. Default false: it is refused instead.</param>
 public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, decimal? MaxUsdPerMonth = null, long? MaxTokensPerDay = null, long? MaxTokensPerMonth = null,
-    int? MaxConcurrentRuns = null, bool Driven = false, IReadOnlyList<string>? Repositories = null, AccountModel? Model = null, bool AllowServerCredential = false)
+    int? MaxConcurrentRuns = null, bool Driven = false, IReadOnlyList<string>? Repositories = null, AccountModel? Model = null, bool AllowServerCredential = false) : IValidatableObject
 {
     public const string Owner = "owner";
 
@@ -20,9 +23,11 @@ public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, 
     /// <summary>The problems of the profile's <c>http.accounts</c>: each account's own, named by <c>accounts.&lt;name&gt;</c>, and a name used twice. Empty when the list is valid.</summary>
     public static IReadOnlyList<string> Problems(IReadOnlyList<AccountSettings> accounts) =>
     [
-        .. accounts.SelectMany(account => account.Problems().Select(p => $"accounts.{account.Name}: {p}")),
+        .. accounts.SelectMany(account => SettingsValidation.Problems(new AccountSettingsValidator().Validate(null, account)).Select(p => $"accounts.{account.Name}: {p}")),
         .. accounts.GroupBy(a => a.Name).Where(g => g.Count() > 1).Select(g => $"accounts: name '{g.Key}' is used more than once"),
     ];
+
+    IEnumerable<ValidationResult> IValidatableObject.Validate(ValidationContext validationContext) => SettingsValidation.Results(Problems());
 
     public IEnumerable<string> Problems()
     {
@@ -38,6 +43,10 @@ public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, 
             yield return $"model: {problem}";
     }
 }
+
+/// <summary>An account's validator, source-generated (ADR 0060).</summary>
+[OptionsValidator]
+public sealed partial class AccountSettingsValidator : IValidateOptions<AccountSettings>;
 
 /// <summary>An account's own model credential (ADR 0053), named by secret item: an Anthropic API key, or the key a gateway issued with that gateway's <paramref name="BaseUrl"/>.
 /// The server resolves it when the account's first run needs it; no key is ever in the profile.</summary>

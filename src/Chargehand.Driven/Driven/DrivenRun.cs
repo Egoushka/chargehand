@@ -8,6 +8,7 @@ using Chargehand.Contracts;
 using Chargehand.Egress;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;

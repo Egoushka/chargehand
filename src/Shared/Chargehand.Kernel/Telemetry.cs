@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Chargehand;
+namespace Chargehand.Kernel;
 
 /// <summary>Span source for run, node and call spans (ADR 0012). Usage lives on the gateway side, unless the profile
 /// puts it on call spans for calls no gateway records (ADR 0021).</summary>

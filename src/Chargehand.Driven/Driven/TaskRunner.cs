@@ -8,6 +8,7 @@ using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Egress;
 using Chargehand.Kernel;
+using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
@@ -136,7 +137,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 resumed = null;
         }
         var attach = resumed is not null && restartSeed is null;
-        var runId = resumed?.RunId ?? interrupted?.RunId ?? Orchestrator.NewRunId();
+        var runId = resumed?.RunId ?? interrupted?.RunId ?? RunIds.New();
         var branch = resumed?.Branch ?? task.From?.Kept?.Branch ?? task.From?.Pushed?.Branch ?? $"chargehand/{runId}";
         var started = resumed?.Started ?? interrupted?.Started ?? DateTimeOffset.UtcNow;
         var preset = settings.Preset;
@@ -149,7 +150,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
         if (restartSeed is not null && interrupted is null)
         {
             // The same session again under a new run id: the name of the one that never started is not reused.
-            runId = Orchestrator.NewRunId();
+            runId = RunIds.New();
             runs[^1] = runId;
             var (again, allRuns) = (runId, runs.ToList());
             journal?.Update(task.Id, e => e with { RunId = again, Runs = allRuns, Container = null });
@@ -279,7 +280,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 prior = total;
                 await RemoveSessionAsync(runId, container, CancellationToken.None);
                 var (previousRun, previousOut) = (runId, outDirectory);
-                runId = Orchestrator.NewRunId();
+                runId = RunIds.New();
                 runs.Add(runId);
                 outDirectory = Path.Combine(settings.ScratchRoot, "out", runId);
                 Directory.CreateDirectory(outDirectory);
@@ -426,7 +427,7 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
                 return new CiFixResult(false, "the task's token or cost cap is spent");
             if (!File.Exists(seed))
                 return new CiFixResult(false, "the branch's bundle is gone, so a session cannot start from it");
-            var fixRun = Orchestrator.NewRunId();
+            var fixRun = RunIds.New();
             containers[fixRun] = null;
             var outDirectory = Path.Combine(settings.ScratchRoot, "out", fixRun);
             Directory.CreateDirectory(outDirectory);
