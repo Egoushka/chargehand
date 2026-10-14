@@ -100,7 +100,7 @@ public class DrivenRecordsTests
     [Fact]
     public async Task The_governor_log_is_recorded_in_full_where_the_outcome_file_has_only_the_first_50()
     {
-        var volumes = new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed) { GovernorLog = (_, _) => GovernorLines(120) };
+        var volumes = new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed) { GovernorLog = (_, _) => GovernorLines(120) };
         using var rig = new DrivenRunTests.Rig(records: true, volumes: volumes);
 
         await rig.Run.RunAsync(Request("one"), BatchId, Token, default);
@@ -115,7 +115,7 @@ public class DrivenRecordsTests
     [Fact]
     public async Task A_log_longer_than_the_cap_keeps_the_first_decisions_and_the_count()
     {
-        var volumes = new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed) { GovernorLog = (_, _) => GovernorLines(BatchRecords.MaxDecisionsPerSession + 50) };
+        var volumes = new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed) { GovernorLog = (_, _) => GovernorLines(BatchRecords.MaxDecisionsPerSession + 50) };
         using var rig = new DrivenRunTests.Rig(records: true, volumes: volumes);
 
         await rig.Run.RunAsync(Request("one"), BatchId, Token, default);

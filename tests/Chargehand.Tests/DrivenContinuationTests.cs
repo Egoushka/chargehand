@@ -346,7 +346,7 @@ public class DrivenContinuationTests
     public async Task A_live_tally_a_little_over_the_cap_while_the_session_winds_down_does_not_cancel_the_task()
     {
         // The driver stopped the session at the cap; the tally the host read in its last seconds is 5% over, and 5 inspections go by before the container is seen to exit.
-        var volumes = new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed, (_, _) => Stopped(SessionStatus.TokenCap, "token_cap")) { Usage = new TaskUsage(2_100_000, 0) };
+        var volumes = new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed, (_, _) => Stopped(SessionStatus.TokenCap, "token_cap")) { Usage = new TaskUsage(2_100_000, 0) };
         using var rig = new DrivenRunTests.Rig(volumes: volumes);
         rig.Engine.RunFor = 5;
         var result = await rig.Run.RunAsync(One(), BatchId, Token, default);

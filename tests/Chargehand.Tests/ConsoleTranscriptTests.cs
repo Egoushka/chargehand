@@ -32,15 +32,15 @@ public class ConsoleTranscriptTests
 
     private static string Line(string text) => JsonSerializer.Serialize(new { type = "assistant", message = new { content = new[] { new { type = "text", text } } } });
 
-    private sealed record Setup(ConsoleRig Rig, DrivenRunTests.FakeVolumes Volumes) : IAsyncDisposable
+    private sealed record Setup(ConsoleRig Rig, DrivenFakes.FakeVolumes Volumes) : IAsyncDisposable
     {
         public ValueTask DisposeAsync() => Rig.DisposeAsync();
     }
 
     private static async Task<Setup> StartAsync(string? actor = null, bool seed = true)
     {
-        var volumes = new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed);
-        var engine = new DrivenRunTests.FakeEngine();
+        var volumes = new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed);
+        var engine = new DrivenFakes.FakeEngine();
         var rig = await ConsoleRig.StartAsync(accounts: [Alice(), Bob()], profile: WithCredential, services: _ => new DrivenServices(engine, engine, volumes, _ => throw new NotSupportedException(), null,
             (_, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo", ConsoleRig.Commit, "https://github.com/o/r.git", "main")), new DrivenRunTests.NoEvidenceProblems(), name => $"value-of-{name}"));
         if (seed)

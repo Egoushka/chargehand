@@ -190,7 +190,7 @@ public class LearningTests
     [Fact]
     public async Task The_progress_event_carries_the_peak_so_far()
     {
-        var volumes = new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed) { Usage = new TaskUsage(48_200, 0, 12, SessionStage.Write) };
+        var volumes = new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed) { Usage = new TaskUsage(48_200, 0, 12, SessionStage.Write) };
         using var rig = new DrivenRunTests.Rig(volumes: volumes);
         rig.Engine.RunFor = 3;
         rig.Engine.PeakMb = 612;

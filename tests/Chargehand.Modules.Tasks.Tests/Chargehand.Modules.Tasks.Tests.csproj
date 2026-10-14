@@ -16,6 +16,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Modules\Chargehand.Modules.Tasks\Chargehand.Modules.Tasks.csproj" />
+    <!-- The task's result as the server builds it (P4's implementer), so a task ends as it does in a batch. -->
+    <ProjectReference Include="..\..\src\Modules\Chargehand.Modules.Research\Chargehand.Modules.Research.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Chargehand.Tests\DrivenFakes.cs" Link="DrivenFakes.cs" />
+    <Compile Include="..\Chargehand.Tests\TempDir.cs" Link="TempDir.cs" />
   </ItemGroup>
 
 </Project>

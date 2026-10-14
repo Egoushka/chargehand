@@ -250,14 +250,14 @@ public class SharedServicesTests
     [Fact]
     public async Task Services_start_in_order_and_one_that_fails_takes_the_started_ones_with_it()
     {
-        var engine = new DrivenRunTests.FakeEngine();
+        var engine = new DrivenFakes.FakeEngine();
         var redis = Postgres() with { Name = "redis", Port = 6379 };
         var ids = await new BatchServices(engine).StartAsync([Postgres(), redis], default);
         Assert.Equal(["cid-svc-postgres", "cid-svc-redis"], ids);
         Assert.Equal(["rm chargehand-svc-postgres-b1", "service postgres", "rm chargehand-svc-redis-b1", "service redis"], engine.Calls);
         Assert.Equal("postgres=postgres:5432,redis=redis:6379", BatchServices.Addresses([Postgres(), redis]));
 
-        var failing = new DrivenRunTests.FakeEngine { OnService = s => s.Name == "redis" ? new ChargehandException(ErrorCode.ContainerUnavailable, "no image") : null };
+        var failing = new DrivenFakes.FakeEngine { OnService = s => s.Name == "redis" ? new ChargehandException(ErrorCode.ContainerUnavailable, "no image") : null };
         await Assert.ThrowsAsync<ChargehandException>(() => new BatchServices(failing).StartAsync([Postgres(), redis], default));
         Assert.Equal(["rm chargehand-svc-postgres-b1", "service postgres", "rm chargehand-svc-redis-b1", "rm chargehand-svc-postgres-b1", "rm chargehand-svc-redis-b1"], failing.Calls);
     }
@@ -265,11 +265,11 @@ public class SharedServicesTests
     [Fact]
     public async Task After_a_restart_a_service_that_still_runs_is_kept_and_one_that_is_gone_starts_again()
     {
-        var running = new DrivenRunTests.FakeEngine { HoldRunning = true };
+        var running = new DrivenFakes.FakeEngine { HoldRunning = true };
         await new BatchServices(running).EnsureAsync([Postgres()], default);
         Assert.Empty(running.Services);
 
-        var gone = new DrivenRunTests.FakeEngine();
+        var gone = new DrivenFakes.FakeEngine();
         await new BatchServices(gone).EnsureAsync([Postgres()], default);
         Assert.Single(gone.Services);
     }
@@ -319,9 +319,9 @@ public class SharedServicesTests
     private sealed class BatchRig : IDisposable
     {
         public TempDir Dir { get; } = new();
-        public DrivenRunTests.FakeEngine Engine { get; } = new();
-        public DrivenRunTests.FakeHandover Handover { get; } = new();
-        public DrivenRunTests.FakeVolumes Volumes { get; } = new(_ => SessionStatus.Completed);
+        public DrivenFakes.FakeEngine Engine { get; } = new();
+        public DrivenFakes.FakeHandover Handover { get; } = new();
+        public DrivenFakes.FakeVolumes Volumes { get; } = new(_ => SessionStatus.Completed);
         public List<ContainerVerifierSettings> Verifiers { get; } = [];
         public DrivenRun Run { get; }
 
