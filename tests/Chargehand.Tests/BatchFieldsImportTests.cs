@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
 
@@ -80,5 +81,53 @@ public class BatchFieldsImportTests
         Assert.Equal(0, planner.Calls);
         Assert.Equal(ResultStatus.Failed, (await rig.Log.ReadAsync(BatchId, default)).Run!.Result.Status);
         Assert.Empty(Directory.GetFiles(rig.StateDirectory, "*.json"));
+    }
+
+    private static string Shown(OpenBatch b) => JsonSerializer.Serialize(b, ContractJson.Options);
+
+    [Fact]
+    public async Task The_import_opens_the_batchs_step_writes_its_key_file_and_keeps_the_snapshot_and_a_later_start_reads_the_journal_alone()
+    {
+        using var rig = WithFixture(new NoPlanner());
+
+        var state = Assert.Single(await rig.Run.UnfinishedAsync(default));
+
+        // The live view folds the tasks at the start, before this process runs the batch.
+        Assert.Equal([TaskPhase.HandedOver, TaskPhase.Started, TaskPhase.Pending], Assert.Single(rig.Run.LiveBatches()).Tasks.Select(t => t.Phase));
+        Assert.Equal(File.ReadAllText(Fixture(BatchId + ".json")), File.ReadAllText(Path.Combine(rig.StateDirectory, BatchId + ".imported")));
+        Assert.Empty(Directory.GetFiles(rig.StateDirectory, "*.json"));
+        var key = TokenKeyFile.PathOf(rig.StateDirectory, BatchId);
+        Assert.Equal(TokenKey, File.ReadAllText(key));
+        if (!OperatingSystem.IsWindows())
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(key));
+        await using (var journal = await DrivenJournal.OpenAsync(rig.StateDirectory))
+        {
+            Assert.Equal([StepKey.BatchStep(BatchId)], await journal.UnfinishedAsync(BatchId));
+            Assert.DoesNotContain(TokenKey, string.Join("\n", (await journal.ReadEventsAsync(TaskJournal.FlowOf(BatchId))).Select(e => e.Payload)), StringComparison.Ordinal);
+        }
+        // Without the kept snapshot a second start reads the same batch: its fields are the journal's and the start record's.
+        File.Delete(Path.Combine(rig.StateDirectory, BatchId + ".imported"));
+        var again = Assert.Single(await rig.Restart().UnfinishedAsync(default));
+        Assert.Equal(Shown(state), Shown(again));
+        Assert.Equal(-1, (await File.ReadAllBytesAsync(Path.Combine(rig.StateDirectory, DrivenJournal.FileName))).AsSpan().IndexOf(System.Text.Encoding.ASCII.GetBytes(TokenKey)));
+    }
+
+    /// <summary>A start cut inside the import, after the key file was written and the batch's step opened: the next start imports again to the same batch.</summary>
+    [Fact]
+    public async Task An_import_cut_short_repeats_to_the_same_batch()
+    {
+        using var whole = WithFixture(new NoPlanner());
+        var expected = Shown(Assert.Single(await whole.Run.UnfinishedAsync(default)));
+        using var rig = WithFixture(new NoPlanner());
+        File.WriteAllText(TokenKeyFile.PathOf(rig.StateDirectory, BatchId), TokenKey);
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(TokenKeyFile.PathOf(rig.StateDirectory, BatchId), UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        await using (var journal = await DrivenJournal.OpenAsync(rig.StateDirectory))
+            await journal.BeginAsync(StepKey.BatchStep(BatchId));
+
+        var state = Assert.Single(await rig.Run.UnfinishedAsync(default));
+
+        Assert.Equal(expected, Shown(state));
+        Assert.Equal(expected, Shown(Assert.Single(await rig.Restart().UnfinishedAsync(default))));
     }
 }

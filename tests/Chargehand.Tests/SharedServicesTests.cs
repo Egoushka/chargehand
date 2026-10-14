@@ -2,6 +2,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Runners.Api;
@@ -484,7 +485,7 @@ public class SharedServicesTests
         rig.Engine.Resources = new(["chargehand-svc-postgres-run-b1", "chargehand-svc-postgres-run-old", "chargehand-svc-redis-run-old"], [], []);
         var request = new RunRequest("request/v1", "Run the tasks.", new RequestContext(false, "driven", Repository: new RepositoryRef("/srv/repo", Commit)),
             Driven: new RequestDriven([new DrivenTask("t1", Goal: "g")], MaxTokensTotal: 1, MaxUsdTotal: 1m));
-        var kept = new BatchState("run-b1", DateTimeOffset.UtcNow, "t", request, null, [new TaskEntry("t1", null, "g", TaskPhase.Started, "run-t1")], []);
+        var kept = new OpenBatch("run-b1", DateTimeOffset.UtcNow, "t", request, [new TaskEntry("t1", null, "g", TaskPhase.Started, "run-t1")], []);
 
         var removed = await rig.Run.SweepOrphansAsync([kept], default);
 

@@ -6,6 +6,7 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
@@ -336,8 +337,8 @@ public class ConsoleViewsTests
         };
         await using var rig = await ConsoleRig.StartAsync(accounts: [Alice()], profile: SecretProfile, services: _ => Services(engine, new HostSnapshot(8000, 16000, 2000, 1500, 0.5, 4)));
         var request = ConsoleSeed.BatchRequest(new DrivenTask("t1", Goal: "one"));
-        new BatchStateStore(rig.BatchDirectory).Save(new BatchState("run-live", ConsoleRig.Now.AddMinutes(-9), new string('0', 32), request, "TOKEN-KEY",
-            [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-s2", "chargehand/run-s2", "chargehand-run-s2", Runs: ["run-s2"])], [], Actor: "alice"));
+        await OpenBatchSeed.SaveAsync(rig.BatchDirectory, rig.Log, new OpenBatch("run-live", ConsoleRig.Now.AddMinutes(-9), new string('0', 32), request,
+            [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-s2", "chargehand/run-s2", "chargehand-run-s2", Runs: ["run-s2"])], [], Actor: "alice"), rig.Driven);
 
         var text = await ConsoleRig.Text(rig.Owner, "/v1/system");
         var body = JsonSerializer.Deserialize<JsonElement>(text);

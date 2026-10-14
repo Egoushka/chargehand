@@ -3,6 +3,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
@@ -372,7 +373,7 @@ public class DrivenContinuationTests
     {
         using var rig = new DrivenRunTests.Rig(durable: true);
         rig.Engine.Resources = new([], [], ["chargehand-out-run-a", "chargehand-out-run-b", "chargehand-work-run-b", "chargehand-out-run-x"]);
-        var state = new BatchState("run-b1", DateTimeOffset.UtcNow, "t", One(), null,
+        var state = new OpenBatch("run-b1", DateTimeOffset.UtcNow, "t", One(),
             [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-b", "chargehand/run-a", Continuation: 1, Runs: ["run-a", "run-b"])], []);
 
         var removed = await rig.Run.SweepOrphansAsync([state], default);

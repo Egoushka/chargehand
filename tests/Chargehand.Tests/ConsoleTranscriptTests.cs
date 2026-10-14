@@ -5,6 +5,7 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
 using Chargehand.Runtimes.ClaudeCode.Api;
@@ -196,14 +197,14 @@ public class ConsoleTranscriptTests
         var request = ConsoleSeed.BatchRequest(new DrivenTask("t1", Goal: "one"));
         await s.Rig.Log.AppendAsync(ConsoleSeed.Start("run-live", request, "alice", ConsoleRig.Now.AddMinutes(-20)), default);
         var started = ConsoleRig.Now.AddMinutes(-19);
-        new BatchStateStore(s.Rig.BatchDirectory).Save(new BatchState("run-live", started, new string('0', 32), request, "TOKEN-KEY",
-            [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-s1", "chargehand/run-s1", "chargehand-run-s1", started, Runs: ["run-s1"])], [], Actor: "alice"));
+        var key = await OpenBatchSeed.SaveAsync(s.Rig.BatchDirectory, s.Rig.Log, new OpenBatch("run-live", started, new string('0', 32), request,
+            [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-s1", "chargehand/run-s1", "chargehand-run-s1", started, Runs: ["run-s1"])], [], Actor: "alice"), s.Rig.Driven);
         s.Volumes.Transcripts["run-s1"] = Line("working on it") + "\n";
         using var alice = s.Rig.As("alice");
 
         var text = await ConsoleRig.Text(alice, Route("run-s1", batch: "run-live"));
 
         Assert.Contains("working on it", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("TOKEN-KEY", text, StringComparison.Ordinal);
+        Assert.DoesNotContain(key, text, StringComparison.Ordinal);
     }
 }

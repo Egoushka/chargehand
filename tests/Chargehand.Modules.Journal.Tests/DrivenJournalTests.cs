@@ -26,6 +26,39 @@ public sealed class DrivenJournalTests : IDisposable
         Assert.Equal(new StepKey("b", "handover/r/pr"), StepKey.PullRequest("b", "r"));
         Assert.Equal(new StepKey("b", "prep/r/verify"), StepKey.VerifyPrep("b", "r"));
         Assert.Equal(new StepKey("b", "handover/r/verify"), StepKey.Verify("b", "r"));
+        Assert.Equal(new StepKey("b", "batch"), StepKey.BatchStep("b"));
+        Assert.Equal(new StepKey("b", "resolve"), StepKey.Resolve("b"));
+        Assert.Equal(new StepKey("b", "plan"), StepKey.Plan("b"));
+    }
+
+    [Fact]
+    public async Task A_begun_step_stays_open_across_a_reopen_until_its_flow_is_forgotten()
+    {
+        var batch = StepKey.BatchStep("batch-1");
+        await using (var journal = await DrivenJournal.OpenAsync(_directory))
+        {
+            await journal.BeginAsync(batch);
+            await journal.BeginAsync(batch);
+        }
+
+        await using var again = await DrivenJournal.OpenAsync(_directory);
+        Assert.Equal([batch], await again.UnfinishedAsync());
+        Assert.Null(await again.ResultAsync(batch, TestJson.Default.Branch));
+        await again.ForgetAsync("batch-1");
+        Assert.Empty(await again.UnfinishedAsync());
+    }
+
+    [Fact]
+    public async Task A_result_reads_back_once_its_step_completed_and_not_while_it_failed()
+    {
+        await using var journal = await DrivenJournal.OpenAsync(_directory);
+        Assert.Null(await journal.ResultAsync(Key, TestJson.Default.Branch));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => journal.RunAsync<Branch>(Key, (_, _) => throw new InvalidOperationException("no"), TestJson.Default.Branch));
+        Assert.Null(await journal.ResultAsync(Key, TestJson.Default.Branch));
+
+        await journal.RunAsync(Key, (_, _) => Task.FromResult(new Branch("chargehand/run-1", "abc")), TestJson.Default.Branch);
+
+        Assert.Equal(new Branch("chargehand/run-1", "abc"), await journal.ResultAsync(Key, TestJson.Default.Branch));
     }
 
     [Fact]

@@ -5,6 +5,7 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Tasks.Api;
 using Chargehand.RunLog;
@@ -205,7 +206,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         }
     }
 
-    private async Task Execute(RunHandle run, RunRequest request, string? parentRunId, string? chargeTo, BatchState? resume = null)
+    private async Task Execute(RunHandle run, RunRequest request, string? parentRunId, string? chargeTo, OpenBatch? resume = null)
     {
         var gate = chargeTo is null ? _gate : _childGate;
         try

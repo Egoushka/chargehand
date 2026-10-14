@@ -1,5 +1,7 @@
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Kernel;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Research.Api;
@@ -33,7 +35,7 @@ public class DrivenResumeTests
     }
 
     /// <summary>Three tasks one at a time: t1 handed over, t2's container running, t3 not started; then the server stops.</summary>
-    private static async Task<BatchState> StopMidBatch(DrivenRunTests.Rig rig, string? actor = null)
+    private static async Task<OpenBatch> StopMidBatch(DrivenRunTests.Rig rig, string? actor = null)
     {
         rig.Engine.HoldNth = 2;
         using var stop = new CancellationTokenSource();
@@ -45,7 +47,9 @@ public class DrivenResumeTests
         Assert.Null((await rig.Log.ReadAsync(BatchId, default)).Run);
         Assert.DoesNotContain(rig.Engine.Calls, c => c.StartsWith("network-rm", StringComparison.Ordinal));
         Assert.DoesNotContain($"rm {"cid-" + rig.Engine.Started[1].RunId}", rig.Engine.Calls);
-        Assert.Single(Directory.GetFiles(rig.StateDirectory, "*.json"));
+        // The batch's fields are journal steps now (ADR 0061, amendment of 2026-10-14): no snapshot is left, the token key has a file of its own.
+        Assert.Empty(Directory.GetFiles(rig.StateDirectory, "*.json"));
+        Assert.True(File.Exists(TokenKeyFile.PathOf(rig.StateDirectory, BatchId)));
         return Assert.Single(await rig.Restart().UnfinishedAsync(default));
     }
 
@@ -65,6 +69,8 @@ public class DrivenResumeTests
         var firstRun = state.Tasks[0].RunId;
         var secondRun = state.Tasks[1].RunId;
         Assert.Equal([TaskPhase.HandedOver, TaskPhase.Started, TaskPhase.Pending], state.Tasks.Select(t => t.Phase));
+        var keyFile = TokenKeyFile.PathOf(rig.StateDirectory, BatchId);
+        var tokenKey = File.ReadAllText(keyFile);
 
         rig.Engine.Release();
         var result = await rig.Run.RunAsync(state.Request, state.RunId, Token, default, null, () => false, state);
@@ -80,9 +86,10 @@ public class DrivenResumeTests
         // The egress container was made again with the batch's own key, so tokens the running session holds still work.
         Assert.Equal(2, rig.Engine.Egresses.Count);
         Assert.Equal(rig.Engine.Egresses[0].Gateway!.TokenKey, rig.Engine.Egresses[1].Gateway!.TokenKey);
-        Assert.Equal(state.TokenKey, rig.Engine.Egresses[1].Gateway!.TokenKey);
+        Assert.Equal(tokenKey, rig.Engine.Egresses[1].Gateway!.TokenKey);
         Assert.Equal(ResultStatus.Completed, (await rig.Log.ReadAsync(BatchId, default)).Run!.Result.Status);
         Assert.Empty(Directory.GetFiles(rig.StateDirectory, "*.json"));
+        Assert.False(File.Exists(keyFile));
         Assert.Contains("network-rm chargehand-net-run-batch-r", rig.Engine.Calls);
     }
 
@@ -140,7 +147,7 @@ public class DrivenResumeTests
         using (var journal = await DrivenJournal.OpenAsync(rig.StateDirectory))
         {
             Assert.Equal(0, await RunAll(journal, steps));
-            Assert.Empty(await journal.UnfinishedAsync());
+            Assert.Equal([StepKey.BatchStep(BatchId)], await journal.UnfinishedAsync());
         }
 
         rig.Engine.Release();
@@ -152,7 +159,7 @@ public class DrivenResumeTests
     }
 
     /// <summary>t1 handed over, then t2's session start is cut after docker made its container and before it started it, as the server stops (ADR 0061). Its workspace and task file were done.</summary>
-    private static async Task<(BatchState State, string Cut)> CutMidStart(DrivenRunTests.Rig rig)
+    private static async Task<(OpenBatch State, string Cut)> CutMidStart(DrivenRunTests.Rig rig)
     {
         using var stop = new CancellationTokenSource();
         rig.Engine.OnStart = n =>
@@ -171,7 +178,7 @@ public class DrivenResumeTests
         Assert.Equal([TaskPhase.HandedOver, TaskPhase.Started, TaskPhase.Pending], state.Tasks.Select(t => t.Phase));
         Assert.Equal(rig.Engine.Started[1].RunId, cut);
         using (var journal = await DrivenJournal.OpenAsync(rig.StateDirectory))
-            Assert.Equal([StepKey.Session(BatchId, "t2", cut)], await journal.UnfinishedAsync());
+            Assert.Equal([StepKey.BatchStep(BatchId), StepKey.Session(BatchId, "t2", cut)], await journal.UnfinishedAsync());
         return (state, cut);
     }
 
@@ -264,10 +271,13 @@ public class DrivenResumeTests
     {
         using var rig = new DrivenRunTests.Rig(durable: true);
         await rig.Run.RunAsync(Request("one"), BatchId, Token, default);
-        new BatchStateStore(rig.StateDirectory).Save(new BatchState(BatchId, DateTimeOffset.UtcNow, "t", Request("one"), null, [], []));
+        // A crash between the run record and the forgetting of the batch's flows leaves its step open.
+        await OpenBatchSeed.SaveAsync(rig.StateDirectory, rig.Log, new OpenBatch(BatchId, DateTimeOffset.UtcNow, "t", Request("one"), [], []));
 
-        Assert.Empty(await rig.Run.UnfinishedAsync(default));
-        Assert.Empty(Directory.GetFiles(rig.StateDirectory, "*.json"));
+        Assert.Empty(await rig.Restart().UnfinishedAsync(default));
+        await using (var journal = await DrivenJournal.OpenAsync(rig.StateDirectory))
+            Assert.Empty(await journal.UnfinishedAsync());
+        Assert.Empty(Directory.GetFiles(rig.StateDirectory, "*.token-key"));
     }
 
     [Fact]
@@ -278,7 +288,7 @@ public class DrivenResumeTests
             ["chargehand-egress-run-b1", "chargehand-run-t1", "chargehand-run-orphan", "chargehand-egress-run-old", "chargehand-prep-run-orphan", "postgres"],
             ["chargehand-net-run-b1", "chargehand-net-run-old", "bridge"],
             ["chargehand-work-run-t1", "chargehand-out-run-t1", "chargehand-out-run-orphan", "pgdata"]);
-        var kept = new BatchState("run-b1", DateTimeOffset.UtcNow, "t", Request("one"), null, [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-t1")], []);
+        var kept = new OpenBatch("run-b1", DateTimeOffset.UtcNow, "t", Request("one"), [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-t1")], []);
 
         var removed = await rig.Run.SweepOrphansAsync([kept], default);
 
@@ -293,7 +303,7 @@ public class DrivenResumeTests
         using var rig = new DrivenRunTests.Rig(durable: true);
         // A kill between t1's saved outcome and its teardown left its container and work volume; t2 still runs.
         rig.Engine.Resources = new(["chargehand-run-t1", "chargehand-run-t2"], [], ["chargehand-work-run-t1", "chargehand-out-run-t1", "chargehand-work-run-t2", "chargehand-out-run-t2"]);
-        var kept = new BatchState("run-b1", DateTimeOffset.UtcNow, "t", Request("one", "two"), null,
+        var kept = new OpenBatch("run-b1", DateTimeOffset.UtcNow, "t", Request("one", "two"),
             [new TaskEntry("t1", null, "one", TaskPhase.HandedOver, "run-t1"), new TaskEntry("t2", null, "two", TaskPhase.Started, "run-t2")], []);
 
         var removed = await rig.Run.SweepOrphansAsync([kept], default);
@@ -317,23 +327,48 @@ public class DrivenResumeTests
     }
 
     [Fact]
-    public void A_crash_mid_write_leaves_the_previous_state_whole()
+    public void The_token_key_file_is_written_once_for_its_owner_only_and_a_wider_mode_is_refused()
     {
         using var dir = new TempDir();
-        var store = new BatchStateStore(dir.Path);
-        var first = new BatchState("run-a", DateTimeOffset.UtcNow, "t", Request("one"), "key", [new TaskEntry("t1", null, "one")], []);
-        store.Save(first);
-        // A write that died half way: the temporary file is torn, the real one was never touched.
-        dir.Write("run-a.json.0123456789abcdef.tmp", "{\"run_id\":\"run-a\",\"tas");
-        dir.Write("run-bad.json", "{ not json");
+        // A write that died half way leaves its temporary file and no key file.
+        dir.Write("run-a.token-key.0123456789abcdef.tmp", "abc");
 
-        var read = Assert.Single(store.List());
-        Assert.Equal("key", read.TokenKey);
-        Assert.Equal(TaskPhase.Pending, read.Tasks.Single().Phase);
+        var key = TokenKeyFile.ReadOrCreate(dir.Path, "run-a");
 
-        store.Save(first with { Tasks = [first.Tasks[0] with { Phase = TaskPhase.Started, RunId = "run-x" }] });
-        Assert.Equal("run-x", store.List().Single(s => s.RunId == "run-a").Tasks.Single().RunId);
-        Assert.Single(Directory.GetFiles(dir.Path, "*.tmp"));
+        Assert.Equal(64, key.Length);
+        Assert.Equal(key, TokenKeyFile.ReadOrCreate(dir.Path, "run-a"));
+        Assert.NotEqual(key, TokenKeyFile.ReadOrCreate(dir.Path, "run-b"));
+        var file = TokenKeyFile.PathOf(dir.Path, "run-a");
+        if (OperatingSystem.IsWindows())
+            return;
+        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(file));
+        File.SetUnixFileMode(file, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+        var refused = Assert.Throws<ChargehandException>(() => TokenKeyFile.ReadOrCreate(dir.Path, "run-a"));
+        Assert.Equal(ErrorCode.CredentialUnavailable, refused.Code);
+        Assert.DoesNotContain(key, refused.Message, StringComparison.Ordinal);
+        Assert.Equal(key, File.ReadAllText(file));
+    }
+
+    [Fact]
+    public async Task A_batch_whose_token_key_file_others_can_read_does_not_start_and_its_key_is_in_no_record()
+    {
+        using var rig = new DrivenRunTests.Rig(durable: true);
+        var state = await StopMidBatch(rig);
+        var file = TokenKeyFile.PathOf(rig.StateDirectory, BatchId);
+        var key = File.ReadAllText(file);
+        var journal = await File.ReadAllBytesAsync(Path.Combine(rig.StateDirectory, DrivenJournal.FileName));
+        Assert.Equal(-1, journal.AsSpan().IndexOf(System.Text.Encoding.UTF8.GetBytes(key)));
+        Assert.DoesNotContain(key, await File.ReadAllTextAsync(Path.Combine(rig.Dir.Path, "log.jsonl")), StringComparison.Ordinal);
+        if (OperatingSystem.IsWindows())
+            return;
+        File.SetUnixFileMode(file, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead);
+        var before = rig.Engine.Calls.Count;
+
+        var result = await rig.Run.RunAsync(state.Request, state.RunId, Token, default, null, () => false, state);
+
+        Assert.Equal((ResultStatus.Failed, ErrorCode.CredentialUnavailable), (result.Status, result.Error?.Code));
+        Assert.DoesNotContain(key, result.Summary, StringComparison.Ordinal);
+        Assert.Equal(before, rig.Engine.Calls.Count);
     }
 
     private sealed class CancelsWhenResolving(CancellationTokenSource stop) : IEvidenceResolver
@@ -385,7 +420,7 @@ public class DrivenResumeTests
     }
 
     [Fact]
-    public void Damaged_key_and_state_files_are_replaced_or_skipped_not_fatal()
+    public async Task Damaged_key_and_state_files_are_replaced_or_skipped_not_fatal()
     {
         using var dir = new TempDir();
         foreach (var junk in new[] { "not hex at all", "abc" })
@@ -395,11 +430,12 @@ public class DrivenResumeTests
             var claims = new RunTokenClaims("run-1", "/srv/repo", Commit, null, 1000, DateTimeOffset.UtcNow.AddHours(1));
             Assert.NotNull(service.Validate(service.Issue(claims, DateTimeOffset.UtcNow), DateTimeOffset.UtcNow));
         }
+        // Snapshots from before the journal held a batch's fields that cannot be read are skipped: their batches stay lost.
         dir.Write("s/run-empty.json", "{}");
         dir.Write("s/run-blank.json", """{"run_id":""}""");
         dir.Write("s/run-torn.json", "{\"run_id\":\"run-t");
-        var store = new BatchStateStore(Path.Combine(dir.Path, "s"));
-        store.Save(new BatchState("run-ok", DateTimeOffset.UtcNow, "t", Request("one"), null, [], []));
-        Assert.Equal("run-ok", Assert.Single(store.List()).RunId);
+        using var batches = new OpenBatches(Path.Combine(dir.Path, "s"), new JsonlRunLog(Path.Combine(dir.Path, "log.jsonl")));
+        Assert.Empty(await batches.LoadAsync(default));
+        Assert.Equal(3, Directory.GetFiles(Path.Combine(dir.Path, "s"), "*.json").Length);
     }
 }
