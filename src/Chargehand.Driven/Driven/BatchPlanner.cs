@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
 namespace Chargehand.Driven;
 
@@ -214,7 +215,7 @@ public sealed class ModelPlanner(PlanRunner run, string preset) : IBatchPlanner
 {
     public async Task<PlanProposal> ProposeAsync(PlanInput input, CancellationToken ct)
     {
-        var runId = Orchestrator.NewRunId();
+        var runId = RunIds.New();
         var request = new RunRequest("request/v1", PlanPrompt(input.Tasks), new RequestContext(false, preset, Repository: input.Request.Context.Repository));
         var result = await run(request, runId, input.RunId, ct);
         if (result.Status != ResultStatus.Completed)
