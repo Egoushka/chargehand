@@ -155,17 +155,20 @@ public sealed class BatchRecords(string directory, TimeProvider? clock = null)
         }
     }
 
-    public void Append(string batch, SessionRecord record) => AppendTask(batch, "session", record.TaskId, JsonSerializer.SerializeToNode(record, ContractJson.Options)!);
+    /// <summary>A session's line, once per run id: a task taken up after its session ended reads that session's outcome again (ADR 0043), and the line already written stands.</summary>
+    public void Append(string batch, SessionRecord record) => AppendTask(batch, "session", record.TaskId, JsonSerializer.SerializeToNode(record, ContractJson.Options)!, run: record.RunId);
 
-    public void Append(string batch, GovernorRecord record) => AppendTask(batch, "governor", record.TaskId, JsonSerializer.SerializeToNode(record, ContractJson.Options)!);
+    /// <summary>A session's governor log, once per run id (see the session's line).</summary>
+    public void Append(string batch, GovernorRecord record) => AppendTask(batch, "governor", record.TaskId, JsonSerializer.SerializeToNode(record, ContractJson.Options)!, run: record.RunId);
 
     public void Append(string batch, ChecksRecord record) => AppendTask(batch, "checks", record.TaskId, JsonSerializer.SerializeToNode(record, ContractJson.Options)!, MaxChecksPerTask);
 
     public void Append(string batch, CiAttemptRecord record) =>
         AppendTask(batch, "ci_attempt", record.TaskId, JsonSerializer.SerializeToNode(record with { Detail = Cut(record.Detail, MaxDetail) ?? "" }, ContractJson.Options)!, MaxChecksPerTask);
 
-    /// <summary>A line tagged <paramref name="type"/>. With <paramref name="perTask"/> the task's lines of this type are not written past that many.</summary>
-    private void AppendTask(string batch, string type, string task, JsonNode node, int? perTask = null)
+    /// <summary>A line tagged <paramref name="type"/>. With <paramref name="perTask"/> the task's lines of this type are not written past that many; with <paramref name="run"/>, not when the file
+    /// already holds a line of this type for that run id.</summary>
+    private void AppendTask(string batch, string type, string task, JsonNode node, int? perTask = null, string? run = null)
     {
         if (!IsName(batch))
             return;
@@ -178,6 +181,8 @@ public sealed class BatchRecords(string directory, TimeProvider? clock = null)
             var key = (batch, type, task);
             var of = perTask is null ? 0 : _perTask.TryGetValue(key, out var seen) ? seen : CountLines(batch, type, task);
             if (perTask is { } cap && of >= cap)
+                return;
+            if (run is not null && HasRun(batch, type, run))
                 return;
             Write(batch, TasksFile, node.ToJsonString());
             _taskLineCounts[batch] = count + 1;
@@ -279,6 +284,12 @@ public sealed class BatchRecords(string directory, TimeProvider? clock = null)
     {
         var path = Path.Combine(Dir(batch), TasksFile);
         return File.Exists(path) ? Lines(path).Count(l => l.Contains($"\"type\":\"{type}\"", StringComparison.Ordinal) && l.Contains($"\"task_id\":{JsonSerializer.Serialize(task)}", StringComparison.Ordinal)) : 0;
+    }
+
+    private bool HasRun(string batch, string type, string run)
+    {
+        var path = Path.Combine(Dir(batch), TasksFile);
+        return File.Exists(path) && Lines(path).Any(l => l.Contains($"\"type\":\"{type}\"", StringComparison.Ordinal) && l.Contains($"\"run_id\":{JsonSerializer.Serialize(run)}", StringComparison.Ordinal));
     }
 
     private void Write(string batch, string file, string line)

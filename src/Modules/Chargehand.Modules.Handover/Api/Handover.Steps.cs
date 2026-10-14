@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Journal.Api;
+using Chargehand.Modules.Runners.Api;
 
 namespace Chargehand.Modules.Handover.Api;
 
@@ -27,11 +28,11 @@ public sealed partial class Handover
             var pushEnv = PushEnvironment(input.Credential, input.RemoteUrl, input.ScratchRoot, env);
             if (attempt.Repeated)
             {
-                var remote = await Git.RunAsync(scratch, pushEnv, ["ls-remote", "--", input.RemoteUrl, $"refs/heads/{input.Branch}"], GitTimeout, token);
+                var remote = await GitProcess.RunAsync(scratch, pushEnv, ["ls-remote", "--", input.RemoteUrl, $"refs/heads/{input.Branch}"], GitTimeout, token);
                 if (remote.ExitCode == 0 && remote.Stdout.Split('\t', 2)[0].Trim() == commit)
                     return new PushedBranch(input.Branch, commit, Adopted: true);
             }
-            var push = await Git.RunAsync(scratch, pushEnv, PushArgs(input.RemoteUrl, input.Branch), GitTimeout, token);
+            var push = await GitProcess.RunAsync(scratch, pushEnv, PushArgs(input.RemoteUrl, input.Branch), GitTimeout, token);
             return push.ExitCode == 0 ? new PushedBranch(input.Branch, commit) : throw new PushRejectedException(push.Tail);
         }
         return steps is null ? await Push(new StepAttempt(1, false), ct) : await steps.RunAsync(StepKey.Push(batchId!, input.RunId), Push, HandoverSteps.Default.PushedBranch, ct);

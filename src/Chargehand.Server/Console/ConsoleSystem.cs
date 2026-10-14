@@ -154,8 +154,9 @@ internal static class ConsoleSystem
         if (c.Driven?.Pool is { } pool)
         {
             var statuses = await pool.StatusAsync(ct);
+            var sites = c.Driven.Sites;
             return await Task.WhenAll(statuses.Select(async s => new RunnerStatusBody(s.Site.Name, HostOf(s.Site.Config.Url), s.Reachable, s.Why, s.ElapsedMs, s.Reachable ? s.Snapshot?.State is null ? null : s.Snapshot.IsDraining : null,
-                s.Reachable && s.Snapshot?.IsDraining == true ? s.Snapshot.StateReason : null, s.Running, s.Site.Config.MaxSessions, s.Reachable ? await CountAsync(s.Site.Engine, ct) : null)));
+                s.Reachable && s.Snapshot?.IsDraining == true ? s.Snapshot.StateReason : null, s.Running, s.Site.Config.MaxSessions, s.Reachable ? await CountAsync(sites.First(r => r.Name == s.Site.Name).Engine, ct) : null)));
         }
         return [.. configured.Select((r, i) => i == 0 && c.Driven?.Engine is not null
             ? new RunnerStatusBody(r.Name, HostOf(r.Url), first.Reachable, first.Error, first.ElapsedMs, snapshot?.State is null ? null : snapshot.IsDraining, snapshot?.IsDraining == true ? snapshot.StateReason : null, null,

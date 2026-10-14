@@ -1,9 +1,7 @@
 using Chargehand.Contracts;
 using Chargehand.Kernel;
-using Chargehand.Modules.Handover.Api;
-using Chargehand.Modules.Runners.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <summary>Fills a workspace on a runner that cannot see the server's checkouts (ADR 0058): the repository bundle goes into the run's output volume as <c>source.bundle</c>, then the runner's helper clones
 /// from it. The verification of a finished branch asks for a workspace again, in the same output volume, and gets the bundle sent again: the session had that volume mounted writable, and a bundle is

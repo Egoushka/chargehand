@@ -20,7 +20,9 @@
 
   <!-- The temporary directory and the Docker test attributes the old suite shares; linked rather than copied. -->
   <ItemGroup>
+    <Compile Include="..\Chargehand.Tests\ManualTimeProvider.cs" Link="ManualTimeProvider.cs" />
     <Compile Include="..\Chargehand.Tests\TempDir.cs" Link="TempDir.cs" />
+    <Compile Include="..\Chargehand.Tests\TestGit.cs" Link="TestGit.cs" />
     <Compile Include="..\Chargehand.Tests\DockerFactAttribute.cs" Link="DockerFactAttribute.cs" />
   </ItemGroup>
 

@@ -1,3 +1,4 @@
+using Chargehand.Modules.Runners.Api;
 namespace Chargehand.Modules.Handover.Api;
 
 /// <param name="TaskId">The finished task the branch came from.</param>
@@ -37,9 +38,9 @@ public sealed class GitStackSeeder : IStackSeeder
 
     public async Task<StackResult> BuildAsync(StackRequest request, CancellationToken ct)
     {
-        var env = Handover.GitEnvironment(request.ScratchRoot);
-        Task<Handover.GitResult> Git(string directory, params string[] args) => Handover.Git.RunAsync(directory, env, [.. Safe, .. args], GitTimeout, ct);
-        StackResult Failed(string what, Handover.GitResult r) => new(false, [], null, $"{what}: {r.Tail}", 0);
+        var env = GitProcess.Environment(request.ScratchRoot);
+        Task<GitResult> Git(string directory, params string[] args) => GitProcess.RunAsync(directory, env, [.. Safe, .. args], GitTimeout, ct);
+        StackResult Failed(string what, GitResult r) => new(false, [], null, $"{what}: {r.Tail}", 0);
 
         Directory.CreateDirectory(request.ScratchRoot);
         var clone = await Git(request.ScratchRoot, "clone", "--quiet", "--no-hardlinks", "--template=", "--", request.SourcePath, request.Directory);
