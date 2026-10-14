@@ -288,6 +288,9 @@ public class DrivenRunTests
         /// <summary>Flagged on every handover when set (ADR 0046).</summary>
         public TestIntegrityFlag? Integrity { get; set; }
 
+        /// <summary>Called with the number of the handover (1-based) once it pushed and opened its pull request, before it returns.</summary>
+        public Action<int>? OnPushed { get; set; }
+
         public Task<HandoverOutcome> RunAsync(HandoverInput input, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
@@ -302,6 +305,7 @@ public class DrivenRunTests
             input.Report?.Invoke(new HandoverEvent(RunEventKind.VerifyFinished, "tests passed"));
             input.Report?.Invoke(new HandoverEvent(RunEventKind.Pushed, $"pushed {input.Branch}"));
             input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, "draft pull request opened", $"https://example.test/o/r/pull/{number}"));
+            OnPushed?.Invoke(number);
             return Task.FromResult(new HandoverOutcome(HandoverStatus.Pushed, "", null, input.Branch, CommitFor?.Invoke(number) ?? Commit, new PullRequestRef($"https://example.test/o/r/pull/{number}", number),
                 new VerificationRecord(["npm", "test"], "detected", 0, "ok", false, TimeSpan.FromSeconds(3), true), ["a.txt"], [], [], TestIntegrity: Integrity));
         }
@@ -622,11 +626,8 @@ public class DrivenRunTests
         using var rig = new Rig();
         rig.Engine.HoldNth = 2;
         using var cts = new CancellationTokenSource();
-        var running = rig.Run.RunAsync(Request("Add a retry", "Add a backoff"), "run-batch-4", Token, cts.Token, cancelledByCaller: () => true);
-        while (rig.Handover.Inputs.Count < 1)
-            await Task.Delay(5);
-        await cts.CancelAsync();
-        var result = await running;
+        rig.Handover.OnPushed = _ => cts.Cancel();     // the cancel lands right after t1's pull request opened
+        var result = await rig.Run.RunAsync(Request("Add a retry", "Add a backoff"), "run-batch-4", Token, cts.Token, cancelledByCaller: () => true);
 
         Assert.Equal(ResultStatus.Failed, result.Status);
         Assert.Equal(ErrorCode.Cancelled, result.Error!.Code);

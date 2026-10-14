@@ -60,8 +60,9 @@ public sealed class TcpForward(PortForward forward, IPAddress? bind = null) : IA
                 }, CancellationToken.None);
             }
         }
-        // Stop() can land between the cancellation check and the accept: then the accept throws "Not listening".
-        catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException || (e is InvalidOperationException && ct.IsCancellationRequested)) { }
+        // Stop() can land between the cancellation check and the accept: then the accept throws "Not listening". Or it can close the
+        // socket under a pending accept, which fails as a SocketException (AllowlistProxy has the same loop).
+        catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException || (e is InvalidOperationException or SocketException && ct.IsCancellationRequested)) { }
     }
 
     private async Task Splice(TcpClient client, CancellationToken ct)

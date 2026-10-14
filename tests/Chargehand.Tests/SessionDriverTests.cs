@@ -332,10 +332,8 @@ public class SessionDriverTests
     public async Task The_running_token_tally_is_in_the_usage_file_while_the_session_works()
     {
         using var w = new Workspace();
-        var script = Emit(Init, Assistant("m1", "step", """{"input_tokens":300,"output_tokens":50}""")) + $"\nfor i in 1 2 3 4 5 6 7 8 9 10; do grep -q 'tokens.:350' '{Path.Combine(w.Out, "session - usage.json")}' 2>/dev/null && break; sleep 0.2; done\n"
-            + $"cp '{Path.Combine(w.Out, "session-usage.json")}' '{Path.Combine(w.Dir.Path, "seen.json")}'\n" + Emit(Result());
-        await SessionDriver.RunAsync(Options(w, script, Task()), default);
-        Assert.Equal(350, JsonDocument.Parse(File.ReadAllText(Path.Combine(w.Dir.Path, "seen.json"))).RootElement.GetProperty("tokens").GetInt64());
+        var seen = await UsageSeen(w, Task(), "tokens.: 350", Assistant("m1", "step", """{"input_tokens":300,"output_tokens":50}"""));
+        Assert.Equal(350, seen.GetProperty("tokens").GetInt64());
     }
 
     [Fact]
@@ -347,11 +345,8 @@ public class SessionDriverTests
             type = "assistant",
             message = new { id = "m2", content = new object[] { new { type = "tool_use", id = "tu1", name = "Edit", input = new { file_path = "/work/a.txt" } } }, usage = new { input_tokens = 10, output_tokens = 5 } },
         });
-        var usage = Path.Combine(w.Out, "session-usage.json");
-        var script = Emit(Init, Assistant("m1", "looking"), edit) + $"\nfor i in 1 2 3 4 5 6 7 8 9 10; do grep -q 'write' '{usage}' 2>/dev/null && break; sleep 0.2; done\n"
-            + $"cp '{usage}' '{Path.Combine(w.Dir.Path, "seen.json")}'\n" + Emit(Result());
-        await SessionDriver.RunAsync(Options(w, script, Task()), default);
-        var seen = JsonDocument.Parse(File.ReadAllText(Path.Combine(w.Dir.Path, "seen.json"))).RootElement;
+        // The stage, not the bare word: "write" is also in the file's cache_write key from the first write on.
+        var seen = await UsageSeen(w, Task(), "stage.: .write", Assistant("m1", "looking"), edit);
         Assert.Equal(135, seen.GetProperty("tokens").GetInt64());
         Assert.Equal(2, seen.GetProperty("turns").GetInt32());
         Assert.Equal("write", seen.GetProperty("stage").GetString());

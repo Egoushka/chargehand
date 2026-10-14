@@ -27,6 +27,19 @@ public class WatchCliTests
         }
     }
 
+    /// <summary>Output that says when a given line was written.</summary>
+    private sealed class Lines(string awaited) : StringWriter
+    {
+        public TaskCompletionSource Written { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override void WriteLine(string? value)
+        {
+            base.WriteLine(value);
+            if (value == awaited)
+                Written.TrySetResult();
+        }
+    }
+
     private sealed class Stepping(TimeSpan step) : TimeProvider
     {
         private DateTimeOffset _now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
@@ -246,11 +259,14 @@ public class WatchCliTests
         var runtime = new ScriptedRuntime(Runs.DraftReply) { Hold = new() };
         await using var s = await TestServer.StartAsync(runtime);
         var id = (await s.PostAsync(Runs.DraftRequest(), waitSeconds: 0)).Headers.Location!.OriginalString.Split('/')[^1];
-        runtime.Hold.SetResult();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
 
-        var output = new StringWriter();
-        Assert.Equal(0, await WatchCli.WatchAsync(s.Http, id, output, TextWriter.Null, timeout.Token));
+        // The run is released only once watch follows it: a run that finished first is read from the log as its result alone.
+        var output = new Lines("accepted");
+        var watching = WatchCli.WatchAsync(s.Http, id, output, TextWriter.Null, timeout.Token);
+        await output.Written.Task.WaitAsync(timeout.Token);
+        runtime.Hold.SetResult();
+        Assert.Equal(0, await watching);
         var lines = output.ToString().TrimEnd().Split('\n');
         Assert.Equal("accepted", lines[0]);
         Assert.StartsWith("run_finished: completed: ", lines[^1]);

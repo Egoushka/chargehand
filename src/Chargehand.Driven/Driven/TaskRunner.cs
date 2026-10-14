@@ -335,10 +335,12 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
 
             lastHead = handed is { Status: HandoverStatus.Pushed or HandoverStatus.PrFailed } ? handed.Commit : null;
             var scratchClone = Path.Combine(settings.ScratchRoot, handoverRun.Item1);
-            var children = (await log.ListAsync(new RunListQuery(Since: started, Limit: 200), ct)).Where(r => r.ParentRunId is { } parent && runs.Contains(parent)).ToList();
+            // Once the branch is pushed, a cancel no longer undoes the task: its result is recorded with the pull request.
+            var record = lastHead is null ? ct : CancellationToken.None;
+            var children = (await log.ListAsync(new RunListQuery(Since: started, Limit: 200), record)).Where(r => r.ParentRunId is { } parent && runs.Contains(parent)).ToList();
             var result = await DrivenResult.BuildTaskAsync(new DrivenTaskInput(task.Id, runId, traceId, settings.Model, settings.ClaudeVersion, total, reportJson, handed, children,
                 Directory.Exists(scratchClone) ? scratchClone : settings.SourcePath, settings.BaseCommit, settings.Priced,
-                partial ? new KeptWork(branch, best!.RunId, best.Commits, settings.BaseCommit) : null), resolver, supportCheck, ct);
+                partial ? new KeptWork(branch, best!.RunId, best.Commits, settings.BaseCommit) : null), resolver, supportCheck, record);
             result = result with { Actor = settings.Actor };
             if (sign is not null)
                 result = sign(result);
