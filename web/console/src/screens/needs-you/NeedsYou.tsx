@@ -1,11 +1,12 @@
 import { Link } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useInbox } from '../../api/inbox';
+import { useDismiss, useInbox } from '../../api/inbox';
 import { formatTime } from '../../lib/format';
 import { keysBelongElsewhere } from '../../shell/hotkeys';
 import { browserNotificationsAvailable, browserPermission } from '../../shell/notifications';
 import { updatePreferences, usePreferences } from '../../shell/preferences';
 import { useShell } from '../../shell/ShellContext';
+import { useToast } from '../../shell/toasts';
 import {
   Button,
   buttonClass,
@@ -16,7 +17,7 @@ import {
   Skeleton,
   Switch,
 } from '../../ui';
-import { FILTERS, type Filter, ordered, summary, targetRun } from './model';
+import { FILTERS, type Filter, ordered, resolvedNote, summary, targetRun } from './model';
 import { NeedsCard } from './NeedsCard';
 import './needs-you.css';
 import { useNavigate } from '@tanstack/react-router';
@@ -24,6 +25,8 @@ import { useNavigate } from '@tanstack/react-router';
 /** Everything that waits for a person: questions to answer, pull requests to merge, failures to look at. */
 export function NeedsYou() {
   const inbox = useInbox();
+  const dismiss = useDismiss();
+  const toast = useToast();
   const navigate = useNavigate();
   const [filter, setFilter] = useState<Filter>('all');
   const [cursor, setCursor] = useState(0);
@@ -32,6 +35,31 @@ export function NeedsYou() {
   const data = inbox.data;
   const items = useMemo(() => ordered(data?.items ?? [], filter), [data, filter]);
   const at = Math.min(cursor, Math.max(0, items.length - 1));
+  const resolved = resolvedNote(data?.resolved);
+
+  function dismissShown() {
+    const ids = items.map((item) => item.id);
+    if (ids.length === 0) return;
+    dismiss.mutate(
+      { ids },
+      {
+        onSuccess: () =>
+          toast.push({
+            tone: 'ok',
+            icon: 'check',
+            title: `Dismissed ${ids.length} item${ids.length === 1 ? '' : 's'}`,
+            actions: [{ label: 'Undo', onSelect: () => void dismiss.restore(ids) }],
+          }),
+        onError: (error) =>
+          toast.push({
+            tone: 'danger',
+            icon: 'alert-triangle',
+            title: 'Not dismissed',
+            body: error.message,
+          }),
+      },
+    );
+  }
 
   const move = useCallback(
     (by: number) => {
@@ -78,9 +106,19 @@ export function NeedsYou() {
           <h1 className="screen__title">Needs you</h1>
           <p className="screen__sub">
             {data ? summary(data.counts) : inbox.isError ? 'Not loaded' : 'Loading'}
+            {resolved ? <span className="dim"> · {resolved}</span> : null}
           </p>
         </div>
         <div className="screen__actions">
+          {items.length > 0 ? (
+            <Button
+              variant="quiet"
+              label="Dismiss all shown"
+              aria-label={`Dismiss all ${items.length} shown`}
+              loading={dismiss.isPending}
+              onClick={dismissShown}
+            />
+          ) : null}
           <Segmented
             label="Filter"
             value={filter}

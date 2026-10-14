@@ -10,7 +10,8 @@ using HttpResults = Microsoft.AspNetCore.Http.Results;
 namespace Chargehand.Server;
 
 /// <summary>
-/// The read routes of the operator console (CHARGEHAND-209), all <c>GET</c> under <c>/v1/</c>. They show what the server and the driven runner already keep; none of them writes, starts or stops anything. The owner's
+/// The read routes of the operator console (CHARGEHAND-209), all <c>GET</c> under <c>/v1/</c>. They show what the server and the driven runner already keep; none of them writes, starts or stops anything (the
+/// console's writes are <see cref="ConsoleActions"/> and <see cref="ConsoleDismissals"/>). The owner's
 /// key sees everything; an account's key sees its own runs, batches, tasks, pull requests and spend, and the routes that describe the server itself (<c>intake</c>, <c>accounts</c>, <c>system</c>) are the owner's alone (ADR 0050).
 /// A run token reaches none of them (the key middleware opens three things to it). A body never carries a secret value, a key or a token: profile secrets are shown as set or not.
 /// </summary>
@@ -19,7 +20,8 @@ internal static class ConsoleRoutes
     public static void Map(WebApplication app, ServerSettings settings, Chargehand.Modules.Ledger.Api.IRunLog log, DrivenRun? driven)
     {
         var secrets = new SecretPresence(settings.SecretPresent);
-        ConsoleContext Context(HttpContext ctx) => new(settings, ctx.RequestServices.GetRequiredService<RunService>(), log, driven, secrets);
+        var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
+        ConsoleContext Context(HttpContext ctx) => new(settings, ctx.RequestServices.GetRequiredService<RunService>(), log, driven, secrets, dismissals);
         IResult? OwnerOnly(HttpContext ctx) => ChargehandServer.OwnerOnly(ctx);
 
         // Block bodies where a lambda would be one call: an expression body that is a statement also converts to RequestDelegate, which discards the result and answers 200 with no body.
@@ -101,6 +103,7 @@ internal static class ConsoleRoutes
         });
 
         ConsoleActions.Map(app, Context);
+        ConsoleDismissals.Map(app, Context);
 
         app.MapGet("/v1/intake", (HttpContext ctx) => OwnerOnly(ctx) ?? Json(ConsoleIntake.Build(Context(ctx))));
 

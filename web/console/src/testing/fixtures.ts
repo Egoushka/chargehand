@@ -220,6 +220,7 @@ export function inbox(items: InboxItem[] = inboxItems(), now = Date.now()): Inbo
     },
     items,
     not_recorded: [],
+    resolved: { superseded: 0, infrastructure: 0, continued: 0, dismissed: 0, duplicates: 0 },
   };
 }
 

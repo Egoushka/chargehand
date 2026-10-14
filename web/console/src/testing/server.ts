@@ -76,6 +76,16 @@ export function serveApi(scenario: Scenario = {}) {
       return Promise.resolve(json(scenario.overview ?? fx.overview({}, now)));
     if (path === '/v1/inbox')
       return Promise.resolve(json(scenario.inbox ?? fx.inbox(undefined, now)));
+    if ((path === '/v1/inbox/dismiss' || path === '/v1/inbox/restore') && method === 'POST')
+      return Promise.resolve(
+        json({
+          action: path.endsWith('dismiss') ? 'dismiss' : 'restore',
+          changed: true,
+          ids: (body as { ids: string[] }).ids,
+          unchanged: [],
+          unknown: [],
+        }),
+      );
     if (path === '/v1/analytics') {
       const q = new URLSearchParams(input.split('?')[1] ?? '');
       return Promise.resolve(

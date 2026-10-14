@@ -13,8 +13,8 @@ using Chargehand.RunLog;
 namespace Chargehand.Server;
 
 /// <summary>What the operator console's read routes draw on (CHARGEHAND-209): the run log, the learning records, the saved state of unfinished batches, the server's own runs and, for the owner,
-/// the profile. Every route reads what the server already keeps; nothing here writes, and nothing here is a database.</summary>
-internal sealed class ConsoleContext(ServerSettings settings, RunService runs, IRunLog log, DrivenRun? driven, SecretPresence secrets)
+/// the profile. Every route reads what the server already keeps; nothing here is a database. The one thing the console writes is the inbox's dismissals (ADR 0064).</summary>
+internal sealed class ConsoleContext(ServerSettings settings, RunService runs, IRunLog log, DrivenRun? driven, SecretPresence secrets, InboxDismissals? dismissals = null)
 {
     public ServerSettings Settings => settings;
 
@@ -25,6 +25,9 @@ internal sealed class ConsoleContext(ServerSettings settings, RunService runs, I
     public DrivenRun? Driven => driven;
 
     public IRunLog Log => log;
+
+    /// <summary>The inbox items people dismissed; null: the server was given no file for them.</summary>
+    public InboxDismissals? Dismissals => dismissals;
 
     public DateTimeOffset Now => runs.Now;
 
