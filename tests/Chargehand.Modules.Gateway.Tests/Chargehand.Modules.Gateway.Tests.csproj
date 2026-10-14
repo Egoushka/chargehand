@@ -18,4 +18,9 @@
     <ProjectReference Include="..\..\src\Modules\Chargehand.Modules.Gateway\Chargehand.Modules.Gateway.csproj" />
   </ItemGroup>
 
+  <!-- The temporary directory the old suite shares; linked rather than copied. -->
+  <ItemGroup>
+    <Compile Include="..\Chargehand.Tests\TempDir.cs" Link="TempDir.cs" />
+  </ItemGroup>
+
 </Project>

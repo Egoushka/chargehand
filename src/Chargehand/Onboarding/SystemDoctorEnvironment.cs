@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using Chargehand.Config;
+using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Runtime;
 

@@ -1,10 +1,8 @@
-using Chargehand.Config;
 using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Runners.Api;
-using Chargehand.Modules.Sessions.Api;
-using Chargehand.Onboarding;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Sessions.Api;
 
 /// <summary>What ADR 0048 gives one batch's containers, worked out once from the profile and the repository: the cache volumes its sessions and verifier mount, the test services started on
 /// the batch network, and the facts the environment note carries.</summary>

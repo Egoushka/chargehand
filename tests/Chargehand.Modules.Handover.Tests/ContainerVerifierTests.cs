@@ -1,10 +1,11 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Chargehand.Driven;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Handover.Tests;
 
 /// <summary>ADR 0039: the tests of a session's branch run in a fresh container that holds no model credential, on a clean workspace, with only the bundle carried over.</summary>
 public class ContainerVerifierTests
@@ -44,7 +45,7 @@ public class ContainerVerifierTests
     private static readonly string[] NpmTest = ["npm", "test"];
 
     private static string Line(int exit, string tail = "ok", bool timedOut = false) =>
-        VerifyBranchCli.Marker + JsonSerializer.Serialize(new { argv = NpmTest, exit_code = exit, output_tail = tail, timed_out = timedOut, duration_ms = 4200, commit = "c0ffee" });
+        ContainerVerifier.Marker + JsonSerializer.Serialize(new { argv = NpmTest, exit_code = exit, output_tail = tail, timed_out = timedOut, duration_ms = 4200, commit = "c0ffee" });
 
     private static BranchVerification Request(int seconds = 600) => new("run1", "/out/chargehand.bundle", "chargehand/run1", ["npm", "test"], TimeSpan.FromSeconds(seconds));
 
