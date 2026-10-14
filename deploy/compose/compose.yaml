@@ -16,7 +16,7 @@ services:
   # Runs once before the server: makes the two state directories writable by the image's user (uid 1654), which a fresh named volume or a
   # bind directory that Docker created is not. Only CHOWN, no network, then it exits.
   prepare:
-    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.9.3}
+    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.9.5}
     user: "0"
     entrypoint: ["chown", "1654:1654", "/srv/chargehand/repos", "${CHARGEHAND_WORK_DIR:-/srv/chargehand/work}"]
     restart: "no"
@@ -31,7 +31,7 @@ services:
   # The server (`chargehand serve`): HTTP and MCP on port 4300. It never holds the engine socket (ADR 0039).
   chargehand:
     <<: *hardening
-    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.9.3}
+    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.9.5}
     ports:
       # Loopback only. Put a reverse proxy or a VPN in front to reach it from elsewhere (ADR 0024); never publish it to the internet.
       - "127.0.0.1:${CHARGEHAND_PORT:-4300}:4300"
@@ -72,7 +72,7 @@ services:
   runner:
     <<: *hardening
     profiles: [driven]
-    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.9.3}
+    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.9.5}
     command:
       - runner
       - --listen

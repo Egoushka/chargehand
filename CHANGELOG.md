@@ -7,9 +7,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-10-14
+
+Workers can reach a gateway that identifies callers by a header.
+
+### Upgrade
+
+- Nothing to change in a profile.
+
 ### Added
 
 - `claude_code.custom_headers_secret` (ADR 0062): a secret item holding header lines (`Name: value`, one per line) that Claude Code workers send to `claude_code.base_url` as `ANTHROPIC_CUSTOM_HEADERS`, for a gateway that identifies callers by a virtual key header. Needs `base_url`; an inherited `ANTHROPIC_CUSTOM_HEADERS` is removed. Header values are scanned for in driven transcripts like any model credential. Driven sessions still do not use `base_url`.
+
+## [0.9.4] - 2026-10-13
+
+The console works behind a single-sign-on proxy.
 
 ### Fixed
 
@@ -820,7 +832,9 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.9.5...HEAD
+[0.9.5]: https://github.com/Egoushka/chargehand/compare/v0.9.4...v0.9.5
+[0.9.4]: https://github.com/Egoushka/chargehand/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/Egoushka/chargehand/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/Egoushka/chargehand/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/Egoushka/chargehand/compare/v0.9.0...v0.9.1
