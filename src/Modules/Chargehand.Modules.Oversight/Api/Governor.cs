@@ -54,6 +54,9 @@ public sealed record SessionGovernor(
     ];
 
     public static IReadOnlyList<string> DefaultWaitPatterns { get; } = [@"(^|[\s;&|])sleep\s", @"--watch\b", @"\bgh run watch\b"];
+
+    /// <summary>A profile's patterns match in time linear in the command, so they need no match timeout: a timeout is wall-clock, and a loaded host ran out of 50 ms on plain commands.</summary>
+    internal const RegexOptions PatternOptions = RegexOptions.CultureInvariant | RegexOptions.NonBacktracking;
 }
 
 /// <summary>One line of <c>governor.jsonl</c>: what fired, the rung it reached and why, and where the session stood. <c>Acted</c> is true only for the decision that stopped the
@@ -108,9 +111,15 @@ public sealed partial class Governor
     public Governor(SessionGovernor settings)
     {
         _settings = settings;
-        _probes = [.. (settings.ProbePatterns ?? SessionGovernor.DefaultProbePatterns).Select(p => new Regex(p, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50)))];
-        _waits = [.. (settings.WaitPatterns ?? SessionGovernor.DefaultWaitPatterns).Select(p => new Regex(p, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50)))];
+        _probes = settings.ProbePatterns is { } probes ? Build(probes) : DefaultProbes;
+        _waits = settings.WaitPatterns is { } waits ? Build(waits) : DefaultWaits;
     }
+
+    /// <summary>The built-in patterns, built once: they cannot backtrack badly, and the linear engine costs tens of milliseconds to build per governor.</summary>
+    private static readonly Regex[] DefaultProbes = [.. SessionGovernor.DefaultProbePatterns.Select(p => new Regex(p, RegexOptions.CultureInvariant))];
+    private static readonly Regex[] DefaultWaits = [.. SessionGovernor.DefaultWaitPatterns.Select(p => new Regex(p, RegexOptions.CultureInvariant))];
+
+    private static Regex[] Build(IEnumerable<string> patterns) => [.. patterns.Select(p => new Regex(p, SessionGovernor.PatternOptions))];
 
     /// <summary>The decisions this stream event leads to. <paramref name="sessionUsd"/> is this session's dollar equivalent so far; earlier sessions' is added.</summary>
     public IReadOnlyList<GovernorDecision> OnEvent(JsonElement e, int turn, decimal? sessionUsd, DateTimeOffset now)
