@@ -1,12 +1,16 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Chargehand.Config;
-using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.RunLog;
-using Chargehand.Runner;
+using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Workspace;
 
 namespace Chargehand.Tests;
@@ -30,11 +34,11 @@ public class MultiRunnerRunTests
     private static HostSnapshot Free(long availableMb) => new(availableMb, 16000, 0, 0, 0.1, 4);
 
     /// <summary>One runner: its engine, the session volumes on it and what its host says.</summary>
-    private sealed class Machine(DrivenRunnerEntry entry, long freeMb, DrivenRunTests.FakeVolumes volumes)
+    private sealed class Machine(DrivenRunnerEntry entry, long freeMb, DrivenFakes.FakeVolumes volumes)
     {
         public DrivenRunnerEntry Entry { get; } = entry;
-        public DrivenRunTests.FakeEngine Engine { get; } = new();
-        public DrivenRunTests.FakeVolumes Volumes { get; } = volumes;
+        public DrivenFakes.FakeEngine Engine { get; } = new();
+        public DrivenFakes.FakeVolumes Volumes { get; } = volumes;
         public FakeHost Host { get; } = new(Free(freeMb));
         public RunnerSite Site => new(Entry, Engine, Engine, Volumes, Host);
     }
@@ -44,7 +48,7 @@ public class MultiRunnerRunTests
         public TempDir Dir { get; } = new();
         public Machine Box { get; }
         public Machine Laptop { get; }
-        public DrivenRunTests.FakeHandover Handover { get; } = new();
+        public DrivenFakes.FakeHandover Handover { get; } = new();
         public JsonlRunLog Log { get; }
         public Profile Profile { get; private set; }
         public DrivenRun Run { get; private set; }
@@ -60,8 +64,8 @@ public class MultiRunnerRunTests
         {
             Log = new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             var run = script ?? (_ => SessionStatus.Completed);
-            Box = new Machine(box ?? new DrivenRunnerEntry("box", "http://runner:4310", "box-key"), boxMb, new DrivenRunTests.FakeVolumes(run, outcomes));
-            Laptop = new Machine(laptop ?? new DrivenRunnerEntry("laptop", "http://laptop.example.net:4310", "laptop-key", Platform: "linux/arm64"), laptopMb, new DrivenRunTests.FakeVolumes(run, outcomes));
+            Box = new Machine(box ?? new DrivenRunnerEntry("box", "http://runner:4310", "box-key"), boxMb, new DrivenFakes.FakeVolumes(run, outcomes));
+            Laptop = new Machine(laptop ?? new DrivenRunnerEntry("laptop", "http://laptop.example.net:4310", "laptop-key", Platform: "linux/arm64"), laptopMb, new DrivenFakes.FakeVolumes(run, outcomes));
             Profile = Runs.Profile(Dir.Path) with
             {
                 ClaudeCode = new ClaudeCodeSettings("2.1.283", OauthTokenSecret: "claude-code-oauth-token"),
@@ -85,7 +89,7 @@ public class MultiRunnerRunTests
             return Run = new DrivenRun(Profile, Log, Repo.Root, _services, _state);
         }
 
-        public Task<ResultContract> RunAsync(RunRequest request, string runId = "run-batch-m", BatchState? resume = null, bool cancelledByCaller = false, CancellationToken ct = default) =>
+        public Task<ResultContract> RunAsync(RunRequest request, string runId = "run-batch-m", OpenBatch? resume = null, bool cancelledByCaller = false, CancellationToken ct = default) =>
             Run.RunAsync(request, runId, g => $"tok-{g.RunId}", ct, Events.Enqueue, () => cancelledByCaller, resume);
 
         public void Dispose()
@@ -115,7 +119,7 @@ public class MultiRunnerRunTests
         Assert.Fail("the condition did not hold within 10 seconds");
     }
 
-    private static IEnumerable<string> Networks(DrivenRunTests.FakeEngine engine) => engine.Calls.Where(c => c.StartsWith("network chargehand-net-", StringComparison.Ordinal));
+    private static IEnumerable<string> Networks(DrivenFakes.FakeEngine engine) => engine.Calls.Where(c => c.StartsWith("network chargehand-net-", StringComparison.Ordinal));
 
     // --- placement, events and the batch result
 
@@ -375,6 +379,35 @@ public class MultiRunnerRunTests
         Assert.Equal(2, rig.Laptop.Engine.Egresses.Count);
         Assert.Equal(2, rig.Handover.Inputs.Count);
         Assert.Empty(Directory.GetFiles(rig.StateDirectory, "*.json"));
+    }
+
+    /// <summary>ADR 0063: the placements a task used up survive a restart. Two placements fail before the server stops; after the restart the task has one left, so the box's silence fails it.
+    /// Without the journal it would start over with three, and the laptop, which answers from its second start on, would run it.</summary>
+    [Fact]
+    public async Task A_restart_keeps_the_placements_a_task_used_up_and_the_third_runner_that_does_not_answer_fails_it()
+    {
+        using var rig = new Rig(boxMb: 30000, laptopMb: 9000, durable: true);
+        rig.Box.Engine.OnStart = _ => new RunnerUnreachableException("the runner could not be reached: network is unreachable");
+        var laptopStarts = 0;
+        rig.Laptop.Engine.OnStart = _ => Interlocked.Increment(ref laptopStarts) == 1 ? new RunnerUnreachableException("the runner could not be reached: connection reset") : null;
+        using var stop = new CancellationTokenSource();
+        var replaced = 0;
+        await rig.Run.RunAsync(Request("one"), "run-batch-p", g => $"tok-{g.RunId}", stop.Token, e =>
+        {
+            if (e.Detail?.Contains("placing the task again", StringComparison.Ordinal) == true && Interlocked.Increment(ref replaced) == 2)
+                stop.Cancel();
+        }, () => false);
+        Assert.Equal(1, laptopStarts);
+        var state = Assert.Single(await rig.Restart().UnfinishedAsync(default));
+
+        var result = await rig.RunAsync(state.Request, "run-batch-p", state);
+
+        var row = Rows(result).Single();
+        Assert.Equal(("failed", "container_unavailable"), (row.GetProperty("status").GetString(), row.GetProperty("error_code").GetString()));
+        Assert.Contains("runner 'box' could not be reached", row.GetProperty("detail").GetString(), StringComparison.Ordinal);
+        // One attempt after the restart, on the box; the laptop was not tried again.
+        Assert.Equal((1, 2), (laptopStarts, rig.Box.Engine.Started.Count));
+        Assert.Empty(rig.Handover.Inputs);
     }
 
     [Fact]

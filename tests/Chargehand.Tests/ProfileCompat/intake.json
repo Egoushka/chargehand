@@ -1,0 +1,120 @@
+{
+  "schema": "profile/v1",
+  "opencode": null,
+  "worker_root": "/var/tmp/chargehand/work",
+  "default_preset": "cheap",
+  "intake_model": null,
+  "prices": null,
+  "secrets": null,
+  "run_cap_usd": 1.00,
+  "run_log": null,
+  "telemetry": null,
+  "models": null,
+  "memory": null,
+  "http": null,
+  "claude_code": null,
+  "repository_roots": null,
+  "runtime": null,
+  "mcp_servers": {
+    "tracker": {
+      "url": "https://tracker.example.com/mcp",
+      "headers": null,
+      "command": null,
+      "env": null,
+      "transport": null
+    }
+  },
+  "sandbox": null,
+  "support_check": true,
+  "signing": null,
+  "driven": {
+    "names_runners": false,
+    "enabled": true,
+    "max_parallel": 2,
+    "max_parallel_total": 4,
+    "images": null,
+    "network": null,
+    "runner": null,
+    "push_secret": null,
+    "task_source": {
+      "server": "tracker",
+      "tool": "get_item",
+      "arguments": {
+        "id": "{ref}",
+        "fields": [
+          "title",
+          "body"
+        ]
+      },
+      "title": "item.title",
+      "body": "item.body"
+    },
+    "max_session_calls": 2,
+    "limits": null,
+    "governor": null,
+    "admission": null,
+    "integrator": {
+      "app_id": 12345,
+      "installation_id": null,
+      "private_key_secret": "chargehand-app-key",
+      "repositories": {
+        "owner/repo": "merge",
+        "group/subgroup/project": "ask"
+      },
+      "always_ask": [
+        "owner/other"
+      ],
+      "ci_fix": {
+        "max_attempts": 2,
+        "max_turns": 10,
+        "max_minutes": null,
+        "wait_minutes": 30,
+        "attempts": 2,
+        "turns": 10,
+        "minutes": 15,
+        "wait": 30
+      }
+    },
+    "services": null,
+    "forge": {
+      "kind": "gitlab",
+      "base_url": "https://gitlab.example.com/api/v4",
+      "token_secret": "chargehand-gitlab-token"
+    },
+    "planning": {
+      "enabled": true,
+      "preset": "default"
+    },
+    "learning": null,
+    "runners": null,
+    "image_variants": null
+  },
+  "prompt_enhancer": null,
+  "max_parallel_nodes": 2,
+  "automation": {
+    "github": {
+      "repositories": {
+        "owner/repo": {
+          "path": "/srv/chargehand/work/repo"
+        }
+      },
+      "allowed_authors": [
+        "alice",
+        "helper[bot]"
+      ],
+      "label": "agent",
+      "mention": "@chargehand",
+      "poll_seconds": 300,
+      "budget_class": "S",
+      "max_tokens_total": 2000000,
+      "max_usd_total": 5,
+      "max_concurrent": 2,
+      "max_starts_per_day": 10,
+      "max_review_rounds": 2
+    }
+  },
+  "roots": [
+    "/var/tmp/chargehand/work"
+  ],
+  "runtime_blocks": []
+}

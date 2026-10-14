@@ -1,0 +1,24 @@
+{
+  "schema": "profile/v1",
+  "driven": {
+    "enabled": true,
+    "images": ["session@sha256:1111111111111111111111111111111111111111111111111111111111111111"],
+    "image_variants": {
+      "session@sha256:1111111111111111111111111111111111111111111111111111111111111111": { "linux/arm64": "session@sha256:2222222222222222222222222222222222222222222222222222222222222222" }
+    },
+    "network": { "mcp_forward": "chargehand:4300", "model_url": "http://gateway:4000", "otlp_url": "http://collector:4318", "outside": "edge" },
+    "runners": [
+      { "name": "local", "url": "http://runner:4400", "api_key_secret": "runner-local-key" },
+      { "name": "arm-1", "url": "https://arm.example.com:4400", "api_key_secret": "runner-arm-key", "max_sessions": 2, "platform": "linux/arm64", "weight": 0.5,
+        "reserve_mb": 512, "workspace": "bundle",
+        "forwards": { "mcp": "10.0.0.1:4300", "model_url": "https://gateway.example.com/v1", "otlp_url": "http://10.0.0.1:4318", "outside": "arm-edge" } }
+    ],
+    "governor": {
+      "mode": "observe", "budgets": { "S": 1, "M": 3.5, "L": 12 }, "repeat_calls": 5, "repeat_failures": 3, "failing_calls": 6, "probe_commands": 8, "no_growth_turns": 9,
+      "rewarn_turns": 4, "context_tokens": 150000, "checkpoint_at": 0.75, "probe_patterns": ["^ls\\b", "^cat "], "wait_patterns": ["sleep \\d+"],
+      "history": { "min_tasks": 5, "window_days": 30, "percentile": 90 }
+    },
+    "admission": { "reserve_mb": 0, "max_load_per_cpu": 2, "default_request_mb": 2048, "max_memory_pressure": 25 },
+    "learning": { "retro": false, "retro_preset": "default", "pr_days": 21, "pr_check_minutes": 30 }
+  }
+}

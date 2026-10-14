@@ -9,7 +9,8 @@ namespace Chargehand.Watch;
 /// <summary><c>chargehand watch &lt;run-id&gt;</c> and <c>chargehand cancel &lt;run-id&gt;</c>: a run on a server from a terminal or from the Monitor tool of a Claude Code session
 /// that handed the work over. <c>watch</c> tails <c>GET /v1/runs/{id}/events</c> and prints one stdout line per event until the result, because a Monitor turns each line into a
 /// notification and sees nothing on stderr. The exit code is the run's: 0 completed, 1 failed, denied, lost or the server gone, 3 needs input, 2 a refusal (wrong key or unknown run).
-/// The events replay from the start on every connection, so a dropped connection resumes by skipping the lines already printed.</summary>
+/// A dropped connection resumes after the last event id it saw (<c>Last-Event-ID</c>: a batch's journaled events, ADR 0061); a stream without ids replays from the start, and the lines
+/// already printed are skipped.</summary>
 public static class WatchCli
 {
     public const string Usage = "usage: chargehand watch <run-id> [--url <server>]   |   chargehand cancel <run-id> [--url <server>]\n" +
@@ -51,6 +52,7 @@ public static class WatchCli
         time ??= TimeProvider.System;
         var printer = new LinePrinter(output, time);
         var seen = 0;
+        string? lastId = null;
         string reason = "";
         for (var failures = 0; failures < Attempts;)
         {
@@ -59,7 +61,10 @@ public static class WatchCli
             {
                 if (failures > 0)
                     await Task.Delay(retryDelay ?? TimeSpan.FromSeconds(2), ct);
-                using var response = await http.GetAsync($"/v1/runs/{Uri.EscapeDataString(runId)}/events", HttpCompletionOption.ResponseHeadersRead, ct);
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"/v1/runs/{Uri.EscapeDataString(runId)}/events");
+                if (lastId is not null)
+                    request.Headers.Add("Last-Event-ID", lastId);
+                using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
                 if (Refusal(response.StatusCode, runId) is { } refused)
                 {
                     await error.WriteLineAsync(refused);
@@ -72,12 +77,13 @@ public static class WatchCli
                 else
                 {
                     await using var body = await response.Content.ReadAsStreamAsync(ct);
-                    var index = 0;
+                    var (index, skip) = (0, lastId is null ? seen : 0);
                     await foreach (var item in SseParser.Create(body, (_, bytes) => Encoding.UTF8.GetString(bytes)).EnumerateAsync(ct))
                     {
-                        if (index++ < seen)
+                        if (index++ < skip)
                             continue;
-                        seen = index;
+                        seen++;
+                        lastId = string.IsNullOrEmpty(item.EventId) ? lastId : item.EventId;
                         var e = JsonSerializer.Deserialize<RunStatus>(item.Data, ContractJson.Options)!;
                         if (printer.Print(e) is { } exit)
                             return exit;

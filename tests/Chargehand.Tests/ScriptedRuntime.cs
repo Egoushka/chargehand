@@ -4,8 +4,10 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
+using Chargehand.Runtimes.OpenCode.Api;
 
 namespace Chargehand.Tests;
 

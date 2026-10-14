@@ -3,6 +3,12 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Tests;
 
@@ -94,7 +100,7 @@ public class DrivenRecordsTests
     [Fact]
     public async Task The_governor_log_is_recorded_in_full_where_the_outcome_file_has_only_the_first_50()
     {
-        var volumes = new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed) { GovernorLog = (_, _) => GovernorLines(120) };
+        var volumes = new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed) { GovernorLog = (_, _) => GovernorLines(120) };
         using var rig = new DrivenRunTests.Rig(records: true, volumes: volumes);
 
         await rig.Run.RunAsync(Request("one"), BatchId, Token, default);
@@ -109,7 +115,7 @@ public class DrivenRecordsTests
     [Fact]
     public async Task A_log_longer_than_the_cap_keeps_the_first_decisions_and_the_count()
     {
-        var volumes = new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed) { GovernorLog = (_, _) => GovernorLines(BatchRecords.MaxDecisionsPerSession + 50) };
+        var volumes = new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed) { GovernorLog = (_, _) => GovernorLines(BatchRecords.MaxDecisionsPerSession + 50) };
         using var rig = new DrivenRunTests.Rig(records: true, volumes: volumes);
 
         await rig.Run.RunAsync(Request("one"), BatchId, Token, default);

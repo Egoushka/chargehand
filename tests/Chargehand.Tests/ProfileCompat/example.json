@@ -1,0 +1,261 @@
+{
+  "schema": "profile/v1",
+  "opencode": {
+    "url": "http://127.0.0.1:4096",
+    "password_secret": "chargehand-opencode-password",
+    "version": "2.0.18",
+    "binary": "/opt/chargehand/bin/opencode"
+  },
+  "worker_root": "/srv/chargehand/work",
+  "default_preset": "default",
+  "intake_model": "provider/small-model",
+  "prices": {
+    "provider/small-model": {
+      "input": 0.1,
+      "output": 0.5,
+      "cache_read": 0.01,
+      "cache_write": 0.125
+    },
+    "provider/large-model": {
+      "input": 2.0,
+      "output": 10.0,
+      "cache_read": 0.2,
+      "cache_write": 2.5
+    }
+  },
+  "secrets": [
+    {
+      "env": true,
+      "command": null
+    },
+    {
+      "env": null,
+      "command": [
+        "security",
+        "find-generic-password",
+        "-s",
+        "{item}",
+        "-w"
+      ]
+    }
+  ],
+  "run_cap_usd": 1.0,
+  "run_log": "runs/run-log.jsonl",
+  "telemetry": {
+    "otlp_endpoint": "https://langfuse.example.com/api/public/otel/v1/traces",
+    "public_key_secret": "chargehand-langfuse-public-key",
+    "secret_key_secret": "chargehand-langfuse-secret-key",
+    "usage_on_spans": false
+  },
+  "models": {
+    "provider/worker-model": "provider/large-model",
+    "provider/small-model": "provider/small-model",
+    "provider/critic-model": "provider/large-model"
+  },
+  "memory": [
+    {
+      "name": "hindsight",
+      "server": "memory-gateway",
+      "tools": {
+        "recall": {
+          "tool": "recall",
+          "arguments": {
+            "query": "{query}",
+            "bank_id": "{namespace}",
+            "budget": "low",
+            "max_tokens": 1024
+          },
+          "results": null,
+          "effective_results": {
+            "path": "results",
+            "id": "id",
+            "text": null,
+            "format": "json",
+            "effective_text": [
+              "text"
+            ]
+          }
+        },
+        "retain": {
+          "tool": "retain",
+          "arguments": {
+            "content": "{text}",
+            "context": "{context}",
+            "document_id": "{document_id}",
+            "timestamp": "{timestamp}",
+            "tags": "{tags}",
+            "metadata": {
+              "repository": "{repository}",
+              "commit": "{commit}",
+              "locators": "{locators}"
+            },
+            "bank_id": "{namespace}"
+          },
+          "results": null,
+          "effective_results": {
+            "path": "results",
+            "id": "id",
+            "text": null,
+            "format": "json",
+            "effective_text": [
+              "text"
+            ]
+          }
+        },
+        "invalidate": {
+          "tool": "invalidate_memory",
+          "arguments": {
+            "memory_id": "{id}",
+            "reason": "{reason}",
+            "bank_id": "{namespace}"
+          },
+          "results": null,
+          "effective_results": {
+            "path": "results",
+            "id": "id",
+            "text": null,
+            "format": "json",
+            "effective_text": [
+              "text"
+            ]
+          }
+        }
+      },
+      "namespace": "chargehand",
+      "max_facts": null,
+      "max_chars": null,
+      "max_fact_chars": null,
+      "timeout_seconds": null,
+      "retain": false,
+      "retain_tags": null,
+      "effective_namespace": "chargehand",
+      "limits": {
+        "max_facts": 10,
+        "max_chars": 4000,
+        "timeout": null,
+        "max_fact_chars": 600
+      },
+      "effective_retain_tags": [
+        "chargehand"
+      ]
+    },
+    {
+      "name": "chronicle",
+      "server": "chronicle",
+      "tools": {
+        "recall": {
+          "tool": "recall",
+          "arguments": {
+            "query": "{query}",
+            "limit": "{max_facts}"
+          },
+          "results": {
+            "path": "results",
+            "id": "segment_id",
+            "text": [
+              "{date}: {summary}",
+              "{date}: {text}"
+            ],
+            "format": "json",
+            "effective_text": [
+              "{date}: {summary}",
+              "{date}: {text}"
+            ]
+          },
+          "effective_results": {
+            "path": "results",
+            "id": "segment_id",
+            "text": [
+              "{date}: {summary}",
+              "{date}: {text}"
+            ],
+            "format": "json",
+            "effective_text": [
+              "{date}: {summary}",
+              "{date}: {text}"
+            ]
+          }
+        },
+        "retain": null,
+        "invalidate": null
+      },
+      "namespace": null,
+      "max_facts": null,
+      "max_chars": null,
+      "max_fact_chars": null,
+      "timeout_seconds": null,
+      "retain": false,
+      "retain_tags": null,
+      "effective_namespace": "chronicle",
+      "limits": {
+        "max_facts": 10,
+        "max_chars": 4000,
+        "timeout": null,
+        "max_fact_chars": 600
+      },
+      "effective_retain_tags": [
+        "chargehand"
+      ]
+    }
+  ],
+  "http": {
+    "api_key_secret": "chargehand-api-key",
+    "port": 4300,
+    "listen": "127.0.0.1",
+    "allowed_hosts": null,
+    "max_concurrent_runs": 1,
+    "accounts": null,
+    "ui": false
+  },
+  "claude_code": null,
+  "repository_roots": [
+    "/srv/chargehand/work",
+    "/path/to/your/repositories"
+  ],
+  "runtime": null,
+  "mcp_servers": {
+    "memory-gateway": {
+      "url": "https://mcp.example.internal/mcp",
+      "headers": {
+        "Authorization": "Bearer {secret:memory-gateway-token}"
+      },
+      "command": null,
+      "env": null,
+      "transport": null
+    },
+    "team-notes": {
+      "url": null,
+      "headers": null,
+      "command": [
+        "npx",
+        "-y",
+        "example-notes-mcp"
+      ],
+      "env": {
+        "NOTES_TOKEN": "{secret:team-notes-token}"
+      },
+      "transport": null
+    },
+    "chronicle": {
+      "url": "http://localhost:8080/sse",
+      "headers": null,
+      "command": null,
+      "env": null,
+      "transport": "sse"
+    }
+  },
+  "sandbox": null,
+  "support_check": true,
+  "signing": null,
+  "driven": null,
+  "prompt_enhancer": null,
+  "max_parallel_nodes": 2,
+  "automation": null,
+  "roots": [
+    "/srv/chargehand/work",
+    "/path/to/your/repositories"
+  ],
+  "runtime_blocks": [
+    0
+  ]
+}

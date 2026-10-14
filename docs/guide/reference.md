@@ -180,7 +180,7 @@ The profile is `profile/v1` JSON; `profiles/example.json` fills in most fields w
 | `runtime` | unset | `opencode` or `claude_code`; wins over `CHARGEHAND_RUNTIME`. Unset, chargehand probes `PATH` |
 | `secrets` | `[{ "env": true }]` | ordered secret sources, first success wins. `{ "env": true }` reads the item as an environment variable, upper-cased with `-` turned into `_`. `{ "command": [...] }` runs an argv with `{item}` substituted, no shell. It replaces `secret_store` |
 | `opencode` | unset | `url`, `password_secret`, `version` (required) and `binary`: connect to your own OpenCode server. Unset, chargehand starts one |
-| `claude_code` | unset | `version` (required), `binary` (default `claude`), at most one of `api_key_secret` and `oauth_token_secret`, and `base_url` for an Anthropic-compatible gateway |
+| `claude_code` | unset | `version` (required), `binary` (default `claude`), at most one of `api_key_secret` and `oauth_token_secret`, `base_url` for an Anthropic-compatible gateway, and `custom_headers_secret`: a secret holding `Name: value` header lines sent to that gateway (a virtual key); needs `base_url`, plain workers only ([ADR 0062](../adr/0062-claude-code-custom-headers-for-a-gateway.md)) |
 | `worker_root` | `/var/tmp/chargehand/work` | where worker clones live; must be outside the home directory |
 | `repository_roots` | `worker_root` alone; `run` and `mcp` add their launch directory | the directories a request's repository may sit under; `"/"` allows any |
 | `support_check` | `true` | after each node, one call on the intake model judges whether the text each claim cites supports it ([ADR 0036](../adr/0036-support-checking-and-signed-results.md)); `false` removes the check and its call |
@@ -215,7 +215,7 @@ A profile still carrying `"secret_store": "keychain"` needs a one-line migration
 | `OPENCODE_SERVER_PASSWORD` | OpenCode | the server's password; chargehand generates one for a server it starts, and `scripts/opencode-serve.sh` reads it or a macOS Keychain item |
 | `CHARGEHAND_STATE` | `scripts/opencode-serve.sh` | the server's state directory, default `$HOME/.chargehand/opencode` |
 
-A Claude Code worker gets only the credential and base URL the profile decides: chargehand removes an inherited `ANTHROPIC_AUTH_TOKEN` and sets or removes `ANTHROPIC_BASE_URL` from `claude_code.base_url`. With the CLI's own login, it removes both credential variables too.
+A Claude Code worker gets only the credential and base URL the profile decides: chargehand removes an inherited `ANTHROPIC_AUTH_TOKEN` and sets or removes `ANTHROPIC_BASE_URL` from `claude_code.base_url` and `ANTHROPIC_CUSTOM_HEADERS` from `claude_code.custom_headers_secret`. With the CLI's own login, it removes both credential variables too.
 
 Scripts and CI read a few more:
 

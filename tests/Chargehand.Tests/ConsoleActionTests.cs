@@ -5,6 +5,10 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.Server;
 using Chargehand.Workspace;
 
@@ -248,7 +252,7 @@ public class ConsoleActionTests
     // Re-running a pull request's checks
 
     private static DrivenServices Services(FakeIntegrationHost host) =>
-        new(new DrivenRunTests.FakeEngine(), new DrivenRunTests.FakeEngine(), new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed), _ => throw new NotSupportedException(), null,
+        new(new DrivenFakes.FakeEngine(), new DrivenFakes.FakeEngine(), new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed), _ => throw new NotSupportedException(), null,
             (_, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo", ConsoleRig.Commit, "https://github.com/o/r.git", "main")), new DrivenRunTests.NoEvidenceProblems(), name => $"value-of-{name}", Integration: host);
 
     private static async Task<(ConsoleRig Rig, FakeIntegrationHost Host)> PullRigAsync(string? actor = null, bool withHost = true)

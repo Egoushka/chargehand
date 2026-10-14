@@ -3,6 +3,10 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Tests;
 
@@ -342,7 +346,7 @@ public class DrivenContinuationTests
     public async Task A_live_tally_a_little_over_the_cap_while_the_session_winds_down_does_not_cancel_the_task()
     {
         // The driver stopped the session at the cap; the tally the host read in its last seconds is 5% over, and 5 inspections go by before the container is seen to exit.
-        var volumes = new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed, (_, _) => Stopped(SessionStatus.TokenCap, "token_cap")) { Usage = new TaskUsage(2_100_000, 0) };
+        var volumes = new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed, (_, _) => Stopped(SessionStatus.TokenCap, "token_cap")) { Usage = new TaskUsage(2_100_000, 0) };
         using var rig = new DrivenRunTests.Rig(volumes: volumes);
         rig.Engine.RunFor = 5;
         var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
@@ -369,7 +373,7 @@ public class DrivenContinuationTests
     {
         using var rig = new DrivenRunTests.Rig(durable: true);
         rig.Engine.Resources = new([], [], ["chargehand-out-run-a", "chargehand-out-run-b", "chargehand-work-run-b", "chargehand-out-run-x"]);
-        var state = new BatchState("run-b1", DateTimeOffset.UtcNow, "t", One(), null,
+        var state = new OpenBatch("run-b1", DateTimeOffset.UtcNow, "t", One(),
             [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-b", "chargehand/run-a", Continuation: 1, Runs: ["run-a", "run-b"])], []);
 
         var removed = await rig.Run.SweepOrphansAsync([state], default);
@@ -378,7 +382,7 @@ public class DrivenContinuationTests
     }
 
     [Fact]
-    public async Task A_restart_before_a_continuations_container_started_redoes_it_from_the_previous_bundle_on_the_same_branch()
+    public async Task A_restart_before_a_continuations_container_started_starts_it_again_under_its_run_id_from_the_previous_bundle_on_the_same_branch()
     {
         using var rig = new DrivenRunTests.Rig(durable: true, outcomes: (_, goal) => IsContinuation(goal) ? Done() : Stopped(SessionStatus.Stalled, "turn_limit"));
         using var stop = new CancellationTokenSource();
@@ -391,11 +395,11 @@ public class DrivenContinuationTests
         var (firstRun, secondRun) = (rig.Engine.Started[0].RunId, rig.Engine.Started[1].RunId);
         Assert.Equal((secondRun, 1), (entry.RunId, entry.Continuation));
         Assert.Null(entry.Container);
-        // The container is gone and the host's scratch directory with the first bundle was cleared by the restart.
+        // No container was made, and the host's scratch directory with the first bundle was cleared by the restart.
         rig.Engine.Gone.Add($"chargehand-{secondRun}");
-        rig.Volumes.NoOutput.Add(secondRun);
         Directory.Delete(Path.Combine(rig.Profile.WorkerRoot, ".driven", "out", firstRun), recursive: true);
         rig.Engine.OnStart = null;
+        var fetched = rig.Volumes.Fetched.Count;
 
         var result = await rig.Run.RunAsync(state.Request, state.RunId, Token, default, null, () => false, state);
 
@@ -404,12 +408,55 @@ public class DrivenContinuationTests
         Assert.Equal($"chargehand/{firstRun}", handover.Branch);
         Assert.False(handover.Partial);
         Assert.Contains("1 continuation session(s)", handover.Body);
-        // Seeded from the first session's bundle, read again from its output volume.
-        Assert.All(rig.Volumes.Seeds, s => Assert.EndsWith(Path.Combine("out", firstRun, "chargehand.bundle"), s.Path));
-        Assert.Equal(2, rig.Volumes.Seeds.Count);
-        Assert.NotEqual(secondRun, rig.Engine.Started[2].RunId);
-        Assert.Equal(rig.Engine.Started[2].RunId, rig.Volumes.Seeds[1].RunId);
-        Assert.Contains("Continuation 1 of 2. A previous session was stopped by turn limit", rig.Volumes.Tasks[^1].Goal);
+        // The start ran again under the same run id (ADR 0061); the seed and the task file it wrote before the cut are not written again.
+        Assert.Equal([firstRun, secondRun, secondRun], rig.Engine.Started.Select(s => s.RunId));
+        var seed = Assert.Single(rig.Volumes.Seeds);
+        Assert.Equal(secondRun, seed.RunId);
+        Assert.EndsWith(Path.Combine("out", firstRun, "chargehand.bundle"), seed.Path);
+        Assert.Contains(firstRun, rig.Volumes.Fetched.Skip(fetched));
+        var task = Assert.Single(rig.Volumes.Tasks, t => t.RunId == secondRun);
+        Assert.Contains("Continuation 1 of 2. A previous session was stopped by turn limit", task.Goal);
+    }
+
+    [Fact]
+    public async Task A_continuation_whose_container_is_gone_without_output_is_journaled_under_its_new_run_id_so_a_second_restart_takes_that_container_up()
+    {
+        using var rig = new DrivenRunTests.Rig(durable: true, outcomes: (_, goal) => IsContinuation(goal) ? Done() : Stopped(SessionStatus.Stalled, "turn_limit"));
+        rig.Engine.HoldNth = 2;
+        using var stop = new CancellationTokenSource();
+        var first = rig.Run.RunAsync(One(), BatchId, Token, stop.Token, null, () => false);
+        await Until(() => rig.Engine.Started.Count == 2);
+        await stop.CancelAsync();
+        await first;
+        var state = Assert.Single(await rig.Restart().UnfinishedAsync(default));
+        var (firstRun, lost) = (rig.Engine.Started[0].RunId, rig.Engine.Started[1].RunId);
+        Assert.Equal(lost, state.Tasks.Single().RunId);
+
+        // The continuation's container is gone and left no outcome: it starts again from the first bundle under a new run id, and is held there as the server stops again.
+        rig.Engine.Release();
+        rig.Engine.Gone.Add($"cid-{lost}");
+        rig.Volumes.NoOutput.Add(lost);
+        rig.Engine.HoldNth = 3;
+        using var stopAgain = new CancellationTokenSource();
+        var second = rig.Run.RunAsync(state.Request, state.RunId, Token, stopAgain.Token, null, () => false, state);
+        await Until(() => rig.Engine.Started.Count == 3);
+        await stopAgain.CancelAsync();
+        await second;
+
+        var renewed = rig.Engine.Started[2].RunId;
+        Assert.NotEqual(lost, renewed);
+        var again = Assert.Single(await rig.Restart().UnfinishedAsync(default));
+        var entry = again.Tasks.Single();
+        Assert.Equal((renewed, 1), (entry.RunId, entry.Continuation));
+        Assert.Equal([firstRun, renewed], entry.Runs);
+
+        rig.Engine.Release();
+        var result = await rig.Run.RunAsync(again.Request, again.RunId, Token, default, null, () => false, again);
+
+        // The third container was taken up, not replaced: the journal named it.
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal([firstRun, lost, renewed], rig.Engine.Started.Select(s => s.RunId));
+        Assert.Equal($"chargehand/{firstRun}", Assert.Single(rig.Handover.Inputs).Branch);
     }
 
     private static OperationCanceledException Stopping(CancellationTokenSource stop)

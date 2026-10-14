@@ -11,6 +11,8 @@ using Chargehand.Intake;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.Research.Api;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.Nodes;
 using Chargehand.Plans;
 using Chargehand.Prompts;
@@ -46,8 +48,6 @@ public sealed class Orchestrator(
 {
     public const string NodeKindName = "worker";
 
-    public static string NewRunId() => $"run-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..6]}";
-
     /// <param name="runId">The id to run under (the HTTP interface hands it out before the run starts); a new one if null.</param>
     /// <param name="progress">Receives run-status/v1 events: started, intake, node started and finished, run finished.</param>
     /// <param name="parentRunId">The run this one resends with answers, if any; recorded in the start record.</param>
@@ -58,7 +58,7 @@ public sealed class Orchestrator(
         string? parentRunId = null, Func<bool>? cancelledByCaller = null, string? actor = null)
     {
         var started = DateTimeOffset.UtcNow;
-        runId ??= NewRunId();
+        runId ??= RunIds.New();
         // A run is its own trace: under serve the ambient activity is the request's, which the SDK does not record, and a
         // parent-based sampler would drop every span below it. The change to Activity.Current stays inside this method.
         if (Activity.Current is { Recorded: false })

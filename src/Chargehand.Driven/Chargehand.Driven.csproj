@@ -13,6 +13,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- CA1502's threshold, as in the skeleton (src/Skeleton.props); .editorconfig makes it an error for this project. -->
+    <AdditionalFiles Include="..\CodeMetricsConfig.txt" />
     <InternalsVisibleTo Include="Chargehand.Tests" />
   </ItemGroup>
 
