@@ -15,8 +15,10 @@ public sealed class TaskJournal : IDisposable
     private readonly object _gate = new();
     private readonly SemaphoreSlim _write = new(1, 1);
     private readonly List<TaskEntry> _entries;
+    private readonly List<(string Kind, string Payload)> _others;
 
-    private TaskJournal(DrivenJournal journal, string batch, List<TaskEntry> entries) => (_journal, _flow, _entries) = (journal, FlowOf(batch), entries);
+    private TaskJournal(DrivenJournal journal, string batch, List<TaskEntry> entries, List<(string, string)> others) =>
+        (_journal, _flow, _entries, _others) = (journal, FlowOf(batch), entries, others);
 
     /// <summary>The journal flow of a batch's task events, beside the batch's own flow of steps and events.</summary>
     public static string FlowOf(string batch) => $"{batch}/tasks";
@@ -29,15 +31,20 @@ public sealed class TaskJournal : IDisposable
     {
         ArgumentNullException.ThrowIfNull(journal);
         List<TaskEntry> entries = [.. tasks.Select(TaskMachine.Planned)];
+        List<(string, string)> others = [];
         var flow = FlowOf(batch);
         for (long after = 0; ;)
         {
             var events = await journal.ReadEventsAsync(flow, after, Page, ct).ConfigureAwait(false);
             foreach (var e in events)
-                if (TaskEventJson.Decode(e.Kind, e.Payload) is var (task, input) && entries.FindIndex(t => t.Id == task) is >= 0 and var i)
+            {
+                if (!TaskEventJson.Knows(e.Kind))
+                    others.Add((e.Kind, e.Payload));
+                else if (TaskEventJson.Decode(e.Kind, e.Payload) is var (task, input) && entries.FindIndex(t => t.Id == task) is >= 0 and var i)
                     entries[i] = TaskMachine.Decide(entries[i], input).State;
+            }
             if (events.Count < Page)
-                return new TaskJournal(journal, batch, entries);
+                return new TaskJournal(journal, batch, entries, others);
             after = events[^1].Sequence;
         }
     }
@@ -70,6 +77,35 @@ public sealed class TaskJournal : IDisposable
         {
             lock (_gate)
                 return [.. _entries];
+        }
+    }
+
+    /// <summary>The flow's events of kinds that are not task events, in the order they were appended: the batch scheduler's (ADR 0063), which it folds itself. This class reads none of them.</summary>
+    public IReadOnlyList<(string Kind, string Payload)> Others
+    {
+        get
+        {
+            lock (_gate)
+                return [.. _others];
+        }
+    }
+
+    /// <summary>Appends an event of another writer to the flow (ADR 0063), in order with the task events. A cancel of the caller does not stop it.</summary>
+    /// <exception cref="ArgumentException">The kind is a task event's, which only this class writes.</exception>
+    public async Task AppendAsync(string kind, string payload)
+    {
+        if (TaskEventJson.Knows(kind))
+            throw new ArgumentException($"'{kind}' is a task event's kind", nameof(kind));
+        await _write.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            await _journal.AppendEventAsync(_flow, kind, payload, CancellationToken.None).ConfigureAwait(false);
+            lock (_gate)
+                _others.Add((kind, payload));
+        }
+        finally
+        {
+            _write.Release();
         }
     }
 

@@ -34,6 +34,12 @@ internal static class TaskEventJson
         return (kind, node.ToJsonString());
     }
 
+    private static readonly HashSet<string> Kinds =
+        ["placed", "began", "run_renamed", "session_starting", "container_started", "session_read", "continuation_began", "continuation_failed", "finished", "replaced", "imported"];
+
+    /// <summary>Whether the kind is a task event's; another writer's kinds in the flow are not (ADR 0063).</summary>
+    public static bool Knows(string kind) => Kinds.Contains(kind);
+
     /// <returns>Null for a kind this code does not know or a payload that does not parse.</returns>
     public static (string TaskId, TaskEvent Event)? Decode(string kind, string payload)
     {

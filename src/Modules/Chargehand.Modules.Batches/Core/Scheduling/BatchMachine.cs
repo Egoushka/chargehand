@@ -48,6 +48,31 @@ internal static class BatchMachine
         return new ScheduleDecision(next, commands);
     }
 
+    /// <summary>The state a restart resumes from (ADR 0063): the journaled events folded from <see cref="Begin"/> in the order they were appended, with none of their commands carried out.
+    /// Only <see cref="OperatorCancelled"/> and <see cref="Ended"/> are journaled; any other event, a task the plan does not have and a second end of a task that ended are skipped. The last
+    /// <see cref="Pause"/> the ends asked for comes back with the state, for the shell to tell again.</summary>
+    public static (ScheduleState State, Pause? Pause) Replay(SchedulePlan plan, IEnumerable<ScheduleEvent> journaled)
+    {
+        var state = Begin(plan);
+        Pause? pause = null;
+        foreach (var e in journaled)
+        {
+            if (!Replays(state, e))
+                continue;
+            var decision = Decide(state, e);
+            state = decision.State;
+            pause = decision.Commands.OfType<Pause>().LastOrDefault() ?? pause;
+        }
+        return (state, pause);
+    }
+
+    private static bool Replays(ScheduleState s, ScheduleEvent e) => e switch
+    {
+        OperatorCancelled cancel => s.Plan.IndexOf.ContainsKey(cancel.TaskId),
+        Ended ended => s.Plan.IndexOf.TryGetValue(ended.TaskId, out var i) && s.Slots[i].Phase != SlotPhase.Ended,
+        _ => false,
+    };
+
     /// <summary>The ids of the tasks that have not started, in order: the ones an operator cancel can still keep from starting.</summary>
     public static IEnumerable<string> Pending(ScheduleState state) =>
         Enumerable.Range(0, state.Slots.Length).Where(state.IsPending).Select(i => state.Plan.Tasks[i].Id);
