@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Batches.Api;
 using Microsoft.AspNetCore.Http;
 
 namespace Chargehand.Server;

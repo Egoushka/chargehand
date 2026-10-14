@@ -2,18 +2,17 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
-using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Tasks.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Batches.Api;
 
 /// <summary>Builds the <c>result/v1</c> of a batch (ADR 0039). A task's own result is Research's <c>TaskResultBuilder</c>.</summary>
 public static class DrivenResult
 {
-    private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower, DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never };
-
     /// <summary>The batch's own result: completed when every task ended in a draft pull request, else failed <c>tasks_incomplete</c> naming the tasks that did not; failed
     /// <c>cancelled</c> when the caller cancelled the batch before it finished (the same code as any cancelled run, <c>status</c> keeps its enum). Each task also has its
     /// own result under its own run id; this one lists them in the <c>driven-batch</c> artifact.</summary>
@@ -26,26 +25,11 @@ public static class DrivenResult
     {
         var chain = new PromptChain([], new AsSent($"claude-code/{claudeVersion}", "driven", "batch", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         // A row says which runner ran the task only when the profile names its runners (ADR 0058), so a one-runner profile's artifact is what it always was.
-        var rows = outcome.Tasks.Select(t =>
-        {
-            var row = new Dictionary<string, object?>
-            {
-                ["id"] = t.Id,
-                ["run_id"] = t.RunId,
-                ["status"] = Snake(t.State.ToString()),
-                ["branch"] = t.Branch,
-                ["pr_url"] = t.PrUrl,
-                ["usd"] = priced ? (decimal?)t.Usd : null,
-                ["tokens"] = t.Tokens,
-                ["error_code"] = t.Error is { } e ? Snake(e.ToString()) : null,
-                ["detail"] = t.Detail,
-            };
-            if (t.Runner is not null)
-                row["runner"] = t.Runner;
-            return row;
-        }).ToList();
-        var artifact = Inline("driven-batch", "application/json", new { credential_delivery = credentialDelivery, tasks = rows });
-        Artifact[] artifacts = [artifact, .. plan is null ? [] : new[] { Inline("plan", "application/json", plan) }, .. retro is null ? [] : new[] { Inline("retro", "application/json", retro) }];
+        List<BatchRow> rows = [.. outcome.Tasks.Select(t => new BatchRow(t.Id, t.RunId, Snake(t.State.ToString()), t.Branch, t.PrUrl, priced ? t.Usd : null, t.Tokens,
+            t.Error is { } e ? Snake(e.ToString()) : null, t.Detail, t.Runner))];
+        var artifact = Inline("driven-batch", "application/json", new BatchArtifact(credentialDelivery, rows), BatchResultJsonContext.Default.BatchArtifact);
+        Artifact[] artifacts = [artifact, .. plan is null ? [] : new[] { Inline("plan", "application/json", plan, BatchResultJsonContext.Default.BatchPlan) },
+            .. retro is null ? [] : new[] { Inline("retro", "application/json", retro, BatchResultJsonContext.Default.BatchRetro) }];
         var usage = new Usage(outcome.Tokens, 0, 0, 0, priced ? outcome.Usd : null);
         if (outcome.AllCompleted)
             return new ResultContract("result/v1", runId, "driven", traceId, chain, ResultStatus.Completed, $"All {outcome.Tasks.Count} tasks ended in a draft pull request. {description}".Trim(), [], [], artifacts, [], 0.9, usage);
@@ -70,11 +54,25 @@ public static class DrivenResult
             new ResultError(code, message, ChargehandException.Retryable(code), action));
     }
 
-    private static Artifact Inline(string kind, string mediaType, object value)
+    private static Artifact Inline<T>(string kind, string mediaType, T value, JsonTypeInfo<T> info)
     {
-        var content = JsonSerializer.Serialize(value, Json);
+        var content = JsonSerializer.Serialize(value, info);
         return new Artifact(kind, mediaType, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content))), Content: content);
     }
 
     private static string Snake(string name) => JsonNamingPolicy.SnakeCaseLower.ConvertName(name);
 }
+
+/// <summary>The <c>driven-batch</c> artifact: how the credential reached the containers, and a row per task.</summary>
+internal sealed record BatchArtifact(string CredentialDelivery, IReadOnlyList<BatchRow> Tasks);
+
+/// <param name="Runner">Only when the profile names its runners (ADR 0058), so a one-runner profile's row is what it always was.</param>
+internal sealed record BatchRow(string Id, string? RunId, string Status, string? Branch, string? PrUrl, decimal? Usd, long Tokens, string? ErrorCode, string? Detail,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Runner);
+
+/// <summary>The batch result's artifacts without reflection (ADR 0060): snake_case, and a null written as null, as the reflection options before it wrote them.</summary>
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower, DefaultIgnoreCondition = JsonIgnoreCondition.Never)]
+[JsonSerializable(typeof(BatchArtifact))]
+[JsonSerializable(typeof(BatchPlan))]
+[JsonSerializable(typeof(BatchRetro))]
+internal sealed partial class BatchResultJsonContext : JsonSerializerContext;

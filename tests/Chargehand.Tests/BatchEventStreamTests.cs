@@ -1,6 +1,7 @@
 using System.Net.ServerSentEvents;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Server;
 

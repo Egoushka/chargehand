@@ -21,6 +21,7 @@
   <!-- The test clock the old suite shares; linked rather than copied. -->
   <ItemGroup>
     <Compile Include="..\Chargehand.Tests\ManualTimeProvider.cs" Link="ManualTimeProvider.cs" />
+    <Compile Include="..\Chargehand.Tests\TempDir.cs" Link="TempDir.cs" />
   </ItemGroup>
 
 </Project>

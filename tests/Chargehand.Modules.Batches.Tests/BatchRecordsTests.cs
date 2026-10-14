@@ -1,14 +1,21 @@
+using System.Text.Json;
 using Chargehand.Contracts;
-using Chargehand.Driven;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Tasks.Api;
 
-namespace Chargehand.Tests;
+using Chargehand.Tests;
+
+namespace Chargehand.Modules.Batches.Tests;
 
 /// <summary>CHARGEHAND-214: what the console reads about a batch and the run log does not keep, one directory per batch beside the run log: its events, and a line per session, governor log,
 /// check snapshot and CI fix attempt of its tasks. Append-only, bounded, and pruned with the oldest batches.</summary>
 public class BatchRecordsTests
 {
+    private static ResultContract Result(string runId) =>
+        new("result/v1", runId, "session", new string('0', 32), new PromptChain([], new AsSent("claude-code/2.1.283", "session", "m", "2026-10-15")), ResultStatus.Completed, "done", [], [], [], [], 0.7,
+            new Usage(1000, 200, 3000, 400, null));
+
     private static RunStatus Event(string batch, RunEventKind kind, string? task = null, string? detail = null, long? tokens = null) =>
         RunStatus.Of(batch, RunState.Running, kind) with { TaskId = task, Detail = detail, Tokens = tokens };
 
@@ -17,7 +24,7 @@ public class BatchRecordsTests
     {
         using var dir = new TempDir();
         var records = new BatchRecords(dir.Path);
-        var result = ConsoleSeed.Result("run-1", ResultStatus.Completed, "done");
+        var result = Result("run-1");
         records.AppendEvent("run-1", Event("run-1", RunEventKind.Started));
         records.AppendEvent("run-1", Event("run-1", RunEventKind.ContainerStarted, "t1", new string('d', 5000)));
         records.AppendEvent("run-1", RunStatus.Of("run-1", RunState.Completed, RunEventKind.RunFinished) with { Result = result });
@@ -105,7 +112,7 @@ public class BatchRecordsTests
         records.AppendEvent("run-2", Event("run-2", RunEventKind.Started));
         records.AppendEvent("run-1", Event("run-1", RunEventKind.ContainerStarted, "t1", new string('d', 5000)));
         records.AppendEvent("run-1", Event("run-1", RunEventKind.TaskFinished, "t1", "task t1: completed"));
-        records.AppendEvent("run-1", RunStatus.Of("run-1", RunState.Completed, RunEventKind.RunFinished) with { Result = ConsoleSeed.Result("run-1", ResultStatus.Completed, "done") });
+        records.AppendEvent("run-1", RunStatus.Of("run-1", RunState.Completed, RunEventKind.RunFinished) with { Result = Result("run-1") });
         // An operator's note on the finished batch goes to the records only: its flow is forgotten by now.
         records.AppendEvent("run-1", Event("run-1", RunEventKind.Governor, detail: "noted"));
 
@@ -165,6 +172,29 @@ public class BatchRecordsTests
         var records = new BatchRecords(dir.Path);
 
         Assert.Equal([RunEventKind.Started], records.ReadEvents("run-1")!.Select(e => e.Event));
+    }
+
+    [Fact]
+    public void An_event_line_is_the_bytes_the_contract_options_write()
+    {
+        using var dir = new TempDir();
+        var records = new BatchRecords(dir.Path);
+        var e = RunStatus.Of("run-1", RunState.Running, RunEventKind.TaskFinished) with
+        {
+            TaskId = "t1",
+            Detail = "task t1: completed \"quoted\" <tag> é",
+            Branch = "chargehand/run-s1",
+            PrUrl = "https://example.test/o/r/pull/1",
+            Tokens = 1200,
+            Usd = 0.25m,
+            Runner = "box",
+        };
+
+        records.AppendEvent("run-1", e);
+
+        var line = File.ReadAllText(Path.Combine(dir.Path, "run-1", BatchRecords.EventsFile)).TrimEnd('\n');
+        Assert.Equal(JsonSerializer.Serialize(e, ContractJson.Options), line);
+        Assert.Equal(e, Assert.Single(records.ReadEvents("run-1")!));
     }
 
     private static void Seed(TempDir dir, string batch, DateTime written)

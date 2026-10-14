@@ -5,7 +5,7 @@ using Chargehand.Contracts;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Tasks.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Batches.Api;
 
 /// <summary>What the operator console needs and the run log does not keep (CHARGEHAND-214), one directory per driven batch beside the run log: <c>events.jsonl</c> (the batch's events, so a finished
 /// batch's timeline outlives a restart) and the tasks' records, which Tasks keeps (<see cref="Tasks"/>, <c>tasks.jsonl</c>). Both are append-only and written by the server process only. Nothing here
@@ -67,7 +67,7 @@ public sealed class BatchRecords(string directory, TimeProvider? clock = null)
             var closing = e.Event is RunEventKind.TaskFinished or RunEventKind.RunFinished;
             if (count >= MaxEvents + (closing ? 500 : 0))
                 return;
-            Write(batch, EventsFile, JsonSerializer.Serialize(kept, ContractJson.Options));
+            Write(batch, EventsFile, JsonSerializer.Serialize(kept, ContractJsonContext.Default.RunStatus));
             _eventCounts[batch] = count + 1;
             if (journal is not null)
                 AppendToJournal(journal, batch, kept);
@@ -82,7 +82,11 @@ public sealed class BatchRecords(string directory, TimeProvider? clock = null)
     }
 
     /// <summary>The kind an event is journaled under: its <see cref="RunEventKind"/> in snake case, as the event stream names it.</summary>
-    public static string KindOf(RunStatus e) => JsonNamingPolicy.SnakeCaseLower.ConvertName((e.Event ?? RunEventKind.Started).ToString());
+    public static string KindOf(RunStatus e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        return JsonNamingPolicy.SnakeCaseLower.ConvertName((e.Event ?? RunEventKind.Started).ToString());
+    }
 
     /// <summary>Journaled events back as run statuses with their sequence numbers; one that does not parse is left out.</summary>
     public static IReadOnlyList<(long Sequence, RunStatus Event)> Parse(IEnumerable<BatchEvent> events)
@@ -130,7 +134,7 @@ public sealed class BatchRecords(string directory, TimeProvider? clock = null)
             {
                 try
                 {
-                    if (JsonSerializer.Deserialize<RunStatus>(line, ContractJson.Options) is { } status)
+                    if (JsonSerializer.Deserialize(line, ContractJsonContext.Default.RunStatus) is { } status)
                         events.Add(status);
                 }
                 catch (JsonException)
