@@ -14,7 +14,9 @@ namespace Chargehand.Tests;
 /// steps, a real git remote), and the server is killed once at every call it makes to the engine, the runner's volumes and the pull request host: before the call, after it, and for a
 /// <c>docker run</c> between its create and its start; and twice inside the push. A kill keeps what was on disk at that instant; a restarted server opens it, sweeps and resumes the batch.
 /// Whatever the cut, the task ends with one run id, one branch, one pull request, one verification and one outcome, and leaves nothing a run without a kill does not leave. The cut points
-/// are the calls of an uncut run, so a new side effect is cut too; the steps in flight at each cut are read from the journal the kill left.</summary>
+/// are the calls of an uncut run, so a new side effect is cut too; the steps in flight at each cut are read from the journal the kill left. It runs alone: it accepts <c>file://</c> remotes
+/// through a process-wide variable, which other tests' batches would see.</summary>
+[Collection(nameof(KillAtEveryStepTests))]
 public sealed class KillAtEveryStepTests
 {
     private const string Image = "ghcr.io/example/session@sha256:1111111111111111111111111111111111111111111111111111111111111111";
@@ -342,3 +344,6 @@ public sealed class KillAtEveryStepTests
         Assert.Contains("session/t1/<run>", covered);
     }
 }
+
+[CollectionDefinition(nameof(KillAtEveryStepTests), DisableParallelization = true)]
+public sealed class KillAtEveryStepCollection;
