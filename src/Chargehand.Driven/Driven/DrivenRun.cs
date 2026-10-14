@@ -74,10 +74,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     /// <summary>The containers hold a key the gateway issued for driven sessions (a budget, revocable), not the real credential.</summary>
     public const string GatewayKeyDelivery = "gateway_key";
 
-    private readonly BatchStateStore? _store = stateDirectory is null ? null : new BatchStateStore(stateDirectory);
-
-    /// <summary>The journal of the batches' side effects (ADR 0061), opened with the first batch; it sits in the state directory beside the batch state files.</summary>
-    private readonly Lazy<Task<DrivenJournal>>? _steps = stateDirectory is null ? null : new(() => DrivenJournal.OpenAsync(stateDirectory));
+    /// <summary>The unfinished batches of the state directory and the journal of their side effects (ADR 0061, amendments of 2026-10-14); null when this server keeps no state.</summary>
+    private readonly OpenBatches? _batches = stateDirectory is null ? null : new OpenBatches(stateDirectory, log);
 
     private readonly int _maxParallelTotal = Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4);
 
@@ -86,9 +84,6 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     private readonly ConcurrentDictionary<string, RateLimitPause> _pauses = new();
 
     private readonly ConcurrentDictionary<string, (BatchControl Control, Action<RunStatus>? Publish)> _live = new(StringComparer.Ordinal);
-
-    /// <summary>The tasks of each unfinished batch as the journal folds them (ADR 0061, amendment of 2026-10-14): opened when a batch starts or <see cref="UnfinishedAsync"/> reads it back.</summary>
-    private readonly ConcurrentDictionary<string, TaskJournal> _tasks = new(StringComparer.Ordinal);
 
     /// <summary>What an operator can do to a batch this process is running now (CHARGEHAND-214); null for any other.</summary>
     public BatchControl? ControlOf(string batchRunId) => _live.TryGetValue(batchRunId, out var live) ? live.Control : null;
@@ -103,11 +98,11 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     }
 
     /// <summary>Whether a batch's events are journaled, so <see cref="JournaledEventsAsync"/> can replay them.</summary>
-    public bool JournalsEvents => _steps is not null && records is not null;
+    public bool JournalsEvents => _batches is not null && records is not null;
 
     /// <summary>A batch's journaled events after sequence <paramref name="after"/>, oldest first: those of this process and of one a restart interrupted. Empty when <see cref="JournalsEvents"/> is off.</summary>
     public async Task<IReadOnlyList<(long Sequence, RunStatus Event)>> JournaledEventsAsync(string batch, long after, CancellationToken ct) =>
-        JournalsEvents ? BatchRecords.Parse(await (await _steps!.Value).ReadEventsAsync(batch, after, ct: ct)) : [];
+        JournalsEvents ? BatchRecords.Parse(await (await _batches!.JournalAsync()).ReadEventsAsync(batch, after, ct: ct)) : [];
 
     // With several runners (ADR 0058) the pool places each task; with one host, the memory rule of ADR 0045 alone.
     private readonly IAdmission? _admission = services?.Runners is { Count: > 0 } runners
@@ -119,11 +114,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     public void Dispose()
     {
         _global.Dispose();
-        foreach (var tasks in _tasks.Values)
-            tasks.Dispose();
+        _batches?.Dispose();
         (_admission as IDisposable)?.Dispose();
-        if (_steps is { IsValueCreated: true, Value.IsCompletedSuccessfully: true })
-            _steps.Value.Result.Dispose();
     }
 
     /// <summary>The runners a batch may use: those the services hold, else the one engine they hold as the runner named <see cref="DrivenSettings.DefaultRunnerName"/>.</summary>
@@ -151,26 +143,25 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     /// <summary>Tasks running now, across every batch of this process.</summary>
     public int SessionsRunning => Math.Max(0, _maxParallelTotal - _global.CurrentCount);
 
-    /// <summary>The unfinished batches' saved state (ADR 0043): one entry per batch this process or its predecessor is running, with its tasks as the journal folds them once this process has
-    /// opened them. It carries the batch's token key; a reader must not pass it on.</summary>
-    public IReadOnlyList<BatchState> LiveBatches() =>
-        [.. (_store?.List() ?? []).Select(b => _tasks.TryGetValue(b.RunId, out var tasks) ? b with { Tasks = tasks.Entries } : b)];
+    /// <summary>The unfinished batches this process carries (ADR 0043): those it started, and those its predecessor left, read back by <see cref="UnfinishedAsync"/> at the start; each with its
+    /// tasks as the journal folds them now.</summary>
+    public IReadOnlyList<OpenBatch> LiveBatches() => _batches?.Live ?? [];
 
     /// <summary>Usage or rate limits that hold new starts now, one per batch.</summary>
     public IReadOnlyList<RateLimitPause> RateLimitPauses(DateTimeOffset now) => [.. _pauses.Values.Where(p => p.ResetsAt > now).OrderBy(p => p.ResetsAt)];
 
-    /// <param name="resume">The saved state of a batch a restart interrupted: the batch carries on from it under the same run id (ADR 0043).</param>
+    /// <param name="resume">A batch a restart interrupted, as <see cref="UnfinishedAsync"/> read it back: the batch carries on from it under the same run id (ADR 0043).</param>
     /// <param name="actor">The account that started the batch (ADR 0050); a resumed batch keeps the one its state saved.</param>
     public async Task<ResultContract> RunAsync(RunRequest request, string runId, TaskTokenMinter mint, CancellationToken ct, Action<RunStatus>? progress = null,
-        Func<bool>? cancelledByCaller = null, BatchState? resume = null, string? actor = null)
+        Func<bool>? cancelledByCaller = null, OpenBatch? resume = null, string? actor = null)
     {
         actor ??= resume?.Actor;
         var started = resume?.Started ?? DateTimeOffset.UtcNow;
         // The batch's events go to disk as well as to the caller, so its timeline outlives a restart (CHARGEHAND-214).
         if (records is not null)
         {
-            if (_steps is not null)
-                records.Journal(runId, await _steps.Value);
+            if (_batches is not null)
+                records.Journal(runId, await _batches.JournalAsync());
             var caller = progress;
             progress = e =>
             {
@@ -178,8 +169,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 caller?.Invoke(e);
             };
         }
-        // A server that is stopping, as against a caller who cancels, leaves the batch for the next process to carry on; only when its state is saved.
-        bool Detaching() => _store is not null && ct.IsCancellationRequested && cancelledByCaller?.Invoke() != true;
+        // A server that is stopping, as against a caller who cancels, leaves the batch for the next process to carry on; only when its state is kept.
+        bool Detaching() => _batches is not null && ct.IsCancellationRequested && cancelledByCaller?.Invoke() != true;
         // As for an orchestrator run: under serve the request's activity is not recorded, and a parent-based sampler would drop the batch's spans.
         if (Activity.Current is { Recorded: false })
             Activity.Current = null;
@@ -231,24 +222,21 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         if (result.Status != ResultStatus.Completed)
             run?.SetStatus(ActivityStatusCode.Error, result.Error?.Message);
         await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, request.Context.Preset, null, null, result, Actor: actor), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
-        await ForgetStepsAsync(runId);
-        _store?.Delete(runId);
-        if (_tasks.TryRemove(runId, out var ended))
-            ended.Dispose();
+        await EndStepsAsync(runId);
         _pauses.TryRemove(runId, out _);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         PruneRecords();
         return result;
     }
 
-    /// <summary>Deletes the records of the oldest batches (<see cref="BatchRecords.Prune"/>), never those of a batch that has saved state.</summary>
+    /// <summary>Deletes the records of the oldest batches (<see cref="BatchRecords.Prune"/>), never those of an unfinished batch.</summary>
     private void PruneRecords()
     {
         if (records is null)
             return;
         try
         {
-            records.Prune(_store?.List().Select(b => b.RunId).ToHashSet(StringComparer.Ordinal) ?? []);
+            records.Prune(LiveBatches().Select(b => b.RunId).ToHashSet(StringComparer.Ordinal));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -337,52 +325,36 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         return values;
     }
 
-    /// <summary>The batches a restart interrupted: saved state with no run record (ADR 0043), each with its tasks as the journal folds them. State whose run record exists is a leftover and is
-    /// deleted. A snapshot written before the task journal is imported into it first (<see cref="BatchStateStore.ImportTasksAsync"/>).</summary>
-    public async Task<IReadOnlyList<BatchState>> UnfinishedAsync(CancellationToken ct)
+    /// <summary>The batches a restart interrupted, read back from the journal and the run log (<see cref="OpenBatches.LoadAsync"/>), each with its tasks as the journal folds them; empty when driven
+    /// sessions are off, though <see cref="LiveBatches"/> still shows them. A snapshot written before the journal held a batch's fields is imported into it first.</summary>
+    public async Task<IReadOnlyList<OpenBatch>> UnfinishedAsync(CancellationToken ct)
     {
+        var open = _batches is null ? [] : await _batches.LoadAsync(ct);
         PruneRecords();
-        if (_store is null || _steps is null || services is null)
-            return [];
-        List<BatchState> open = [];
-        foreach (var state in _store.List())
-        {
-            if ((await log.ReadAsync(state.RunId, ct)).Run is not null)
-            {
-                await ForgetStepsAsync(state.RunId);
-                _store.Delete(state.RunId);
-                continue;
-            }
-            var steps = await _steps.Value;
-            var saved = await _store.ImportTasksAsync(steps, state, ct);
-            var tasks = _tasks[state.RunId] = await TaskJournal.OpenAsync(steps, state.RunId, saved.Tasks, ct);
-            open.Add(saved with { Tasks = tasks.Entries });
-        }
-        return open;
+        return services is null ? [] : open;
     }
 
-    /// <summary>Drops a finished batch's task events and steps from the journal. It goes before the batch's state file does: a crash between the two leaves a state file whose run record exists, which the next start
-    /// deletes and forgets again. A journal that cannot be written does not fail a batch that has its run record.</summary>
-    private async Task ForgetStepsAsync(string runId)
+    /// <summary>Forgets a finished batch's flows and its token key file (<see cref="OpenBatches.EndAsync"/>). A journal that cannot be written does not fail a batch that has its run record: the
+    /// next start ends it again.</summary>
+    private async Task EndStepsAsync(string runId)
     {
-        if (_steps is null)
+        if (_batches is null)
             return;
         try
         {
-            var steps = await _steps.Value;
-            await TaskJournal.ForgetAsync(steps, runId);
-            await steps.ForgetAsync(runId);
+            await _batches.EndAsync(runId);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
             Console.Error.WriteLine($"chargehand: the step journal could not forget batch {runId}: {e.Message}");
+            _batches.Drop(runId);
         }
     }
 
     /// <summary>Removes chargehand's containers, networks and volumes that belong to no batch in <paramref name="resumed"/>: what a crash or a restart left behind, on every runner (ADR 0058). The engine's
     /// label keeps it to chargehand's own; the name must carry chargehand's prefix too. A runner that does not answer is skipped, and swept before its first task.</summary>
     /// <returns>The names removed.</returns>
-    public async Task<IReadOnlyList<string>> SweepOrphansAsync(IEnumerable<BatchState> resumed, CancellationToken ct)
+    public async Task<IReadOnlyList<string>> SweepOrphansAsync(IEnumerable<OpenBatch> resumed, CancellationToken ct)
     {
         if (services is null)
             return [];
@@ -465,13 +437,13 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         IdAfter(name, "chargehand-egress-") ?? ServiceBatch(name) ?? IdAfter(name, "chargehand-prep-") ?? IdAfter(name, "chargehand-xfer-") ?? IdAfter(name, "chargehand-");
 
     private async Task<ResultContract> RunBatchAsync(RunRequest request, string runId, DateTimeOffset started, string traceId, TaskTokenMinter mint, Func<ResultContract, ResultContract>? sign,
-        Action<RunStatus>? progress, Activity? span, BatchState? resume, Func<bool> detaching, Func<bool> cancelledByCaller, CancellationToken ct, string? actor = null)
+        Action<RunStatus>? progress, Activity? span, OpenBatch? resume, Func<bool> detaching, Func<bool> cancelledByCaller, CancellationToken ct, string? actor = null)
     {
         var settings = profile.Driven ?? new DrivenSettings();
         var options = new BatchOptions(settings.Enabled, settings.MaxParallel);
         // Throws when the profile has driven sessions off, so a refused request touches nothing else.
         var (resolved, unresolved) = resume is null
-            ? await DrivenBatch.PrepareAsync(request, options, services?.TaskSource is { } source ? source.ResolveAsync : null, ct, new ContinuationSource(log))
+            ? await ResolveAsync(request, runId, options, ct)
             : ([.. resume.Tasks.Select(t => Resumed(request, t))], resume.Unresolved);
         IReadOnlyList<ResolvedTask> ready = resolved;
         var s = services ?? throw new ChargehandException(ErrorCode.ContainerUnavailable, "driven sessions are on, but no container engine is set up for them", "Check driven.runner in the profile, or install Docker.");
@@ -499,18 +471,17 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         // One route per runner (ADR 0058): where that runner's sessions reach the server, the model and the collector, and the image for its platform. Worked out before anything is created,
         // so a setting that cannot work fails the batch at its start, whichever runner it is for.
         var sites = SitesOf(s);
-        var tokenKey = priced ? null : resume?.TokenKey ?? ModelTokens.NewKey();
+        var tokenKey = priced ? null : _batches is null ? ModelTokens.NewKey() : TokenKeyFile.ReadOrCreate(_batches.Directory, runId);
         var routes = sites.Select(site => RouteOf(site, settings, own, priced, tokenKey, drivenPreset, modelEnvironment.Values.Single())).ToList();
-        // Planning (ADR 0049) changes sizes, goals and the chain of tasks before they are saved, so a restart carries the planned batch and does not plan again.
+        // Planning (ADR 0049) changes sizes, goals and the chain of tasks before they are recorded, so a restart carries the planned batch and does not plan again.
         var plan = resume?.Plan;
-        if (resume is null && (request.Driven!.Plan ?? settings.Planning?.Enabled ?? false))
+        if (resume is null)
         {
-            (ready, plan) = await PlanAsync(request, ready, runId, request.Driven.Plan is not null ? "request" : "profile", s.Planner, ct);
-            progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Plan) with { Detail = plan.Describe() });
+            (ready, plan) = await PlanStepAsync(request, ready, runId, settings, s.Planner, ct);
+            if (plan is not null)
+                progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Plan) with { Detail = plan.Describe() });
         }
-        var tasks = await TasksOfAsync(runId, resume, () => new BatchState(runId, started, traceId, request, tokenKey,
-            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From, DependsOn: t.DependsOn, Size: t.Size, SplitFrom: t.SplitFrom, SizeFrom: t.SizeFrom, Title: t.Title))], unresolved, plan, actor,
-            TaskJournal.FlowOf(runId)), ct);
+        var tasks = await TasksOfAsync(resume ?? new OpenBatch(runId, started, traceId, request, [.. ready.Select(BatchResolved.Entry)], unresolved, plan, actor), resume is not null, ct);
 
         var checkout = await s.Checkout(request.Context.Repository!, request.Context.Preset, ct);
         // A forge other than GitHub acts with one token, both to open the pull request and to integrate it.
@@ -543,7 +514,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         };
         Func<string?, ISessionVolumes> volumesOf = name => (sites.FirstOrDefault(x => x.Name == name) ?? sites[0]).Volumes;
         // The session start, the workspace helpers, the writes into an output volume and the handover's verification, push and pull request are recorded steps in the batch's flow (ADR 0061).
-        var steps = _steps is null ? null : await _steps.Value;
+        var steps = _batches is null ? null : await _batches.JournalAsync();
         async Task<SiteBatch> BuildAsync(SiteRoute route)
         {
             var site = route.Site;
@@ -753,20 +724,51 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         return choice.Mb;
     }
 
-    /// <summary>The batch's tasks as the journal folds them; null when this server keeps no state. A new batch's snapshot (<paramref name="created"/>) is saved first, with the tasks as planned. A
-    /// resumed one is folded already, by <see cref="UnfinishedAsync"/>; else its saved snapshot, or <paramref name="resume"/> saved as one, is imported and folded now.</summary>
-    private async Task<TaskJournal?> TasksOfAsync(string runId, BatchState? resume, Func<BatchState> created, CancellationToken ct)
+    /// <summary>The batch's tasks resolved to goals: the batch's step opened, then its <c>resolve</c> step (ADR 0061, amendment of 2026-10-14). Throws when the profile has driven sessions off,
+    /// so a refused request touches nothing else.</summary>
+    private async Task<(IReadOnlyList<ResolvedTask> Ready, IReadOnlyList<TaskOutcome> Failed)> ResolveAsync(RunRequest request, string runId, BatchOptions options, CancellationToken ct)
     {
-        if (_store is null || _steps is null)
+        Task<(IReadOnlyList<ResolvedTask> Ready, IReadOnlyList<TaskOutcome> Failed)> Prepare(CancellationToken token) =>
+            DrivenBatch.PrepareAsync(request, options, services?.TaskSource is { } source ? source.ResolveAsync : null, token, new ContinuationSource(log));
+        if (_batches is null)
+            return await Prepare(ct);
+        await _batches.BeginAsync(runId, ct);
+        (IReadOnlyList<ResolvedTask> Ready, IReadOnlyList<TaskOutcome> Failed)? ran = null;
+        var recorded = await _batches.ResolveAsync(runId, async token =>
+        {
+            var prepared = (ran = await Prepare(token)).Value;
+            return new BatchResolved([.. prepared.Ready.Select(BatchResolved.Entry)], prepared.Failed);
+        }, ct);
+        return ran ?? ([.. recorded.Tasks.Select(t => Resumed(request, t))], recorded.Unresolved);
+    }
+
+    /// <summary>The batch's <c>plan</c> step: the planner's proposal applied when the request or the profile asks for a plan, else the tasks as they resolved; a plan of null: none ran.</summary>
+    private async Task<(IReadOnlyList<ResolvedTask> Ready, BatchPlan? Plan)> PlanStepAsync(RunRequest request, IReadOnlyList<ResolvedTask> resolved, string runId, DrivenSettings settings,
+        IBatchPlanner? planner, CancellationToken ct)
+    {
+        async Task<(IReadOnlyList<ResolvedTask> Ready, BatchPlan? Plan)> Plan(CancellationToken token) => request.Driven!.Plan ?? settings.Planning?.Enabled ?? false
+            ? await PlanAsync(request, resolved, runId, request.Driven.Plan is not null ? "request" : "profile", planner, token)
+            : (resolved, null);
+        if (_batches is null)
+            return await Plan(ct);
+        (IReadOnlyList<ResolvedTask> Ready, BatchPlan? Plan)? ran = null;
+        var recorded = await _batches.PlanAsync(runId, async token =>
+        {
+            var planned = (ran = await Plan(token)).Value;
+            return new BatchPlanned([.. planned.Ready.Select(BatchResolved.Entry)], planned.Plan);
+        }, ct);
+        return ran ?? ([.. recorded.Tasks.Select(t => Resumed(request, t))], recorded.Plan);
+    }
+
+    /// <summary>The batch's tasks as the journal folds them; null when this server keeps no state. A new batch is carried from now on with its tasks as planned. A resumed one is folded already,
+    /// by <see cref="UnfinishedAsync"/>; else it is adopted as handed in (<see cref="OpenBatches.AdoptAsync"/>).</summary>
+    private async Task<TaskJournal?> TasksOfAsync(OpenBatch batch, bool resumed, CancellationToken ct)
+    {
+        if (_batches is null)
             return null;
-        if (resume is not null && _tasks.TryGetValue(runId, out var folded))
-            return folded;
-        var steps = await _steps.Value;
-        var state = resume is null ? created() : _store.List().FirstOrDefault(b => b.RunId == runId);
-        if (resume is null || state is null)
-            _store.Save(state ??= resume!);
-        state = await _store.ImportTasksAsync(steps, state, ct);
-        return _tasks[runId] = await TaskJournal.OpenAsync(steps, runId, state.Tasks, ct);
+        if (!resumed)
+            return await _batches.OpenAsync(batch, ct);
+        return _batches.TasksOf(batch.RunId) ?? await _batches.AdoptAsync(batch, ct);
     }
 
     private static ResolvedTask Resumed(RunRequest request, TaskEntry entry)

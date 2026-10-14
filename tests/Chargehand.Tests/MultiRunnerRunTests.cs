@@ -3,6 +3,7 @@ using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Runners.Api;
@@ -88,7 +89,7 @@ public class MultiRunnerRunTests
             return Run = new DrivenRun(Profile, Log, Repo.Root, _services, _state);
         }
 
-        public Task<ResultContract> RunAsync(RunRequest request, string runId = "run-batch-m", BatchState? resume = null, bool cancelledByCaller = false, CancellationToken ct = default) =>
+        public Task<ResultContract> RunAsync(RunRequest request, string runId = "run-batch-m", OpenBatch? resume = null, bool cancelledByCaller = false, CancellationToken ct = default) =>
             Run.RunAsync(request, runId, g => $"tok-{g.RunId}", ct, Events.Enqueue, () => cancelledByCaller, resume);
 
         public void Dispose()

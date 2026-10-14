@@ -6,6 +6,19 @@ namespace Chargehand.Modules.Journal.Api;
 /// <param name="Name">What the step acts on, e.g. <c>prep/&lt;run&gt;</c>.</param>
 public readonly record struct StepKey(string Batch, string Name)
 {
+    /// <summary>The name of <see cref="BatchStep"/>'s step.</summary>
+    public const string BatchName = "batch";
+
+    /// <summary>The batch itself, held open (<see cref="DrivenJournal.BeginAsync"/>) from its start until its flow is forgotten after its run record: a restarted server finds the batches it
+    /// interrupted as the open steps of this name.</summary>
+    public static StepKey BatchStep(string batch) => new(batch, BatchName);
+
+    /// <summary>The batch's tasks resolved to goals: the task source's reads and the continuations looked up in the run log.</summary>
+    public static StepKey Resolve(string batch) => new(batch, "resolve");
+
+    /// <summary>The batch's tasks as planned (ADR 0049): the planner's model call and what it changed, or the resolved tasks as they are when no plan was asked for.</summary>
+    public static StepKey Plan(string batch) => new(batch, "plan");
+
     /// <summary>The workspace helper of a session run (<c>chargehand-prep-&lt;run&gt;</c>).</summary>
     public static StepKey Prep(string batch, string run) => new(batch, $"prep/{run}");
 

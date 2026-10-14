@@ -5,6 +5,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Tasks.Api;
@@ -153,8 +154,8 @@ public class ConsoleRecordsTests
         var request = ConsoleSeed.BatchRequest(new DrivenTask("t1", Goal: "one"));
         await rig.Log.AppendAsync(ConsoleSeed.Start("run-live", request, null, ConsoleRig.Now.AddMinutes(-20)), default);
         var started = ConsoleRig.Now.AddMinutes(-19);
-        new BatchStateStore(rig.BatchDirectory).Save(new BatchState("run-live", started, new string('0', 32), request, "token-key-do-not-return",
-            [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-s2", "chargehand/run-s1", "chargehand-run-s2", started, Continuation: 1, Runs: ["run-s1", "run-s2"])], []));
+        await OpenBatchSeed.SaveAsync(rig.BatchDirectory, rig.Log, new OpenBatch("run-live", started, new string('0', 32), request,
+            [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-s2", "chargehand/run-s1", "chargehand-run-s2", started, Continuation: 1, Runs: ["run-s1", "run-s2"])], []), rig.Driven);
         rig.Records.Append("run-live", new SessionRecord("t1", "run-s1", "first", null, started, started.AddMinutes(8), "stalled", "checkpoint_stuck", 50, 10, 10, 10, 10, null, null, 0, 2));
         rig.Records.Append("run-live", new GovernorRecord("t1", "run-s1", 3, [Decision(1, "repeated_call", GovernorAction.Warn), Decision(2, "repeated_call", GovernorAction.Warn), Decision(3, "repeated_call", GovernorAction.Checkpoint, acted: true)]));
 

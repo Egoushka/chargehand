@@ -91,3 +91,34 @@ every payload of the batch's flow as a run status) and its tests stay as they ar
   back over the snapshot.
 - TODO, in the release after the one that ships this (from 2026-10-14): remove the importer, the `imported` kind and the
   `.imported` file, and treat a snapshot without `task_flow` as unreadable.
+
+## Amendment, 2026-10-14: the batch's own fields as steps, the token key in a file
+
+The snapshot's last fields (the request, the token key, the tasks that did not resolve, the plan and the account) leave it,
+and `BatchState` with its store is deleted. A batch is then what the journal and the run log say of it.
+
+- **Steps in the batch's flow.** `batch` is opened after the start record is written and is never completed: it stays
+  open until the batch's flows are forgotten after its run record, so a restarted server finds the batches it
+  interrupted as the open `batch` steps. `resolve` records the tasks as they resolved and those that did not (the task
+  source's reads and the continuations looked up in the run log). `plan` records the tasks as planned and what the
+  planning step did, or the resolved tasks as they are when no plan was asked for; a resumed batch is not planned again.
+  The request, the start, the trace and the account are the start record's.
+- **What is resumed** is unchanged: an open `batch` step whose `plan` completed and whose run record is not written. One
+  that stopped before its tasks were planned had no snapshot before and was never resumed; its flows are forgotten. One
+  whose run record exists is forgotten too (a crash between the run record and the forgetting).
+- **The token key** is in `<batch>.token-key` beside the journal, never in it: written once (a temporary file created
+  readable by its owner only, flushed, then linked under the name), read back on a restart, and deleted with the
+  batch's flows. A batch whose key file others can read or write does not start; it ends failed with
+  `credential_unavailable`. The value is never logged or journaled.
+- **The live view** of the console is the batches this process carries, in memory: the ones it started, and the ones
+  its predecessor left, read back with their tasks folded at the start, so it shows each task's state before the
+  batch runs again.
+- **Batches in flight at the deploy** are carried by a one-release importer at start, extending the one for the task
+  journal. For each snapshot whose batch has no run record, the start record is written if the run log lacks it, the
+  key goes to the key file, `batch` is opened, `resolve` and `plan` are recorded from the snapshot, a snapshot from before
+  the task journal has each task's entry imported as before, and the snapshot is kept as `<batch>.imported` until the
+  batch ends (one kept there already, from the task journal's import, stays). Each part can be cut and repeated. A
+  snapshot whose batch has a run record is deleted with its flows.
+- TODO, in the release after the one that ships this (from 2026-10-14): remove this importer with the task journal's
+  (`LegacySnapshots`, `TokenKeyFile.Import`, the snapshot's `task_flow`, `TaskJournal.ImportAsync` and the `imported`
+  kind), and treat a snapshot left then as unreadable.

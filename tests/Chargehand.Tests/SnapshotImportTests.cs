@@ -1,5 +1,6 @@
+using System.Text.Json;
 using Chargehand.Contracts;
-using Chargehand.Driven;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
@@ -59,18 +60,17 @@ public class SnapshotImportTests
     }
 
     [Fact]
-    public async Task The_import_keeps_the_snapshot_puts_each_tasks_entry_into_the_journal_and_saves_the_tasks_as_planned()
+    public async Task The_import_keeps_the_snapshot_and_puts_each_tasks_entry_into_the_journal()
     {
         using var rig = WithFixture();
 
         var state = Assert.Single(await rig.Run.UnfinishedAsync(default));
 
+        // The snapshot is kept as it was; its batch fields are journal steps and its key a file of its own (ADR 0061, amendments of 2026-10-14).
         var kept = Path.Combine(rig.StateDirectory, BatchId + ".imported");
         Assert.Equal(File.ReadAllText(Fixture), File.ReadAllText(kept));
-        var saved = Assert.Single(new BatchStateStore(rig.StateDirectory).List());
-        Assert.Equal(TaskJournal.FlowOf(BatchId), saved.TaskFlow);
-        Assert.All(saved.Tasks, t => Assert.Equal((TaskPhase.Pending, null, null), (t.Phase, t.RunId, t.Outcome)));
-        Assert.Equal(state.TokenKey, saved.TokenKey);
+        Assert.Empty(Directory.GetFiles(rig.StateDirectory, "*.json"));
+        Assert.Equal(new string('a', 64), File.ReadAllText(TokenKeyFile.PathOf(rig.StateDirectory, BatchId)));
         await using (var journal = await DrivenJournal.OpenAsync(rig.StateDirectory))
             Assert.Equal(["imported", "imported", "imported"], (await journal.ReadEventsAsync(TaskJournal.FlowOf(BatchId))).Select(e => e.Kind));
         // A second start finds the snapshot imported and folds the same entries.
@@ -91,7 +91,7 @@ public class SnapshotImportTests
         var expected = Assert.Single(await whole.Run.UnfinishedAsync(default)).Tasks.Select(Shown).ToList();
         using var rig = WithFixture();
         File.Copy(Fixture, Path.Combine(rig.StateDirectory, BatchId + ".imported"));
-        var before = Assert.Single(new BatchStateStore(rig.StateDirectory).List());
+        var before = JsonSerializer.Deserialize<FixtureTasks>(File.ReadAllText(Fixture), ContractJson.Options)!;
         await using (var journal = await DrivenJournal.OpenAsync(rig.StateDirectory))
             await TaskJournal.ImportAsync(journal, BatchId, before.Tasks.Take(1));
 
@@ -100,5 +100,7 @@ public class SnapshotImportTests
         Assert.Equal(expected, state.Tasks.Select(Shown));
     }
 
-    private static string Shown(TaskEntry e) => System.Text.Json.JsonSerializer.Serialize(e, ContractJson.Options);
+    private static string Shown(TaskEntry e) => JsonSerializer.Serialize(e, ContractJson.Options);
+
+    private sealed record FixtureTasks(IReadOnlyList<TaskEntry> Tasks);
 }

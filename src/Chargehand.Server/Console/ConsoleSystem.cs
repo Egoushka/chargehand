@@ -204,7 +204,7 @@ internal static class ConsoleSystem
 
     /// <summary>A container's name tells its kind and the run it belongs to (<c>chargehand-&lt;run&gt;</c> for a session, <c>chargehand-egress-&lt;batch&gt;</c>, <c>chargehand-svc-&lt;service&gt;-&lt;batch&gt;</c>,
     /// <c>chargehand-prep-</c> and <c>chargehand-xfer-&lt;run&gt;</c>); the saved state of an unfinished batch ties a session's name to its batch and task.</summary>
-    internal static ContainerBody Container(string name, IReadOnlyList<BatchState> live)
+    internal static ContainerBody Container(string name, IReadOnlyList<OpenBatch> live)
     {
         string? After(string prefix) => name.StartsWith(prefix, StringComparison.Ordinal) ? name[prefix.Length..] : null;
         if (After("chargehand-egress-") is { } egress)

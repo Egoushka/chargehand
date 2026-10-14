@@ -148,6 +148,9 @@ public sealed class KillAtEveryStepTests
 
         public Task<RunLogData> LogAsync() => new JsonlRunLog(Log(Disk)).ReadAllAsync(default);
 
+        /// <summary>The files of the state directory the next process opens that match <paramref name="pattern"/>.</summary>
+        public IReadOnlyList<string> StateFiles(string pattern) => Directory.Exists(State(Disk)) ? [.. Directory.GetFiles(State(Disk), pattern).Select(Path.GetFileName).OfType<string>()] : [];
+
         public IReadOnlyList<string> Branches() => [.. G(Remote, "for-each-ref", "--format=%(refname)", "refs/heads").Split('\n', StringSplitOptions.RemoveEmptyEntries)];
 
         public void Dispose() => _dir.Dispose();
@@ -265,6 +268,7 @@ public sealed class KillAtEveryStepTests
         var verifyCut = inFlight.Any(k => k.StartsWith("handover/", StringComparison.Ordinal) && k.EndsWith("/verify", StringComparison.Ordinal));
         Expect(s.World.Verifications == 1 || verifyCut && s.World.Verifications == 2, $"verifications: {s.World.Verifications}");
         Expect((await s.InFlightAsync()).Count == 0, "steps are left in the journal");
+        Expect(s.StateFiles("*.token-key").Count == 0, $"key files left: {string.Join(", ", s.StateFiles("*.token-key"))}");
         return wrong;
     }
 
@@ -295,6 +299,9 @@ public sealed class KillAtEveryStepTests
                 return;
             }
             var inFlight = await s.InFlightAsync();
+            // The batch's fields are journal steps and its key a file of its own (ADR 0061, amendment of 2026-10-14): a kill leaves no snapshot.
+            if (s.StateFiles("*.json").Count > 0)
+                wrong.Add($"{kill.Label}: a snapshot is on disk: {string.Join(", ", s.StateFiles("*.json"))}");
             var (again, result) = await s.ProcessAsync();
             var run = s.World.SessionsRan.FirstOrDefault();
             lock (covered)

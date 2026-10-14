@@ -122,9 +122,9 @@ public class DrivenRestartCharacterizationTests
     public async Task A_restart_between_the_task_runners_save_and_the_cap_rewrite_keeps_the_task_runners_outcome()
     {
         using var rig = new DrivenRunTests.Rig(durable: true);
-        // What the snapshot holds when the server stops after the task runner saved its outcome and before the scheduler's rewrite was saved (onFinished skips the save while detaching).
+        // What the journal holds when the server stops after the task runner saved its outcome and before the scheduler's rewrite was saved (onFinished skips the save while detaching).
         var own = new TaskOutcome("t1", TaskState.Failed, "run-t1", "the tests failed", ErrorCode.VerificationFailed, 0, 5000);
-        new BatchStateStore(rig.StateDirectory).Save(new BatchState(BatchId, DateTimeOffset.UtcNow, "t", Request("one", "two"), null,
+        await OpenBatchSeed.SaveAsync(rig.StateDirectory, rig.Log, new OpenBatch(BatchId, DateTimeOffset.UtcNow, "t", Request("one", "two"),
             [new TaskEntry("t1", null, "one", TaskPhase.Failed, "run-t1", Outcome: own), new TaskEntry("t2", null, "two")], []));
         var state = Assert.Single(await rig.Restart().UnfinishedAsync(default));
 

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Switchknife.Journal;
 
@@ -37,6 +38,30 @@ public sealed class DrivenJournal : IAsyncDisposable, IDisposable
         ArgumentNullException.ThrowIfNull(step);
         return _journal.RunAsync(key.Batch, key.Name, (context, token) => step(Attempt(context), token), ct);
     }
+
+    /// <summary>Records the intent of a step that stays open: it is listed by <see cref="UnfinishedAsync"/> until its flow is forgotten. A key that is open already gets one more attempt; a key
+    /// that completed is left as it is.</summary>
+    public async Task BeginAsync(StepKey key, CancellationToken ct = default)
+    {
+        // The library records a step's intent and leaves it started when the caller cancels inside it; it has no call that records the intent alone.
+        using var open = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        try
+        {
+            await _journal.RunAsync(key.Batch, key.Name, (_, token) =>
+            {
+                open.Cancel();
+                token.ThrowIfCancellationRequested();
+                return Task.CompletedTask;
+            }, open.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+        }
+    }
+
+    /// <summary>The recorded result of a step that completed; null when the key never ran, is open, or failed.</summary>
+    public async Task<T?> ResultAsync<T>(StepKey key, JsonTypeInfo<T> result, CancellationToken ct = default) where T : class =>
+        await _journal.FindAsync(key.Batch, key.Name, ct).ConfigureAwait(false) is { State: StepState.Completed, Result: { } json } ? JsonSerializer.Deserialize(json, result) : null;
 
     /// <summary>Removes the record of a completed or failed step, so the key's next run is a first attempt (<see cref="StepAttempt.Number"/> 1, not resumed); false when the key had no record.
     /// Calling it states that the earlier effect is gone or may happen again: the journal cannot check that.</summary>
