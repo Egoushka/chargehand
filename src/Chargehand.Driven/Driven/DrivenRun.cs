@@ -6,6 +6,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Handover.Api;

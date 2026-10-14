@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Batches.Api;
 
 /// <summary>What an operator can do to a batch that is running (CHARGEHAND-214): cancel one task, stop one task's session. The scheduler and the task runner register what can be stopped; the server
 /// asks. Nothing here outlives the batch, and a restart starts it empty (a resumed batch registers again as its tasks start).</summary>
@@ -52,9 +52,9 @@ public sealed class BatchControl
     }
 
     /// <summary>The task runner says how to stop the session it is waiting on; <see cref="Ended"/> and <see cref="SessionEnded"/> take it back.</summary>
-    internal void SessionStarted(string taskId, Func<Task> stop) => _stoppers[taskId] = stop;
+    public void SessionStarted(string taskId, Func<Task> stop) => _stoppers[taskId] = stop;
 
-    internal void SessionEnded(string taskId) => _stoppers.TryRemove(taskId, out _);
+    public void SessionEnded(string taskId) => _stoppers.TryRemove(taskId, out _);
 
     /// <summary>Kills the task's running session container. The session writes no outcome, so the task reads it as a session that failed and ends as it does then; nothing is snapshotted or handed over.</summary>
     /// <returns>False when the task has no session running now.</returns>
