@@ -14,6 +14,8 @@ internal static class Skeleton
         ["Chargehand.Modules.Ledger"] = 2,
         ["Chargehand.Modules.Memory"] = 2,
         ["Chargehand.Modules.Journal"] = 2,
+        // driven.forge: Handover (push, pull request) and Oversight (pull-request outcomes) both read it, and neither may reference the other.
+        ["Chargehand.Modules.Forge"] = 2,
         // Accounts prices a request against the account's spend, which the Ledger keeps.
         ["Chargehand.Modules.Accounts"] = 3,
         ["Chargehand.Modules.Runners"] = 3,

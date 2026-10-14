@@ -18,6 +18,7 @@
     <Project Path="src/Modules/Chargehand.Modules.Batches/Chargehand.Modules.Batches.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Console/Chargehand.Modules.Console.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Evaluation/Chargehand.Modules.Evaluation.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Forge/Chargehand.Modules.Forge.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Gateway/Chargehand.Modules.Gateway.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Handover/Chargehand.Modules.Handover.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Intake/Chargehand.Modules.Intake.csproj" />
