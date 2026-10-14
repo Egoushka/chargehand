@@ -60,3 +60,34 @@ SQLite file in the server's state directory is lighter than the snapshot, label 
 
 A second server must share one runner or one journal (a single-writer SQLite file no longer fits); the journal's
 write latency shows in batch throughput; or the kill-at-every-step test cannot be made to pass for a step.
+
+## Amendment, 2026-10-14: task state in its own flow, `<batch>/tasks`
+
+The last step of the migration moves where each task stands out of the snapshot. The owner chose a flow of its own for
+the task events, beside the batch's flow of steps and events, so the event replay to a reconnecting client (which reads
+every payload of the batch's flow as a run status) and its tests stay as they are.
+
+- **Flow** `<batch>/tasks`. Each change of a task's entry is one event, appended before the entry in memory changes;
+  the entry is the fold of its events (`TaskMachine` in Tasks) over the task as the batch resolved and planned it. Tasks
+  owns the flow (`TaskJournal`): the task runner writes a run's events, the scheduler the placement, the replace and the
+  end. `ITaskState` (P3) is deleted, with the batch code that implemented it; P4 is the only upward port left.
+- **Event.** The kind names the event, snake_case; the payload is a JSON object with the task's id under `task` first,
+  then the event's own fields, snake_case, nulls left out. Kinds: `placed` (runner), `began` (run_id, branch, started,
+  session_started, best), `run_renamed` (run_id, runs), `session_starting` (at), `container_started` (container),
+  `session_read`, `continuation_began` (run_id, runs, continuation, prior, session_started, best, session_goal,
+  start_detail), `continuation_failed` (run_id, runs, continuation), `finished` (outcome), `replaced`, and `imported`
+  (entry) for one release.
+- **Open to later writers.** A kind the fold does not know, a member it does not know, an event for a task the batch does
+  not have and a payload that does not parse are skipped. The durability of the scheduler's pause, placements and
+  operator cancels is a later decision; its events (an operator's cancel, an admission with its runner, an end with a
+  re-place) can go into the same flow under kinds of their own, each carrying the time the scheduler decided at.
+- **The snapshot** keeps the batch's own fields (request, token key, unresolved tasks, plan, actor) and the tasks as
+  planned, written once, with `task_flow` naming the flow. Those batch fields leave it in the next slice.
+- **Batches in flight at the deploy** are carried by a one-release importer at start. A snapshot without `task_flow` is
+  copied to `<batch>.imported`, each task's entry is appended as one `imported` event, and the snapshot is saved again
+  with the tasks as planned and `task_flow` set. Each step can be cut and repeated: the copy is made once and read on a
+  repeat, and an imported entry stands for the whole entry. The `.imported` file is deleted with the snapshot when the
+  batch ends. A rollback to the release before reads its tasks as not started, unless the `.imported` file is renamed
+  back over the snapshot.
+- TODO, in the release after the one that ships this (from 2026-10-14): remove the importer, the `imported` kind and the
+  `.imported` file, and treat a snapshot without `task_flow` as unreadable.

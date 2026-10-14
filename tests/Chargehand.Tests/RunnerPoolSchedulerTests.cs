@@ -106,7 +106,7 @@ public class RunnerPoolSchedulerTests
         };
         var finished = new List<TaskOutcome>();
 
-        var outcome = await new BatchScheduler(new Reporting(runner, pool), admission: pool, taskRequestMb: 4096).RunAsync(Tasks(2), Limits(1), default, onFinished: finished.Add);
+        var outcome = await new BatchScheduler(new Reporting(runner, pool), admission: pool, taskRequestMb: 4096).RunAsync(Tasks(2), Limits(1), default, onFinished: o => { finished.Add(o); return Task.CompletedTask; });
 
         Assert.Equal(3, runner.Started.Count(s => s.Id == "t1"));
         Assert.Equal(["a", "b", "c"], runner.Started.Where(s => s.Id == "t1").Select(s => s.Runner));

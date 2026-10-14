@@ -11,15 +11,17 @@ namespace Chargehand.Modules.Batches.Api;
 internal sealed record ScheduleHost(RunTask Run, SemaphoreSlim? Global, IAdmission? Admission, int TaskRequestMb, BatchControl? Control, TimeProvider Time);
 
 /// <summary>The caller's callbacks; see <see cref="BatchScheduler.RunAsync"/>.</summary>
-internal sealed record ScheduleCallbacks(Action<TaskOutcome>? Finished, Action<string, string>? Hold, Action<TaskOutcome>? Skipped, Action<string, DateTimeOffset>? Pause);
+internal sealed record ScheduleCallbacks(Func<TaskOutcome, Task>? Finished, Action<string, string>? Hold, Func<TaskOutcome, Task>? Skipped, Action<string, DateTimeOffset>? Pause);
 
 /// <summary>One batch's run of <see cref="BatchMachine"/>: it carries out each step the machine asks for and feeds back what happened as events, with the time read on the host's clock.
-/// The state is swapped under one lock, because live usage arrives on the tasks' own threads; a cancel the machine asks for happens under it too, so it never reaches a task that ended.</summary>
+/// The state is swapped under one lock, because live usage arrives on the tasks' own threads; a cancel the machine asks for happens under it too, so it never reaches a task that ended. A task's end
+/// and skip are told to the caller, and waited for, before the next step: what the caller records of them is in place before another task starts.</summary>
 internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, ScheduleCallbacks on, CancellationToken ct) : IDisposable
 {
     private readonly object _gate = new();
     private readonly Dictionary<int, LiveTask> _live = [];
     private readonly SemaphoreSlim _changed = new(0);
+    private readonly Queue<Func<Task>> _told = [];
     private ScheduleState _state = BatchMachine.Begin(plan);
 
     private sealed class LiveTask(string? placedOn, CancellationTokenSource cts)
@@ -31,7 +33,7 @@ internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, Sc
 
     public async Task<BatchOutcome> RunAsync()
     {
-        var step = Sweep();
+        var step = await SweepAsync();
         while (step is not Done)
             step = await NextAsync(step);
         return ((Done)step).Outcome;
@@ -44,7 +46,9 @@ internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, Sc
         switch (step)
         {
             case Place place:
-                return await PlaceAsync(place);
+                var placed = await PlaceAsync(place);
+                await TellAsync();
+                return placed;
             case AwaitTasks:
                 await AnyChangeAsync();
                 await EndCompletedAsync();
@@ -59,13 +63,13 @@ internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, Sc
                 await Task.Delay(100, CancellationToken.None);
                 break;
         }
-        return Sweep();
+        return await SweepAsync();
     }
 
     private DateTimeOffset Now => host.Time.GetUtcNow();
 
     // A task an operator cancelled before it started never does: the cancels reach the machine before it looks at the batch.
-    private ScheduleStep Sweep()
+    private async Task<ScheduleStep> SweepAsync()
     {
         if (host.Control is { } control)
         {
@@ -75,7 +79,9 @@ internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, Sc
             foreach (var id in BatchMachine.Pending(state).Where(control.IsCancelled).ToList())
                 Apply(new OperatorCancelled(id));
         }
-        return Apply(new Tick(Now))!;
+        var step = Apply(new Tick(Now))!;
+        await TellAsync();
+        return step;
     }
 
     private async Task<ScheduleStep> PlaceAsync(Place place)
@@ -127,7 +133,29 @@ internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, Sc
             host.Admission?.Ended(task.PlacedOn);
             task.Cts.Dispose();
             Apply(new Ended(plan.Tasks[index].Id, outcome, Now));
+            await TellAsync();
         }
+    }
+
+    /// <summary>The ends and skips the last decisions asked for, told to the caller one at a time, in order.</summary>
+    private async Task TellAsync()
+    {
+        while (true)
+        {
+            Func<Task>? next;
+            lock (_gate)
+                if (!_told.TryDequeue(out next))
+                    return;
+            await next();
+        }
+    }
+
+    private void Tell(Func<TaskOutcome, Task>? callback, TaskOutcome outcome)
+    {
+        if (callback is null)
+            return;
+        lock (_gate)
+            _told.Enqueue(() => callback(outcome));
     }
 
     private ScheduleStep? Apply(ScheduleEvent input)
@@ -157,10 +185,10 @@ internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, Sc
                 StartTask(start);
                 break;
             case Skip skip:
-                on.Skipped?.Invoke(skip.Outcome);
+                Tell(on.Skipped, skip.Outcome);
                 break;
             case Finish finish:
-                on.Finished?.Invoke(finish.Outcome);
+                Tell(on.Finished, finish.Outcome);
                 break;
             case Hold hold:
                 on.Hold?.Invoke(hold.TaskId, hold.Why);

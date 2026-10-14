@@ -46,14 +46,14 @@ public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, stri
 /// <summary>Runs one task of a batch to its end (ADR 0039): a workspace at the pinned commit, a session container on the batch network, then the handover (chargehand's own
 /// verification, the scan, the push, a draft pull request) and the task's own <c>result/v1</c> in the run log. A cancel signals the session and ends the task; it never reaches
 /// the handover, so nothing is pushed. <paramref name="publish"/> gets the task's steps as events of the batch run: <c>container_started</c>, <c>session_progress</c> when the
-/// session's tally changes, and the handover's <c>verify_finished</c>, <c>pushed</c> and <c>pr_opened</c>. With a <paramref name="state"/> (P3) the task's progress is saved, and a task it shows as begun is taken up where it
-/// stood after a server restart (ADR 0043). <paramref name="detaching"/> says the server is stopping rather than the run being cancelled: the session container is then left running for the next process.
+/// session's tally changes, and the handover's <c>verify_finished</c>, <c>pushed</c> and <c>pr_opened</c>. With <paramref name="tasks"/> each change of the task's entry is an event in the journal (ADR 0061), and a task its
+/// events show as begun is taken up where it stood after a server restart (ADR 0043). <paramref name="detaching"/> says the server is stopping rather than the run being cancelled: the session container is then left running for the next process.
 /// A task with <see cref="ResolvedTask.Upstream"/> (ADR 0049) starts from the branches of the tasks it depends on: <paramref name="stacker"/> makes one branch of them, named for this task, and its bundle seeds
 /// the first session. With a <paramref name="learning"/> store, a task that ends writes what it taught (ADR 0045). With <paramref name="records"/>, each session, its governor log, the pull request's checks and the CI fix
 /// attempts are kept for the console (CHARGEHAND-214), and <paramref name="stops"/> holds how an operator stops the session the task waits on. <paramref name="results"/> (P4) builds, checks and signs the task's result. With <paramref name="steps"/>, each session start is a recorded step (ADR 0061), and a start a restart cut short is taken up under its own run id.</summary>
 public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspace, ISessionVolumes volumes, IBranchHandover handover, IRunLog log, TaskTokenMinter mint,
     TaskRunnerSettings settings, ITaskResults results,
-    TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, ITaskState? state = null, Func<bool>? detaching = null, IStackSeeder? stacker = null, ILearningStore? learning = null, IBranchSeeder? brancher = null,
+    TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, TaskJournal? tasks = null, Func<bool>? detaching = null, IStackSeeder? stacker = null, ILearningStore? learning = null, IBranchSeeder? brancher = null,
     Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null, DrivenJournal? steps = null, TaskRecordStore? records = null, SessionStops? stops = null) : ITaskRunner
 {
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(2);
@@ -145,7 +145,7 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
 
     public async Task<TaskOutcome> RunAsync(ResolvedTask task, IProgress<TaskUsage> progress, CancellationToken ct)
     {
-        var entry = state?.Entry(task.Id);
+        var entry = tasks?.Entry(task.Id);
         if (TaskResume.Decide(entry, new ResumeFacts()) is TakeUp { Kind: ResumeKind.Done, Outcome: { } done })
             return done;
         var run = await PrepareAsync(task, entry, ct);
@@ -222,14 +222,8 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
 
     private bool Detaching => detaching?.Invoke() == true;
 
-    /// <summary>A transition of the task's entry (<see cref="TaskMachine"/>), saved through P3 until the journal keeps the events (C4 slice S6). The end goes to the batch, which folds it the same way.</summary>
-    private void Record(string taskId, TaskEvent e)
-    {
-        if (e is TaskFinished finished)
-            state?.Finish(finished.Outcome);
-        else
-            state?.Update(taskId, entry => TaskMachine.Decide(entry, e).State);
-    }
+    /// <summary>A transition of the task's entry (<see cref="TaskMachine"/>), appended to the batch's task flow; nothing without one.</summary>
+    private Task RecordAsync(string taskId, TaskEvent e) => tasks?.RecordAsync(taskId, e) ?? Task.CompletedTask;
 
     private static void DeleteQuietly(string directory)
     {

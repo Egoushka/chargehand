@@ -20,7 +20,7 @@ public sealed partial class TaskRunner
             // The same session again under a new run id: the name of the one that never started is not reused.
             run.RunId = RunIds.New();
             run.Runs[^1] = run.RunId;
-            Record(task.Id, new TaskRunRenamed(run.RunId, run.Runs.ToList()));
+            await RecordAsync(task.Id, new TaskRunRenamed(run.RunId, run.Runs.ToList()));
         }
         // A task that continues an earlier one starts with that task's bundle as its best, so a session that adds nothing to it neither continues nor loses it (ADR 0045).
         run.Best = (resumed?.Best ?? (resumed is null && task.From?.Kept is { } carried ? new BestBundle(carried.BundleRun, carried.Commits) : null)) is { } kept
@@ -126,7 +126,7 @@ public sealed partial class TaskRunner
             run.StartDetail = stack.StartDetail;
         }
         if (run.Resumed is null)
-            Record(task.Id, new TaskBegan(run.RunId, run.Branch, run.Started, DateTimeOffset.UtcNow, run.Best is null ? null : new BestBundle(run.Best.RunId, run.Best.Commits)));
+            await RecordAsync(task.Id, new TaskBegan(run.RunId, run.Branch, run.Started, DateTimeOffset.UtcNow, run.Best is null ? null : new BestBundle(run.Best.RunId, run.Best.Commits)));
     }
 
     /// <summary>The bundle of an earlier session on the host: the file the task kept, or else read again from that session's output volume (a restart may have cleared the scratch directory).</summary>
