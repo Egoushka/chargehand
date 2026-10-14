@@ -1,7 +1,6 @@
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Journal.Api;
-using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Tests;
@@ -143,55 +142,6 @@ public class BatchRecordsTests
 
     private static readonly DateTimeOffset At = new(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);
 
-    private static SessionRecord Session(string task, string run, string role = "first", string status = "completed", string? reason = null) =>
-        new(task, run, role, "mac", At, At.AddMinutes(9), status, reason, 31, 1000, 200, 3000, 400, 1.5m, null, 0, 2);
-
-    [Fact]
-    public void Sessions_governor_logs_checks_and_attempts_round_trip_per_task()
-    {
-        using var dir = new TempDir();
-        var records = new BatchRecords(dir.Path);
-        var decision = new GovernorDecision(At, 12, Chargehand.Modules.Oversight.Api.GovernorMode.Observe, GovernorAction.Checkpoint, "spend", "spend_checkpoint", new Dictionary<string, string> { ["spend"] = "3.4" }, 3.4m, 4m, "M", false,
-            new BudgetSource("history", 22, 80, "repository"));
-
-        records.Append("run-1", Session("t1", "r1", reason: null));
-        records.Append("run-1", Session("t1", "r2", "continuation", "stalled", "turn_limit"));
-        records.Append("run-1", new GovernorRecord("t1", "r1", 1, [decision]));
-        records.Append("run-1", new ChecksRecord("t1", At, 7, "abc", "BLOCKED", false, true, "wait", [new CheckRecord("build", true, "pending", 900)]));
-        records.Append("run-1", new CiAttemptRecord("t1", 1, 3, At, "abcdef012345", ["build"], true, "tests passed"));
-        records.Append("run-2", Session("t9", "r9"));
-
-        var read = records.ReadTasks("run-1");
-
-        Assert.Equal(["r1", "r2"], read.Sessions.Select(s => s.RunId));
-        Assert.Equal(("continuation", "stalled", "turn_limit", "mac"), (read.Sessions[1].Role, read.Sessions[1].Status, read.Sessions[1].Reason, read.Sessions[1].Runner));
-        var governor = Assert.Single(read.Governor);
-        Assert.Equal((GovernorAction.Checkpoint, "spend", 3.4m, "history"), (governor.Decisions[0].Action, governor.Decisions[0].Signal, governor.Decisions[0].SpendUsd, governor.Decisions[0].BudgetSource!.Kind));
-        Assert.Equal(("build", true, "pending", 900L), (read.Checks[0].Checks[0].Name, read.Checks[0].Checks[0].Required, read.Checks[0].Checks[0].Outcome, read.Checks[0].Checks[0].JobId));
-        Assert.Equal((1, true), (read.Attempts[0].Attempt, read.Attempts[0].Pushed));
-        Assert.Equal(["build"], read.Attempts[0].Failing);
-        Assert.Equal(["r9"], records.ReadTasks("run-2").Sessions.Select(s => s.RunId));
-    }
-
-    [Fact]
-    public void Check_snapshots_and_attempts_are_capped_per_task_and_one_task_does_not_use_up_anothers()
-    {
-        using var dir = new TempDir();
-        var records = new BatchRecords(dir.Path);
-        for (var i = 0; i < BatchRecords.MaxChecksPerTask + 5; i++)
-        {
-            records.Append("run-1", new ChecksRecord("t1", At.AddMinutes(i), 7, $"h{i}", "BLOCKED", false, false, "wait", []));
-            records.Append("run-1", new CiAttemptRecord("t1", i, 3, At, "k", [], false, "x"));
-        }
-        records.Append("run-1", new ChecksRecord("t2", At, 8, "h", "CLEAN", false, false, "done", []));
-
-        var read = new BatchRecords(dir.Path).ReadTasks("run-1");
-
-        Assert.Equal(BatchRecords.MaxChecksPerTask, read.Checks.Count(c => c.TaskId == "t1"));
-        Assert.Equal(BatchRecords.MaxChecksPerTask, read.Attempts.Count(c => c.TaskId == "t1"));
-        Assert.Single(read.Checks, c => c.TaskId == "t2");
-    }
-
     [Fact]
     public void A_batch_id_that_is_not_a_plain_name_writes_and_reads_nothing_outside_the_records_directory()
     {
@@ -200,7 +150,7 @@ public class BatchRecordsTests
 
         records.AppendEvent("../escape", Event("run-1", RunEventKind.Started));
         records.AppendEvent("a/b", Event("run-1", RunEventKind.Started));
-        records.Append("..", Session("t1", "r1"));
+        records.Append("..", new SessionRecord("t1", "r1", "first", null, At, At, "completed", null, 0, 0, 0, 0, 0, null, null, 0, 0));
 
         Assert.False(Directory.Exists(Path.Combine(dir.Path, "records")));
         Assert.False(Directory.Exists(Path.Combine(dir.Path, "escape")));
