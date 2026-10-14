@@ -1,7 +1,9 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
+using Microsoft.Extensions.Options;
 
 namespace Chargehand.Modules.Oversight.Api;
 
@@ -17,12 +19,17 @@ public enum GovernorMode { Off, Observe, Enforce }
 /// <param name="History">When a size class has enough finished tasks, its budget is a percentile of their spend; null: the defaults of <see cref="DrivenGovernorHistory"/>.</param>
 public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IReadOnlyDictionary<string, decimal>? Budgets = null, int? RepeatCalls = null,
     int? RepeatFailures = null, int? FailingCalls = null, int? ProbeCommands = null, int? NoGrowthTurns = null, int? RewarnTurns = null, long? ContextTokens = null,
-    decimal? CheckpointAt = null, IReadOnlyList<string>? ProbePatterns = null, IReadOnlyList<string>? WaitPatterns = null, DrivenGovernorHistory? History = null)
+    decimal? CheckpointAt = null, IReadOnlyList<string>? ProbePatterns = null, IReadOnlyList<string>? WaitPatterns = null, DrivenGovernorHistory? History = null) : IValidatableObject
 {
     public static IReadOnlyDictionary<string, decimal> DefaultBudgets { get; } = new Dictionary<string, decimal> { ["S"] = 1.5m, ["M"] = 4m, ["L"] = 10m };
 
     /// <summary>Throws an invalid_request error naming the key when a value cannot work: a count below 1, a share outside (0, 1], a budget not above 0, a pattern that does not compile.</summary>
-    public void Validate()
+    public void Validate() => SettingsValidation.ThrowIfFailed(new DrivenGovernorValidator().Validate(null, this), "driven.governor",
+        "Fix driven.governor in the profile; docs/guide/driven.md lists the keys.");
+
+    IEnumerable<ValidationResult> IValidatableObject.Validate(ValidationContext validationContext) => SettingsValidation.Results(Problems());
+
+    private List<string> Problems()
     {
         var problems = new List<string>();
         foreach (var (key, value) in new (string, long?)[] { ("repeat_calls", RepeatCalls), ("repeat_failures", RepeatFailures), ("failing_calls", FailingCalls),
@@ -44,10 +51,13 @@ public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IR
             {
                 problems.Add($"pattern '{pattern}' is not a regular expression");
             }
-        if (problems.Count > 0)
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.governor: {string.Join("; ", problems)}", "Fix driven.governor in the profile; docs/guide/driven.md lists the keys.");
+        return problems;
     }
 }
+
+/// <summary><c>driven.governor</c>'s validator, source-generated (ADR 0060).</summary>
+[OptionsValidator]
+public sealed partial class DrivenGovernorValidator : IValidateOptions<DrivenGovernor>;
 
 /// <summary>Budgets from past spend (ADR 0045): once a size class has <paramref name="MinTasks"/> finished tasks in the last <paramref name="WindowDays"/> days for the repository (else for all
 /// repositories), its budget is the <paramref name="Percentile"/>th percentile of their spend; below that the flat budget applies, and a task's own <c>budget_usd</c> always wins.</summary>

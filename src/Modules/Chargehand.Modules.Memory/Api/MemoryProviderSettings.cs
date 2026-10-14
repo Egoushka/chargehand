@@ -108,8 +108,9 @@ public sealed record ResultMapping(
     private static readonly string[] DefaultText = ["text"];
 }
 
-/// <summary>Reads a string as a list of one and an array of strings as is.</summary>
-internal sealed class StringOrListConverter : JsonConverter<IReadOnlyList<string>>
+/// <summary>Reads a string as a list of one and an array of strings as is. Public so that a source-generated context in another assembly
+/// (the profile's, ADR 0060) can construct it for <see cref="ResultMapping.Text"/>.</summary>
+public sealed class StringOrListConverter : JsonConverter<IReadOnlyList<string>>
 {
     public override IReadOnlyList<string> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
