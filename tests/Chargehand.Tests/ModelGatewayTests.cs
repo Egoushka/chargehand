@@ -42,7 +42,9 @@ public class ModelGatewayTests
     {
         public ModelGateway Gateway { get; }
         public FakeUpstream Upstream { get; }
-        public List<GatewayEvent> Log { get; } = [];
+        private readonly List<GatewayEvent> _log = [];
+        /// <summary>A copy: the gateway records a request after its response is sent, so a later request's event can land while a test reads.</summary>
+        public GatewayEvent[] Log { get { lock (_log) return [.. _log]; } }
         public DateTimeOffset Clock { get; set; } = Now;
         public HttpClient Client { get; } = new();
         public string Url { get; }
@@ -50,7 +52,7 @@ public class ModelGatewayTests
         public Rig(Func<HttpRequestMessage, HttpResponseMessage>? answer = null)
         {
             Upstream = new FakeUpstream(answer);
-            Gateway = new ModelGateway(Key, Real, "api.example.test", Upstream, () => Clock, e => { lock (Log) Log.Add(e); });
+            Gateway = new ModelGateway(Key, Real, "api.example.test", Upstream, () => Clock, e => { lock (_log) _log.Add(e); });
             // A probed port can be taken by a parallel test before Start binds it: try another.
             for (var attempt = 1; ; attempt++)
             {
@@ -179,7 +181,7 @@ public class ModelGatewayTests
         // Another run's token is unaffected, and a run with no cap is not limited.
         Assert.Equal(HttpStatusCode.OK, (await rig.Post(Rig.Token("run-b", cap: 1000))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await rig.Post(Rig.Token("run-c"))).StatusCode);
-        Assert.Contains(rig.Log, e => e.RunId == "run-a" && e.Status == 200 && e.Tokens == 150);
+        await WaitFor(() => rig.Log.Any(e => e.RunId == "run-a" && e.Status == 200 && e.Tokens == 150));
     }
 
     [Fact]
@@ -207,7 +209,7 @@ public class ModelGatewayTests
         var token = Rig.Token();
         await (await rig.Post(token, body: """{"secret-prompt":"do not log me"}""")).Content.ReadAsStringAsync();
         await rig.Post("chm-bad.token");
-        await WaitFor(() => rig.Log.Count >= 2);
+        await WaitFor(() => rig.Log.Length >= 2);
         var logged = JsonSerializer.Serialize(rig.Log);
         Assert.DoesNotContain(Real, logged);
         Assert.DoesNotContain(token, logged);
