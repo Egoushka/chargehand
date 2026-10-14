@@ -354,15 +354,18 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         if (services is null)
             return [];
         var known = resumed.SelectMany(b => b.RunIds).ToHashSet(StringComparer.Ordinal);
+        // A finished task's session container and work volume are no use to anyone: a kill between its saved outcome and its teardown leaves them. Its output volumes may still seed a continuation.
+        var done = resumed.SelectMany(b => b.Tasks).Where(t => t.Phase is TaskPhase.HandedOver or TaskPhase.Failed).SelectMany(t => (t.Runs ?? []).Append(t.RunId)).OfType<string>();
+        var busy = known.Except(done).ToHashSet(StringComparer.Ordinal);
         List<string> removed = [];
         var pool = _admission as RunnerPool;
         if (pool is not null)
-            pool.Sweep = async (site, token) => await SweepSiteAsync(site, known, token);
+            pool.Sweep = async (site, token) => await SweepSiteAsync(site, known, busy, token);
         foreach (var site in SitesOf(services))
         {
             try
             {
-                removed.AddRange(await SweepSiteAsync(site, known, ct));
+                removed.AddRange(await SweepSiteAsync(site, known, busy, ct));
             }
             catch (ChargehandException e) when (pool is not null)
             {
@@ -373,7 +376,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         return removed;
     }
 
-    private async Task<IReadOnlyList<string>> SweepSiteAsync(RunnerSite site, HashSet<string> known, CancellationToken ct)
+    /// <param name="known">Every run id of the resumed batches: an output volume of one is kept.</param>
+    /// <param name="busy">Those of them whose task has not finished: their containers and work volumes are kept.</param>
+    private async Task<IReadOnlyList<string>> SweepSiteAsync(RunnerSite site, HashSet<string> known, HashSet<string> busy, CancellationToken ct)
     {
         var engine = site.Engine;
         var listed = await engine.ListAsync(ct);
@@ -382,7 +387,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         {
             foreach (var name in names)
             {
-                if (idOf(name) is not { } id || known.Contains(id))
+                if (idOf(name) is not { } id || (name.StartsWith("chargehand-out-", StringComparison.Ordinal) ? known : busy).Contains(id))
                     continue;
                 try
                 {
