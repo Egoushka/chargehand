@@ -217,6 +217,35 @@ public class DrivenResumeTests
         Assert.Single(rig.Engine.Calls, c => c.StartsWith($"prepare {cut} ", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task A_session_start_cut_whose_container_ran_and_ended_without_an_outcome_starts_again_on_a_fresh_workspace()
+    {
+        using var rig = new DrivenRunTests.Rig(durable: true);
+        var (state, cut) = await CutMidStart(rig);
+        // Docker started it after all and the session died without an outcome: it may have left commits in the work volume.
+        rig.Engine.Created.Clear();
+        rig.Volumes.NoOutput.Add(cut);
+        rig.Engine.OnStart = _ =>
+        {
+            rig.Volumes.NoOutput.Remove(cut);
+            return null;
+        };
+
+        var result = await rig.Run.RunAsync(state.Request, state.RunId, Token, default, null, () => false, state);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal([state.Tasks[0].RunId, cut, cut], rig.Engine.Started.Take(3).Select(s => s.RunId));
+        Assert.Equal($"chargehand/{cut}", rig.Handover.Inputs[1].Branch);
+        // The dead session's container and work volume go, then the workspace is prepared again before the session starts again under the same run id.
+        var calls = rig.Engine.Calls;
+        var removed = calls.IndexOf($"rm chargehand-{cut}");
+        var volumeRemoved = calls.IndexOf($"volume-rm chargehand-work-{cut}");
+        var prepared = calls.FindLastIndex(c => c.StartsWith($"prepare {cut} ", StringComparison.Ordinal));
+        Assert.True(removed >= 0 && removed < volumeRemoved && volumeRemoved < prepared && prepared < calls.LastIndexOf($"start {cut}"), string.Join("\n", calls));
+        Assert.Equal(2, calls.Count(c => c.StartsWith($"prepare {cut} ", StringComparison.Ordinal)));
+        Assert.Single(rig.Volumes.Tasks, t => t.RunId == cut);
+    }
+
     private static async Task<int> RunAll(DrivenJournal journal, IEnumerable<StepKey> keys)
     {
         var ran = 0;

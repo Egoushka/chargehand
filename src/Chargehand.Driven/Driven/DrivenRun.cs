@@ -498,7 +498,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             progress?.Invoke(report ? e with { Runner = runner, Detail = e.Event == RunEventKind.ContainerStarted && e.Detail is { } detail ? $"{detail} on runner '{runner}'" : e.Detail } : e);
         };
         Func<string?, ISessionVolumes> volumesOf = name => (sites.FirstOrDefault(x => x.Name == name) ?? sites[0]).Volumes;
-        // The session start, the workspace helper, the writes into an output volume and the handover's push and pull request are recorded steps in the batch's flow (ADR 0061).
+        // The session start, the workspace helpers, the writes into an output volume and the handover's verification, push and pull request are recorded steps in the batch's flow (ADR 0061).
         var steps = _steps is null ? null : await _steps.Value;
         async Task<SiteBatch> BuildAsync(SiteRoute route)
         {
@@ -524,7 +524,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             }
             var verifierSettings = new ContainerVerifierSettings(siteImage, checkout.Directory, checkout.Commit, net.Network, net.ProxyUrl(runId), drivenPreset.MemoryMb, drivenPreset.Cpus, drivenPreset.Pids, shared);
             var handover = s.HandoverFor?.Invoke(verifierSettings, push)
-                ?? new Handover(new ContainerVerifier(site.Engine, site.Workspace, verifierSettings), forge ?? s.PullRequestsFor(push), settings.Forge, steps, runId);
+                ?? new Handover(new ContainerVerifier(site.Engine, steps is null ? site.Workspace : new JournaledVerifierWorkspace(site.Workspace, steps, runId), verifierSettings), forge ?? s.PullRequestsFor(push), settings.Forge, steps, runId);
             var task = new TaskRunnerSettings(runId, request, siteImage, checkout.Directory, checkout.Commit, checkout.RemoteUrl, checkout.BaseBranch, net,
                 route.Forward is null ? null : $"{BatchNetworkInfo.ServiceUrl(route.Port)}/v1/mcp", drivenPreset, limits.PerTask, priced, modelEnvironment, push,
                 Path.Combine(profile.WorkerRoot, ".driven"), kind.Model, claude.Version,

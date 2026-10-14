@@ -670,7 +670,8 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
     }
 
     /// <summary>The session container an earlier start of <paramref name="runId"/> left, when it is the session: running, or ended with its outcome. One that was made and never started, or
-    /// ended without an outcome, is removed so the start can run again under its fixed name.</summary>
+    /// ended without an outcome, is removed so the start can run again under its fixed name. One that ran may have left commits in the work volume, so its workspace step is reset and the volume
+    /// removed: the start prepares it fresh. The reset goes first, so a cut after it still finds the container and does it again.</summary>
     /// <returns>The container to wait for; null: start one.</returns>
     private async Task<string?> AdoptAsync(string taskId, string runId, CancellationToken ct)
     {
@@ -680,6 +681,12 @@ public sealed class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspa
             return null;
         if (state.Status == ContainerStatus.Running || state.Status == ContainerStatus.Exited && await HasOutcomeAsync(taskId, runId, ct))
             return name;
+        if (state.Status == ContainerStatus.Exited)
+        {
+            await steps!.ResetAsync(StepKey.Prep(settings.BatchId, runId), ct);
+            await RemoveSessionAsync(runId, name, ct);
+            return null;
+        }
         await engine.RemoveAsync(name, ct);
         return null;
     }

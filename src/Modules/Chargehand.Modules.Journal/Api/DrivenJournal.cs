@@ -38,6 +38,11 @@ public sealed class DrivenJournal : IAsyncDisposable, IDisposable
         return _journal.RunAsync(key.Batch, key.Name, (context, token) => step(Attempt(context), token), ct);
     }
 
+    /// <summary>Removes the record of a completed or failed step, so the key's next run is a first attempt (<see cref="StepAttempt.Number"/> 1, not resumed); false when the key had no record.
+    /// Calling it states that the earlier effect is gone or may happen again: the journal cannot check that.</summary>
+    /// <exception cref="InvalidOperationException">The step is started (in <see cref="UnfinishedAsync"/>): an interrupted attempt is run again, resumed, not forgotten.</exception>
+    public Task<bool> ResetAsync(StepKey key, CancellationToken ct = default) => _journal.ResetAsync(key.Batch, key.Name, ct);
+
     /// <summary>The steps whose intent is recorded and whose outcome is not: what a crash or a kill left. Null <paramref name="batch"/>: every batch.</summary>
     public async Task<IReadOnlyList<StepKey>> UnfinishedAsync(string? batch = null, CancellationToken ct = default) =>
         [.. (await _journal.UnfinishedAsync(batch, ct).ConfigureAwait(false)).Select(s => new StepKey(s.Flow, s.Key))];
