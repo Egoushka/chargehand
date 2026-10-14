@@ -8,6 +8,7 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
 using Chargehand.Results;
@@ -72,7 +73,7 @@ public class DrivenResultTests
             r.Dir.Path, r.Base, priced);
 
     private static Task<ResultContract> Build(DrivenTaskInput input, Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? support = null) =>
-        DrivenResult.BuildTaskAsync(input, new GitEvidenceResolver(), support, default);
+        TaskResultBuilder.BuildAsync(input, new GitEvidenceResolver(), support, default);
 
     private static Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>> AllSupported =>
         (c, _, _) => Task.FromResult(c with { Claims = [.. c.Claims.Select(x => x with { Support = ClaimSupport.Supported })] });
@@ -200,7 +201,7 @@ public class DrivenResultTests
         var result = await Build(Input(repo, handover: Pushed(repo) with { Changes = changes }), AllSupported);
         AssertValid(result);
         var content = result.Artifacts.Single(x => x.Kind == "changes").Content!;
-        Assert.InRange(Encoding.UTF8.GetByteCount(content), 1, ResultAssembler.MaxInlineBytes);
+        Assert.InRange(Encoding.UTF8.GetByteCount(content), 1, TaskResultBuilder.MaxInlineBytes);
         var a = JsonDocument.Parse(content).RootElement;
         Assert.Equal(3000, a.GetProperty("files_total").GetInt32());
         Assert.InRange(a.GetProperty("files").GetArrayLength(), 1, 2999);
