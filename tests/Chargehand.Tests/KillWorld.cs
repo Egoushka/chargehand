@@ -3,6 +3,7 @@ using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
+using Chargehand.Modules.Forge.Api;
 
 namespace Chargehand.Tests;
 
