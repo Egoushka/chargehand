@@ -34,7 +34,7 @@ public class AdmissionRequestTests
             await store.AppendAsync(LearningTests.Record($"{repository}-{i}", repository, at: Now.AddDays(-1)) with { MemoryPeakMb = peakMb }, default);
     }
 
-    private static async Task<(List<RunStatus> Events, DrivenRunTests.FakeEngine Engine)> Run(IHostSource host, Func<JsonlLearningStore, Task>? seed = null, DrivenLimits? limits = null)
+    private static async Task<(List<RunStatus> Events, DrivenFakes.FakeEngine Engine)> Run(IHostSource host, Func<JsonlLearningStore, Task>? seed = null, DrivenLimits? limits = null)
     {
         using var dir = new TempDir();
         var store = new JsonlLearningStore(Path.Combine(dir.Path, "learning.jsonl"));
