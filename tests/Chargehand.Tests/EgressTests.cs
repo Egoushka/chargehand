@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using Chargehand.Containers;
-using Chargehand.Egress;
+using Chargehand.Modules.Gateway.Api;
 
 namespace Chargehand.Tests;
 

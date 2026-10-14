@@ -3,7 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
-namespace Chargehand.Egress;
+namespace Chargehand.Modules.Gateway.Api;
 
 /// <param name="RunId">The run the token names; null when the token was refused.</param>
 /// <param name="Tokens">Input plus output tokens this request counted; never any text.</param>
@@ -157,20 +157,7 @@ public sealed class ModelGateway : IAsyncDisposable
             return;
         }
 
-        using var upstream = new HttpRequestMessage(new HttpMethod(request.HttpMethod), new Uri(_upstream, path));
-        foreach (string name in request.Headers)
-            if (!NotForwarded.Contains(name) && request.Headers.GetValues(name) is { } values)
-                upstream.Headers.TryAddWithoutValidation(name, values);
-        upstream.Headers.TryAddWithoutValidation("Authorization", $"Bearer {_credential}");
-        if (request.HasEntityBody)
-        {
-            var content = new StreamContent(request.InputStream);
-            if (request.ContentLength64 >= 0)
-                content.Headers.ContentLength = request.ContentLength64;
-            if (request.ContentType is { } contentType)
-                content.Headers.TryAddWithoutValidation("Content-Type", contentType);
-            upstream.Content = content;
-        }
+        using var upstream = Upstream(request, path);
 
         HttpResponseMessage answer;
         try
@@ -184,45 +171,69 @@ public sealed class ModelGateway : IAsyncDisposable
             return;
         }
         using (answer)
+            await Relay(answer, response, grant.RunId, ct);
+    }
+
+    /// <summary>The request to send upstream: the caller's headers except the ones never forwarded, the gateway's credential, and the body.</summary>
+    private HttpRequestMessage Upstream(HttpListenerRequest request, string path)
+    {
+        var upstream = new HttpRequestMessage(new HttpMethod(request.HttpMethod), new Uri(_upstream, path));
+        foreach (string name in request.Headers)
+            if (!NotForwarded.Contains(name) && request.Headers.GetValues(name) is { } values)
+                upstream.Headers.TryAddWithoutValidation(name, values);
+        upstream.Headers.TryAddWithoutValidation("Authorization", $"Bearer {_credential}");
+        if (request.HasEntityBody)
         {
-            response.StatusCode = (int)answer.StatusCode;
-            foreach (var header in answer.Headers.Concat(answer.Content.Headers))
-                if (Passes(header.Key))
-                    response.Headers.Set(header.Key, string.Join(", ", header.Value));
-            if (answer.Content.Headers.ContentType is { } type)
-                response.ContentType = type.ToString();
-            response.SendChunked = true;
-            var scanner = new UsageScanner(serverSentEvents: answer.Content.Headers.ContentType?.MediaType == "text/event-stream");
-            long counted = 0;
-            await using var body = await answer.Content.ReadAsStreamAsync(ct);
-            var buffer = new byte[16 * 1024];
-            try
+            var content = new StreamContent(request.InputStream);
+            if (request.ContentLength64 >= 0)
+                content.Headers.ContentLength = request.ContentLength64;
+            if (request.ContentType is { } contentType)
+                content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+            upstream.Content = content;
+        }
+        return upstream;
+    }
+
+    /// <summary>Streams the upstream answer back and counts its tokens against the run as they pass.</summary>
+    private async Task Relay(HttpResponseMessage answer, HttpListenerResponse response, string runId, CancellationToken ct)
+    {
+        response.StatusCode = (int)answer.StatusCode;
+        foreach (var header in answer.Headers.Concat(answer.Content.Headers))
+            if (Passes(header.Key))
+                response.Headers.Set(header.Key, string.Join(", ", header.Value));
+        if (answer.Content.Headers.ContentType is { } type)
+            response.ContentType = type.ToString();
+        response.SendChunked = true;
+        var scanner = new UsageScanner(serverSentEvents: answer.Content.Headers.ContentType?.MediaType == "text/event-stream");
+        long counted = 0;
+        await using var body = await answer.Content.ReadAsStreamAsync(ct);
+        var buffer = new byte[16 * 1024];
+        try
+        {
+            int n;
+            while ((n = await body.ReadAsync(buffer, ct)) > 0)
             {
-                int n;
-                while ((n = await body.ReadAsync(buffer, ct)) > 0)
+                scanner.Feed(buffer.AsSpan(0, n));
+                var now = scanner.Tokens;
+                if (now > counted)
                 {
-                    scanner.Feed(buffer.AsSpan(0, n));
-                    var now = scanner.Tokens;
-                    if (now > counted)
-                    {
-                        Add(grant.RunId, now - counted);
-                        counted = now;
-                    }
-                    await response.OutputStream.WriteAsync(buffer.AsMemory(0, n), ct);
-                    await response.OutputStream.FlushAsync(ct);
+                    Add(runId, now - counted);
+                    counted = now;
                 }
-                scanner.Finish();
-                if (scanner.Tokens > counted)
-                {
-                    Add(grant.RunId, scanner.Tokens - counted);
-                    counted = scanner.Tokens;
-                }
-                response.OutputStream.Close();
+                await response.OutputStream.WriteAsync(buffer.AsMemory(0, n), ct);
+                await response.OutputStream.FlushAsync(ct);
             }
-            finally
+            scanner.Finish();
+            if (scanner.Tokens > counted)
             {
-                Record(grant.RunId, (int)answer.StatusCode, counted, "");
+                Add(runId, scanner.Tokens - counted);
+                counted = scanner.Tokens;
             }
+            response.OutputStream.Close();
+        }
+        finally
+        {
+            Record(runId, (int)answer.StatusCode, counted, "");
         }
     }
 
@@ -250,7 +261,7 @@ public sealed class ModelGateway : IAsyncDisposable
 
     private static async Task Refuse(HttpListenerResponse response, int status, string type, string message)
     {
-        var body = Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(new { type = "error", error = new { type, message } }));
+        var body = Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(new GatewayError("error", new GatewayErrorDetail(type, message)), GatewayJsonContext.Default.GatewayError));
         response.StatusCode = status;
         response.ContentType = "application/json";
         response.ContentLength64 = body.Length;

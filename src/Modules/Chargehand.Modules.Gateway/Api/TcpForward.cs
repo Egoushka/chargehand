@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
 
-namespace Chargehand.Egress;
+namespace Chargehand.Modules.Gateway.Api;
 
 /// <summary>A fixed TCP forward of a batch's egress container (ADR 0039): connections to <see cref="ListenPort"/> on its internal side go to <see cref="Host"/>:<see cref="Port"/>.
 /// It is how a session reaches the chargehand server's MCP endpoint, which sits on a private address the allowlist proxy would refuse. The operator names each forward when the

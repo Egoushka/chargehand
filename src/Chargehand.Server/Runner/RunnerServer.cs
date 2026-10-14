@@ -283,8 +283,8 @@ public static class RunnerServer
             if (policy.RefuseForwards(egress.Forwards) is { } forwardRefusal)
                 return Refuse(forwardRefusal);
             // The model endpoint forwards only to the model's own host: the runner, not its caller, decides where a credential may travel.
-            if (egress.Gateway is { } g && g.Host != Chargehand.Egress.EgressCli.DefaultModelHost)
-                return Refuse($"the model endpoint forwards to {Chargehand.Egress.EgressCli.DefaultModelHost} only");
+            if (egress.Gateway is { } g && g.Host != Chargehand.Modules.Gateway.Api.EgressCli.DefaultModelHost)
+                return Refuse($"the model endpoint forwards to {Chargehand.Modules.Gateway.Api.EgressCli.DefaultModelHost} only");
             var gateway = egress.Gateway is { } m ? new ModelGatewaySpec(m.Credential, m.TokenKey, m.Host, m.Port) : null;
             return Ok(new { id = await engine.StartEgressAsync(new EgressSpec(egress.BatchId, policy.EgressImage, egress.Network, egress.Allow, Forwards: egress.Forwards, Gateway: gateway), ct) });
         }));

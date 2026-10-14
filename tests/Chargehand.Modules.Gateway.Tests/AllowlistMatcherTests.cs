@@ -1,7 +1,7 @@
 using System.Net;
-using Chargehand.Egress;
+using Chargehand.Modules.Gateway.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Gateway.Tests;
 
 /// <summary>Driven sessions (ADR 0039): which hosts a session container may reach, and which addresses no allowlist entry can unlock.</summary>
 public class AllowlistMatcherTests

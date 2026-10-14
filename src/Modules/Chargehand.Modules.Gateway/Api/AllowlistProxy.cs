@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
-namespace Chargehand.Egress;
+namespace Chargehand.Modules.Gateway.Api;
 
 /// <param name="RunId">The run the request says it is for (from Proxy-Authorization); a label for the log, not an identity.</param>
 public sealed record EgressEvent(DateTimeOffset At, string? RunId, string Host, int Port, bool Allowed, string Reason);

@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using Chargehand.Egress;
+using Chargehand.Modules.Gateway.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Gateway.Tests;
 
 /// <summary>ADR 0039: how a session on the batch network reaches the chargehand server. The operator names each forward (a port and a target); nothing a session sends can choose one.</summary>
 public class TcpForwardTests
