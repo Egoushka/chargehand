@@ -23,6 +23,16 @@ public sealed class ManualTimeProvider : TimeProvider
         return timer;
     }
 
+    /// <summary>How many timers wait for the clock, so a test can see that the code under test is waiting before it moves the clock.</summary>
+    public int Waiting
+    {
+        get
+        {
+            lock (_gate)
+                return _timers.Count;
+        }
+    }
+
     /// <summary>Moves the clock forward and runs the callbacks that came due, on the calling thread.</summary>
     public void Advance(TimeSpan by)
     {
