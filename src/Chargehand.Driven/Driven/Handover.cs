@@ -86,108 +86,171 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
 
     public async Task<HandoverOutcome> RunAsync(HandoverInput input, CancellationToken ct)
     {
-        if (!RunIdPattern().IsMatch(input.RunId) || !BranchPattern().IsMatch(input.Branch) || input.Branch.Contains("..", StringComparison.Ordinal)
-            || !CommitPattern().IsMatch(input.BaseCommit))
+        if (!WellFormed(input))
             throw new ArgumentException("the run id, branch (chargehand/<name>) or base commit is not well formed");
         List<string> secrets = [.. input.Secrets ?? []];
         if (input.Credential is { } credential)
             secrets.Add(credential.Value);
-        ChangeSummary? changes = null;
-        HandoverOutcome Refuse(string reason, ErrorCode error, VerificationRecord? verification = null, IReadOnlyList<string>? changed = null, IReadOnlyList<ScanFinding>? findings = null,
-            IReadOnlyList<string>? verificationPaths = null, string? commit = null) =>
-            new(HandoverStatus.NotPushed, Redact(reason, secrets), error, input.Branch, commit, null, verification, changed ?? [], verificationPaths ?? [], findings ?? [], changes);
+        var run = new HandoverRun(input, secrets);
+        if (await FetchAsync(run, ct) is { } notFetched)
+            return notFetched;
+        if (await ScanDiffAsync(run, ct) is { } diffRefused)
+            return diffRefused;
+        if (await ScanHistoryAsync(run, ct) is { } historyRefused)
+            return historyRefused;
+        if (await SummarizeAsync(run, ct) is { } ciRefused)
+            return ciRefused;
+        if (await VerifyBranchAsync(run, ct) is { } notVerified)
+            return notVerified;
+        if (await PushBranchAsync(run, ct) is { } notPushed)
+            return notPushed;
+        return await OpenAsync(run, ct);
+    }
 
-        var bundle = Path.Combine(input.OutDirectory, "chargehand.bundle");
-        if (!File.Exists(bundle))
-            return Refuse("no bundle: the session made no branch", ErrorCode.SessionFailed);
+    private static bool WellFormed(HandoverInput input) =>
+        RunIdPattern().IsMatch(input.RunId) && BranchPattern().IsMatch(input.Branch) && !input.Branch.Contains("..", StringComparison.Ordinal) && CommitPattern().IsMatch(input.BaseCommit);
+
+    /// <summary>The scratch clone of chargehand's checkout with the session's branch fetched from the bundle; it must descend from the base.</summary>
+    private static async Task<HandoverOutcome?> FetchAsync(HandoverRun run, CancellationToken ct)
+    {
+        var input = run.Input;
+        if (!File.Exists(run.Bundle))
+            return run.Refuse("no bundle: the session made no branch", ErrorCode.SessionFailed);
         if (!RemoteAllowed(input.RemoteUrl, input.AllowLocalRemote))
-            return Refuse("the remote is not an https or ssh remote", ErrorCode.PushRejected);
+            return run.Refuse("the remote is not an https or ssh remote", ErrorCode.PushRejected);
 
-        var scratch = Path.Combine(input.ScratchRoot, input.RunId);
+        var scratch = run.Scratch;
         if (Directory.Exists(scratch))
             Directory.Delete(scratch, recursive: true);
-        var env = GitEnvironment(input.ScratchRoot);
+        var env = run.Env;
         var clone = await Git.RunAsync(input.ScratchRoot, env, ["-c", "core.hooksPath=/dev/null", "clone", "--quiet", "--no-hardlinks", "--template=", "--", input.SourceRepository, scratch], GitTimeout, ct);
         if (clone.ExitCode != 0)
-            return Refuse($"chargehand could not clone its checkout: {clone.Tail}", ErrorCode.SessionFailed);
-        var verify = await Git.RunAsync(scratch, env, ["bundle", "verify", bundle], GitTimeout, ct);
+            return run.Refuse($"chargehand could not clone its checkout: {clone.Tail}", ErrorCode.SessionFailed);
+        var verify = await Git.RunAsync(scratch, env, ["bundle", "verify", run.Bundle], GitTimeout, ct);
         if (verify.ExitCode != 0)
-            return Refuse($"the bundle does not verify against the base: {verify.Tail}", ErrorCode.SessionFailed);
-        var fetch = await Git.RunAsync(scratch, env, ["-c", "fetch.fsckObjects=true", "-c", "core.hooksPath=/dev/null", "fetch", "--quiet", bundle, $"refs/heads/{input.Branch}:refs/heads/{input.Branch}"], GitTimeout, ct);
+            return run.Refuse($"the bundle does not verify against the base: {verify.Tail}", ErrorCode.SessionFailed);
+        var fetch = await Git.RunAsync(scratch, env, ["-c", "fetch.fsckObjects=true", "-c", "core.hooksPath=/dev/null", "fetch", "--quiet", run.Bundle, $"refs/heads/{input.Branch}:refs/heads/{input.Branch}"], GitTimeout, ct);
         if (fetch.ExitCode != 0)
-            return Refuse($"the bundle has no usable {input.Branch}: {fetch.Tail}", ErrorCode.SessionFailed);
-        var commit = (await Git.RunAsync(scratch, env, ["rev-parse", $"refs/heads/{input.Branch}"], GitTimeout, ct)).Stdout.Trim();
+            return run.Refuse($"the bundle has no usable {input.Branch}: {fetch.Tail}", ErrorCode.SessionFailed);
+        var commit = run.Commit = (await Git.RunAsync(scratch, env, ["rev-parse", $"refs/heads/{input.Branch}"], GitTimeout, ct)).Stdout.Trim();
         if ((await Git.RunAsync(scratch, env, ["merge-base", "--is-ancestor", input.BaseCommit, commit], GitTimeout, ct)).ExitCode != 0)
-            return Refuse("the branch does not descend from the commit the session started at", ErrorCode.SessionFailed, commit: commit);
+            return run.Refuse("the branch does not descend from the commit the session started at", ErrorCode.SessionFailed, commit: commit);
+        return null;
+    }
 
+    /// <summary>The branch against its base: it changes something, and its diff carries no secret.</summary>
+    private static async Task<HandoverOutcome?> ScanDiffAsync(HandoverRun run, CancellationToken ct)
+    {
+        var (input, scratch, env, commit) = (run.Input, run.Scratch, run.Env, run.Commit);
         var names = await Git.RunAsync(scratch, env, ["diff", "--name-only", "-z", input.BaseCommit, commit], GitTimeout, ct);
-        List<string> changed = [.. names.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries)];
+        run.Changed = [.. names.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries)];
+        var changed = run.Changed;
         if (changed.Count == 0)
-            return Refuse("the branch has no change against its base", ErrorCode.SessionFailed, commit: commit);
+            return run.Refuse("the branch has no change against its base", ErrorCode.SessionFailed, commit: commit);
         var numstat = await Git.RunAsync(scratch, env, ["diff", "--numstat", "--no-renames", "-z", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
-        changes = new ChangeSummary(ParseNumstat(numstat.Stdout), null, false);
+        run.Changes = new ChangeSummary(ParseNumstat(numstat.Stdout), null, false);
         var diff = await Git.RunAsync(scratch, env, ["diff", "--no-color", "-U0", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
         if (diff.Truncated)
-            return Refuse("the diff is too large to scan", ErrorCode.SessionFailed, changed: changed, commit: commit);
-        var findings = DiffScan.Scan(diff.Stdout, secrets, changed);
+            return run.Refuse("the diff is too large to scan", ErrorCode.SessionFailed, changed: changed, commit: commit);
+        var findings = DiffScan.Scan(diff.Stdout, run.Secrets, changed);
         if (findings.Count > 0)
-            return Refuse($"the diff looks like it carries a secret ({string.Join(", ", findings.Select(f => $"{f.Kind} in {f.Path}"))}); nothing was pushed", ErrorCode.SessionFailed, changed: changed, findings: findings, commit: commit);
-        // The branch is pushed with its history: a secret a commit added and a later commit removed is on the remote all the same.
+            return run.Refuse($"the diff looks like it carries a secret ({string.Join(", ", findings.Select(f => $"{f.Kind} in {f.Path}"))}); nothing was pushed", ErrorCode.SessionFailed, changed: changed, findings: findings, commit: commit);
+        return null;
+    }
+
+    /// <summary>The branch is pushed with its history: a secret a commit added and a later commit removed is on the remote all the same.</summary>
+    private static async Task<HandoverOutcome?> ScanHistoryAsync(HandoverRun run, CancellationToken ct)
+    {
+        var (input, scratch, env, commit, changed) = (run.Input, run.Scratch, run.Env, run.Commit, run.Changed);
         var history = await Git.RunAsync(scratch, env, ["log", "-m", "-p", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--format=", $"{input.BaseCommit}..{commit}"], GitTimeout, ct, MaxDiffBytes);
         if (history.Truncated)
-            return Refuse("the branch's history is too large to scan", ErrorCode.SessionFailed, changed: changed, commit: commit);
+            return run.Refuse("the branch's history is too large to scan", ErrorCode.SessionFailed, changed: changed, commit: commit);
         var touched = (await Git.RunAsync(scratch, env, ["log", "-m", "--name-only", "-z", "--no-renames", "--format=", $"{input.BaseCommit}..{commit}"], GitTimeout, ct, MaxDiffBytes))
             .Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries).Select(n => n.Trim('\n')).Where(n => n.Length > 0).Distinct().ToList();
-        var historyFindings = DiffScan.Scan(history.Stdout, secrets, touched);
+        var historyFindings = DiffScan.Scan(history.Stdout, run.Secrets, touched);
         if (historyFindings.Count > 0)
-            return Refuse($"a commit of the branch looks like it carries a secret ({string.Join(", ", historyFindings.Select(f => $"{f.Kind} in {f.Path}"))}); nothing was pushed", ErrorCode.SessionFailed, changed: changed, findings: historyFindings, commit: commit);
-        var unified = await Git.RunAsync(scratch, env, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", input.BaseCommit, commit], GitTimeout, ct, MaxChangesDiffBytes);
-        changes = changes with { Diff = CutAtLine(Redact(unified.Stdout, secrets), unified.Truncated, out var cut), DiffTruncated = cut };
+            return run.Refuse($"a commit of the branch looks like it carries a secret ({string.Join(", ", historyFindings.Select(f => $"{f.Kind} in {f.Path}"))}); nothing was pushed", ErrorCode.SessionFailed, changed: changed, findings: historyFindings, commit: commit);
+        return null;
+    }
+
+    /// <summary>The redacted unified diff for the <see cref="ChangeSummary"/>, and the refusal of a change to CI configuration.</summary>
+    private static async Task<HandoverOutcome?> SummarizeAsync(HandoverRun run, CancellationToken ct)
+    {
+        var (input, commit, changed) = (run.Input, run.Commit, run.Changed);
+        var unified = await Git.RunAsync(run.Scratch, run.Env, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", input.BaseCommit, commit], GitTimeout, ct, MaxChangesDiffBytes);
+        run.Changes = run.Changes! with { Diff = CutAtLine(Redact(unified.Stdout, run.Secrets), unified.Truncated, out var cut), DiffTruncated = cut };
         var ci = DiffScan.CiPaths(changed);
         if (ci.Count > 0 && !input.AllowCiChanges)
-            return Refuse($"the change edits CI configuration ({string.Join(", ", ci)}); chargehand does not push that, because pushing can run it", ErrorCode.SessionFailed, changed: changed, commit: commit);
+            return run.Refuse($"the change edits CI configuration ({string.Join(", ", ci)}); chargehand does not push that, because pushing can run it", ErrorCode.SessionFailed, changed: changed, commit: commit);
+        return null;
+    }
 
-        var checkout = await Git.RunAsync(scratch, env, ["-c", "core.hooksPath=/dev/null", "checkout", "--quiet", input.Branch], GitTimeout, ct);
+    /// <summary>The branch checked out and its tests run by chargehand itself; a session that says its tests pass is not believed.</summary>
+    private async Task<HandoverOutcome?> VerifyBranchAsync(HandoverRun run, CancellationToken ct)
+    {
+        var (input, commit, changed) = (run.Input, run.Commit, run.Changed);
+        var checkout = await Git.RunAsync(run.Scratch, run.Env, ["-c", "core.hooksPath=/dev/null", "checkout", "--quiet", input.Branch], GitTimeout, ct);
         if (checkout.ExitCode != 0)
-            return Refuse($"chargehand could not check the branch out: {checkout.Tail}", ErrorCode.SessionFailed, changed: changed, commit: commit);
-        var plan = VerifyCommand.Resolve(input.VerifyCommand, scratch);
-        VerificationRecord? verification = null;
-        IReadOnlyList<string> verificationPaths = ChangeRun.VerificationPaths(changed, plan);
+            return run.Refuse($"chargehand could not check the branch out: {checkout.Tail}", ErrorCode.SessionFailed, changed: changed, commit: commit);
+        var plan = VerifyCommand.Resolve(input.VerifyCommand, run.Scratch);
+        run.VerificationPaths = ChangeRun.VerificationPaths(changed, plan);
         if (plan is null)
         {
             if (!input.AllowNoTests && !input.Partial)
-                return Refuse("no test command found for this repository; chargehand does not push a change it cannot test (name one in the request's context.verify)", ErrorCode.VerificationFailed, changed: changed, commit: commit);
+                return run.Refuse("no test command found for this repository; chargehand does not push a change it cannot test (name one in the request's context.verify)", ErrorCode.VerificationFailed, changed: changed, commit: commit);
+            return null;
         }
-        else
-        {
-            try
-            {
-                verification = await VerifyAsync(new BranchVerification(input.RunId, bundle, input.Branch, plan.Argv, input.VerifyTimeout ?? TimeSpan.FromMinutes(10)), plan.Source, secrets, ct);
-            }
-            catch (Exception e) when (input.Partial && e is not OperationCanceledException)
-            {
-                // The work is kept whether or not the tests could run; say that they did not.
-                verification = new VerificationRecord(plan.Argv, plan.Source, -1, Redact($"the verification could not run: {e.Message}", secrets), false, TimeSpan.Zero, false);
-            }
-            var passed = verification.ExitCode == 0 && !verification.TimedOut;
-            input.Report?.Invoke(new HandoverEvent(RunEventKind.VerifyFinished, string.Create(System.Globalization.CultureInfo.InvariantCulture,
-                $"tests {(passed ? "passed" : verification.TimedOut ? "timed out" : $"failed (exit {verification.ExitCode})")} in {verification.Duration.TotalSeconds:0}s: {string.Join(' ', verification.Argv)}")));
-            if ((verification.ExitCode != 0 || verification.TimedOut) && !input.Partial)
-                return Refuse(verification.TimedOut ? "the tests timed out in chargehand's own verification" : $"the tests failed in chargehand's own verification (exit {verification.ExitCode})", ErrorCode.VerificationFailed,
-                    verification, changed, verificationPaths: verificationPaths, commit: commit);
-        }
+        return await RunVerificationAsync(run, plan, ct);
+    }
 
+    private async Task<HandoverOutcome?> RunVerificationAsync(HandoverRun run, VerifyPlan plan, CancellationToken ct)
+    {
+        var input = run.Input;
+        VerificationRecord verification;
+        try
+        {
+            verification = await VerifyAsync(new BranchVerification(input.RunId, run.Bundle, input.Branch, plan.Argv, input.VerifyTimeout ?? TimeSpan.FromMinutes(10)), plan.Source, run.Secrets, ct);
+        }
+        catch (Exception e) when (input.Partial && e is not OperationCanceledException)
+        {
+            // The work is kept whether or not the tests could run; say that they did not.
+            verification = new VerificationRecord(plan.Argv, plan.Source, -1, Redact($"the verification could not run: {e.Message}", run.Secrets), false, TimeSpan.Zero, false);
+        }
+        run.Verification = verification;
+        input.Report?.Invoke(new HandoverEvent(RunEventKind.VerifyFinished, VerifyDetail(verification)));
+        if ((verification.ExitCode != 0 || verification.TimedOut) && !input.Partial)
+            return run.Refuse(verification.TimedOut ? "the tests timed out in chargehand's own verification" : $"the tests failed in chargehand's own verification (exit {verification.ExitCode})", ErrorCode.VerificationFailed,
+                verification, run.Changed, verificationPaths: run.VerificationPaths, commit: run.Commit);
+        return null;
+    }
+
+    private static string VerifyDetail(VerificationRecord verification)
+    {
+        var passed = verification.ExitCode == 0 && !verification.TimedOut;
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"tests {(passed ? "passed" : verification.TimedOut ? "timed out" : $"failed (exit {verification.ExitCode})")} in {verification.Duration.TotalSeconds:0}s: {string.Join(' ', verification.Argv)}");
+    }
+
+    private async Task<HandoverOutcome?> PushBranchAsync(HandoverRun run, CancellationToken ct)
+    {
+        var input = run.Input;
         PushedBranch pushed;
         try
         {
-            pushed = await PushAsync(input, scratch, commit, env, ct);
+            pushed = await PushAsync(input, run.Scratch, run.Commit, run.Env, ct);
         }
         catch (PushRejectedException e)
         {
-            return Refuse($"the push was rejected: {e.Message}", ErrorCode.PushRejected, verification, changed, verificationPaths: verificationPaths, commit: commit);
+            return run.Refuse($"the push was rejected: {e.Message}", ErrorCode.PushRejected, run.Verification, run.Changed, verificationPaths: run.VerificationPaths, commit: run.Commit);
         }
         input.Report?.Invoke(new HandoverEvent(RunEventKind.Pushed, pushed.Adopted ? $"{input.Branch} was already on the remote" : $"pushed {input.Branch}"));
+        return null;
+    }
 
+    /// <summary>The draft pull request for the pushed branch; a failure here leaves the push in place.</summary>
+    private async Task<HandoverOutcome> OpenAsync(HandoverRun run, CancellationToken ct)
+    {
+        var (input, commit, changed, verification, verificationPaths, changes) = (run.Input, run.Commit, run.Changed, run.Verification, run.VerificationPaths, run.Changes);
         var integrity = input.Goal is { } goal && verification is { ExitCode: 0, TimedOut: false } ? TestIntegrity.Assess(changed, goal) : null;
         var repository = RemoteRepository.Parse(input.RemoteUrl, forge) ?? (input.AllowLocalRemote ? new RemoteRepository("local", "local") : null);
         if (repository is null)
@@ -196,129 +259,58 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         {
             var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity);
             var (pr, bodyUsed) = await OpenPullRequestAsync(input, repository, prBody, ct);
-            prBody = bodyUsed;
-            var detail = "draft pull request opened";
-            if (pr.Reused && input.UpdateReused)
-            {
-                // The pull request and the push are there either way; a title that stays stale is said, not an error.
-                try
-                {
-                    await pullRequests.EditAsync(repository, pr.Number, input.Title, prBody, ct);
-                    detail = "draft pull request reused and its title and body updated";
-                }
-                catch (PullRequestException e)
-                {
-                    detail = Redact($"draft pull request reused; its title and body could not be updated: {e.Message}", secrets);
-                }
-            }
+            var detail = pr.Reused && input.UpdateReused ? await UpdateReusedAsync(run, repository, pr, bodyUsed, ct) : "draft pull request opened";
             input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, detail, pr.Url));
             return new(HandoverStatus.Pushed, "", null, input.Branch, commit, pr, verification, changed, verificationPaths, [], changes, integrity);
         }
         catch (PullRequestException e)
         {
-            return new(HandoverStatus.PrFailed, Redact(e.Message, secrets), ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity);
+            return new(HandoverStatus.PrFailed, Redact(e.Message, run.Secrets), ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity);
         }
     }
 
-    /// <summary>The verification as step <c>handover/&lt;run&gt;/verify</c>, redacted before it is recorded. A run id has one bundle, so its recorded verdict, passed or failed, stands for the
-    /// branch: a resumed handover does not verify again. A verifier that throws is recorded as a failure, so the next handover verifies again.</summary>
-    private async Task<VerificationRecord> VerifyAsync(BranchVerification verification, string source, IReadOnlyList<string> secrets, CancellationToken ct)
+    /// <summary>The pull request and the push are there either way; a title that stays stale is said, not an error.</summary>
+    private async Task<string> UpdateReusedAsync(HandoverRun run, RemoteRepository repository, PullRequestRef pr, string body, CancellationToken ct)
     {
-        async Task<VerificationRecord> Verify(StepAttempt attempt, CancellationToken token)
+        try
         {
-            var raw = await verifier.VerifyAsync(verification, token);
-            return raw with { Source = source, OutputTail = Redact(raw.OutputTail, secrets) };
+            await pullRequests.EditAsync(repository, pr.Number, run.Input.Title, body, ct);
+            return "draft pull request reused and its title and body updated";
         }
-        return steps is null ? await Verify(new StepAttempt(1, false), ct) : await steps.RunAsync(StepKey.Verify(batchId!, verification.RunId), Verify, HandoverSteps.Default.VerificationRecord, ct);
+        catch (PullRequestException e)
+        {
+            return Redact($"draft pull request reused; its title and body could not be updated: {e.Message}", run.Secrets);
+        }
     }
 
-    /// <summary>The push as step <c>handover/&lt;run&gt;/push</c>. Run again, it asks the remote first: a branch that already holds the commit is taken as pushed, so it is not pushed twice.</summary>
-    private async Task<PushedBranch> PushAsync(HandoverInput input, string scratch, string commit, IReadOnlyDictionary<string, string> env, CancellationToken ct)
+    /// <summary>What one handover has found so far, so that every phase of <see cref="RunAsync"/> refuses with the same fields.</summary>
+    private sealed class HandoverRun(HandoverInput input, List<string> secrets)
     {
-        async Task<PushedBranch> Push(StepAttempt attempt, CancellationToken token)
-        {
-            var pushEnv = PushEnvironment(input.Credential, input.RemoteUrl, input.ScratchRoot, env);
-            if (attempt.Repeated)
-            {
-                var remote = await Git.RunAsync(scratch, pushEnv, ["ls-remote", "--", input.RemoteUrl, $"refs/heads/{input.Branch}"], GitTimeout, token);
-                if (remote.ExitCode == 0 && remote.Stdout.Split('\t', 2)[0].Trim() == commit)
-                    return new PushedBranch(input.Branch, commit, Adopted: true);
-            }
-            var push = await Git.RunAsync(scratch, pushEnv, PushArgs(input.RemoteUrl, input.Branch), GitTimeout, token);
-            return push.ExitCode == 0 ? new PushedBranch(input.Branch, commit) : throw new PushRejectedException(push.Tail);
-        }
-        return steps is null ? await Push(new StepAttempt(1, false), ct) : await steps.RunAsync(StepKey.Push(batchId!, input.RunId), Push, HandoverSteps.Default.PushedBranch, ct);
+        public HandoverInput Input { get; } = input;
+
+        /// <summary>The request's secrets and the push credential: a diff must not carry them, and no reason or detail shows them.</summary>
+        public List<string> Secrets { get; } = secrets;
+
+        public string Bundle { get; } = Path.Combine(input.OutDirectory, "chargehand.bundle");
+
+        public string Scratch { get; } = Path.Combine(input.ScratchRoot, input.RunId);
+
+        public Dictionary<string, string> Env { get; } = GitEnvironment(input.ScratchRoot);
+
+        public string Commit { get; set; } = "";
+
+        public List<string> Changed { get; set; } = [];
+
+        public ChangeSummary? Changes { get; set; }
+
+        public VerificationRecord? Verification { get; set; }
+
+        public IReadOnlyList<string> VerificationPaths { get; set; } = [];
+
+        public HandoverOutcome Refuse(string reason, ErrorCode error, VerificationRecord? verification = null, IReadOnlyList<string>? changed = null, IReadOnlyList<ScanFinding>? findings = null,
+            IReadOnlyList<string>? verificationPaths = null, string? commit = null) =>
+            new(HandoverStatus.NotPushed, Redact(reason, Secrets), error, Input.Branch, commit, null, verification, changed ?? [], verificationPaths ?? [], findings ?? [], Changes);
     }
-
-    /// <summary>The draft as step <c>handover/&lt;run&gt;/pr</c>, with the body it was opened with. Run again, it looks the branch's open pull request up first and opens one only if there is none.</summary>
-    private async Task<(PullRequestRef Pr, string Body)> OpenPullRequestAsync(HandoverInput input, RemoteRepository repository, string body, CancellationToken ct)
-    {
-        var fallbackBody = input.FallbackBaseBranch is { } fallback
-            ? $"{body.TrimEnd()}\n\nThis pull request is based on `{fallback}`, not on `{input.BaseBranch}`: the host did not accept that branch as a base (it may be gone). The branch holds the earlier task's work as well.\n"
-            : body;
-        async Task<OpenedPullRequest> Open(StepAttempt attempt, CancellationToken token)
-        {
-            if (attempt.Repeated && await pullRequests.FindByHeadAsync(repository, input.Branch, token) is { } existing)
-                return new OpenedPullRequest(existing with { Reused = true }, false);
-            try
-            {
-                return new OpenedPullRequest(await pullRequests.CreateDraftAsync(repository, input.Branch, input.BaseBranch, input.Title, body, token), false);
-            }
-            catch (PullRequestException) when (input.FallbackBaseBranch is { } fallback && fallback != input.BaseBranch)
-            {
-                return new OpenedPullRequest(await pullRequests.CreateDraftAsync(repository, input.Branch, fallback, input.Title, fallbackBody, token), true);
-            }
-        }
-        var opened = steps is null ? await Open(new StepAttempt(1, false), ct) : await steps.RunAsync(StepKey.PullRequest(batchId!, input.RunId), Open, HandoverSteps.Default.OpenedPullRequest, ct);
-        return (opened.PullRequest, opened.OnFallback ? fallbackBody : body);
-    }
-
-    /// <summary>The whole <c>git push</c>: one ref, never forced (no <c>+</c>), never a mirror or a delete. The credential is not here.</summary>
-    public static IReadOnlyList<string> PushArgs(string remoteUrl, string branch) =>
-        ["push", "--porcelain", remoteUrl, $"refs/heads/{branch}:refs/heads/{branch}"];
-
-    /// <summary>The environment of a push: nothing is inherited from the user's git configuration or askpass, and the credential is an HTTP header through git's
-    /// environment configuration (or an ssh key file), so it appears on no command line.</summary>
-    public static IReadOnlyDictionary<string, string> PushEnvironment(PushCredential? credential, string remoteUrl, string scratchRoot, IReadOnlyDictionary<string, string>? baseEnvironment = null)
-    {
-        var env = new Dictionary<string, string>(baseEnvironment ?? GitEnvironment(scratchRoot), StringComparer.Ordinal);
-        if (credential is null)
-            return env;
-        if (credential.Kind == PushCredentialKind.HttpsToken)
-        {
-            env["GIT_CONFIG_COUNT"] = "1";
-            env["GIT_CONFIG_KEY_0"] = "http.extraheader";
-            env["GIT_CONFIG_VALUE_0"] = $"Authorization: Basic {Convert.ToBase64String(Encoding.UTF8.GetBytes($"x-access-token:{credential.Value}"))}";
-        }
-        else
-        {
-            var keyFile = Path.Combine(scratchRoot, $"push-key-{Guid.NewGuid():N}");
-            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
-            if (!OperatingSystem.IsWindows())
-                options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-            using (var writer = new StreamWriter(new FileStream(keyFile, options)))
-                writer.Write(credential.Value.TrimEnd() + "\n");
-            env["GIT_SSH_COMMAND"] = $"ssh -i {keyFile} -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes";
-        }
-        return env;
-    }
-
-    /// <summary>A clean environment: no user git configuration, no prompts, no askpass, no inherited credentials; PATH only, so git and ssh are found.</summary>
-    internal static Dictionary<string, string> GitEnvironment(string home) => new(StringComparer.Ordinal)
-    {
-        ["PATH"] = Environment.GetEnvironmentVariable("PATH") ?? "/usr/bin:/bin",
-        ["HOME"] = home,
-        ["GIT_CONFIG_GLOBAL"] = "/dev/null",
-        ["GIT_CONFIG_SYSTEM"] = "/dev/null",
-        ["GIT_TERMINAL_PROMPT"] = "0",
-        ["GIT_ASKPASS"] = "/bin/true",
-        ["LC_ALL"] = "C",
-    };
-
-    internal static bool RemoteAllowed(string url, bool allowLocal) =>
-        url.Length > 0 && !url.StartsWith('-')
-        && (url.StartsWith("https://", StringComparison.Ordinal) || url.StartsWith("ssh://", StringComparison.Ordinal) || ScpForm().IsMatch(url)
-            || (allowLocal && url.StartsWith("file://", StringComparison.Ordinal)));
 
     private static string DescribeBody(string body, List<string> changed, VerificationRecord? verification, IReadOnlyList<string> verificationPaths, string? policyNote, TestIntegrityFlag? integrity)
     {
@@ -383,72 +375,4 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
 
     [GeneratedRegex(@"^[0-9a-f]{7,40}$")]
     private static partial Regex CommitPattern();
-
-    [GeneratedRegex(@"^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+:[A-Za-z0-9_./-]+$")]
-    private static partial Regex ScpForm();
-
-    private sealed class PushRejectedException(string tail) : Exception(tail);
-
-    internal sealed record GitResult(int ExitCode, string Stdout, string Stderr, bool Truncated)
-    {
-        public string Tail => ((Stderr.Length > 0 ? Stderr : Stdout).Trim() is var t && t.Length > 400 ? t[^400..] : t);
-    }
-
-    internal static class Git
-    {
-        public static async Task<GitResult> RunAsync(string directory, IReadOnlyDictionary<string, string> env, IReadOnlyList<string> args, TimeSpan timeout, CancellationToken ct, int maxBytes = 1024 * 1024)
-        {
-            var psi = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
-            // fetch and merge would start a detached `git maintenance` that repacks after this call has returned, racing with the next command and with the removal of the scratch clone.
-            foreach (var a in (string[])["-c", "maintenance.auto=false", "-c", "gc.auto=0", .. args])
-                psi.ArgumentList.Add(a);
-            psi.Environment.Clear();
-            foreach (var (k, v) in env)
-                psi.Environment[k] = v;
-            using var process = Process.Start(psi) ?? throw new InvalidOperationException("could not start git");
-            process.StandardInput.Close();
-            var truncated = false;
-            async Task<string> Read(StreamReader r)
-            {
-                var text = new StringBuilder();
-                var buffer = new char[8192];
-                int n;
-                while ((n = await r.ReadAsync(buffer)) > 0)
-                {
-                    // Keep a prefix: what fits of this read, then nothing more, so a cut output is never spliced.
-                    var take = truncated ? 0 : Math.Min(n, maxBytes - text.Length);
-                    text.Append(buffer, 0, take);
-                    truncated |= take < n;
-                }
-                return text.ToString();
-            }
-            var stdout = Read(process.StandardOutput);
-            var stderr = Read(process.StandardError);
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            deadline.CancelAfter(timeout);
-            try
-            {
-                await process.WaitForExitAsync(deadline.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                process.Kill(entireProcessTree: true);
-                if (ct.IsCancellationRequested)
-                    throw;
-                return new GitResult(-1, "", "git timed out", false);
-            }
-            return new GitResult(process.ExitCode, await stdout, await stderr, truncated);
-        }
-    }
 }
-
-/// <summary>The recorded result of a handover's push: <paramref name="Adopted"/> when a repeated push found the commit already on the remote.</summary>
-internal sealed record PushedBranch(string Branch, string Commit, bool Adopted = false);
-
-/// <summary>The recorded result of a handover's pull request: <paramref name="OnFallback"/> when it was opened against the fallback base.</summary>
-internal sealed record OpenedPullRequest(PullRequestRef PullRequest, bool OnFallback);
-
-[JsonSerializable(typeof(VerificationRecord))]
-[JsonSerializable(typeof(PushedBranch))]
-[JsonSerializable(typeof(OpenedPullRequest))]
-internal sealed partial class HandoverSteps : JsonSerializerContext;
