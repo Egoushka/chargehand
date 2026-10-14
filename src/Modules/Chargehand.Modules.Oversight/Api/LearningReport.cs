@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Oversight.Api;
 
 /// <summary>Pull requests of a group by what became of them. <c>Open</c> includes those whose outcome was never read.</summary>
 public sealed record PrCounts(int Total, int MergedUnchanged, int MergedEdited, int Merged, int Closed, int Open);

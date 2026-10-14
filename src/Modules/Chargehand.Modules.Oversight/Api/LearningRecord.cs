@@ -1,10 +1,9 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Chargehand.Contracts;
 using Chargehand.Modules.Forge.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Oversight.Api;
 
 /// <summary>The words a record uses for how a task ended.</summary>
 public static class LearningOutcome
@@ -94,9 +93,9 @@ public sealed class JsonlLearningStore(string path) : ILearningStore
 {
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
-    public Task AppendAsync(LearningRecord record, CancellationToken ct) => Append("task", JsonSerializer.SerializeToNode(record, ContractJson.Options)!, ct);
+    public Task AppendAsync(LearningRecord record, CancellationToken ct) => Append("task", JsonSerializer.SerializeToNode(record, LearningJsonContext.Default.LearningRecord)!, ct);
 
-    public Task AppendAsync(PrOutcomeRecord record, CancellationToken ct) => Append("pr_outcome", JsonSerializer.SerializeToNode(record, ContractJson.Options)!, ct);
+    public Task AppendAsync(PrOutcomeRecord record, CancellationToken ct) => Append("pr_outcome", JsonSerializer.SerializeToNode(record, LearningJsonContext.Default.PrOutcomeRecord)!, ct);
 
     public async Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct)
     {
@@ -112,10 +111,10 @@ public sealed class JsonlLearningStore(string path) : ILearningStore
                 var node = JsonNode.Parse(line)!.AsObject();
                 switch (node["type"]?.GetValue<string>())
                 {
-                    case "task" when node.Deserialize<LearningRecord>(ContractJson.Options) is { } task:
+                    case "task" when node.Deserialize(LearningJsonContext.Default.LearningRecord) is { } task:
                         tasks[task.RunId] = task;
                         break;
-                    case "pr_outcome" when node.Deserialize<PrOutcomeRecord>(ContractJson.Options) is { } outcome:
+                    case "pr_outcome" when node.Deserialize(LearningJsonContext.Default.PrOutcomeRecord) is { } outcome:
                         outcomes[outcome.RunId] = outcome;
                         break;
                 }

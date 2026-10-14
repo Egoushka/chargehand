@@ -1,7 +1,7 @@
 using Chargehand.Kernel;
 using Chargehand.Modules.Forge.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Oversight.Api;
 
 /// <summary>Reads back, through the forge, what became of the pull requests chargehand opened (ADR 0045): merged with the head chargehand left, merged after edits, closed unmerged, still open. It writes
 /// a line to the learning store only when the outcome changed, and looks again only at pull requests of tasks that ended in the last <c>days</c> days and are not merged or closed. Read-only on the forge.

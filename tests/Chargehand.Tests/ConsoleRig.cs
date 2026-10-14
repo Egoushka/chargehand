@@ -9,6 +9,7 @@ using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Oversight.Api;
 using Chargehand.RunLog;
 using Chargehand.Server;
 
