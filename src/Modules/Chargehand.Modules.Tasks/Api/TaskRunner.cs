@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Forge.Api;
@@ -14,13 +13,8 @@ using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
-using Chargehand.Modules.Tasks.Api;
-using Chargehand.Results;
-using Chargehand.RunLog;
-using Chargehand.Runtime;
-using Chargehand.Verification;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Tasks.Api;
 
 /// <summary>What a session's run token is for: one repository at one commit, within the task's caps, until it expires.</summary>
 public sealed record TaskGrant(string RunId, string RepositoryPath, string Commit, decimal? MaxUsd, long? MaxTokens, DateTimeOffset Expires);
@@ -51,21 +45,23 @@ public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, stri
 /// <summary>Runs one task of a batch to its end (ADR 0039): a workspace at the pinned commit, a session container on the batch network, then the handover (chargehand's own
 /// verification, the scan, the push, a draft pull request) and the task's own <c>result/v1</c> in the run log. A cancel signals the session and ends the task; it never reaches
 /// the handover, so nothing is pushed. <paramref name="publish"/> gets the task's steps as events of the batch run: <c>container_started</c>, <c>session_progress</c> when the
-/// session's tally changes, and the handover's <c>verify_finished</c>, <c>pushed</c> and <c>pr_opened</c>. With a <paramref name="journal"/> the task's progress is saved, and a task it shows as begun is taken up where it
+/// session's tally changes, and the handover's <c>verify_finished</c>, <c>pushed</c> and <c>pr_opened</c>. With a <paramref name="state"/> (P3) the task's progress is saved, and a task it shows as begun is taken up where it
 /// stood after a server restart (ADR 0043). <paramref name="detaching"/> says the server is stopping rather than the run being cancelled: the session container is then left running for the next process.
 /// A task with <see cref="ResolvedTask.Upstream"/> (ADR 0049) starts from the branches of the tasks it depends on: <paramref name="stacker"/> makes one branch of them, named for this task, and its bundle seeds
-/// the first session. With a <paramref name="learning"/> store, a task that ends writes what it taught (ADR 0045). With <paramref name="records"/>, each session, its governor log, the pull request's checks and the CI fix
-/// attempts are kept for the console (CHARGEHAND-214). With <paramref name="steps"/>, each session start is a recorded step (ADR 0061), and a start a restart cut short is taken up under its own run id.</summary>
+/// the first session. With a <paramref name="learning"/> store, a task that ends writes what it taught (ADR 0045). Where the <paramref name="state"/> keeps records, each session, its governor log, the pull request's checks and the CI fix
+/// attempts are kept for the console (CHARGEHAND-214). <paramref name="results"/> (P4) builds, checks and signs the task's result. With <paramref name="steps"/>, each session start is a recorded step (ADR 0061), and a start a restart cut short is taken up under its own run id.</summary>
 public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspace, ISessionVolumes volumes, IBranchHandover handover, IRunLog log, TaskTokenMinter mint,
-    TaskRunnerSettings settings, IEvidenceResolver resolver,
-    Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? supportCheck, Func<ResultContract, ResultContract>? sign,
-    TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, BatchJournal? journal = null, Func<bool>? detaching = null, IStackSeeder? stacker = null, ILearningStore? learning = null, IBranchSeeder? brancher = null,
-    Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null, BatchRecords? records = null, BatchControl? control = null, DrivenJournal? steps = null) : ITaskRunner
+    TaskRunnerSettings settings, ITaskResults results,
+    TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, ITaskState? state = null, Func<bool>? detaching = null, IStackSeeder? stacker = null, ILearningStore? learning = null, IBranchSeeder? brancher = null,
+    Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null, DrivenJournal? steps = null) : ITaskRunner
 {
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultUsagePoll = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultGrace = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan WallClockSlack = TimeSpan.FromMinutes(5);
+
+    /// <summary>How long an ended task's output volume (its bundle and handoff) is kept for a continuation: the sweep at a server start leaves it alone until then.</summary>
+    public static readonly TimeSpan KeptFor = TimeSpan.FromDays(7);
 
     /// <summary>How long a task waits for a runner that stops answering during a session (ADR 0058): a laptop that sleeps, a path that flaps. Past it the task fails and the session is swept later.</summary>
     public static readonly TimeSpan DefaultOutageGrace = TimeSpan.FromMinutes(10);
@@ -148,7 +144,7 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
 
     public async Task<TaskOutcome> RunAsync(ResolvedTask task, IProgress<TaskUsage> progress, CancellationToken ct)
     {
-        var entry = journal?.Entry(task.Id);
+        var entry = state?.Entry(task.Id);
         if (entry is { Phase: TaskPhase.HandedOver or TaskPhase.Failed, Outcome: { } done })
             return done;
         var run = await PrepareAsync(task, entry, ct);

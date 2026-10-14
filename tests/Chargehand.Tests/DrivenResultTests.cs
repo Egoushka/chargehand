@@ -475,6 +475,21 @@ public class DrivenResultTests
         Assert.True(ResultSignature.Verify(JsonSerializer.Serialize(signed, ContractJson.Options), key).Valid);
     }
 
+    [Fact]
+    public async Task The_task_results_port_builds_with_the_support_check_and_signs_with_the_servers_signer()
+    {
+        using var repo = new Repo();
+        using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var results = new DrivenTaskResults(new GitEvidenceResolver(), AllSupported, r => ResultSignature.Sign(r, key));
+
+        var built = await results.BuildAsync(Input(repo), default);
+
+        Assert.NotEmpty(built.Claims);
+        Assert.All(built.Claims, c => Assert.Equal(ClaimSupport.Supported, c.Support));
+        Assert.True(ResultSignature.Verify(JsonSerializer.Serialize(results.Sign(built), ContractJson.Options), key).Valid);
+        Assert.Same(built, new DrivenTaskResults(new GitEvidenceResolver(), null, null).Sign(built));
+    }
+
     // ---- a batch ----
 
     private static TaskOutcome Done(string id, string run, long tokens = 1000, decimal usd = 0) =>

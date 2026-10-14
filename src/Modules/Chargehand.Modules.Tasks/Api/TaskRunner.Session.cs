@@ -8,9 +8,8 @@ using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
-using Chargehand.Modules.Tasks.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Tasks.Api;
 
 /// <summary>The task's sessions: the first one started or taken up, each one's end read and recorded, and the continuations (ADR 0044).</summary>
 public sealed partial class TaskRunner
@@ -27,7 +26,7 @@ public sealed partial class TaskRunner
         {
             run.SessionStarted = DateTimeOffset.UtcNow;
             var sessionStarted = run.SessionStarted;
-            journal?.Update(task.Id, e => e with { SessionStarted = sessionStarted });
+            state?.Update(task.Id, e => e with { SessionStarted = sessionStarted });
             run.Open = (run.RunId, run.SessionStarted, run.Continuation == 0 ? "first" : "continuation");
             run.Container = await StartSessionAsync(task, run.RunId, run.Branch, run.Goal, run.MaxTurns, run.MaxMinutes, Remaining(run.Prior), run.Prior?.UsdEstimate ?? 0, run.Seed, run.SessionStarted,
                 run.StartDetail, run.Span, run.TraceId, run.Budget, ct);
@@ -42,22 +41,22 @@ public sealed partial class TaskRunner
     {
         var (runId, outDirectory) = (run.RunId, run.OutDirectory);
         var seeded = run.Best?.Commits ?? 0;
-        ContainerState state;
+        ContainerState exited;
         var live = run.Container;
-        control?.SessionStarted(task.Id, () => engine.SignalAsync(live, "SIGKILL", CancellationToken.None));
+        state?.SessionStarted(task.Id, () => engine.SignalAsync(live, "SIGKILL", CancellationToken.None));
         try
         {
-            state = await WaitAsync(run.Container, runId, task.Id, run.MaxMinutes, progress, run.SessionStarted, run.Prior, ct);
+            exited = await WaitAsync(run.Container, runId, task.Id, run.MaxMinutes, progress, run.SessionStarted, run.Prior, ct);
         }
         finally
         {
-            control?.SessionEnded(task.Id);
+            state?.SessionEnded(task.Id);
         }
         var sessionEnded = DateTimeOffset.UtcNow;
 
         await Tolerant(task.Id, () => volumes.FetchOutputAsync(runId, outDirectory, ct), ct);
-        journal?.Update(task.Id, e => e with { Phase = TaskPhase.Finished });
-        run.Session = SessionDriver.ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, state.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, state.ExitCode, [], false);
+        state?.Update(task.Id, e => e with { Phase = TaskPhase.Finished });
+        run.Session = SessionDriver.ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, exited.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, exited.ExitCode, [], false);
         NoteSession(task, run, sessionEnded);
         var session = run.Session;
         var reportFile = Path.Combine(outDirectory, "driven-report.json");
@@ -104,7 +103,7 @@ public sealed partial class TaskRunner
         Directory.CreateDirectory(run.OutDirectory);
         run.Containers[run.RunId] = null;
         var (next, allRuns, count, earlier, seedBundle, sessionGoal, detail) = (run.RunId, run.Runs.ToList(), run.Continuation, run.Total, new BestBundle(run.Best!.RunId, run.Best.Commits), run.Goal, run.StartDetail);
-        journal?.Update(task.Id, e => e with
+        state?.Update(task.Id, e => e with
         {
             Phase = TaskPhase.Started,
             RunId = next,
@@ -134,7 +133,7 @@ public sealed partial class TaskRunner
             run.Runs.RemoveAt(run.Runs.Count - 1);
             (run.RunId, run.OutDirectory) = (previousRun, previousOut);
             var (back, backRuns, backCount) = (run.RunId, run.Runs.ToList(), run.Continuation);
-            journal?.Update(task.Id, x => x with { Phase = TaskPhase.Finished, RunId = back, Container = null, Continuation = backCount, Runs = backRuns });
+            state?.Update(task.Id, x => x with { Phase = TaskPhase.Finished, RunId = back, Container = null, Continuation = backCount, Runs = backRuns });
             return false;
         }
         run.Containers[run.RunId] = run.Container;
@@ -205,7 +204,7 @@ public sealed partial class TaskRunner
         AddServiceEnvironment(env, task, runId, maxMinutes, left, sessionStarted, span, traceId);
         var container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
             preset.MemoryMb, preset.Cpus, preset.Pids, ["session"], Caches: settings.Shared?.Caches is { Count: > 0 } caches ? caches : null), ct);
-        journal?.Update(task.Id, e => e with { Container = container });
+        state?.Update(task.Id, e => e with { Container = container });
         Publish(task.Id, RunEventKind.ContainerStarted, detail, s => s with { Branch = branch });
         return container;
     }

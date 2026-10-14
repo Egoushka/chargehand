@@ -7,9 +7,8 @@ using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
-using Chargehand.Modules.Tasks.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Tasks.Api;
 
 /// <summary>What the task leaves behind: its sessions and governor log for the console (CHARGEHAND-214), what it taught (ADR 0045), the budget it was held to, and its span.</summary>
 public sealed partial class TaskRunner
@@ -17,9 +16,9 @@ public sealed partial class TaskRunner
     /// <summary>Keeps one session for the console (CHARGEHAND-214), with the runner it ran on.</summary>
     private void RecordSession(ResolvedTask task, string role, string runId, DateTimeOffset started, DateTimeOffset ended, SessionOutcome session)
     {
-        if (records is null)
+        if (state is not { KeepsRecords: true })
             return;
-        records.Append(settings.BatchId, new SessionRecord(task.Id, runId, role, RunnerOf(task), started, ended, JsonNamingPolicy.SnakeCaseLower.ConvertName(session.Status.ToString()),
+        state.Append(new SessionRecord(task.Id, runId, role, RunnerOf(task), started, ended, JsonNamingPolicy.SnakeCaseLower.ConvertName(session.Status.ToString()),
             session.Reason.Length > 0 ? session.Reason : null, session.Turns, session.InputTokens, session.OutputTokens, session.CacheReadTokens, session.CacheWriteTokens, session.UsdEstimate,
             settings.Priced ? session.CostUsd : null, session.ExitCode, session.Commits));
     }
@@ -27,10 +26,10 @@ public sealed partial class TaskRunner
     /// <summary>A session that ended before its outcome could be read: a cancel, or a failure to start or to read it back.</summary>
     private void RecordCutShort(ResolvedTask task, (string RunId, DateTimeOffset Started, string Role) session, Exception e)
     {
-        if (records is null)
+        if (state is not { KeepsRecords: true })
             return;
         var cancelled = e is OperationCanceledException;
-        records.Append(settings.BatchId, new SessionRecord(task.Id, session.RunId, session.Role, RunnerOf(task), session.Started, DateTimeOffset.UtcNow, cancelled ? "cancelled" : "error",
+        state.Append(new SessionRecord(task.Id, session.RunId, session.Role, RunnerOf(task), session.Started, DateTimeOffset.UtcNow, cancelled ? "cancelled" : "error",
             cancelled ? null : ChargehandException.ErrorOf(e).Message, 0, 0, 0, 0, 0, null, null, null, 0));
     }
 
@@ -39,18 +38,18 @@ public sealed partial class TaskRunner
     /// <summary>The session's <c>governor.jsonl</c> in full; the outcome file only has the first <see cref="SessionDriver.MaxGovernorDecisions"/>, which stand in for a runner too old to serve the log.</summary>
     private void RecordGovernor(ResolvedTask task, string runId, string outDirectory, SessionOutcome session)
     {
-        if (records is null)
+        if (state is not { KeepsRecords: true })
             return;
         var all = SessionDriver.ReadGovernorLog(outDirectory) ?? session.Governor ?? [];
         if (all.Count > 0)
-            records.Append(settings.BatchId, new GovernorRecord(task.Id, runId, all.Count, [.. all.Take(BatchRecords.MaxDecisionsPerSession)]));
+            state.Append(new GovernorRecord(task.Id, runId, all.Count, [.. all.Take(GovernorRecord.MaxDecisions)]));
     }
 
     private static string StopReason(SessionOutcome session) =>
         session.Reason.Length > 0 ? session.Reason : JsonNamingPolicy.SnakeCaseLower.ConvertName(session.Status.ToString());
 
     /// <summary>A governor decision as a run event's detail: what it would do, the signal and the rule, the turn, and the spend against the budget when known.</summary>
-    internal static string Describe(GovernorDecision d)
+    public static string Describe(GovernorDecision d)
     {
         var spend = d.SpendUsd is { } usd && d.BudgetUsd is { } budget ? string.Create(CultureInfo.InvariantCulture, $", spend {usd:0.00} of {budget:0.00}{Source(d.BudgetSource)}") : "";
         var mode = d.Acted ? "" : $"{JsonNamingPolicy.SnakeCaseLower.ConvertName(d.Mode.ToString())}: ";
@@ -110,7 +109,7 @@ public sealed partial class TaskRunner
     private string LearningRepository() => RepositoryKey(settings.Remote, settings.Request.Context.Repository?.Path);
 
     /// <summary>How learning records name a repository, so budgets and admission requests find the records of the one they are for.</summary>
-    internal static string RepositoryKey(RemoteRepository? remote, string? path) =>
+    public static string RepositoryKey(RemoteRepository? remote, string? path) =>
         remote is not null ? remote.Host is null ? $"{remote.Owner}/{remote.Name}" : $"{remote.Host}/{remote.Owner}/{remote.Name}" : path ?? "unknown";
 
     internal static IReadOnlyList<GovernorCount> Summarize(IEnumerable<GovernorDecision> decisions) =>

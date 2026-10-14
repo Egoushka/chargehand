@@ -3,9 +3,8 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Runners.Api;
-using Chargehand.Modules.Tasks.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Tasks.Api;
 
 /// <summary>The task's first phase: what a restart left to take up, the run ids, branch and caps, and the seed of the first session.</summary>
 public sealed partial class TaskRunner
@@ -21,7 +20,7 @@ public sealed partial class TaskRunner
             run.RunId = RunIds.New();
             run.Runs[^1] = run.RunId;
             var (again, allRuns) = (run.RunId, run.Runs.ToList());
-            journal?.Update(task.Id, e => e with { RunId = again, Runs = allRuns, Container = null });
+            state?.Update(task.Id, e => e with { RunId = again, Runs = allRuns, Container = null });
         }
         // A task that continues an earlier one starts with that task's bundle as its best, so a session that adds nothing to it neither continues nor loses it (ADR 0045).
         run.Best = (resumed?.Best ?? (resumed is null && task.From?.Kept is { } carried ? new BestBundle(carried.BundleRun, carried.Commits) : null)) is { } kept
@@ -107,7 +106,7 @@ public sealed partial class TaskRunner
             run.StartDetail = stack.StartDetail;
         }
         if (run.Resumed is null)
-            journal?.Update(task.Id, e => e with
+            state?.Update(task.Id, e => e with
             {
                 Phase = TaskPhase.Started,
                 RunId = run.RunId,
@@ -158,7 +157,7 @@ public sealed partial class TaskRunner
         }
         var bundle = from.Kept is null ? null
             : await RestoreBundleAsync(from.Kept.BundleRun, ct, from.Runner) ?? throw new ChargehandException(ErrorCode.InvalidRequest,
-                $"the work of the task this one continues is gone: its output volume is kept for {ContinuationSource.KeptFor.TotalDays:0} days after it ended",
+                $"the work of the task this one continues is gone: its output volume is kept for {KeptFor.TotalDays:0} days after it ended",
                 "Send the task again with a goal of its own.");
         await RestoreBundleAsync(from.LastRun, ct, from.Runner);
         return (bundle, ReadProgress(Path.Combine(settings.ScratchRoot, "out", from.LastRun)));
