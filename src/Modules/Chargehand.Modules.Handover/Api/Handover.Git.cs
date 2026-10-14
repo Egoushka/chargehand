@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Handover.Api;
 
 /// <summary>git in the scratch clone: a clean environment, the push's credential, and the remotes chargehand pushes to.</summary>
 public sealed partial class Handover

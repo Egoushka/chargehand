@@ -205,6 +205,6 @@ public class ChangeRunTests
     public void A_verify_command_named_in_the_request_counts_as_a_verification_path_when_changed()
     {
         var plan = new VerifyPlan(["./check.sh"], "request");
-        Assert.Equal(["check.sh", "tests/a.py", "app.csproj"], ChangeRun.VerificationPaths(["src/x.cs", "check.sh", "tests/a.py", "app.csproj"], plan));
+        Assert.Equal(["check.sh", "tests/a.py", "app.csproj"], VerifyCommand.VerificationPaths(["src/x.cs", "check.sh", "tests/a.py", "app.csproj"], plan));
     }
 }

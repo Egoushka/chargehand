@@ -1,7 +1,11 @@
 using System.Diagnostics;
-using Chargehand.Driven;
+using Chargehand.Modules.Handover.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Handover.Tests;
+
+// Inside this namespace, "Handover" is the module's namespace; the alias names the class.
+using Handover = Chargehand.Modules.Handover.Api.Handover;
 
 /// <summary>ADR 0049 with real git: the dependencies' bundles become one branch under the new task's name, merged in the order listed, and a conflict names its paths.</summary>
 public sealed class GitStackSeederTests : IDisposable

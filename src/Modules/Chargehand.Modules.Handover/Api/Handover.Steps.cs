@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Journal.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Handover.Api;
 
 /// <summary>The verification, the push and the pull request of a handover, each a recorded step when the handover has a journal (ADR 0061).</summary>
 public sealed partial class Handover

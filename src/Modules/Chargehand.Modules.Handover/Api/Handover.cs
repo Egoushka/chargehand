@@ -2,14 +2,13 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Sessions.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Handover.Api;
 
 public enum PushCredentialKind { HttpsToken, SshKey }
 
@@ -193,7 +192,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         if (checkout.ExitCode != 0)
             return run.Refuse($"chargehand could not check the branch out: {checkout.Tail}", ErrorCode.SessionFailed, changed: changed, commit: commit);
         var plan = VerifyCommand.Resolve(input.VerifyCommand, run.Scratch);
-        run.VerificationPaths = ChangeRun.VerificationPaths(changed, plan);
+        run.VerificationPaths = VerifyCommand.VerificationPaths(changed, plan);
         if (plan is null)
         {
             if (!input.AllowNoTests && !input.Partial)
