@@ -9,13 +9,11 @@ namespace Chargehand.Architecture.Tests;
 public class UpwardPortTests
 {
     /// <summary>
-    /// Full names of the allowed upward ports: the two the amendment allows, added by C3's Tasks slice. Research implements P4; until Batches is ported, the old
-    /// Driven project implements P3. <c>DrivenRun</c> wires both.
+    /// Full names of the allowed upward ports. The amendment allowed two, added by C3's Tasks slice; P3 (<c>ITaskState</c>, Tasks to Batches) went when task state moved into the
+    /// journal (ADR 0061, amendment of 2026-10-14). Research implements P4, the only one left, and <c>DrivenRun</c> wires it.
     /// </summary>
     internal static readonly HashSet<string> Allowed =
     [
-        // P3 Tasks -> Batches task state.
-        "Chargehand.Modules.Tasks.Api.ITaskState",
         // P4 Tasks -> Research proof.
         "Chargehand.Modules.Tasks.Api.ITaskResults",
     ];
