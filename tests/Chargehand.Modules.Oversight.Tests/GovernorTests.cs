@@ -131,6 +131,15 @@ public class GovernorTests
     }
 
     [Fact]
+    public void A_profiles_probe_patterns_replace_the_built_in_ones()
+    {
+        var g = new Governor(new SessionGovernor(ProbeCommands: 1, ProbePatterns: [@"^ls\b"]));
+        Assert.Empty(g.OnEvent(Bash("p1", "which dotnet"), 1, null, Now));
+        Assert.Empty(g.OnEvent(Bash("p2", "ls"), 2, null, Now));
+        Assert.Equal("environment_probing", Assert.Single(g.OnEvent(Bash("p3", "ls -la"), 3, null, Now)).Signal);
+    }
+
+    [Fact]
     public void An_unchanged_diff_for_the_no_growth_turns_fires_and_a_change_rearms_it()
     {
         var g = new Governor(new SessionGovernor(NoGrowthTurns: 10));

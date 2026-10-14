@@ -45,11 +45,15 @@ public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IR
         foreach (var pattern in (ProbePatterns ?? []).Concat(WaitPatterns ?? []))
             try
             {
-                _ = new Regex(pattern);
+                _ = new Regex(pattern, SessionGovernor.PatternOptions);
             }
             catch (ArgumentException)
             {
                 problems.Add($"pattern '{pattern}' is not a regular expression");
+            }
+            catch (NotSupportedException)
+            {
+                problems.Add($"pattern '{pattern}' uses a lookaround, backreference or atomic group, which the governor does not match");
             }
         return problems;
     }
