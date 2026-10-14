@@ -22,8 +22,9 @@ internal static class ConsoleActions
         app.MapPost("/v1/batches/{id}/tasks/{task}/session/stop", async (string id, string task, HttpContext ctx) =>
             await StopSessionAsync(context(ctx), PrincipalHttp.Of(ctx), id, task, ctx.RequestAborted));
 
+        var retries = new Retries();
         app.MapPost("/v1/batches/{id}/tasks/{task}/retry", async (string id, string task, HttpContext ctx) =>
-            await RetryAsync(context(ctx), PrincipalHttp.Of(ctx), id, task, ctx));
+            await RetryAsync(context(ctx), retries, PrincipalHttp.Of(ctx), id, task, ctx));
 
         app.MapPost("/v1/pulls/{owner}/{repo}/{number:int}/checks/rerun", async (string owner, string repo, int number, HttpContext ctx) =>
             await RerunChecksAsync(context(ctx), PrincipalHttp.Of(ctx), owner, repo, number, ctx.RequestAborted));
@@ -74,7 +75,28 @@ internal static class ConsoleActions
     /// <summary>A new batch of one task, started by the caller: the task as the batch was asked, or, if the failed task kept work, a continuation of it (<c>continue_from</c>, ADR 0045). Only for a batch that
     /// has finished and a task that failed, was cancelled or never started; a task that waits for an answer is answered instead. The task's <c>depends_on</c> is dropped, because what it depended on is in
     /// the old batch. A second retry of the same task returns the batch the first one started.</summary>
-    private static async Task<IResult> RetryAsync(ConsoleContext c, Principal? who, string batch, string task, HttpContext http)
+    /// <summary>The retries this process started, by marker: a retry's start record reaches the run log after its <c>202</c>, so a second retry sent right after the first would not find it there.
+    /// One retry is decided at a time, so two sent together start one batch.</summary>
+    private sealed class Retries
+    {
+        public SemaphoreSlim Gate { get; } = new(1, 1);
+        public Dictionary<string, (string RunId, string? Actor)> Started { get; } = [];
+    }
+
+    private static async Task<IResult> RetryAsync(ConsoleContext c, Retries retries, Principal? who, string batch, string task, HttpContext http)
+    {
+        await retries.Gate.WaitAsync(http.RequestAborted);
+        try
+        {
+            return await RetryOnceAsync(c, retries, who, batch, task, http);
+        }
+        finally
+        {
+            retries.Gate.Release();
+        }
+    }
+
+    private static async Task<IResult> RetryOnceAsync(ConsoleContext c, Retries retries, Principal? who, string batch, string task, HttpContext http)
     {
         var ct = http.RequestAborted;
         var runs = c.Runs;
@@ -82,8 +104,10 @@ internal static class ConsoleActions
             return HttpResults.NotFound();
         var index = await c.IndexAsync(ct);
         var marker = $"Retry of {batch}/{task}.";
-        if (index.Batches.FirstOrDefault(s => s.Request.Text == marker && Principal.Sees(who, s.Actor)) is { } earlier)
-            return Json(new { batch_run_id = batch, task_id = task, action = "retry", run_id = earlier.RunId, changed = false }, StatusCodes.Status200OK);
+        var earlier = retries.Started.TryGetValue(marker, out var held) && Principal.Sees(who, held.Actor) ? held.RunId
+            : index.Batches.FirstOrDefault(s => s.Request.Text == marker && Principal.Sees(who, s.Actor))?.RunId;
+        if (earlier is not null)
+            return Json(new { batch_run_id = batch, task_id = task, action = "retry", run_id = earlier, changed = false }, StatusCodes.Status200OK);
         if (index.RunOf(batch) is null)
             return Conflict("the batch is still running; cancel the task and retry it once the batch has finished");
         if (detail.Task.State is not ("failed" or "cancelled" or "not_started"))
@@ -100,6 +124,7 @@ internal static class ConsoleActions
             return Json(refusal.Body(), refusal.Status);
         if (runs.Start(admitted.Request, null, null, who?.Name) is not { } run)
             return Json(ChargehandServer.Problem($"{RunService.MaxUnfinished} runs are unfinished; retry later"), StatusCodes.Status429TooManyRequests);
+        retries.Started[marker] = (run.Id, who?.Name);
         http.Response.Headers.Location = $"/v1/runs/{run.Id}";
         Tell(c, who, batch, task, $"retry started as run {run.Id}{(kept ? ", continuing the work it kept" : "")}");
         return Json(new { batch_run_id = batch, task_id = task, action = "retry", run_id = run.Id, continue_from = kept, changed = true }, StatusCodes.Status202Accepted);
