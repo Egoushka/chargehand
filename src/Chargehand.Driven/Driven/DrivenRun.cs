@@ -87,6 +87,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     private readonly ConcurrentDictionary<string, (BatchControl Control, Action<RunStatus>? Publish)> _live = new(StringComparer.Ordinal);
 
+    /// <summary>The tasks of each unfinished batch as the journal folds them (ADR 0061, amendment of 2026-10-14): opened when a batch starts or <see cref="UnfinishedAsync"/> reads it back.</summary>
+    private readonly ConcurrentDictionary<string, TaskJournal> _tasks = new(StringComparer.Ordinal);
+
     /// <summary>What an operator can do to a batch this process is running now (CHARGEHAND-214); null for any other.</summary>
     public BatchControl? ControlOf(string batchRunId) => _live.TryGetValue(batchRunId, out var live) ? live.Control : null;
 
@@ -116,6 +119,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     public void Dispose()
     {
         _global.Dispose();
+        foreach (var tasks in _tasks.Values)
+            tasks.Dispose();
         (_admission as IDisposable)?.Dispose();
         if (_steps is { IsValueCreated: true, Value.IsCompletedSuccessfully: true })
             _steps.Value.Result.Dispose();
@@ -146,8 +151,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     /// <summary>Tasks running now, across every batch of this process.</summary>
     public int SessionsRunning => Math.Max(0, _maxParallelTotal - _global.CurrentCount);
 
-    /// <summary>The unfinished batches' saved state (ADR 0043): one entry per batch this process or its predecessor is running. It carries the batch's token key; a reader must not pass it on.</summary>
-    public IReadOnlyList<BatchState> LiveBatches() => _store?.List() ?? [];
+    /// <summary>The unfinished batches' saved state (ADR 0043): one entry per batch this process or its predecessor is running, with its tasks as the journal folds them once this process has
+    /// opened them. It carries the batch's token key; a reader must not pass it on.</summary>
+    public IReadOnlyList<BatchState> LiveBatches() =>
+        [.. (_store?.List() ?? []).Select(b => _tasks.TryGetValue(b.RunId, out var tasks) ? b with { Tasks = tasks.Entries } : b)];
 
     /// <summary>Usage or rate limits that hold new starts now, one per batch.</summary>
     public IReadOnlyList<RateLimitPause> RateLimitPauses(DateTimeOffset now) => [.. _pauses.Values.Where(p => p.ResetsAt > now).OrderBy(p => p.ResetsAt)];
@@ -226,6 +233,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         await log.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, request.Context.Preset, null, null, result, Actor: actor), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
         await ForgetStepsAsync(runId);
         _store?.Delete(runId);
+        if (_tasks.TryRemove(runId, out var ended))
+            ended.Dispose();
         _pauses.TryRemove(runId, out _);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         PruneRecords();
@@ -328,11 +337,12 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         return values;
     }
 
-    /// <summary>The batches a restart interrupted: saved state with no run record (ADR 0043). State whose run record exists is a leftover and is deleted.</summary>
+    /// <summary>The batches a restart interrupted: saved state with no run record (ADR 0043), each with its tasks as the journal folds them. State whose run record exists is a leftover and is
+    /// deleted. A snapshot written before the task journal is imported into it first (<see cref="BatchStateStore.ImportTasksAsync"/>).</summary>
     public async Task<IReadOnlyList<BatchState>> UnfinishedAsync(CancellationToken ct)
     {
         PruneRecords();
-        if (_store is null || services is null)
+        if (_store is null || _steps is null || services is null)
             return [];
         List<BatchState> open = [];
         foreach (var state in _store.List())
@@ -341,14 +351,17 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             {
                 await ForgetStepsAsync(state.RunId);
                 _store.Delete(state.RunId);
+                continue;
             }
-            else
-                open.Add(state);
+            var steps = await _steps.Value;
+            var saved = await _store.ImportTasksAsync(steps, state, ct);
+            var tasks = _tasks[state.RunId] = await TaskJournal.OpenAsync(steps, state.RunId, saved.Tasks, ct);
+            open.Add(saved with { Tasks = tasks.Entries });
         }
         return open;
     }
 
-    /// <summary>Drops a finished batch's steps from the journal. It goes before the batch's state file does: a crash between the two leaves a state file whose run record exists, which the next start
+    /// <summary>Drops a finished batch's task events and steps from the journal. It goes before the batch's state file does: a crash between the two leaves a state file whose run record exists, which the next start
     /// deletes and forgets again. A journal that cannot be written does not fail a batch that has its run record.</summary>
     private async Task ForgetStepsAsync(string runId)
     {
@@ -356,7 +369,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             return;
         try
         {
-            await (await _steps.Value).ForgetAsync(runId);
+            var steps = await _steps.Value;
+            await TaskJournal.ForgetAsync(steps, runId);
+            await steps.ForgetAsync(runId);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
@@ -493,8 +508,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             (ready, plan) = await PlanAsync(request, ready, runId, request.Driven.Plan is not null ? "request" : "profile", s.Planner, ct);
             progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Plan) with { Detail = plan.Describe() });
         }
-        var journal = _store is null ? null : new BatchJournal(_store, resume ?? new BatchState(runId, started, traceId, request, tokenKey,
-            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From, DependsOn: t.DependsOn, Size: t.Size, SplitFrom: t.SplitFrom, SizeFrom: t.SizeFrom, Title: t.Title))], unresolved, plan, actor));
+        var tasks = await TasksOfAsync(runId, resume, () => new BatchState(runId, started, traceId, request, tokenKey,
+            [.. ready.Select(t => new TaskEntry(t.Id, t.Ref, t.Goal, From: t.From, DependsOn: t.DependsOn, Size: t.Size, SplitFrom: t.SplitFrom, SizeFrom: t.SizeFrom, Title: t.Title))], unresolved, plan, actor,
+            TaskJournal.FlowOf(runId)), ct);
 
         var checkout = await s.Checkout(request.Context.Repository!, request.Context.Preset, ct);
         // A forge other than GitHub acts with one token, both to open the pull request and to integrate it.
@@ -560,7 +576,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, route.Exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor, RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge));
             var runner = new TaskRunner(site.Engine, steps is null ? site.Workspace : new JournaledWorkspaceEngine(site.Workspace, site.Engine, steps, runId),
                 steps is null ? site.Volumes : new JournaledSessionVolumes(site.Volumes, steps, runId), handover, log, mint, task, new DrivenTaskResults(s.Resolver, s.SupportCheckFor?.Invoke(actor), sign), s.Poll, publish: Stamp(site.Name),
-                state: new BatchTaskState(journal), detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf,
+                tasks: tasks, detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf,
                 outageGrace: s.OutageGrace, steps: steps, records: records?.Tasks, stops: ControlOf(runId)?.Sessions);
             return new SiteBatch(site, net, runner);
         }
@@ -586,21 +602,22 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         BatchOutcome ran;
         try
         {
-            var router = new SiteRouter(RunnerOn, sites[0].Name, report, new BatchTaskState(journal), sessionsStarted,
+            var router = new SiteRouter(RunnerOn, sites[0].Name, report, tasks, sessionsStarted,
                 (_admission as RunnerPool) is { } pool ? pool.Failed : null);
             var requestMb = await AdmissionRequestAsync(TaskRunner.RepositoryKey(RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge), request.Context.Repository?.Path), drivenPreset.MemoryMb, ct);
-            ran = await new BatchScheduler(router.RunAsync, admission: _admission, taskRequestMb: requestMb, control: ControlOf(runId)).RunAsync(ready, limits, ct, o =>
+            ran = await new BatchScheduler(router.RunAsync, admission: _admission, taskRequestMb: requestMb, control: ControlOf(runId)).RunAsync(ready, limits, ct, async o =>
             {
                 if (detaching())
                     return;
-                journal?.Finish(o);
+                if (tasks is not null)
+                    await tasks.FinishedAsync(o);
                 progress?.Invoke(TaskFinished(runId, o));
             }, (id, why) => progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.SessionProgress) with { TaskId = id, Detail = $"task {id}: {why}" }),
-            o =>
+            async o =>
             {
-                // A task that never started (a dependency failed, or an operator cancelled it) is final too: the saved state says so, so a console reads it and a restart keeps it.
-                if (!detaching())
-                    journal?.Finish(o);
+                // A task that never started (a dependency failed, or an operator cancelled it) is final too: the journal says so, so a console reads it and a restart keeps it.
+                if (!detaching() && tasks is not null)
+                    await tasks.FinishedAsync(o);
                 progress?.Invoke(TaskFinished(runId, o));
             },
             (id, lifts) =>
@@ -734,6 +751,22 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var choice = MemoryRequest.Choose(profile.Driven?.Admission ?? new DrivenAdmission(), limitMb, repository, records, DateTimeOffset.UtcNow);
         Console.Error.WriteLine($"chargehand: admission: a task asks the host for {choice.Describe()}; its container is limited to {limitMb} MiB");
         return choice.Mb;
+    }
+
+    /// <summary>The batch's tasks as the journal folds them; null when this server keeps no state. A new batch's snapshot (<paramref name="created"/>) is saved first, with the tasks as planned. A
+    /// resumed one is folded already, by <see cref="UnfinishedAsync"/>; else its saved snapshot, or <paramref name="resume"/> saved as one, is imported and folded now.</summary>
+    private async Task<TaskJournal?> TasksOfAsync(string runId, BatchState? resume, Func<BatchState> created, CancellationToken ct)
+    {
+        if (_store is null || _steps is null)
+            return null;
+        if (resume is not null && _tasks.TryGetValue(runId, out var folded))
+            return folded;
+        var steps = await _steps.Value;
+        var state = resume is null ? created() : _store.List().FirstOrDefault(b => b.RunId == runId);
+        if (resume is null || state is null)
+            _store.Save(state ??= resume!);
+        state = await _store.ImportTasksAsync(steps, state, ct);
+        return _tasks[runId] = await TaskJournal.OpenAsync(steps, runId, state.Tasks, ct);
     }
 
     private static ResolvedTask Resumed(RunRequest request, TaskEntry entry)

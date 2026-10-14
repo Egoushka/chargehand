@@ -4,20 +4,6 @@ using Chargehand.Modules.Sessions.Api;
 
 namespace Chargehand.Modules.Tasks.Api;
 
-/// <summary>P3, an upward port (ADR 0060, amendment of 2026-10-14; C3 brief, section 3): the batch's state of one task, which the batch keeps and the task runner reads and writes as the
-/// task goes: the task's entry in the batch state (ADR 0043). The batch code implements it and the host wires it. It goes when the batch state does (ADR 0061, C4). The records kept for the console
-/// and the handle that stops a running session are Tasks' own (<see cref="TaskRecordStore"/>, <see cref="SessionStops"/>).</summary>
-public interface ITaskState
-{
-    /// <summary>The task's entry; null when the batch keeps no state.</summary>
-    TaskEntry? Entry(string taskId);
-
-    void Update(string taskId, Func<TaskEntry, TaskEntry> change);
-
-    /// <summary>Records a task's end, which the batch's scheduler reached after its caps had their say.</summary>
-    void Finish(TaskOutcome outcome);
-}
-
 /// <summary>P4, an upward port (ADR 0060, amendment of 2026-10-14; C3 brief, section 3): the task's own <c>result/v1</c>, built from what the task left with its citations checked against the
 /// branch commit and run through the support check, then signed. The result and proof code (Research) implements it and the host wires it.</summary>
 public interface ITaskResults

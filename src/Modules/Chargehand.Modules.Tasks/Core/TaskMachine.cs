@@ -4,7 +4,7 @@ using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Modules.Tasks.Core;
 
-/// <summary>A transition of a task's entry (ADR 0043): what the journal's <c>&lt;batch&gt;/tasks</c> flow will hold, one event per change, folded by <see cref="TaskMachine.Decide"/>.</summary>
+/// <summary>A transition of a task's entry (ADR 0043): what the journal's <c>&lt;batch&gt;/tasks</c> flow holds, one event per change, folded by <see cref="TaskMachine.Decide"/>.</summary>
 internal abstract record TaskEvent;
 
 /// <summary>The scheduler placed the task on a runner, before anything starts there (ADR 0058).</summary>
@@ -35,12 +35,17 @@ internal sealed record TaskFinished(TaskOutcome Outcome) : TaskEvent;
 /// <summary>The runner could not be reached before the task started there: it is placed again from scratch, keeping what planning gave it.</summary>
 internal sealed record TaskReplaced : TaskEvent;
 
+/// <summary>The entry a batch snapshot written before the task journal held for the task (ADR 0061, amendment of 2026-10-14). One release only: it goes with the importer
+/// (<see cref="TaskJournal.ImportAsync"/>).</summary>
+internal sealed record TaskImported(TaskEntry Entry) : TaskEvent;
+
 internal abstract record TaskCommand;
 
-/// <summary>Keep the event: the journal's task flow from C4 slice S6; until then the entry the fold gives is saved through P3 (<see cref="ITaskState.Update"/>).</summary>
+/// <summary>Keep the event in the journal's <c>&lt;batch&gt;/tasks</c> flow (<see cref="TaskJournal"/>).</summary>
 internal sealed record JournalTaskEvent(TaskEvent Event) : TaskCommand;
 
-/// <summary>Tell the batch the task ended (P3, <see cref="ITaskState.Finish"/>).</summary>
+/// <summary>Tell the batch the task ended. The batch carries it out: its scheduler gets the outcome back from the run and appends the end again after its caps
+/// (<see cref="TaskJournal.FinishedAsync"/>).</summary>
 internal sealed record ReportTaskEnd(TaskOutcome Outcome) : TaskCommand;
 
 /// <summary>A task's entry as a state machine (C4 brief, section 3): Pending → Started → Finished, Started again for each continuation (or back to Finished when one cannot start), then
@@ -88,7 +93,11 @@ internal static class TaskMachine
         TaskContinuationFailed f => e with { Phase = TaskPhase.Finished, RunId = f.RunId, Container = null, Continuation = f.Continuation, Runs = f.Runs },
         // C4 brief, section 3, item 2: Failed stands for failed, cancelled, needs input and not started alike.
         TaskFinished f => e with { Phase = f.Outcome.State == TaskState.Completed ? TaskPhase.HandedOver : TaskPhase.Failed, Outcome = f.Outcome },
-        TaskReplaced => new TaskEntry(e.Id, e.Ref, e.Goal, From: e.From, DependsOn: e.DependsOn, Size: e.Size, SplitFrom: e.SplitFrom, SizeFrom: e.SizeFrom, Title: e.Title),
+        TaskReplaced => Planned(e),
+        TaskImported i => i.Entry,
         _ => throw new InvalidOperationException($"no transition for {input.GetType().Name}"),
     };
+
+    /// <summary>The task as the batch resolved and planned it, with nothing of a run: what its events fold over, and what a replace goes back to.</summary>
+    public static TaskEntry Planned(TaskEntry e) => new(e.Id, e.Ref, e.Goal, From: e.From, DependsOn: e.DependsOn, Size: e.Size, SplitFrom: e.SplitFrom, SizeFrom: e.SizeFrom, Title: e.Title);
 }

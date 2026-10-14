@@ -1,4 +1,6 @@
 using Chargehand.Contracts;
+using Chargehand.Driven;
+using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
 
@@ -6,7 +8,7 @@ namespace Chargehand.Tests;
 
 /// <summary>A batch in flight at the deploy that moved task state into the journal (ADR 0061, amendment of 2026-10-14). <c>SnapshotImport/run-batch-fixture.json</c> is the snapshot the code before
 /// it wrote (main at <c>a8abb6b</c>) for three tasks run one at a time, stopped with t1 handed over, t2's session running and t3 not started; only its token key was replaced by a placeholder. It is resumed on a fresh
-/// server: an empty journal and an engine that knows no container, so t2's container is found exited.</summary>
+/// server: an empty journal and an engine that knows no container, so t2's container is found exited. The first test was written against that code and passes on it unchanged.</summary>
 public class SnapshotImportTests
 {
     private const string BatchId = "run-batch-fixture";
@@ -55,4 +57,48 @@ public class SnapshotImportTests
         Assert.Equal(ResultStatus.Completed, (await rig.Log.ReadAsync(BatchId, default)).Run!.Result.Status);
         Assert.Empty(Directory.GetFiles(rig.StateDirectory, "*.json"));
     }
+
+    [Fact]
+    public async Task The_import_keeps_the_snapshot_puts_each_tasks_entry_into_the_journal_and_saves_the_tasks_as_planned()
+    {
+        using var rig = WithFixture();
+
+        var state = Assert.Single(await rig.Run.UnfinishedAsync(default));
+
+        var kept = Path.Combine(rig.StateDirectory, BatchId + ".imported");
+        Assert.Equal(File.ReadAllText(Fixture), File.ReadAllText(kept));
+        var saved = Assert.Single(new BatchStateStore(rig.StateDirectory).List());
+        Assert.Equal(TaskJournal.FlowOf(BatchId), saved.TaskFlow);
+        Assert.All(saved.Tasks, t => Assert.Equal((TaskPhase.Pending, null, null), (t.Phase, t.RunId, t.Outcome)));
+        Assert.Equal(state.TokenKey, saved.TokenKey);
+        await using (var journal = await DrivenJournal.OpenAsync(rig.StateDirectory))
+            Assert.Equal(["imported", "imported", "imported"], (await journal.ReadEventsAsync(TaskJournal.FlowOf(BatchId))).Select(e => e.Kind));
+        // A second start finds the snapshot imported and folds the same entries.
+        var again = Assert.Single(await rig.Restart().UnfinishedAsync(default));
+        Assert.Equal(state.Tasks.Select(Shown), again.Tasks.Select(Shown));
+        Assert.Equal(File.ReadAllText(Fixture), File.ReadAllText(kept));
+
+        await rig.Volumes.WriteTaskAsync(SecondRun, new SessionTask(SecondRun, "two", $"chargehand/{SecondRun}", 80, 60, 600, 1_000_000), default);
+        Assert.Equal(ResultStatus.Completed, (await rig.Run.RunAsync(again.Request, again.RunId, Token, default, null, () => false, again)).Status);
+        Assert.Empty(Directory.GetFiles(rig.StateDirectory, BatchId + ".*"));
+    }
+
+    /// <summary>A start cut inside the import, after the snapshot was kept and one task's entry went into the journal: the next start imports again and folds the same entries.</summary>
+    [Fact]
+    public async Task An_import_cut_short_repeats_to_the_same_entries()
+    {
+        using var whole = WithFixture();
+        var expected = Assert.Single(await whole.Run.UnfinishedAsync(default)).Tasks.Select(Shown).ToList();
+        using var rig = WithFixture();
+        File.Copy(Fixture, Path.Combine(rig.StateDirectory, BatchId + ".imported"));
+        var before = Assert.Single(new BatchStateStore(rig.StateDirectory).List());
+        await using (var journal = await DrivenJournal.OpenAsync(rig.StateDirectory))
+            await TaskJournal.ImportAsync(journal, BatchId, before.Tasks.Take(1));
+
+        var state = Assert.Single(await rig.Run.UnfinishedAsync(default));
+
+        Assert.Equal(expected, state.Tasks.Select(Shown));
+    }
+
+    private static string Shown(TaskEntry e) => System.Text.Json.JsonSerializer.Serialize(e, ContractJson.Options);
 }

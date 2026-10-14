@@ -262,7 +262,7 @@ public class BatchSchedulerTests
     {
         var runner = new ScriptedRunner();
         List<TaskOutcome> skipped = [];
-        var batch = new BatchScheduler(runner).RunAsync([Dep("t1"), Dep("t2", "t1"), Dep("t3", "t2"), Dep("t4")], Limits(parallel: 1), default, onSkipped: skipped.Add);
+        var batch = new BatchScheduler(runner).RunAsync([Dep("t1"), Dep("t2", "t1"), Dep("t3", "t2"), Dep("t4")], Limits(parallel: 1), default, onSkipped: o => { skipped.Add(o); return Task.CompletedTask; });
         await runner.WaitStarted(1);
         runner.Finish("t1", ended);
         await runner.WaitStarted(2);

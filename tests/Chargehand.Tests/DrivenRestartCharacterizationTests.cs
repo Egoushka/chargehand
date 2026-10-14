@@ -110,7 +110,7 @@ public class DrivenRestartCharacterizationTests
         var runner = new OverCapRunner();
         var finished = new List<TaskOutcome>();
 
-        await new BatchScheduler(runner).RunAsync([new ResolvedTask("t1", null, "goal")], new BatchLimits(1, null, null, new TaskLimits(1000, null)), default, onFinished: finished.Add);
+        await new BatchScheduler(runner).RunAsync([new ResolvedTask("t1", null, "goal")], new BatchLimits(1, null, null, new TaskLimits(1000, null)), default, onFinished: o => { finished.Add(o); return Task.CompletedTask; });
 
         // The task runner's save (its own outcome) is followed by the scheduler's (the rewrite): two writers of one end.
         Assert.Equal((TaskState.Failed, ErrorCode.VerificationFailed, "the tests failed"), (runner.Returned!.State, runner.Returned.Error, runner.Returned.Detail));

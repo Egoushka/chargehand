@@ -40,12 +40,12 @@ public sealed class BatchScheduler(RunTask run, TimeSpan? backoff = null, IAdmis
     /// <summary>How many runners a task is placed on before its runner's silence is the task's failure.</summary>
     public const int MaxPlacements = BatchMachine.MaxPlacements;
 
-    /// <param name="onFinished">Told each started task's final outcome as it ends, after the caps have had their say.</param>
+    /// <param name="onFinished">Told each started task's final outcome as it ends, after the caps have had their say; the next step waits for it.</param>
     /// <param name="onHold">Told a task's id and why, when it first waits for the host and when it is let in against the rule.</param>
-    /// <param name="onSkipped">Told the outcome of a task that will not start because a task it depends on did not complete.</param>
+    /// <param name="onSkipped">Told the outcome of a task that will not start because a task it depends on did not complete; the next step waits for it.</param>
     /// <param name="onPause">Told a task's id and when the limit it hit lifts, when a usage or rate limit holds new starts.</param>
-    public async Task<BatchOutcome> RunAsync(IReadOnlyList<ResolvedTask> tasks, BatchLimits limits, CancellationToken ct, Action<TaskOutcome>? onFinished = null,
-        Action<string, string>? onHold = null, Action<TaskOutcome>? onSkipped = null, Action<string, DateTimeOffset>? onPause = null)
+    public async Task<BatchOutcome> RunAsync(IReadOnlyList<ResolvedTask> tasks, BatchLimits limits, CancellationToken ct, Func<TaskOutcome, Task>? onFinished = null,
+        Action<string, string>? onHold = null, Func<TaskOutcome, Task>? onSkipped = null, Action<string, DateTimeOffset>? onPause = null)
     {
         var plan = new SchedulePlan([.. tasks], limits.MaxParallel, limits.MaxTokensTotal, limits.MaxUsdTotal, limits.PerTask, backoff ?? UsageLimit.DefaultBackoff, admission?.Interval);
         using var shell = new BatchSchedulerRun(plan, new ScheduleHost(run, limits.Global, admission, taskRequestMb, control, time ?? TimeProvider.System),
