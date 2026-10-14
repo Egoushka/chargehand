@@ -124,6 +124,34 @@ public sealed class TaskJournalTests : IAsyncLifetime
     }
 
     [Fact]
+    public void Every_kind_a_task_event_is_written_as_is_one_the_fold_knows()
+    {
+        TaskEvent[] all = [.. Life, new TaskReplaced(), new TaskImported(Planned)];
+        Assert.All(all, e => Assert.True(TaskEventJson.Knows(TaskEventJson.Encode("t1", e).Kind)));
+        Assert.False(TaskEventJson.Knows("operator_cancelled"));
+    }
+
+    /// <summary>ADR 0063: the scheduler's events share the flow. They come back in the order they were appended, beside the task events and untouched by the fold; a task event's kind is not
+    /// another writer's to append.</summary>
+    [Fact]
+    public async Task Another_writers_events_are_kept_in_order_beside_the_task_events_and_come_back_on_reopening()
+    {
+        var tasks = await TaskJournal.OpenAsync(_journal, Batch, [Planned]);
+        await tasks.AppendAsync("operator_cancelled", """{"task":"t2","at":"2026-10-14T12:00:00+00:00"}""");
+        await tasks.PlacedAsync("t1", "r1");
+        await tasks.AppendAsync("ended", """{"task":"t1"}""");
+
+        var reopened = await TaskJournal.OpenAsync(_journal, Batch, [Planned]);
+
+        (string, string)[] others = [("operator_cancelled", """{"task":"t2","at":"2026-10-14T12:00:00+00:00"}"""), ("ended", """{"task":"t1"}""")];
+        Assert.Equal(others, tasks.Others);
+        Assert.Equal(others, reopened.Others);
+        Assert.Equal("r1", reopened.Entry("t1")!.Runner);
+        await Assert.ThrowsAsync<ArgumentException>(() => tasks.AppendAsync("finished", """{"task":"t1"}"""));
+        Assert.Equal(["operator_cancelled", "placed", "ended"], (await _journal.ReadEventsAsync(TaskJournal.FlowOf(Batch))).Select(e => e.Kind));
+    }
+
+    [Fact]
     public async Task An_event_the_tasks_phase_does_not_take_is_refused_and_not_written()
     {
         var tasks = await TaskJournal.OpenAsync(_journal, Batch, [Planned]);
