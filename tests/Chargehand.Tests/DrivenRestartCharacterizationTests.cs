@@ -11,12 +11,12 @@ using Chargehand.Modules.Tasks.Api;
 namespace Chargehand.Tests;
 
 /// <summary>C4 slice S1: how a batch behaves across a restart today, pinned before the batch, task and session state machines replace the code (C4 brief, section 3). "Restart" is a
-/// second <see cref="DrivenRun"/> on the same run log, state directory and fake engine, as in <see cref="DrivenResumeTests"/>. The skipped tests state what the owner decided C4 makes durable.</summary>
+/// second <see cref="DrivenRun"/> on the same run log, state directory and fake engine, as in <see cref="DrivenResumeTests"/>. The rate-limit pause and the operator's cancel
+/// before start are durable since ADR 0063 (owner decision 2026-10-14).</summary>
 public class DrivenRestartCharacterizationTests
 {
     private const string Commit = "abc1234def5678abc1234def5678abc1234def56";
     private const string BatchId = "run-batch-c";
-    private const string Durability = "C4 durability slice: owner decision 2026-10-14";
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
 
     private static string Token(TaskGrant g) => $"tok-{g.RunId}";
@@ -171,7 +171,7 @@ public class DrivenRestartCharacterizationTests
         Assert.Contains("integration ended early: cancelled", row.Detail, StringComparison.Ordinal);
     }
 
-    [Fact(Skip = Durability)]
+    [Fact]
     public async Task A_rate_limit_pause_survives_a_restart_and_holds_new_starts_until_it_lifts()
     {
         using var rig = new DrivenRunTests.Rig(durable: true, script: goal => goal == "two" ? SessionStatus.RateLimited : SessionStatus.Completed);
@@ -205,7 +205,7 @@ public class DrivenRestartCharacterizationTests
         await resumed;
     }
 
-    [Fact(Skip = Durability)]
+    [Fact]
     public async Task An_operator_cancel_before_start_survives_a_restart_and_the_task_never_starts()
     {
         using var rig = new DrivenRunTests.Rig(durable: true);
@@ -220,7 +220,7 @@ public class DrivenRestartCharacterizationTests
         var first = rig.Run.RunAsync(Request("one", "two"), BatchId, Token, stop.Token, null, () => false);
         await started.Task.WaitAsync(Patience);
         // The operator cancels t2 while t1 runs, and the server stops before the scheduler looks again.
-        Assert.True(rig.Run.ControlOf(BatchId)!.CancelTask("t2", _ => true));
+        Assert.True(await rig.Run.ControlOf(BatchId)!.CancelTaskAsync("t2", _ => true));
         await stop.CancelAsync();
         await first;
         var state = Assert.Single(await rig.Restart().UnfinishedAsync(default));

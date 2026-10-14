@@ -576,7 +576,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             var router = new SiteRouter(RunnerOn, sites[0].Name, report, tasks, sessionsStarted,
                 (_admission as RunnerPool) is { } pool ? pool.Failed : null);
             var requestMb = await AdmissionRequestAsync(TaskRunner.RepositoryKey(RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge), request.Context.Repository?.Path), drivenPreset.MemoryMb, ct);
-            ran = await new BatchScheduler(router.RunAsync, admission: _admission, taskRequestMb: requestMb, control: ControlOf(runId)).RunAsync(ready, limits, ct, async o =>
+            ran = await new BatchScheduler(router.RunAsync, admission: _admission, taskRequestMb: requestMb, control: ControlOf(runId), journal: tasks).RunAsync(ready, limits, ct, async o =>
             {
                 if (detaching())
                     return;

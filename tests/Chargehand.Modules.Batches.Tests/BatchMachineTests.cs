@@ -156,6 +156,82 @@ public class BatchMachineTests
         Assert.Equal(Rows[row].Then, last.Select(Show));
     }
 
+    /// <summary>A restart (ADR 0063): <see cref="Replayed"/> is what the journal kept, folded with <see cref="BatchMachine.Replay"/>; <see cref="Live"/> follows in the new process, and the row checks
+    /// what its last event asks for.</summary>
+    private sealed record ReplayRow(SchedulePlan Plan, ScheduleEvent[] Replayed, ScheduleEvent[] Live, string[] Then);
+
+    private static Ended RateLimit(string id, double minute = 0, DateTimeOffset? reset = null) => End(id, TaskState.Failed, error: ErrorCode.RateLimited, retryAfter: reset, minute: minute);
+
+    private static readonly Dictionary<string, ReplayRow> ReplayRows = new()
+    {
+        ["nothing kept: the restart starts the batch from the start"] = new(Plan(), [], [Tick(30)], ["place t1"]),
+        ["a kept end is not placed again"] = new(Plan(2, 1), [End("t1")], [Tick(30)], ["place t2"]),
+        ["a kept rate limit holds new starts until its recorded reset, not one counted from the restart"] = new(Plan(), [RateLimit("t1", reset: At(20))], [Tick(5)], ["wait until +20m"]),
+        ["a kept rate limit with no reset holds for the backoff from when it was hit"] = new(Plan(), [RateLimit("t1")], [Tick(0.5)], ["wait until +1m"]),
+        ["a pause that lifted before the restart holds nothing"] = new(Plan(), [RateLimit("t1", reset: At(20))], [Tick(30)], ["place t2"]),
+        ["a kept strike makes the next rate limit stop the batch"] = new(Plan(3, 1), [RateLimit("t1")], [Tick(2), Admit("t2", 2), RateLimit("t2", 2)], ["finish t2 Failed RateLimited"]),
+        ["a kept completion after a rate limit resets the strikes"] = new(Plan(3, 1), [RateLimit("t1"), End("t2", minute: 1)], [Tick(2), Admit("t3", 2), RateLimit("t3", 2)],
+            ["finish t3 Failed RateLimited", "pause t3 until +3m"]),
+        ["two kept rate limits in a row leave the batch stopped"] = new(Plan(3, 1), [RateLimit("t1"), RateLimit("t2", 1)], [Tick(30)], ["done"]),
+        ["kept placements count towards the third"] = new(Plan(1, 1), [Unreachable("t1"), Unreachable("t1")], [Tick(), Admit("t1"), Unreachable("t1")],
+            ["finish t1 Failed ContainerUnavailable"]),
+        ["one kept placement leaves two"] = new(Plan(1, 1), [Unreachable("t1")], [Tick(), Admit("t1"), Unreachable("t1")], ["hold t1: runner down"]),
+        ["a kept operator cancel keeps the pending task from starting"] = new(Plan(2, 1), [new OperatorCancelled("t2")], [Tick()], ["skip t2 Cancelled Cancelled", "place t1"]),
+        ["a kept failure skips its dependents at the first look"] = new(Plan([Dep("t1"), Dep("t2", "t1"), Dep("t3")], 1), [End("t1", TaskState.Failed)], [Tick()],
+            ["skip t2 NotStarted", "place t3"]),
+        ["a kept end's spend counts towards the batch's cap"] = new(Plan(2, 1, tokens: 2500, perTask: 2000), [End("t1", tokens: 1800)], [Tick()], ["done"]),
+        ["an event that is not kept is skipped on replay"] = new(Plan(2, 1), [Tick(), Admit("t1"), Report("t1", 5000), new Halt()], [Tick()], ["place t1"]),
+        ["a kept end of a task the plan does not have is skipped"] = new(Plan(2, 1), [End("t9"), new OperatorCancelled("t9")], [Tick()], ["place t1"]),
+        ["a second kept end of an ended task is skipped"] = new(Plan(3, 1), [End("t1"), RateLimit("t1")], [Tick()], ["place t2"]),
+    };
+
+    public static TheoryData<string> ReplayNames() => new(ReplayRows.Keys);
+
+    [Theory]
+    [MemberData(nameof(ReplayNames))]
+    public void Replays(string row)
+    {
+        var (plan, replayed, live, then) = ReplayRows[row];
+        var (state, _) = BatchMachine.Replay(plan, replayed);
+        IReadOnlyList<ScheduleCommand> last = [];
+        foreach (var e in live)
+        {
+            var decision = BatchMachine.Decide(state, e);
+            state = decision.State;
+            last = decision.Commands;
+        }
+        Assert.Equal(then, last.Select(Show));
+    }
+
+    [Fact]
+    public void A_replay_carries_out_nothing_and_returns_the_pause_to_tell_again()
+    {
+        var (state, pause) = BatchMachine.Replay(Plan(), [End("t1"), RateLimit("t2", 1, At(20))]);
+        Assert.Equal(("t2", At(20)), (pause!.TaskId, pause.Until));
+        Assert.Equal((At(20), 1, 200L), (state.PausedUntil, state.Strikes, state.DoneTokens));
+        Assert.Equal([SlotPhase.Ended, SlotPhase.Ended, SlotPhase.Pending], state.Slots.Select(x => x.Phase));
+        Assert.Null(BatchMachine.Replay(Plan(), [End("t1")]).Pause);
+    }
+
+    [Fact]
+    public void The_journaled_events_round_trip_and_a_kind_or_payload_it_does_not_know_is_skipped()
+    {
+        var ended = End("t1", TaskState.Failed, tokens: 1200, usd: 0.75m, error: ErrorCode.RateLimited, retryAfter: At(20), minute: 3) is var e
+            ? e with { Outcome = e.Outcome with { Runner = "r1", Detail = "limit" } } : null!;
+        var (kind, payload) = ScheduleEventJson.Encode(ended);
+        Assert.Equal("ended", kind);
+        Assert.Equal(ended, ScheduleEventJson.Decode(kind, payload));
+        var (cancelKind, cancelPayload) = ScheduleEventJson.Encode("t2", At(4));
+        Assert.Equal(("operator_cancelled", """{"task":"t2","at":"2026-10-14T12:04:00+00:00"}"""), (cancelKind, cancelPayload));
+        Assert.Equal(new OperatorCancelled("t2"), ScheduleEventJson.Decode(cancelKind, cancelPayload));
+        Assert.Contains("\"state\":\"failed\"", payload, StringComparison.Ordinal);
+        Assert.Contains("\"error\":\"rate_limited\"", payload, StringComparison.Ordinal);
+        Assert.Null(ScheduleEventJson.Decode("admitted", """{"task":"t1"}"""));
+        Assert.Null(ScheduleEventJson.Decode("ended", """{"task":"t1","at":"2026-10-14T12:04:00+00:00"}"""));
+        Assert.Null(ScheduleEventJson.Decode("ended", """{"task":"t1","outc"""));
+        Assert.Null(ScheduleEventJson.Decode("operator_cancelled", """{"at":"2026-10-14T12:04:00+00:00"}"""));
+    }
+
     [Fact]
     public void A_task_that_can_never_fit_and_the_rest_are_not_started_on_the_cap()
     {

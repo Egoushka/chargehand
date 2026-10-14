@@ -53,7 +53,7 @@ internal static class ConsoleActions
             return Json(new { batch_run_id = batch, task_id = task, action = "cancel", state = "cancelling", changed = false }, StatusCodes.Status202Accepted);
         // A task that has not started is live while the saved state shows it pending with no outcome.
         bool Pending(string id) => c.Driven.LiveBatches().FirstOrDefault(b => b.RunId == batch)?.Tasks.FirstOrDefault(t => t.Id == id) is { Phase: TaskPhase.Pending, Outcome: null };
-        if (!control.CancelTask(task, Pending))
+        if (!await control.CancelTaskAsync(task, Pending))
             return Conflict($"task {task} is no longer running");
         Tell(c, who, batch, task, "cancelled by an operator");
         return Json(new { batch_run_id = batch, task_id = task, action = "cancel", state = "cancelling", changed = true }, StatusCodes.Status202Accepted);

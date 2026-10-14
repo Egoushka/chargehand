@@ -22,11 +22,15 @@ public delegate Task<TaskOutcome> RunTask(ResolvedTask task, IProgress<TaskUsage
 /// could not be reached before its session started (<see cref="TaskOutcome.Replace"/>) is asked for again, up to <see cref="MaxPlacements"/> times in all.</param>
 /// <param name="taskRequestMb">What the host must have free for a task: the working set its repository's sessions have measured (<c>MemoryRequest</c>), not its container's limit.</param>
 /// <param name="time">The clock rate-limit pauses and admission intervals are read on; <see cref="TimeProvider.System"/> when null.</param>
+/// <param name="journal">The batch's task journal: the scheduler keeps its ends and the operator's cancels there and, on a restart, takes up the pause, the placements and the cancels it left
+/// (ADR 0063). Null: nothing outlives the process.</param>
 /// <remarks>The decisions are <see cref="BatchMachine"/>'s; this class runs them: it starts tasks, waits, and feeds back what happened.</remarks>
-public sealed class BatchScheduler(RunTask run, TimeSpan? backoff = null, IAdmission? admission = null, int taskRequestMb = 0, BatchControl? control = null, TimeProvider? time = null)
+public sealed class BatchScheduler(RunTask run, TimeSpan? backoff = null, IAdmission? admission = null, int taskRequestMb = 0, BatchControl? control = null, TimeProvider? time = null,
+    TaskJournal? journal = null)
 {
-    public BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null, IAdmission? admission = null, int taskRequestMb = 0, BatchControl? control = null, TimeProvider? time = null)
-        : this(runner.RunAsync, backoff, admission, taskRequestMb, control, time)
+    public BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null, IAdmission? admission = null, int taskRequestMb = 0, BatchControl? control = null, TimeProvider? time = null,
+        TaskJournal? journal = null)
+        : this(runner.RunAsync, backoff, admission, taskRequestMb, control, time, journal)
     {
     }
 
@@ -48,7 +52,7 @@ public sealed class BatchScheduler(RunTask run, TimeSpan? backoff = null, IAdmis
         Action<string, string>? onHold = null, Func<TaskOutcome, Task>? onSkipped = null, Action<string, DateTimeOffset>? onPause = null)
     {
         var plan = new SchedulePlan([.. tasks], limits.MaxParallel, limits.MaxTokensTotal, limits.MaxUsdTotal, limits.PerTask, backoff ?? UsageLimit.DefaultBackoff, admission?.Interval);
-        using var shell = new BatchSchedulerRun(plan, new ScheduleHost(run, limits.Global, admission, taskRequestMb, control, time ?? TimeProvider.System),
+        using var shell = new BatchSchedulerRun(plan, new ScheduleHost(run, limits.Global, admission, taskRequestMb, control, time ?? TimeProvider.System, journal),
             new ScheduleCallbacks(onFinished, onHold, onSkipped, onPause), ct);
         return await shell.RunAsync();
     }
