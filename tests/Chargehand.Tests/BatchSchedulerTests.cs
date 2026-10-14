@@ -212,19 +212,32 @@ public class BatchSchedulerTests
         Assert.All(outcome.Tasks, t => Assert.Equal(ErrorCode.CostCapReached, t.Error));
     }
 
+    // The rate-limit tests run on a clock that moves only when they say so: a pause lifts exactly when they pass it, never because a loaded machine was slow.
+    private static async Task Waiting(ManualTimeProvider clock)
+    {
+        for (var i = 0; i < 200 && clock.Waiting == 0; i++)
+            await Task.Delay(25);
+        Assert.True(clock.Waiting > 0, "the batch never waited for the clock");
+    }
+
     [Fact]
     public async Task A_rate_limited_task_holds_new_starts_until_its_reset_time_and_running_tasks_go_on()
     {
+        var clock = new ManualTimeProvider();
         var runner = new ScriptedRunner();
-        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMilliseconds(100)).RunAsync(Tasks(3), Limits(parallel: 2), default);
+        var paused = new TaskCompletionSource<DateTimeOffset>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMinutes(1), time: clock)
+            .RunAsync(Tasks(3), Limits(parallel: 2), default, onPause: (_, lifts) => paused.TrySetResult(lifts));
         await runner.WaitStarted(2);
-        var resets = DateTimeOffset.UtcNow.AddMilliseconds(1200);
+        var resets = clock.GetUtcNow().AddMinutes(20);
         runner.Pending["t1"].TrySetResult(new TaskOutcome("t1", TaskState.Failed, "run-t1", "limit", ErrorCode.RateLimited, RetryAfter: resets));
-        await Task.Delay(500);
-        Assert.Equal(["t1", "t2"], runner.Started);           // t3 waits for the reset, although a slot is free
-        runner.Finish("t2");
+        Assert.Equal(resets, await paused.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        runner.Finish("t2");                                    // t2 ran on through the pause
+        await Waiting(clock);
+        clock.Advance(TimeSpan.FromMinutes(20) - TimeSpan.FromSeconds(1));
+        Assert.Equal(["t1", "t2"], runner.Started);             // t3 waits for the reset, although a slot is free
+        clock.Advance(TimeSpan.FromSeconds(1));
         await runner.WaitStarted(3);
-        Assert.True(DateTimeOffset.UtcNow >= resets);
         runner.Finish("t3");
         var outcome = await batch;
         Assert.Equal([TaskState.Failed, TaskState.Completed, TaskState.Completed], outcome.Tasks.Select(t => t.State));
@@ -234,15 +247,20 @@ public class BatchSchedulerTests
     [Fact]
     public async Task A_rate_limit_that_names_no_reset_holds_new_starts_for_the_fixed_backoff()
     {
+        var clock = new ManualTimeProvider();
         var runner = new ScriptedRunner();
-        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMilliseconds(1000)).RunAsync(Tasks(2), Limits(parallel: 1), default);
+        DateTimeOffset? lifts = null;
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMinutes(1), time: clock)
+            .RunAsync(Tasks(2), Limits(parallel: 1), default, onPause: (_, at) => lifts = at);
         await runner.WaitStarted(1);
-        var limited = DateTimeOffset.UtcNow;
+        var limited = clock.GetUtcNow();
         runner.Finish("t1", TaskState.Failed, error: ErrorCode.RateLimited);
-        await Task.Delay(400);
+        await Waiting(clock);
+        Assert.Equal(limited + TimeSpan.FromMinutes(1), lifts);
+        clock.Advance(TimeSpan.FromSeconds(59));
         Assert.Equal(["t1"], runner.Started);
+        clock.Advance(TimeSpan.FromSeconds(1));
         await runner.WaitStarted(2);
-        Assert.True(DateTimeOffset.UtcNow - limited >= TimeSpan.FromMilliseconds(950));
         runner.Finish("t2");
         Assert.True((await batch).Tasks[1].State == TaskState.Completed);
     }
@@ -250,15 +268,20 @@ public class BatchSchedulerTests
     [Fact]
     public async Task A_reset_time_already_past_still_pauses_for_the_backoff()
     {
+        var clock = new ManualTimeProvider();
         var runner = new ScriptedRunner();
-        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMilliseconds(900)).RunAsync(Tasks(2), Limits(parallel: 1), default);
+        DateTimeOffset? lifts = null;
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMinutes(1), time: clock)
+            .RunAsync(Tasks(2), Limits(parallel: 1), default, onPause: (_, at) => lifts = at);
         await runner.WaitStarted(1);
-        var limited = DateTimeOffset.UtcNow;
+        var limited = clock.GetUtcNow();
         runner.Pending["t1"].TrySetResult(new TaskOutcome("t1", TaskState.Failed, "run-t1", "limit", ErrorCode.RateLimited, RetryAfter: limited.AddHours(-1)));
-        await Task.Delay(400);
+        await Waiting(clock);
+        Assert.Equal(limited + TimeSpan.FromMinutes(1), lifts);
+        clock.Advance(TimeSpan.FromSeconds(59));
         Assert.Equal(["t1"], runner.Started);
+        clock.Advance(TimeSpan.FromSeconds(1));
         await runner.WaitStarted(2);
-        Assert.True(DateTimeOffset.UtcNow - limited >= TimeSpan.FromMilliseconds(850));
         runner.Finish("t2");
         await batch;
     }
@@ -266,13 +289,20 @@ public class BatchSchedulerTests
     [Fact]
     public async Task A_reset_sooner_than_the_backoff_waits_for_the_backoff()
     {
+        var clock = new ManualTimeProvider();
         var runner = new ScriptedRunner();
-        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMilliseconds(900)).RunAsync(Tasks(2), Limits(parallel: 1), default);
+        DateTimeOffset? lifts = null;
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMinutes(1), time: clock)
+            .RunAsync(Tasks(2), Limits(parallel: 1), default, onPause: (_, at) => lifts = at);
         await runner.WaitStarted(1);
-        var limited = DateTimeOffset.UtcNow;
-        runner.Pending["t1"].TrySetResult(new TaskOutcome("t1", TaskState.Failed, "run-t1", "limit", ErrorCode.RateLimited, RetryAfter: limited.AddMilliseconds(100)));
+        var limited = clock.GetUtcNow();
+        runner.Pending["t1"].TrySetResult(new TaskOutcome("t1", TaskState.Failed, "run-t1", "limit", ErrorCode.RateLimited, RetryAfter: limited.AddSeconds(5)));
+        await Waiting(clock);
+        Assert.Equal(limited + TimeSpan.FromMinutes(1), lifts);
+        clock.Advance(TimeSpan.FromSeconds(59));
+        Assert.Equal(["t1"], runner.Started);
+        clock.Advance(TimeSpan.FromSeconds(1));
         await runner.WaitStarted(2);
-        Assert.True(DateTimeOffset.UtcNow - limited >= TimeSpan.FromMilliseconds(850));
         runner.Finish("t2");
         await batch;
     }
@@ -280,10 +310,13 @@ public class BatchSchedulerTests
     [Fact]
     public async Task Two_rate_limits_in_a_row_with_no_task_completing_between_end_the_batch_rate_limited_and_the_rest_not_started()
     {
+        var clock = new ManualTimeProvider();
         var runner = new ScriptedRunner();
-        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMilliseconds(200)).RunAsync(Tasks(4), Limits(parallel: 1), default);
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMinutes(1), time: clock).RunAsync(Tasks(4), Limits(parallel: 1), default);
         await runner.WaitStarted(1);
         runner.Finish("t1", TaskState.Failed, error: ErrorCode.RateLimited);
+        await Waiting(clock);
+        clock.Advance(TimeSpan.FromMinutes(1));
         await runner.WaitStarted(2);
         runner.Finish("t2", TaskState.Failed, error: ErrorCode.RateLimited);
         var outcome = await batch;
@@ -297,14 +330,19 @@ public class BatchSchedulerTests
     [Fact]
     public async Task A_task_that_completes_between_two_rate_limits_resets_the_count()
     {
+        var clock = new ManualTimeProvider();
         var runner = new ScriptedRunner();
-        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMilliseconds(150)).RunAsync(Tasks(4), Limits(parallel: 1), default);
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMinutes(1), time: clock).RunAsync(Tasks(4), Limits(parallel: 1), default);
         await runner.WaitStarted(1);
         runner.Finish("t1", TaskState.Failed, error: ErrorCode.RateLimited);
+        await Waiting(clock);
+        clock.Advance(TimeSpan.FromMinutes(1));
         await runner.WaitStarted(2);
         runner.Finish("t2");
         await runner.WaitStarted(3);
         runner.Finish("t3", TaskState.Failed, error: ErrorCode.RateLimited);
+        await Waiting(clock);
+        clock.Advance(TimeSpan.FromMinutes(1));
         await runner.WaitStarted(4);
         runner.Finish("t4");
         var outcome = await batch;
@@ -315,10 +353,11 @@ public class BatchSchedulerTests
     [Fact]
     public async Task A_rate_limit_that_lifts_later_than_the_longest_pause_stops_the_batch_and_says_how_to_switch()
     {
+        var clock = new ManualTimeProvider();
         var runner = new ScriptedRunner();
-        var batch = new BatchScheduler(runner).RunAsync(Tasks(2), Limits(parallel: 1), default);
+        var batch = new BatchScheduler(runner, time: clock).RunAsync(Tasks(2), Limits(parallel: 1), default);
         await runner.WaitStarted(1);
-        runner.Pending["t1"].TrySetResult(new TaskOutcome("t1", TaskState.Failed, "run-t1", "limit", ErrorCode.RateLimited, RetryAfter: DateTimeOffset.UtcNow.AddHours(7)));
+        runner.Pending["t1"].TrySetResult(new TaskOutcome("t1", TaskState.Failed, "run-t1", "limit", ErrorCode.RateLimited, RetryAfter: clock.GetUtcNow().AddHours(7)));
         var outcome = await batch;
         Assert.Equal(["t1"], runner.Started);
         Assert.Equal(TaskState.NotStarted, outcome.Tasks[1].State);
@@ -329,12 +368,13 @@ public class BatchSchedulerTests
     [Fact]
     public async Task A_halt_during_a_rate_limit_pause_ends_the_batch()
     {
+        var clock = new ManualTimeProvider();
         var runner = new ScriptedRunner();
         using var halt = new CancellationTokenSource();
-        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMinutes(15)).RunAsync(Tasks(2), Limits(parallel: 1), halt.Token);
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMinutes(15), time: clock).RunAsync(Tasks(2), Limits(parallel: 1), halt.Token);
         await runner.WaitStarted(1);
         runner.Finish("t1", TaskState.Failed, error: ErrorCode.RateLimited);
-        await Task.Delay(300);
+        await Waiting(clock);
         await halt.CancelAsync();
         var outcome = await batch.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(TaskState.NotStarted, outcome.Tasks[1].State);

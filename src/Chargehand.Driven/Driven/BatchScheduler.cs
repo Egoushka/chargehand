@@ -16,8 +16,11 @@ namespace Chargehand.Driven;
 /// <param name="admission">Shared by every batch of the server; null: tasks start by count and caps only. With several runners (ADR 0058) it also names the one a task runs on; a task whose runner
 /// could not be reached before its session started (<see cref="TaskOutcome.Replace"/>) is asked for again, up to <see cref="MaxPlacements"/> times in all.</param>
 /// <param name="taskRequestMb">What the host must have free for a task: the working set its repository's sessions have measured (<see cref="MemoryRequest"/>), not its container's limit.</param>
-public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null, IAdmission? admission = null, int taskRequestMb = 0, BatchControl? control = null)
+/// <param name="time">The clock rate-limit pauses and admission intervals are read on; <see cref="TimeProvider.System"/> when null.</param>
+public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null, IAdmission? admission = null, int taskRequestMb = 0, BatchControl? control = null, TimeProvider? time = null)
 {
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
+
     /// <summary>The longest wait for a limit to lift; past it the batch stops and the caller retries.</summary>
     public static readonly TimeSpan MaxPause = TimeSpan.FromHours(6);
 
@@ -183,7 +186,7 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
         async Task<AdmissionDecision?> Admitted(int i)
         {
             var id = tasks[i].Id;
-            if (DateTimeOffset.UtcNow < admitAfter)
+            if (_time.GetUtcNow() < admitAfter)
                 return null;
             AdmissionDecision decision;
             try
@@ -208,7 +211,7 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
                 notStartedError ??= ErrorCode.ContainerUnavailable;
                 return null;
             }
-            admitAfter = DateTimeOffset.UtcNow + admission.Interval;
+            admitAfter = _time.GetUtcNow() + admission.Interval;
             if (holding != id)
                 onHold?.Invoke(id, decision.Detail!);
             holding = id;
@@ -220,7 +223,7 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
             // A task an operator cancelled before it started never does.
             SkipDependents();
             // Start what fits, in order.
-            while (notStartedReason is null && !ct.IsCancellationRequested && running.Count < limits.MaxParallel && DateTimeOffset.UtcNow >= pausedUntil && NextReady() is { } index && Fits())
+            while (notStartedReason is null && !ct.IsCancellationRequested && running.Count < limits.MaxParallel && _time.GetUtcNow() >= pausedUntil && NextReady() is { } index && Fits())
             {
                 if (limits.Global is not null && !await limits.Global.WaitAsync(0, CancellationToken.None))
                     break;
@@ -261,6 +264,12 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
                     {
                         notStartedReason = "the batch's cap leaves no room for another task";
                         notStartedError = ErrorCode.CostCapReached;
+                    }
+                    else if (pausedUntil - _time.GetUtcNow() is { Ticks: > 0 } left)
+                    {
+                        // A usage or rate limit holds new starts: wait until it lifts, or for a halt.
+                        await Task.Delay(left, _time, ct).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                        continue;
                     }
                     else
                     {
@@ -363,7 +372,7 @@ public sealed class BatchScheduler(ITaskRunner runner, TimeSpan? backoff = null,
     /// optimistic must not burn the batch); null when that is further off than <see cref="MaxPause"/>.</summary>
     private DateTimeOffset? LimitLifts(TaskOutcome outcome)
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = _time.GetUtcNow();
         var floor = now + (backoff ?? UsageLimit.DefaultBackoff);
         var lifts = outcome.RetryAfter is { } reset && reset > floor ? reset : floor;
         return lifts - now > MaxPause ? null : lifts;
