@@ -559,8 +559,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, route.Exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor, RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge));
             var runner = new TaskRunner(site.Engine, steps is null ? site.Workspace : new JournaledWorkspaceEngine(site.Workspace, site.Engine, steps, runId),
                 steps is null ? site.Volumes : new JournaledSessionVolumes(site.Volumes, steps, runId), handover, log, mint, task, new DrivenTaskResults(s.Resolver, s.SupportCheckFor?.Invoke(actor), sign), s.Poll, publish: Stamp(site.Name),
-                state: new BatchTaskState(runId, journal, records, ControlOf(runId)), detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf,
-                outageGrace: s.OutageGrace, steps: steps);
+                state: new BatchTaskState(journal), detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf,
+                outageGrace: s.OutageGrace, steps: steps, records: records?.Tasks, stops: ControlOf(runId)?.Sessions);
             return new SiteBatch(site, net, runner);
         }
         async Task<TaskRunner> RunnerOn(string name)
@@ -585,7 +585,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         BatchOutcome ran;
         try
         {
-            var router = new SiteRouter(RunnerOn, sites[0].Name, report, new BatchTaskState(runId, journal, null, null), sessionsStarted,
+            var router = new SiteRouter(RunnerOn, sites[0].Name, report, new BatchTaskState(journal), sessionsStarted,
                 (_admission as RunnerPool) is { } pool ? pool.Failed : null);
             var requestMb = await AdmissionRequestAsync(TaskRunner.RepositoryKey(RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge), request.Context.Repository?.Path), drivenPreset.MemoryMb, ct);
             ran = await new BatchScheduler(router.RunAsync, admission: _admission, taskRequestMb: requestMb, control: ControlOf(runId)).RunAsync(ready, limits, ct, o =>

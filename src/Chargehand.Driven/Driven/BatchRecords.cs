@@ -1,42 +1,27 @@
 using System.Data.Common;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Chargehand.Contracts;
 using Chargehand.Modules.Journal.Api;
-using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Driven;
 
-/// <summary>What <see cref="BatchRecords.ReadTasks"/> read for one batch.</summary>
-public sealed record BatchTaskRecords(IReadOnlyList<SessionRecord> Sessions, IReadOnlyList<GovernorRecord> Governor, IReadOnlyList<ChecksRecord> Checks, IReadOnlyList<CiAttemptRecord> Attempts)
-{
-    public static BatchTaskRecords Empty { get; } = new([], [], [], []);
-}
-
 /// <summary>What the operator console needs and the run log does not keep (CHARGEHAND-214), one directory per driven batch beside the run log: <c>events.jsonl</c> (the batch's events, so a finished
-/// batch's timeline outlives a restart) and <c>tasks.jsonl</c> (a line per session, governor log, check snapshot and CI fix attempt, tagged by <c>type</c>). Both are append-only and written by the
-/// server process only. Nothing here is a secret or a prompt: events carry the text the live stream carries, and the rest is counts, names, times and the governor's own log. Size is bounded
-/// three ways: a batch's events are capped (<see cref="MaxEvents"/>, and a task's <c>session_progress</c> is kept at most once in <see cref="ProgressEvery"/>) as are its task records, and the directories of
-/// the oldest batches are deleted past <see cref="MaxBatches"/> or <see cref="MaxAge"/>, never those of a batch that is still running.</summary>
+/// batch's timeline outlives a restart) and the tasks' records, which Tasks keeps (<see cref="Tasks"/>, <c>tasks.jsonl</c>). Both are append-only and written by the server process only. Nothing here
+/// is a secret or a prompt: events carry the text the live stream carries. Size is bounded three ways: a batch's events are capped (<see cref="MaxEvents"/>, and a task's <c>session_progress</c> is
+/// kept at most once in <see cref="ProgressEvery"/>) as are its task records, and the directories of the oldest batches are deleted past <see cref="MaxBatches"/> or <see cref="MaxAge"/>, never those of a
+/// batch that is still running.</summary>
 public sealed class BatchRecords(string directory, TimeProvider? clock = null)
 {
     public const string EventsFile = "events.jsonl";
-    public const string TasksFile = "tasks.jsonl";
 
     /// <summary>Events of one batch kept on disk; once it is reached only a task's end and the batch's end are still written.</summary>
     public const int MaxEvents = 5000;
 
-    /// <summary>Lines of <c>tasks.jsonl</c> of one batch.</summary>
-    public const int MaxTaskLines = 3000;
+    public const int MaxDetail = TaskRecordStore.MaxDetail;
 
-    public const int MaxDecisionsPerSession = GovernorRecord.MaxDecisions;
-
-    /// <summary>Check snapshots and CI fix attempts kept per task.</summary>
-    public const int MaxChecksPerTask = 60;
-
-    public const int MaxDetail = 1500;
+    public const int MaxDecisionsPerSession = TaskRecordStore.MaxDecisionsPerSession;
 
     public static readonly TimeSpan ProgressEvery = TimeSpan.FromSeconds(30);
 
@@ -46,14 +31,15 @@ public sealed class BatchRecords(string directory, TimeProvider? clock = null)
 
     private readonly object _gate = new();
     private readonly Dictionary<string, int> _eventCounts = [];
-    private readonly Dictionary<string, int> _taskLineCounts = [];
     private readonly Dictionary<(string Batch, string Task), DateTimeOffset> _lastProgress = [];
-    private readonly Dictionary<(string Batch, string Type, string Task), int> _perTask = [];
     private readonly Dictionary<string, DrivenJournal> _journals = [];
 
     private TimeProvider Time => clock ?? TimeProvider.System;
 
     public string Root => directory;
+
+    /// <summary>The tasks' sessions, governor logs, checks and CI fix attempts, in the same batch directories.</summary>
+    public TaskRecordStore Tasks { get; } = new(directory);
 
     private string Dir(string batch) => Path.Combine(directory, batch);
 
@@ -155,84 +141,16 @@ public sealed class BatchRecords(string directory, TimeProvider? clock = null)
         }
     }
 
-    /// <summary>A session's line, once per run id: a task taken up after its session ended reads that session's outcome again (ADR 0043), and the line already written stands.</summary>
-    public void Append(string batch, SessionRecord record) => AppendTask(batch, "session", record.TaskId, JsonSerializer.SerializeToNode(record, ContractJson.Options)!, run: record.RunId);
+    public void Append(string batch, SessionRecord record) => Tasks.Append(batch, record);
 
-    /// <summary>A session's governor log, once per run id (see the session's line).</summary>
-    public void Append(string batch, GovernorRecord record) => AppendTask(batch, "governor", record.TaskId, JsonSerializer.SerializeToNode(record, ContractJson.Options)!, run: record.RunId);
+    public void Append(string batch, GovernorRecord record) => Tasks.Append(batch, record);
 
-    public void Append(string batch, ChecksRecord record) => AppendTask(batch, "checks", record.TaskId, JsonSerializer.SerializeToNode(record, ContractJson.Options)!, MaxChecksPerTask);
+    public void Append(string batch, ChecksRecord record) => Tasks.Append(batch, record);
 
-    public void Append(string batch, CiAttemptRecord record) =>
-        AppendTask(batch, "ci_attempt", record.TaskId, JsonSerializer.SerializeToNode(record with { Detail = Cut(record.Detail, MaxDetail) ?? "" }, ContractJson.Options)!, MaxChecksPerTask);
+    public void Append(string batch, CiAttemptRecord record) => Tasks.Append(batch, record);
 
-    /// <summary>A line tagged <paramref name="type"/>. With <paramref name="perTask"/> the task's lines of this type are not written past that many; with <paramref name="run"/>, not when the file
-    /// already holds a line of this type for that run id.</summary>
-    private void AppendTask(string batch, string type, string task, JsonNode node, int? perTask = null, string? run = null)
-    {
-        if (!IsName(batch))
-            return;
-        node["type"] = type;
-        lock (_gate)
-        {
-            var count = CountOf(_taskLineCounts, batch, TasksFile);
-            if (count >= MaxTaskLines)
-                return;
-            var key = (batch, type, task);
-            var of = perTask is null ? 0 : _perTask.TryGetValue(key, out var seen) ? seen : CountLines(batch, type, task);
-            if (perTask is { } cap && of >= cap)
-                return;
-            if (run is not null && HasRun(batch, type, run))
-                return;
-            Write(batch, TasksFile, node.ToJsonString());
-            _taskLineCounts[batch] = count + 1;
-            if (perTask is not null)
-                _perTask[key] = of + 1;
-        }
-    }
-
-    /// <summary>The task records of a batch; empty when there are none.</summary>
-    public BatchTaskRecords ReadTasks(string batch)
-    {
-        if (!IsName(batch))
-            return BatchTaskRecords.Empty;
-        var path = Path.Combine(Dir(batch), TasksFile);
-        List<SessionRecord> sessions = [];
-        List<GovernorRecord> governor = [];
-        List<ChecksRecord> checks = [];
-        List<CiAttemptRecord> attempts = [];
-        lock (_gate)
-        {
-            if (!File.Exists(path))
-                return BatchTaskRecords.Empty;
-            foreach (var line in Lines(path))
-            {
-                try
-                {
-                    var node = JsonNode.Parse(line)!.AsObject();
-                    switch (node["type"]?.GetValue<string>())
-                    {
-                        case "session" when node.Deserialize<SessionRecord>(ContractJson.Options) is { } s:
-                            sessions.Add(s);
-                            break;
-                        case "governor" when node.Deserialize<GovernorRecord>(ContractJson.Options) is { } g:
-                            governor.Add(g);
-                            break;
-                        case "checks" when node.Deserialize<ChecksRecord>(ContractJson.Options) is { } c:
-                            checks.Add(c);
-                            break;
-                        case "ci_attempt" when node.Deserialize<CiAttemptRecord>(ContractJson.Options) is { } a:
-                            attempts.Add(a);
-                            break;
-                    }
-                }
-                catch (Exception e) when (e is JsonException or InvalidOperationException)
-                {
-                }
-            }
-        }
-        return new BatchTaskRecords(sessions, governor, checks, attempts);
-    }
+    /// <summary>The task records of a batch (<see cref="TaskRecordStore.Read"/>).</summary>
+    public BatchTaskRecords ReadTasks(string batch) => Tasks.Read(batch);
 
     /// <summary>Deletes the directories of the oldest batches: past <see cref="MaxBatches"/>, or idle longer than <see cref="MaxAge"/>. A batch in <paramref name="running"/> is never deleted.</summary>
     /// <returns>The batch ids removed.</returns>
@@ -254,9 +172,7 @@ public sealed class BatchRecords(string directory, TimeProvider? clock = null)
                     System.IO.Directory.Delete(d.FullName, recursive: true);
                     removed.Add(d.Name);
                     _eventCounts.Remove(d.Name);
-                    _taskLineCounts.Remove(d.Name);
-                    foreach (var key in _perTask.Keys.Where(k => k.Batch == d.Name).ToList())
-                        _perTask.Remove(key);
+                    Tasks.Forget(d.Name);
                 }
                 catch (IOException)
                 {
@@ -278,18 +194,6 @@ public sealed class BatchRecords(string directory, TimeProvider? clock = null)
             return known;
         var path = Path.Combine(Dir(batch), file);
         return counts[batch] = File.Exists(path) ? Lines(path).Length : 0;
-    }
-
-    private int CountLines(string batch, string type, string task)
-    {
-        var path = Path.Combine(Dir(batch), TasksFile);
-        return File.Exists(path) ? Lines(path).Count(l => l.Contains($"\"type\":\"{type}\"", StringComparison.Ordinal) && l.Contains($"\"task_id\":{JsonSerializer.Serialize(task)}", StringComparison.Ordinal)) : 0;
-    }
-
-    private bool HasRun(string batch, string type, string run)
-    {
-        var path = Path.Combine(Dir(batch), TasksFile);
-        return File.Exists(path) && Lines(path).Any(l => l.Contains($"\"type\":\"{type}\"", StringComparison.Ordinal) && l.Contains($"\"run_id\":{JsonSerializer.Serialize(run)}", StringComparison.Ordinal));
     }
 
     private void Write(string batch, string file, string line)
