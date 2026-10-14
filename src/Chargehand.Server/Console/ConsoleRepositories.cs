@@ -3,6 +3,7 @@ using Chargehand.Config;
 using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Oversight.Api;
 using Chargehand.Onboarding;
 
 namespace Chargehand.Server;

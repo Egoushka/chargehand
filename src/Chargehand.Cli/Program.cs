@@ -205,7 +205,7 @@ var (root, runLogPath) = InstallPaths.Resolve(profile.RunLog, Directory.GetCurre
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify));
 var runLog = new JsonlRunLog(runLogPath);
 // What finished driven tasks taught (ADR 0045): the server appends to it, `learn report` reads it.
-var learning = new Chargehand.Driven.JsonlLearningStore(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "learning.jsonl"));
+var learning = new Chargehand.Modules.Oversight.Api.JsonlLearningStore(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "learning.jsonl"));
 // One pool for memory and services (ADR 0034). Connections open on first use, so a command that uses neither never connects; disposed when the process ends.
 await using var mcpPool = new McpConnectionPool(profile.McpServers ?? new Dictionary<string, McpServerSettings>(), profile.Secret);
 var services = new ServiceResolver(mcpPool);
@@ -228,7 +228,7 @@ switch (argv)
     case ["runs", "kill", "--all"]:
         return await Chargehand.Containers.RunsCli.KillAllAsync(new Chargehand.Containers.DockerCliEngine(), Console.Out, Console.Error, ct);
     case ["learn", "report", .. var learnOptions]:
-        return await Chargehand.Driven.LearningCli.RunAsync(learnOptions, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow, ct);
+        return await Chargehand.Modules.Oversight.Api.LearningCli.RunAsync(learnOptions, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow, ct);
     case ["reconcile", var id]:
         return await Reconcile(id);
     case ["cache", var id]:

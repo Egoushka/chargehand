@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Oversight.Api;
 
 /// <summary>One bucket of the learning records over time, for one group (or all tasks when not grouped). Tokens are the task's whole usage, the CI fix sessions' included.</summary>
 /// <param name="Group">The repository, account (<c>owner</c> for a record with no actor) or size class the point belongs to; null when not grouped.</param>

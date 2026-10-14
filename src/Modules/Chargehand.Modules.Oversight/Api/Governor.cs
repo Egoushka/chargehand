@@ -3,17 +3,16 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using Chargehand.Config;
-using Chargehand.Modules.Oversight.Api;
+using Chargehand.Contracts;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Oversight.Api;
 
 /// <summary>The rungs of ADR 0045's ladder. A warn has no channel into the session yet (the driver closes its stdin), so it is only logged.</summary>
-[JsonConverter(typeof(SnakeCaseEnum<GovernorAction>))]
+[JsonConverter(typeof(SnakeCaseEnumConverter<GovernorAction>))]
 public enum GovernorAction { Warn, Checkpoint, Stop }
 
 /// <summary>The governor's settings for one session, in <c>task.json</c>: the profile's <c>driven.governor</c> with the task's budget resolved.</summary>
-/// <param name="BudgetUsd">The task's budget in the dollar equivalent of <see cref="SessionUsage.UsdEstimate"/>; null: no spend rule.</param>
+/// <param name="BudgetUsd">The task's budget in the dollar equivalent of <c>SessionUsage.UsdEstimate</c>; null: no spend rule.</param>
 /// <param name="PriorUsd">What earlier sessions of the task spent (ADR 0044's continuations): the budget is the task's, not one session's.</param>
 /// <param name="SizeClass">S, M or L: where the budget came from, logged with each decision.</param>
 /// <param name="RepeatCalls">Identical action and observation pairs in a row that fire <c>repeated_call</c>.</param>
@@ -73,7 +72,7 @@ public sealed partial class Governor
 {
     private const int MaxValueLength = 200;
 
-    /// <summary>The stop reasons of an enforced decision, as they appear in the session outcome. The three checkpoints continue (<see cref="StallDetector.ContinuableReasons"/>); a
+    /// <summary>The stop reasons of an enforced decision, as they appear in the session outcome. The three checkpoints continue (<c>StallDetector.ContinuableReasons</c>); a
     /// spent budget does not.</summary>
     public const string CheckpointStuck = "checkpoint_stuck";
     public const string CheckpointContext = "checkpoint_context";
@@ -124,12 +123,7 @@ public sealed partial class Governor
         switch (type.GetString())
         {
             case "assistant":
-                if (!_contextFired && message.TryGetProperty("usage", out var usage) && usage.ValueKind == JsonValueKind.Object
-                    && Long(usage, "input_tokens") + Long(usage, "cache_read_input_tokens") + Long(usage, "cache_creation_input_tokens") is var context && context > _settings.ContextTokens)
-                {
-                    _contextFired = true;
-                    decisions.Add(Checkpoint("context_size", "context_size", new() { ["context_tokens"] = Num(context), ["limit"] = Num(_settings.ContextTokens) }, turn, spend, now));
-                }
+                OnUsage(message, turn, spend, now, decisions);
                 foreach (var block in blocks.Where(b => Is(b, "tool_use")))
                     OnCall(block, turn, spend, now, decisions);
                 break;
@@ -158,6 +152,16 @@ public sealed partial class Governor
         return Stuck("no_diff_growth", new() { ["changed_lines"] = Num(changedLines), ["unchanged_since_turn"] = Num(since) }, turn, spend, now) is { } d ? [d] : [];
     }
 
+    private void OnUsage(JsonElement message, int turn, decimal? spend, DateTimeOffset now, List<GovernorDecision> decisions)
+    {
+        if (!_contextFired && message.TryGetProperty("usage", out var usage) && usage.ValueKind == JsonValueKind.Object
+            && Long(usage, "input_tokens") + Long(usage, "cache_read_input_tokens") + Long(usage, "cache_creation_input_tokens") is var context && context > _settings.ContextTokens)
+        {
+            _contextFired = true;
+            decisions.Add(Checkpoint("context_size", "context_size", new() { ["context_tokens"] = Num(context), ["limit"] = Num(_settings.ContextTokens) }, turn, spend, now));
+        }
+    }
+
     private void OnCall(JsonElement block, int turn, decimal? spend, DateTimeOffset now, List<GovernorDecision> decisions)
     {
         var name = block.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString()! : "";
@@ -167,7 +171,13 @@ public sealed partial class Governor
         var wait = command is not null && _waits.Any(r => r.IsMatch(command));
         if (block.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
             _pending[id.GetString()!] = ($"{name}|{(input.ValueKind == JsonValueKind.Undefined ? "" : input.GetRawText())}", describe, wait);
-        if (command is null || _probed || !OnlyProbes(command))
+        if (command is not null)
+            OnProbe(command, describe, turn, spend, now, decisions);
+    }
+
+    private void OnProbe(string command, string describe, int turn, decimal? spend, DateTimeOffset now, List<GovernorDecision> decisions)
+    {
+        if (_probed || !OnlyProbes(command))
             return;
         if (++_probeCount <= _settings.ProbeCommands)
             return;
@@ -194,19 +204,7 @@ public sealed partial class Governor
         }
 
         if (failed)
-        {
-            var count = _failures[call.Action] = _failures.GetValueOrDefault(call.Action) + 1;
-            if (count >= _settings.RepeatFailures)
-            {
-                _failures[call.Action] = 0;
-                Add(decisions, Stuck("repeated_failure", new() { ["action"] = call.Describe, ["count"] = Num(count) }, turn, spend, now));
-            }
-            if (++_failingInARow >= _settings.FailingCalls)
-            {
-                Add(decisions, Stuck("failing_calls", new() { ["in_a_row"] = Num(_failingInARow), ["last"] = call.Describe }, turn, spend, now));
-                _failingInARow = 0;
-            }
-        }
+            OnFailure(call.Action, call.Describe, turn, spend, now, decisions);
         else
             _failingInARow = 0;
 
@@ -217,6 +215,21 @@ public sealed partial class Governor
         {
             _recent.Clear();
             Add(decisions, Stuck("alternation", new() { ["last"] = call.Describe, ["cycles"] = "3" }, turn, spend, now));
+        }
+    }
+
+    private void OnFailure(string action, string describe, int turn, decimal? spend, DateTimeOffset now, List<GovernorDecision> decisions)
+    {
+        var count = _failures[action] = _failures.GetValueOrDefault(action) + 1;
+        if (count >= _settings.RepeatFailures)
+        {
+            _failures[action] = 0;
+            Add(decisions, Stuck("repeated_failure", new() { ["action"] = describe, ["count"] = Num(count) }, turn, spend, now));
+        }
+        if (++_failingInARow >= _settings.FailingCalls)
+        {
+            Add(decisions, Stuck("failing_calls", new() { ["in_a_row"] = Num(_failingInARow), ["last"] = describe }, turn, spend, now));
+            _failingInARow = 0;
         }
     }
 

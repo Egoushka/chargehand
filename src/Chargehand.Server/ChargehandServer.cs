@@ -10,6 +10,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Oversight.Api;
 using Chargehand.RunLog;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -226,12 +227,12 @@ public static partial class ChargehandServer
         app.MapGet("/v1/learn", async (HttpContext ctx) =>
         {
             DateTimeOffset? since = null;
-            if (ctx.Request.Query.TryGetValue("since", out var sinceText) && (since = Chargehand.Driven.LearningReport.ParseSince(sinceText.ToString(), DateTimeOffset.UtcNow)) is null)
+            if (ctx.Request.Query.TryGetValue("since", out var sinceText) && (since = Chargehand.Modules.Oversight.Api.LearningReport.ParseSince(sinceText.ToString(), DateTimeOffset.UtcNow)) is null)
                 return Json(Problem("since must be a number of days such as 30d, or an ISO 8601 time"), StatusCodes.Status400BadRequest);
             // An account sees the tasks of its own batches (ADR 0050); the owner sees all.
             var who = PrincipalHttp.Of(ctx);
             var entries = driven?.Learning is { } store ? (await store.ReadAsync(ctx.RequestAborted)).Where(e => Principal.Sees(who, e.Record.Actor)).ToList() : [];
-            return Json(Chargehand.Driven.LearningReport.Build(entries, since), StatusCodes.Status200OK);
+            return Json(Chargehand.Modules.Oversight.Api.LearningReport.Build(entries, since), StatusCodes.Status200OK);
         });
 
         app.MapPost("/v1/runs/{id}/cancel", async (string id, HttpContext ctx, RunService runs) =>

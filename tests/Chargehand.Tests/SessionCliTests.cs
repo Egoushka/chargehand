@@ -1,4 +1,5 @@
 using Chargehand.Driven;
+using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Tests;
 
