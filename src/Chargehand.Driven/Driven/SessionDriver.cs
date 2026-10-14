@@ -8,6 +8,7 @@ using Chargehand.Config;
 using Chargehand.Containers;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Oversight.Api;
 using Chargehand.Runtime;
 
 namespace Chargehand.Driven;

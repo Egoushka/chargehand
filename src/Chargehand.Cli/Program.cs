@@ -317,7 +317,7 @@ Chargehand.Bench.AcceptanceLimits BenchLimits()
 (Chargehand.Containers.IContainerEngine, Chargehand.Containers.IWorkspaceEngine, Chargehand.Containers.IOutVolumeEngine) BenchEngines(Profile p)
 {
     // A benchmark's acceptance checks read the server's checkouts, so they use a runner that shares its disk (ADR 0058).
-    if (p.Driven?.ResolvedRunners().FirstOrDefault(r => r.Workspace == Chargehand.Config.WorkspaceMode.Shared) is { } runner)
+    if (p.Driven?.ResolvedRunners().FirstOrDefault(r => r.Workspace == Chargehand.Modules.Runners.Api.WorkspaceMode.Shared) is { } runner)
     {
         var http = new HttpClient { BaseAddress = new Uri(runner.Url) };
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", p.Secret(runner.ApiKeySecret));
@@ -401,7 +401,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     Chargehand.Containers.IWorkspaceEngine workspace;
     Chargehand.Driven.IHostSource hostSource;
     IReadOnlyList<Chargehand.Driven.RunnerSite>? sites = null;
-    Chargehand.Runner.RunnerClient RunnerClientFor(Chargehand.Config.DrivenRunnerEntry runner)
+    Chargehand.Runner.RunnerClient RunnerClientFor(Chargehand.Modules.Runners.Api.DrivenRunnerEntry runner)
     {
         // The client times each call out itself (a control call, or a transfer of repository size), so the HttpClient's 100 seconds must not cut a transfer short (ADR 0058).
         var http = new HttpClient { BaseAddress = new Uri(runner.Url), Timeout = Timeout.InfiniteTimeSpan };
@@ -428,7 +428,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         sites = [.. driven.ResolvedRunners().Select(entry =>
         {
             var client = RunnerClientFor(entry);
-            return new Chargehand.Driven.RunnerSite(entry, client, entry.Workspace == Chargehand.Config.WorkspaceMode.Bundle ? new Chargehand.Driven.BundleWorkspaceEngine(client, client, bundles) : client, driven.Images is { Count: > 0 } list
+            return new Chargehand.Driven.RunnerSite(entry, client, entry.Workspace == Chargehand.Modules.Runners.Api.WorkspaceMode.Bundle ? new Chargehand.Driven.BundleWorkspaceEngine(client, client, bundles) : client, driven.Images is { Count: > 0 } list
                 ? new Chargehand.Driven.EngineSessionVolumes(client, driven.ImageFor(list[0], entry.Platform))
                 : new Chargehand.Driven.UnavailableSessionVolumes(), client);
         })];

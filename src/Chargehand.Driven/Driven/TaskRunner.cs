@@ -10,6 +10,7 @@ using Chargehand.Egress;
 using Chargehand.Kernel;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Oversight.Api;
 using Chargehand.Results;
 using Chargehand.RunLog;
 using Chargehand.Runner;

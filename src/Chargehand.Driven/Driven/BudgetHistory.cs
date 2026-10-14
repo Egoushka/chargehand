@@ -1,4 +1,5 @@
 using Chargehand.Config;
+using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Driven;
 

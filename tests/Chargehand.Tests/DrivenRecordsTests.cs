@@ -4,6 +4,7 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Tests;
 

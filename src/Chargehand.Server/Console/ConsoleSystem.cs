@@ -8,6 +8,8 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Runners.Api;
 
 namespace Chargehand.Server;
 

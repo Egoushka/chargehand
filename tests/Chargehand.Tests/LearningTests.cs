@@ -8,6 +8,7 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Oversight.Api;
 using Chargehand.Server;
 
 namespace Chargehand.Tests;

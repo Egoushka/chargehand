@@ -13,6 +13,8 @@ using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Runners.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Runtimes.ClaudeCode.Api;

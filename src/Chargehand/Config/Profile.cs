@@ -11,6 +11,8 @@ using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Runners.Api;
 using Chargehand.Runtime;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Runtimes.OpenCode.Api;
@@ -307,101 +309,6 @@ public sealed partial record DrivenSettings(
     IReadOnlyList<DrivenRunnerEntry>? Runners = null,
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? ImageVariants = null);
 
-/// <summary>The learning loop (ADR 0045): each finished task leaves a record, the server reads the outcome of its pull request back from the forge, and <c>chargehand learn report</c> sums them up.
-/// The records are always written; these keys tune the read-back and the optional retro.</summary>
-/// <param name="Retro">After each batch, one cheap read-only run over the batch's records writes a short retro on the batch result. Off by default.</param>
-/// <param name="RetroPreset">The preset the retro run uses; it must be read-only. Default <c>cheap</c>.</param>
-/// <param name="PrDays">How long after a task finished its pull request is read again until it is merged or closed. Default 14.</param>
-/// <param name="PrCheckMinutes">How often the server looks at the open ones. Default 60.</param>
-public sealed record DrivenLearning(bool Retro = false, string RetroPreset = "cheap", int PrDays = 14, int PrCheckMinutes = 60)
-{
-    /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
-    internal void Validate()
-    {
-        var problems = new List<string>();
-        if (string.IsNullOrWhiteSpace(RetroPreset)) problems.Add("retro_preset must not be empty");
-        if (PrDays < 1) problems.Add("pr_days must be at least 1");
-        if (PrCheckMinutes < 1) problems.Add("pr_check_minutes must be at least 1");
-        if (problems.Count > 0)
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.learning: {string.Join("; ", problems)}", "Fix driven.learning in the profile; docs/guide/driven.md lists the keys.");
-    }
-}
-
-/// <summary>When the host has room for another session (ADR 0045). A task starts only if available memory minus <c>ReserveMb</c> covers its memory request, the working set
-/// that sessions of its repository have measured (not the container's limit), and memory pressure is low; a running task is never stopped for it.</summary>
-/// <param name="ReserveMb">Memory left for everything else on the host.</param>
-/// <param name="MaxLoadPerCpu">A one-minute load per processor above this holds new starts; null: no load rule.</param>
-/// <param name="DefaultRequestMb">The request of a task whose repository has too few recorded peaks, and no other repository does either. Clamped to 512 MiB and the container limit.</param>
-/// <param name="MaxMemoryPressure">Linux pressure stall information: new starts wait while <c>some avg10</c> of <c>/proc/pressure/memory</c> is above this percentage. A host without it skips the rule; 100 turns it off.</param>
-public sealed record DrivenAdmission(int ReserveMb = 1024, double? MaxLoadPerCpu = null, int DefaultRequestMb = 1536, double MaxMemoryPressure = 10.0)
-{
-    /// <summary>The least a task's request may be, whatever the history says (MiB).</summary>
-    public const int MinRequestMb = 512;
-
-    /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
-    internal void Validate()
-    {
-        var problems = new List<string>();
-        if (ReserveMb < 0) problems.Add("reserve_mb must be at least 0");
-        if (MaxLoadPerCpu is <= 0) problems.Add("max_load_per_cpu must be above 0");
-        if (DefaultRequestMb < MinRequestMb) problems.Add($"default_request_mb must be at least {MinRequestMb}");
-        if (MaxMemoryPressure is <= 0 or > 100) problems.Add("max_memory_pressure must be above 0 and at most 100");
-        if (problems.Count > 0)
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.admission: {string.Join("; ", problems)}", "Fix driven.admission in the profile; docs/guide/driven.md lists the keys.");
-    }
-}
-
-/// <summary>The governor's settings for every session (ADR 0045). Profile keys, not preset keys, for the reason <see cref="DrivenLimits"/> gives. Each threshold left out keeps
-/// <see cref="SessionGovernor"/>'s default.</summary>
-/// <param name="Mode"><c>off</c>, <c>observe</c> (the default: decisions are logged, none acted on) or <c>enforce</c> (a checkpoint or a stop ends the session).</param>
-/// <param name="Budgets">The flat budget per size class (S, M, L) in the dollar equivalent, until enough history exists for a percentile.</param>
-/// <param name="History">When a size class has enough finished tasks, its budget is a percentile of their spend; null: the defaults of <see cref="DrivenGovernorHistory"/>.</param>
-public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IReadOnlyDictionary<string, decimal>? Budgets = null, int? RepeatCalls = null,
-    int? RepeatFailures = null, int? FailingCalls = null, int? ProbeCommands = null, int? NoGrowthTurns = null, int? RewarnTurns = null, long? ContextTokens = null,
-    decimal? CheckpointAt = null, IReadOnlyList<string>? ProbePatterns = null, IReadOnlyList<string>? WaitPatterns = null, DrivenGovernorHistory? History = null)
-{
-    public static IReadOnlyDictionary<string, decimal> DefaultBudgets { get; } = new Dictionary<string, decimal> { ["S"] = 1.5m, ["M"] = 4m, ["L"] = 10m };
-
-    /// <summary>Throws an invalid_request error naming the key when a value cannot work: a count below 1, a share outside (0, 1], a budget not above 0, a pattern that does not compile.</summary>
-    internal void Validate()
-    {
-        var problems = new List<string>();
-        foreach (var (key, value) in new (string, long?)[] { ("repeat_calls", RepeatCalls), ("repeat_failures", RepeatFailures), ("failing_calls", FailingCalls),
-            ("probe_commands", ProbeCommands), ("no_growth_turns", NoGrowthTurns), ("rewarn_turns", RewarnTurns), ("context_tokens", ContextTokens) })
-            if (value is < 1)
-                problems.Add($"{key} must be at least 1");
-        if (CheckpointAt is <= 0 or > 1)
-            problems.Add("checkpoint_at must be above 0 and at most 1");
-        foreach (var (size, budget) in Budgets ?? new Dictionary<string, decimal>())
-            if (size is not ("S" or "M" or "L") || budget <= 0)
-                problems.Add($"budgets.{size} must be one of S, M, L with a value above 0");
-        History?.Validate(problems);
-        foreach (var pattern in (ProbePatterns ?? []).Concat(WaitPatterns ?? []))
-            try
-            {
-                _ = new Regex(pattern);
-            }
-            catch (ArgumentException)
-            {
-                problems.Add($"pattern '{pattern}' is not a regular expression");
-            }
-        if (problems.Count > 0)
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.governor: {string.Join("; ", problems)}", "Fix driven.governor in the profile; docs/guide/driven.md lists the keys.");
-    }
-}
-
-/// <summary>Budgets from past spend (ADR 0045): once a size class has <paramref name="MinTasks"/> finished tasks in the last <paramref name="WindowDays"/> days for the repository (else for all
-/// repositories), its budget is the <paramref name="Percentile"/>th percentile of their spend; below that the flat budget applies, and a task's own <c>budget_usd</c> always wins.</summary>
-public sealed record DrivenGovernorHistory(int MinTasks = 20, int WindowDays = 60, int Percentile = 80)
-{
-    internal void Validate(List<string> problems)
-    {
-        if (MinTasks < 1) problems.Add("history.min_tasks must be at least 1");
-        if (WindowDays < 1) problems.Add("history.window_days must be at least 1");
-        if (Percentile is < 1 or > 100) problems.Add("history.percentile must be 1 to 100");
-    }
-}
-
 /// <summary>The preset's <c>driven</c> limits, set per server. A key left out keeps the preset's value; the preset's allowlist stays the preset's
 /// (<c>network.allow</c> adds hosts). Prompts and permissions are not here: they are what Prompt CI evaluates.</summary>
 public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes = null, int? MaxTurns = null, long? MaxTokens = null, int? MemoryMb = null,
@@ -443,10 +350,6 @@ public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes
 /// <param name="OtlpUrl">An OTLP/HTTP collector as the egress container reaches it (<c>http://host:port</c>, through a forward). Set, each session's Claude Code exports its own logs and
 /// metrics there, tagged with the batch, task and trace (ADR 0042); unset, it exports nothing.</param>
 public sealed record DrivenNetwork(IReadOnlyList<string>? Allow = null, string? Outside = null, string? McpForward = null, string? ModelUrl = null, string? OtlpUrl = null);
-
-/// <summary>The runner service that holds the container engine's socket; null means the server calls the engine itself. One runner, named <see cref="DrivenSettings.DefaultRunnerName"/>: <c>driven.runners</c> (ADR 0058) lists several.</summary>
-public sealed record DrivenRunner(string Url, string ApiKeySecret);
-
 
 /// <summary>
 /// The <c>prompt-enhancer</c> extension (ADR 0040): an entry of <c>mcp_servers</c> that lists the tools <c>enhance</c> and
