@@ -1,3 +1,4 @@
+using Chargehand.Modules.Runners.Api;
 using Chargehand.Server;
 
 namespace Chargehand.Tests;
@@ -122,7 +123,7 @@ public class RunnerCliTests
         using var dir = new TempDir();
         var script = dir.Write("docker", "#!/bin/sh\ncase \"$1\" in ps) printf 'chargehand-xfer-run1\\nchargehand-prep-run2\\n';; esac\n");
         var error = new StringWriter();
-        await RunnerCli.ClearLeftoversAsync(new Chargehand.Containers.DockerCliEngine("/bin/sh", [script]), error, default);
+        await RunnerCli.ClearLeftoversAsync(new Chargehand.Modules.Runners.Api.DockerCliEngine("/bin/sh", [script]), error, default);
         Assert.Contains("2 leftover helper containers", error.ToString());
     }
 
@@ -132,7 +133,7 @@ public class RunnerCliTests
         using var dir = new TempDir();
         var script = dir.Write("docker", "#!/bin/sh\necho 'Cannot connect to the Docker daemon' >&2\nexit 1\n");
         var error = new StringWriter();
-        await RunnerCli.ClearLeftoversAsync(new Chargehand.Containers.DockerCliEngine("/bin/sh", [script]), error, default);
+        await RunnerCli.ClearLeftoversAsync(new Chargehand.Modules.Runners.Api.DockerCliEngine("/bin/sh", [script]), error, default);
         Assert.Contains("Cannot connect", error.ToString());
     }
 }

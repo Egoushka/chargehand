@@ -12,6 +12,7 @@
     <ProjectReference Include="..\Modules\Chargehand.Modules.Accounts\Chargehand.Modules.Accounts.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Batches\Chargehand.Modules.Batches.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Forge\Chargehand.Modules.Forge.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Gateway\Chargehand.Modules.Gateway.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Handover\Chargehand.Modules.Handover.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Intake\Chargehand.Modules.Intake.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Ledger\Chargehand.Modules.Ledger.csproj" />

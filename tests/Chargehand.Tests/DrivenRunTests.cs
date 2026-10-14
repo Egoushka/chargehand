@@ -3,18 +3,18 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Chargehand.Config;
-using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Driven;
-using Chargehand.Egress;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Runtimes.ClaudeCode.Api;
@@ -129,7 +129,7 @@ public class DrivenRunTests
                 {
                     if (SilentInspections > 0)
                         SilentInspections--;
-                    return Task.FromException<ContainerState>(new Chargehand.Runner.RunnerUnreachableException("the runner could not be reached: no route to host"));
+                    return Task.FromException<ContainerState>(new Chargehand.Modules.Runners.Api.RunnerUnreachableException("the runner could not be reached: no route to host"));
                 }
                 if (Gone.Contains(id))
                     return Task.FromResult(new ContainerState(ContainerStatus.Missing, null, false));

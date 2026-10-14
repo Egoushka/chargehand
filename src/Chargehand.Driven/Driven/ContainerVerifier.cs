@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Chargehand.Containers;
 using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Runners.Api;
 
 namespace Chargehand.Driven;
 
@@ -82,12 +82,4 @@ public sealed class ContainerVerifier(IContainerEngine engine, IWorkspaceEngine 
         var tail = logs.Length > 4000 ? logs[^4000..] : logs;
         return new VerificationRecord(v.Argv, "detected", state.ExitCode is { } code and not 0 ? code : -1, note + tail, false, elapsed, true);
     }
-}
-
-/// <summary>The volume names a run's containers use (the runner insists on them).</summary>
-public static class RunnerNames
-{
-    public static string Work(string runId) => $"chargehand-work-{runId}";
-
-    public static string Out(string runId) => $"chargehand-out-{runId}";
 }

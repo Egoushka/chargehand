@@ -1,9 +1,8 @@
 using System.Net;
-using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
-using Chargehand.Runner;
+using Chargehand.Modules.Runners.Api;
 
 namespace Chargehand.Server;
 
@@ -102,7 +101,7 @@ public static class RunnerCli
             return Fail(error, $"--source-roots: '{badRoot}' must be an absolute path without '..'");
         if (serviceImages.FirstOrDefault(i => !ContainerTemplate.IsImageReference(i)) is { } badService)
             return Fail(error, $"--service-images: '{badService}' is not name@sha256:<64 hex> (a tag is not accepted)");
-        if (forwards.FirstOrDefault(f => Chargehand.Egress.PortForward.Parse(f) is null) is { } badForward)
+        if (forwards.FirstOrDefault(f => Chargehand.Modules.Gateway.Api.PortForward.Parse(f) is null) is { } badForward)
             return Fail(error, $"--forwards: '{badForward}' is not listen-port=host:port");
         // Each of these starts fine and then silently refuses work: say so now.
         if (roots.Count == 0)
