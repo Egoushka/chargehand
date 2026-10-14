@@ -1,3 +1,4 @@
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Driven;
