@@ -13,16 +13,6 @@ using Chargehand.Verification;
 
 namespace Chargehand.Driven;
 
-/// <param name="Session">How the session ended; its usage and questions.</param>
-/// <param name="ReportJson">The last fenced JSON block the session printed; null when it printed none.</param>
-/// <param name="Handover">Null when the session did not get as far as a handover.</param>
-/// <param name="Children">The runs the session started through its token (research, review): their run-store rows.</param>
-/// <param name="RepositoryPath">chargehand's scratch clone that holds the branch commit, for the citations.</param>
-/// <param name="Priced">The credential has a dollar price (an API key): the result carries dollars; else they are unknown, never 0.</param>
-/// <param name="Kept">The work an unfinished task leaves for a continuation (ADR 0045); null: none.</param>
-public sealed record DrivenTaskInput(string TaskId, string RunId, string TraceId, string Model, string ClaudeVersion, SessionOutcome Session, string? ReportJson,
-    HandoverOutcome? Handover, IReadOnlyList<RunSummary> Children, string RepositoryPath, string BaseCommit, bool Priced, KeptWork? Kept = null);
-
 /// <summary>Builds the <c>result/v1</c> of one driven task and of a batch (ADR 0039). A task's claims are the session's, cited against the branch commit that chargehand has in its own
 /// clone and run through the same resolver and support check as any other result. The tests appear twice and never merged: <c>verification</c> is chargehand's own run in a fresh
 /// container, <c>session-tests</c> is what the session said it ran. Nothing here says a claim is true, or that the change is right.</summary>
@@ -263,4 +253,13 @@ public static class DrivenResult
     }
 
     private static string Snake(string name) => JsonNamingPolicy.SnakeCaseLower.ConvertName(name);
+}
+
+/// <summary>P4 (<see cref="ITaskResults"/>) until Research is ported: <see cref="DrivenResult.BuildTaskAsync"/> with the server's evidence resolver and support check, and its signer.</summary>
+public sealed class DrivenTaskResults(IEvidenceResolver resolver, Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? supportCheck,
+    Func<ResultContract, ResultContract>? sign) : ITaskResults
+{
+    public Task<ResultContract> BuildAsync(DrivenTaskInput input, CancellationToken ct) => DrivenResult.BuildTaskAsync(input, resolver, supportCheck, ct);
+
+    public ResultContract Sign(ResultContract result) => sign is null ? result : sign(result);
 }

@@ -6,7 +6,7 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Tasks.Api;
 
 /// <summary>A running session's container: waited for, its usage polled and published, and every runner call tolerant of a runner that stops answering (ADR 0058).</summary>
 public sealed partial class TaskRunner

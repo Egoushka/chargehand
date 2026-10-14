@@ -540,8 +540,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", route.Model?.BaseUrl, route.Forward is not null || route.Model?.Forwarded == true || route.Otlp is not null, route.Otlp,
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, route.Exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor, RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge));
             var runner = new TaskRunner(site.Engine, steps is null ? site.Workspace : new JournaledWorkspaceEngine(site.Workspace, site.Engine, steps, runId),
-                steps is null ? site.Volumes : new JournaledSessionVolumes(site.Volumes, steps, runId), handover, log, mint, task, s.Resolver, s.SupportCheckFor?.Invoke(actor), sign, s.Poll, publish: Stamp(site.Name), journal: journal,
-                detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf, outageGrace: s.OutageGrace, records: records, control: ControlOf(runId), steps: steps);
+                steps is null ? site.Volumes : new JournaledSessionVolumes(site.Volumes, steps, runId), handover, log, mint, task, new DrivenTaskResults(s.Resolver, s.SupportCheckFor?.Invoke(actor), sign), s.Poll, publish: Stamp(site.Name),
+                state: new BatchTaskState(runId, journal, records, ControlOf(runId)), detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf,
+                outageGrace: s.OutageGrace, steps: steps);
             return new SiteBatch(site, net, runner);
         }
         async Task<TaskRunner> RunnerOn(string name)

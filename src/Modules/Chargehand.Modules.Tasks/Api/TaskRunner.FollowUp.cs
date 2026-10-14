@@ -10,9 +10,8 @@ using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
-using Chargehand.Modules.Tasks.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Tasks.Api;
 
 /// <summary>The task's end: the handover, the task's own result in the run log, and on an opted-in repository the follow-up (ADR 0046).</summary>
 public sealed partial class TaskRunner
@@ -28,7 +27,7 @@ public sealed partial class TaskRunner
             // A restart during the follow-up keeps this outcome rather than handing the task over again; the pull request itself holds the count of fix attempts (ADR 0046).
             var early = Outcome(task, run.RunId, result, run.Total, handed, settings.Priced, partial, startNote);
             await LearnAsync(task, early, run.Session, run.Total, run.Continuation, run.Decisions, handed, partial, run.LastHead, run.Budget);
-            journal?.Finish(early);
+            state?.Finish(early);
             follow = await FollowUpAsync(task, handed!, Path.Combine(handoverRun.OutDirectory, "chargehand.bundle"), run.Best?.Commits ?? 0, run.Branch, partial, run.Total, run.Containers, run.Span,
                 run.TraceId, progress, sha => run.LastHead = sha, run.Budget, ct);
         }
@@ -37,7 +36,7 @@ public sealed partial class TaskRunner
         if (follow.Detail is { } integration)
             outcome = outcome with { Detail = outcome.Detail is { } before ? $"{before}; {integration}" : integration };
         await LearnAsync(task, outcome, run.Session, spent, run.Continuation, run.Decisions, handed, partial, run.LastHead, run.Budget);
-        journal?.Finish(outcome);
+        state?.Finish(outcome);
         run.Ended = true;
         run.Span?.SetTag("chargehand.task.continuations", run.Continuation);
         Tag(run.Span, outcome, spent, run.Started);
@@ -70,12 +69,11 @@ public sealed partial class TaskRunner
         // Once the branch is pushed, a cancel no longer undoes the task: its result is recorded with the pull request.
         var record = run.LastHead is null ? ct : CancellationToken.None;
         var children = (await log.ListAsync(new RunListQuery(Since: run.Started, Limit: 200), record)).Where(r => r.ParentRunId is { } parent && run.Runs.Contains(parent)).ToList();
-        var result = await DrivenResult.BuildTaskAsync(new DrivenTaskInput(task.Id, run.RunId, run.TraceId, settings.Model, settings.ClaudeVersion, run.Total, run.ReportJson, handed, children,
+        var result = await results.BuildAsync(new DrivenTaskInput(task.Id, run.RunId, run.TraceId, settings.Model, settings.ClaudeVersion, run.Total, run.ReportJson, handed, children,
             Directory.Exists(scratchClone) ? scratchClone : settings.SourcePath, settings.BaseCommit, settings.Priced,
-            partial ? new KeptWork(run.Branch, run.Best!.RunId, run.Best.Commits, settings.BaseCommit) : null), resolver, supportCheck, record);
+            partial ? new KeptWork(run.Branch, run.Best!.RunId, run.Best.Commits, settings.BaseCommit) : null), record);
         result = result with { Actor = settings.Actor };
-        if (sign is not null)
-            result = sign(result);
+        result = results.Sign(result);
         await log.AppendAsync(new StartRecord(run.RunId, run.Started, run.TraceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId, ProcessBoot.Id, settings.Actor), CancellationToken.None);
         await log.AppendAsync(new RunRecord(run.RunId, run.Started, DateTimeOffset.UtcNow, settings.Request.Context.Preset, null, null, result, Actor: settings.Actor), CancellationToken.None);
         return result;
@@ -229,10 +227,10 @@ public sealed partial class TaskRunner
                 if (key == lastChecks)
                     return;
                 lastChecks = key;
-                records?.Append(settings.BatchId, new ChecksRecord(task.Id, o.At, pr.Number, o.HeadSha, o.MergeStatus, o.IsDraft, o.AutoMerge, o.Decision,
+                state?.Append(new ChecksRecord(task.Id, o.At, pr.Number, o.HeadSha, o.MergeStatus, o.IsDraft, o.AutoMerge, o.Decision,
                     [.. o.Checks.Select(c => new CheckRecord(c.Name, c.Required, JsonNamingPolicy.SnakeCaseLower.ConvertName(c.Outcome.ToString()), c.JobId))]));
             },
-            a => records?.Append(settings.BatchId, new CiAttemptRecord(task.Id, a.Attempt, a.MaxAttempts, a.At, a.JobsKey, a.Failing, a.Pushed, a.Detail)));
+            a => state?.Append(new CiAttemptRecord(task.Id, a.Attempt, a.MaxAttempts, a.At, a.JobsKey, a.Failing, a.Pushed, a.Detail)));
     }
 
     /// <summary>A continuation's start that failed for a reason outside the task (the runner is full or unreachable, the seed was refused, the call timed out) must not cost the work
