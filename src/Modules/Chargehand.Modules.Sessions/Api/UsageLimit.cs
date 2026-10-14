@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using Chargehand.Kernel;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Sessions.Api;
 
 /// <summary>What a session's last result says about a usage or rate limit (ADR 0045).</summary>
 public static partial class UsageLimit

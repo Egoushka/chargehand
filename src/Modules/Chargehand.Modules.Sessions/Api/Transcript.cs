@@ -2,7 +2,7 @@ using System.Text;
 using Chargehand.Kernel;
 using Chargehand.Modules.Runners.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Sessions.Api;
 
 /// <summary>The end of a session's transcript as it may leave the server (ADR 0059): whole lines, each redacted.</summary>
 /// <param name="Lines">The lines of the tail, oldest first. Each is one <c>stream-json</c> event as the session wrote it, or, for one over <see cref="Transcript.MaxLine"/>, <c>{"type":"chargehand_cut","bytes":N}</c>.</param>

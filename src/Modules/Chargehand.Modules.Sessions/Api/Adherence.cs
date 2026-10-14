@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Sessions.Api;
 
 /// <param name="Followed">The session did research, wrote, tested and reviewed in that order, with at most 2 fix rounds.</param>
 /// <param name="Reviews">Calls of the review preset; fix rounds are reviews after the first.</param>
@@ -25,11 +25,7 @@ public static partial class Adherence
         var testFileEdited = false;
         foreach (var line in streamLines)
         {
-            JsonElement e;
-            try { e = JsonDocument.Parse(line).RootElement; }
-            catch (JsonException) { continue; }
-            if (e.ValueKind != JsonValueKind.Object || e.GetPropertyOrNull("type")?.GetString() != "assistant" || e.GetPropertyOrNull("message") is not { ValueKind: JsonValueKind.Object } message
-                || message.GetPropertyOrNull("content") is not { ValueKind: JsonValueKind.Array } content)
+            if (AssistantContent(line) is not { } content)
                 continue;
             foreach (var block in content.EnumerateArray())
             {
@@ -38,7 +34,7 @@ public static partial class Adherence
                 // A tool call can appear in more than one partial message of a turn; count it once.
                 if (block.GetPropertyOrNull("id")?.GetString() is { } id && !seen.Add(id))
                     continue;
-                if (block.GetPropertyOrNull("name")?.GetString() is "Edit" or "Write" && block.GetPropertyOrNull("input")?.GetPropertyOrNull("file_path")?.GetString() is { } path && TestFile().IsMatch(path))
+                if (EditsTestFile(block))
                     testFileEdited = true;
                 if (Step(block) is { } step)
                     events.Add((step, index));
@@ -46,6 +42,26 @@ public static partial class Adherence
             }
         }
 
+        return Report(events, testFileEdited);
+    }
+
+    private static bool EditsTestFile(JsonElement block) =>
+        block.GetPropertyOrNull("name")?.GetString() is "Edit" or "Write" && block.GetPropertyOrNull("input")?.GetPropertyOrNull("file_path")?.GetString() is { } path && TestFile().IsMatch(path);
+
+    /// <summary>The content of an assistant message on one stream line; null for any other line.</summary>
+    private static JsonElement? AssistantContent(string line)
+    {
+        JsonElement e;
+        try { e = JsonDocument.Parse(line).RootElement; }
+        catch (JsonException) { return null; }
+        if (e.ValueKind != JsonValueKind.Object || e.GetPropertyOrNull("type")?.GetString() != "assistant" || e.GetPropertyOrNull("message") is not { ValueKind: JsonValueKind.Object } message
+            || message.GetPropertyOrNull("content") is not { ValueKind: JsonValueKind.Array } content)
+            return null;
+        return content;
+    }
+
+    private static AdherenceReport Report(List<(string Step, int Index)> events, bool testFileEdited)
+    {
         int First(string step) => events.FirstOrDefault(x => x.Step == step) is { Step: not null } hit ? hit.Index : -1;
         var (research, write, test, review) = (First("research"), First("write"), First("test"), First("review"));
         var reviews = events.Count(x => x.Step == "review");

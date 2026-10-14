@@ -1,13 +1,12 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Chargehand.Config;
-using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
-using Chargehand.Runtime;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Sessions.Tests;
 
 /// <summary>The in-container driver (ADR 0039): runs headless Claude Code, ends it when it stalls, and leaves a bundle, a report and an outcome.</summary>
 public class SessionDriverTests

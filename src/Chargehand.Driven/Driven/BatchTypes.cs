@@ -1,4 +1,5 @@
 using Chargehand.Contracts;
+using Chargehand.Modules.Sessions.Api;
 
 namespace Chargehand.Driven;
 
@@ -10,10 +11,6 @@ public enum TaskState { Completed, Failed, NeedsInput, NotStarted, Cancelled }
 /// <param name="Replace">The task did not start because its runner could not be reached (ADR 0058): the scheduler places it again on another, a limited number of times, and never records this outcome.</param>
 public sealed record TaskOutcome(string Id, TaskState State, string? RunId = null, string? Detail = null, ErrorCode? Error = null, decimal Usd = 0, long Tokens = 0,
     string? Branch = null, string? PrUrl = null, DateTimeOffset? RetryAfter = null, string? Runner = null, bool Replace = false);
-
-/// <summary>What a running task has used so far, cumulative, and where its session is: turns and stage are known only while it runs, from the session's tally. <c>Usd</c> is
-/// priced dollars (an API key only); <c>UsdEstimate</c> is the session's dollar equivalent from the price table, also on a subscription, and binds nothing.</summary>
-public sealed record TaskUsage(long Tokens, decimal Usd, int? Turns = null, SessionStage? Stage = null, long? CacheRead = null, long? CacheWrite = null, decimal? UsdEstimate = null, bool UsdEstimatePartial = false);
 
 /// <summary>The most one task may use. Tokens bind in both credential modes; <c>MaxUsd</c> is null where the credential is not priced.</summary>
 public sealed record TaskLimits(long MaxTokens, decimal? MaxUsd);

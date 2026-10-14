@@ -1,7 +1,7 @@
 using System.Text.Json;
-using Chargehand.Driven;
+using Chargehand.Modules.Sessions.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Sessions.Tests;
 
 /// <summary>ADR 0039: a driven session that loops, idles or runs on must end. Four detectors, each with its own reason.</summary>
 public class StallDetectorTests

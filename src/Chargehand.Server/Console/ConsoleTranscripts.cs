@@ -1,5 +1,6 @@
 using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Sessions.Api;
 
 namespace Chargehand.Server;
 

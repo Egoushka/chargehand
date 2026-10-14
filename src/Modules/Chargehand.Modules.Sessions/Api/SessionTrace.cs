@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Sessions.Api;
 
 /// <summary>What a handoff takes from the session's own stream (ADR 0045): its recent tool calls without their outputs, the last test run, whether each step of the <c>change</c>
 /// skill last worked, and the todo list it kept. Pure: it reads events and nothing else; the caller reads it after the stream has ended.</summary>
@@ -63,17 +63,26 @@ public sealed partial class SessionTrace
         _calls.Add(new ToolCall(name, Arguments(input)));
         if (_calls.Count > MaxCalls)
             _calls.RemoveAt(0);
-        if (name == "TodoWrite" && input.ValueKind == JsonValueKind.Object && input.TryGetProperty("todos", out var todos) && todos.ValueKind == JsonValueKind.Array)
-            _todos = [.. todos.EnumerateArray().Where(t => t.ValueKind == JsonValueKind.Object && t.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String)
-                .Select(t => new TodoItem(t.GetProperty("content").GetString()!, t.TryGetProperty("status", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString()! : "pending"))];
+        if (name == "TodoWrite")
+            OnTodos(input);
         if (id is null || Adherence.Step(block) is not { } step)
             return;
         _pending[id] = step;
         if (step == "test")
-        {
-            _testId = id;
-            LastTest = new TestRun(input.ValueKind == JsonValueKind.Object && input.TryGetProperty("command", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString()! : "", null, null);
-        }
+            OnTest(id, input);
+    }
+
+    private void OnTodos(JsonElement input)
+    {
+        if (input.ValueKind == JsonValueKind.Object && input.TryGetProperty("todos", out var todos) && todos.ValueKind == JsonValueKind.Array)
+            _todos = [.. todos.EnumerateArray().Where(t => t.ValueKind == JsonValueKind.Object && t.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String)
+                .Select(t => new TodoItem(t.GetProperty("content").GetString()!, t.TryGetProperty("status", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString()! : "pending"))];
+    }
+
+    private void OnTest(string id, JsonElement input)
+    {
+        _testId = id;
+        LastTest = new TestRun(input.ValueKind == JsonValueKind.Object && input.TryGetProperty("command", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString()! : "", null, null);
     }
 
     private void OnResult(JsonElement block)

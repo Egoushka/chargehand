@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Sessions.Api;
 
 /// <summary><c>chargehand session</c>: the command a session container runs (ADR 0039). It reads <c>/out/task.json</c> (written by the runner's
 /// side before the container starts), runs <see cref="SessionDriver"/> in <c>/work</c> and leaves its files in <c>/out</c>. The outcome file, not the
@@ -9,12 +9,15 @@ namespace Chargehand.Driven;
 /// environment note reads (ADR 0048); the image build runs it.</summary>
 public static class SessionCli
 {
-    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    internal static readonly SessionsJsonContext Context = new(new JsonSerializerOptions(JsonSerializerDefaults.Web)
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         // The server and the session image deploy separately: a field one side learned first must not stop the other (task.json, session-usage.json).
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
-    };
+    });
+
+    /// <summary>The options of <c>task.json</c> and <c>session-usage.json</c>, bound to the session's source-generated types.</summary>
+    public static JsonSerializerOptions Json => Context.Options;
 
     /// <summary>Appended to Claude Code's system prompt. It lives in code, in the trusted build, so a pull request cannot change how the
     /// session that reviews it is told to behave (the same reason as the support judge's prompt).</summary>
@@ -39,7 +42,7 @@ public static class SessionCli
     {
         try
         {
-            var task = JsonSerializer.Deserialize<SessionTask>(File.ReadAllText(path), Json) ?? throw new InvalidDataException("empty task file");
+            var task = JsonSerializer.Deserialize(File.ReadAllText(path), Context.SessionTask) ?? throw new InvalidDataException("empty task file");
             if (string.IsNullOrWhiteSpace(task.Goal) || string.IsNullOrWhiteSpace(task.RunId))
                 throw new InvalidDataException("the task needs a run id and a goal");
             if (!task.Branch.StartsWith("chargehand/", StringComparison.Ordinal))

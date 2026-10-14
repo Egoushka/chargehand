@@ -1,6 +1,7 @@
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Sessions.Tests;
 
 /// <summary>Driven sessions (ADR 0039): the one place a <c>docker run</c> line is built, and what it can never contain.</summary>
 public class ContainerTemplateTests
@@ -263,7 +264,7 @@ public class ContainerTemplateTests
         Assert.Equal("governor.jsonl", read[^1]);
         Assert.Throws<ArgumentException>(() => ContainerTemplate.OutFileArgs(new OutFileSpec("run1", Image, "chargehand-out-run1", ContainerTemplate.GovernorFile), write: true));
         // The session's own name for it is the same constant.
-        Assert.Equal(ContainerTemplate.GovernorFile, Chargehand.Driven.SessionDriver.GovernorFile);
+        Assert.Equal(ContainerTemplate.GovernorFile, Chargehand.Modules.Sessions.Api.SessionDriver.GovernorFile);
     }
 
     [Fact]

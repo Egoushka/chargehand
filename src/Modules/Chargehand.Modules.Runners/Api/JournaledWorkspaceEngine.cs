@@ -1,8 +1,6 @@
-using Chargehand.Contracts;
 using Chargehand.Modules.Journal.Api;
-using Chargehand.Modules.Runners.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <summary>The session's workspace helper as a recorded step, keyed <c>prep/&lt;run&gt;</c> in the batch's flow (ADR 0061). A task is prepared once per run id, so a key that completed never
 /// runs again. Every attempt first clears the work volume, because a clone does not go into a filled one: a step run again (the server stopped or the call was cancelled between its intent and
@@ -20,7 +18,7 @@ public sealed class JournaledWorkspaceEngine(IWorkspaceEngine inner, IContainerE
         }, ct);
 }
 
-/// <summary>The verification's workspace helper (<see cref="ContainerVerifier"/>) as the step <c>prep/&lt;run&gt;/verify</c> (ADR 0061). Each verification removes the work volume and prepares it
+/// <summary>The verification's workspace helper (<c>ContainerVerifier</c>) as the step <c>prep/&lt;run&gt;/verify</c> (ADR 0061). Each verification removes the work volume and prepares it
 /// again under the session's run id on purpose, so a finished key is reset before each prep; one a cut left started runs again, resumed. The verifier has removed the volume either way.</summary>
 public sealed class JournaledVerifierWorkspace(IWorkspaceEngine inner, DrivenJournal steps, string batchId) : IWorkspaceEngine
 {
@@ -31,22 +29,4 @@ public sealed class JournaledVerifierWorkspace(IWorkspaceEngine inner, DrivenJou
             await steps.ResetAsync(key, ct);
         await steps.RunAsync(key, (_, token) => inner.PrepareWorkspaceAsync(spec, token), ct);
     }
-}
-
-/// <summary>The writes into a run's output volume as recorded steps, keyed <c>xfer/&lt;run&gt;/task</c> and <c>xfer/&lt;run&gt;/seed</c> (ADR 0061); the reads pass through. A read copies into a
-/// directory this process owns and is lost with it, so it must run again after a restart. A write overwrites the same file, so running it again is safe, and the engine clears a stopped
-/// transfer helper under the run's name before it runs one (see <see cref="JournaledWorkspaceEngine"/>): a resumed write needs nothing more.</summary>
-public sealed class JournaledSessionVolumes(ISessionVolumes inner, DrivenJournal steps, string batchId) : ISessionVolumes
-{
-    public Task WriteTaskAsync(string runId, SessionTask task, CancellationToken ct) =>
-        steps.RunAsync(StepKey.Transfer(batchId, runId, "task"), (_, token) => inner.WriteTaskAsync(runId, task, token), ct);
-
-    public Task WriteSeedAsync(string runId, string bundlePath, CancellationToken ct) =>
-        steps.RunAsync(StepKey.Transfer(batchId, runId, "seed"), (_, token) => inner.WriteSeedAsync(runId, bundlePath, token), ct);
-
-    public Task FetchOutputAsync(string runId, string directory, CancellationToken ct) => inner.FetchOutputAsync(runId, directory, ct);
-
-    public Task<TaskUsage?> ReadUsageAsync(string runId, CancellationToken ct) => inner.ReadUsageAsync(runId, ct);
-
-    public Task<byte[]?> ReadTranscriptTailAsync(string runId, int maxBytes, CancellationToken ct) => inner.ReadTranscriptTailAsync(runId, maxBytes, ct);
 }

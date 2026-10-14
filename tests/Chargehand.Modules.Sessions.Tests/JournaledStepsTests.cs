@@ -1,8 +1,9 @@
-using Chargehand.Driven;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Sessions.Tests;
 
 /// <summary>ADR 0061, first slice: the workspace helper and the writes into an output volume are recorded steps. "Killed" is a call cancelled while its helper runs, with the daemon unreachable so
 /// the engine's own cleanup cannot remove the helper, and the journal closed; "restarted" is a journal opened again on the same file and the same (fake) daemon.</summary>
