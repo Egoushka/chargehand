@@ -9,6 +9,7 @@ using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
+using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Server;

@@ -1,9 +1,7 @@
 using System.Text.Json;
-using Chargehand.Config;
-using Chargehand.Driven;
 using Chargehand.Modules.Oversight.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Oversight.Tests;
 
 /// <summary>ADR 0045: the governor's deterministic signals and its ladder (warn, then checkpoint; context and spend checkpoint; 100% of the budget stops).</summary>
 public class GovernorTests

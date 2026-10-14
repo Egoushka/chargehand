@@ -1,7 +1,5 @@
-using Chargehand.Config;
-using Chargehand.Modules.Oversight.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Oversight.Api;
 
 /// <summary>ADR 0045's Budget decision: a task's budget comes from what tasks of its size class have cost. In this order: the task's own <c>budget_usd</c>; the <c>percentile</c>th percentile of the
 /// spend of the size class's finished tasks in the last <c>window_days</c> days for the repository, when there are at least <c>min_tasks</c> of them; the same over all repositories, when the repository

@@ -7,6 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
     <ProjectReference Include="..\..\Shared\Chargehand.Kernel\Chargehand.Kernel.csproj" />
+    <ProjectReference Include="..\Chargehand.Modules.Forge\Chargehand.Modules.Forge.csproj" />
   </ItemGroup>
 
 </Project>

@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Chargehand.Contracts;
 using Chargehand.Modules.Journal.Api;
+using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Driven;
 
