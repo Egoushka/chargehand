@@ -1,15 +1,14 @@
-using Chargehand.Config;
 using Chargehand.Contracts;
-using Chargehand.Driven;
 using Chargehand.Kernel;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Tasks.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Batches.Tests;
 
 /// <summary>Turning a request's <c>driven</c> block into resolved tasks and limits (ADR 0039).</summary>
 public class DrivenBatchTests
 {
-    private sealed class FakeSource(Func<string, string> answer) : ITaskSource
+    private sealed class FakeSource(Func<string, string> answer)
     {
         public List<string> Asked { get; } = [];
 
@@ -23,7 +22,7 @@ public class DrivenBatchTests
     private static RunRequest Request(RequestDriven driven) =>
         new("request/v1", "batch", new RequestContext(false, "driven", Repository: new RepositoryRef("/srv/r", "abc1234")), Driven: driven);
 
-    private static readonly DrivenSettings On = new(Enabled: true, MaxParallel: 2, MaxParallelTotal: 4);
+    private static readonly BatchOptions On = new(Enabled: true, MaxParallel: 2);
     private static readonly DrivenPreset Preset = new(MaxTokens: 1_500_000);
 
     [Fact]
@@ -31,7 +30,7 @@ public class DrivenBatchTests
     {
         var source = new FakeSource(r => $"goal for {r}");
         var request = Request(new RequestDriven([new DrivenTask("a", null, "Add a retry"), new DrivenTask("b", "ITEM-12", null), new DrivenTask("c", "ITEM-13", "Own text wins")]));
-        var (ready, failed) = await DrivenBatch.PrepareAsync(request, On, source, default);
+        var (ready, failed) = await DrivenBatch.PrepareAsync(request, On, source.ResolveAsync, default);
         Assert.Empty(failed);
         Assert.Equal([new ResolvedTask("a", null, "Add a retry"), new ResolvedTask("b", "ITEM-12", "goal for ITEM-12"), new ResolvedTask("c", "ITEM-13", "Own text wins")], ready);
         Assert.Equal(["ITEM-12"], source.Asked);                    // a task with both keeps its goal and does not ask the source
@@ -42,7 +41,7 @@ public class DrivenBatchTests
     {
         var source = new FakeSource(r => r == "BAD-1" ? throw new TaskSourceException("no item BAD-1") : $"goal for {r}");
         var request = Request(new RequestDriven([new DrivenTask("a", "OK-1", null), new DrivenTask("b", "BAD-1", null), new DrivenTask("c", null, "g")]));
-        var (ready, failed) = await DrivenBatch.PrepareAsync(request, On, source, default);
+        var (ready, failed) = await DrivenBatch.PrepareAsync(request, On, source.ResolveAsync, default);
         Assert.Equal(["a", "c"], ready.Select(t => t.Id));
         var failure = Assert.Single(failed);
         Assert.Equal("b", failure.Id);
@@ -68,7 +67,7 @@ public class DrivenBatchTests
     {
         var duplicate = Request(new RequestDriven([new DrivenTask("a", null, "g"), new DrivenTask("a", null, "h")]));
         Assert.Equal(ErrorCode.InvalidRequest, (await Assert.ThrowsAsync<ChargehandException>(() => DrivenBatch.PrepareAsync(duplicate, On, null, default))).Code);
-        var off = await Assert.ThrowsAsync<ChargehandException>(() => DrivenBatch.PrepareAsync(Request(new RequestDriven([new DrivenTask("a", null, "g")])), new DrivenSettings(), null, default));
+        var off = await Assert.ThrowsAsync<ChargehandException>(() => DrivenBatch.PrepareAsync(Request(new RequestDriven([new DrivenTask("a", null, "g")])), new BatchOptions(Enabled: false, MaxParallel: 2), null, default));
         Assert.Contains("driven.enabled", off.Action);
         Assert.Equal(ErrorCode.InvalidRequest, off.Code);
     }

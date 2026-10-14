@@ -6,7 +6,7 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Tasks.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Batches.Api;
 
 /// <summary>A shared number the plan gave one task so that no other task of the batch takes it (ADR 0049): the next migration number, the next ADR number.</summary>
 public sealed record PlanAssignment(string What, string Value);
@@ -86,54 +86,73 @@ public static partial class PlanApplier
 
     public static (IReadOnlyList<ResolvedTask> Tasks, BatchPlan Plan) Apply(IReadOnlyList<ResolvedTask> tasks, PlanProposal proposal, string source)
     {
-        var ids = tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
-        var total = tasks.Count;
-        List<ResolvedTask> result = [];
-        List<PlanEntry> entries = [];
-        List<string> dropped = [];
-        Dictionary<string, string> given = new(StringComparer.OrdinalIgnoreCase);
-
+        var batch = new Applying(tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal), tasks.Count);
         foreach (var task in tasks)
+            ApplyTo(task, proposal.Tasks.FirstOrDefault(p => p.Id == task.Id), batch);
+        return (batch.Result, new BatchPlan(source, proposal.RunId, "applied", null, proposal.Checked, proposal.Note, batch.Entries, batch.Dropped));
+    }
+
+    /// <summary>The batch as the plan is applied to it, task by task: the ids taken, the task count so far and the numbers given.</summary>
+    private sealed class Applying(HashSet<string> ids, int total)
+    {
+        public HashSet<string> Ids { get; } = ids;
+
+        public int Total { get; set; } = total;
+
+        public List<ResolvedTask> Result { get; } = [];
+
+        public List<PlanEntry> Entries { get; } = [];
+
+        public List<string> Dropped { get; } = [];
+
+        public Dictionary<string, string> Given { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void ApplyTo(ResolvedTask task, ProposedTask? proposed, Applying batch)
+    {
+        var planSize = SizeOf(proposed?.Size);
+        var size = task.Size ?? planSize;
+        var sizeFrom = task.Size is not null ? "caller" : planSize is not null ? "plan" : null;
+
+        var parts = ValidParts(proposed?.Split);
+        var kept = Kept(task, proposed, planSize, parts, batch);
+        var chain = parts is not null && kept is null;
+        if (kept is not null)
+            batch.Dropped.Add($"{task.Id}: not split ({kept})");
+
+        var numbers = Numbers(task.Id, proposed?.Assign, chain ? parts!.Count : 1, batch.Given, batch.Dropped);
+        if (!chain)
         {
-            var proposed = proposal.Tasks.FirstOrDefault(p => p.Id == task.Id);
-            var planSize = SizeOf(proposed?.Size);
-            var size = task.Size ?? planSize;
-            var sizeFrom = task.Size is not null ? "caller" : planSize is not null ? "plan" : null;
-
-            var parts = ValidParts(proposed?.Split);
-            string? kept = null;
-            if (proposed?.Split is { Count: > 0 } && parts is null)
-                kept = $"the plan's split needs 2 to {MaxParts} parts with a goal each";
-            else if (parts is not null)
-                kept = WhyNotSplit(task, planSize, parts.Count, ids, total);
-            var chain = parts is not null && kept is null;
-            if (kept is not null)
-                dropped.Add($"{task.Id}: not split ({kept})");
-
-            var numbers = Numbers(task.Id, proposed?.Assign, chain ? parts!.Count : 1, given, dropped);
-            if (!chain)
-            {
-                var goal = AppendNumbers(task.Goal, numbers.GetValueOrDefault(1));
-                result.Add(task with { Goal = goal, Size = size, SizeFrom = sizeFrom == "plan" ? "plan" : null });
-                entries.Add(new PlanEntry(task.Id, size, sizeFrom, task.DependsOn ?? [], null, numbers.GetValueOrDefault(1), kept));
-                continue;
-            }
-
-            var k = parts!.Count;
-            total += k - 1;
-            for (var j = 0; j < k; j++)
-            {
-                var id = j == k - 1 ? task.Id : $"{task.Id}-{j + 1}";
-                ids.Add(id);
-                var part = parts[j];
-                var goal = AppendNumbers(PartGoal(task.Goal, part.Goal!.Trim(), j + 1, k), numbers.GetValueOrDefault(j + 1));
-                IReadOnlyList<string> dependsOn = j == 0 ? task.DependsOn ?? [] : [$"{task.Id}-{j}"];
-                var partSize = SizeOf(part.Size) ?? "M";
-                result.Add(new ResolvedTask(id, j == k - 1 ? task.Ref : null, goal, Size: partSize, DependsOn: dependsOn.Count > 0 ? dependsOn : null, SplitFrom: task.Id, SizeFrom: "plan"));
-                entries.Add(new PlanEntry(id, partSize, "plan", dependsOn, task.Id, numbers.GetValueOrDefault(j + 1)));
-            }
+            var goal = AppendNumbers(task.Goal, numbers.GetValueOrDefault(1));
+            batch.Result.Add(task with { Goal = goal, Size = size, SizeFrom = sizeFrom == "plan" ? "plan" : null });
+            batch.Entries.Add(new PlanEntry(task.Id, size, sizeFrom, task.DependsOn ?? [], null, numbers.GetValueOrDefault(1), kept));
+            return;
         }
-        return (result, new BatchPlan(source, proposal.RunId, "applied", null, proposal.Checked, proposal.Note, entries, dropped));
+        Chain(task, parts!, numbers, batch);
+    }
+
+    private static string? Kept(ResolvedTask task, ProposedTask? proposed, string? planSize, IReadOnlyList<ProposedPart>? parts, Applying batch)
+    {
+        if (proposed?.Split is { Count: > 0 } && parts is null)
+            return $"the plan's split needs 2 to {MaxParts} parts with a goal each";
+        return parts is not null ? WhyNotSplit(task, planSize, parts.Count, batch.Ids, batch.Total) : null;
+    }
+
+    private static void Chain(ResolvedTask task, IReadOnlyList<ProposedPart> parts, Dictionary<int, IReadOnlyList<PlanAssignment>> numbers, Applying batch)
+    {
+        var k = parts.Count;
+        batch.Total += k - 1;
+        for (var j = 0; j < k; j++)
+        {
+            var id = j == k - 1 ? task.Id : $"{task.Id}-{j + 1}";
+            batch.Ids.Add(id);
+            var part = parts[j];
+            var goal = AppendNumbers(PartGoal(task.Goal, part.Goal!.Trim(), j + 1, k), numbers.GetValueOrDefault(j + 1));
+            IReadOnlyList<string> dependsOn = j == 0 ? task.DependsOn ?? [] : [$"{task.Id}-{j}"];
+            var partSize = SizeOf(part.Size) ?? "M";
+            batch.Result.Add(new ResolvedTask(id, j == k - 1 ? task.Ref : null, goal, Size: partSize, DependsOn: dependsOn.Count > 0 ? dependsOn : null, SplitFrom: task.Id, SizeFrom: "plan"));
+            batch.Entries.Add(new PlanEntry(id, partSize, "plan", dependsOn, task.Id, numbers.GetValueOrDefault(j + 1)));
+        }
     }
 
     /// <summary>The plan of a batch whose planner failed or was missing: nothing changes.</summary>
@@ -224,16 +243,6 @@ public sealed class ModelPlanner(PlanRunner run, string preset) : IBatchPlanner
         return Parse(result.Summary) with { RunId = runId };
     }
 
-    private static readonly JsonSerializerOptions WireJson = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        PropertyNameCaseInsensitive = true,
-        AllowTrailingCommas = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-    };
-
-    private sealed record Wire(IReadOnlyList<ProposedTask>? Tasks, IReadOnlyList<string>? Checked, string? Note);
-
     /// <summary>The first <c>{</c> to the last <c>}</c> of the text: a model may fence the object or add a line around it.</summary>
     public static PlanProposal Parse(string summary)
     {
@@ -241,10 +250,10 @@ public sealed class ModelPlanner(PlanRunner run, string preset) : IBatchPlanner
         var end = summary.LastIndexOf('}');
         if (start < 0 || end < start)
             throw new PlanException("the planning run printed no JSON plan");
-        Wire? wire;
+        PlanWire? wire;
         try
         {
-            wire = JsonSerializer.Deserialize<Wire>(summary[start..(end + 1)], WireJson);
+            wire = JsonSerializer.Deserialize(summary[start..(end + 1)], BatchesJsonContext.Wire.PlanWire);
         }
         catch (JsonException e)
         {
@@ -277,6 +286,9 @@ public sealed class ModelPlanner(PlanRunner run, string preset) : IBatchPlanner
         return text.ToString();
     }
 }
+
+/// <summary>The planner's answer as it reads from the summary.</summary>
+internal sealed record PlanWire(IReadOnlyList<ProposedTask>? Tasks, IReadOnlyList<string>? Checked, string? Note);
 
 /// <summary>Runs a request through the orchestrator as a child of the batch run; the CLI supplies it from its <c>Orchestrator</c>.</summary>
 public delegate Task<ResultContract> PlanRunner(RunRequest request, string runId, string parentRunId, CancellationToken ct);

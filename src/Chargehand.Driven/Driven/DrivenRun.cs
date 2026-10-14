@@ -440,9 +440,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         Action<RunStatus>? progress, Activity? span, BatchState? resume, Func<bool> detaching, Func<bool> cancelledByCaller, CancellationToken ct, string? actor = null)
     {
         var settings = profile.Driven ?? new DrivenSettings();
+        var options = new BatchOptions(settings.Enabled, settings.MaxParallel);
         // Throws when the profile has driven sessions off, so a refused request touches nothing else.
         var (resolved, unresolved) = resume is null
-            ? await DrivenBatch.PrepareAsync(request, settings, services?.TaskSource, ct, new ContinuationSource(log))
+            ? await DrivenBatch.PrepareAsync(request, options, services?.TaskSource is { } source ? source.ResolveAsync : null, ct, new ContinuationSource(log))
             : ([.. resume.Tasks.Select(t => Resumed(request, t))], resume.Unresolved);
         IReadOnlyList<ResolvedTask> ready = resolved;
         var s = services ?? throw new ChargehandException(ErrorCode.ContainerUnavailable, "driven sessions are on, but no container engine is set up for them", "Check driven.runner in the profile, or install Docker.");
@@ -458,7 +459,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var own = new AccountCredentials(profile.Http?.Accounts).For(actor);
         var priced = own is not null || claude.ApiKeySecret is not null;
         var perTaskUsd = Math.Min(kind.Budget.MaxUsd, request.Driven!.MaxUsdTotal ?? decimal.MaxValue);
-        var limits = DrivenBatch.Limits(request, settings, drivenPreset, perTaskUsd, priced, _global);
+        var limits = DrivenBatch.Limits(request, options, drivenPreset, perTaskUsd, priced, _global);
         var push = settings.PushSecret is { } pushSecret ? new PushCredential(Resolve(s, pushSecret)) : throw new ChargehandException(ErrorCode.CredentialUnavailable,
             "driven.push_secret is not set, so nothing could be pushed", "Name the secret item that holds the credential which pushes non-default branches.");
         var modelEnvironment = new Dictionary<string, string>
