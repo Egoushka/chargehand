@@ -2,6 +2,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Server;
 

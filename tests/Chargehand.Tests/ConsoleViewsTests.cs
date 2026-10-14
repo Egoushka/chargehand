@@ -6,6 +6,15 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Intake.Api;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
+using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Server;
 using Chargehand.Workspace;
 
@@ -31,8 +40,8 @@ public class ConsoleViewsTests
         public Task<HostSnapshot?> ReadAsync(CancellationToken ct) => Task.FromResult(snapshot);
     }
 
-    private static DrivenServices Services(DrivenRunTests.FakeEngine engine, HostSnapshot? host = null) =>
-        new(engine, engine, new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed), _ => throw new NotSupportedException(), null,
+    private static DrivenServices Services(DrivenFakes.FakeEngine engine, HostSnapshot? host = null) =>
+        new(engine, engine, new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed), _ => throw new NotSupportedException(), null,
             (_, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo", ConsoleRig.Commit, "https://github.com/o/r.git", "main")), new DrivenRunTests.NoEvidenceProblems(),
             name => $"value-of-{name}", Host: new FixedHost(host));
 
@@ -322,14 +331,14 @@ public class ConsoleViewsTests
     [Fact]
     public async Task System_shows_the_redacted_profile_presets_images_and_the_runner_with_its_live_containers()
     {
-        var engine = new DrivenRunTests.FakeEngine
+        var engine = new DrivenFakes.FakeEngine
         {
             Resources = new(["chargehand-run-s2", "chargehand-egress-run-live", "chargehand-svc-pg-run-live", "chargehand-prep-run-s2", "chargehand-stray"], ["chargehand-net-run-live"], ["chargehand-out-run-s2"]),
         };
         await using var rig = await ConsoleRig.StartAsync(accounts: [Alice()], profile: SecretProfile, services: _ => Services(engine, new HostSnapshot(8000, 16000, 2000, 1500, 0.5, 4)));
         var request = ConsoleSeed.BatchRequest(new DrivenTask("t1", Goal: "one"));
-        new BatchStateStore(rig.BatchDirectory).Save(new BatchState("run-live", ConsoleRig.Now.AddMinutes(-9), new string('0', 32), request, "TOKEN-KEY",
-            [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-s2", "chargehand/run-s2", "chargehand-run-s2", Runs: ["run-s2"])], [], Actor: "alice"));
+        await OpenBatchSeed.SaveAsync(rig.BatchDirectory, rig.Log, new OpenBatch("run-live", ConsoleRig.Now.AddMinutes(-9), new string('0', 32), request,
+            [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-s2", "chargehand/run-s2", "chargehand-run-s2", Runs: ["run-s2"])], [], Actor: "alice"), rig.Driven);
 
         var text = await ConsoleRig.Text(rig.Owner, "/v1/system");
         var body = JsonSerializer.Deserialize<JsonElement>(text);
@@ -379,7 +388,7 @@ public class ConsoleViewsTests
     [Fact]
     public async Task System_says_so_when_the_runner_does_not_answer_and_when_driven_sessions_are_off()
     {
-        var engine = new DrivenRunTests.FakeEngine { OnList = new ChargehandException(ErrorCode.ContainerUnavailable, "the runner could not be reached: connection refused") };
+        var engine = new DrivenFakes.FakeEngine { OnList = new ChargehandException(ErrorCode.ContainerUnavailable, "the runner could not be reached: connection refused") };
         await using (var down = await ConsoleRig.StartAsync(profile: SecretProfile, services: _ => Services(engine)))
         {
             var runner = (await ConsoleRig.Get(down.Owner, "/v1/system")).GetProperty("runner");
@@ -405,20 +414,20 @@ public class ConsoleViewsTests
     [Fact]
     public async Task System_reports_every_runner_from_the_pool_with_its_draining_state()
     {
-        var box = new DrivenRunTests.FakeEngine { Resources = new(["chargehand-run-a", "chargehand-run-b"], [], []) };
-        var laptop = new DrivenRunTests.FakeEngine();
+        var box = new DrivenFakes.FakeEngine { Resources = new(["chargehand-run-a", "chargehand-run-b"], [], []) };
+        var laptop = new DrivenFakes.FakeEngine();
         var boxEntry = new DrivenRunnerEntry("box", "http://box.internal:4310/path?token=abc", "runner-key-item", MaxSessions: 3);
         var laptopEntry = new DrivenRunnerEntry("laptop", "http://laptop.internal:4310", "runner-key-item");
         var drainingEntry = new DrivenRunnerEntry("spare", "http://spare.internal:4310", "runner-key-item");
-        var spare = new DrivenRunTests.FakeEngine();
+        var spare = new DrivenFakes.FakeEngine();
         await using var rig = await ConsoleRig.StartAsync(profile: root => SecretProfile(root) with { Driven = SecretProfile(root).Driven! with { Runner = null, Runners = [boxEntry, laptopEntry, drainingEntry] } },
             services: _ => Services(box) with
             {
                 Runners =
                 [
-                    new RunnerSite(boxEntry, box, box, new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed), new FixedHost(new HostSnapshot(8000, 16000, null, null, 0.5, 4, State: "ok"))),
-                    new RunnerSite(laptopEntry, laptop, laptop, new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed), new DownHost()),
-                    new RunnerSite(drainingEntry, spare, spare, new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed),
+                    new RunnerSite(boxEntry, box, box, new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed), new FixedHost(new HostSnapshot(8000, 16000, null, null, 0.5, 4, State: "ok"))),
+                    new RunnerSite(laptopEntry, laptop, laptop, new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed), new DownHost()),
+                    new RunnerSite(drainingEntry, spare, spare, new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed),
                         new FixedHost(new HostSnapshot(8000, 16000, null, null, 0.5, 4, State: HostSnapshot.Draining, StateReason: "host update"))),
                 ],
             });
@@ -451,7 +460,7 @@ public class ConsoleViewsTests
     [Fact]
     public async Task The_owners_overview_has_the_host_the_runner_the_sessions_the_accounts_and_the_inbox()
     {
-        var engine = new DrivenRunTests.FakeEngine();
+        var engine = new DrivenFakes.FakeEngine();
         await using var rig = await ConsoleRig.StartAsync(accounts: [Alice(usdDay: 5m)], profile: SecretProfile, services: _ => Services(engine, new HostSnapshot(8000, 16000, 2000, 1500, 0.5, 4)), hold: true);
         await ConsoleSeed.BatchAsync(rig.Log, "b-q", null, ConsoleRig.Now.AddHours(-5), new SeedTask("t1", "needs_input", Questions: ["Which?"]));
         Assert.Equal(HttpStatusCode.Accepted, (await rig.Server.PostAsync(Runs.DraftRequest(), 0)).StatusCode);
@@ -482,7 +491,7 @@ public class ConsoleViewsTests
     [Fact]
     public async Task An_accounts_overview_holds_its_own_runs_and_spend_and_nothing_of_the_host_or_other_accounts()
     {
-        var engine = new DrivenRunTests.FakeEngine();
+        var engine = new DrivenFakes.FakeEngine();
         await using var rig = await ConsoleRig.StartAsync(accounts: [Alice(usdDay: 5m), Bob()], profile: SecretProfile, services: _ => Services(engine, new HostSnapshot(8000, 16000, 2000, 1500, 0.5, 4)), hold: true);
         await ConsoleSeed.BatchAsync(rig.Log, "a-q", "alice", ConsoleRig.Now.AddHours(-5), new SeedTask("t1", "needs_input", Questions: ["Alice?"]));
         await ConsoleSeed.BatchAsync(rig.Log, "b-q", "bob", ConsoleRig.Now.AddHours(-5), new SeedTask("t1", "needs_input", Questions: ["Bob?"]));

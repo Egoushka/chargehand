@@ -70,3 +70,97 @@ Batches as state machines; Research, Gateway; the edges; then the old projects a
 Porting Tasks, Sessions and Batches needs more than two upward ports (the module cut is wrong); the port leaves both
 structures alive for more than one release cycle; or a host cannot publish with AOT for a reason the dependency's
 maintainers will not fix.
+
+## Amendment, 2026-10-14: an 18th module, Forge
+
+`driven.forge` (which code host the remotes are on and how to reach it) is read by Handover, which pushes and opens the
+pull request, and by Oversight, whose pull-request outcome tracker reads the request's state. Both sit on layer 4 and
+neither may reference the other. The owner chose a small module below both, `Chargehand.Modules.Forge` on layer 2,
+which holds the forge settings and their validation; not the Kernel, which stays types every module shares, and not an
+upward port. The forge ports (`IPullRequests`, `IIntegrationHost`) stay with the code that implements them until
+Handover is ported. The skeleton now has 18 feature modules and 25 projects.
+
+## Amendment, 2026-10-14: Oversight below Sessions, Handover below Tasks
+
+Porting Tasks, Handover and Oversight on the layers above needs five upward ports, more than the two the reopen
+condition allows: Tasks to Handover and Tasks to Oversight (same layer, so forbidden), Tasks to the Batches task state,
+Tasks to the Research proof, and Sessions to Oversight (the governor runs inside the session). The owner chose to
+re-layer the same 18 modules instead of adding ports or merging modules. Bottom to top:
+
+| Layer | Projects |
+|---|---|
+| 0 | Contracts |
+| 1 | Kernel |
+| 2 | Ledger, Memory, Journal, Forge |
+| 3 | Accounts, Oversight |
+| 4 | Runners, Sessions, Gateway |
+| 5 | Handover |
+| 6 | Tasks |
+| 7 | Batches, Research |
+| 8 | Intake, Console, Evaluation, Onboarding, Watch; Runtimes ClaudeCode, OpenCode |
+| 9 | Hosts Cli, Server, Runner, Session |
+
+Oversight needs only Forge, and Handover names nothing in Tasks, Oversight or Sessions once its verify command sits in
+Sessions or the Kernel, so three of the five edges point down. Two upward ports remain, both declared in `Tasks.Api`,
+implemented by the higher module and wired by the hosts:
+
+- P3, Tasks to Batches: `ITaskState`, the task's journal entry, updates, finish and records, which live in the batch
+  state today. It goes when the batch state is retired (ADR 0061).
+- P4, Tasks to Research: `ITaskResults`, building, checking and signing the task's result with the evidence resolver
+  Research owns.
+
+`UpwardPortTests` in `tests/Chargehand.Architecture.Tests` lists the allowed ports by type name and fails on any other
+interface or abstract type a higher skeleton project implements for a lower one. The list stays empty until the Tasks
+port adds P3 and P4. On the layer order, this supersedes the R7 target-architecture diagram, which put Tasks, Handover
+and Oversight together on one layer above Sessions; the governor now sits below Sessions, where it runs.
+
+## Amendment, 2026-10-14: Gateway, Runners and Sessions in order
+
+Layer 4 held Runners, Sessions and Gateway side by side, and a project may not reference one on its own layer. The code
+they hold is a chain, so the Sessions and Runners port (C3 slice S6) could not move it with references pointing down
+(paths as of `7631425`):
+
+- The container engine uses the gateway's egress rules. `ContainerTemplate.EgressArgs` parses forwards with
+  `PortForward.Parse` and checks the model host with `ModelGateway.RefuseHost`
+  (`src/Chargehand.Driven/Containers/ContainerTemplate.cs:147-159`). It writes the egress env file with
+  `EgressCli.CredentialVariable` and `KeyVariable` (`:192`). `ModelGatewaySpec` defaults to `EgressCli.DefaultModelHost`
+  (`ContainerSpec.cs:55`).
+- The runner client is an engine. `RunnerClient` implements `IContainerEngine`, `IWorkspaceEngine` and the other engine
+  interfaces, and caps downloads at `DockerCliEngine.OutFileCap` (`src/Chargehand.Driven/Runner/RunnerClient.cs:14-15`).
+  `RunnerPolicy` checks cache names with `CacheVolumes` and output files with `ContainerTemplate`
+  (`Runner/RunnerPolicy.cs:35-36,95`).
+- Sessions run on the engine. `SessionDriver` writes the files `ContainerTemplate` names (`GovernorFile`, `UsageFile`,
+  `HandoffFile`, `ProgressFile`, `SeedFile`; `src/Chargehand.Driven/Driven/SessionDriver.cs:86,293,378-389`).
+  `Transcript` caps at `ContainerTemplate.MaxTailBytes` (`Transcript.cs:24`), and `SessionEnvironment` names the cache
+  mounts (`SessionEnvironment.cs:141`). `EngineSessionVolumes` and `JournaledSteps` move a session's files through
+  `IOutVolumeEngine`, `IOutTailEngine` and `IWorkspaceEngine`.
+
+The owner's direction for C3 is option B: keep the same 18 modules and change only the layer order. Layer 4 becomes three
+layers, in the order of the chain, and everything above moves up by two:
+
+| Layer | Projects |
+|---|---|
+| 0 | Contracts |
+| 1 | Kernel |
+| 2 | Ledger, Memory, Journal, Forge |
+| 3 | Accounts, Oversight |
+| 4 | Gateway |
+| 5 | Runners (with the container engine, `Containers/` today) |
+| 6 | Sessions |
+| 7 | Handover |
+| 8 | Tasks |
+| 9 | Batches, Research |
+| 10 | Intake, Console, Evaluation, Onboarding, Watch; Runtimes ClaudeCode, OpenCode |
+| 11 | Hosts Cli, Server, Runner, Session |
+
+No port is added. P3 (`ITaskState`, Tasks to Batches) and P4 (`ITaskResults`, Tasks to Research) are still the only
+allowed upward ports, and `UpwardPortTests`' list stays empty until the Tasks port adds them. Handover keeps its place
+below Tasks and above all three, so it may now reference Runners and Sessions, which `ContainerVerifier` needs.
+
+## Amendment, 2026-10-14: CA1502 on the wiring left in Driven
+
+C4's exit ("no Batches function over CCN 15") could pass while the batch's wiring stayed in `src/Chargehand.Driven` at
+CCN 98. The owner chose to hold that wiring to the skeleton's budget until C6 deletes the project: `.editorconfig`
+makes CA1502 an error under `src/Chargehand.Driven/`, and the project reads the same threshold file
+(`src/CodeMetricsConfig.txt`). The batch lifecycle itself (start record, steps, result, run record) is
+`BatchLifecycle` in Batches; Driven keeps the profile-dependent composition (`DrivenRun.RunBatchAsync`, `SiteBatches`).

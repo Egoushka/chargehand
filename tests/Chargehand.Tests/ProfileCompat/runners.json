@@ -1,0 +1,128 @@
+{
+  "schema": "profile/v1",
+  "opencode": null,
+  "worker_root": "/var/tmp/chargehand/work",
+  "default_preset": "cheap",
+  "intake_model": null,
+  "prices": null,
+  "secrets": null,
+  "run_cap_usd": 1.00,
+  "run_log": null,
+  "telemetry": null,
+  "models": null,
+  "memory": null,
+  "http": null,
+  "claude_code": null,
+  "repository_roots": null,
+  "runtime": null,
+  "mcp_servers": null,
+  "sandbox": null,
+  "support_check": true,
+  "signing": null,
+  "driven": {
+    "names_runners": true,
+    "enabled": true,
+    "max_parallel": 2,
+    "max_parallel_total": 4,
+    "images": [
+      "session@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    ],
+    "network": {
+      "allow": null,
+      "outside": "edge",
+      "mcp_forward": "chargehand:4300",
+      "model_url": "http://gateway:4000",
+      "otlp_url": "http://collector:4318"
+    },
+    "runner": null,
+    "push_secret": null,
+    "task_source": null,
+    "max_session_calls": 2,
+    "limits": null,
+    "governor": {
+      "mode": "observe",
+      "budgets": {
+        "S": 1,
+        "M": 3.5,
+        "L": 12
+      },
+      "repeat_calls": 5,
+      "repeat_failures": 3,
+      "failing_calls": 6,
+      "probe_commands": 8,
+      "no_growth_turns": 9,
+      "rewarn_turns": 4,
+      "context_tokens": 150000,
+      "checkpoint_at": 0.75,
+      "probe_patterns": [
+        "^ls\\b",
+        "^cat "
+      ],
+      "wait_patterns": [
+        "sleep \\d\u002B"
+      ],
+      "history": {
+        "min_tasks": 5,
+        "window_days": 30,
+        "percentile": 90
+      }
+    },
+    "admission": {
+      "reserve_mb": 0,
+      "max_load_per_cpu": 2,
+      "default_request_mb": 2048,
+      "max_memory_pressure": 25
+    },
+    "integrator": null,
+    "services": null,
+    "forge": null,
+    "planning": null,
+    "learning": {
+      "retro": false,
+      "retro_preset": "default",
+      "pr_days": 21,
+      "pr_check_minutes": 30
+    },
+    "runners": [
+      {
+        "name": "local",
+        "url": "http://runner:4400",
+        "api_key_secret": "runner-local-key",
+        "max_sessions": null,
+        "platform": "linux/amd64",
+        "weight": 1,
+        "reserve_mb": null,
+        "workspace": "shared",
+        "forwards": null
+      },
+      {
+        "name": "arm-1",
+        "url": "https://arm.example.com:4400",
+        "api_key_secret": "runner-arm-key",
+        "max_sessions": 2,
+        "platform": "linux/arm64",
+        "weight": 0.5,
+        "reserve_mb": 512,
+        "workspace": "bundle",
+        "forwards": {
+          "mcp": "10.0.0.1:4300",
+          "model_url": "https://gateway.example.com/v1",
+          "otlp_url": "http://10.0.0.1:4318",
+          "outside": "arm-edge"
+        }
+      }
+    ],
+    "image_variants": {
+      "session@sha256:1111111111111111111111111111111111111111111111111111111111111111": {
+        "linux/arm64": "session@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    }
+  },
+  "prompt_enhancer": null,
+  "max_parallel_nodes": 2,
+  "automation": null,
+  "roots": [
+    "/var/tmp/chargehand/work"
+  ],
+  "runtime_blocks": []
+}

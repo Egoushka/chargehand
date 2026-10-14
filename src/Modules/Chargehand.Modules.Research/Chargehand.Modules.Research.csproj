@@ -5,7 +5,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
     <ProjectReference Include="..\..\Shared\Chargehand.Kernel\Chargehand.Kernel.csproj" />
+    <ProjectReference Include="..\Chargehand.Modules.Handover\Chargehand.Modules.Handover.csproj" />
+    <ProjectReference Include="..\Chargehand.Modules.Runners\Chargehand.Modules.Runners.csproj" />
+    <ProjectReference Include="..\Chargehand.Modules.Sessions\Chargehand.Modules.Sessions.csproj" />
+    <ProjectReference Include="..\Chargehand.Modules.Tasks\Chargehand.Modules.Tasks.csproj" />
   </ItemGroup>
 
 </Project>

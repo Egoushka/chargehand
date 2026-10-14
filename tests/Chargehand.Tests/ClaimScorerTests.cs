@@ -1,6 +1,6 @@
 using Chargehand.Contracts;
 using Chargehand.Evals;
-using Chargehand.Verification;
+using Chargehand.Modules.Research.Api;
 
 namespace Chargehand.Tests;
 

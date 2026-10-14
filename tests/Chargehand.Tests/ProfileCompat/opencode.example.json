@@ -1,0 +1,30 @@
+{
+  "schema": null,
+  "opencode": null,
+  "worker_root": "/var/tmp/chargehand/work",
+  "default_preset": "cheap",
+  "intake_model": null,
+  "prices": null,
+  "secrets": null,
+  "run_cap_usd": 1.00,
+  "run_log": null,
+  "telemetry": null,
+  "models": null,
+  "memory": null,
+  "http": null,
+  "claude_code": null,
+  "repository_roots": null,
+  "runtime": null,
+  "mcp_servers": null,
+  "sandbox": null,
+  "support_check": true,
+  "signing": null,
+  "driven": null,
+  "prompt_enhancer": null,
+  "max_parallel_nodes": 2,
+  "automation": null,
+  "roots": [
+    "/var/tmp/chargehand/work"
+  ],
+  "runtime_blocks": []
+}

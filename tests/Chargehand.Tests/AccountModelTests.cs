@@ -7,7 +7,9 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Server;
@@ -380,8 +382,7 @@ public class AccountModelTests
     public async Task A_resumed_batch_keeps_its_accounts_credential()
     {
         using var rig = new DrivenRunTests.Rig(durable: true, accounts: [Own("alice")]);
-        var state = new BatchState("run-batch-r", DateTimeOffset.UtcNow, new string('0', 32), Batch(), null,
-            [new TaskEntry("t1", null, "Add a retry")], [], null, "alice");
+        var state = new OpenBatch("run-batch-r", DateTimeOffset.UtcNow, new string('0', 32), Batch(), [new TaskEntry("t1", null, "Add a retry")], [], null, "alice");
 
         var result = await rig.Run.RunAsync(Batch(), "run-batch-r", Token, default, resume: state);
 

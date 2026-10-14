@@ -2,6 +2,9 @@ using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Tests;
 

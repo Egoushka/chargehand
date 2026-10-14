@@ -2,6 +2,8 @@ using System.Net;
 using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Driven;
+using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Handover.Api;
 
 namespace Chargehand.Tests;
 

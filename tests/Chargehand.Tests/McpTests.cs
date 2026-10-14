@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.Server;
 using ModelContextProtocol;
 using ModelContextProtocol.Client;

@@ -4,6 +4,13 @@ using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Kernel;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Research.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.Results;
 using Chargehand.Verification;
 
@@ -66,7 +73,7 @@ public class DrivenResultTests
             r.Dir.Path, r.Base, priced);
 
     private static Task<ResultContract> Build(DrivenTaskInput input, Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? support = null) =>
-        DrivenResult.BuildTaskAsync(input, new GitEvidenceResolver(), support, default);
+        TaskResultBuilder.BuildAsync(input, new GitEvidenceResolver(), support, default);
 
     private static Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>> AllSupported =>
         (c, _, _) => Task.FromResult(c with { Claims = [.. c.Claims.Select(x => x with { Support = ClaimSupport.Supported })] });
@@ -194,7 +201,7 @@ public class DrivenResultTests
         var result = await Build(Input(repo, handover: Pushed(repo) with { Changes = changes }), AllSupported);
         AssertValid(result);
         var content = result.Artifacts.Single(x => x.Kind == "changes").Content!;
-        Assert.InRange(Encoding.UTF8.GetByteCount(content), 1, ResultAssembler.MaxInlineBytes);
+        Assert.InRange(Encoding.UTF8.GetByteCount(content), 1, TaskResultBuilder.MaxInlineBytes);
         var a = JsonDocument.Parse(content).RootElement;
         Assert.Equal(3000, a.GetProperty("files_total").GetInt32());
         Assert.InRange(a.GetProperty("files").GetArrayLength(), 1, 2999);
@@ -468,6 +475,21 @@ public class DrivenResultTests
         using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
         var signed = ResultSignature.Sign(result, key);
         Assert.True(ResultSignature.Verify(JsonSerializer.Serialize(signed, ContractJson.Options), key).Valid);
+    }
+
+    [Fact]
+    public async Task The_task_results_port_builds_with_the_support_check_and_signs_with_the_servers_signer()
+    {
+        using var repo = new Repo();
+        using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var results = new DrivenTaskResults(new GitEvidenceResolver(), AllSupported, r => ResultSignature.Sign(r, key));
+
+        var built = await results.BuildAsync(Input(repo), default);
+
+        Assert.NotEmpty(built.Claims);
+        Assert.All(built.Claims, c => Assert.Equal(ClaimSupport.Supported, c.Support));
+        Assert.True(ResultSignature.Verify(JsonSerializer.Serialize(results.Sign(built), ContractJson.Options), key).Valid);
+        Assert.Same(built, new DrivenTaskResults(new GitEvidenceResolver(), null, null).Sign(built));
     }
 
     // ---- a batch ----

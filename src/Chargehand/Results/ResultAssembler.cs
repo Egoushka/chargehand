@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
-using Chargehand.Verification;
+using Chargehand.Modules.Research.Api;
 
 namespace Chargehand.Results;
 
@@ -30,7 +30,7 @@ public static partial class ResultBlocks
 public static class ResultAssembler
 {
     /// <summary>result/v1: inline artifact content is at most 64 KiB (ADR 0009).</summary>
-    public const int MaxInlineBytes = 65536;
+    public const int MaxInlineBytes = TaskResultBuilder.MaxInlineBytes;
 
     private static readonly string[] WorkerKeys = ["status", "summary", "claims", "evidence", "artifacts", "open_questions", "confidence"];
 
@@ -80,33 +80,5 @@ public static class ResultAssembler
         return errors.Count > 0
             ? new(null, errors)
             : new(element.Deserialize<ResultContract>(ContractJson.Options), []);
-    }
-
-    /// <summary>
-    /// Drops evidence that failed to resolve. A claim left without any resolved reference moves to
-    /// open_questions with the reasons, so the caller sees it as unverified rather than losing it.
-    /// </summary>
-    public static ResultContract MoveUnresolved(ResultContract contract, IReadOnlyList<EvidenceFailure> failures)
-    {
-        if (failures.Count == 0)
-            return contract;
-        var failed = failures.GroupBy(f => f.EvidenceId).ToDictionary(g => g.Key, g => string.Join("; ", g.Select(f => f.Reason)));
-        var claims = new List<Claim>();
-        var questions = contract.OpenQuestions.ToList();
-        foreach (var claim in contract.Claims)
-        {
-            var kept = claim.Evidence.Where(id => !failed.ContainsKey(id)).ToList();
-            if (kept.Count > 0)
-                claims.Add(claim with { Evidence = kept });
-            else
-                questions.Add($"Unverified: {claim.Text} ({string.Join("; ", claim.Evidence.Select(id => $"{id}: {failed.GetValueOrDefault(id, "unresolved")}"))})");
-        }
-        var cited = claims.SelectMany(c => c.Evidence).ToHashSet();
-        return contract with
-        {
-            Claims = claims,
-            Evidence = contract.Evidence.Where(e => cited.Contains(e.Id)).ToList(),
-            OpenQuestions = questions,
-        };
     }
 }

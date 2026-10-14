@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
-using Chargehand.Onboarding;
+using Chargehand.Modules.Gateway.Api;
 
 namespace Chargehand.Bench;
 
