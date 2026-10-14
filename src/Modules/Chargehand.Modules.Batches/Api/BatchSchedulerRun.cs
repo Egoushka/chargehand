@@ -7,15 +7,16 @@ using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Modules.Batches.Api;
 
-/// <summary>What the shell runs a batch's tasks with: the runner delegate, the shared slots, the host, the operator's controls and the clock.</summary>
-internal sealed record ScheduleHost(RunTask Run, SemaphoreSlim? Global, IAdmission? Admission, int TaskRequestMb, BatchControl? Control, TimeProvider Time);
+/// <summary>What the shell runs a batch's tasks with: the runner delegate, the shared slots, the host, the operator's controls, the clock and the batch's journal (null: nothing is kept).</summary>
+internal sealed record ScheduleHost(RunTask Run, SemaphoreSlim? Global, IAdmission? Admission, int TaskRequestMb, BatchControl? Control, TimeProvider Time, TaskJournal? Journal = null);
 
 /// <summary>The caller's callbacks; see <see cref="BatchScheduler.RunAsync"/>.</summary>
 internal sealed record ScheduleCallbacks(Func<TaskOutcome, Task>? Finished, Action<string, string>? Hold, Func<TaskOutcome, Task>? Skipped, Action<string, DateTimeOffset>? Pause);
 
 /// <summary>One batch's run of <see cref="BatchMachine"/>: it carries out each step the machine asks for and feeds back what happened as events, with the time read on the host's clock.
 /// The state is swapped under one lock, because live usage arrives on the tasks' own threads; a cancel the machine asks for happens under it too, so it never reaches a task that ended. A task's end
-/// and skip are told to the caller, and waited for, before the next step: what the caller records of them is in place before another task starts.</summary>
+/// and skip are told to the caller, and waited for, before the next step: what the caller records of them is in place before another task starts. With a journal (ADR 0063), each end and each
+/// operator cancel of a task that has not started is appended before that, and a restart folds them again before its first look at the batch; nothing decided after a halt is kept.</summary>
 internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, ScheduleCallbacks on, CancellationToken ct) : IDisposable
 {
     private readonly object _gate = new();
@@ -33,13 +34,38 @@ internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, Sc
 
     public async Task<BatchOutcome> RunAsync()
     {
+        await ResumeAsync();
         var step = await SweepAsync();
         while (step is not Done)
             step = await NextAsync(step);
         return ((Done)step).Outcome;
     }
 
-    public void Dispose() => _changed.Dispose();
+    public void Dispose()
+    {
+        host.Control?.Keep(null);
+        _changed.Dispose();
+    }
+
+    // A restart takes the batch up where its journal left it: ends, placements, the pause and operator cancels are in place before the first look, and a pause that holds still is told again.
+    private async Task ResumeAsync()
+    {
+        if (host.Journal is not { } journal)
+            return;
+        var (state, pause) = BatchMachine.Replay(plan, journal.Others.Select(e => ScheduleEventJson.Decode(e.Kind, e.Payload)).OfType<ScheduleEvent>());
+        lock (_gate)
+            _state = state;
+        if (pause is not null && pause.Until > Now)
+            on.Pause?.Invoke(pause.TaskId, pause.Until);
+        foreach (var id in host.Control?.Keep(KeepCancelAsync) ?? [])
+            await KeepCancelAsync(id);
+    }
+
+    private Task KeepCancelAsync(string taskId)
+    {
+        var (kind, payload) = ScheduleEventJson.Encode(taskId, Now);
+        return host.Journal!.AppendAsync(kind, payload);
+    }
 
     private async Task<ScheduleStep> NextAsync(ScheduleStep step)
     {
@@ -167,6 +193,8 @@ internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, Sc
             if (ct.IsCancellationRequested && !_state.Halted)
                 _state = BatchMachine.Decide(_state, new Halt()).State;
             decision = BatchMachine.Decide(_state, input);
+            if (input is Ended ended && !_state.Halted)
+                Keep(ended, decision);
             _state = decision.State;
             foreach (var cancel in decision.Commands.OfType<Cancel>())
                 if (_live.TryGetValue(plan.IndexOf[cancel.TaskId], out var running))
@@ -175,6 +203,16 @@ internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, Sc
         foreach (var command in decision.Commands)
             Execute(command);
         return decision.Step;
+    }
+
+    // The end goes to the journal before the caller is told of it. A final end is kept as the caps left it: what rewrote it (live usage) is not journaled, so a replay must not rewrite it again.
+    private void Keep(Ended ended, ScheduleDecision decision)
+    {
+        if (host.Journal is not { } journal)
+            return;
+        var kept = ended.Outcome.Replace ? ended : ended with { Outcome = decision.Commands.OfType<Finish>().First().Outcome };
+        var (kind, payload) = ScheduleEventJson.Encode(kept);
+        _told.Enqueue(() => journal.AppendAsync(kind, payload));
     }
 
     private void Execute(ScheduleCommand command)
