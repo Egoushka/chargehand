@@ -156,3 +156,11 @@ layers, in the order of the chain, and everything above moves up by two:
 No port is added. P3 (`ITaskState`, Tasks to Batches) and P4 (`ITaskResults`, Tasks to Research) are still the only
 allowed upward ports, and `UpwardPortTests`' list stays empty until the Tasks port adds them. Handover keeps its place
 below Tasks and above all three, so it may now reference Runners and Sessions, which `ContainerVerifier` needs.
+
+## Amendment, 2026-10-14: CA1502 on the wiring left in Driven
+
+C4's exit ("no Batches function over CCN 15") could pass while the batch's wiring stayed in `src/Chargehand.Driven` at
+CCN 98. The owner chose to hold that wiring to the skeleton's budget until C6 deletes the project: `.editorconfig`
+makes CA1502 an error under `src/Chargehand.Driven/`, and the project reads the same threshold file
+(`src/CodeMetricsConfig.txt`). The batch lifecycle itself (start record, steps, result, run record) is
+`BatchLifecycle` in Batches; Driven keeps the profile-dependent composition (`DrivenRun.RunBatchAsync`, `SiteBatches`).
