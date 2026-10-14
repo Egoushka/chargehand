@@ -1,5 +1,6 @@
 using System.Text;
 using Chargehand.Kernel;
+using Chargehand.Modules.Runners.Api;
 
 namespace Chargehand.Driven;
 
@@ -21,7 +22,7 @@ public static class Transcript
 
     public const int MinBytes = 1024;
 
-    public const int MaxBytes = Containers.ContainerTemplate.MaxTailBytes;
+    public const int MaxBytes = ContainerTemplate.MaxTailBytes;
 
     /// <summary>A line longer than this is a tool result or a message too large to show; it is replaced by a stub that says how long it was.</summary>
     public const int MaxLine = 32 * 1024;

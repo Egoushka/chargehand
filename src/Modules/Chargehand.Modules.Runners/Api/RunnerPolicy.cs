@@ -1,7 +1,7 @@
-namespace Chargehand.Runner;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <summary>What the runner will start on its engine (ADR 0039). Every check is a refusal with a reason; the runner builds the
-/// <c>docker run</c> line itself from <see cref="Containers.ContainerTemplate"/>, so a caller can name a run, an image from this list and
+/// <c>docker run</c> line itself from <see cref="ContainerTemplate"/>, so a caller can name a run, an image from this list and
 /// numbers under these ceilings, and nothing else.</summary>
 /// <param name="Images">Session images by digest; the only images that start.</param>
 /// <param name="EgressImage">The egress proxy's image; the caller never names it.</param>
@@ -32,8 +32,8 @@ public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressIma
             return $"volumes must be {WorkPrefix}<run id> and {OutPrefix}<run id>";
         if (!start.Network.StartsWith(NetworkPrefix, StringComparison.Ordinal))
             return $"the network must be a batch network ({NetworkPrefix}<batch id>)";
-        if (start.Caches?.FirstOrDefault(c => Containers.CacheVolumes.EcosystemOf(c) is null) is { } cache)
-            return $"'{cache}' is not a cache volume ({Containers.CacheVolumes.Prefix}<ecosystem>-<12 hex>)";
+        if (start.Caches?.FirstOrDefault(c => CacheVolumes.EcosystemOf(c) is null) is { } cache)
+            return $"'{cache}' is not a cache volume ({CacheVolumes.Prefix}<ecosystem>-<12 hex>)";
         if (start.MemoryMb > MaxMemoryMb || start.Cpus > MaxCpus || start.Pids > MaxPids)
             return $"limits are above the runner's ceilings (memory {MaxMemoryMb} MiB, cpus {MaxCpus}, pids {MaxPids})";
         return null;
@@ -92,9 +92,9 @@ public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressIma
     {
         if (!Images.Contains(image, StringComparer.Ordinal))
             return "image is not on the runner's allowlist";
-        return (write ? Containers.ContainerTemplate.OutFilesIn : Containers.ContainerTemplate.OutFilesOut).Contains(name, StringComparer.Ordinal)
+        return (write ? ContainerTemplate.OutFilesIn : ContainerTemplate.OutFilesOut).Contains(name, StringComparer.Ordinal)
             ? null
-            : $"the runner {(write ? "writes" : "reads")} only {string.Join(", ", write ? Containers.ContainerTemplate.OutFilesIn : Containers.ContainerTemplate.OutFilesOut)}";
+            : $"the runner {(write ? "writes" : "reads")} only {string.Join(", ", write ? ContainerTemplate.OutFilesIn : ContainerTemplate.OutFilesOut)}";
     }
 
     /// <summary>The end of a transcript (ADR 0059): a listed image, one of the files that are read only as a tail, and a number of bytes within the ceiling. The whole file is never served.</summary>
@@ -102,9 +102,9 @@ public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressIma
     {
         if (!Images.Contains(image, StringComparer.Ordinal))
             return "image is not on the runner's allowlist";
-        if (!Containers.ContainerTemplate.OutFilesTail.Contains(name, StringComparer.Ordinal))
-            return $"the runner serves the end of only {string.Join(", ", Containers.ContainerTemplate.OutFilesTail)}";
-        return bytes is >= 1 and <= Containers.ContainerTemplate.MaxTailBytes ? null : $"a tail is 1 to {Containers.ContainerTemplate.MaxTailBytes} bytes";
+        if (!ContainerTemplate.OutFilesTail.Contains(name, StringComparer.Ordinal))
+            return $"the runner serves the end of only {string.Join(", ", ContainerTemplate.OutFilesTail)}";
+        return bytes is >= 1 and <= ContainerTemplate.MaxTailBytes ? null : $"a tail is 1 to {ContainerTemplate.MaxTailBytes} bytes";
     }
 
     public static string? RefuseVolume(string name) =>

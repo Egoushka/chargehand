@@ -113,3 +113,46 @@ implemented by the higher module and wired by the hosts:
 interface or abstract type a higher skeleton project implements for a lower one. The list stays empty until the Tasks
 port adds P3 and P4. On the layer order, this supersedes the R7 target-architecture diagram, which put Tasks, Handover
 and Oversight together on one layer above Sessions; the governor now sits below Sessions, where it runs.
+
+## Amendment, 2026-10-14: Gateway, Runners and Sessions in order
+
+Layer 4 held Runners, Sessions and Gateway side by side, and a project may not reference one on its own layer. The code
+they hold is a chain, so the Sessions and Runners port (C3 slice S6) could not move it with references pointing down
+(paths as of `7631425`):
+
+- The container engine uses the gateway's egress rules. `ContainerTemplate.EgressArgs` parses forwards with
+  `PortForward.Parse` and checks the model host with `ModelGateway.RefuseHost`
+  (`src/Chargehand.Driven/Containers/ContainerTemplate.cs:147-159`). It writes the egress env file with
+  `EgressCli.CredentialVariable` and `KeyVariable` (`:192`). `ModelGatewaySpec` defaults to `EgressCli.DefaultModelHost`
+  (`ContainerSpec.cs:55`).
+- The runner client is an engine. `RunnerClient` implements `IContainerEngine`, `IWorkspaceEngine` and the other engine
+  interfaces, and caps downloads at `DockerCliEngine.OutFileCap` (`src/Chargehand.Driven/Runner/RunnerClient.cs:14-15`).
+  `RunnerPolicy` checks cache names with `CacheVolumes` and output files with `ContainerTemplate`
+  (`Runner/RunnerPolicy.cs:35-36,95`).
+- Sessions run on the engine. `SessionDriver` writes the files `ContainerTemplate` names (`GovernorFile`, `UsageFile`,
+  `HandoffFile`, `ProgressFile`, `SeedFile`; `src/Chargehand.Driven/Driven/SessionDriver.cs:86,293,378-389`).
+  `Transcript` caps at `ContainerTemplate.MaxTailBytes` (`Transcript.cs:24`), and `SessionEnvironment` names the cache
+  mounts (`SessionEnvironment.cs:141`). `EngineSessionVolumes` and `JournaledSteps` move a session's files through
+  `IOutVolumeEngine`, `IOutTailEngine` and `IWorkspaceEngine`.
+
+The owner's direction for C3 is option B: keep the same 18 modules and change only the layer order. Layer 4 becomes three
+layers, in the order of the chain, and everything above moves up by two:
+
+| Layer | Projects |
+|---|---|
+| 0 | Contracts |
+| 1 | Kernel |
+| 2 | Ledger, Memory, Journal, Forge |
+| 3 | Accounts, Oversight |
+| 4 | Gateway |
+| 5 | Runners (with the container engine, `Containers/` today) |
+| 6 | Sessions |
+| 7 | Handover |
+| 8 | Tasks |
+| 9 | Batches, Research |
+| 10 | Intake, Console, Evaluation, Onboarding, Watch; Runtimes ClaudeCode, OpenCode |
+| 11 | Hosts Cli, Server, Runner, Session |
+
+No port is added. P3 (`ITaskState`, Tasks to Batches) and P4 (`ITaskResults`, Tasks to Research) are still the only
+allowed upward ports, and `UpwardPortTests`' list stays empty until the Tasks port adds them. Handover keeps its place
+below Tasks and above all three, so it may now reference Runners and Sessions, which `ContainerVerifier` needs.

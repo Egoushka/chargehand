@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Serialization;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <summary>What the host that runs the session containers has free right now (ADR 0045, admission). A field the host does not report is null.</summary>
 /// <param name="AvailableMb"><c>MemAvailable</c>: what can be handed out without swapping, page cache included.</param>

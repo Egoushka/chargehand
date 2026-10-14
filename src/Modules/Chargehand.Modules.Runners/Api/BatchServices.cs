@@ -1,7 +1,7 @@
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 
-namespace Chargehand.Containers;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <summary>A batch's test services (ADR 0048): started on the batch network after it exists, for the batch's lifetime, and removed before the network is. A service that cannot start
 /// ends the batch before any session does, and what was started is removed.</summary>

@@ -5,7 +5,7 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
-using Chargehand.Runner;
+using Chargehand.Modules.Runners.Api;
 
 namespace Chargehand.Tests;
 

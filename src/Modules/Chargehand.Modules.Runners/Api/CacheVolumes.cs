@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace Chargehand.Containers;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <summary>The package cache volumes of ADR 0048: one named volume per ecosystem and repository, mounted read-write into that repository's sessions and verifier at
 /// <c>/cache/&lt;ecosystem&gt;</c>, with the environment variable that points the package manager at it. The volume name, the mount and the variable are fixed here, so a caller

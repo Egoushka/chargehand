@@ -1,11 +1,10 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using Chargehand.Containers;
+using System.Text.Json.Serialization.Metadata;
 using Chargehand.Contracts;
-using Chargehand.Driven;
 using Chargehand.Kernel;
 
-namespace Chargehand.Runner;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <summary>An <see cref="IContainerEngine"/> over the runner's HTTP API (ADR 0039), for a server that must not hold the container engine's
 /// socket. The <see cref="HttpClient"/> carries the base address and the bearer key. A call that gets no answer within <see cref="ControlTimeout"/> (a transfer: <see cref="TransferTimeout"/>) is a runner
@@ -22,18 +21,18 @@ public sealed class RunnerClient(HttpClient http, long maxDownloadBytes = Docker
     {
         var body = new RunnerStart(spec.RunId, spec.ImageDigest, spec.WorkVolume, spec.OutVolume, spec.Network, new Dictionary<string, string>(spec.Env),
             spec.MemoryMb, spec.Cpus, spec.Pids, [.. spec.Command], spec.Caches is { Count: > 0 } caches ? [.. caches] : null);
-        return (await Send<IdReply>(HttpMethod.Post, "/start", body, ct)).Id;
+        return (await Send(HttpMethod.Post, "/start", Json(body, RunnerJsonContext.Default.RunnerStart), RunnerJsonContext.Default.IdReply, ct)).Id;
     }
 
     public async Task<string> StartServiceAsync(ServiceSpec spec, CancellationToken ct) =>
-        (await Send<IdReply>(HttpMethod.Post, "/service", new RunnerService(spec.BatchId, spec.Name, spec.Image, spec.Network, spec.Port, new Dictionary<string, string>(spec.Env),
-            [.. spec.Tmpfs], spec.MemoryMb), ct)).Id;
+        (await Send(HttpMethod.Post, "/service", Json(new RunnerService(spec.BatchId, spec.Name, spec.Image, spec.Network, spec.Port, new Dictionary<string, string>(spec.Env),
+            [.. spec.Tmpfs], spec.MemoryMb), RunnerJsonContext.Default.RunnerService), RunnerJsonContext.Default.IdReply, ct)).Id;
 
     public Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct) =>
-        Send(HttpMethod.Post, "/workspace", new RunnerWorkspace(spec.RunId, spec.Image, spec.SourcePath, spec.WorkVolume, spec.Branch, spec.Commit), ct);
+        Send(HttpMethod.Post, "/workspace", Json(new RunnerWorkspace(spec.RunId, spec.Image, spec.SourcePath, spec.WorkVolume, spec.Branch, spec.Commit), RunnerJsonContext.Default.RunnerWorkspace), ct);
 
     public Task PrepareBundleWorkspaceAsync(BundleWorkspaceSpec spec, CancellationToken ct) =>
-        Send(HttpMethod.Post, "/workspace/bundle", new RunnerBundleWorkspace(spec.RunId, spec.Image, spec.WorkVolume, spec.Branch, spec.Commit), ct);
+        Send(HttpMethod.Post, "/workspace/bundle", Json(new RunnerBundleWorkspace(spec.RunId, spec.Image, spec.WorkVolume, spec.Branch, spec.Commit), RunnerJsonContext.Default.RunnerBundleWorkspace), ct);
 
     public async Task WriteOutFileAsync(OutFileSpec spec, ReadOnlyMemory<byte> content, CancellationToken ct) =>
         (await SendRaw(HttpMethod.Put, OutPath(spec), new ByteArrayContent(content.ToArray()), ct)).Dispose();
@@ -120,11 +119,11 @@ public sealed class RunnerClient(HttpClient http, long maxDownloadBytes = Docker
     private static string OutPath(OutFileSpec spec) =>
         $"/out/{Uri.EscapeDataString(spec.RunId)}/{Uri.EscapeDataString(spec.Name)}?image={Uri.EscapeDataString(spec.Image)}";
 
-    public Task SignalAsync(string id, string signal, CancellationToken ct) => Send(HttpMethod.Post, "/signal", new RunnerSignal(id, signal), ct);
+    public Task SignalAsync(string id, string signal, CancellationToken ct) => Send(HttpMethod.Post, "/signal", Json(new RunnerSignal(id, signal), RunnerJsonContext.Default.RunnerSignal), ct);
 
     public async Task<ContainerState> InspectAsync(string id, CancellationToken ct)
     {
-        var reply = await Send<RunnerInspect>(HttpMethod.Get, $"/inspect/{Uri.EscapeDataString(id)}", null, ct);
+        var reply = await Send(HttpMethod.Get, $"/inspect/{Uri.EscapeDataString(id)}", null, RunnerJsonContext.Default.RunnerInspect, ct);
         return new ContainerState(Enum.Parse<ContainerStatus>(reply.Status, ignoreCase: true), reply.ExitCode, reply.OomKilled, reply.MemoryPeakMb);
     }
 
@@ -134,37 +133,37 @@ public sealed class RunnerClient(HttpClient http, long maxDownloadBytes = Docker
     {
         try
         {
-            await Send(HttpMethod.Post, $"/remove/{Uri.EscapeDataString(id)}", new { }, ct);
+            await Send(HttpMethod.Post, $"/remove/{Uri.EscapeDataString(id)}", Json(new RunnerEmpty(), RunnerJsonContext.Default.RunnerEmpty), ct);
         }
         catch (ChargehandException e) when (e.Message.Contains("404", StringComparison.Ordinal))
         {
         }
     }
 
-    public Task KillAllAsync(CancellationToken ct) => Send(HttpMethod.Post, "/kill-all", new { }, ct);
+    public Task KillAllAsync(CancellationToken ct) => Send(HttpMethod.Post, "/kill-all", Json(new RunnerEmpty(), RunnerJsonContext.Default.RunnerEmpty), ct);
 
     public async Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct) =>
-        (await Send<LogsReply>(HttpMethod.Get, $"/logs/{Uri.EscapeDataString(id)}?bytes={bytes}", null, ct)).Logs;
+        (await Send(HttpMethod.Get, $"/logs/{Uri.EscapeDataString(id)}?bytes={bytes}", null, RunnerJsonContext.Default.LogsReply, ct)).Logs;
 
-    public Task CreateVolumeAsync(string name, string runId, CancellationToken ct) => Send(HttpMethod.Post, "/volumes", new RunnerVolume(name, runId), ct);
+    public Task CreateVolumeAsync(string name, string runId, CancellationToken ct) => Send(HttpMethod.Post, "/volumes", Json(new RunnerVolume(name, runId), RunnerJsonContext.Default.RunnerVolume), ct);
 
     public Task RemoveVolumeAsync(string name, CancellationToken ct) => Send(HttpMethod.Delete, $"/volumes/{Uri.EscapeDataString(name)}", null, ct);
 
-    public Task CreateNetworkAsync(string name, string batchId, CancellationToken ct) => Send(HttpMethod.Post, "/networks", new RunnerNetwork(name, batchId), ct);
+    public Task CreateNetworkAsync(string name, string batchId, CancellationToken ct) => Send(HttpMethod.Post, "/networks", Json(new RunnerNetwork(name, batchId), RunnerJsonContext.Default.RunnerNetwork), ct);
 
     public Task RemoveNetworkAsync(string name, CancellationToken ct) => Send(HttpMethod.Delete, $"/networks/{Uri.EscapeDataString(name)}", null, ct);
 
     public async Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct) =>
-        (await Send<IdReply>(HttpMethod.Post, "/egress", new RunnerEgress(spec.BatchId, spec.Network, [.. spec.Allow], spec.Forwards is null ? null : [.. spec.Forwards],
-            spec.Gateway is { } g ? new RunnerModelGateway(g.Credential, g.TokenKey, g.Host, g.Port) : null), ct)).Id;
+        (await Send(HttpMethod.Post, "/egress", Json(new RunnerEgress(spec.BatchId, spec.Network, [.. spec.Allow], spec.Forwards is null ? null : [.. spec.Forwards],
+            spec.Gateway is { } g ? new RunnerModelGateway(g.Credential, g.TokenKey, g.Host, g.Port) : null), RunnerJsonContext.Default.RunnerEgress), RunnerJsonContext.Default.IdReply, ct)).Id;
 
-    public Task ConnectNetworkAsync(string container, string network, CancellationToken ct) => Send(HttpMethod.Post, "/connect", new RunnerConnect(container, network), ct);
+    public Task ConnectNetworkAsync(string container, string network, CancellationToken ct) => Send(HttpMethod.Post, "/connect", Json(new RunnerConnect(container, network), RunnerJsonContext.Default.RunnerConnect), ct);
 
     public async Task<bool> OwnsAsync(string id, CancellationToken ct)
     {
         try
         {
-            await Send<RunnerInspect>(HttpMethod.Get, $"/inspect/{Uri.EscapeDataString(id)}", null, ct);
+            await Send(HttpMethod.Get, $"/inspect/{Uri.EscapeDataString(id)}", null, RunnerJsonContext.Default.RunnerInspect, ct);
             return true;
         }
         catch (ChargehandException e) when (e.Message.Contains("404", StringComparison.Ordinal))
@@ -173,11 +172,11 @@ public sealed class RunnerClient(HttpClient http, long maxDownloadBytes = Docker
         }
     }
 
-    public async Task<int> CountAsync(CancellationToken ct) => (await Send<CountReply>(HttpMethod.Get, "/count", null, ct)).Count;
+    public async Task<int> CountAsync(CancellationToken ct) => (await Send(HttpMethod.Get, "/count", null, RunnerJsonContext.Default.CountReply, ct)).Count;
 
     public async Task<EngineResources> ListAsync(CancellationToken ct)
     {
-        var reply = await Send<RunnerResources>(HttpMethod.Get, "/resources", null, ct);
+        var reply = await Send(HttpMethod.Get, "/resources", null, RunnerJsonContext.Default.RunnerResources, ct);
         return new EngineResources(reply.Containers, reply.Networks, reply.Volumes);
     }
 
@@ -186,7 +185,7 @@ public sealed class RunnerClient(HttpClient http, long maxDownloadBytes = Docker
     {
         try
         {
-            return await Send<HostSnapshot>(HttpMethod.Get, "/host", null, ct);
+            return await Send(HttpMethod.Get, "/host", null, RunnerJsonContext.Default.HostSnapshot, ct);
         }
         catch (ChargehandException e) when (e.Message.Contains("404", StringComparison.Ordinal))
         {
@@ -194,30 +193,24 @@ public sealed class RunnerClient(HttpClient http, long maxDownloadBytes = Docker
         }
     }
 
-    private sealed record IdReply(string Id);
+    private async Task Send(HttpMethod method, string path, HttpContent? body, CancellationToken ct) => await SendRaw(method, path, body, ct);
 
-    private sealed record LogsReply(string Logs);
-
-    private sealed record CountReply(int Count);
-
-    private async Task Send(HttpMethod method, string path, object? body, CancellationToken ct) => await SendRaw(method, path, body, ct);
-
-    private async Task<T> Send<T>(HttpMethod method, string path, object? body, CancellationToken ct)
+    private async Task<T> Send<T>(HttpMethod method, string path, HttpContent? body, JsonTypeInfo<T> reply, CancellationToken ct)
     {
         using var response = await SendRaw(method, path, body, ct);
-        return await response.Content.ReadFromJsonAsync<T>(RunnerJson.Options, ct) ?? throw Unavailable("the runner answered with an empty body", null);
+        return await response.Content.ReadFromJsonAsync(reply, ct) ?? throw Unavailable("the runner answered with an empty body", null);
     }
 
-    private async Task<HttpResponseMessage> SendRaw(HttpMethod method, string path, object? body, CancellationToken ct,
+    private static JsonContent Json<T>(T body, JsonTypeInfo<T> info) => JsonContent.Create(body, info);
+
+    private async Task<HttpResponseMessage> SendRaw(HttpMethod method, string path, HttpContent? body, CancellationToken ct,
         HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead, bool transfer = false)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(transfer ? TransferTimeout : ControlTimeout);
         using var request = new HttpRequestMessage(method, path);
-        if (body is HttpContent raw)
-            request.Content = raw;
-        else if (body is not null)
-            request.Content = JsonContent.Create(body, options: RunnerJson.Options);
+        if (body is not null)
+            request.Content = body;
         HttpResponseMessage response;
         try
         {

@@ -3,7 +3,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Chargehand.Config;
-using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
@@ -129,7 +128,7 @@ public class DrivenRunTests
                 {
                     if (SilentInspections > 0)
                         SilentInspections--;
-                    return Task.FromException<ContainerState>(new Chargehand.Runner.RunnerUnreachableException("the runner could not be reached: no route to host"));
+                    return Task.FromException<ContainerState>(new Chargehand.Modules.Runners.Api.RunnerUnreachableException("the runner could not be reached: no route to host"));
                 }
                 if (Gone.Contains(id))
                     return Task.FromResult(new ContainerState(ContainerStatus.Missing, null, false));

@@ -1,8 +1,9 @@
 using System.Diagnostics;
-using Chargehand.Containers;
 using Chargehand.Modules.Gateway.Api;
+using Chargehand.Modules.Runners.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Runners.Tests;
 
 /// <summary>ADR 0039: what a session container can and cannot reach, on a real engine. Needs Docker, CHARGEHAND_TEST_IMAGE (a local image
 /// with <c>sh</c>, and busybox <c>nc</c> or else <c>bash</c> and <c>timeout</c> (alpine; ubuntu), by digest) and CHARGEHAND_TEST_EGRESS_IMAGE (from scripts/egress-test-image.sh).

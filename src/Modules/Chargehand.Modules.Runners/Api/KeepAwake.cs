@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Chargehand.Runner;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <summary>Holds the machine awake (ADR 0058).</summary>
 public interface IAwakeHolder

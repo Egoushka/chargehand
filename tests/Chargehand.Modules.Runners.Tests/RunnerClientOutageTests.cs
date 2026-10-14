@@ -1,11 +1,9 @@
 using System.Net;
 using System.Text.Json;
-using Chargehand.Containers;
-using Chargehand.Driven;
 using Chargehand.Kernel;
-using Chargehand.Runner;
+using Chargehand.Modules.Runners.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Runners.Tests;
 
 /// <summary>ADR 0058: a runner that does not answer is told apart from one that refuses, because a laptop that sleeps must be waited for and a wrong key must not be.</summary>
 public class RunnerClientOutageTests
