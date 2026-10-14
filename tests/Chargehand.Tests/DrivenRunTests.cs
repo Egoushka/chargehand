@@ -2,15 +2,27 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Chargehand.Budget;
 using Chargehand.Config;
-using Chargehand.Containers;
 using Chargehand.Contracts;
 using Chargehand.Driven;
-using Chargehand.Egress;
+using Chargehand.Kernel;
+using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Gateway.Api;
+using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Research.Api;
+using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
-using Chargehand.Verification;
+using Chargehand.Runtimes.ClaudeCode.Api;
+using Chargehand.Workspace;
+
+using static Chargehand.Tests.DrivenFakes;
 
 namespace Chargehand.Tests;
 
@@ -24,161 +36,6 @@ public class DrivenRunTests
     private const string Report = """{"summary":"Did the task.","claims":[],"tests":{"command":"npm test","exit_code":0}}""";
 
     private static readonly JsonSerializerOptions Snake = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
-
-    internal sealed class FakeEngine : IContainerEngine, IWorkspaceEngine
-    {
-        private readonly object _gate = new();
-        private readonly HashSet<string> _stopped = [];
-
-        public List<string> Calls { get; } = [];
-        public List<ContainerSpec> Started { get; } = [];
-        public List<EgressSpec> Egresses { get; } = [];
-        public bool HoldRunning { get; set; }
-        /// <summary>Each container answers running to this many inspections before it exits.</summary>
-        public int RunFor { get; set; }
-        private readonly Dictionary<string, int> _inspections = [];
-        /// <summary>The start call is cancelled after docker made the container, as a cancel in flight does.</summary>
-        public bool CancelOnStart { get; set; }
-        /// <summary>The nth container started (1-based) stays running until <see cref="Release"/>; 0: none.</summary>
-        public int HoldNth { get; set; }
-        private readonly HashSet<string> _held = [];
-        /// <summary>Containers docker no longer knows.</summary>
-        public HashSet<string> Gone { get; } = [];
-        public EngineResources Resources { get; set; } = new([], [], []);
-
-        public void Release() { lock (_gate) _held.Clear(); }
-
-        private void Record(string call)
-        {
-            lock (_gate)
-                Calls.Add(call);
-        }
-
-        public Task<string> StartAsync(ContainerSpec spec, CancellationToken ct)
-        {
-            lock (_gate)
-                Started.Add(spec);
-            Record($"start {spec.RunId}");
-            lock (_gate)
-                if (Started.Count == HoldNth)
-                    _held.Add($"cid-{spec.RunId}");
-            if (CancelOnStart)
-                throw new OperationCanceledException();
-            return Task.FromResult($"cid-{spec.RunId}");
-        }
-
-        public Task SignalAsync(string id, string signal, CancellationToken ct)
-        {
-            Record($"signal {id} {signal}");
-            lock (_gate)
-                _stopped.Add(id);
-            return Task.CompletedTask;
-        }
-
-        public Task<ContainerState> InspectAsync(string id, CancellationToken ct)
-        {
-            bool running;
-            lock (_gate)
-            {
-                if (Gone.Contains(id))
-                    return Task.FromResult(new ContainerState(ContainerStatus.Missing, null, false));
-                if (_held.Contains(id) && !_stopped.Contains(id))
-                    return Task.FromResult(new ContainerState(ContainerStatus.Running, null, false));
-                _inspections[id] = _inspections.GetValueOrDefault(id) + 1;
-                running = (HoldRunning || _inspections[id] <= RunFor) && !_stopped.Contains(id);
-            }
-            return Task.FromResult(running ? new ContainerState(ContainerStatus.Running, null, false) : new ContainerState(ContainerStatus.Exited, 0, false));
-        }
-
-        public Task RemoveAsync(string id, CancellationToken ct) { Record($"rm {id}"); return Task.CompletedTask; }
-        public Task KillAllAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<bool> OwnsAsync(string id, CancellationToken ct) => throw new NotSupportedException();
-        public Task<int> CountAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<EngineResources> ListAsync(CancellationToken ct)
-        {
-            Record("list");
-            return OnList is null ? Task.FromResult(Resources) : throw OnList;
-        }
-
-        /// <summary>The engine fails when listed.</summary>
-        public Exception? OnList { get; set; }
-        public Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct) => Task.FromResult("");
-        public Task CreateVolumeAsync(string name, string runId, CancellationToken ct) { Record($"volume {name}"); return Task.CompletedTask; }
-        public Task RemoveVolumeAsync(string name, CancellationToken ct) { Record($"volume-rm {name}"); return Task.CompletedTask; }
-        public Task CreateNetworkAsync(string name, string batchId, CancellationToken ct) { Record($"network {name}"); return Task.CompletedTask; }
-        public Task RemoveNetworkAsync(string name, CancellationToken ct) { Record($"network-rm {name}"); return Task.CompletedTask; }
-        public Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct) { lock (_gate) Egresses.Add(spec); Record($"egress {spec.BatchId} [{string.Join(' ', spec.Forwards ?? [])}]"); return Task.FromResult("egress-1"); }
-        public Task ConnectNetworkAsync(string container, string network, CancellationToken ct) { Record($"connect {container} {network}"); return Task.CompletedTask; }
-        public Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct) { Record($"prepare {spec.RunId} {spec.Branch} {spec.Commit}"); return Task.CompletedTask; }
-    }
-
-    /// <summary>Plays the session: the output volume holds an outcome for the task's goal, and a bundle and report when it completed.</summary>
-    internal sealed class FakeVolumes(Func<string, SessionStatus> script) : ISessionVolumes
-    {
-        private readonly Dictionary<string, string> _goals = [];
-
-        /// <summary>What the session's running tally says while it works; null: it has written none.</summary>
-        public TaskUsage? Usage { get; set; }
-
-        public int UsageReads;
-
-        /// <summary>Runs whose output volume holds nothing.</summary>
-        public HashSet<string> NoOutput { get; } = [];
-
-        public Task<TaskUsage?> ReadUsageAsync(string runId, CancellationToken ct)
-        {
-            Interlocked.Increment(ref UsageReads);
-            return Task.FromResult(Usage);
-        }
-
-        public Task WriteTaskAsync(string runId, SessionTask task, CancellationToken ct)
-        {
-            lock (_goals)
-                _goals[runId] = task.Goal;
-            return Task.CompletedTask;
-        }
-
-        public Task FetchOutputAsync(string runId, string directory, CancellationToken ct)
-        {
-            string goal;
-            lock (_goals)
-                goal = _goals[runId];
-            if (NoOutput.Contains(runId))
-                return Task.CompletedTask;
-            var status = script(goal);
-            var outcome = new SessionOutcome(status, status == SessionStatus.Failed ? "session_error" : "", 9, 1000, 200, 4000, null, 0, [], status == SessionStatus.Completed,
-                CacheWriteTokens: 300, SessionId: $"cc-session-{runId}", Model: "claude-sonnet-5-5",
-                ModelUsage: new Dictionary<string, TokenCounts> { ["claude-sonnet-5-5"] = new(1000, 200, 0, 4000, 300) });
-            File.WriteAllText(Path.Combine(directory, "session-outcome.json"),
-                JsonSerializer.Serialize(outcome, Snake));
-            if (status == SessionStatus.Completed)
-            {
-                File.WriteAllText(Path.Combine(directory, "driven-report.json"), Report);
-                File.WriteAllText(Path.Combine(directory, "chargehand.bundle"), "bundle");
-            }
-            return Task.CompletedTask;
-        }
-    }
-
-    internal sealed class FakeHandover : IBranchHandover
-    {
-        public List<HandoverInput> Inputs { get; } = [];
-
-        public Task<HandoverOutcome> RunAsync(HandoverInput input, CancellationToken ct)
-        {
-            int number;
-            lock (Inputs)
-            {
-                Inputs.Add(input);
-                number = Inputs.Count;
-            }
-            input.Report?.Invoke(new HandoverEvent(RunEventKind.VerifyFinished, "tests passed"));
-            input.Report?.Invoke(new HandoverEvent(RunEventKind.Pushed, $"pushed {input.Branch}"));
-            input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, "draft pull request opened", $"https://example.test/o/r/pull/{number}"));
-            return Task.FromResult(new HandoverOutcome(HandoverStatus.Pushed, "", null, input.Branch, Commit, new PullRequestRef($"https://example.test/o/r/pull/{number}", number),
-                new VerificationRecord(["npm", "test"], "detected", 0, "ok", false, TimeSpan.FromSeconds(3), true), ["a.txt"], [], []));
-        }
-    }
 
     internal sealed class NoEvidenceProblems : IEvidenceResolver
     {
@@ -194,31 +51,47 @@ public class DrivenRunTests
         public DrivenRun Run { get; private set; }
         public FakeVolumes Volumes { get; }
         public Profile Profile { get; }
+
+        /// <summary>The commit the fake checkout is at, whatever the request pins.</summary>
+        public string CheckoutCommit { get; set; } = Commit;
+
         private readonly DrivenServices? _services;
         private readonly string? _state;
+        private readonly ILearningStore? _learning;
 
         public Rig(bool enabled = true, Func<string, SessionStatus>? script = null, string? mcpForward = null, string? dir = null, JsonlRunLog? log = null, FakeVolumes? volumes = null,
-            string? modelUrl = null, bool apiKey = false, string? otlpUrl = null, TelemetrySettings? telemetry = null, bool durable = false, IEvidenceResolver? resolver = null)
+            string? modelUrl = null, bool apiKey = false, string? otlpUrl = null, TelemetrySettings? telemetry = null, bool durable = false, IEvidenceResolver? resolver = null,
+            DrivenLimits? limits = null, Func<string, string, SessionOutcome?>? outcomes = null, DrivenIntegrator? integrator = null, IIntegrationHost? integration = null,
+            DrivenForge? forge = null, Func<RemoteRepository, string, IForge>? forgeFor = null, string remote = "https://github.com/o/r.git",
+            IBatchPlanner? planner = null, IStackSeeder? stacker = null, DrivenPlanning? planning = null, ILearningStore? learning = null, DrivenLearning? learningSettings = null,
+            IBatchRetro? retro = null, IRetroSink? retroSink = null, DrivenGovernor? governor = null, IBranchSeeder? brancher = null, IReadOnlyList<AccountSettings>? accounts = null,
+            IHostSource? host = null, DrivenAdmission? admission = null, int maxParallel = 2, bool records = false)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
             {
                 ClaudeCode = apiKey ? new ClaudeCodeSettings("2.1.283", ApiKeySecret: "gateway-key") : new ClaudeCodeSettings("2.1.283", OauthTokenSecret: "claude-code-oauth-token"),
-                Driven = new DrivenSettings(enabled, MaxParallel: 2, Images: [Image], PushSecret: PushSecret,
-                    Network: new DrivenNetwork(McpForward: mcpForward, ModelUrl: modelUrl, OtlpUrl: otlpUrl)),
+                Driven = new DrivenSettings(enabled, MaxParallel: maxParallel, Admission: admission, Images: [Image], PushSecret: PushSecret,
+                    Network: new DrivenNetwork(McpForward: mcpForward, ModelUrl: modelUrl, OtlpUrl: otlpUrl), Limits: limits, Integrator: integrator, Forge: forge, Planning: planning, Learning: learningSettings, Governor: governor),
                 Telemetry = telemetry,
+                Http = accounts is null ? null : new HttpSettings("api-key", Accounts: accounts),
                 Prices = new Dictionary<string, ModelPrice> { ["p/small"] = new(0.1m, 0.5m, 0.01m, 0.125m), ["provider/claude-sonnet-5-5"] = new(3m, 15m, 0.3m, 3.75m) },
             };
-            Volumes = volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed));
+            Volumes = volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed), outcomes);
             var services = enabled
                 ? new DrivenServices(Engine, Engine, Volumes, _ => throw new NotSupportedException("the handover is faked"), null,
-                    (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", Commit, "https://github.com/o/r.git", "main")), resolver ?? new NoEvidenceProblems(),
-                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1))
+                    (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", CheckoutCommit, remote, "main")), resolver ?? new NoEvidenceProblems(),
+                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1), Host: host, Integration: integration, ForgeFor: forgeFor, Planner: planner, Stacker: stacker, Retro: retro, RetroSink: retroSink, Brancher: brancher)
                 : null;
             _services = services;
             _state = durable ? Path.Combine(Dir.Path, "batches") : null;
-            Run = new DrivenRun(Profile, Log, Repo.Root, services, _state);
+            _learning = learning;
+            Records = records ? new BatchRecords(Path.Combine(Dir.Path, "records")) : null;
+            Run = new DrivenRun(Profile, Log, Repo.Root, services, _state, learning, Records);
         }
+
+        /// <summary>What the batch's events and its tasks' sessions are kept in; null: nothing is kept.</summary>
+        public BatchRecords? Records { get; }
 
         public string StateDirectory => _state!;
 
@@ -226,7 +99,7 @@ public class DrivenRunTests
         public DrivenRun Restart()
         {
             Run.Dispose();
-            return Run = new DrivenRun(Profile, Log, Repo.Root, _services, _state);
+            return Run = new DrivenRun(Profile, Log, Repo.Root, _services, _state, _learning, Records);
         }
 
         public void Dispose()
@@ -296,6 +169,33 @@ public class DrivenRunTests
         Assert.Equal(ResultStatus.Completed, (await rig.Log.ReadAsync("run-batch-1", default)).Run!.Result.Status);
     }
 
+    [Fact]
+    public async Task The_profiles_limits_replace_the_presets_and_a_key_left_out_keeps_the_preset_value()
+    {
+        var preset = Preset.Load(Path.Combine(Repo.Root, "presets"), "driven").Driven!;
+        var volumes = new FakeVolumes(_ => SessionStatus.Completed);
+        using var rig = new Rig(volumes: volumes, limits: new DrivenLimits(MaxMinutes: 90, MaxTurns: 200, MemoryMb: 8192, Cpus: 4));
+        var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-limits", Token, default);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        var task = volumes.Tasks.Single();
+        Assert.Equal((200, 90, preset.NoProgressMinutes * 60), (task.MaxTurns, task.MaxMinutes, task.NoProgressSeconds));
+        var spec = rig.Engine.Started.Single();
+        Assert.Equal((8192, 4d, preset.Pids), (spec.MemoryMb, spec.Cpus, spec.Pids));
+    }
+
+    [Fact]
+    public async Task Without_profile_limits_the_presets_apply()
+    {
+        var preset = Preset.Load(Path.Combine(Repo.Root, "presets"), "driven").Driven!;
+        var volumes = new FakeVolumes(_ => SessionStatus.Completed);
+        using var rig = new Rig(volumes: volumes);
+        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-nolimits", Token, default);
+
+        Assert.Equal((preset.MaxTurns, preset.MaxMinutes), (volumes.Tasks.Single().MaxTurns, volumes.Tasks.Single().MaxMinutes));
+        Assert.Equal(preset.MemoryMb, rig.Engine.Started.Single().MemoryMb);
+    }
+
     private const string RealCredential = "value-of-claude-code-oauth-token";
 
     [Fact]
@@ -339,6 +239,21 @@ public class DrivenRunTests
     }
 
     [Fact]
+    public async Task The_progress_event_carries_the_cache_counts_and_the_dollar_estimate_even_on_a_subscription()
+    {
+        var volumes = new FakeVolumes(_ => SessionStatus.Completed) { Usage = new TaskUsage(48_200, 0, 12, SessionStage.Write, 3_500_000, 90_000, 1.75m, true) };
+        using var rig = new Rig(volumes: volumes);
+        rig.Engine.RunFor = 3;
+        List<RunStatus> events = [];
+        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-12", Token, default, e => { lock (events) events.Add(e); });
+
+        var progress = events.Single(e => e.Event == RunEventKind.SessionProgress);
+        Assert.Equal((1.75m, 3_500_000L, 90_000L, null), (progress.UsdEstimate, progress.CacheRead, progress.CacheWrite, progress.Usd));     // usd stays the priced figure
+        Assert.Contains("about $1.75 estimated (partial)", progress.Detail);
+        Assert.True(progress.UsdEstimatePartial);
+    }
+
+    [Fact]
     public async Task A_running_task_shows_on_the_batch_run_step_by_step()
     {
         var volumes = new FakeVolumes(_ => SessionStatus.Completed) { Usage = new TaskUsage(48_200, 0, 12, SessionStage.Write) };
@@ -354,10 +269,12 @@ public class DrivenRunTests
         var progress = task.Single(e => e.Event == RunEventKind.SessionProgress);     // the tally did not change between polls, so it is published once
         Assert.Equal((48_200L, 12, SessionStage.Write), (progress.Tokens, progress.Turns, progress.Stage));
         Assert.Contains("48200 tokens", progress.Detail);
+        Assert.Equal((null, null, null), (progress.UsdEstimate, progress.CacheRead, progress.CacheWrite));     // an older image reports none of these
         Assert.Equal("https://example.test/o/r/pull/1", task.Single(e => e.Event == RunEventKind.PrOpened).PrUrl);
         var finished = task.Single(e => e.Event == RunEventKind.TaskFinished);
         Assert.Equal("https://example.test/o/r/pull/1", finished.PrUrl);
         Assert.StartsWith("chargehand/", finished.Branch);
+        Assert.Equal(finished.Branch, task.Single(e => e.Event == RunEventKind.ContainerStarted).Branch);   // a watcher maps the task to its session run from the start
         Assert.Contains("completed", finished.Detail);
         Assert.Equal(RunEventKind.RunFinished, events[^1].Event);
     }
@@ -392,7 +309,8 @@ public class DrivenRunTests
         var result = await running;
 
         Assert.Equal(ResultStatus.Failed, result.Status);
-        Assert.Equal(ErrorCode.TasksIncomplete, result.Error!.Code);
+        Assert.Equal(ErrorCode.Cancelled, result.Error!.Code);
+        Assert.Equal("cancelled by the caller: 0 of 2 tasks finished", result.Summary);
         Assert.Equal(["cancelled", "cancelled"], BatchTasks(result).EnumerateArray().Select(t => t.GetProperty("status").GetString()));
         Assert.Equal(["t1", "t2"], events.Where(e => e.Event == RunEventKind.TaskFinished).Select(e => e.TaskId!).Order());
         Assert.Empty(rig.Handover.Inputs);
@@ -403,6 +321,75 @@ public class DrivenRunTests
             Assert.Contains($"rm cid-{spec.RunId}", rig.Engine.Calls);
         }
         Assert.Contains("network-rm chargehand-net-run-batch-3", rig.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_cancel_keeps_the_outcome_of_a_task_that_finished_and_reports_the_cancelled_batch_as_cancelled()
+    {
+        using var rig = new Rig();
+        rig.Engine.HoldNth = 2;
+        using var cts = new CancellationTokenSource();
+        rig.Handover.OnPushed = _ => cts.Cancel();     // the cancel lands right after t1's pull request opened
+        var result = await rig.Run.RunAsync(Request("Add a retry", "Add a backoff"), "run-batch-4", Token, cts.Token, cancelledByCaller: () => true);
+
+        Assert.Equal(ResultStatus.Failed, result.Status);
+        Assert.Equal(ErrorCode.Cancelled, result.Error!.Code);
+        Assert.Equal("cancelled by the caller: 1 of 2 tasks finished", result.Summary);
+        Assert.Contains("t2", result.Error.Action);
+        var rows = BatchTasks(result).EnumerateArray().ToList();
+        Assert.Equal(["completed", "cancelled"], rows.Select(t => t.GetProperty("status").GetString()));
+        Assert.NotNull(rows[0].GetProperty("pr_url").GetString());
+    }
+
+    [Fact]
+    public async Task Tasks_a_cancel_stopped_before_they_started_are_not_started_with_the_cancelled_code()
+    {
+        using var rig = new Rig();
+        rig.Engine.HoldRunning = true;
+        using var cts = new CancellationTokenSource();
+        var request = Request("Add a retry", "Add a backoff");
+        request = request with { Driven = request.Driven! with { MaxParallel = 1 } };
+        var running = rig.Run.RunAsync(request, "run-batch-5", Token, cts.Token, cancelledByCaller: () => true);
+        while (rig.Engine.Started.Count < 1)
+            await Task.Delay(5);
+        await cts.CancelAsync();
+        var result = await running;
+
+        Assert.Equal(ErrorCode.Cancelled, result.Error!.Code);
+        Assert.Equal("cancelled by the caller: 0 of 2 tasks finished", result.Summary);
+        var rows = BatchTasks(result).EnumerateArray().ToList();
+        Assert.Equal(["cancelled", "not_started"], rows.Select(t => t.GetProperty("status").GetString()));
+        Assert.Equal("cancelled", rows[1].GetProperty("error_code").GetString());
+        Assert.Single(rig.Engine.Started);
+    }
+
+    [Fact]
+    public async Task A_cancel_over_http_ends_a_running_batch_failed_with_cancelled()
+    {
+        Rig? rig = null;
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), driven: (root, log) => (rig = new Rig(mcpForward: "chargehand-host:4300", dir: root, log: log)).Run);
+        rig!.Engine.HoldRunning = true;
+        var started = await s.PostAsync(JsonContent.Create(Request("Add a retry", "Add a backoff"), options: ContractJson.Options), waitSeconds: 0);
+        var id = (await started.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("run_id").GetString();
+        while (rig.Engine.Started.Count < 2)
+            await Task.Delay(5);
+
+        var cancel = await s.Http.PostAsync($"/v1/runs/{id}/cancel", null);
+        Assert.Equal(HttpStatusCode.Accepted, cancel.StatusCode);
+        JsonElement done = default;
+        for (var i = 0; i < 200 && done.ValueKind != JsonValueKind.Object; i++)
+        {
+            var get = await s.Http.GetAsync($"/v1/runs/{id}");
+            if (get.StatusCode == HttpStatusCode.OK)
+                done = await get.Content.ReadFromJsonAsync<JsonElement>();
+            else
+                await Task.Delay(50);
+        }
+
+        Assert.Equal("failed", done.GetProperty("status").GetString());
+        Assert.Equal("cancelled", done.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal("cancelled by the caller: 0 of 2 tasks finished", done.GetProperty("summary").GetString());
+        Assert.Empty(ContractSchemas.Validate(ContractSchemas.Result, done));
     }
 
     [Fact]
@@ -419,18 +406,6 @@ public class DrivenRunTests
             rig.Engine.Calls.Where(c => c.StartsWith("signal ", StringComparison.Ordinal)));
         Assert.Empty(rig.Handover.Inputs);
         Assert.True(volumes.UsageReads >= 1);
-    }
-
-    [Fact]
-    public async Task A_cancel_while_a_container_is_starting_still_removes_it_by_name()
-    {
-        using var rig = new Rig();
-        rig.Engine.CancelOnStart = true;
-        using var cts = new CancellationTokenSource();
-        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-9", Token, cts.Token, cancelledByCaller: () => true);
-
-        var spec = rig.Engine.Started.Single();
-        Assert.Contains($"rm chargehand-{spec.RunId}", rig.Engine.Calls);
     }
 
     [Fact]
@@ -686,13 +661,6 @@ public class DrivenRunTests
         Assert.Contains(reason, result.Error.Message, StringComparison.Ordinal);
         Assert.Empty(rig.Engine.Started);
         Assert.DoesNotContain(rig.Engine.Calls, c => c.StartsWith("network ", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void A_task_id_cannot_add_a_resource_attribute()
-    {
-        var env = new DrivenOtlpRoute("4318=collector-host:4318", "http://chargehand-driven:4318").Environment("run-1", "t1,chargehand.run_id=x", "run-2", null);
-        Assert.Equal("chargehand.run_id=run-1,chargehand.task_id=t1%2Cchargehand.run_id%3Dx,chargehand.task_run_id=run-2", env["OTEL_RESOURCE_ATTRIBUTES"]);
     }
 
     [Fact]

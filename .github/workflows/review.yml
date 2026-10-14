@@ -1,0 +1,159 @@
+name: review
+
+# A reusable workflow: any repository's pull requests get a chargehand review as one comment that each push updates
+# (docs/guide/review-workflow.md). It sends the pull request's diff to a chargehand server over HTTP, waits for the
+# result and posts the findings with their citations and support verdicts. The server must be reachable from the runner
+# and must hold a checkout of the repository that contains the head commit.
+#
+# Call it from a `pull_request` workflow, never `pull_request_target`: the review runs with the server key, and the
+# pull request is untrusted input. A pull request from a fork gets no secrets, so the review is skipped with a notice.
+# The pull request's title, body and diff are only ever read from the event file and the API into files and JSON; none is
+# interpolated into a shell command.
+on:
+  workflow_call:
+    inputs:
+      server-url:
+        description: The chargehand server's base URL.
+        type: string
+        required: true
+      repository-path:
+        description: Where the server keeps a checkout of this repository. A path on the server's machine, under its repository_roots.
+        type: string
+        required: true
+      preset:
+        description: The chargehand preset that reviews the change.
+        type: string
+        default: review
+      max-findings:
+        description: Findings listed in the comment, highest confidence first.
+        type: number
+        default: 10
+      fail-on:
+        description: none never fails the check; high fails it on a finding of confidence 0.8 or more.
+        type: string
+        default: none
+      timeout-minutes:
+        description: How long the job may run, and so how long it waits for the review.
+        type: number
+        default: 20
+      runs-on:
+        description: The runner labels, as a JSON array. A runner that can reach the server.
+        type: string
+        default: '["ubuntu-latest"]'
+    secrets:
+      chargehand-api-key:
+        description: The server's bearer key.
+        required: true
+      comment-token:
+        description: A token that writes the pull request comment. Default the workflow's GITHUB_TOKEN.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      pull-requests: write
+      contents: read
+    concurrency:
+      group: chargehand-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          KEY: ${{ secrets.chargehand-api-key }}
+          FAIL_ON: ${{ inputs.fail-on }}
+        run: |
+          skip() {
+            echo "::notice title=chargehand review skipped::$1"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          if [ "$EVENT" = pull_request_target ]; then
+            echo "::error title=chargehand review::This workflow must not run on pull_request_target: it holds the server key and the pull request is untrusted. Use the pull_request event."
+            exit 1
+          fi
+          [ "$EVENT" = pull_request ] || skip "it reviews pull_request events, not $EVENT."
+          case "$FAIL_ON" in none | high) ;; *)
+            echo "::error title=chargehand review::fail-on must be none or high."
+            exit 1
+            ;;
+          esac
+          [ "$HEAD_REPO" = "$REPO" ] || skip "the pull request comes from a fork, which gets no secrets."
+          if [ -z "$KEY" ]; then
+            [ "$ACTOR" = "dependabot[bot]" ] && skip "Dependabot's pull requests get no Actions secrets."
+            echo "::error title=chargehand review::The chargehand-api-key secret is empty. Pass it in the caller's secrets."
+            exit 1
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+      # Only the scripts of this workflow's own repository, at the commit this workflow runs from; the pull request's
+      # code is not checked out.
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .chargehand
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - if: steps.gate.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          REPOSITORY_PATH: ${{ inputs.repository-path }}
+          REVIEW_PRESET: ${{ inputs.preset }}
+        run: |
+          d="$RUNNER_TEMP/review"
+          mkdir -p "$d"
+          gh api -H 'Accept: application/vnd.github.diff' "repos/$REPO/compare/$BASE...$HEAD" > "$d/diff.txt"
+          jq -r '.pull_request | .title + "\n\n" + (.body // "")' "$GITHUB_EVENT_PATH" > "$d/goal.txt"
+          .chargehand/scripts/review-request.sh "$REPOSITORY_PATH" "$HEAD" "$d/goal.txt" "$d/diff.txt" > "$d/request.json"
+
+      - if: steps.gate.outputs.run == 'true'
+        env:
+          CHARGEHAND_URL: ${{ inputs.server-url }}
+          CHARGEHAND_API_KEY: ${{ secrets.chargehand-api-key }}
+          TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
+        run: |
+          d="$RUNNER_TEMP/review"
+          # Leave the comment and the check 3 minutes after the wait ends, but wait at least a minute.
+          seconds=$((TIMEOUT_MINUTES * 60 - 180))
+          [ "$seconds" -ge 60 ] || seconds=60
+          code=0
+          REVIEW_TIMEOUT_SECONDS=$seconds .chargehand/scripts/review-remote.sh "$d/request.json" > "$d/result.json" || code=$?
+          echo "review-remote exit code $code"
+          jq -e '.contract_version == "result/v1"' "$d/result.json" > /dev/null
+          jq -r '"run \(.task_id): \(.status)"' "$d/result.json"
+
+      - if: steps.gate.outputs.run == 'true'
+        env:
+          REPO: ${{ github.repository }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          REVIEW_MAX_FINDINGS: ${{ inputs.max-findings }}
+        run: |
+          d="$RUNNER_TEMP/review"
+          .chargehand/scripts/review-comment.sh "$d/result.json" "$REPO" "$HEAD" > "$d/comment.md"
+          cat "$d/comment.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - if: steps.gate.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.comment-token || github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: .chargehand/scripts/review-post.sh "$REPO" "$PR" "$RUNNER_TEMP/review/comment.md"
+
+      - if: steps.gate.outputs.run == 'true'
+        env:
+          FAIL_ON: ${{ inputs.fail-on }}
+        run: .chargehand/scripts/review-gate.sh "$RUNNER_TEMP/review/result.json" "$FAIL_ON"

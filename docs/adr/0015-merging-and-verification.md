@@ -1,6 +1,6 @@
 # 0015. Merging and verification
 
-- Status: accepted
+- Status: accepted; "merging is a human step" is superseded by [0046](0046-integrator-and-ci-fixer.md) for driven sessions on repositories that opt in
 - Date: 2026-09-26
 
 ## Evidence (phase 2 spike)

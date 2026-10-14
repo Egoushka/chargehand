@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Chargehand.Config;
-using Chargehand.Memory;
+using Chargehand.Modules.Memory.Api;
 using ModelContextProtocol.Protocol;
 
 namespace Chargehand.Mcp;

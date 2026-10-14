@@ -2,8 +2,9 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Chargehand.Containers;
-using Chargehand.Runner;
+using Chargehand.Driven;
+using Chargehand.Kernel;
+using Chargehand.Modules.Runners.Api;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -16,7 +17,14 @@ namespace Chargehand.Server;
 /// <param name="Port">0 picks a free one.</param>
 /// <param name="ApiKey">Required as a bearer token on every route.</param>
 /// <param name="Listen">Loopback unless the runner sits on a private network; then <paramref name="AllowedHosts"/> must name it.</param>
-public sealed record RunnerSettings(int Port, string ApiKey, RunnerPolicy Policy, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null);
+/// <param name="Options">How the runner looks after the machine it runs on (ADR 0058); null: it does not.</param>
+public sealed record RunnerSettings(int Port, string ApiKey, RunnerPolicy Policy, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null, RunnerOptions? Options = null);
+
+/// <summary>What a runner on a laptop adds (ADR 0058).</summary>
+/// <param name="KeepAwake">Hold the machine awake (<c>caffeinate</c>) while a session container runs. macOS only.</param>
+/// <param name="Drain">When <c>GET /host</c> says <c>draining</c>.</param>
+/// <param name="HostSource"><c>proc</c>: this machine's <c>/proc</c>; <c>engine</c>: ask the engine, for a machine whose engine is a virtual machine; <c>auto</c>: <c>proc</c> on Linux, <c>engine</c> elsewhere.</param>
+public sealed record RunnerOptions(bool KeepAwake = false, DrainRules? Drain = null, string HostSource = "auto");
 
 /// <summary>The runner (ADR 0039): the one process that holds the container engine's socket, in front of it a narrow HTTP API. Each route is one
 /// engine call with its inputs checked by <see cref="RunnerPolicy"/> and <see cref="ContainerTemplate"/>; a caller names a run, a listed image
@@ -24,7 +32,10 @@ public sealed record RunnerSettings(int Port, string ApiKey, RunnerPolicy Policy
 /// carry chargehand's label or prefix, so it is safe on an engine that other stacks share.</summary>
 public static class RunnerServer
 {
-    public static WebApplication Create(RunnerSettings settings, IContainerEngine engine)
+    private const long MaxSeedBytes = 128L * 1024 * 1024;
+
+    /// <param name="host">What <c>GET /host</c> reports; null: this machine's <c>/proc</c>. In a container that is the host's unless the engine hides it (lxcfs, a user namespace).</param>
+    public static WebApplication Create(RunnerSettings settings, IContainerEngine engine, IHostSource? host = null)
     {
         var address = IPAddress.Parse(settings.Listen);
         IReadOnlyList<string> hosts = settings.AllowedHosts ?? [];
@@ -59,10 +70,25 @@ public static class RunnerServer
                 return Refuse(refusal);
             if (await engine.CountAsync(ct) >= policy.MaxContainers)
                 return Reply(StatusCodes.Status429TooManyRequests, $"{policy.MaxContainers} session containers exist already");
-            var spec = new ContainerSpec(start.RunId, start.Image, start.WorkVolume, start.OutVolume, start.Network, start.Env, start.MemoryMb, start.Cpus, start.Pids, start.Command);
+            var spec = new ContainerSpec(start.RunId, start.Image, start.WorkVolume, start.OutVolume, start.Network, start.Env, start.MemoryMb, start.Cpus, start.Pids, start.Command,
+                Caches: start.Caches);
             _ = ContainerTemplate.RunArgs(spec, "/dev/null");
             _ = ContainerTemplate.EnvFileLines(spec.Env);
             return Ok(new { id = await engine.StartAsync(spec, ct) });
+        }));
+
+        app.MapPost("/service", (HttpContext ctx, CancellationToken ct) => Guard(async () =>
+        {
+            var service = await Body<RunnerService>(ctx, ct);
+            if (engine is not IServiceEngine starter)
+                return Reply(StatusCodes.Status501NotImplemented, "this runner's engine cannot start services");
+            if (policy.RefuseService(service) is { } refusal)
+                return Refuse(refusal);
+            if (await engine.CountAsync(ct) >= policy.MaxContainers)
+                return Reply(StatusCodes.Status429TooManyRequests, $"{policy.MaxContainers} containers exist already");
+            var spec = new ServiceSpec(service.BatchId, service.Name, service.Image, service.Network, service.Port, service.Env, service.Tmpfs, service.MemoryMb);
+            _ = ContainerTemplate.ServiceArgs(spec, "/dev/null");
+            return Ok(new { id = await starter.StartServiceAsync(spec, ct) });
         }));
 
         app.MapPost("/workspace", (HttpContext ctx, CancellationToken ct) => Guard(async () =>
@@ -78,6 +104,19 @@ public static class RunnerServer
             return Ok(new { });
         }));
 
+        app.MapPost("/workspace/bundle", (HttpContext ctx, CancellationToken ct) => Guard(async () =>
+        {
+            var workspace = await Body<RunnerBundleWorkspace>(ctx, ct);
+            if (engine is not IBundleWorkspaceEngine preparer)
+                return Reply(StatusCodes.Status501NotImplemented, "this runner's engine cannot prepare workspaces from a bundle");
+            if (policy.RefuseBundleWorkspace(workspace) is { } refusal)
+                return Refuse(refusal);
+            var spec = new BundleWorkspaceSpec(workspace.RunId, workspace.Image, RunnerPolicy.OutPrefix + workspace.RunId, workspace.WorkVolume, workspace.Branch, workspace.Commit);
+            _ = ContainerTemplate.BundleWorkspaceArgs(spec); // the runner validates every value itself, whatever its engine does
+            await preparer.PrepareBundleWorkspaceAsync(spec, ct);
+            return Ok(new { });
+        }));
+
         app.MapPut("/out/{runId}/{name}", (HttpContext ctx, string runId, string name, CancellationToken ct) => Guard(async () =>
         {
             var image = ctx.Request.Query["image"].ToString();
@@ -87,6 +126,21 @@ public static class RunnerServer
                 return Refuse(refusal);
             var spec = new OutFileSpec(runId, image, RunnerPolicy.OutPrefix + runId, name);
             _ = ContainerTemplate.OutFileArgs(spec, write: true);
+            // The repository's bundle (ADR 0058) is far larger than a seed: it says its length first, is checked against the runner's limit, and goes to the helper as it arrives.
+            if (name == ContainerTemplate.SourceBundleFile)
+            {
+                if (ctx.Request.ContentLength is not { } length)
+                    return Reply(StatusCodes.Status411LengthRequired, "the bundle needs a Content-Length");
+                if (policy.RefuseBundleSize(length) is { } tooLarge)
+                    return Reply(StatusCodes.Status413PayloadTooLarge, tooLarge);
+                if (ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } bundleLimit)
+                    bundleLimit.MaxRequestBodySize = policy.MaxBundleBytes;
+                await volumes.WriteOutStreamAsync(spec, ctx.Request.Body, length, ct);
+                return Ok(new { });
+            }
+            // A seed is a bundle, far over the 64 KiB the other calls get.
+            if (name == ContainerTemplate.SeedFile && ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+                limit.MaxRequestBodySize = MaxSeedBytes;
             using var body = new MemoryStream();
             await ctx.Request.Body.CopyToAsync(body, ct);
             await volumes.WriteOutFileAsync(spec, body.ToArray(), ct);
@@ -96,6 +150,22 @@ public static class RunnerServer
         app.MapGet("/out/{runId}/{name}", (HttpContext ctx, string runId, string name, CancellationToken ct) => Guard(async () =>
         {
             var image = ctx.Request.Query["image"].ToString();
+            // A transcript is served as a tail and never whole (ADR 0059): a file of that kind without ?tail is refused, and so is ?tail on any other file.
+            if (ctx.Request.Query.ContainsKey("tail") || ContainerTemplate.OutFilesTail.Contains(name, StringComparer.Ordinal))
+            {
+                if (!int.TryParse(ctx.Request.Query["tail"], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var bytes))
+                    return Refuse("the end of a transcript is read with ?tail=<bytes>");
+                if (policy.RefuseOutTail(image, name, bytes) is { } tailRefusal)
+                    return Refuse(tailRefusal);
+                if (engine is not IOutTailEngine tailer)
+                    return Reply(StatusCodes.Status501NotImplemented, "this runner's engine cannot read the end of a file in an output volume");
+                var tailSpec = new OutFileSpec(runId, image, RunnerPolicy.OutPrefix + runId, name);
+                _ = ContainerTemplate.OutTailArgs(tailSpec, bytes);
+                using var tail = new MemoryStream();
+                return await tailer.ReadOutTailAsync(tailSpec, bytes, tail, ct)
+                    ? HttpResults.Bytes(tail.ToArray(), "application/octet-stream")
+                    : Reply(StatusCodes.Status404NotFound, $"no {name} in the output volume");
+            }
             if (engine is not IOutVolumeEngine volumes)
                 return Reply(StatusCodes.Status501NotImplemented, "this runner's engine cannot read an output volume");
             if (policy.RefuseOutFile(image, name, write: false) is { } refusal)
@@ -135,7 +205,7 @@ public static class RunnerServer
             if (!await engine.OwnsAsync(id, ct))
                 return NotOurs();
             var state = await engine.InspectAsync(id, ct);
-            return Ok(new RunnerInspect(state.Status.ToString().ToLowerInvariant(), state.ExitCode, state.OomKilled));
+            return Ok(new RunnerInspect(state.Status.ToString().ToLowerInvariant(), state.ExitCode, state.OomKilled, state.MemoryPeakMb));
         }));
 
         app.MapGet("/logs/{id}", (HttpContext ctx, string id, CancellationToken ct) => Guard(async () =>
@@ -159,6 +229,8 @@ public static class RunnerServer
             await engine.KillAllAsync(ct);
             return Ok(new { });
         }));
+
+        app.MapGet("/host", (CancellationToken ct) => Guard(async () => Ok(await (host ?? new HostProbe()).ReadAsync(ct) ?? new HostSnapshot(null, null, null, null, null, null))));
 
         app.MapGet("/count", (HttpContext ctx, CancellationToken ct) => Guard(async () => Ok(new { count = await engine.CountAsync(ct) })));
 
@@ -210,8 +282,8 @@ public static class RunnerServer
             if (policy.RefuseForwards(egress.Forwards) is { } forwardRefusal)
                 return Refuse(forwardRefusal);
             // The model endpoint forwards only to the model's own host: the runner, not its caller, decides where a credential may travel.
-            if (egress.Gateway is { } g && g.Host != Chargehand.Egress.EgressCli.DefaultModelHost)
-                return Refuse($"the model endpoint forwards to {Chargehand.Egress.EgressCli.DefaultModelHost} only");
+            if (egress.Gateway is { } g && g.Host != Chargehand.Modules.Gateway.Api.EgressCli.DefaultModelHost)
+                return Refuse($"the model endpoint forwards to {Chargehand.Modules.Gateway.Api.EgressCli.DefaultModelHost} only");
             var gateway = egress.Gateway is { } m ? new ModelGatewaySpec(m.Credential, m.TokenKey, m.Host, m.Port) : null;
             return Ok(new { id = await engine.StartEgressAsync(new EgressSpec(egress.BatchId, policy.EgressImage, egress.Network, egress.Allow, Forwards: egress.Forwards, Gateway: gateway), ct) });
         }));

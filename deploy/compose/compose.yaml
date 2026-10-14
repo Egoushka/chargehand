@@ -1,0 +1,148 @@
+# chargehand on one Docker host (docs/guide/install.md). Two modes from one file:
+#   Core only      docker compose up -d                       the server alone: read-only research and review, no engine socket
+#   Core + driven  docker compose --profile driven up -d      adds the runner and the socket proxy: writing sessions in containers
+# Secrets and image pins come from .env (copy .env.example); the chargehand profile is ./profile.json (copy a template).
+name: chargehand
+
+x-hardening: &hardening
+  restart: unless-stopped
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: 10m, max-file: "3" }
+
+services:
+  # Runs once before the server: makes the two state directories writable by the image's user (uid 1654), which a fresh named volume or a
+  # bind directory that Docker created is not. Only CHOWN, no network, then it exits.
+  prepare:
+    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.9.5}
+    user: "0"
+    entrypoint: ["chown", "1654:1654", "/srv/chargehand/repos", "${CHARGEHAND_WORK_DIR:-/srv/chargehand/work}"]
+    restart: "no"
+    network_mode: none
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ${CHARGEHAND_REPOS_DIR:-chargehand-repos}:/srv/chargehand/repos
+      - ${CHARGEHAND_WORK_DIR:-chargehand-work}:${CHARGEHAND_WORK_DIR:-/srv/chargehand/work}
+
+  # The server (`chargehand serve`): HTTP and MCP on port 4300. It never holds the engine socket (ADR 0039).
+  chargehand:
+    <<: *hardening
+    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.9.5}
+    ports:
+      # Loopback only. Put a reverse proxy or a VPN in front to reach it from elsewhere (ADR 0024); never publish it to the internet.
+      - "127.0.0.1:${CHARGEHAND_PORT:-4300}:4300"
+    environment:
+      CHARGEHAND_API_KEY: ${CHARGEHAND_API_KEY:?set CHARGEHAND_API_KEY in .env (openssl rand -hex 32)}
+      # Driven mode only; empty in Core mode, where nothing reads them.
+      CHARGEHAND_RUNNER_KEY: ${CHARGEHAND_RUNNER_KEY:-}
+      CHARGEHAND_PUSH_TOKEN: ${CHARGEHAND_PUSH_TOKEN:-}
+      # The worker's model credential. Set exactly one in .env; a variable that is not set is not passed on.
+      ANTHROPIC_API_KEY:
+      CLAUDE_CODE_OAUTH_TOKEN:
+    volumes:
+      - ./profile.json:/config/profile.json:ro
+      # The run log, driven batch state and the run-token key (profile run_log is relative to /app).
+      - chargehand-runs:/app/runs
+      # Repositories the server may read (profile repository_roots). Clone into it as the image's user, see the guide.
+      - ${CHARGEHAND_REPOS_DIR:-chargehand-repos}:/srv/chargehand/repos
+      # worker_root: worker clones and driven checkouts. Unset: a named volume. In driven mode set CHARGEHAND_WORK_DIR to an absolute
+      # host path: it is mounted at the same path here and the runner hands that path to the engine, which must find the same files.
+      - ${CHARGEHAND_WORK_DIR:-chargehand-work}:${CHARGEHAND_WORK_DIR:-/srv/chargehand/work}
+    networks: [outside, control]
+    depends_on:
+      prepare: { condition: service_completed_successfully }
+      runner: { condition: service_healthy, required: false }
+    healthcheck:
+      # Every route needs the key, so the check sends it (there is no separate health route). The image has bash and no curl.
+      test:
+        - CMD
+        - bash
+        - -c
+        - "exec 3<>/dev/tcp/127.0.0.1/4300 && printf 'GET /v1/runs?limit=1 HTTP/1.0\\r\\nHost: localhost\\r\\nAuthorization: Bearer %s\\r\\n\\r\\n' \"$$CHARGEHAND_API_KEY\" >&3 && head -n1 <&3 | grep -q ' 200 '"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # The runner (`chargehand runner`, the same image): starts the session containers through the socket proxy and nothing else.
+  runner:
+    <<: *hardening
+    profiles: [driven]
+    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.9.5}
+    command:
+      - runner
+      - --listen
+      - 0.0.0.0:4310
+      - --allowed-hosts
+      - runner
+      - --images
+      - ${CHARGEHAND_SESSION_IMAGE:-ghcr.io/egoushka/chargehand-session@sha256:a710fb966e7b2b4aaacd95bd437d98e12b889be159f294fcc140bb26d144e1a7}
+      - --egress-image
+      - ${CHARGEHAND_SESSION_IMAGE:-ghcr.io/egoushka/chargehand-session@sha256:a710fb966e7b2b4aaacd95bd437d98e12b889be159f294fcc140bb26d144e1a7}
+      - --source-roots
+      - ${CHARGEHAND_WORK_DIR:-/srv/chargehand/work}
+      - --outside-networks
+      - chargehand-outside
+      # A session calls the server back through its batch's egress container: listen-port=name:port of the server on the outside network.
+      - --forwards
+      - 4300=chargehand:4300
+    environment:
+      # Empty stops the runner at start with "CHARGEHAND_RUNNER_KEY is not set".
+      CHARGEHAND_RUNNER_KEY: ${CHARGEHAND_RUNNER_KEY:-}
+      DOCKER_HOST: tcp://docker-proxy:2375
+    networks: [control, engine]
+    depends_on:
+      docker-proxy: { condition: service_healthy }
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - "exec 3<>/dev/tcp/127.0.0.1/4310 && printf 'GET /count HTTP/1.0\\r\\nHost: localhost\\r\\nAuthorization: Bearer %s\\r\\n\\r\\n' \"$$CHARGEHAND_RUNNER_KEY\" >&3 && head -n1 <&3 | grep -q ' 200 '"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # The only service that touches the engine socket. It filters by API section, not by request body, so it cannot stop a privileged or
+  # bind-mounting create: the runner's fixed container template is the real gate, and the socket stays root-equivalent (server guide).
+  docker-proxy:
+    profiles: [driven]
+    restart: unless-stopped
+    image: tecnativa/docker-socket-proxy:latest@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    environment:
+      # What the runner's docker calls need (run, kill, inspect, ps, rm, logs, network and volume create, connect, ls, rm); everything else stays 403.
+      CONTAINERS: 1
+      POST: 1
+      IMAGES: 1
+      VOLUMES: 1
+      NETWORKS: 1
+    volumes:
+      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro
+    networks: [engine]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2375/_ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  # Has a route out (model API, git host). The server sits on it, and the runner joins each batch's egress container to it by name.
+  outside:
+    name: chargehand-outside
+  # Server to runner. No route out.
+  control:
+    internal: true
+  # Runner to socket proxy. No route out.
+  engine:
+    internal: true
+
+volumes:
+  chargehand-runs:
+  chargehand-repos:
+  chargehand-work:

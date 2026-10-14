@@ -1,5 +1,7 @@
 using Chargehand.Config;
+using Chargehand.Kernel;
 using Chargehand.Mcp;
+using Chargehand.Modules.Memory.Api;
 using static Chargehand.Tests.MemoryConfigTests;
 
 namespace Chargehand.Tests;
@@ -162,8 +164,12 @@ public class ExtensionsCheckTests
     public async Task A_server_that_does_not_answer_in_time_is_a_problem()
     {
         var profile = ProfileWith("[]");
-        await using var server = HindsightServer();
-        await using var pool = PoolFor(profile, server);
+        // A server that never answers: with one that does, the reply can beat the zero timeout, whose cancel runs on a timer.
+        await using var pool = new McpConnectionPool(profile.McpServers!, _ => "", async (_, _, ct) =>
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            throw new OperationCanceledException(ct);
+        });
 
         var result = await ExtensionsCheck.RunAsync(profile, [], pool, null, CancellationToken.None, timeout: TimeSpan.Zero);
 

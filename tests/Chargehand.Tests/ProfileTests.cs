@@ -1,8 +1,17 @@
 using System.Diagnostics;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Driven;
+using Chargehand.Kernel;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
+using Chargehand.Runtimes.ClaudeCode.Api;
+using Chargehand.Runtimes.OpenCode.Api;
 
 namespace Chargehand.Tests;
 
@@ -23,6 +32,116 @@ public class ProfileTests
         Assert.Null(profile.Prices);
         Assert.Null(profile.Secrets);
         Assert.Equal(1.00m, profile.RunCapUsd);
+    }
+
+    [Fact]
+    public void Driven_limits_load_and_override_only_the_keys_they_set()
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("local.json", """{"schema":"profile/v1","driven":{"enabled":true,"limits":{"max_minutes":90,"memory_mb":8192}}}""");
+        var limits = Profile.Load(path).Driven!.Limits!;
+        var merged = limits.Apply(new DrivenPreset(MaxMinutes: 45, MaxTurns: 80, MemoryMb: 4096, Cpus: 2));
+        Assert.Equal((90, 80, 8192, 2d), (merged.MaxMinutes, merged.MaxTurns, merged.MemoryMb, merged.Cpus));
+    }
+
+    [Theory]
+    [InlineData("""{"max_minutes":0}""")]
+    [InlineData("""{"memory_mb":128}""")]
+    [InlineData("""{"cpus":64}""")]
+    [InlineData("""{"pids":4}""")]
+    public void Driven_limits_outside_the_containers_bounds_are_refused(string limits)
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("local.json", $$$"""{"schema":"profile/v1","driven":{"limits":{{{limits}}}}}""");
+        Assert.Equal(ErrorCode.InvalidRequest, Assert.Throws<ChargehandException>(() => Profile.Load(path)).Code);
+    }
+
+    [Fact]
+    public void The_profile_binds_the_limits_block_with_the_tasks_modules_source_generated_context() =>
+        Assert.IsType<TasksSettingsJsonContext>(Profile.LoadJson.GetTypeInfo(typeof(DrivenLimits)).OriginatingResolver);
+
+    [Fact]
+    public void Governor_history_keeps_the_defaults_it_left_out_and_refuses_values_that_cannot_work()
+    {
+        using var dir = new TempDir();
+        Assert.Null(Profile.Load(dir.Write("none.json", """{"schema":"profile/v1","driven":{"governor":{}}}""")).Driven!.Governor!.History);
+        Assert.Equal(new DrivenGovernorHistory(), Profile.Load(dir.Write("empty.json", """{"schema":"profile/v1","driven":{"governor":{"history":{}}}}""")).Driven!.Governor!.History);
+        Assert.Equal(new DrivenGovernorHistory(10, 30, 90),
+            Profile.Load(dir.Write("set.json", """{"schema":"profile/v1","driven":{"governor":{"history":{"min_tasks":10,"window_days":30,"percentile":90}}}}""")).Driven!.Governor!.History);
+        foreach (var bad in new[] { """{"min_tasks":0}""", """{"window_days":0}""", """{"percentile":0}""", """{"percentile":101}""" })
+        {
+            var path = dir.Write("bad.json", """{"schema":"profile/v1","driven":{"governor":{"history":BAD}}}""".Replace("BAD", bad, StringComparison.Ordinal));
+            Assert.Equal(ErrorCode.InvalidRequest, Assert.Throws<ChargehandException>(() => Profile.Load(path)).Code);
+        }
+    }
+
+    [Fact]
+    public void Driven_governor_loads_and_a_session_gets_its_size_class_budget_and_the_defaults_it_left_out()
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("local.json", """{"schema":"profile/v1","driven":{"governor":{"mode":"observe","budgets":{"S":1,"L":20},"repeat_calls":6}}}""");
+        var governor = Profile.Load(path).Driven!.Governor!;
+        Assert.Equal(new SessionGovernor(BudgetUsd: 20m, PriorUsd: 0.5m, SizeClass: "L", RepeatCalls: 6, BudgetSource: new BudgetSource("flat")), governor.ToSession("L", null, 0.5m));
+        Assert.Equal(4m, governor.ToSession(null, null, 0).BudgetUsd);
+        Assert.Equal(3m, governor.ToSession("S", 3m, 0).BudgetUsd);
+        Assert.Equal(GovernorMode.Off, Profile.Load(dir.Write("off.json", """{"schema":"profile/v1","driven":{"governor":{"mode":"off"}}}""")).Driven!.Governor!.Mode);
+        Assert.Equal(GovernorMode.Enforce, Profile.Load(dir.Write("enforce.json", """{"schema":"profile/v1","driven":{"governor":{"mode":"enforce"}}}""")).Driven!.Governor!.Mode);
+    }
+
+    [Theory]
+    [InlineData("""{"repeat_calls":0}""")]
+    [InlineData("""{"checkpoint_at":1.5}""")]
+    [InlineData("""{"budgets":{"XL":3}}""")]
+    [InlineData("""{"budgets":{"M":0}}""")]
+    [InlineData("""{"wait_patterns":["("]}""")]
+    public void A_driven_governor_setting_that_cannot_work_is_refused(string governor)
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("local.json", $$$"""{"schema":"profile/v1","driven":{"governor":{{{governor}}}}}""");
+        Assert.Equal(ErrorCode.InvalidRequest, Assert.Throws<ChargehandException>(() => Profile.Load(path)).Code);
+    }
+
+    [Fact]
+    public void Driven_admission_loads_and_leaves_out_what_it_defaults()
+    {
+        using var dir = new TempDir();
+        var admission = Profile.Load(dir.Write("local.json", """{"schema":"profile/v1","driven":{"admission":{"max_load_per_cpu":1.5}}}""")).Driven!.Admission!;
+        Assert.Equal(new DrivenAdmission(1024, 1.5), admission);
+        Assert.Equal(new DrivenAdmission(2048), Profile.Load(dir.Write("reserve.json", """{"schema":"profile/v1","driven":{"admission":{"reserve_mb":2048}}}""")).Driven!.Admission);
+    }
+
+    [Fact]
+    public void Driven_admission_asks_for_1536_MiB_and_holds_starts_above_10_percent_memory_pressure_unless_the_profile_says_otherwise()
+    {
+        using var dir = new TempDir();
+        var defaults = Profile.Load(dir.Write("local.json", """{"schema":"profile/v1","driven":{"admission":{}}}""")).Driven!.Admission!;
+        Assert.Equal((1536, 10.0, 1024, null), (defaults.DefaultRequestMb, defaults.MaxMemoryPressure, defaults.ReserveMb, defaults.MaxLoadPerCpu));
+        var set = Profile.Load(dir.Write("set.json", """{"schema":"profile/v1","driven":{"admission":{"default_request_mb":2048,"max_memory_pressure":25.5}}}""")).Driven!.Admission!;
+        Assert.Equal((2048, 25.5), (set.DefaultRequestMb, set.MaxMemoryPressure));
+    }
+
+    [Theory]
+    [InlineData("""{"reserve_mb":-1}""")]
+    [InlineData("""{"max_load_per_cpu":0}""")]
+    [InlineData("""{"default_request_mb":511}""")]
+    [InlineData("""{"max_memory_pressure":0}""")]
+    [InlineData("""{"max_memory_pressure":100.5}""")]
+    public void A_driven_admission_setting_that_cannot_work_is_refused(string admission)
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("local.json", $$$"""{"schema":"profile/v1","driven":{"admission":{{{admission}}}}}""");
+        Assert.Equal(ErrorCode.InvalidRequest, Assert.Throws<ChargehandException>(() => Profile.Load(path)).Code);
+    }
+
+    [Fact]
+    public void Driven_planning_is_off_unless_the_profile_turns_it_on_and_defaults_to_the_cheap_preset()
+    {
+        using var dir = new TempDir();
+        Assert.Null(Profile.Load(dir.Write("none.json", """{"schema":"profile/v1","driven":{}}""")).Driven!.Planning);
+        Assert.Equal(new DrivenPlanning(true, "cheap"), Profile.Load(dir.Write("on.json", """{"schema":"profile/v1","driven":{"planning":{"enabled":true}}}""")).Driven!.Planning);
+        Assert.Equal(new DrivenPlanning(false, "review"), Profile.Load(dir.Write("preset.json", """{"schema":"profile/v1","driven":{"planning":{"preset":"review"}}}""")).Driven!.Planning);
+        var empty = dir.Write("empty.json", """{"schema":"profile/v1","driven":{"planning":{"preset":" "}}}""");
+        Assert.Equal(ErrorCode.InvalidRequest, Assert.Throws<ChargehandException>(() => Profile.Load(empty)).Code);
     }
 
     [Fact]
@@ -241,12 +360,23 @@ public class ProfileTests
     [Fact]
     public void A_command_source_that_hangs_falls_through_to_the_next_source()
     {
-        var profile = new Profile("profile/v1", Secrets: [new SecretSource(Command: ["sleep", "30"]), new SecretSource(Command: ["echo", "from-second"])])
+        // The next source is env, not a second command: the timeout is per command, so a fallback command would get the same 300 ms and fail
+        // whenever a loaded machine is slow to start it.
+        var item = $"profile-tests-after-a-hang-{Guid.NewGuid():N}";
+        var name = item.ToUpperInvariant().Replace('-', '_');
+        var profile = new Profile("profile/v1", Secrets: [new SecretSource(Command: ["sleep", "30"]), new SecretSource(Env: true)])
         {
             CommandTimeout = TimeSpan.FromMilliseconds(300),
         };
-
-        Assert.Equal("from-second", profile.Secret("anything"));
+        Environment.SetEnvironmentVariable(name, "from-second");
+        try
+        {
+            Assert.Equal("from-second", profile.Secret(item));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(name, null);
+        }
     }
 
     [Fact]

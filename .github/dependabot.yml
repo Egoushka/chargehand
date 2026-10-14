@@ -8,3 +8,12 @@ updates:
     directory: /
     schedule: { interval: weekly }
     commit-message: { prefix: build }
+  # ADR 0056: the operator console's packages. They are pinned exactly; a release must be 14 days old before a pull request proposes it.
+  - package-ecosystem: npm
+    directory: /web/console
+    schedule: { interval: weekly }
+    cooldown: { default-days: 14 }
+    commit-message: { prefix: build }
+    groups:
+      console:
+        update-types: [minor, patch]

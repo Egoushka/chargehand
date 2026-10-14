@@ -2,7 +2,8 @@ name: release
 
 # A tag v<Version> publishes the release (ADR 0024, decision D8): the GitHub Release with the version's CHANGELOG.md
 # section, the server image ghcr.io/<owner>/chargehand:<Version>, the session image of driven sessions
-# ghcr.io/<owner>/chargehand-session:<Version> (ADR 0039), and on nuget.org the dnx tool Chargehand (ADR 0027) and
+# ghcr.io/<owner>/chargehand-session:<Version> (ADR 0039) with its JDK variant ghcr.io/<owner>/chargehand-session-jdk:<Version> (ADR 0048), both for linux/amd64 and linux/arm64 (ADR 0058:
+# the release job pushes amd64, the session-arm64 job builds arm64 on an arm64 runner and turns each tag into an index of the two), and on nuget.org the dnx tool Chargehand (ADR 0027) and
 # Chargehand.Contracts, each when its version is new there, when the repository variable NUGET_USER names the nuget.org
 # account whose trusted-publishing policy trusts this workflow. The release environment waits for the owner's approval. A tag without a changelog section fails first.
 # When NUGET_USER is set, the mcp-registry job then lists the version in the MCP Registry (ADR 0027).
@@ -26,6 +27,10 @@ jobs:
       contents: write
       packages: write
       id-token: write
+    outputs:
+      version: ${{ steps.digests.outputs.version }}
+      session_amd64: ${{ steps.digests.outputs.session }}
+      session_jdk_amd64: ${{ steps.digests.outputs.session_jdk }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check the tag against Directory.Build.props and the changelog
@@ -39,22 +44,44 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}:$version" >> "$GITHUB_ENV"
           echo "SESSION_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-session:$version" >> "$GITHUB_ENV"
+          echo "SESSION_JDK_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-session-jdk:$version" >> "$GITHUB_ENV"
       - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - run: docker build --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t "$IMAGE" .
       - run: docker push "$IMAGE"
       # The session image is built from the same checkout, so its driver and plugin match the server's version. A deployment pins both by digest (printed below).
       - run: docker build -f images/session/Dockerfile --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t "$SESSION_IMAGE" .
       - run: docker push "$SESSION_IMAGE"
+      # The variant with a JDK and Gradle for Gradle and Maven repositories (ADR 0048) is built on the session image just pushed, named by digest, so the two always match.
+      - run: docker build -f images/session-jdk/Dockerfile --build-arg "BASE=$(docker inspect --format '{{index .RepoDigests 0}}' "$SESSION_IMAGE")" --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t "$SESSION_JDK_IMAGE" .
+      - run: docker push "$SESSION_JDK_IMAGE"
+      # The session images are linux/amd64 here; the session-arm64 job moves their tags to indexes of both platforms and prints the digests to pin.
       - name: Digests to pin
+        id: digests
         run: |
           {
-            echo "### Images"
-            for image in "$IMAGE" "$SESSION_IMAGE"; do echo "- \`$(docker inspect --format '{{index .RepoDigests 0}}' "$image")\`"; done
+            echo "### Images (linux/amd64; the session images become multi-platform in the session-arm64 job)"
+            for image in "$IMAGE" "$SESSION_IMAGE" "$SESSION_JDK_IMAGE"; do echo "- \`$(docker inspect --format '{{index .RepoDigests 0}}' "$image")\`"; done
           } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "version=$VERSION"
+            echo "session=$(docker inspect --format '{{index .RepoDigests 0}}' "$SESSION_IMAGE")"
+            echo "session_jdk=$(docker inspect --format '{{index .RepoDigests 0}}' "$SESSION_JDK_IMAGE")"
+          } >> "$GITHUB_OUTPUT"
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         if: vars.NUGET_USER != ''
         with:
           global-json-file: global.json
+      # The dnx tool embeds the operator console (ADR 0056), so it is built before the pack. The server image builds its own in the Dockerfile.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: vars.NUGET_USER != ''
+        with:
+          node-version-file: web/console/.nvmrc
+      - name: Build the operator console
+        if: vars.NUGET_USER != ''
+        working-directory: web/console
+        run: |
+          npm ci --ignore-scripts
+          npm run build
       - name: Pack what is new on nuget.org
         id: pack
         if: vars.NUGET_USER != ''
@@ -87,6 +114,54 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" --title "$VERSION" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
+
+  # ADR 0058: the session images for linux/arm64, so a Mac (or any arm64 machine) can be a runner. Built natively on an arm64 runner, not under emulation: the image runs dotnet, node and
+  # npm while it builds. A job of its own after the release job, so it sits behind that job's environment approval (needs) without a second one, and an arm64 failure leaves the amd64
+  # images, the packages and the GitHub Release as they are ("Re-run failed jobs" repeats this job alone). Each of the two tags becomes an index of the amd64 image from the release job
+  # and the arm64 image built here; the JDK image is built on the arm64 session image by digest, as the amd64 one is on its own. The job prints the index digests to pin.
+  session-arm64:
+    needs: release
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+      SESSION_AMD64: ${{ needs.release.outputs.session_amd64 }}
+      SESSION_JDK_AMD64: ${{ needs.release.outputs.session_jdk_amd64 }}
+      REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Names
+        run: |
+          echo "SESSION_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-session" >> "$GITHUB_ENV"
+          echo "SESSION_JDK_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-session-jdk" >> "$GITHUB_ENV"
+      - run: echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Session image, linux/arm64
+        run: |
+          docker build -f images/session/Dockerfile --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t "$SESSION_IMAGE:$VERSION-arm64" .
+          docker push "$SESSION_IMAGE:$VERSION-arm64"
+          echo "SESSION_ARM64=$(docker inspect --format '{{index .RepoDigests 0}}' "$SESSION_IMAGE:$VERSION-arm64")" >> "$GITHUB_ENV"
+      - name: Session index
+        run: docker buildx imagetools create -t "$SESSION_IMAGE:$VERSION" "$SESSION_AMD64" "$SESSION_ARM64"
+      - name: JDK image, linux/arm64
+        run: |
+          docker build -f images/session-jdk/Dockerfile --build-arg "BASE=$SESSION_ARM64" --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t "$SESSION_JDK_IMAGE:$VERSION-arm64" .
+          docker push "$SESSION_JDK_IMAGE:$VERSION-arm64"
+          echo "SESSION_JDK_ARM64=$(docker inspect --format '{{index .RepoDigests 0}}' "$SESSION_JDK_IMAGE:$VERSION-arm64")" >> "$GITHUB_ENV"
+      - name: JDK index
+        run: docker buildx imagetools create -t "$SESSION_JDK_IMAGE:$VERSION" "$SESSION_JDK_AMD64" "$SESSION_JDK_ARM64"
+      - name: Digests to pin
+        run: |
+          {
+            echo "### Session images (linux/amd64 and linux/arm64): pin these"
+            for image in "$SESSION_IMAGE:$VERSION" "$SESSION_JDK_IMAGE:$VERSION"; do
+              echo "- \`${image%:*}@$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')\`"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ADR 0027: list the version in the MCP Registry once nuget.org serves its package. A job of its own, so that it holds
   # no write token, a registry outage (the registry is in preview) leaves the image, the packages and the GitHub Release

@@ -20,6 +20,15 @@ Hooks: `git config core.hooksPath .githooks` (denylist + gitleaks on pre-commit,
 Conventional Commits on commit-msg). Never `--no-verify`. A linked worktree has no `.private-terms` of its own; the
 hooks read the main checkout's, so don't copy it in.
 
+## Layout
+
+The rewrite (ADR 0060) ports features into `src/Shared`, `src/Modules`, `src/Runtimes`, `src/Hosts`. There: one project
+per feature module, references point down `Skeleton.Layers` (`tests/Chargehand.Architecture.Tests`), public types only in
+the module's `.Api` namespace, files under 400 lines, methods under complexity 16, no reflection-based JSON (hosts publish
+with Native AOT: `scripts/aot-smoke.sh`). New code never references the old `src/Chargehand*` projects.
+
+`src/Chargehand` (Core) never references `src/Chargehand.Driven` (containers, egress, runner, sessions, batches, integrator); `ArchitectureTests` fails if it does (ADR 0047). `src/Chargehand.Automation` (intake) references Driven; Core and Driven never reference it. Server and Cli reference all.
+
 ## Public vs private — the rule for every file
 
 The repo is public. Never commit: IP addresses, hostnames, key aliases, employer or project

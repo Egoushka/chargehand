@@ -18,6 +18,11 @@
     "usd": { "type": ["number", "null"], "minimum": 0, "description": "Priced by the orchestrator's table; null when the cost is unknown or the credential is not priced." },
     "branch": { "type": ["string", "null"] },
     "pr_url": { "type": ["string", "null"] },
-    "error_code": { "type": ["string", "null"], "description": "result/v1's error.code of a failed run." }
+    "error_code": { "type": ["string", "null"], "description": "result/v1's error.code of a failed run." },
+    "actor": { "type": ["string", "null"], "description": "The account that started the run (ADR 0050); null for a run started from the CLI." },
+    "kind": { "enum": ["single", "batch"], "description": "batch: a request with a driven block; single: any other." },
+    "repository": { "type": ["string", "null"], "description": "context.repository.path of the request; null when it named none." },
+    "commit": { "type": ["string", "null"], "description": "context.repository.commit of the request: the commit the run's citations are checked against." },
+    "tokens": { "type": ["integer", "null"], "minimum": 0, "description": "Input plus output tokens of the finished run's result; null while it runs." }
   }
 }

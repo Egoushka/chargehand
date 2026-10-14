@@ -1,10 +1,11 @@
 using System.Text.Json;
-using Chargehand.Budget;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
+using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Prompts;
 using Chargehand.Results;
 using Chargehand.Runtime;
-using Chargehand.Verification;
 
 namespace Chargehand.Nodes;
 
@@ -103,7 +104,7 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
                 (outcome, _) = await Turn(session.Id, $"These evidence references did not resolve: {string.Join("; ", failures.Select(f => $"{f.EvidenceId}: {f.Reason}"))}. Fix or drop them and reply ending with only the corrected ```json block.", r, ct);
                 var (repaired, _) = await Assemble(session.Id, r, ct);
                 contract = repaired ?? contract;
-                contract = ResultAssembler.MoveUnresolved(contract, await resolver.ResolveAsync(contract, await Scope(session.Id, r, ct), ct));
+                contract = EvidenceFailures.MoveUnresolved(contract, await resolver.ResolveAsync(contract, await Scope(session.Id, r, ct), ct));
             }
         }
 
@@ -118,7 +119,7 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
             // A reply with no valid block leaves the previous answer standing; the next check still sees the edited tree.
             var (next, _) = await Assemble(session.Id, r, ct);
             if (next is not null)
-                contract = ResultAssembler.MoveUnresolved(next, await resolver.ResolveAsync(next, await Scope(session.Id, r, ct), ct));
+                contract = EvidenceFailures.MoveUnresolved(next, await resolver.ResolveAsync(next, await Scope(session.Id, r, ct), ct));
         }
 
         if (contract is not null && outcome == IdleOutcome.Succeeded && contract.Status == ResultStatus.Completed && supportCheck is not null)

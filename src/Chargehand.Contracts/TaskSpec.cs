@@ -15,8 +15,10 @@ public sealed record TaskSpec(
     TaskAction Action,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] JsonElement? ActionDetail);
 
+[JsonConverter(typeof(SnakeCaseEnumConverter<Risk>))]
 public enum Risk { Low, Medium, High }
 
+[JsonConverter(typeof(SnakeCaseEnumConverter<TaskAction>))]
 public enum TaskAction { Answer, Split, Improve, Ask, Deny }
 
 public sealed record Estimate(long TokensLow, long TokensHigh, decimal UsdLow, decimal UsdHigh, string Basis);

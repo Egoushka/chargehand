@@ -1,0 +1,45 @@
+{
+  "schema": "profile/v1",
+  "worker_root": "/srv/chargehand/work",
+  "http": {
+    "api_key_secret": "chargehand-api-key",
+    "max_concurrent_runs": 2,
+    "ui": true,
+    "accounts": [
+      { "name": "alice", "max_usd_per_day": 5, "max_usd_per_month": 50, "max_tokens_per_day": 100000, "max_concurrent_runs": 2, "driven": true, "repositories": ["/srv/chargehand/work/a"],
+        "model": { "api_key_secret": "alice-gateway-key", "base_url": "https://gateway.example.com/v1" } },
+      { "name": "bob", "allow_server_credential": true }
+    ]
+  },
+  "mcp_servers": {
+    "notes": { "command": ["npx", "-y", "example-notes-mcp"] }
+  },
+  "memory": [
+    {
+      "name": "notes",
+      "server": "notes",
+      "max_facts": 5,
+      "max_chars": 2000,
+      "max_fact_chars": 300,
+      "timeout_seconds": 4,
+      "retain": true,
+      "retain_tags": ["chargehand", "example"],
+      "tools": {
+        "recall": { "tool": "search", "arguments": { "q": "{query}", "n": "{max_facts}" }, "results": { "path": "data.items", "id": "key", "text": "{title}: {body}", "format": "json" } },
+        "retain": { "tool": "save", "arguments": { "text": "{text}", "tags": "{tags}" } }
+      }
+    }
+  ],
+  "driven": {
+    "enabled": true,
+    "max_parallel": 3,
+    "images": ["session@sha256:0000000000000000000000000000000000000000000000000000000000000000"],
+    "network": { "allow": ["registry.example.com"], "mcp_forward": "chargehand:4300" },
+    "push_secret": "chargehand-push-token",
+    "limits": { "max_minutes": 90, "memory_mb": 8192, "max_continuations": 2 },
+    "governor": { "mode": "enforce", "budgets": { "S": 2, "M": 5 }, "repeat_calls": 4, "checkpoint_at": 0.8, "history": { "min_tasks": 10 } },
+    "admission": { "reserve_mb": 2048, "max_load_per_cpu": 1.5 },
+    "planning": { "enabled": true },
+    "learning": { "retro": true, "pr_days": 7 }
+  }
+}

@@ -2,6 +2,8 @@ using System.Diagnostics;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Intake;
+using Chargehand.Kernel;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.Plans;
 using Chargehand.Prompts;
 using Chargehand.RunLog;
@@ -140,7 +142,7 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
     /// <summary>Intake alone: one generate call under the arm's intake prompt, scored on the action it chooses.</summary>
     private async Task<(string RunId, string TraceId, IReadOnlyDictionary<string, double> Scores, string? RateLimited)> Intake(EvalItem item, string root, CancellationToken ct)
     {
-        var runId = Orchestrator.NewRunId();
+        var runId = RunIds.New();
         using var span = Telemetry.Source.StartActivity("chargehand.eval.intake");
         var traceId = span?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
         var (_, kind) = Orchestrator.AnswerKind(Preset.Load(Path.Combine(root, "presets"), item.Request.Context.Preset));

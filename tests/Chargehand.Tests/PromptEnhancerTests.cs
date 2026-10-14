@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Enhancement;
+using Chargehand.Kernel;
 using Chargehand.Mcp;
 using ModelContextProtocol.Protocol;
 

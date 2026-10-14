@@ -46,7 +46,9 @@ workers read-only tools from a server. `chargehand extensions check` verifies th
 
 ## Quick start
 
-You need the .NET 10 SDK and one worker runtime.
+To run the server from the release images instead, with Docker Compose and no .NET SDK, see
+[Install with Docker Compose](docs/guide/install.md) (`deploy/compose/`). To run from a clone, you need the .NET 10 SDK
+and one worker runtime.
 
 1. Copy `profiles/example.json` to `profiles/local.json` and fill in your gateway, models, prices and secret-store
    item names. Profiles reference secrets by item name and never hold them.
@@ -94,13 +96,16 @@ otherwise from the ones the build copies next to the binary. The run log is the 
 | `show <run-id>` | calls, tokens, cache %, cost |
 | `cache <run-id>` | cache reads and writes per call, and the first block that broke a shared prefix |
 | `reconcile <run-id> < spend-rows.jsonl` | joins calls to exported gateway spend rows |
-| `serve` | HTTP and MCP, on 127.0.0.1 unless the profile opens it (profile `http`) |
+| `serve` | HTTP and MCP, on 127.0.0.1 unless the profile opens it (profile `http`); with `http.ui` also the [web UI](docs/guide/web-ui.md) at `/ui/` and the operator console at `/console/` |
 | `mcp` | MCP over stdio, for a client that starts chargehand itself; no port, no key |
 | `routes` | routing report per preset, node kind and model |
 | `score <run-id> <0-1> [name]` | records a hand score for a run |
 | `eval seed\|push\|gate` | Prompt CI: propose items, push them to Langfuse, gate a change |
 | `prompts sync` | mirrors prompt blocks to Langfuse |
+| `learn report [--since 30d]` | what finished driven tasks cost and how their pull requests ended, per repository and size class |
 | `extensions check [--preset <name>] [--probe <query>]` | checks the profile's MCP servers, memory mappings and the presets' services against the tools each server lists |
+| `init [<repo path>] [--profile <out>] [--force]` | reads a repository's marker files and writes a starter profile with the proposed test command and the package hosts to allow |
+| `doctor [--profile <path>]` | one ok/warn/fail line per setup check (profile, server, runner, images, secrets, roots, egress, model credential), each with its fix |
 
 Prompt CI runs on its own for a pull request that changes `prompts/` or `presets/`: `.github/workflows/prompt-ci.yml`
 hands it to a self-hosted runner, which posts the commit status. A fork's pull request or a preset change waits for an
@@ -217,10 +222,12 @@ chargehand call, and a run makes up to four (one research, up to three reviews).
 | path | contents |
 |---|---|
 | `src/Chargehand` | orchestrator: intake, task graph, worker node, evidence resolver, prompt registry, memory, run log |
+| `src/Chargehand.Driven` | driven writing sessions: containers, egress proxy, runner client, sessions, batches, governor, integrator (references the orchestrator; [ADR 0047](docs/adr/0047-core-and-driven-assemblies.md)) |
 | `src/Chargehand.Contracts` | contract package: schemas, C# types, validator (versioned by schema major) |
 | `src/Chargehand.OpenCode` | OpenCode V2 client and worker-runtime adapter |
 | `src/Chargehand.ClaudeCode` | Claude Code worker-runtime adapter |
 | `src/Chargehand.Mcp` | MCP client: one connection per profile `mcp_servers` entry (Streamable HTTP, SSE or stdio), secret placeholders |
+| `src/Chargehand.Automation` | work that starts without a caller: GitHub intake from issue labels and mentions ([ADR 0051](docs/adr/0051-intake-from-github.md)), and the quality benchmark `chargehand bench` ([ADR 0052](docs/adr/0052-quality-benchmark-on-public-repositories.md)); references Driven |
 | `src/Chargehand.Server` | HTTP interface and MCP server |
 | `src/Chargehand.Cli` | CLI entry point, packed as the `Chargehand` dnx tool and MCP server |
 | `.mcp/server.json` | MCP Registry entry, packed into the tool; the pack stamps the version over `0.0.0` |

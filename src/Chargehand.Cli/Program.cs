@@ -8,12 +8,19 @@ using Chargehand.ClaudeCode;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Evals;
+using Chargehand.Kernel;
 using Chargehand.Mcp;
-using Chargehand.Memory;
+using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.Research.Api;
+using Chargehand.Modules.Runners.Api;
 using Chargehand.OpenCode;
 using Chargehand.Prompts;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
+using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Server;
 using Chargehand.Verification;
 using Microsoft.Extensions.Hosting;
@@ -36,11 +43,16 @@ const string Usage = """
       runs adherence <stream.jsonl>...
                                    whether driven sessions kept to the change skill's steps, from their stored streams
       runs kill --all              removes every driven-session container and batch network by label (works with the server down)
+      learn report [--since <days>d|<time>]
+                                   what finished driven tasks taught, per repository and size class: spend, completion, governor checkpoints,
+                                   how their pull requests ended (reads learning.jsonl next to the run log; the server writes it)
       watch <run-id> [--url <server>]
                                    one line per event of a run on a server until its result; exit 0 completed, 1 failed, 3 needs input
                                    (server: --url or CHARGEHAND_URL, key: CHARGEHAND_API_KEY, else the profile's http block)
       cancel <run-id> [--url <server>]
                                    asks the server to cancel a run
+      accounts add <account> [--label <text>] | list | revoke <key-id>
+                                   keys of the accounts in the profile's http.accounts; a new key is printed once (ADR 0050)
       show <run-id>                prints a run and its calls from the run log
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
       cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
@@ -57,6 +69,15 @@ const string Usage = """
       extensions check [--preset <name>] [--probe <query>]
                                    connects each mcp_servers entry, checks the memory mappings and the presets' services
                                    against the tools it lists; one line per item, exit 1 on a problem; --probe also runs one recall
+      bench run <taskset.json> [--dry-run|--baseline] [--only <ids>] [--remote <template>] [--max-tokens <n>] [--max-usd <n>] [--out <dir>]
+                                   measures driven batches on a task set of public repositories: pass rate, honest stops, spend, governor decisions
+                                   (--dry-run and --baseline call no model; `chargehand bench run` alone prints its full usage)
+      bench report <results.json> [<other.json>]
+                                   renders a benchmark's results again, or compares two runs
+      init [<repo path>] [--profile <out path>] [--force]
+                                   reads a repository's marker files, prints its ecosystems, the proposed context.verify and the
+                                   package hosts the driven egress allowlist lacks, and writes a starter profile (never over a file without --force)
+      doctor [--profile <path>]    checks a setup, one ok/warn/fail line per check with the fix; exit 1 when a check fails
     prompts/ and presets/ come from the current directory when it has both (a checkout), else from the install; the
     run log is the profile's run_log, else runs/run-log.jsonl in a checkout, else a per-user file (README).
     """;
@@ -70,29 +91,24 @@ if (argv.Count >= 2 && argv[0] == "--profile")
     profilePath = argv[1];
     argv.RemoveRange(0, 2);
 }
+// `bench run <set> --profile <path>` reads like the other verbs' global option.
+if (argv is ["bench", ..] && argv.IndexOf("--profile") is var benchProfileAt and >= 0 && benchProfileAt + 1 < argv.Count)
+{
+    profilePath = argv[benchProfileAt + 1];
+    argv.RemoveRange(benchProfileAt, 2);
+}
 // Offline and profile-free: a verifier holds a result and a public key, nothing else (ADR 0036).
 if (argv is ["verify", .. var verifyArgs])
     return Chargehand.Signing.VerifyCli.Run(verifyArgs, Console.Out, Console.Error);
 // Reads stored session streams only (ADR 0039).
 if (argv is ["runs", "adherence", .. var adherenceArgs])
-    return Chargehand.Driven.AdherenceCli.Run(adherenceArgs, Console.Out, Console.Error);
+    return Chargehand.Modules.Sessions.Api.AdherenceCli.Run(adherenceArgs, Console.Out, Console.Error);
 // A client of a running server: it reads the profile only for what --url and the environment leave out.
 if (argv is ["watch" or "cancel", var watchRun, .. var watchOptions])
 {
     using var stop = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-    var (client, problem) = Chargehand.Watch.WatchCli.Connect(watchOptions, Environment.GetEnvironmentVariable, () =>
-    {
-        try
-        {
-            var p = Profile.Load(profilePath);
-            return p.Http is { } http ? ($"http://{(http.Listen is "0.0.0.0" or "::" ? "127.0.0.1" : http.Listen)}:{http.Port}", p.Secret(http.ApiKeySecret)) : null;
-        }
-        catch (Exception e) when (e is ChargehandException or InvalidOperationException)
-        {
-            return null;
-        }
-    });
+    var (client, problem) = Chargehand.Watch.WatchCli.Connect(watchOptions, Environment.GetEnvironmentVariable, ProfileServer);
     if (client is null)
     {
         Console.Error.WriteLine(problem);
@@ -109,7 +125,7 @@ if (argv is ["egress", .. var egressArgs])
     using var stop = new CancellationTokenSource();
     using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-    return await Chargehand.Egress.EgressCli.RunAsync(egressArgs, Console.Error, stop.Token);
+    return await Chargehand.Modules.Gateway.Api.EgressCli.RunAsync(egressArgs, Console.Error, stop.Token);
 }
 // The runner service holds the container engine's socket so `serve` never has to (ADR 0039); it is profile-free as well.
 if (argv is ["runner", .. var runnerArgs])
@@ -125,7 +141,7 @@ if (argv is ["session", .. var sessionArgs])
     using var stop = new CancellationTokenSource();
     using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-    return await Chargehand.Driven.SessionCli.RunAsync(sessionArgs, Console.Error, stop.Token);
+    return await Chargehand.Modules.Sessions.Api.SessionCli.RunAsync(sessionArgs, Console.Error, stop.Token);
 }
 // What a fresh verification container runs (ADR 0039); not for a person to type.
 if (argv is ["verify-branch", .. var verifyBranchArgs])
@@ -135,7 +151,43 @@ if (argv is ["verify-branch", .. var verifyBranchArgs])
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Driven.VerifyBranchCli.RunAsync(verifyBranchArgs, Console.Out, Console.Error, stop.Token);
 }
-if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions" or "runs"))
+// Benchmarks (ADR 0052): a report is a file read; a run reads the profile for the images, the allowlist and the server it may reach.
+if (argv is ["bench", "report", .. var benchReportArgs])
+    return Chargehand.Bench.BenchCli.Report(benchReportArgs, Console.Out, Console.Error);
+if (argv is ["bench", "run", .. var benchRunArgs])
+{
+    Profile benchProfile;
+    try
+    {
+        benchProfile = Profile.Load(profilePath);
+    }
+    catch (ChargehandException e)
+    {
+        Console.Error.WriteLine($"{profilePath}: {e.Message}");
+        Console.Error.WriteLine(e.Action);
+        return 2;
+    }
+    using var stop = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Bench.BenchCli.RunAsync(benchRunArgs, benchProfile, DrivenPresetAllow(), BenchLimits(), () => BenchEngines(benchProfile),
+        connectArgs => Chargehand.Watch.WatchCli.Connect(connectArgs, Environment.GetEnvironmentVariable, ProfileServer), Environment.GetEnvironmentVariable,
+        Directory.GetCurrentDirectory(), Console.Out, Console.Error, stop.Token);
+}
+if (argv is ["bench", ..])
+{
+    Console.Error.WriteLine(Chargehand.Bench.BenchCli.Usage);
+    return 2;
+}
+// Profile-free: init writes the profile, and doctor reports one that does not load.
+if (argv is ["init", .. var initArgs])
+    return Chargehand.Onboarding.InitCli.Run(initArgs, Directory.GetCurrentDirectory(), profilePath, DrivenPresetAllow(), Console.Out, Console.Error);
+if (argv is ["doctor", .. var doctorArgs])
+{
+    using var stop = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Onboarding.DoctorCli.RunAsync(doctorArgs, profilePath, new Chargehand.Onboarding.SystemDoctorEnvironment(), DrivenPresetAllow(), Console.Out, Console.Error, stop.Token);
+}
+if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions" or "runs" or "accounts" or "learn"))
 {
     Console.Error.WriteLine(Usage);
     return 2;
@@ -155,6 +207,8 @@ catch (ChargehandException e)
 var (root, runLogPath) = InstallPaths.Resolve(profile.RunLog, Directory.GetCurrentDirectory(), AppContext.BaseDirectory,
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify));
 var runLog = new JsonlRunLog(runLogPath);
+// What finished driven tasks taught (ADR 0045): the server appends to it, `learn report` reads it.
+var learning = new Chargehand.Modules.Oversight.Api.JsonlLearningStore(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "learning.jsonl"));
 // One pool for memory and services (ADR 0034). Connections open on first use, so a command that uses neither never connects; disposed when the process ends.
 await using var mcpPool = new McpConnectionPool(profile.McpServers ?? new Dictionary<string, McpServerSettings>(), profile.Secret);
 var services = new ServiceResolver(mcpPool);
@@ -170,10 +224,14 @@ switch (argv)
         return await Serve();
     case ["mcp"]:
         return await Mcp();
+    case ["accounts", .. var accountArgs]:
+        return AccountsCli.Run(accountArgs, profile, AccountsCli.KeysFile(runLogPath), Console.Out, Console.Error);
     case ["show", var id]:
         return await Show(id);
     case ["runs", "kill", "--all"]:
-        return await Chargehand.Containers.RunsCli.KillAllAsync(new Chargehand.Containers.DockerCliEngine(), Console.Out, Console.Error, ct);
+        return await Chargehand.Modules.Runners.Api.RunsCli.KillAllAsync(new Chargehand.Modules.Runners.Api.DockerCliEngine(), Console.Out, Console.Error, ct);
+    case ["learn", "report", .. var learnOptions]:
+        return await Chargehand.Modules.Oversight.Api.LearningCli.RunAsync(learnOptions, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow, ct);
     case ["reconcile", var id]:
         return await Reconcile(id);
     case ["cache", var id]:
@@ -216,6 +274,63 @@ switch (argv)
         return 2;
 }
 
+/// <summary>The hosts presets/driven.yaml lets a session reach; none when the preset cannot be read (init and doctor then treat every package host as missing).</summary>
+IReadOnlyList<string> DrivenPresetAllow()
+{
+    var (installRoot, _) = InstallPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory, "");
+    try
+    {
+        return Preset.Load(Path.Combine(installRoot, "presets"), "driven").Driven?.Allow ?? [];
+    }
+    catch (Exception e) when (e is not OperationCanceledException)
+    {
+        return [];
+    }
+}
+
+/// <summary>The server and key the profile's http block names, for a client verb that was given neither.</summary>
+(string Url, string Key)? ProfileServer()
+{
+    try
+    {
+        var p = Profile.Load(profilePath);
+        return p.Http is { } http ? ($"http://{(http.Listen is "0.0.0.0" or "::" ? "127.0.0.1" : http.Listen)}:{http.Port}", p.Secret(http.ApiKeySecret)) : null;
+    }
+    catch (Exception e) when (e is ChargehandException or InvalidOperationException)
+    {
+        return null;
+    }
+}
+
+/// <summary>The container limits of the driven preset, so a benchmark's acceptance check gets what a session's own test run got.</summary>
+Chargehand.Bench.AcceptanceLimits BenchLimits()
+{
+    var (installRoot, _) = InstallPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory, "");
+    try
+    {
+        return Preset.Load(Path.Combine(installRoot, "presets"), "driven").Driven is { } d ? new(d.MemoryMb, d.Cpus, d.Pids) : new(4096, 2, 512);
+    }
+    catch (Exception e) when (e is not OperationCanceledException)
+    {
+        return new(4096, 2, 512);
+    }
+}
+
+/// <summary>The engine a benchmark's acceptance checks start containers with: the runner service when the profile names one, else this machine's Docker.</summary>
+(Chargehand.Modules.Runners.Api.IContainerEngine, Chargehand.Modules.Runners.Api.IWorkspaceEngine, Chargehand.Modules.Runners.Api.IOutVolumeEngine) BenchEngines(Profile p)
+{
+    // A benchmark's acceptance checks read the server's checkouts, so they use a runner that shares its disk (ADR 0058).
+    if (p.Driven?.ResolvedRunners().FirstOrDefault(r => r.Workspace == Chargehand.Modules.Runners.Api.WorkspaceMode.Shared) is { } runner)
+    {
+        var http = new HttpClient { BaseAddress = new Uri(runner.Url) };
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", p.Secret(runner.ApiKeySecret));
+        var client = new Chargehand.Modules.Runners.Api.RunnerClient(http);
+        return (client, client, client);
+    }
+    var docker = new Chargehand.Modules.Runners.Api.DockerCliEngine();
+    return (docker, docker, docker);
+}
+
 async Task<int> Run()
 {
     var input = await Console.In.ReadToEndAsync(ct);
@@ -239,7 +354,7 @@ async Task<int> Run()
     catch (ChargehandException e)
     {
         // The runtime refused before a run started (not running, another version): no prompt was sent, so the chain is empty.
-        result = new ResultContract("result/v1", Orchestrator.NewRunId(), "run", ActivityTraceId.CreateRandom().ToHexString(),
+        result = new ResultContract("result/v1", RunIds.New(), "run", ActivityTraceId.CreateRandom().ToHexString(),
             new PromptChain([], new AsSent("", "", "", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))), ResultStatus.Failed, e.Message, [], [], [], [e.Message], 0,
             new Usage(0, 0, 0, 0, 0), e.Error);
     }
@@ -281,30 +396,96 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
 {
     // Batch state and the run-token key sit next to the run log (ADR 0043).
     var stateDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches");
+    // What the operator console reads about a batch (events, sessions, governor decisions, checks) sits there too, one directory per batch.
+    var records = new BatchRecords(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "records"));
     if (profile.Driven is not { Enabled: true } driven)
-        return new Chargehand.Driven.DrivenRun(profile, runLog, root, null);
-    Chargehand.Containers.IContainerEngine engine;
-    Chargehand.Containers.IWorkspaceEngine workspace;
-    if (driven.Runner is { } runner)
+        return new Chargehand.Driven.DrivenRun(profile, runLog, root, null, learning: learning, records: records);
+    Chargehand.Modules.Runners.Api.IContainerEngine engine;
+    Chargehand.Modules.Runners.Api.IWorkspaceEngine workspace;
+    Chargehand.Modules.Runners.Api.IHostSource hostSource;
+    IReadOnlyList<Chargehand.Driven.RunnerSite>? sites = null;
+    Chargehand.Modules.Runners.Api.RunnerClient RunnerClientFor(Chargehand.Modules.Runners.Api.DrivenRunnerEntry runner)
     {
-        var http = new HttpClient { BaseAddress = new Uri(runner.Url) };
+        // The client times each call out itself (a control call, or a transfer of repository size), so the HttpClient's 100 seconds must not cut a transfer short (ADR 0058).
+        var http = new HttpClient { BaseAddress = new Uri(runner.Url), Timeout = Timeout.InfiniteTimeSpan };
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", profile.Secret(runner.ApiKeySecret));
-        var client = new Chargehand.Runner.RunnerClient(http);
-        (engine, workspace) = (client, client);
+        return new Chargehand.Modules.Runners.Api.RunnerClient(http);
+    }
+    var bundles = new Chargehand.Modules.Runners.Api.RepositoryBundles(Path.Combine(profile.WorkerRoot, ".driven", "bundles"));
+    if (driven.ResolvedRunners() is [var runner, ..])
+    {
+        var client = RunnerClientFor(runner);
+        (engine, workspace, hostSource) = (client, client, client);
     }
     else
     {
-        var docker = new Chargehand.Containers.DockerCliEngine();
-        (engine, workspace) = (docker, docker);
+        var docker = new Chargehand.Modules.Runners.Api.DockerCliEngine();
+        (engine, workspace, hostSource) = (docker, docker, new Chargehand.Modules.Runners.Api.HostProbe());
     }
     // Both engines move files through a volume with a helper started from the session image; without an image no batch starts anyway.
-    Chargehand.Driven.ISessionVolumes volumes = engine is Chargehand.Containers.IOutVolumeEngine files && driven.Images is { Count: > 0 } images
-        ? new Chargehand.Driven.EngineSessionVolumes(files, images[0])
-        : new Chargehand.Driven.UnavailableSessionVolumes();
+    Chargehand.Modules.Sessions.Api.ISessionVolumes volumes = engine is Chargehand.Modules.Runners.Api.IOutVolumeEngine files && driven.Images is { Count: > 0 } images
+        ? new Chargehand.Modules.Sessions.Api.EngineSessionVolumes(files, images[0])
+        : new Chargehand.Modules.Sessions.Api.UnavailableSessionVolumes();
+    // A profile that names its runners (ADR 0058) gets a pool: each runner has its own client, and its volumes' helper starts the image for its platform.
+    if (driven.NamesRunners)
+        sites = [.. driven.ResolvedRunners().Select(entry =>
+        {
+            var client = RunnerClientFor(entry);
+            return new Chargehand.Driven.RunnerSite(entry, client, entry.Workspace == Chargehand.Modules.Runners.Api.WorkspaceMode.Bundle ? new Chargehand.Modules.Runners.Api.BundleWorkspaceEngine(client, client, bundles) : client, driven.Images is { Count: > 0 } list
+                ? new Chargehand.Modules.Sessions.Api.EngineSessionVolumes(client, driven.ImageFor(list[0], entry.Platform))
+                : new Chargehand.Modules.Sessions.Api.UnavailableSessionVolumes(), client);
+        })];
+    // The planning and retro runs belong to the account of the batch they serve (ADR 0050).
+    Chargehand.Modules.Batches.Api.PlanRunner childRun = async (request, runId, parentRunId, token) =>
+        await orchestrator.RunAsync(request, token, runId, parentRunId: parentRunId, actor: (await runLog.ReadAsync(parentRunId, token)).Start?.Actor);
     return new Chargehand.Driven.DrivenRun(profile, runLog, root, new Chargehand.Driven.DrivenServices(engine, workspace, volumes,
-        push => new Chargehand.Driven.GitHubPullRequests(new HttpClient { BaseAddress = new Uri(Environment.GetEnvironmentVariable("CHARGEHAND_E2E_GITHUB_API") ?? "https://api.github.com/") }, push.Value),
+        push => new Chargehand.Modules.Forge.Api.GitHubPullRequests(new HttpClient { BaseAddress = GitHubApiRoot(driven) }, push.Value),
         driven.TaskSource is { } source ? new Chargehand.Mcp.McpTaskSource(source, mcpPool) : null,
-        orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck), stateDirectory);
+        orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck, Host: hostSource,
+        Integration: IntegrationHost(driven), ForgeFor: (remote, token) => new Chargehand.Modules.Forge.Api.GitLabForge(
+            new HttpClient { BaseAddress = Chargehand.Modules.Forge.Api.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token),
+        Planner: new Chargehand.Modules.Batches.Api.ModelPlanner(childRun, driven.Planning?.Preset ?? "cheap"),
+        Retro: new Chargehand.Modules.Batches.Api.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap"), Runners: sites),
+        stateDirectory, learning, records);
+}
+
+// GitHub's API root: api.github.com, or the Enterprise host the profile's driven.forge names. The E2E switch exists for scripts/driven-e2e.sh only.
+Uri GitHubApiRoot(Chargehand.Config.DrivenSettings driven) =>
+    new(Environment.GetEnvironmentVariable("CHARGEHAND_E2E_GITHUB_API") ?? (driven.Forge is { Kind: "github", BaseUrl: { } baseUrl } ? baseUrl.TrimEnd('/') + "/" : "https://api.github.com/"));
+
+// The App's token source lives as long as the process, so a token is fetched once an hour at most (ADR 0046). The key is read from the secret store only when a token is needed.
+Chargehand.Modules.Forge.Api.IIntegrationHost? IntegrationHost(Chargehand.Config.DrivenSettings driven)
+{
+    if (driven.Integrator is not { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId })
+        return null;
+    var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
+    return new Chargehand.Modules.Forge.Api.GitHubIntegrationHost(api,
+        new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System));
+}
+
+// GitHub intake (ADR 0051): null unless the profile has automation.github. It reads and comments as the integrator's GitHub App; its state sits next to the run log.
+Chargehand.Automation.GitHubIntake? GitHubIntake()
+{
+    if (profile.Automation?.Github is not { } github || profile.Driven is not { Integrator: { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId } } driven)
+        return null;
+    var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
+    var tokens = new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System);
+    var state = Chargehand.Automation.IntakeState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"));
+    return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator));
+}
+
+// The console's account view says whether a credential's secret item resolves, never its value.
+bool SecretResolves(string item)
+{
+    try
+    {
+        _ = profile.Secret(item);
+        return true;
+    }
+    catch (InvalidOperationException)
+    {
+        return false;
+    }
 }
 
 async Task<int> Serve()
@@ -316,12 +497,22 @@ async Task<int> Serve()
     }
     using var tracing = Tracing();
     var (runtime, runtimeVersion) = await Connect();
-    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
+    if (Chargehand.ClaudeCode.AccountRuntimes.Unsupported(runtime, http.Accounts) is { } unsupported)
+    {
+        Console.Error.WriteLine(unsupported);
+        return 2;
+    }
+    // An account's runs use its own model credential, or are refused (ADR 0053).
+    Func<string?, IWorkerRuntime>? runtimeFor = http.Accounts is { Count: > 0 } accounts
+        ? new Chargehand.ClaudeCode.AccountRuntimes(runtime, new AccountCredentials(accounts), profile.Secret).For : null;
+    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer(), runtimeFor: runtimeFor);
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
-        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches")), orchestrator, runLog, DrivenRunFor(orchestrator));
+        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
+        Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json")),
+        orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake());
     await app.StartAsync(ct);
-    Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp)");
+    Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", UI /ui/, console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);
     return 0;
 }
@@ -406,7 +597,8 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
             _ => throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code takes at most one of api_key_secret and oauth_token_secret",
                 "Set one of claude_code.api_key_secret and claude_code.oauth_token_secret in the profile, not both."),
         };
-        var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct, cc.BaseUrl is null ? null : new Uri(cc.BaseUrl));
+        var headers = cc.CustomHeadersSecret is { } headersItem ? cc.CustomHeaders(profile.Secret(headersItem)) : null;
+        var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct, cc.BaseUrl is null ? null : new Uri(cc.BaseUrl), headers);
         return (claude, claude.Version);
     }
     IOpenCodeClient client;

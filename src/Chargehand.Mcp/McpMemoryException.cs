@@ -1,3 +1,4 @@
+using Chargehand.Kernel;
 using ModelContextProtocol.Protocol;
 
 namespace Chargehand.Mcp;

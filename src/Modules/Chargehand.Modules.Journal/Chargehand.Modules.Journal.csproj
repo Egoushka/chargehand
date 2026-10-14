@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Durable step journal: recorded intents and results that survive a restart.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Shared\Chargehand.Kernel\Chargehand.Kernel.csproj" />
+  </ItemGroup>
+
+  <!-- ADR 0061: the maintainer's MIT library, on nuget.org. -->
+  <ItemGroup>
+    <PackageReference Include="Switchknife.Journal" Version="0.2.0" />
+  </ItemGroup>
+
+</Project>

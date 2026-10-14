@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Types every module and host shares: build info, host health. Stays a few hundred lines; generic code goes to the kit.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
+  </ItemGroup>
+
+  <!-- The options-validation source generator ([OptionsValidator]) behind SettingsValidation. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.10" />
+  </ItemGroup>
+
+</Project>

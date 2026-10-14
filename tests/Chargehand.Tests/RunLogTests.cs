@@ -1,4 +1,5 @@
 using Chargehand.Contracts;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 
 namespace Chargehand.Tests;
@@ -6,22 +7,49 @@ namespace Chargehand.Tests;
 /// <summary>The run log as the run store the CLI and the server share (ADR 0018).</summary>
 public class RunLogTests
 {
-    private static StartRecord Start(string id, int pid) =>
-        new(id, DateTimeOffset.UtcNow, new string('0', 32), new RunRequest("request/v1", "t", new RequestContext(false, "cheap")), pid);
+    private static StartRecord Start(string id, int pid, string? bootId = null) =>
+        new(id, DateTimeOffset.UtcNow, new string('0', 32), new RunRequest("request/v1", "t", new RequestContext(false, "cheap")), pid, BootId: bootId);
 
     [Fact]
     public async Task A_start_without_a_run_record_is_unfinished_and_names_its_process()
     {
         using var dir = new TempDir();
         var log = new JsonlRunLog(System.IO.Path.Combine(dir.Path, "log.jsonl"));
-        await log.AppendAsync(Start("run-a", Environment.ProcessId), CancellationToken.None);
-        await log.AppendAsync(Start("run-b", int.MaxValue), CancellationToken.None);
+        await log.AppendAsync(Start("run-a", Environment.ProcessId, ProcessBoot.Id), CancellationToken.None);
+        await log.AppendAsync(Start("run-b", int.MaxValue, "other-boot"), CancellationToken.None);
 
         var a = await log.ReadAsync("run-a", CancellationToken.None);
         Assert.Null(a.Run);
         Assert.Equal("t", a.Start!.Request.Text);
         Assert.True(a.Start.OwnerAlive());
         Assert.False((await log.ReadAsync("run-b", CancellationToken.None)).Start!.OwnerAlive());
+    }
+
+    [Fact]
+    public async Task A_start_from_an_earlier_boot_with_this_pid_or_no_boot_id_is_lost_in_the_list_and_one_from_this_boot_is_running()
+    {
+        using var dir = new TempDir();
+        var log = new JsonlRunLog(System.IO.Path.Combine(dir.Path, "log.jsonl"));
+        // A restarted container's server is pid 1 again.
+        await log.AppendAsync(Start("run-old", Environment.ProcessId, "earlier-boot"), CancellationToken.None);
+        await log.AppendAsync(Start("run-legacy", Environment.ProcessId), CancellationToken.None);
+        await log.AppendAsync(Start("run-now", Environment.ProcessId, ProcessBoot.Id), CancellationToken.None);
+
+        var states = (await log.ListAsync(new RunListQuery(), CancellationToken.None)).ToDictionary(r => r.RunId, r => r.Status);
+        Assert.Equal(RunState.Lost, states["run-old"]);
+        Assert.Equal(RunState.Lost, states["run-legacy"]);
+        Assert.Equal(RunState.Running, states["run-now"]);
+    }
+
+    [Fact]
+    public async Task A_resumed_start_names_the_new_owner_in_the_list()
+    {
+        using var dir = new TempDir();
+        var log = new JsonlRunLog(System.IO.Path.Combine(dir.Path, "log.jsonl"));
+        await log.AppendAsync(Start("run-batch", int.MaxValue, "earlier-boot"), CancellationToken.None);
+        await log.AppendAsync(Start("run-batch", Environment.ProcessId, ProcessBoot.Id), CancellationToken.None);
+
+        Assert.Equal(RunState.Running, Assert.Single(await log.ListAsync(new RunListQuery(), CancellationToken.None)).Status);
     }
 
     [Fact]

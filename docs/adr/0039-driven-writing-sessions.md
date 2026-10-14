@@ -1,6 +1,6 @@
 # 0039. Driven writing sessions
 
-- Status: proposed; decisions 1 to 4 were taken by the maintainer, the rest are the proposer's
+- Status: proposed; decisions 1 to 4 were taken by the maintainer, the rest are the proposer's; decision 2 is superseded by [0046](0046-integrator-and-ci-fixer.md) for repositories that opt in
 - Date: 2026-09-30
 
 ## Context

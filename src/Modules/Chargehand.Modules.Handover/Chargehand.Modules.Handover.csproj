@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Handover to a pull request, the integrator, diff scan and test integrity.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
+    <ProjectReference Include="..\..\Shared\Chargehand.Kernel\Chargehand.Kernel.csproj" />
+    <ProjectReference Include="..\Chargehand.Modules.Forge\Chargehand.Modules.Forge.csproj" />
+    <ProjectReference Include="..\Chargehand.Modules.Journal\Chargehand.Modules.Journal.csproj" />
+    <ProjectReference Include="..\Chargehand.Modules.Runners\Chargehand.Modules.Runners.csproj" />
+    <ProjectReference Include="..\Chargehand.Modules.Sessions\Chargehand.Modules.Sessions.csproj" />
+  </ItemGroup>
+
+</Project>

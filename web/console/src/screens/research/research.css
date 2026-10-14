@@ -1,0 +1,64 @@
+/* The research result: claims with citations, and the panels beside them. */
+.research__summary {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+
+.research__sig {
+  display: block;
+  max-width: 100%;
+}
+
+.claim {
+  --cols: minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.claim__text {
+  font-size: 14px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+
+.claim__conf {
+  width: 120px;
+}
+
+.open-q {
+  --cols: 16px minmax(0, 1fr);
+  align-items: start;
+  overflow-wrap: anywhere;
+}
+
+.open-q > .ch-i {
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
+.cite {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+a.cite {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a.cite:hover {
+  border-color: var(--text-muted);
+}
+
+a.cite .ch-i {
+  width: 12px;
+  height: 12px;
+}
+
+.action {
+  color: var(--text);
+  font-weight: 500;
+}

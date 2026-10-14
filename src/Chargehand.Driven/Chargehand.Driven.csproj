@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The driven infrastructure: containers, egress, the runner client, sessions, batches, the integrator. Core cannot reference it (ADR 0047). -->
+  <PropertyGroup>
+    <PackageId>Chargehand.Driven</PackageId>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
+    <!-- ADR 0060: the port runs old to new. -->
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Journal\Chargehand.Modules.Journal.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- CA1502's threshold, as in the skeleton (src/Skeleton.props); .editorconfig makes it an error for this project. -->
+    <AdditionalFiles Include="..\CodeMetricsConfig.txt" />
+    <InternalsVisibleTo Include="Chargehand.Tests" />
+  </ItemGroup>
+
+</Project>

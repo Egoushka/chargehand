@@ -6,6 +6,21 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
+    <ProjectReference Include="..\Chargehand.Automation\Chargehand.Automation.csproj" />
+    <ProjectReference Include="..\Chargehand.Driven\Chargehand.Driven.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The web UI (ADR 0054): static files served at /ui/, embedded so the release image needs no extra folder. -->
+    <EmbeddedResource Include="Ui\**\*" LogicalName="ui/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- The operator console (ADR 0056): the Vite build in web/console/dist, served at /console/. Without it (no `npm run build` yet) the server still builds and answers /console/ with a page that says so. -->
+  <PropertyGroup>
+    <ConsoleDist>$(MSBuildThisFileDirectory)..\..\web\console\dist\</ConsoleDist>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(ConsoleDist)index.html')">
+    <EmbeddedResource Include="$(ConsoleDist)**\*" LogicalName="console/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

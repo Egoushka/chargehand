@@ -1,0 +1,230 @@
+{
+  "schema": "profile/v1",
+  "opencode": null,
+  "worker_root": "/srv/chargehand/work",
+  "default_preset": "cheap",
+  "intake_model": null,
+  "prices": null,
+  "secrets": null,
+  "run_cap_usd": 1.00,
+  "run_log": null,
+  "telemetry": null,
+  "models": null,
+  "memory": [
+    {
+      "name": "notes",
+      "server": "notes",
+      "tools": {
+        "recall": {
+          "tool": "search",
+          "arguments": {
+            "q": "{query}",
+            "n": "{max_facts}"
+          },
+          "results": {
+            "path": "data.items",
+            "id": "key",
+            "text": [
+              "{title}: {body}"
+            ],
+            "format": "json",
+            "effective_text": [
+              "{title}: {body}"
+            ]
+          },
+          "effective_results": {
+            "path": "data.items",
+            "id": "key",
+            "text": [
+              "{title}: {body}"
+            ],
+            "format": "json",
+            "effective_text": [
+              "{title}: {body}"
+            ]
+          }
+        },
+        "retain": {
+          "tool": "save",
+          "arguments": {
+            "text": "{text}",
+            "tags": "{tags}"
+          },
+          "results": null,
+          "effective_results": {
+            "path": "results",
+            "id": "id",
+            "text": null,
+            "format": "json",
+            "effective_text": [
+              "text"
+            ]
+          }
+        },
+        "invalidate": null
+      },
+      "namespace": null,
+      "max_facts": 5,
+      "max_chars": 2000,
+      "max_fact_chars": 300,
+      "timeout_seconds": 4,
+      "retain": true,
+      "retain_tags": [
+        "chargehand",
+        "example"
+      ],
+      "effective_namespace": "notes",
+      "limits": {
+        "max_facts": 5,
+        "max_chars": 2000,
+        "timeout": "00:00:04",
+        "max_fact_chars": 300
+      },
+      "effective_retain_tags": [
+        "chargehand",
+        "example"
+      ]
+    }
+  ],
+  "http": {
+    "api_key_secret": "chargehand-api-key",
+    "port": 4300,
+    "listen": "127.0.0.1",
+    "allowed_hosts": null,
+    "max_concurrent_runs": 2,
+    "accounts": [
+      {
+        "name": "alice",
+        "max_usd_per_day": 5,
+        "max_usd_per_month": 50,
+        "max_tokens_per_day": 100000,
+        "max_tokens_per_month": null,
+        "max_concurrent_runs": 2,
+        "driven": true,
+        "repositories": [
+          "/srv/chargehand/work/a"
+        ],
+        "model": {
+          "api_key_secret": "alice-gateway-key",
+          "base_url": "https://gateway.example.com/v1",
+          "oauth_token_secret": null
+        },
+        "allow_server_credential": false
+      },
+      {
+        "name": "bob",
+        "max_usd_per_day": null,
+        "max_usd_per_month": null,
+        "max_tokens_per_day": null,
+        "max_tokens_per_month": null,
+        "max_concurrent_runs": null,
+        "driven": false,
+        "repositories": null,
+        "model": null,
+        "allow_server_credential": true
+      }
+    ],
+    "ui": true
+  },
+  "claude_code": null,
+  "repository_roots": null,
+  "runtime": null,
+  "mcp_servers": {
+    "notes": {
+      "url": null,
+      "headers": null,
+      "command": [
+        "npx",
+        "-y",
+        "example-notes-mcp"
+      ],
+      "env": null,
+      "transport": null
+    }
+  },
+  "sandbox": null,
+  "support_check": true,
+  "signing": null,
+  "driven": {
+    "names_runners": false,
+    "enabled": true,
+    "max_parallel": 3,
+    "max_parallel_total": 4,
+    "images": [
+      "session@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    ],
+    "network": {
+      "allow": [
+        "registry.example.com"
+      ],
+      "outside": null,
+      "mcp_forward": "chargehand:4300",
+      "model_url": null,
+      "otlp_url": null
+    },
+    "runner": null,
+    "push_secret": "chargehand-push-token",
+    "task_source": null,
+    "max_session_calls": 2,
+    "limits": {
+      "max_minutes": 90,
+      "no_progress_minutes": null,
+      "max_turns": null,
+      "max_tokens": null,
+      "memory_mb": 8192,
+      "cpus": null,
+      "pids": null,
+      "max_continuations": 2
+    },
+    "governor": {
+      "mode": "enforce",
+      "budgets": {
+        "S": 2,
+        "M": 5
+      },
+      "repeat_calls": 4,
+      "repeat_failures": null,
+      "failing_calls": null,
+      "probe_commands": null,
+      "no_growth_turns": null,
+      "rewarn_turns": null,
+      "context_tokens": null,
+      "checkpoint_at": 0.8,
+      "probe_patterns": null,
+      "wait_patterns": null,
+      "history": {
+        "min_tasks": 10,
+        "window_days": 60,
+        "percentile": 80
+      }
+    },
+    "admission": {
+      "reserve_mb": 2048,
+      "max_load_per_cpu": 1.5,
+      "default_request_mb": 1536,
+      "max_memory_pressure": 10
+    },
+    "integrator": null,
+    "services": null,
+    "forge": null,
+    "planning": {
+      "enabled": true,
+      "preset": "cheap"
+    },
+    "learning": {
+      "retro": true,
+      "retro_preset": "cheap",
+      "pr_days": 7,
+      "pr_check_minutes": 60
+    },
+    "runners": null,
+    "image_variants": null
+  },
+  "prompt_enhancer": null,
+  "max_parallel_nodes": 2,
+  "automation": null,
+  "roots": [
+    "/srv/chargehand/work"
+  ],
+  "runtime_blocks": []
+}

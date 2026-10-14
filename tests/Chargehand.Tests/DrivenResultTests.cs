@@ -4,6 +4,13 @@ using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Kernel;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Research.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.Results;
 using Chargehand.Verification;
 
@@ -66,7 +73,7 @@ public class DrivenResultTests
             r.Dir.Path, r.Base, priced);
 
     private static Task<ResultContract> Build(DrivenTaskInput input, Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? support = null) =>
-        DrivenResult.BuildTaskAsync(input, new GitEvidenceResolver(), support, default);
+        TaskResultBuilder.BuildAsync(input, new GitEvidenceResolver(), support, default);
 
     private static Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>> AllSupported =>
         (c, _, _) => Task.FromResult(c with { Claims = [.. c.Claims.Select(x => x with { Support = ClaimSupport.Supported })] });
@@ -92,6 +99,13 @@ public class DrivenResultTests
         Assert.Equal(["The client retries twice.", "The README has five lines."], report.Claims.Select(c => c.Text));
         Assert.Equal(["Retry.cs:1-2"], report.Claims[0].Evidence);
         Assert.Equal(("npm test", 0), (report.TestsCommand, report.TestsExitCode));
+    }
+
+    [Fact]
+    public void A_report_with_members_a_newer_session_added_still_parses()
+    {
+        var report = DrivenReport.Parse("{\"added_later\":[1]," + Report[1..].Replace("\"exit_code\":0", "\"exit_code\":0,\"duration\":3", StringComparison.Ordinal));
+        Assert.Equal(("Added a retry.", 2, "npm test", 0), (report!.Summary, report.Claims.Count, report.TestsCommand, report.TestsExitCode));
     }
 
     [Theory]
@@ -187,7 +201,7 @@ public class DrivenResultTests
         var result = await Build(Input(repo, handover: Pushed(repo) with { Changes = changes }), AllSupported);
         AssertValid(result);
         var content = result.Artifacts.Single(x => x.Kind == "changes").Content!;
-        Assert.InRange(Encoding.UTF8.GetByteCount(content), 1, ResultAssembler.MaxInlineBytes);
+        Assert.InRange(Encoding.UTF8.GetByteCount(content), 1, TaskResultBuilder.MaxInlineBytes);
         var a = JsonDocument.Parse(content).RootElement;
         Assert.Equal(3000, a.GetProperty("files_total").GetInt32());
         Assert.InRange(a.GetProperty("files").GetArrayLength(), 1, 2999);
@@ -208,6 +222,25 @@ public class DrivenResultTests
         Assert.Equal("session", claimed.GetProperty("claimed_by").GetString());
         Assert.Equal("npm test", claimed.GetProperty("command").GetString());
         Assert.False(claimed.TryGetProperty("sandbox", out _));
+    }
+
+    [Fact]
+    public async Task A_flagged_branch_says_so_in_the_summary_and_the_verification_artifact_and_an_unflagged_one_does_not()
+    {
+        using var repo = new Repo();
+        var flag = new TestIntegrityFlag(["tests/RetryTests.cs"], ["scripts/check.sh"]);
+        var result = await Build(Input(repo, handover: Pushed(repo) with { TestIntegrity = flag }), AllSupported);
+        AssertValid(result);
+        Assert.StartsWith("Added a retry.", result.Summary);
+        Assert.Contains($"Test integrity: {flag.Reason}.", result.Summary);
+        var integrity = Artifact(result, "verification").GetProperty("test_integrity");
+        Assert.True(integrity.GetProperty("flagged").GetBoolean());
+        Assert.Equal(["tests/RetryTests.cs"], integrity.GetProperty("test_paths").EnumerateArray().Select(p => p.GetString()));
+        Assert.Equal(["scripts/check.sh"], integrity.GetProperty("build_paths").EnumerateArray().Select(p => p.GetString()));
+
+        var plain = await Build(Input(repo), AllSupported);
+        Assert.Equal("Added a retry.", plain.Summary);
+        Assert.Equal(JsonValueKind.Null, Artifact(plain, "verification").GetProperty("test_integrity").ValueKind);
     }
 
     [Fact]
@@ -282,6 +315,59 @@ public class DrivenResultTests
         AssertValid(result);
     }
 
+    [Fact]
+    public void A_batch_that_stopped_on_rate_limits_is_failed_rate_limited_and_retryable_with_the_rest_not_started()
+    {
+        var outcome = new BatchOutcome(
+        [
+            new TaskOutcome("t1", TaskState.Failed, "r1", "limit", ErrorCode.RateLimited),
+            new TaskOutcome("t2", TaskState.Failed, "r2", "limit", ErrorCode.RateLimited),
+            new TaskOutcome("t3", TaskState.NotStarted, null, "not started: the usage limit was hit twice in a row", ErrorCode.RateLimited),
+        ], null, ErrorCode.RateLimited);
+        var result = DrivenResult.BuildBatch("run-batch", new string('0', 32), "Three changes", outcome, "env", priced: false, "2.1.283");
+        Assert.Equal(ResultStatus.Failed, result.Status);
+        Assert.Equal(ErrorCode.RateLimited, result.Error!.Code);
+        Assert.True(result.Error.Retryable);
+        Assert.Contains("t3", result.Error.Action);
+        Assert.Contains("not_started", result.Artifacts.Single(a => a.Kind == "driven-batch").Content!.ToString());
+        AssertValid(result);
+    }
+
+    [Fact]
+    public async Task A_session_that_ended_on_a_usage_limit_is_failed_rate_limited_and_retryable()
+    {
+        using var repo = new Repo();
+        var result = await Build(Input(repo, Session(SessionStatus.RateLimited, "rate_limited"), report: null, handover: null));
+        Assert.Equal(ResultStatus.Failed, result.Status);
+        Assert.Equal(ErrorCode.RateLimited, result.Error!.Code);
+        Assert.True(result.Error.Retryable);
+        AssertValid(result);
+    }
+
+    [Fact]
+    public async Task A_rate_limited_session_with_commits_is_handed_over_as_partial_and_stays_retryable()
+    {
+        using var repo = new Repo();
+        var result = await Build(Input(repo, Session(SessionStatus.RateLimited, "rate_limited"), report: null, handover: Pushed(repo)));
+        Assert.Equal(ErrorCode.RateLimited, result.Error!.Code);
+        Assert.True(result.Error.Retryable);
+        Assert.Contains("partial draft pull request", result.Error.Message);
+        Assert.Contains("https://example.test/o/r/pull/7", result.Error.Action);
+        AssertValid(result);
+    }
+
+    [Fact]
+    public async Task A_governed_session_points_at_its_governor_log_in_the_output_volume()
+    {
+        using var repo = new Repo();
+        var result = await Build(Input(repo, Session() with { GovernorLogSha256 = new string('b', 64) }));
+        var log = result.Artifacts.Single(a => a.Kind == "governor-log");
+        Assert.Null(log.Content);
+        Assert.Equal("volume:chargehand-out-run1/governor.jsonl", log.Uri);
+        Assert.Equal(new string('b', 64), log.Sha256);
+        AssertValid(result);
+    }
+
     [Theory]
     [InlineData(SessionStatus.Stalled, "no_progress", ErrorCode.SessionStalled)]
     [InlineData(SessionStatus.Stalled, "repeating", ErrorCode.SessionStalled)]
@@ -296,6 +382,39 @@ public class DrivenResultTests
         Assert.Contains(reason.Replace('_', ' '), result.Error.Message, StringComparison.OrdinalIgnoreCase);
         Assert.False(result.Error.Retryable);
         Assert.NotNull(result.Error.Action);
+        AssertValid(result);
+    }
+
+    [Fact]
+    public async Task A_stopped_task_handed_over_as_partial_names_its_branch_and_pull_request_and_does_not_say_send_it_again()
+    {
+        using var repo = new Repo();
+        var result = await Build(Input(repo, Session(SessionStatus.Stalled, "turn_limit"), report: null, handover: Pushed(repo)));
+
+        Assert.Equal(ResultStatus.Failed, result.Status);
+        Assert.Equal(ErrorCode.SessionStalled, result.Error!.Code);
+        Assert.Contains("partial draft pull request", result.Error.Message);
+        Assert.Contains("https://example.test/o/r/pull/7", result.Error.Action);
+        Assert.DoesNotContain("Send the task again with", result.Error.Action);
+        Assert.Equal("chargehand/run1", Artifact(result, "branch").GetProperty("branch").GetString());
+        Assert.True(Artifact(result, "branch").GetProperty("pushed").GetBoolean());
+        Assert.Equal("https://example.test/o/r/pull/7", Artifact(result, "pull-request").GetProperty("url").GetString());
+        Assert.Contains(result.Artifacts, a => a.Kind == "verification");
+        AssertValid(result);
+    }
+
+    [Fact]
+    public async Task A_stopped_task_whose_partial_handover_was_refused_says_so_and_keeps_the_original_advice()
+    {
+        using var repo = new Repo();
+        var refused = new HandoverOutcome(HandoverStatus.NotPushed, "the diff looks like it carries a secret (aws in a.txt); nothing was pushed", ErrorCode.SessionFailed, "chargehand/run1", repo.Commit, null, null, ["a.txt"], [], []);
+        var result = await Build(Input(repo, Session(SessionStatus.TokenCap, "token_cap"), report: null, handover: refused));
+
+        Assert.Equal(ErrorCode.CostCapReached, result.Error!.Code);
+        Assert.Contains("was not pushed", result.Error.Action);
+        Assert.Contains("Raise max_tokens_total", result.Error.Action);
+        Assert.False(Artifact(result, "branch").GetProperty("pushed").GetBoolean());
+        Assert.DoesNotContain(result.Artifacts, a => a.Kind == "pull-request");
         AssertValid(result);
     }
 
@@ -356,6 +475,21 @@ public class DrivenResultTests
         using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
         var signed = ResultSignature.Sign(result, key);
         Assert.True(ResultSignature.Verify(JsonSerializer.Serialize(signed, ContractJson.Options), key).Valid);
+    }
+
+    [Fact]
+    public async Task The_task_results_port_builds_with_the_support_check_and_signs_with_the_servers_signer()
+    {
+        using var repo = new Repo();
+        using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var results = new DrivenTaskResults(new GitEvidenceResolver(), AllSupported, r => ResultSignature.Sign(r, key));
+
+        var built = await results.BuildAsync(Input(repo), default);
+
+        Assert.NotEmpty(built.Claims);
+        Assert.All(built.Claims, c => Assert.Equal(ClaimSupport.Supported, c.Support));
+        Assert.True(ResultSignature.Verify(JsonSerializer.Serialize(results.Sign(built), ContractJson.Options), key).Valid);
+        Assert.Same(built, new DrivenTaskResults(new GitEvidenceResolver(), null, null).Sign(built));
     }
 
     // ---- a batch ----

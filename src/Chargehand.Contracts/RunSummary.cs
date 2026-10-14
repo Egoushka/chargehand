@@ -13,4 +13,9 @@ public sealed record RunSummary(
     decimal? Usd = null,
     string? Branch = null,
     string? PrUrl = null,
-    ErrorCode? ErrorCode = null);
+    ErrorCode? ErrorCode = null,
+    string? Actor = null,
+    string? Kind = null,
+    string? Repository = null,
+    long? Tokens = null,
+    string? Commit = null);

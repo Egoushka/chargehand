@@ -1,0 +1,260 @@
+import { queryOptions, useQuery } from '@tanstack/react-query';
+import type { GovernorCount } from './analytics';
+import { getJson } from './client';
+import type {
+  AnswerHint,
+  BatchRepository,
+  ErrorBody,
+  PullRequestBody,
+  RateLimitBody,
+} from './common';
+import type { RunStatus, RunSummary } from './types';
+
+/** The states a batch task is in (`batch/v1`). */
+export type TaskState =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'needs_input'
+  | 'not_started'
+  | 'cancelled';
+
+/** The batch's own limits as the request asked for them; a cap left out is no cap. */
+export interface BatchLimitsBody {
+  max_parallel?: number | null;
+  max_tokens_total?: number | null;
+  max_usd_total?: number | null;
+  plan?: boolean | null;
+}
+
+/**
+ * Where a task's budget came from (ADR 0045): `task` (the request's `budget_usd`), `flat` (the profile's or the built-in budget of
+ * its size class), `history` (the `percentile`th percentile of the spend of `n` past tasks, for `scope` `repository` or `all`) or
+ * `none` (no governor).
+ */
+export interface BudgetSourceBody {
+  kind: 'task' | 'flat' | 'history' | 'none';
+  n?: number | null;
+  percentile?: number | null;
+  scope?: 'repository' | 'all' | null;
+}
+
+/** A task's budget in the governor's dollar equivalent, and where it came from. */
+export interface BudgetBody {
+  usd?: number | null;
+  source: BudgetSourceBody;
+}
+
+/** `usd_estimate` is the dollar equivalent of the tokens, also on a subscription; `usd` is the priced cost and is absent where the credential has no price. */
+export interface TaskSpendBody {
+  usd?: number | null;
+  usd_estimate?: number | null;
+  usd_estimate_partial: boolean;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  turns?: number | null;
+  continuations: number;
+}
+
+/** One governor decision in full, from the session's `governor.jsonl`; `session` is the run id of the session that made it. */
+export interface GovernorDecisionBody {
+  at: string;
+  session: string;
+  turn: number;
+  mode: string;
+  action: 'warn' | 'checkpoint' | 'stop';
+  signal: string;
+  rule: string;
+  values: Record<string, string>;
+  spend_usd?: number | null;
+  budget_usd?: number | null;
+  size_class?: string | null;
+  acted: boolean;
+  budget_source?: {
+    kind: string;
+    n?: number | null;
+    percentile?: number | null;
+    scope?: string | null;
+  } | null;
+}
+
+export interface GovernorBody {
+  mode?: string | null;
+  stop_reason?: string | null;
+  decisions: GovernorCount[];
+  /** Every decision of the task's sessions, oldest first; absent for a task that ran before they were kept. */
+  log?: GovernorDecisionBody[] | null;
+  /** How many decisions the sessions' logs held; more than `log` when a session's was cut. */
+  log_total?: number | null;
+}
+
+export interface CheckBody {
+  name: string;
+  required: boolean;
+  outcome: 'pending' | 'passed' | 'failed' | 'other';
+  job_id?: number | null;
+}
+
+/** The checks of a task's pull request at one look of the integrator's watch. `decision` is `wait`, `done`, `fix`, `give_up`, `merged` or `closed`. */
+export interface CheckSnapshotBody {
+  at: string;
+  pull: number;
+  head_sha: string;
+  merge_status: string;
+  draft: boolean;
+  auto_merge: boolean;
+  decision: string;
+  checks: CheckBody[];
+}
+
+export interface CiAttemptBody {
+  attempt: number;
+  max_attempts: number;
+  at: string;
+  jobs_key: string;
+  failing: string[];
+  pushed: boolean;
+  detail: string;
+}
+
+/** What the integrator saw of a task's pull request. `history` is in the task view only. */
+export interface CiBody {
+  checks?: CheckSnapshotBody | null;
+  looks: number;
+  attempts: CiAttemptBody[];
+  history?: CheckSnapshotBody[] | null;
+}
+
+/** Where a running task's session stands, from its latest `session_progress` event. */
+export interface TaskLiveBody {
+  at: string;
+  stage?: 'research' | 'write' | 'test' | 'review' | null;
+  turns?: number | null;
+  tokens?: number | null;
+  usd_estimate?: number | null;
+  usd_estimate_partial: boolean;
+  cache_read?: number | null;
+  cache_write?: number | null;
+}
+
+/** A session of a task. `role` is `first`, `continuation` or `ci_fix`; the rest is absent for a session still running or one that ran before they were kept. */
+export interface TaskSessionBody {
+  run_id: string;
+  role: string;
+  runner?: string | null;
+  started?: string | null;
+  ended?: string | null;
+  /** The outcome's status, or `cancelled` / `error` for a session cut short. */
+  status?: string | null;
+  reason?: string | null;
+  turns?: number | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_tokens?: number | null;
+  cache_write_tokens?: number | null;
+  usd_estimate?: number | null;
+  usd?: number | null;
+  exit_code?: number | null;
+  commits?: number | null;
+}
+
+export interface TaskLinkBody {
+  run_id: string;
+  task_id: string;
+}
+
+export interface BatchTaskBody {
+  id: string;
+  ref?: string | null;
+  /** Cut to a preview in the batch view; whole in the task view. */
+  goal?: string | null;
+  goal_truncated: boolean;
+  size?: 'S' | 'M' | 'L' | null;
+  size_from?: string | null;
+  depends_on: string[];
+  split_from?: string | null;
+  continues?: TaskLinkBody | null;
+  state: TaskState;
+  phase?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  run_id?: string | null;
+  container?: string | null;
+  branch?: string | null;
+  pr_url?: string | null;
+  error?: ErrorBody | null;
+  detail?: string | null;
+  budget?: BudgetBody | null;
+  spend?: TaskSpendBody | null;
+  governor?: GovernorBody | null;
+  outcome?: string | null;
+  test_integrity_flagged: boolean;
+  live?: TaskLiveBody | null;
+  sessions: TaskSessionBody[];
+  questions: string[];
+  answered?: boolean | null;
+  answered_by: TaskLinkBody[];
+  answer?: AnswerHint | null;
+  pull_request?: PullRequestBody | null;
+  ci?: CiBody | null;
+}
+
+export interface ArtifactRef {
+  kind: string;
+  media_type: string;
+  sha256: string;
+  uri?: string | null;
+}
+
+export interface BatchResultBody {
+  status: string;
+  summary: string;
+  error?: ErrorBody | null;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  usd?: number | null;
+}
+
+/** The events of a batch as run-status/v1. `available` is false for a run this process never held or a restart cut off. */
+export interface TimelineBody {
+  available: boolean;
+  total: number;
+  events: RunStatus[];
+  /** `records` (kept on disk, survives a restart) or `memory`; absent when not available. */
+  source?: 'records' | 'memory' | null;
+}
+
+/** `batch/v1`: one driven batch. */
+export interface BatchBody {
+  contract_version: 'batch/v1';
+  run: RunSummary;
+  actor?: string | null;
+  repository?: BatchRepository | null;
+  limits: BatchLimitsBody;
+  credential_delivery?: string | null;
+  result?: BatchResultBody | null;
+  plan?: unknown;
+  retro?: unknown;
+  tasks: BatchTaskBody[];
+  timeline: TimelineBody;
+  pull_requests: PullRequestBody[];
+  artifacts: ArtifactRef[];
+  rate_limits: RateLimitBody[];
+  not_recorded: string[];
+}
+
+/** `events` is how many timeline events to return (0 to 2000, default 500); a list that only counts tasks asks for none. */
+export const batchQuery = (id: string, events = 0) =>
+  queryOptions({
+    queryKey: ['batch', id, events],
+    queryFn: ({ signal }) =>
+      getJson<BatchBody>(`/v1/batches/${encodeURIComponent(id)}?events=${events}`, signal),
+    refetchInterval: (query) => (query.state.data?.run.status === 'running' ? 5_000 : false),
+  });
+
+export const useBatch = (id: string, events = 0) => useQuery(batchQuery(id, events));

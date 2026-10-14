@@ -4,12 +4,15 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Chargehand.Budget;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Enhancement;
 using Chargehand.Intake;
-using Chargehand.Memory;
+using Chargehand.Kernel;
+using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.Research.Api;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.Nodes;
 using Chargehand.Plans;
 using Chargehand.Prompts;
@@ -29,6 +32,7 @@ namespace Chargehand;
 /// <param name="services">Resolves a preset's <c>services</c> into the grants workers get; null: a preset's services are ignored (ADR 0034).</param>
 /// <param name="sandboxFor">Picks the sandbox a writing preset's tests run in (ADR 0035); the platform's, per the profile, if null.</param>
 /// <param name="enhancer">The profile's prompt enhancer, already behind its guard, or null (ADR 0040, ADR 0041). It sees each request's text and reports the outcome; it never changes what is sent.</param>
+/// <param name="runtimeFor">The runtime a run of the given account uses (ADR 0053), which throws for an account that may use no model credential; null: <paramref name="runtime"/> for every run.</param>
 public sealed class Orchestrator(
     Profile profile,
     IWorkerRuntime runtime,
@@ -39,22 +43,22 @@ public sealed class Orchestrator(
     MemoryStack? memory = null,
     IServiceResolver? services = null,
     Func<SandboxSettings?, ISandbox>? sandboxFor = null,
-    IPromptEnhancer? enhancer = null)
+    IPromptEnhancer? enhancer = null,
+    Func<string?, IWorkerRuntime>? runtimeFor = null)
 {
     public const string NodeKindName = "worker";
-
-    public static string NewRunId() => $"run-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..6]}";
 
     /// <param name="runId">The id to run under (the HTTP interface hands it out before the run starts); a new one if null.</param>
     /// <param name="progress">Receives run-status/v1 events: started, intake, node started and finished, run finished.</param>
     /// <param name="parentRunId">The run this one resends with answers, if any; recorded in the start record.</param>
     /// <param name="cancelledByCaller">True once the caller cancelled this run on purpose (not a shutdown): the run then ends as a failed result with
     /// <c>cancelled</c> and is recorded, instead of the cancellation escaping.</param>
+    /// <param name="actor">The account that started the run (ADR 0050); on the start record, the run record and the result.</param>
     public async Task<ResultContract> RunAsync(RunRequest request, CancellationToken ct, string? runId = null, Action<RunStatus>? progress = null,
-        string? parentRunId = null, Func<bool>? cancelledByCaller = null)
+        string? parentRunId = null, Func<bool>? cancelledByCaller = null, string? actor = null)
     {
         var started = DateTimeOffset.UtcNow;
-        runId ??= NewRunId();
+        runId ??= RunIds.New();
         // A run is its own trace: under serve the ambient activity is the request's, which the SDK does not record, and a
         // parent-based sampler would drop every span below it. The change to Activity.Current stays inside this method.
         if (Activity.Current is { Recorded: false })
@@ -64,7 +68,7 @@ public sealed class Orchestrator(
         run?.SetTag("langfuse.trace.name", "chargehand.run");
         run?.SetTag("chargehand.run_id", runId);
         var extensions = new ExtensionsCollector();
-        await runLog.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId, parentRunId), ct);
+        await runLog.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId, parentRunId, ProcessBoot.Id, actor), ct);
         progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Started));
 
         var registry = new PromptRegistry(Path.Combine(rootDirectory, "prompts"));
@@ -88,6 +92,8 @@ public sealed class Orchestrator(
         {
             if (request.Driven is not null)
                 throw new ChargehandException(ErrorCode.InvalidRequest, "a request with a driven block runs only through chargehand serve", "Send it to the server's POST /v1/runs or its MCP tool.");
+            // The account's own credential, or a refusal, before anything is spent (ADR 0053).
+            var worker = runtimeFor?.Invoke(actor) ?? runtime;
             var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
             var (kindName, kind) = AnswerKind(preset);
             // A writing preset without a sandbox is refused before anything is spent (ADR 0035).
@@ -104,7 +110,7 @@ public sealed class Orchestrator(
             {
                 TagChain(span, intakeChain);
                 span?.SetTag("gen_ai.request.model", intakeModel);
-                intake = await new GenerateIntake(runtime, ParseModel(profile.IntakeModel), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
+                intake = await new GenerateIntake(worker, ParseModel(profile.IntakeModel), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
                 span?.SetTag("chargehand.intake.action", intake.Spec?.Action.ToString().ToLowerInvariant() ?? "needs_input");
                 foreach (var c in intake.Calls)
                     await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, intakeModel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
@@ -152,7 +158,7 @@ public sealed class Orchestrator(
                         [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
                     _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
                         $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
-                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, ct),
+                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, ct),
                 };
             }
         }
@@ -164,6 +170,7 @@ public sealed class Orchestrator(
                 error);
         }
 
+        result = result with { Actor = actor };
         if (signingKey is not null)
         {
             result = ResultSignature.Sign(result, signingKey);
@@ -174,7 +181,7 @@ public sealed class Orchestrator(
         run?.SetTag("chargehand.action", executed is null ? null : Name(executed.Value));
         // A caller's cancel must not stop the record of it from being written.
         await runLog.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, presetName, intake?.Spec is null ? null : Name(intake.Spec.Action), intake?.Spec, result,
-            executed is null ? null : Name(executed.Value), extensions.ToReport()), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
+            executed is null ? null : Name(executed.Value), extensions.ToReport(), actor), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
         await ReportOutcome(enhanced, result, executed);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
@@ -218,11 +225,12 @@ public sealed class Orchestrator(
     }
 
     /// <summary>The support check a driven task's claims go through, or null when the profile has it off.</summary>
-    public Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? DrivenSupportCheck =>
-        profile.SupportCheck ? (contract, scope, ct) => SupportCheck.RunAsync(runtime, ParseModel(profile.IntakeModel), contract, scope, ct) : null;
+    /// <param name="actor">The account whose batch it is: the check's model calls go on that account's credential (ADR 0053).</param>
+    public Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? DrivenSupportCheck(string? actor) =>
+        profile.SupportCheck ? (contract, scope, ct) => SupportCheck.RunAsync(runtimeFor?.Invoke(actor) ?? runtime, ParseModel(profile.IntakeModel), contract, scope, ct) : null;
 
     /// <summary>The clone of the request's commit that driven sessions start from (the same checkout and refusals as a worker's), with the source's remote and default branch.</summary>
-    public async Task<Driven.DrivenCheckout> CheckoutForDrivenAsync(RepositoryRef repo, string presetName, CancellationToken ct)
+    public async Task<DrivenCheckout> CheckoutForDrivenAsync(RepositoryRef repo, string presetName, CancellationToken ct)
     {
         var (_, kind) = AnswerKind(Preset.Load(Path.Combine(rootDirectory, "presets"), presetName));
         var (directory, commit, _) = await Checkout(repo, kind, ct);
@@ -230,22 +238,22 @@ public sealed class Orchestrator(
         var remote = await Git(source, ct, "config", "--get", "remote.origin.url")
             ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{repo.Path} has no remote.origin.url to push to", "Add an origin remote to the repository.");
         var head = await Git(source, ct, "symbolic-ref", "--short", "refs/remotes/origin/HEAD");
-        return new Driven.DrivenCheckout(directory, commit, remote, head is not null && head.StartsWith("origin/", StringComparison.Ordinal) ? head["origin/".Length..] : "main");
+        return new DrivenCheckout(directory, commit, remote, head is not null && head.StartsWith("origin/", StringComparison.Ordinal) ? head["origin/".Length..] : "main");
     }
 
     private static ResultError Cancelled() => new(ErrorCode.Cancelled, "the run was cancelled", false, "Start the task again if it is still wanted; nothing was pushed.");
 
     /// <summary>Records a run that was cancelled before it started (it was queued): a start record and a failed result with <c>cancelled</c>.</summary>
-    public async Task<ResultContract> RecordCancelledAsync(RunRequest request, string runId, string? parentRunId, Action<RunStatus>? progress = null)
+    public async Task<ResultContract> RecordCancelledAsync(RunRequest request, string runId, string? parentRunId, Action<RunStatus>? progress = null, string? actor = null)
     {
         var now = DateTimeOffset.UtcNow;
         var traceId = ActivityTraceId.CreateRandom().ToHexString();
         var chain = new PromptChain([], new AsSent(opencodeVersion, "generate", profile.IntakeModel ?? "auto", now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         var error = Cancelled();
         var result = new ResultContract("result/v1", runId, "run", traceId, chain, ResultStatus.Failed, "The run was cancelled before it started.", [], [], [],
-            [error.Message], 0, new Usage(0, 0, 0, 0, 0), error);
-        await runLog.AppendAsync(new StartRecord(runId, now, traceId, request, Environment.ProcessId, parentRunId), CancellationToken.None);
-        await runLog.AppendAsync(new RunRecord(runId, now, now, request.Context.Preset, null, null, result), CancellationToken.None);
+            [error.Message], 0, new Usage(0, 0, 0, 0, 0), error, Actor: actor);
+        await runLog.AppendAsync(new StartRecord(runId, now, traceId, request, Environment.ProcessId, parentRunId, ProcessBoot.Id, actor), CancellationToken.None);
+        await runLog.AppendAsync(new RunRecord(runId, now, now, request.Context.Preset, null, null, result, Actor: actor), CancellationToken.None);
         progress?.Invoke(RunStatus.Of(runId, RunState.Failed, RunEventKind.RunFinished) with { Result = result });
         return result;
     }
@@ -257,7 +265,7 @@ public sealed class Orchestrator(
     /// <summary>Runs the plan's nodes (one for answer) and returns the node's contract, or the merged one for a split.</summary>
     private async Task<ResultContract> Execute(RunRequest request, TaskSpec spec, IReadOnlyList<PlanNode> plan, string kindName, NodeKind kind, string? workerModel,
         IReadOnlyList<(string Key, string Value)> instructions, PromptChain chain, IReadOnlyList<PromptBlock> callerBlocks, string runId, string traceId,
-        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, CancellationToken ct)
+        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, IWorkerRuntime worker, CancellationToken ct)
     {
         var (directory, commit, repository) = kind.Checkout
             ? await Checkout(request.Context.Repository!, kind, ct)
@@ -314,8 +322,8 @@ public sealed class Orchestrator(
             TagChain(span, chain);
             span?.SetTag("chargehand.node", node.Id);
             progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.NodeStarted) with { NodeId = node.Id });
-            var nodeResult = await new WorkerNode(runtime, prices, new GitEvidenceResolver(),
-                supportCheck: profile.SupportCheck ? (contract, scope, ct2) => SupportCheck.RunAsync(runtime, ParseModel(profile.IntakeModel), contract, scope, ct2) : null).RunAsync(nodeRequest, token, primed);
+            var nodeResult = await new WorkerNode(worker, prices, new GitEvidenceResolver(),
+                supportCheck: profile.SupportCheck ? (contract, scope, ct2) => SupportCheck.RunAsync(worker, ParseModel(profile.IntakeModel), contract, scope, ct2) : null).RunAsync(nodeRequest, token, primed);
             if (workspace is not null && nodeResult.Contract.Status == ResultStatus.Completed)
             {
                 var branch = await workspace.CommitAsync(ChangeRun.CommitMessage(nodeResult.Contract.Summary), token);
@@ -330,7 +338,7 @@ public sealed class Orchestrator(
             run?.SetTag("langfuse.session.id", nodeResult.SessionId);
             span?.SetTag("chargehand.contract.status", nodeResult.Contract.Status.ToString().ToLowerInvariant());
             span?.SetTag("chargehand.forked_from", nodeResult.ForkedFrom);
-            if (runtime is IServiceHealth health)
+            if (worker is IServiceHealth health)
                 foreach (var (server, status) in health.UnavailableServices(nodeResult.SessionId))
                 {
                     extensions.Unavailable(server, $"not_connected: {status}");
@@ -385,7 +393,7 @@ public sealed class Orchestrator(
         finally
         {
             // Whatever became of the nodes, and even when the caller cancelled: a server registered for the run must not outlive it.
-            await EndRun(runId, granted.Count > 0, run);
+            await EndRun(worker, runId, granted.Count > 0, run);
         }
         var result = plan.Count == 1 ? outcomes[0].Contract : ResultMerger.Merge(runId, traceId, chain, outcomes);
         await Retain(result, repository, commit, runId, run, extensions, ct);
@@ -433,9 +441,9 @@ public sealed class Orchestrator(
 
     /// <summary>A runtime that keeps a run's services with a server other runs share (OpenCode) lets them go when the run's nodes are done.
     /// Best effort: a failure here is a tag on the run, never a failed run, and the caller's cancellation does not cut it short.</summary>
-    private async Task EndRun(string runId, bool hasServices, Activity? run)
+    private static async Task EndRun(IWorkerRuntime worker, string runId, bool hasServices, Activity? run)
     {
-        if (!hasServices || runtime is not IRunCleanup cleanup)
+        if (!hasServices || worker is not IRunCleanup cleanup)
             return;
         try
         {

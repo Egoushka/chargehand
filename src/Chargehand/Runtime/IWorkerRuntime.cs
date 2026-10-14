@@ -1,3 +1,6 @@
+using Chargehand.Kernel;
+using Chargehand.Modules.Research.Api;
+
 namespace Chargehand.Runtime;
 
 /// <summary>
@@ -93,8 +96,6 @@ public sealed record WorkerSession(string Id, string Directory);
 
 public enum IdleOutcome { Succeeded, Failed, Interrupted }
 
-public sealed record TokenCounts(long Input, long Output, long Reasoning, long CacheRead, long CacheWrite);
-
 /// <param name="ToolOutput">Concatenated tool inputs and outputs of an assistant message (evidence scope).</param>
 /// <param name="ToolResults">What the message's tools returned, one text per result and without the calls' inputs; null: none.</param>
 public sealed record WorkerMessage(
@@ -113,5 +114,3 @@ public sealed record WorkerMessage(
 public enum WorkerMessageKind { User, Assistant, Compaction, Idle, Other }
 
 public sealed record PermissionRequest(string Id, string Action, IReadOnlyList<string> Resources);
-
-public sealed record FileDiff(string File, string Patch, int Additions, int Deletions, string Status);

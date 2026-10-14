@@ -1,3 +1,4 @@
+using Chargehand.Modules.Runners.Api;
 using Chargehand.Server;
 
 namespace Chargehand.Tests;
@@ -21,6 +22,33 @@ public class RunnerCliTests
         Assert.Equal(["/srv/checkouts", "/srv/other"], settings.Policy.SourceRoots);
         Assert.Equal(["stack_net"], settings.Policy.OutsideNetworks);
         Assert.Equal(["4300=chargehand:4300"], settings.Policy.Forwards);
+    }
+
+    [Fact]
+    public void Service_images_are_listed_by_digest_and_a_tag_is_refused()
+    {
+        var service = "docker.io/library/postgres@sha256:4444444444444444444444444444444444444444444444444444444444444444";
+        var settings = RunnerCli.Parse(["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress, "--service-images", service], key: "k", TextWriter.Null);
+        Assert.Equal([service], settings!.Policy.ServiceImages);
+        Assert.Empty(RunnerCli.Parse(["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress], key: "k", TextWriter.Null)!.Policy.ServiceImages!);
+        var error = new StringWriter();
+        Assert.Null(RunnerCli.Parse(["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress, "--service-images", "postgres:16"], key: "k", error));
+        Assert.Contains("--service-images: 'postgres:16'", error.ToString());
+    }
+
+    [Fact]
+    public void The_most_a_repository_bundle_may_be_is_512_MiB_unless_the_runner_is_told_otherwise()
+    {
+        string[] basic = ["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress];
+
+        Assert.Equal(512L * 1024 * 1024, RunnerCli.Parse(basic, key: "k", TextWriter.Null)!.Policy.MaxBundleBytes);
+        Assert.Equal(64L * 1024 * 1024, RunnerCli.Parse([.. basic, "--max-bundle-mb", "64"], key: "k", TextWriter.Null)!.Policy.MaxBundleBytes);
+        foreach (var bad in new[] { "0", "-1", "4097", "lots" })
+        {
+            var error = new StringWriter();
+            Assert.Null(RunnerCli.Parse([.. basic, "--max-bundle-mb", bad], key: "k", error));
+            Assert.Contains($"--max-bundle-mb has an invalid value '{bad}'", error.ToString());
+        }
     }
 
     [Theory]
@@ -87,5 +115,25 @@ public class RunnerCliTests
         var quiet = new StringWriter();
         Assert.NotNull(RunnerCli.Parse(["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress, "--source-roots", "/srv/w", "--outside-networks", "n", "--forwards", "4300=h:4300"], key: "k", quiet));
         Assert.Equal("", quiet.ToString());
+    }
+
+    [Fact]
+    public async Task At_start_the_runner_clears_helpers_a_killed_run_left_and_says_how_many()
+    {
+        using var dir = new TempDir();
+        var script = dir.Write("docker", "#!/bin/sh\ncase \"$1\" in ps) printf 'chargehand-xfer-run1\\nchargehand-prep-run2\\n';; esac\n");
+        var error = new StringWriter();
+        await RunnerCli.ClearLeftoversAsync(new Chargehand.Modules.Runners.Api.DockerCliEngine("/bin/sh", [script]), error, default);
+        Assert.Contains("2 leftover helper containers", error.ToString());
+    }
+
+    [Fact]
+    public async Task An_engine_that_does_not_answer_at_start_is_a_note_and_not_a_reason_to_stay_down()
+    {
+        using var dir = new TempDir();
+        var script = dir.Write("docker", "#!/bin/sh\necho 'Cannot connect to the Docker daemon' >&2\nexit 1\n");
+        var error = new StringWriter();
+        await RunnerCli.ClearLeftoversAsync(new Chargehand.Modules.Runners.Api.DockerCliEngine("/bin/sh", [script]), error, default);
+        Assert.Contains("Cannot connect", error.ToString());
     }
 }

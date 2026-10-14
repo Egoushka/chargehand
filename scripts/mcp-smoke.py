@@ -17,7 +17,7 @@ def grep(path, pattern):
         return re.search(pattern, f.read()).group(1)
 
 version = grep('Directory.Build.props', r'<Version>(.*?)</Version>')
-claude_version = grep('src/Chargehand/Config/Profile.cs', r'PinnedVersion = "(.*?)"')
+claude_version = grep('src/Runtimes/Chargehand.Runtimes.ClaudeCode/Api/ClaudeCodeSettings.cs', r'PinnedVersion = "(.*?)"')
 
 with zipfile.ZipFile(os.path.join(source, f'Chargehand.{version}.nupkg')) as z:
     server = json.loads(z.read('.mcp/server.json'))

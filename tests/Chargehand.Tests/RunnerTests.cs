@@ -1,8 +1,11 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
-using Chargehand.Containers;
-using Chargehand.Runner;
+using Chargehand.Contracts;
+using Chargehand.Driven;
+using Chargehand.Kernel;
+using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.Server;
 
 namespace Chargehand.Tests;
@@ -14,17 +17,21 @@ public class RunnerTests
     private const string EgressImage = "registry.example/chargehand@sha256:2222222222222222222222222222222222222222222222222222222222222222";
     private const string Key = "runner-key-for-tests";
 
-    private sealed class FakeEngine : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine
+    private sealed class FakeEngine : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine, IOutTailEngine, IServiceEngine
     {
+        public ServiceSpec? Service { get; private set; }
+        public Task<string> StartServiceAsync(ServiceSpec spec, CancellationToken ct) { Service = spec; Calls.Add("service"); return Task.FromResult("ours1"); }
+
         public List<string> Calls { get; } = [];
         public HashSet<string> Owned { get; } = ["ours1"];
         public int Count { get; set; }
+        public int? PeakMb { get; set; }
         public ContainerSpec? Started { get; private set; }
         public EgressSpec? Egress { get; private set; }
 
         public Task<string> StartAsync(ContainerSpec spec, CancellationToken ct) { Started = spec; Calls.Add("start"); return Task.FromResult("ours1"); }
         public Task SignalAsync(string id, string signal, CancellationToken ct) { Calls.Add($"signal {id} {signal}"); return Task.CompletedTask; }
-        public Task<ContainerState> InspectAsync(string id, CancellationToken ct) { Calls.Add($"inspect {id}"); return Task.FromResult(new ContainerState(ContainerStatus.Exited, 3, true)); }
+        public Task<ContainerState> InspectAsync(string id, CancellationToken ct) { Calls.Add($"inspect {id}"); return Task.FromResult(new ContainerState(ContainerStatus.Exited, 3, true, PeakMb)); }
         public Task RemoveAsync(string id, CancellationToken ct) { Calls.Add($"rm {id}"); return Task.CompletedTask; }
         public Task<EngineResources> ListAsync(CancellationToken ct) { Calls.Add("list"); return Task.FromResult(new EngineResources(["chargehand-run1"], ["chargehand-net-b1"], ["chargehand-work-run1"])); }
         public Task KillAllAsync(CancellationToken ct) { Calls.Add("kill-all"); return Task.CompletedTask; }
@@ -43,6 +50,14 @@ public class RunnerTests
             if (!OutFiles.TryGetValue(spec.Name, out var bytes))
                 return false;
             await destination.WriteAsync(bytes, ct);
+            return true;
+        }
+        public async Task<bool> ReadOutTailAsync(OutFileSpec spec, int maxBytes, Stream destination, CancellationToken ct)
+        {
+            Calls.Add($"out-tail {spec.OutVolume} {spec.Name} {maxBytes}");
+            if (!OutFiles.TryGetValue(spec.Name, out var bytes))
+                return false;
+            await destination.WriteAsync(bytes.AsMemory(Math.Max(0, bytes.Length - maxBytes)), ct);
             return true;
         }
         public WorkspaceSpec? Prepared { get; private set; }
@@ -66,10 +81,11 @@ public class RunnerTests
         }
     }
 
-    private static async Task<Runner> Start(int maxContainers = 8, IReadOnlyList<string>? hosts = null)
+    private static async Task<Runner> Start(int maxContainers = 8, IReadOnlyList<string>? hosts = null, IReadOnlyList<string>? serviceImages = null)
     {
         var engine = new FakeEngine();
-        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage, maxContainers, SourceRoots: ["/srv/checkouts"], OutsideNetworks: ["stack_net"], Forwards: ["4300=chargehand:4300"]), AllowedHosts: hosts), engine);
+        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage, maxContainers, SourceRoots: ["/srv/checkouts"], OutsideNetworks: ["stack_net"], Forwards: ["4300=chargehand:4300"],
+            ServiceImages: serviceImages), AllowedHosts: hosts), engine);
         await app.StartAsync();
         return new Runner(engine, app);
     }
@@ -267,6 +283,65 @@ public class RunnerTests
         Assert.Empty(r.Engine.Calls);
     }
 
+    private const string Transcript = "stream.jsonl";
+
+    [Fact]
+    public async Task The_end_of_a_transcript_is_served_as_a_tail_through_the_client_and_never_the_whole_file()
+    {
+        await using var r = await Start();
+        r.Engine.OutFiles[Transcript] = Encoding.UTF8.GetBytes("0123456789");
+        var client = new RunnerClient(r.Http);
+        using var tail = new MemoryStream();
+
+        Assert.True(await client.ReadOutTailAsync(new OutFileSpec("run1", Image, "chargehand-out-run1", Transcript), 4, tail, default));
+
+        Assert.Equal("6789", Encoding.UTF8.GetString(tail.ToArray()));
+        Assert.Equal(["out-tail chargehand-out-run1 stream.jsonl 4"], r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_transcript_that_the_volume_does_not_have_reads_as_missing()
+    {
+        await using var r = await Start();
+
+        Assert.False(await new RunnerClient(r.Http).ReadOutTailAsync(new OutFileSpec("run1", Image, "chargehand-out-run1", Transcript), 1024, new MemoryStream(), default));
+    }
+
+    [Theory]
+    [InlineData("stream.jsonl", "")]                    // a transcript is never read whole
+    [InlineData("stream.jsonl", "&tail=0")]
+    [InlineData("stream.jsonl", "&tail=-5")]
+    [InlineData("stream.jsonl", "&tail=262145")]
+    [InlineData("stream.jsonl", "&tail=abc")]
+    [InlineData("stream.jsonl", "&tail=1e3")]
+    [InlineData("session-outcome.json", "&tail=100")]   // a tail is for the files that are only read as one
+    [InlineData("chargehand.bundle", "&tail=100")]
+    [InlineData("task.json", "&tail=100")]
+    public async Task A_tail_is_refused_for_every_other_file_and_for_a_count_outside_the_ceiling(string name, string query)
+    {
+        await using var r = await Start();
+        r.Engine.OutFiles[name] = [1, 2, 3];
+
+        var response = await r.Http.GetAsync(OutUrl(name) + query);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_tail_needs_a_listed_image_and_the_runner_key_and_the_ceiling_itself_is_served()
+    {
+        await using var r = await Start();
+        var other = "registry.example/other@sha256:3333333333333333333333333333333333333333333333333333333333333333";
+        r.Engine.OutFiles[Transcript] = new byte[10];
+        using var anonymous = new HttpClient { BaseAddress = r.Address };
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.GetAsync(OutUrl(Transcript, image: other) + "&tail=100")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(OutUrl(Transcript) + "&tail=100")).StatusCode);
+        Assert.Empty(r.Engine.Calls);
+        Assert.Equal(HttpStatusCode.OK, (await r.Http.GetAsync(OutUrl(Transcript) + "&tail=262144")).StatusCode);
+    }
+
     [Fact]
     public async Task Out_files_need_the_runner_key()
     {
@@ -389,6 +464,74 @@ public class RunnerTests
         Assert.Contains("allowed_hosts", e.Message);
     }
 
+    private sealed class FixedHost(HostSnapshot? snapshot) : IHostSource
+    {
+        public Task<HostSnapshot?> ReadAsync(CancellationToken ct) => Task.FromResult(snapshot);
+    }
+
+    private sealed class StatusHandler(HttpStatusCode status) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent("""{"error":"not found"}""", Encoding.UTF8, "application/json") });
+    }
+
+    [Fact]
+    public async Task The_host_route_serves_the_snapshot_to_the_client_and_needs_the_key()
+    {
+        var snapshot = new HostSnapshot(2300, 16000, 2048, 1500, 0.75, 8);
+        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage)), new FakeEngine(), new FixedHost(snapshot));
+        await app.StartAsync();
+        var address = new Uri(app.Urls.First());
+        using var http = Runner.Authorized(address, Key);
+        using var anonymous = new HttpClient { BaseAddress = address };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/host")).StatusCode);
+        Assert.Contains("\"available_mb\":2300", await http.GetStringAsync("/host"));
+        Assert.Equal(snapshot, await new RunnerClient(http).ReadAsync(default));
+        await app.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task The_host_route_carries_memory_pressure_and_leaves_it_out_where_the_host_has_none()
+    {
+        var withPsi = new HostSnapshot(2300, 16000, 2048, 1500, 0.75, 8, 3.25);
+        var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage)), new FakeEngine(), new FixedHost(withPsi));
+        await app.StartAsync();
+        using var http = Runner.Authorized(new Uri(app.Urls.First()), Key);
+        Assert.Contains("\"memory_pressure_avg10\":3.25", await http.GetStringAsync("/host"));
+        Assert.Equal(withPsi, await new RunnerClient(http).ReadAsync(default));
+        await app.DisposeAsync();
+
+        var withoutPsi = new HostSnapshot(2300, 16000, 2048, 1500, 0.75, 8);
+        var mac = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage)), new FakeEngine(), new FixedHost(withoutPsi));
+        await mac.StartAsync();
+        using var macHttp = Runner.Authorized(new Uri(mac.Urls.First()), Key);
+        Assert.DoesNotContain("memory_pressure", await macHttp.GetStringAsync("/host"));
+        Assert.Null((await new RunnerClient(macHttp).ReadAsync(default))!.MemoryPressureAvg10);
+        await mac.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Inspect_carries_the_containers_memory_peak_and_leaves_it_out_when_the_engine_has_none()
+    {
+        await using var r = await Start();
+        var client = new RunnerClient(r.Http);
+        r.Engine.PeakMb = 289;
+        Assert.Contains("\"memory_peak_mb\":289", await r.Http.GetStringAsync("/inspect/ours1"));
+        Assert.Equal(new ContainerState(ContainerStatus.Exited, 3, true, 289), await client.InspectAsync("ours1", default));
+        r.Engine.PeakMb = null;
+        Assert.DoesNotContain("memory_peak_mb", await r.Http.GetStringAsync("/inspect/ours1"));   // a server older than the field reads the same reply as before
+        Assert.Equal(new ContainerState(ContainerStatus.Exited, 3, true), await client.InspectAsync("ours1", default));
+    }
+
+    [Fact]
+    public async Task A_runner_without_the_host_route_is_unknown_to_the_client_not_an_error()
+    {
+        using var http = new HttpClient(new StatusHandler(HttpStatusCode.NotFound)) { BaseAddress = new Uri("http://runner.test") };
+        Assert.Null(await new RunnerClient(http).ReadAsync(default));
+        using var refused = new HttpClient(new StatusHandler(HttpStatusCode.Forbidden)) { BaseAddress = new Uri("http://runner.test") };
+        await Assert.ThrowsAsync<ChargehandException>(() => new RunnerClient(refused).ReadAsync(default));
+    }
+
     [Fact]
     public async Task A_host_header_that_is_not_allowed_is_400()
     {
@@ -397,5 +540,71 @@ public class RunnerTests
         request.Headers.Host = "evil.example";
         Assert.Equal(HttpStatusCode.BadRequest, (await r.Http.SendAsync(request)).StatusCode);
         Assert.Empty(r.Engine.Calls);
+    }
+
+    private const string ServiceImage = "docker.io/library/postgres@sha256:4444444444444444444444444444444444444444444444444444444444444444";
+
+    private static string ServiceBody(string image = ServiceImage, string network = "chargehand-net-b1", int memory = 512, string extra = "") =>
+        $$"""{"batch_id":"b1","name":"postgres","image":"{{image}}","network":"{{network}}","port":5432,"env":{"POSTGRES_PASSWORD":"test"},"tmpfs":["/var/lib/postgresql/data"],"memory_mb":{{memory}}{{extra}}}""";
+
+    [Fact]
+    public async Task A_session_start_may_carry_cache_volumes_named_for_a_cache_and_no_other_volume()
+    {
+        await using var r = await Start();
+        var nuget = CacheVolumes.Name("nuget", "o/r");
+        Assert.Equal(HttpStatusCode.OK, (await r.Http.PostAsync("/start", Json(StartBody($",\"caches\":[\"{nuget}\"]")))).StatusCode);
+        Assert.Equal([nuget], r.Engine.Started!.Caches);
+        foreach (var volume in new[] { "chargehand-work-other", "/etc", "chargehand-cache-ruby-0123456789ab" })
+            Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/start", Json(StartBody($",\"caches\":[\"{volume}\"]")))).StatusCode);
+        Assert.Equal(["start"], r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_service_starts_from_an_image_the_runner_lists_on_a_batch_network_under_its_ceilings()
+    {
+        await using var r = await Start(serviceImages: [ServiceImage]);
+        Assert.Equal(HttpStatusCode.OK, (await r.Http.PostAsync("/service", Json(ServiceBody()))).StatusCode);
+        Assert.Equal(("postgres", "b1", 5432), (r.Engine.Service!.Name, r.Engine.Service.BatchId, r.Engine.Service.Port));
+        Assert.Equal("test", r.Engine.Service.Env["POSTGRES_PASSWORD"]);
+        Assert.Equal(["/var/lib/postgresql/data"], r.Engine.Service.Tmpfs);
+
+        var other = "docker.io/library/redis@sha256:5555555555555555555555555555555555555555555555555555555555555555";
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/service", Json(ServiceBody(image: other)))).StatusCode);   // not listed
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/service", Json(ServiceBody(network: "host")))).StatusCode); // not a batch network
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/service", Json(ServiceBody(memory: 65536)))).StatusCode);   // over the ceiling
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/start", Json(StartBody(image: ServiceImage)))).StatusCode); // a service image is not a session image
+        foreach (var extra in new[] { ",\"privileged\":true", ",\"mounts\":[\"/:/host\"]", ",\"user\":\"0:0\"" })
+            Assert.Equal(HttpStatusCode.BadRequest, (await r.Http.PostAsync("/service", Json(ServiceBody(extra: extra)))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await r.Http.PostAsync("/service", Json(ServiceBody().Replace("/var/lib/postgresql/data", "/var/../etc")))).StatusCode);
+        Assert.Equal(["service"], r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task A_runner_with_no_service_images_starts_no_service_and_the_service_counts_against_the_container_limit()
+    {
+        await using var none = await Start();
+        Assert.Equal(HttpStatusCode.Forbidden, (await none.Http.PostAsync("/service", Json(ServiceBody()))).StatusCode);
+        await using var full = await Start(maxContainers: 2, serviceImages: [ServiceImage]);
+        full.Engine.Count = 2;
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await full.Http.PostAsync("/service", Json(ServiceBody()))).StatusCode);
+        Assert.Empty(full.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task The_client_starts_a_service_and_a_session_with_caches_through_the_runner_and_leaves_the_caches_out_when_there_are_none()
+    {
+        await using var r = await Start(serviceImages: [ServiceImage]);
+        var client = new RunnerClient(r.Http);
+        Assert.Equal("ours1", await client.StartServiceAsync(new ServiceSpec("b1", "postgres", ServiceImage, "chargehand-net-b1", 5432, new Dictionary<string, string> { ["POSTGRES_PASSWORD"] = "test" }, ["/var/lib/postgresql/data"], 256), default));
+        Assert.Equal(256, r.Engine.Service!.MemoryMb);
+
+        var nuget = CacheVolumes.Name("nuget", "o/r");
+        var spec = new ContainerSpec("run1", Image, "chargehand-work-run1", "chargehand-out-run1", "chargehand-net-b1", new Dictionary<string, string>(), 1024, 1, 64, ["session"], Caches: [nuget]);
+        await client.StartAsync(spec, default);
+        Assert.Equal([nuget], r.Engine.Started!.Caches);
+        await client.StartAsync(spec with { Caches = null }, default);
+        Assert.Null(r.Engine.Started!.Caches);
+        // A runner built before the field refuses a body that has it, so a body with no caches must not name the field at all.
+        Assert.DoesNotContain("caches", System.Text.Json.JsonSerializer.Serialize(new RunnerStart("run1", Image, "w", "o", "n", [], 1024, 1, 64, ["session"]), RunnerJson.Options));
     }
 }

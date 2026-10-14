@@ -2,8 +2,12 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
+using Chargehand.Runtime;
 using Chargehand.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
@@ -37,14 +41,29 @@ internal sealed class TestServer : IAsyncDisposable
 
     public RunTokenService Tokens => _app.Services.GetRequiredService<RunService>().Tokens;
 
-    public static async Task<TestServer> StartAsync(ScriptedRuntime runtime, IReadOnlyList<string>? allowedHosts = null, Func<string, JsonlRunLog, Chargehand.Driven.DrivenRun>? driven = null)
+    public RunService Service => _app.Services.GetRequiredService<RunService>();
+
+    /// <summary>The accounts' keys, in the file the server reads.</summary>
+    public AccountKeyStore Keys => new(System.IO.Path.Combine(_root.Path, "accounts.json"));
+
+    public static async Task<TestServer> StartAsync(ScriptedRuntime runtime, IReadOnlyList<string>? allowedHosts = null, Func<string, JsonlRunLog, Chargehand.Driven.DrivenRun>? driven = null,
+        IReadOnlyList<AccountSettings>? accounts = null, TimeProvider? clock = null, bool ui = false, Func<string?, IWorkerRuntime>? runtimeFor = null, Func<string, ServerSettings, ServerSettings>? tweak = null)
     {
         var root = new TempDir();
         var log = new JsonlRunLog(System.IO.Path.Combine(root.Path, "log.jsonl"));
-        var app = ChargehandServer.Create(new ServerSettings(0, Key, Repo.Path("presets"), AllowedHosts: allowedHosts),
-            Runs.Orchestrator(runtime, root.Path, log), log, driven?.Invoke(root.Path, log));
+        var settings = new ServerSettings(0, Key, Repo.Path("presets"), AllowedHosts: allowedHosts, Accounts: accounts,
+            AccountKeysFile: System.IO.Path.Combine(root.Path, "accounts.json"), Clock: clock, Ui: ui);
+        var app = ChargehandServer.Create(tweak is null ? settings : tweak(root.Path, settings), Runs.Orchestrator(runtime, root.Path, log, runtimeFor), log, driven?.Invoke(root.Path, log));
         await app.StartAsync();
         return new TestServer(root, runtime, log, app, new Uri(app.Urls.First()));
+    }
+
+    /// <summary>A client that sends <paramref name="key"/> as its bearer.</summary>
+    public HttpClient As(string key)
+    {
+        var client = new HttpClient { BaseAddress = BaseAddress };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        return client;
     }
 
     public Task<HttpResponseMessage> PostAsync(RunRequest request, int waitSeconds) => PostAsync(JsonContent.Create(request, options: ContractJson.Options), waitSeconds);
@@ -186,12 +205,27 @@ public class ServerTests
     public async Task A_run_whose_process_ended_reads_as_lost_and_an_unknown_one_as_missing()
     {
         await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
-        await s.Log.AppendAsync(new StartRecord("run-dead", DateTimeOffset.UtcNow, new string('0', 32), Runs.DraftRequest(), int.MaxValue), CancellationToken.None);
+        await s.Log.AppendAsync(new StartRecord("run-dead", DateTimeOffset.UtcNow, new string('0', 32), Runs.DraftRequest(), int.MaxValue, BootId: "earlier-boot"), CancellationToken.None);
 
         var lost = await s.Http.GetAsync("/v1/runs/run-dead");
         Assert.Equal(HttpStatusCode.Gone, lost.StatusCode);
         Assert.Equal("lost", (await Body(lost)).GetProperty("status").GetString());
         Assert.Equal(HttpStatusCode.NotFound, (await s.Http.GetAsync("/v1/runs/run-none")).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_run_from_an_earlier_boot_with_this_pid_is_lost_in_the_list_and_the_get_alike_and_one_from_this_boot_is_running()
+    {
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
+        await s.Log.AppendAsync(new StartRecord("run-old", DateTimeOffset.UtcNow, new string('0', 32), Runs.DraftRequest(), Environment.ProcessId, BootId: "earlier-boot"), CancellationToken.None);
+        await s.Log.AppendAsync(new StartRecord("run-now", DateTimeOffset.UtcNow, new string('0', 32), Runs.DraftRequest(), Environment.ProcessId, BootId: ProcessBoot.Id), CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.Gone, (await s.Http.GetAsync("/v1/runs/run-old")).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await s.Http.GetAsync("/v1/runs/run-now")).StatusCode);
+        var list = await Body(await s.Http.GetAsync("/v1/runs"));
+        var states = list.GetProperty("runs").EnumerateArray().ToDictionary(r => r.GetProperty("run_id").GetString()!, r => r.GetProperty("status").GetString());
+        Assert.Equal("lost", states["run-old"]);
+        Assert.Equal("running", states["run-now"]);
     }
 
     [Fact]

@@ -17,10 +17,26 @@ public class WatchCliTests
         private int _next;
         public List<(HttpMethod Method, string Path, string? Auth)> Seen { get; } = [];
 
+        public List<string?> LastEventIds { get; } = [];
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Seen.Add((request.Method, request.RequestUri!.AbsolutePath, request.Headers.Authorization?.ToString()));
+            LastEventIds.Add(request.Headers.TryGetValues("Last-Event-ID", out var ids) ? ids.Single() : null);
             return Task.FromResult(replies[Math.Min(_next++, replies.Length - 1)](request));
+        }
+    }
+
+    /// <summary>Output that says when a given line was written.</summary>
+    private sealed class Lines(string awaited) : StringWriter
+    {
+        public TaskCompletionSource Written { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override void WriteLine(string? value)
+        {
+            base.WriteLine(value);
+            if (value == awaited)
+                Written.TrySetResult();
         }
     }
 
@@ -127,6 +143,21 @@ public class WatchCliTests
     }
 
     [Fact]
+    public async Task A_dropped_connection_to_a_stream_with_ids_resumes_after_the_last_id()
+    {
+        // The server answers a Last-Event-ID with only the events after it (a batch's journal, ADR 0061).
+        var first = $"id: 1\n{Frame(Event(RunEventKind.Started))}id: 2\n{Frame(Event(RunEventKind.ContainerStarted, "task t1: session container started", "t1"))}";
+        var second = $"id: 3\n{Frame(Progress("write"))}{Frame(Finished(ResultStatus.Completed, "done"))}";
+        HttpResponseMessage Sse(string body) => new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "text/event-stream") };
+        var (exit, output, _, server) = await Watch(new Server(_ => Sse(first), _ => Sse(second)));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(["started", "container_started: task t1: session container started", "session_progress: task t1: 100 tokens, stage write", "run_finished: completed: done"],
+            output.TrimEnd().Split('\n'));
+        Assert.Equal([null, "2"], server.LastEventIds);
+    }
+
+    [Fact]
     public async Task A_server_that_stays_away_ends_with_the_run_still_going()
     {
         var (exit, output, _, server) = await Watch(new Server(_ => new HttpResponseMessage(HttpStatusCode.BadGateway)));
@@ -228,11 +259,14 @@ public class WatchCliTests
         var runtime = new ScriptedRuntime(Runs.DraftReply) { Hold = new() };
         await using var s = await TestServer.StartAsync(runtime);
         var id = (await s.PostAsync(Runs.DraftRequest(), waitSeconds: 0)).Headers.Location!.OriginalString.Split('/')[^1];
-        runtime.Hold.SetResult();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
 
-        var output = new StringWriter();
-        Assert.Equal(0, await WatchCli.WatchAsync(s.Http, id, output, TextWriter.Null, timeout.Token));
+        // The run is released only once watch follows it: a run that finished first is read from the log as its result alone.
+        var output = new Lines("accepted");
+        var watching = WatchCli.WatchAsync(s.Http, id, output, TextWriter.Null, timeout.Token);
+        await output.Written.Task.WaitAsync(timeout.Token);
+        runtime.Hold.SetResult();
+        Assert.Equal(0, await watching);
         var lines = output.ToString().TrimEnd().Split('\n');
         Assert.Equal("accepted", lines[0]);
         Assert.StartsWith("run_finished: completed: ", lines[^1]);

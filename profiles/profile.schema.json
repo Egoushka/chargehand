@@ -103,6 +103,10 @@
           "type": "string",
           "format": "uri",
           "description": "Anthropic-compatible gateway the workers call (ANTHROPIC_BASE_URL). Unset: Anthropic directly; an inherited ANTHROPIC_BASE_URL is ignored."
+        },
+        "custom_headers_secret": {
+          "type": "string",
+          "description": "Secret item holding header lines (`Name: value`, one per line) the workers send to base_url as ANTHROPIC_CUSTOM_HEADERS, e.g. a gateway's virtual key. Needs base_url. Plain workers only: driven sessions do not use base_url."
         }
       },
       "not": {
@@ -141,13 +145,211 @@
       "description": "Driven writing sessions (ADR 0039): each task runs in its own container and ends in a draft pull request. Off unless enabled.",
       "properties": {
         "enabled": { "type": "boolean", "description": "Default false." },
-        "max_parallel": { "type": "integer", "minimum": 1, "maximum": 4, "description": "Tasks running at once in one batch. Default 2." },
-        "max_parallel_total": { "type": "integer", "minimum": 1, "maximum": 8, "description": "Tasks running at once across batches. Default 4." },
+        "max_parallel": { "type": "integer", "minimum": 1, "maximum": 16, "description": "Tasks running at once in one batch. Default 2. How many really run is governed by admission (memory, pressure, load) and the rate-limit pause." },
+        "max_parallel_total": { "type": "integer", "minimum": 1, "maximum": 32, "description": "Tasks running at once across batches. Default 4. The runner's --max-containers must allow them." },
         "max_session_calls": { "type": "integer", "minimum": 1, "maximum": 8, "description": "Research and review runs that sessions may have executing at once, across all sessions. Default 2; with more sessions than this, a session's call waits for a slot." },
         "images": { "type": "array", "items": { "type": "string", "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$" }, "description": "Session images by digest; nothing else may run." },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Operational limits of a session's container, replacing the same keys of the driven preset's driven block (a key left out keeps the preset's value). Tuned here because a change to presets/driven.yaml needs Prompt CI; prompts and permissions stay in the preset.",
+          "properties": {
+            "max_minutes": { "type": "integer", "minimum": 1, "description": "Wall clock for one task's session." },
+            "no_progress_minutes": { "type": "integer", "minimum": 1, "description": "No stream event for this long ends the session as stalled." },
+            "max_turns": { "type": "integer", "minimum": 1, "description": "Assistant messages after which the session ends as stalled." },
+            "max_tokens": { "type": "integer", "minimum": 1, "description": "Input plus output tokens for one task." },
+            "memory_mb": { "type": "integer", "minimum": 256, "maximum": 65536 },
+            "cpus": { "type": "number", "minimum": 0.1, "maximum": 32 },
+            "pids": { "type": "integer", "minimum": 16, "maximum": 4096 },
+            "max_continuations": { "type": "integer", "minimum": 0, "maximum": 5, "description": "Further sessions on the same branch after one is stopped by the turn limit or the wall clock with work committed (ADR 0044). Each gets max_turns and max_minutes again; max_tokens is shared. Default 2; 0: none." }
+          }
+        },
+        "planning": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "ADR 0049's planning step: before a batch starts, one cheap read-only run through the orchestrator sizes tasks that have no size (S, M, L), splits a large task into an ordered chain and gives tasks that would take the same next number (migrations, ADR files) their own. The caller's size and depends_on always win. The plan is the batch result's plan artifact. A request's driven.plan overrides enabled.",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Plan every batch. Default false." },
+            "preset": { "type": "string", "minLength": 1, "description": "The preset the run uses; it must be read-only. Default cheap." }
+          }
+        },
+        "learning": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "ADR 0045's learning loop: every finished task leaves a record (size class, budget, spend, stop reason, governor decisions, outcome) next to the run log, the server reads the outcome of its pull request back from the forge (merged unchanged, merged after edits, closed, open; off when no forge credential is configured), and chargehand learn report sums them up. A key left out keeps its default.",
+          "properties": {
+            "retro": { "type": "boolean", "description": "After each batch, one cheap read-only run over the batch's records writes a short retro, the batch result's retro artifact. Default false." },
+            "retro_preset": { "type": "string", "minLength": 1, "description": "The preset the retro run uses; it must be read-only. Default cheap." },
+            "pr_days": { "type": "integer", "minimum": 1, "description": "How long after a task finished its pull request is read again until it is merged or closed. Default 14." },
+            "pr_check_minutes": { "type": "integer", "minimum": 1, "description": "How often the server reads the pull requests that are still open. Default 60." }
+          }
+        },
+        "admission": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "ADR 0045's admission: a task starts only when the host's available memory minus reserve_mb covers the task's memory request (the 90th percentile of the peak memory that sessions of its repository used, else default_request_mb; never above the container's memory limit, never below 512 MiB), memory pressure is under max_memory_pressure and, when set, the load is under max_load_per_cpu. Running tasks are never stopped for it; with nothing of this server running, one task starts anyway.",
+          "properties": {
+            "reserve_mb": { "type": "integer", "minimum": 0, "description": "Memory left for everything else on the host. Default 1024." },
+            "max_load_per_cpu": { "type": "number", "exclusiveMinimum": 0, "description": "A one-minute load average per processor above this holds new starts. Default: no load rule." },
+            "default_request_mb": { "type": "integer", "minimum": 512, "description": "The memory request of a task while fewer than 10 session peaks are recorded for its repository and for all repositories. Clamped to the container's memory limit. Default 1536." },
+            "max_memory_pressure": { "type": "number", "exclusiveMinimum": 0, "maximum": 100, "description": "New starts wait while the host's memory pressure (Linux PSI, some avg10 of /proc/pressure/memory, in percent) is above this. A host without PSI skips the rule; 100 turns it off. Default 10." }
+          }
+        },
+        "services": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "ADR 0048: what a batch's containers share. Off unless a key is set. Needs a runner built from the same release, started with --service-images for services.",
+          "properties": {
+            "caches": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "enum": ["nuget", "npm", "pip", "gradle", "maven"] },
+              "description": "Ecosystems whose package cache is a named volume per repository, mounted read-write into that repository's sessions and verifier at /cache/<ecosystem>."
+            },
+            "images": {
+              "type": "object",
+              "additionalProperties": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$" },
+              "description": "A session image by ecosystem name (gradle, maven, ...), used when the repository has that ecosystem. Each value must also be in driven.images."
+            },
+            "repositories": {
+              "type": "object",
+              "description": "Per owner/repo: test services (a database) started on the batch network for the batch's lifetime.",
+              "additionalProperties": {
+                "type": "array",
+                "maxItems": 4,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "image", "port"],
+                  "properties": {
+                    "name": { "type": "string", "pattern": "^[a-z][a-z0-9]{0,23}$", "description": "The host name on the batch network." },
+                    "image": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$", "description": "By digest; the runner must list it in --service-images." },
+                    "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+                    "env": { "type": "object", "additionalProperties": { "type": "string" }, "description": "The service's environment: test values only, never a real secret." },
+                    "tmpfs": { "type": "array", "items": { "type": "string", "pattern": "^/" }, "description": "Memory-backed directories of the image (a database's data directory)." },
+                    "note": { "type": "string", "maxLength": 200, "description": "One line the session reads next to the address." },
+                    "memory_mb": { "type": "integer", "minimum": 64, "maximum": 8192, "description": "Default 512." }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "governor": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "ADR 0045's governor in each session: deterministic stuck and spend signals with a warn-then-checkpoint ladder, logged to governor.jsonl. Profile keys because a change to presets/driven.yaml needs Prompt CI. A key left out keeps its default.",
+          "properties": {
+            "mode": { "enum": ["off", "observe", "enforce"], "description": "observe (default): decisions are logged and none acted on; enforce: a checkpoint or a stop also ends the session, which leaves a handoff for the next one (a checkpoint continues, a spent budget is salvaged as a partial draft pull request); off: no governor." },
+            "budgets": { "type": "object", "additionalProperties": false, "properties": { "S": { "type": "number", "exclusiveMinimum": 0 }, "M": { "type": "number", "exclusiveMinimum": 0 }, "L": { "type": "number", "exclusiveMinimum": 0 } }, "description": "Flat budget per size class in the dollar equivalent (tokens priced with prices, also on a subscription). Defaults S 1.5, M 4, L 10. Used until a size class has enough finished tasks for history." },
+            "history": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "ADR 0045's budget from history: once a size class has min_tasks finished tasks (completed, or stopped at their budget) in the last window_days days for the repository, or else for all repositories, its budget is the percentile-th percentile of their spend. Below that the flat budget applies; a task's own budget_usd always wins. A key left out keeps its default.",
+              "properties": {
+                "min_tasks": { "type": "integer", "minimum": 1, "description": "Finished tasks of the size class needed. Default 20." },
+                "window_days": { "type": "integer", "minimum": 1, "description": "How far back finished tasks count. Default 60." },
+                "percentile": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Nearest-rank percentile of their spend. Default 80." }
+              }
+            },
+            "repeat_calls": { "type": "integer", "minimum": 1, "description": "Identical action and observation pairs in a row that fire repeated_call. Default 4." },
+            "repeat_failures": { "type": "integer", "minimum": 1, "description": "Failures of one identical action that fire repeated_failure. Default 3." },
+            "failing_calls": { "type": "integer", "minimum": 1, "description": "Failing tool calls in a row that fire failing_calls. Default 8." },
+            "probe_commands": { "type": "integer", "minimum": 1, "description": "environment_probing fires on the command after this many that only ask what the container has. Default 10." },
+            "no_growth_turns": { "type": "integer", "minimum": 1, "description": "Turns with the diff's line count unchanged that fire no_diff_growth. Default 40." },
+            "rewarn_turns": { "type": "integer", "minimum": 1, "description": "A signal firing again at least this many turns after its warn is a checkpoint. Default 10." },
+            "context_tokens": { "type": "integer", "minimum": 1, "description": "One message's context above this is a checkpoint. Default 160000." },
+            "checkpoint_at": { "type": "number", "exclusiveMinimum": 0, "maximum": 1, "description": "Share of the budget at which spend is a checkpoint; 100% is a stop. Default 0.85." },
+            "probe_patterns": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Regular expressions replacing the built-in list of commands that only probe the container." },
+            "wait_patterns": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Regular expressions for commands that wait on purpose (sleep, --watch, gh run watch by default): they count toward no repeat or failure rule." }
+          }
+        },
+        "integrator": {
+          "type": "object",
+          "additionalProperties": false,
+          "dependentRequired": { "app_id": ["private_key_secret"], "installation_id": ["app_id", "private_key_secret"], "private_key_secret": ["app_id"] },
+          "description": "ADR 0046: for the repositories listed, chargehand marks a finished task's pull request ready and merges it through the repository's required checks, and has a short session fix a failing required check, acting as a GitHub App (on GitLab, with the forge token). app_id and private_key_secret are both set or both left out: a profile that integrates GitLab projects only needs none. Unset: draft pull requests only, never touched again.",
+          "properties": {
+            "app_id": { "type": "integer", "minimum": 1, "description": "The GitHub App's numeric id." },
+            "installation_id": { "type": "integer", "minimum": 1, "description": "Optional. chargehand asks GitHub which installation of the App covers each repository's owner (an App is installed once per account or organisation). This pins one installation, for the account it belongs to, and skips the lookup for that owner's repositories; it reaches no other owner." },
+            "private_key_secret": { "type": "string", "minLength": 1, "description": "Secret item holding the App's private key (PEM). Never logged, never inside a container." },
+            "repositories": {
+              "type": "object",
+              "propertyNames": { "pattern": "^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$" },
+              "additionalProperties": { "enum": ["merge", "ask"] },
+              "description": "Per owner/repo (group/subgroup/project on GitLab): merge (marked ready, then auto-merge with squash, so the forge merges once the required checks pass) or ask (marked ready and commented on; a person merges). A repository not listed is off."
+            },
+            "always_ask": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$" }, "description": "Repositories that are ask whatever else says: this list wins over merge and over a repository not listed." },
+            "ci_fix": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "The session that fixes a failing required check on the pull request's branch. A key left out keeps its default.",
+              "properties": {
+                "max_attempts": { "type": "integer", "minimum": 0, "maximum": 3, "description": "Fix sessions per pull request, and never two for the same failing jobs. Default 3; 0: no fixer." },
+                "max_turns": { "type": "integer", "minimum": 1, "description": "Turn limit of one fix session. Default 20." },
+                "max_minutes": { "type": "integer", "minimum": 1, "maximum": 120, "description": "Wall clock of one fix session. Default 15." },
+                "wait_minutes": { "type": "integer", "minimum": 1, "maximum": 240, "description": "How long chargehand watches the required checks of one head commit before it stops; the task holds its slot meanwhile. Default 20." }
+              }
+            }
+          }
+        },
+        "forge": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "description": "Which code host the remotes are on and how to reach it (ADR 0047). Unset: a remote on gitlab.com or on a host whose first label is gitlab is GitLab, and any other host is GitHub.",
+          "properties": {
+            "kind": { "enum": ["github", "gitlab"], "description": "The forge of every remote of this profile, whatever the host name says." },
+            "base_url": { "type": "string", "pattern": "^https://[^\\s?#@]+$", "description": "The API root: https://host/api/v4 for GitLab (the instance root https://host is accepted), https://host/api/v3 for GitHub Enterprise. Unset: derived from the remote's host (GitLab) or api.github.com." },
+            "token_secret": { "type": "string", "minLength": 1, "description": "GitLab only: secret item for the API token (PRIVATE-TOKEN, scope api). Unset: push_secret, which then needs api and write_repository." }
+          }
+        },
         "network": { "type": "object", "additionalProperties": false, "properties": { "allow": { "type": "array", "items": { "type": "string", "minLength": 1 } }, "outside": { "type": "string", "minLength": 1, "description": "A network besides the default one that the batch's egress container joins: the one the chargehand server sits on." }, "mcp_forward": { "type": "string", "pattern": "^[^\\s:]+:[0-9]{1,5}$", "description": "host:port of the chargehand server as the egress container reaches it. Set, a session can call chargehand for research and review; unset, it cannot." }, "model_url": { "type": "string", "pattern": "^https?://[^\\s?#@]+$", "description": "An Anthropic-compatible gateway as the egress container reaches it: http://host:port/path through a forward, or https://host/path through the proxy. Set, a session gets claude_code.api_key_secret (the key the gateway issued, with a budget) and ANTHROPIC_BASE_URL instead of the real credential; unset, the real credential is in the container's environment." }, "otlp_url": { "type": "string", "pattern": "^http://[^\\s?#@]+$", "description": "An OTLP/HTTP collector as the egress container reaches it, http://host:port through a forward on a port no other forward uses. Set, each session's Claude Code exports its own logs and metrics there, tagged chargehand.run_id, chargehand.task_id, chargehand.task_run_id and chargehand.trace_id; unset, it exports nothing." } }, "description": "Hosts added to the preset's allowlist, and how a session reaches the chargehand server." },
-        "runner": { "type": "object", "additionalProperties": false, "required": ["url", "api_key_secret"], "properties": { "url": { "type": "string", "minLength": 1 }, "api_key_secret": { "type": "string", "minLength": 1 } }, "description": "The runner service in front of the container engine. Absent: the server calls the engine itself (a laptop)." },
-        "push_secret": { "type": "string", "minLength": 1, "description": "Secret item for the credential that pushes non-default branches and opens draft pull requests." },
+        "runner": { "type": "object", "additionalProperties": false, "required": ["url", "api_key_secret"], "properties": { "url": { "type": "string", "minLength": 1 }, "api_key_secret": { "type": "string", "minLength": 1 } }, "description": "The runner service in front of the container engine: one runner, named default (ADR 0058: runners lists several). Absent, and no runners: the server calls the engine itself (a laptop)." },
+        "runners": {
+          "type": "array",
+          "minItems": 1,
+          "description": "ADR 0058: several runner services, in place of runner (never both). The server runs each task on the healthy runner with the most free memory that has a session slot, and keeps all of a task's sessions on it. A profile that names one runner behaves as one that uses runner.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "url", "api_key_secret"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$", "description": "Unique. It is in run events and in the driven-batch artifact." },
+              "url": { "type": "string", "pattern": "^https?://[^\\s?#@]+$", "description": "The runner's address as the server reaches it." },
+              "api_key_secret": { "type": "string", "minLength": 1, "description": "Secret item for the runner's bearer key." },
+              "max_sessions": { "type": "integer", "minimum": 1, "description": "Sessions this server runs on the runner at once. Unset: no limit besides max_parallel and max_parallel_total." },
+              "platform": { "enum": ["linux/amd64", "linux/arm64"], "description": "The architecture of the runner's engine. Default linux/amd64. It picks the image: driven.image_variants." },
+              "weight": { "type": "number", "exclusiveMinimum": 0, "maximum": 100, "description": "Multiplies the runner's free memory when two runners are compared. Default 1." },
+              "reserve_mb": { "type": "integer", "minimum": 0, "description": "Replaces driven.admission.reserve_mb for this runner: the memory left for everything else on its host." },
+              "workspace": { "enum": ["shared", "bundle"], "description": "shared (default): the runner reads the server's checkouts from a disk both see. bundle: the runner is not on the server's host, and the server sends it the repository as a git bundle." },
+              "forwards": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "The server's address as this runner's egress containers reach it. Each key replaces the same key of network for this runner; a key left out inherits it. A bundle runner needs mcp while network.mcp_forward is set, and model_url or otlp_url while network sets an http one.",
+                "properties": {
+                  "mcp": { "type": "string", "pattern": "^[^\\s:]+:[0-9]{1,5}$", "description": "host:port of the chargehand server." },
+                  "model_url": { "type": "string", "pattern": "^https?://[^\\s?#@]+$" },
+                  "otlp_url": { "type": "string", "pattern": "^http://[^\\s?#@]+$" },
+                  "outside": { "type": "string", "minLength": 1, "description": "The network the egress container joins besides the batch's own. On a laptop engine: bridge." }
+                }
+              }
+            }
+          }
+        },
+        "image_variants": {
+          "type": "object",
+          "description": "ADR 0058: for an image listed in images (services.images draws from the same list), the image to start on a runner of another platform. A runner uses the image as written unless this has an entry for its platform; a multi-platform index digest needs none.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "linux/amd64": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$" },
+              "linux/arm64": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$" }
+            }
+          }
+        },
+        "push_secret": { "type": "string", "minLength": 1, "description": "Secret item for the credential that pushes non-default branches and opens draft pull requests (on GitLab also merge requests, unless forge.token_secret names another)." },
         "task_source": {
           "type": "object",
           "additionalProperties": false,
@@ -159,6 +361,45 @@
             "arguments": { "type": "object", "description": "The tool's arguments; the string {ref} is replaced by the item id." },
             "title": { "type": "string", "minLength": 1, "description": "Dotted property names to the title string in the answer." },
             "body": { "type": "string", "minLength": 1, "description": "The same for the description; omit for a title-only goal." }
+          }
+        }
+      }
+    },
+    "automation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Work that starts without a caller (ADR 0051). Unset: nothing is watched.",
+      "properties": {
+        "github": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repositories", "allowed_authors"],
+          "description": "A label on an issue, or a mention of the bot in a comment, by an allowed author starts a driven batch of one task; a reply to its questions continues it. chargehand polls GitHub as the GitHub App of driven.integrator, which also needs the Issues permission (read and write). Needs driven.enabled and driven.integrator.",
+          "properties": {
+            "repositories": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": { "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path"],
+                "properties": {
+                  "path": { "type": "string", "minLength": 1, "description": "The server's checkout of the repository (under repository_roots). A triggered batch starts from the commit its origin's default branch points at, after a fetch." }
+                }
+              },
+              "description": "Per owner/repo: the repositories watched. Opt-in: a repository not listed is never read."
+            },
+            "allowed_authors": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\\[bot\\])?$" }, "description": "GitHub logins whose label or comment starts a batch. Required, no default: an empty list means nothing triggers. For a label, the person who applied it must be on the list." },
+            "label": { "type": "string", "minLength": 1, "maxLength": 50, "pattern": "^[^,\\s][^,]*$", "description": "The label that triggers. Default chargehand." },
+            "mention": { "type": "string", "pattern": "^@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$", "description": "The mention that triggers in a comment. Default @chargehand." },
+            "poll_seconds": { "type": "integer", "minimum": 30, "maximum": 3600, "description": "How often the repositories are read. Default 120." },
+            "budget_class": { "enum": ["S", "M", "L"], "description": "The size class of a triggered task whose issue has no size:S, size:M or size:L label (exactly one). It sets the governor's budget (ADR 0045). Default M." },
+            "max_tokens_total": { "type": "integer", "minimum": 1, "description": "The token cap of one triggered batch. Default 2000000." },
+            "max_usd_total": { "type": "number", "exclusiveMinimum": 0, "description": "The dollar cap of one triggered batch, where the credential is priced. Default 5." },
+            "max_concurrent": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Triggered batches running at once. A trigger over it waits for a slot, with one comment. Default 2." },
+            "max_starts_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Triggered batches started in any 24 hours, answers included. A trigger over it is refused, with one comment. Default 10." },
+            "max_review_rounds": { "type": "integer", "minimum": 0, "maximum": 3, "description": "Review rounds per chargehand pull request: inline review comments of allowed authors, and comments that mention the bot, start a session on the pull request's branch. The CI fixer's attempts count against the same cap of 3 per pull request. Default 3; 0: the loop is off." }
           }
         }
       }
@@ -287,7 +528,42 @@
         },
         "api_key_secret": {
           "type": "string",
-          "description": "Secret-store item holding the API key every caller sends as a bearer token."
+          "description": "Secret-store item holding the API key every caller sends as a bearer token. It opens the implicit owner account: every run, no caps."
+        },
+        "ui": {
+          "type": "boolean",
+          "default": false,
+          "description": "Serve the web UI at /ui/ (ADR 0054) and the operator console at /console/ (ADR 0056): static files, no key needed to load them; the page signs in with an API key and calls the same routes. Off by default."
+        },
+        "accounts": {
+          "type": "array",
+          "description": "Accounts besides the owner (ADR 0050). Their keys come from `chargehand accounts add <name>`, stored as salted hashes in accounts.json beside the run log; a key of an account removed here opens nothing. An account lists, reads and cancels only its own runs; it never halts the server.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$", "not": { "const": "owner" }, "description": "Lowercase letters, digits and hyphens. Recorded as `actor` on the account's runs, results and events." },
+              "max_usd_per_day": { "type": "number", "exclusiveMinimum": 0, "description": "Dollars the account's runs may cost in a UTC day, by their results' usage. Counts priced runs only; a subscription run adds none, so pair it with a token cap." },
+              "max_usd_per_month": { "type": "number", "exclusiveMinimum": 0, "description": "The same over a UTC calendar month." },
+              "max_tokens_per_day": { "type": "integer", "minimum": 1, "description": "Input plus output tokens in a UTC day." },
+              "max_tokens_per_month": { "type": "integer", "minimum": 1, "description": "Input plus output tokens in a UTC calendar month." },
+              "max_concurrent_runs": { "type": "integer", "minimum": 1, "description": "Unfinished runs (queued or running) the account may have at once." },
+              "driven": { "type": "boolean", "default": false, "description": "Whether the account may start a batch (a request with a driven block). A batch pushes branches and opens pull requests with the server's credential." },
+              "repositories": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Absolute directories the account's context.repository.path may be, or be below. Absent: any repository the server allows." },
+              "model": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["api_key_secret"],
+                "description": "The account's own model credential (ADR 0053): its read-only runs and its batches use it instead of the server's, and are priced as API usage. Needs the claude_code runtime. A subscription token is the owner's and is not accepted here.",
+                "properties": {
+                  "api_key_secret": { "type": "string", "minLength": 1, "description": "Secret-store item holding an Anthropic API key, or the key a gateway issued when base_url names that gateway." },
+                  "base_url": { "type": "string", "pattern": "^https?://[^/?#@]+(/[^?#]*)?$", "description": "An Anthropic-compatible gateway's base URL (http or https, no credentials, query or fragment). Absent: Anthropic's own API." }
+                }
+              },
+              "allow_server_credential": { "type": "boolean", "default": false, "description": "An account with no model block may spend the server's model credential. Default false: its runs are refused with model_credential_missing. The owner always uses the server's." }
+            }
+          }
         }
       }
     },

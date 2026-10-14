@@ -57,18 +57,36 @@
             "type": "object",
             "additionalProperties": false,
             "required": ["id"],
-            "anyOf": [{ "required": ["ref"] }, { "required": ["goal"] }],
+            "anyOf": [{ "required": ["ref"] }, { "required": ["goal"] }, { "required": ["continue_from"] }],
             "properties": {
               "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" },
               "ref": { "type": "string", "minLength": 1, "maxLength": 128, "description": "A tracker item id, resolved through the profile's task source." },
-              "goal": { "type": "string", "minLength": 1, "description": "Free text: what the change should do." }
+              "goal": { "type": "string", "minLength": 1, "description": "Free text: what the change should do." },
+              "title": { "type": "string", "minLength": 1, "maxLength": 200, "description": "The title of the task's pull request, one line (the server refuses a line break). Left out, the title is the goal's first sentence cut at a word to 72 characters, without its closing punctuation. The pull request body holds the whole goal either way." },
+              "max_turns": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Assistant messages after which a session of this task is stopped; replaces the preset's max_turns for this task." },
+              "max_minutes": { "type": "integer", "minimum": 1, "maximum": 480, "description": "Wall clock of one session of this task; replaces the preset's max_minutes for this task." },
+              "size": { "enum": ["S", "M", "L"], "description": "The task's size class: the governor holds it to that class's budget (ADR 0045). Default M." },
+              "budget_usd": { "type": "number", "exclusiveMinimum": 0, "description": "The task's own budget in the governor's dollar equivalent (tokens priced with the profile's price table, also on a subscription), in place of its size class's." },
+              "answers": { "type": "array", "maxItems": 50, "items": { "type": "string", "minLength": 1, "maxLength": 8000 }, "description": "Answers to the questions an earlier session of the task named by continue_from asked. They go into the task's goal verbatim, after the questions (ADR 0045). Needs continue_from." },
+              "depends_on": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" }, "description": "Ids of tasks of this batch that must end completed before this one starts (ADR 0049). The task starts from their branches: one dependency stacks it on that branch and its pull request is based on it when the forge allows; several are merged into one branch before the session starts, and a merge conflict fails the task. A dependency that fails, asks a question or is not started makes this task not_started. Ids must exist and must not form a cycle; the server checks that. Cannot be combined with continue_from." },
+              "continue_from": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["run_id", "task_id"],
+                "properties": {
+                  "run_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$", "description": "The earlier driven batch's run id; it must be in this server's run log." },
+                  "task_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$", "description": "The task's id in that batch." }
+                },
+                "description": "Start this task from an earlier batch's task that ended needs_input, or stopped with its work kept: the same branch, from the kept bundle, with that task's goal, the questions it asked and the given answers in the prompt. A task that completed with its branch pushed can be continued too (a review round, ADR 0051): the branch is fetched from the remote as it is now, answers are required (the comments to address), and the pull request keeps its title and body. The task needs neither goal nor ref, and the repository commit must be the one the earlier task started at. The earlier task's output is kept for at least 7 days. Two tasks cannot continue the same one."
+              }
             }
           }
         },
-        "max_parallel": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "max_parallel": { "type": "integer", "minimum": 1, "maximum": 16 },
         "max_tokens_total": { "type": "integer", "minimum": 1, "description": "Input plus output tokens over the batch. Binds in both credential modes." },
         "max_usd_total": { "type": "number", "exclusiveMinimum": 0, "description": "Dollars over the batch; enforced only where the credential is priced (an API key)." },
-        "draft_pr": { "const": true, "description": "Always true: pull requests are opened as drafts and never merged." }
+        "draft_pr": { "const": true, "description": "Always true: pull requests are opened as drafts and never merged." },
+        "plan": { "type": "boolean", "description": "Run the planning step before the batch (ADR 0049): one cheap read-only run sizes tasks that have no size, splits a large task into an ordered chain and assigns shared numbers. true forces it, false skips it; left out, the profile's driven.planning.enabled decides. A task's own size and depends_on always win. The plan is the batch result's plan artifact." }
       }
     },
     "caller_blocks": {

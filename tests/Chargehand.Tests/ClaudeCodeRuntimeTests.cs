@@ -1,9 +1,10 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Chargehand.Budget;
 using Chargehand.ClaudeCode;
 using Chargehand.Config;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.Nodes;
 using Chargehand.Runtime;
 using Chargehand.Verification;
@@ -241,6 +242,32 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         Assert.Equal("api= oauth=oauth-test base=https://gateway.example.com/anthropic", File.ReadAllText(Path.Combine(_dir.Path, "key.txt")).Trim());
     }
 
+    [Fact]
+    public async Task Custom_headers_replace_an_inherited_list_and_reach_the_worker()
+    {
+        var claude = FakeClaude("""{"type":"result","subtype":"success","is_error":false,"result":"hi"}""");
+        Environment.SetEnvironmentVariable("ANTHROPIC_CUSTOM_HEADERS", "x-inherited: 1");
+        try
+        {
+            IWorkerRuntime rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", new ClaudeCodeCredential("oauth-test", true), CancellationToken.None,
+                new Uri("http://gateway.internal/anthropic"), "x-bf-vk: vk-test\nx-other: 2");
+            var session = await rt.CreateAsync(Spec with { Directory = _dir.Path }, CancellationToken.None);
+            await rt.SubmitAsync(session.Id, "hi", CancellationToken.None);
+            Assert.Equal(IdleOutcome.Succeeded, await rt.AwaitIdleAsync(session.Id, CancellationToken.None));
+            Assert.Equal("x-bf-vk: vk-test\nx-other: 2", File.ReadAllText(Path.Combine(_dir.Path, "headers.txt")));
+
+            rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", new ClaudeCodeCredential("oauth-test", true), CancellationToken.None);
+            session = await rt.CreateAsync(Spec with { Directory = _dir.Path }, CancellationToken.None);
+            await rt.SubmitAsync(session.Id, "hi", CancellationToken.None);
+            await rt.AwaitIdleAsync(session.Id, CancellationToken.None);
+            Assert.Equal("", File.ReadAllText(Path.Combine(_dir.Path, "headers.txt")));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ANTHROPIC_CUSTOM_HEADERS", null);
+        }
+    }
+
     /// <summary>No credential configured: the CLI's own login. Nothing is set, inherited credential variables are
     /// removed so the CLI cannot pick another account, and --bare (which never reads the keychain) is not used.</summary>
     [Fact]
@@ -334,6 +361,7 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
             printf '%s\n' "$@" > "{_dir.Path}/args.txt"
             cat > "{_dir.Path}/stdin.txt"
             echo "api=$ANTHROPIC_API_KEY oauth=$CLAUDE_CODE_OAUTH_TOKEN base=$ANTHROPIC_BASE_URL" > "{_dir.Path}/key.txt"
+            printf '%s' "$ANTHROPIC_CUSTOM_HEADERS" > "{_dir.Path}/headers.txt"
             echo "$MAX_THINKING_TOKENS" > "{_dir.Path}/thinking.txt"
             cat "{_dir.Path}/events.jsonl"
             """);

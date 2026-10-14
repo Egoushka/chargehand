@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.Runtime;
 using YamlDotNet.Serialization;
 
@@ -40,10 +42,6 @@ public sealed record NodeKind(string Model, string OpencodeAgent, IReadOnlyList<
     public IReadOnlyList<PermissionRule> Rules =>
         Permissions.Select(p => new PermissionRule(p.Action, p.Resource, Enum.Parse<PermissionEffect>(p.Effect, ignoreCase: true))).ToList();
 }
-
-/// <summary>The limits of a driven session's container (ADR 0039); null on a preset that does not run one.</summary>
-public sealed record DrivenPreset(int MaxMinutes = 45, int NoProgressMinutes = 10, int MaxTurns = 80, long? MaxTokens = null, int MemoryMb = 4096,
-    double Cpus = 2, int Pids = 512, IReadOnlyList<string>? Allow = null);
 
 /// <summary>A writing node's verification (ADR 0035): the test command's timeout and how many failed runs go back to the worker.</summary>
 public sealed record VerifySettings(int TimeoutSeconds = 600, int MaxFixRounds = 2);

@@ -67,7 +67,7 @@ public class ConfigFileTests
     }
 
     // JsonSchema.FromText registers the schema globally by its base URI; loading the same file twice throws.
-    private static readonly JsonSchema ProfileSchema = JsonSchema.FromText(File.ReadAllText(Repo.Path("profiles", "profile.schema.json")));
+    internal static readonly JsonSchema ProfileSchema = JsonSchema.FromText(File.ReadAllText(Repo.Path("profiles", "profile.schema.json")));
 
     [Fact]
     public void Example_profile_validates()
@@ -81,6 +81,55 @@ public class ConfigFileTests
     [InlineData("""{"schema":"profile/v1","max_parallel_nodes":0}""", false)]
     [InlineData("""{"schema":"profile/v1","max_parallel_nodes":3}""", false)] // above ADR 0011's 2 per model
     public void The_schema_bounds_max_parallel_nodes(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
+    [Theory]
+    [InlineData("""{"schema":"profile/v1","driven":{"limits":{"max_minutes":90,"max_turns":200,"max_tokens":3000000,"memory_mb":8192,"cpus":4,"pids":1024,"no_progress_minutes":15}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","driven":{"limits":{"max_minutes":0}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"limits":{"memory_mb":128}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"limits":{"allow":["example.org"]}}}""", false)] // the allowlist stays the preset's
+    public void The_schema_checks_driven_limits(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
+    [Theory]
+    [InlineData("""{"schema":"profile/v1","driven":{"max_parallel":16,"max_parallel_total":32,"max_session_calls":8}}""", true)]
+    [InlineData("""{"schema":"profile/v1","driven":{"max_parallel":17}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"max_parallel_total":33}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"max_session_calls":9}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"max_parallel":0}}""", false)]
+    public void The_schema_bounds_the_driven_parallelism(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
+    [Theory]
+    [InlineData("""{"schema":"profile/v1","driven":{"admission":{"reserve_mb":2048,"max_load_per_cpu":1.5,"default_request_mb":1536,"max_memory_pressure":10}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","driven":{"admission":{"max_memory_pressure":100}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","driven":{"admission":{"default_request_mb":511}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"admission":{"max_memory_pressure":0}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"admission":{"max_memory_pressure":101}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"admission":{"request_mb":1536}}}""", false)]
+    public void The_schema_checks_driven_admission(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
+    [Theory]
+    [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2,"private_key_secret":"app-key","repositories":{"o/r":"merge","o/s":"ask"},"always_ask":["o/servers"],"ci_fix":{"max_attempts":3,"max_turns":20,"max_minutes":15,"wait_minutes":20}}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2}}}""", false)] // the key's secret item is required
+    [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2,"private_key_secret":"k","repositories":{"o/r":"yes"}}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2,"private_key_secret":"k","repositories":{"not-a-repo":"merge"}}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2,"private_key_secret":"k","ci_fix":{"max_attempts":4}}}}""", false)] // three attempts at most
+    [InlineData("""{"schema":"profile/v1","driven":{"integrator":{"app_id":1,"installation_id":2,"private_key_secret":"k","token":"x"}}}""", false)] // no credential in the profile
+    public void The_schema_checks_the_integrator(string profile, bool valid)
     {
         using var doc = JsonDocument.Parse(profile);
         Assert.Equal(valid, ProfileSchema.Evaluate(doc.RootElement).IsValid);

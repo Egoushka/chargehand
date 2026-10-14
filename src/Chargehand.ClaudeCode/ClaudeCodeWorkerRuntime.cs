@@ -5,6 +5,8 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Runtime;
 
 namespace Chargehand.ClaudeCode;
@@ -29,22 +31,27 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
     private readonly string _binary;
     private readonly ClaudeCodeCredential _credential;
     private readonly Uri? _baseUrl;
+    private readonly string? _customHeaders;
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
 
-    internal ClaudeCodeWorkerRuntime(string binary, ClaudeCodeCredential credential, string version, Uri? baseUrl = null)
+    internal ClaudeCodeWorkerRuntime(string binary, ClaudeCodeCredential credential, string version, Uri? baseUrl = null, string? customHeaders = null)
     {
-        (_binary, _credential, _baseUrl) = (binary, credential, baseUrl);
+        (_binary, _credential, _baseUrl, _customHeaders) = (binary, credential, baseUrl, customHeaders);
         Version = $"claude-code/{version}";
     }
 
     public string Version { get; }
+
+    /// <summary>A runtime of its own over the same CLI and pin but another credential and endpoint (an account's, ADR 0053): its own sessions, and no sight of this one's key.</summary>
+    public ClaudeCodeWorkerRuntime WithCredential(ClaudeCodeCredential credential, Uri? baseUrl) =>
+        new(_binary, credential, Version["claude-code/".Length..], baseUrl) { ConfigRoot = ConfigRoot };
 
     /// <summary>Where the per-turn MCP config directories go: the system temp directory, never a session's checkout.</summary>
     internal string ConfigRoot { get; set; } = Path.GetTempPath();
 
     /// <summary>Refuses a CLI whose version differs from the pinned one. <c>claude --version</c> prints "2.1.283 (Claude Code)".</summary>
     public static async Task<ClaudeCodeWorkerRuntime> ConnectAsync(string binary, string pinnedVersion, ClaudeCodeCredential credential, CancellationToken ct,
-        Uri? baseUrl = null)
+        Uri? baseUrl = null, string? customHeaders = null)
     {
         (int Exit, string Stdout, string Stderr) run;
         try
@@ -62,7 +69,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         if (version != pinnedVersion)
             throw new ChargehandException(ErrorCode.RuntimeVersionMismatch, $"Claude Code CLI is {version}; this adapter is pinned to {pinnedVersion}.",
                 $"Install Claude Code {pinnedVersion}, or change claude_code.version in the profile.");
-        var runtime = new ClaudeCodeWorkerRuntime(binary, credential, version, baseUrl);
+        var runtime = new ClaudeCodeWorkerRuntime(binary, credential, version, baseUrl, customHeaders);
         // The CLI login fails only on the first model call otherwise; `auth status` exits 1 when signed out, no call made.
         if (credential.Secret is null && (await Exec(binary, Path.GetTempPath(), ["auth", "status"], null, ct, runtime.Env)).Exit != 0)
             throw new ChargehandException(ErrorCode.RuntimeUnavailable, $"{binary} is not signed in and no Claude Code credential is set",
@@ -235,7 +242,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
 
     /// <summary>
     /// Only the profile decides credential and endpoint: an inherited API key would outrank the OAuth token, and an
-    /// inherited base URL or auth token would reroute the worker, so the variables this runtime does not set are removed.
+    /// inherited base URL, auth token or header list would reroute the worker, so the variables this runtime does not set are removed.
     /// With the CLI login none is set, so an inherited one cannot switch the worker to another account.
     /// </summary>
     private IReadOnlyDictionary<string, string?> Env => new Dictionary<string, string?>
@@ -244,6 +251,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         ["CLAUDE_CODE_OAUTH_TOKEN"] = _credential.Subscription ? _credential.Secret : null,
         ["ANTHROPIC_AUTH_TOKEN"] = null,
         ["ANTHROPIC_BASE_URL"] = _baseUrl?.ToString().TrimEnd('/'),
+        ["ANTHROPIC_CUSTOM_HEADERS"] = _customHeaders,
     };
 
     /// <summary>
