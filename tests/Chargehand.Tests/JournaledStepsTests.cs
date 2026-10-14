@@ -65,6 +65,21 @@ public sealed class JournaledStepsTests : IDisposable
 
     private static CancellationTokenSource KilledAfterHalfASecond() => new(TimeSpan.FromMilliseconds(500));
 
+    /// <summary>Cancelled once the hanging helper exists under the run's name, however long the calls before it take on a loaded machine.</summary>
+    private CancellationTokenSource KilledOnceTheHelperIsMade()
+    {
+        var cut = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        _ = Task.Run(async () =>
+        {
+            using var watch = new PeriodicTimer(TimeSpan.FromMilliseconds(10));
+            while (!File.Exists(Stale) && await watch.WaitForNextTickAsync(cut.Token))
+            {
+            }
+            await cut.CancelAsync();
+        });
+        return cut;
+    }
+
     [Fact]
     public async Task A_workspace_cut_short_between_intent_and_result_is_cleared_and_prepared_once_after_a_restart()
     {
@@ -72,7 +87,7 @@ public sealed class JournaledStepsTests : IDisposable
         Kill();
         using (var journal = await DrivenJournal.OpenAsync(State))
         {
-            using var cut = KilledAfterHalfASecond();
+            using var cut = KilledOnceTheHelperIsMade();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new JournaledWorkspaceEngine(engine, engine, journal, Batch).PrepareWorkspaceAsync(Workspace, cut.Token));
             Assert.Equal([StepKey.Prep(Batch, "run1")], await journal.UnfinishedAsync());
         }
@@ -108,7 +123,7 @@ public sealed class JournaledStepsTests : IDisposable
         Kill();
         using (var journal = await DrivenJournal.OpenAsync(State))
         {
-            using var cut = KilledAfterHalfASecond();
+            using var cut = KilledOnceTheHelperIsMade();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Volumes(journal).WriteTaskAsync("run1", task, cut.Token));
             Assert.Equal([StepKey.Transfer(Batch, "run1", "task")], await journal.UnfinishedAsync());
         }
@@ -154,7 +169,7 @@ public sealed class JournaledStepsTests : IDisposable
     }
 
     [Fact]
-    public async Task A_prep_that_failed_is_prepared_again_with_the_volume_cleared_first()
+    public async Task A_prep_that_failed_is_prepared_again_and_each_attempt_clears_the_volume_first()
     {
         var engine = Daemon("prep");
         using var journal = await DrivenJournal.OpenAsync(State);
@@ -167,7 +182,7 @@ public sealed class JournaledStepsTests : IDisposable
         await workspace.PrepareWorkspaceAsync(Workspace, default);
 
         Assert.Equal(2, failing.Calls);
-        Assert.Equal(["volume rm -f chargehand-work-run1"], Calls());
+        Assert.Equal(["volume rm -f chargehand-work-run1", "volume rm -f chargehand-work-run1"], Calls());
     }
 
     [Fact]

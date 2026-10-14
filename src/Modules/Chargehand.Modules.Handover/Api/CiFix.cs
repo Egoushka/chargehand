@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Handover.Api;
 
 /// <summary>A fix session chargehand started for a pull request, as its marker comment records it: which attempt, and which set of failing jobs it was for.</summary>
 public sealed record FixAttempt(int Number, string JobsKey);

@@ -1,7 +1,8 @@
 using System.Diagnostics;
-using Chargehand.Driven;
+using Chargehand.Modules.Handover.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Handover.Tests;
 
 /// <summary>ADR 0051 with real git: the pushed branch of a finished task is fetched from the remote into a scratch clone and bundled against the base commit, the way a session's own bundle is.</summary>
 public sealed class GitBranchSeederTests : IDisposable

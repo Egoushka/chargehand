@@ -408,7 +408,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", profile.Secret(runner.ApiKeySecret));
         return new Chargehand.Runner.RunnerClient(http);
     }
-    var bundles = new Chargehand.Driven.RepositoryBundles(Path.Combine(profile.WorkerRoot, ".driven", "bundles"));
+    var bundles = new Chargehand.Modules.Handover.Api.RepositoryBundles(Path.Combine(profile.WorkerRoot, ".driven", "bundles"));
     if (driven.ResolvedRunners() is [var runner, ..])
     {
         var client = RunnerClientFor(runner);
@@ -468,7 +468,7 @@ Chargehand.Automation.GitHubIntake? GitHubIntake()
     var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
     var tokens = new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System);
     var state = Chargehand.Automation.IntakeState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"));
-    return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, integrator: new Chargehand.Driven.IntegratorPolicy(driven.Integrator));
+    return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator));
 }
 
 // The console's account view says whether a credential's secret item resolves, never its value.

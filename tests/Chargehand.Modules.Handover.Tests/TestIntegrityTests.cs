@@ -1,9 +1,8 @@
-using Chargehand.Config;
-using Chargehand.Driven;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Handover.Tests;
 
 /// <summary>A green run that only changed tests or build files is flagged, unless the goal asked for that work; a flagged pull request is never merged (ADR 0046).</summary>
 public class TestIntegrityTests

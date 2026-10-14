@@ -52,4 +52,20 @@ public static class VerifyCommand
 
     private static bool HasPythonTests(string dir) =>
         Directory.Exists(Path.Combine(dir, "tests")) && Directory.EnumerateFiles(Path.Combine(dir, "tests"), "*.py", SearchOption.AllDirectories).Any();
+
+    /// <summary>Changed paths that decide whether the verification means anything: tests, build files, scripts, workflows and the
+    /// verification command's own entry point. The worker may edit them; the artifact lists them so a reader can see it.</summary>
+    public static IReadOnlyList<string> VerificationPaths(IReadOnlyList<string> changed, VerifyPlan? plan) =>
+        [.. changed.Where(p => IsVerificationPath(p, plan))];
+
+    private static bool IsVerificationPath(string path, VerifyPlan? plan)
+    {
+        var name = Path.GetFileName(path);
+        var segments = path.Split('/');
+        return segments[..^1].Any(s => s is "test" or "tests" or "scripts" or ".github" or "__tests__")
+            || name.Contains("test", StringComparison.OrdinalIgnoreCase) || name.Contains("spec", StringComparison.OrdinalIgnoreCase)
+            || name is "Makefile" or "package.json" or "pyproject.toml" or "Cargo.toml" or "go.mod" or "pytest.ini" or "Directory.Build.props"
+            || name.EndsWith(".csproj", StringComparison.Ordinal) || name.EndsWith(".sln", StringComparison.Ordinal) || name.EndsWith(".slnx", StringComparison.Ordinal)
+            || (plan is not null && plan.Argv.Count > 0 && (plan.Argv[0] == path || plan.Argv[0] == "./" + path));
+    }
 }

@@ -1,9 +1,8 @@
-using Chargehand.Config;
-using Chargehand.Driven;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Handover.Tests;
 
 /// <summary>ADR 0046: when a required check fails on an opted-in pull request, a short session fixes it on the same branch, at most three times per pull request and never twice for the same failing
 /// jobs. The decision is pure; the count lives in the pull request's own comments.</summary>

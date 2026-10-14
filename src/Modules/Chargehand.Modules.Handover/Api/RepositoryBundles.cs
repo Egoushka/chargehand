@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Handover.Api;
 
 /// <summary>The repository at the pinned commit as one git bundle, for a runner that cannot see the server's checkouts (ADR 0058). The bundle holds the commit's whole history under <c>HEAD</c>, which is what
 /// a clone would fetch and what <c>git log</c> in the session shows. It is made from the server's own checkout, which sits detached at the commit (<c>git bundle create</c> refuses a bare commit and a shallow
@@ -88,27 +88,4 @@ public sealed class RepositoryBundles(string directory, long maxBytes = Reposito
 
     private static ChargehandException Failed(string message) =>
         new(ErrorCode.SessionFailed, message, "Check that the checkout under worker_root is intact, or run this runner with workspace shared.");
-}
-
-/// <summary>Fills a workspace on a runner that cannot see the server's checkouts (ADR 0058): the repository bundle goes into the run's output volume as <c>source.bundle</c>, then the runner's helper clones
-/// from it. The verification of a finished branch asks for a workspace again, in the same output volume, and gets the bundle sent again: the session had that volume mounted writable, and a bundle is
-/// content-addressed, so what it sent cannot make the pinned commit mean anything else, but the verification does not depend on it being there.</summary>
-public sealed class BundleWorkspaceEngine(Containers.IOutVolumeEngine files, Containers.IBundleWorkspaceEngine runner, RepositoryBundles bundles) : Containers.IWorkspaceEngine
-{
-    public async Task PrepareWorkspaceAsync(Containers.WorkspaceSpec spec, CancellationToken ct)
-    {
-        var path = await bundles.BundleAsync(spec.SourcePath, spec.Commit, ct);
-        await using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
-            await files.WriteOutStreamAsync(new Containers.OutFileSpec(spec.RunId, spec.Image, RunnerNames.Out(spec.RunId), Containers.ContainerTemplate.SourceBundleFile), file, file.Length, ct);
-        await runner.PrepareBundleWorkspaceAsync(new Containers.BundleWorkspaceSpec(spec.RunId, spec.Image, RunnerNames.Out(spec.RunId), spec.WorkVolume, spec.Branch, spec.Commit), ct);
-        // The workspace has what it needs. The output volume of a finished task is kept for days for a continuation, and the repository's history is not what it is kept for: empty the file.
-        try
-        {
-            await files.WriteOutStreamAsync(new Containers.OutFileSpec(spec.RunId, spec.Image, RunnerNames.Out(spec.RunId), Containers.ContainerTemplate.SourceBundleFile), Stream.Null, 0, ct);
-        }
-        catch (ChargehandException)
-        {
-            // Space only: a runner that did not take this keeps the file until the volume goes.
-        }
-    }
 }

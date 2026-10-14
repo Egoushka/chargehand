@@ -239,7 +239,7 @@ public class DrivenResumeTests
         // The dead session's container and work volume go, then the workspace is prepared again before the session starts again under the same run id.
         var calls = rig.Engine.Calls;
         var removed = calls.IndexOf($"rm chargehand-{cut}");
-        var volumeRemoved = calls.IndexOf($"volume-rm chargehand-work-{cut}");
+        var volumeRemoved = calls.IndexOf($"volume-rm chargehand-work-{cut}", removed);
         var prepared = calls.FindLastIndex(c => c.StartsWith($"prepare {cut} ", StringComparison.Ordinal));
         Assert.True(removed >= 0 && removed < volumeRemoved && volumeRemoved < prepared && prepared < calls.LastIndexOf($"start {cut}"), string.Join("\n", calls));
         Assert.Equal(2, calls.Count(c => c.StartsWith($"prepare {cut} ", StringComparison.Ordinal)));
@@ -284,6 +284,20 @@ public class DrivenResumeTests
         Assert.Equal(["chargehand-run-orphan", "chargehand-egress-run-old", "chargehand-prep-run-orphan", "chargehand-net-run-old", "chargehand-out-run-orphan"], removed);
         Assert.Equal(["list", "rm chargehand-run-orphan", "rm chargehand-egress-run-old", "rm chargehand-prep-run-orphan", "network-rm chargehand-net-run-old", "volume-rm chargehand-out-run-orphan"],
             rig.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task The_sweep_removes_a_finished_tasks_session_container_and_work_volume_and_keeps_its_output_volume()
+    {
+        using var rig = new DrivenRunTests.Rig(durable: true);
+        // A kill between t1's saved outcome and its teardown left its container and work volume; t2 still runs.
+        rig.Engine.Resources = new(["chargehand-run-t1", "chargehand-run-t2"], [], ["chargehand-work-run-t1", "chargehand-out-run-t1", "chargehand-work-run-t2", "chargehand-out-run-t2"]);
+        var kept = new BatchState("run-b1", DateTimeOffset.UtcNow, "t", Request("one", "two"), null,
+            [new TaskEntry("t1", null, "one", TaskPhase.HandedOver, "run-t1"), new TaskEntry("t2", null, "two", TaskPhase.Started, "run-t2")], []);
+
+        var removed = await rig.Run.SweepOrphansAsync([kept], default);
+
+        Assert.Equal(["chargehand-run-t1", "chargehand-work-run-t1"], removed);
     }
 
     [Fact]

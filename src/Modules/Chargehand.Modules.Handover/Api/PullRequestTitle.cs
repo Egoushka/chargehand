@@ -1,4 +1,4 @@
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Handover.Api;
 
 /// <summary>The title of a task's pull request: short enough to read in a list. The whole goal goes in the body, so a title does not have to hold it.</summary>
 public static class PullRequestTitle

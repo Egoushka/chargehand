@@ -1,10 +1,8 @@
 using System.Globalization;
 using System.Text.Json;
-using Chargehand.Config;
 using Chargehand.Modules.Forge.Api;
-using Chargehand.Modules.Handover.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Handover.Api;
 
 /// <param name="Partial">The pull request holds unfinished work (ADR 0044): it stays a draft and is never merged.</param>
 /// <param name="TaskGoal">The task's goal, for the goal of a fix session.</param>

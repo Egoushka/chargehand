@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using Chargehand.Kernel;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Handover.Api;
 
 public enum ChangeKind { Production, Test, Build }
 

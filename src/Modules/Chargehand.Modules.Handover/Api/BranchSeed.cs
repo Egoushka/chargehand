@@ -1,4 +1,4 @@
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Handover.Api;
 
 /// <param name="Branch">The branch on the remote, <c>chargehand/&lt;run&gt;</c>; the bundle that comes out holds this ref.</param>
 /// <param name="SourcePath">chargehand's own checkout of the base commit.</param>
