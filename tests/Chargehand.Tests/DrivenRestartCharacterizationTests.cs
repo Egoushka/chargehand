@@ -32,7 +32,7 @@ public class DrivenRestartCharacterizationTests
     private static DrivenIntegrator Merge() => new(1, 2, "app-key", new Dictionary<string, string> { ["o/r"] = "merge" });
 
     [Fact]
-    public async Task A_task_restarted_after_its_session_ended_records_that_session_a_second_time()
+    public async Task A_task_restarted_after_its_session_ended_records_that_session_once()
     {
         using var rig = new DrivenRunTests.Rig(durable: true, records: true);
         using var stop = new CancellationTokenSource();
@@ -57,10 +57,9 @@ public class DrivenRestartCharacterizationTests
         // Re-attached, not started again; the handover runs again.
         Assert.Single(rig.Engine.Started);
         Assert.Equal(2, rig.Handover.Inputs.Count);
-        // pins current behaviour; C4 decision pending: the re-attach reads the outcome again and records the one session twice (C4 brief, section 3, item 6).
-        var sessions = rig.Records.ReadTasks(BatchId).Sessions;
-        Assert.Equal(2, sessions.Count);
-        Assert.All(sessions, s => Assert.Equal((entry.RunId, "first"), (s.RunId, s.Role)));
+        // The re-attach reads the outcome again; the record written before the stop stands (CHARGEHAND-226).
+        var session = Assert.Single(rig.Records.ReadTasks(BatchId).Sessions);
+        Assert.Equal((entry.RunId, "first"), (session.RunId, session.Role));
     }
 
     /// <summary>Reports a tally past its cap and then returns its own outcome, as a task runner that finished does.</summary>
