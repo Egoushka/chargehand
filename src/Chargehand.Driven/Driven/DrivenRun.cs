@@ -18,6 +18,7 @@ using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
 using Chargehand.Results;
 using Chargehand.RunLog;
+using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Signing;
 using Chargehand.Verification;
 using Chargehand.Workspace;
@@ -298,6 +299,18 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             .. profile.Http?.Accounts?.Where(a => a.Name == actor).Select(a => a.Model?.ApiKeySecret) ?? [],
         ];
         List<string> values = [];
+        // The header lines carry a gateway's virtual key (claude_code.custom_headers_secret): the values are model credentials.
+        if (profile.ClaudeCode?.CustomHeadersSecret is { Length: > 0 } headersItem)
+        {
+            try
+            {
+                values.AddRange(ClaudeCodeSettings.HeaderValues(services!.Secret(headersItem)));
+            }
+            catch (Exception e) when (e is InvalidOperationException or ChargehandException)
+            {
+                // A secret that does not resolve is not in any transcript.
+            }
+        }
         foreach (var item in items.OfType<string>().Where(i => i.Length > 0).Distinct())
         {
             try
@@ -572,9 +585,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         BatchOutcome ran;
         try
         {
-            var router = new SiteRouter(RunnerOn, sites[0].Name, report, journal, sessionsStarted, (_admission as RunnerPool) is { } pool ? pool.Failed : null);
+            var router = new SiteRouter(RunnerOn, sites[0].Name, report, new BatchTaskState(runId, journal, null, null), sessionsStarted,
+                (_admission as RunnerPool) is { } pool ? pool.Failed : null);
             var requestMb = await AdmissionRequestAsync(TaskRunner.RepositoryKey(RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge), request.Context.Repository?.Path), drivenPreset.MemoryMb, ct);
-            ran = await new BatchScheduler(router, admission: _admission, taskRequestMb: requestMb, control: ControlOf(runId)).RunAsync(ready, limits, ct, o =>
+            ran = await new BatchScheduler(router.RunAsync, admission: _admission, taskRequestMb: requestMb, control: ControlOf(runId)).RunAsync(ready, limits, ct, o =>
             {
                 if (detaching())
                     return;
