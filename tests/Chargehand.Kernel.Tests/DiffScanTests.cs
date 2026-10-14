@@ -1,6 +1,7 @@
-using Chargehand.Driven;
+using System.Text.Json;
 
-namespace Chargehand.Tests;
+
+namespace Chargehand.Kernel.Tests;
 
 /// <summary>The backstop before a push (ADR 0039): what a session's diff may not carry out to a remote. It is a pattern list, not a guarantee.</summary>
 public class DiffScanTests
@@ -72,4 +73,11 @@ public class DiffScanTests
     [InlineData("docs/ci.md", false)]
     public void A_change_to_ci_configuration_is_named_because_pushing_it_can_run_it(string path, bool ci) =>
         Assert.Equal(ci, DiffScan.CiPaths([path, "src/a.cs"]).Contains(path));
+
+    // Redact looks for a literal's JSON-escaped form with JsonEncodedText (no reflection, for AOT); it must escape as the serializer does.
+    [Theory]
+    [InlineData("pa\"ss\\word<&>'+\u00e9\u2028\t\n")]
+    [InlineData("plain-value-123")]
+    public void A_literal_is_escaped_as_the_serializer_escapes_it(string literal) =>
+        Assert.Equal(JsonSerializer.Serialize(literal)[1..^1], JsonEncodedText.Encode(literal).Value);
 }

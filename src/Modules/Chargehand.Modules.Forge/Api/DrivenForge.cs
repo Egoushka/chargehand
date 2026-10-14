@@ -1,5 +1,6 @@
-using Chargehand.Contracts;
+using System.ComponentModel.DataAnnotations;
 using Chargehand.Kernel;
+using Microsoft.Extensions.Options;
 
 namespace Chargehand.Modules.Forge.Api;
 
@@ -8,18 +9,24 @@ namespace Chargehand.Modules.Forge.Api;
 /// <param name="Kind"><c>github</c> or <c>gitlab</c>, for every remote of the profile.</param>
 /// <param name="BaseUrl">The API root: <c>https://host/api/v4</c> for GitLab (the instance root <c>https://host</c> is accepted), <c>https://host/api/v3</c> for GitHub Enterprise. Unset: derived from the remote's host (GitLab) or api.github.com.</param>
 /// <param name="TokenSecret">GitLab only: the secret item for the API token (<c>PRIVATE-TOKEN</c>, scope <c>api</c>). Unset: <c>driven.push_secret</c>, which then needs <c>api</c> and <c>write_repository</c>.</param>
-public sealed record DrivenForge(string Kind, string? BaseUrl = null, string? TokenSecret = null)
+public sealed record DrivenForge(string Kind, string? BaseUrl = null, string? TokenSecret = null) : IValidatableObject
 {
     /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
-    public void Validate()
+    public void Validate() => SettingsValidation.ThrowIfFailed(new DrivenForgeValidator().Validate(null, this), "driven.forge",
+        "Fix driven.forge in the profile; docs/guide/driven.md lists the keys.");
+
+    IEnumerable<ValidationResult> IValidatableObject.Validate(ValidationContext validationContext) => SettingsValidation.Results(Problems());
+
+    private IEnumerable<string> Problems()
     {
-        var problems = new List<string>();
-        if (Kind is not ("github" or "gitlab")) problems.Add("kind must be github or gitlab");
+        if (Kind is not ("github" or "gitlab")) yield return "kind must be github or gitlab";
         if (BaseUrl is not null && !(Uri.TryCreate(BaseUrl, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && uri.UserInfo.Length == 0 && uri.Query.Length == 0 && uri.Fragment.Length == 0))
-            problems.Add("base_url must be an https URL without credentials, query or fragment");
-        if (TokenSecret is { } secret && string.IsNullOrWhiteSpace(secret)) problems.Add("token_secret must name a secret item");
-        if (TokenSecret is not null && Kind == "github") problems.Add("token_secret is for gitlab; GitHub uses driven.push_secret and the App");
-        if (problems.Count > 0)
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.forge: {string.Join("; ", problems)}", "Fix driven.forge in the profile; docs/guide/driven.md lists the keys.");
+            yield return "base_url must be an https URL without credentials, query or fragment";
+        if (TokenSecret is { } secret && string.IsNullOrWhiteSpace(secret)) yield return "token_secret must name a secret item";
+        if (TokenSecret is not null && Kind == "github") yield return "token_secret is for gitlab; GitHub uses driven.push_secret and the App";
     }
 }
+
+/// <summary><c>driven.forge</c>'s validator, source-generated (ADR 0060).</summary>
+[OptionsValidator]
+public sealed partial class DrivenForgeValidator : IValidateOptions<DrivenForge>;

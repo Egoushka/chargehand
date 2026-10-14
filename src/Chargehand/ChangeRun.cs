@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.Verification;
 using Chargehand.Workspace;
 
