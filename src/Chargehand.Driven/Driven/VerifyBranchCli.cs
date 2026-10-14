@@ -20,24 +20,7 @@ public static class VerifyBranchCli
         var separator = args.ToList().IndexOf("--");
         if (separator < 0 || separator == args.Count - 1)
             return Fail(error);
-        var options = args.Take(separator).ToList();
-        string? bundle = null, branch = null;
-        var work = "/work";
-        var seconds = 0;
-        for (var i = 0; i < options.Count; i += 2)
-        {
-            if (i + 1 >= options.Count)
-                return Fail(error);
-            switch (options[i])
-            {
-                case "--bundle": bundle = options[i + 1]; break;
-                case "--branch": branch = options[i + 1]; break;
-                case "--work": work = options[i + 1]; break;
-                case "--timeout-seconds" when int.TryParse(options[i + 1], out var n): seconds = n; break;
-                default: return Fail(error);
-            }
-        }
-        if (bundle is null || branch is null || !branch.StartsWith("chargehand/", StringComparison.Ordinal) || branch.Contains("..", StringComparison.Ordinal) || seconds < 1)
+        if (Options(args.Take(separator).ToList()) is not var (bundle, branch, work, seconds))
             return Fail(error);
         List<string> argv = [.. args.Skip(separator + 1)];
 
@@ -52,6 +35,30 @@ public static class VerifyBranchCli
 
         var result = await ProcessRunner.RunAsync(argv[0], argv.Skip(1), env, work, TimeSpan.FromSeconds(seconds), ct);
         return Record(output, argv, result.TimedOut ? -1 : result.ExitCode, result.OutputTail, result.TimedOut, result.Duration, commit, exitCode: 0);
+    }
+
+    /// <summary>The options before <c>--</c>; null when one is unknown, has no value, or the bundle, a <c>chargehand/</c> branch or a positive timeout is missing.</summary>
+    private static (string Bundle, string Branch, string Work, int Seconds)? Options(List<string> options)
+    {
+        string? bundle = null, branch = null;
+        var work = "/work";
+        var seconds = 0;
+        for (var i = 0; i < options.Count; i += 2)
+        {
+            if (i + 1 >= options.Count)
+                return null;
+            switch (options[i])
+            {
+                case "--bundle": bundle = options[i + 1]; break;
+                case "--branch": branch = options[i + 1]; break;
+                case "--work": work = options[i + 1]; break;
+                case "--timeout-seconds" when int.TryParse(options[i + 1], out var n): seconds = n; break;
+                default: return null;
+            }
+        }
+        if (bundle is null || branch is null || !branch.StartsWith("chargehand/", StringComparison.Ordinal) || branch.Contains("..", StringComparison.Ordinal) || seconds < 1)
+            return null;
+        return (bundle, branch, work, seconds);
     }
 
     private static int Record(TextWriter output, IReadOnlyList<string> argv, int exit, string tail, bool timedOut, TimeSpan duration, string commit, int exitCode)
