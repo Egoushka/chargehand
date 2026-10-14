@@ -8,6 +8,7 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
+using Chargehand.Modules.Runners.Api;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Server;
 using Chargehand.Workspace;

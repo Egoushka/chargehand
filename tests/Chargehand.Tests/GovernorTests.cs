@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Driven;
+using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Tests;
 

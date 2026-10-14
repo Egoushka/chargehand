@@ -15,6 +15,8 @@
     <ProjectReference Include="..\Modules\Chargehand.Modules.Intake\Chargehand.Modules.Intake.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Ledger\Chargehand.Modules.Ledger.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Memory\Chargehand.Modules.Memory.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Oversight\Chargehand.Modules.Oversight.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Runners\Chargehand.Modules.Runners.csproj" />
     <ProjectReference Include="..\Runtimes\Chargehand.Runtimes.ClaudeCode\Chargehand.Runtimes.ClaudeCode.csproj" />
     <ProjectReference Include="..\Runtimes\Chargehand.Runtimes.OpenCode\Chargehand.Runtimes.OpenCode.csproj" />
   </ItemGroup>

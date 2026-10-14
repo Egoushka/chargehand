@@ -1,5 +1,6 @@
 using Chargehand.Config;
 using Chargehand.Driven;
+using Chargehand.Modules.Oversight.Api;
 using Chargehand.Server;
 
 namespace Chargehand.Tests;

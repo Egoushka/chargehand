@@ -102,7 +102,7 @@ public class BatchRecordsTests
     {
         using var dir = new TempDir();
         var records = new BatchRecords(dir.Path);
-        var decision = new GovernorDecision(At, 12, Chargehand.Config.GovernorMode.Observe, GovernorAction.Checkpoint, "spend", "spend_checkpoint", new Dictionary<string, string> { ["spend"] = "3.4" }, 3.4m, 4m, "M", false,
+        var decision = new GovernorDecision(At, 12, Chargehand.Modules.Oversight.Api.GovernorMode.Observe, GovernorAction.Checkpoint, "spend", "spend_checkpoint", new Dictionary<string, string> { ["spend"] = "3.4" }, 3.4m, 4m, "M", false,
             new BudgetSource("history", 22, 80, "repository"));
 
         records.Append("run-1", Session("t1", "r1", reason: null));
