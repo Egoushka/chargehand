@@ -11,6 +11,7 @@ using Chargehand.Evals;
 using Chargehand.Kernel;
 using Chargehand.Mcp;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.Research.Api;
@@ -396,7 +397,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     // Batch state and the run-token key sit next to the run log (ADR 0043).
     var stateDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches");
     // What the operator console reads about a batch (events, sessions, governor decisions, checks) sits there too, one directory per batch.
-    var records = new Chargehand.Driven.BatchRecords(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "records"));
+    var records = new BatchRecords(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "records"));
     if (profile.Driven is not { Enabled: true } driven)
         return new Chargehand.Driven.DrivenRun(profile, runLog, root, null, learning: learning, records: records);
     Chargehand.Modules.Runners.Api.IContainerEngine engine;
