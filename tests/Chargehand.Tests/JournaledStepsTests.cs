@@ -170,16 +170,56 @@ public sealed class JournaledStepsTests : IDisposable
         Assert.Equal(["volume rm -f chargehand-work-run1"], Calls());
     }
 
+    [Fact]
+    public async Task The_verifications_workspace_is_prepared_again_for_each_verification_of_a_run_and_one_cut_short_runs_again_resumed()
+    {
+        var inner = new Failing { Fail = false };
+        using (var journal = await DrivenJournal.OpenAsync(State))
+        {
+            var workspace = new JournaledVerifierWorkspace(inner, journal, Batch);
+            await workspace.PrepareWorkspaceAsync(Workspace, default);
+            await workspace.PrepareWorkspaceAsync(Workspace, default);
+            Assert.Equal(2, inner.Calls);
+
+            inner.Hang = true;
+            using var cut = KilledAfterHalfASecond();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => workspace.PrepareWorkspaceAsync(Workspace, cut.Token));
+            Assert.Equal([StepKey.VerifyPrep(Batch, "run1")], await journal.UnfinishedAsync());
+        }
+
+        inner.Hang = false;
+        using (var journal = await DrivenJournal.OpenAsync(State))
+        {
+            await new JournaledVerifierWorkspace(inner, journal, Batch).PrepareWorkspaceAsync(Workspace, default);
+            Assert.Empty(await journal.UnfinishedAsync());
+            // The session's own workspace is another key: it is not recorded by a verification.
+            var sessionPrep = 0;
+            await journal.RunAsync(StepKey.Prep(Batch, "run1"), (_, _) =>
+            {
+                sessionPrep++;
+                return Task.CompletedTask;
+            });
+            Assert.Equal(1, sessionPrep);
+        }
+        Assert.Equal(4, inner.Calls);
+    }
+
     private sealed class Failing : IWorkspaceEngine
     {
         public bool Fail { get; set; } = true;
 
+        /// <summary>The prep does not end until it is cancelled.</summary>
+        public bool Hang { get; set; }
+
         public int Calls { get; private set; }
 
-        public Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct)
+        public async Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct)
         {
             Calls++;
-            return Fail ? throw new InvalidOperationException("the engine blinked") : Task.CompletedTask;
+            if (Hang)
+                await Task.Delay(Timeout.Infinite, ct);
+            if (Fail)
+                throw new InvalidOperationException("the engine blinked");
         }
     }
 }

@@ -68,21 +68,21 @@ public sealed class JournaledHandoverTests : IDisposable
         return cut;
     }
 
-    private async Task<(HandoverOutcome Outcome, List<HandoverEvent> Events)> HandOverAsync(Host host)
+    private async Task<(HandoverOutcome Outcome, List<HandoverEvent> Events)> HandOverAsync(Host host, IBranchVerifier? verifier = null)
     {
         List<HandoverEvent> events = [];
         using var journal = await DrivenJournal.OpenAsync(State);
-        var outcome = await new Handover(new HandoverTests.FakeVerifier(), host, steps: journal, batchId: Batch).RunAsync(_f.Input(with: i => i with { Report = events.Add }), default);
+        var outcome = await new Handover(verifier ?? new HandoverTests.FakeVerifier(), host, steps: journal, batchId: Batch).RunAsync(_f.Input(with: i => i with { Report = events.Add }), default);
         Assert.Empty(await journal.UnfinishedAsync());
         return (outcome, events);
     }
 
-    private async Task KilledAsync(Host host, Func<bool> reached, StepKey cutStep)
+    private async Task KilledAsync(Host host, Func<bool> reached, StepKey cutStep, IBranchVerifier? verifier = null)
     {
         using (var journal = await DrivenJournal.OpenAsync(State))
         {
             using var cut = CutWhen(reached);
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new Handover(new HandoverTests.FakeVerifier(), host, steps: journal, batchId: Batch).RunAsync(_f.Input(), cut.Token));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new Handover(verifier ?? new HandoverTests.FakeVerifier(), host, steps: journal, batchId: Batch).RunAsync(_f.Input(), cut.Token));
             Assert.Equal([cutStep], await journal.UnfinishedAsync());
         }
         File.Delete(HangFlag);
@@ -127,29 +127,71 @@ public sealed class JournaledHandoverTests : IDisposable
     public async Task A_pull_request_cut_after_the_host_opened_it_is_found_by_its_branch_after_a_restart_and_not_opened_twice()
     {
         var host = new Host { HangAfterCreate = true };
-        await KilledAsync(host, () => host.Created == 1, StepKey.PullRequest(Batch, "run1"));
+        var verifier = new HandoverTests.FakeVerifier();
+        await KilledAsync(host, () => host.Created == 1, StepKey.PullRequest(Batch, "run1"), verifier);
         host.HangAfterCreate = false;
 
-        var (outcome, events) = await HandOverAsync(host);
+        var (outcome, events) = await HandOverAsync(host, verifier);
 
         Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        // The verification finished before the cut: its recorded verdict stands, and the branch is not verified again.
+        Assert.Single(verifier.Calls);
+        Assert.Equal(0, outcome.Verification!.ExitCode);
         Assert.Equal(1, host.Created);
         Assert.Equal([(1, "chargehand/run1")], host.Open);
         Assert.Equal(1, outcome.PullRequest!.Number);
         Assert.Equal(outcome.PullRequest.Url, events.Single(e => e.Kind == RunEventKind.PrOpened).PrUrl);
     }
 
+    /// <summary>Hangs in its first verification until it is cancelled; answers red, then green, after that.</summary>
+    private sealed class HangingVerifier : IBranchVerifier
+    {
+        public int Calls { get; private set; }
+
+        public async Task<VerificationRecord> VerifyAsync(BranchVerification v, CancellationToken ct)
+        {
+            Calls++;
+            if (Calls == 1)
+                await Task.Delay(Timeout.Infinite, ct);
+            return new VerificationRecord(v.Argv, "detected", Calls == 2 ? 1 : 0, "tests ran", false, TimeSpan.FromSeconds(3), true);
+        }
+    }
+
+    [Fact]
+    public async Task A_verification_cut_short_runs_again_after_a_restart_and_a_red_verdict_recorded_then_stands()
+    {
+        var host = new Host();
+        var verifier = new HangingVerifier();
+        await KilledAsync(host, () => verifier.Calls == 1, StepKey.Verify(Batch, "run1"), verifier);
+
+        var (red, _) = await HandOverAsync(host, verifier);
+        var (again, _) = await HandOverAsync(host, verifier);
+
+        Assert.Equal(HandoverStatus.NotPushed, red.Status);
+        Assert.Equal(ErrorCode.VerificationFailed, red.Error);
+        Assert.Equal((HandoverStatus.NotPushed, 1), (again.Status, again.Verification!.ExitCode));
+        Assert.Equal(2, verifier.Calls);
+        Assert.Equal("", _f.RemoteRef("refs/heads/chargehand/run1"));
+        Assert.Equal(0, host.Created);
+    }
+
     [Fact]
     public async Task A_finished_handover_run_again_neither_reaches_the_remote_nor_opens_a_second_pull_request()
     {
         var host = new Host();
-        var (first, _) = await HandOverAsync(host);
+        var verifier = new HandoverTests.FakeVerifier();
+        var (first, _) = await HandOverAsync(host, verifier);
         // Gone: a push or a look at the remote would now fail the handover.
         Directory.Delete(_f.Remote, recursive: true);
 
-        var (again, events) = await HandOverAsync(host);
+        var (again, events) = await HandOverAsync(host, verifier);
 
         Assert.Equal(HandoverStatus.Pushed, again.Status);
+        Assert.Single(verifier.Calls);
+        // The verdict comes back as recorded (a list compares by reference, so the members are compared).
+        Assert.Equal(first.Verification!.Argv, again.Verification!.Argv);
+        Assert.Equal((first.Verification.ExitCode, first.Verification.Source, first.Verification.OutputTail, first.Verification.Duration),
+            (again.Verification.ExitCode, again.Verification.Source, again.Verification.OutputTail, again.Verification.Duration));
         Assert.Equal((first.Commit, first.PullRequest), (again.Commit, again.PullRequest));
         Assert.Equal(1, host.Created);
         Assert.Contains(events, e => e.Kind == RunEventKind.Pushed);
