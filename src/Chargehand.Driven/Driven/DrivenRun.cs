@@ -13,6 +13,7 @@ using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
@@ -20,7 +21,6 @@ using Chargehand.Results;
 using Chargehand.RunLog;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Signing;
-using Chargehand.Verification;
 using Chargehand.Workspace;
 
 namespace Chargehand.Driven;
@@ -453,9 +453,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         Action<RunStatus>? progress, Activity? span, BatchState? resume, Func<bool> detaching, Func<bool> cancelledByCaller, CancellationToken ct, string? actor = null)
     {
         var settings = profile.Driven ?? new DrivenSettings();
+        var options = new BatchOptions(settings.Enabled, settings.MaxParallel);
         // Throws when the profile has driven sessions off, so a refused request touches nothing else.
         var (resolved, unresolved) = resume is null
-            ? await DrivenBatch.PrepareAsync(request, settings, services?.TaskSource, ct, new ContinuationSource(log))
+            ? await DrivenBatch.PrepareAsync(request, options, services?.TaskSource is { } source ? source.ResolveAsync : null, ct, new ContinuationSource(log))
             : ([.. resume.Tasks.Select(t => Resumed(request, t))], resume.Unresolved);
         IReadOnlyList<ResolvedTask> ready = resolved;
         var s = services ?? throw new ChargehandException(ErrorCode.ContainerUnavailable, "driven sessions are on, but no container engine is set up for them", "Check driven.runner in the profile, or install Docker.");
@@ -471,7 +472,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var own = new AccountCredentials(profile.Http?.Accounts).For(actor);
         var priced = own is not null || claude.ApiKeySecret is not null;
         var perTaskUsd = Math.Min(kind.Budget.MaxUsd, request.Driven!.MaxUsdTotal ?? decimal.MaxValue);
-        var limits = DrivenBatch.Limits(request, settings, drivenPreset, perTaskUsd, priced, _global);
+        var limits = DrivenBatch.Limits(request, options, drivenPreset, perTaskUsd, priced, _global);
         var push = settings.PushSecret is { } pushSecret ? new PushCredential(Resolve(s, pushSecret)) : throw new ChargehandException(ErrorCode.CredentialUnavailable,
             "driven.push_secret is not set, so nothing could be pushed", "Name the secret item that holds the credential which pushes non-default branches.");
         var modelEnvironment = new Dictionary<string, string>
@@ -559,8 +560,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
                 profile.Prices, profile.Telemetry?.UsageOnSpans == true, route.Exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), integrator, shared, actor, RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge));
             var runner = new TaskRunner(site.Engine, steps is null ? site.Workspace : new JournaledWorkspaceEngine(site.Workspace, site.Engine, steps, runId),
                 steps is null ? site.Volumes : new JournaledSessionVolumes(site.Volumes, steps, runId), handover, log, mint, task, new DrivenTaskResults(s.Resolver, s.SupportCheckFor?.Invoke(actor), sign), s.Poll, publish: Stamp(site.Name),
-                state: new BatchTaskState(runId, journal, records, ControlOf(runId)), detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf,
-                outageGrace: s.OutageGrace, steps: steps);
+                state: new BatchTaskState(journal), detaching: detaching, stacker: s.Stacker, learning: learning, brancher: s.Brancher, volumesOf: volumesOf,
+                outageGrace: s.OutageGrace, steps: steps, records: records?.Tasks, stops: ControlOf(runId)?.Sessions);
             return new SiteBatch(site, net, runner);
         }
         async Task<TaskRunner> RunnerOn(string name)
@@ -585,7 +586,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         BatchOutcome ran;
         try
         {
-            var router = new SiteRouter(RunnerOn, sites[0].Name, report, new BatchTaskState(runId, journal, null, null), sessionsStarted,
+            var router = new SiteRouter(RunnerOn, sites[0].Name, report, new BatchTaskState(journal), sessionsStarted,
                 (_admission as RunnerPool) is { } pool ? pool.Failed : null);
             var requestMb = await AdmissionRequestAsync(TaskRunner.RepositoryKey(RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge), request.Context.Repository?.Path), drivenPreset.MemoryMb, ct);
             ran = await new BatchScheduler(router.RunAsync, admission: _admission, taskRequestMb: requestMb, control: ControlOf(runId)).RunAsync(ready, limits, ct, o =>

@@ -5,7 +5,7 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Oversight.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Batches.Api;
 
 /// <summary>What the retro after a batch did (ADR 0045), the batch result's <c>retro</c> artifact. A retro is advice written by a model from the batch's learning records: it can be wrong, and nothing reads it back.</summary>
 /// <param name="Status"><c>written</c> or <c>skipped</c>.</param>
@@ -18,6 +18,12 @@ public sealed record BatchRetro(string Status, string? Reason, string? RunId, in
 
     public bool Written => Status == "written";
 }
+
+/// <summary>One task in the retro prompt; the names are the ones the line had as an anonymous type.</summary>
+internal sealed record RetroLine(string Id, string Size, string SizeFrom, decimal? BudgetUsd, string BudgetSource, decimal? Usd, int Turns, int Continuations, string Outcome, string? StopReason,
+    string? GovernorMode, IReadOnlyList<RetroGovernor> Governor, bool TestIntegrityFlagged);
+
+internal sealed record RetroGovernor(string Signal, string Action, int Count, int Acted);
 
 /// <param name="Request">The batch's request: the repository the retro run is pinned to, as the planning run is.</param>
 /// <param name="RunId">The batch's run id; the retro run is recorded as its child.</param>
@@ -67,22 +73,9 @@ public sealed class ModelRetro(PlanRunner run, string preset) : IBatchRetro
         text.Append("which governor signals fired and whether the task still completed, whether the size classes look right for the spend, and one or two concrete changes (a budget, a goal that should be split). ");
         text.Append("Cite task ids. Use only the data below; where it is too thin to say, say so. Put the retro in `summary` as plain text.\n\nOne task per line, as JSON (usd is the dollar equivalent of the session's tokens, not a bill):\n");
         foreach (var r in records)
-            text.AppendLine(JsonSerializer.Serialize(new
-            {
-                id = r.TaskId,
-                size = r.SizeClass,
-                size_from = r.SizeFrom,
-                budget_usd = r.Budget.Usd,
-                budget_source = r.Budget.Source.Kind,
-                usd = r.Spend.UsdEstimate,
-                turns = r.Spend.Turns,
-                continuations = r.Spend.Continuations,
-                outcome = r.Outcome,
-                stop_reason = r.StopReason,
-                governor_mode = r.GovernorMode,
-                governor = r.Governor.Select(g => new { g.Signal, g.Action, g.Count, g.Acted }),
-                test_integrity_flagged = r.TestIntegrityFlagged,
-            }, ContractJson.Options));
+            text.AppendLine(JsonSerializer.Serialize(new RetroLine(r.TaskId, r.SizeClass, r.SizeFrom, r.Budget.Usd, r.Budget.Source.Kind, r.Spend.UsdEstimate, r.Spend.Turns, r.Spend.Continuations,
+                r.Outcome, r.StopReason, r.GovernorMode, [.. r.Governor.Select(g => new RetroGovernor(g.Signal, g.Action, g.Count, g.Acted))], r.TestIntegrityFlagged),
+                BatchesJsonContext.Contract.RetroLine));
         return text.ToString();
     }
 }

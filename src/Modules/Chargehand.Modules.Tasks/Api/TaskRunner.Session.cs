@@ -43,14 +43,14 @@ public sealed partial class TaskRunner
         var seeded = run.Best?.Commits ?? 0;
         ContainerState exited;
         var live = run.Container;
-        state?.SessionStarted(task.Id, () => engine.SignalAsync(live, "SIGKILL", CancellationToken.None));
+        stops?.Started(task.Id, () => engine.SignalAsync(live, "SIGKILL", CancellationToken.None));
         try
         {
             exited = await WaitAsync(run.Container, runId, task.Id, run.MaxMinutes, progress, run.SessionStarted, run.Prior, ct);
         }
         finally
         {
-            state?.SessionEnded(task.Id);
+            stops?.Ended(task.Id);
         }
         var sessionEnded = DateTimeOffset.UtcNow;
 

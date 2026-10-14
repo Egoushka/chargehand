@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Chargehand.Contracts;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Runtime;
 using Chargehand.Verification;
 

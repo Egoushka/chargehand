@@ -13,6 +13,7 @@ using Chargehand.Mcp;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.OpenCode;
 using Chargehand.Prompts;
@@ -434,7 +435,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
                 : new Chargehand.Modules.Sessions.Api.UnavailableSessionVolumes(), client);
         })];
     // The planning and retro runs belong to the account of the batch they serve (ADR 0050).
-    Chargehand.Driven.PlanRunner childRun = async (request, runId, parentRunId, token) =>
+    Chargehand.Modules.Batches.Api.PlanRunner childRun = async (request, runId, parentRunId, token) =>
         await orchestrator.RunAsync(request, token, runId, parentRunId: parentRunId, actor: (await runLog.ReadAsync(parentRunId, token)).Start?.Actor);
     return new Chargehand.Driven.DrivenRun(profile, runLog, root, new Chargehand.Driven.DrivenServices(engine, workspace, volumes,
         push => new Chargehand.Modules.Forge.Api.GitHubPullRequests(new HttpClient { BaseAddress = GitHubApiRoot(driven) }, push.Value),
@@ -442,8 +443,8 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck, Host: hostSource,
         Integration: IntegrationHost(driven), ForgeFor: (remote, token) => new Chargehand.Modules.Forge.Api.GitLabForge(
             new HttpClient { BaseAddress = Chargehand.Modules.Forge.Api.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token),
-        Planner: new Chargehand.Driven.ModelPlanner(childRun, driven.Planning?.Preset ?? "cheap"),
-        Retro: new Chargehand.Driven.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap"), Runners: sites),
+        Planner: new Chargehand.Modules.Batches.Api.ModelPlanner(childRun, driven.Planning?.Preset ?? "cheap"),
+        Retro: new Chargehand.Modules.Batches.Api.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap"), Runners: sites),
         stateDirectory, learning, records);
 }
 

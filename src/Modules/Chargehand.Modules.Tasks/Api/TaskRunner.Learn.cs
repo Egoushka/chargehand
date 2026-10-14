@@ -16,9 +16,7 @@ public sealed partial class TaskRunner
     /// <summary>Keeps one session for the console (CHARGEHAND-214), with the runner it ran on.</summary>
     private void RecordSession(ResolvedTask task, string role, string runId, DateTimeOffset started, DateTimeOffset ended, SessionOutcome session)
     {
-        if (state is not { KeepsRecords: true })
-            return;
-        state.Append(new SessionRecord(task.Id, runId, role, RunnerOf(task), started, ended, JsonNamingPolicy.SnakeCaseLower.ConvertName(session.Status.ToString()),
+        records?.Append(settings.BatchId, new SessionRecord(task.Id, runId, role, RunnerOf(task), started, ended, JsonNamingPolicy.SnakeCaseLower.ConvertName(session.Status.ToString()),
             session.Reason.Length > 0 ? session.Reason : null, session.Turns, session.InputTokens, session.OutputTokens, session.CacheReadTokens, session.CacheWriteTokens, session.UsdEstimate,
             settings.Priced ? session.CostUsd : null, session.ExitCode, session.Commits));
     }
@@ -26,10 +24,10 @@ public sealed partial class TaskRunner
     /// <summary>A session that ended before its outcome could be read: a cancel, or a failure to start or to read it back.</summary>
     private void RecordCutShort(ResolvedTask task, (string RunId, DateTimeOffset Started, string Role) session, Exception e)
     {
-        if (state is not { KeepsRecords: true })
+        if (records is null)
             return;
         var cancelled = e is OperationCanceledException;
-        state.Append(new SessionRecord(task.Id, session.RunId, session.Role, RunnerOf(task), session.Started, DateTimeOffset.UtcNow, cancelled ? "cancelled" : "error",
+        records.Append(settings.BatchId, new SessionRecord(task.Id, session.RunId, session.Role, RunnerOf(task), session.Started, DateTimeOffset.UtcNow, cancelled ? "cancelled" : "error",
             cancelled ? null : ChargehandException.ErrorOf(e).Message, 0, 0, 0, 0, 0, null, null, null, 0));
     }
 
@@ -38,11 +36,11 @@ public sealed partial class TaskRunner
     /// <summary>The session's <c>governor.jsonl</c> in full; the outcome file only has the first <see cref="SessionDriver.MaxGovernorDecisions"/>, which stand in for a runner too old to serve the log.</summary>
     private void RecordGovernor(ResolvedTask task, string runId, string outDirectory, SessionOutcome session)
     {
-        if (state is not { KeepsRecords: true })
+        if (records is null)
             return;
         var all = SessionDriver.ReadGovernorLog(outDirectory) ?? session.Governor ?? [];
         if (all.Count > 0)
-            state.Append(new GovernorRecord(task.Id, runId, all.Count, [.. all.Take(GovernorRecord.MaxDecisions)]));
+            records.Append(settings.BatchId, new GovernorRecord(task.Id, runId, all.Count, [.. all.Take(GovernorRecord.MaxDecisions)]));
     }
 
     private static string StopReason(SessionOutcome session) =>

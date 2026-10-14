@@ -1,9 +1,19 @@
-using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Tasks.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Batches.Api;
+
+/// <summary>The profile's <c>driven</c> keys a batch is prepared with.</summary>
+/// <param name="Enabled"><c>driven.enabled</c>.</param>
+/// <param name="MaxParallel"><c>driven.max_parallel</c>: the most tasks of one batch at once.</param>
+public sealed record BatchOptions(bool Enabled, int MaxParallel);
+
+/// <summary>Turns a tracker item id into a goal; the host supplies it from its task source.</summary>
+/// <exception cref="TaskSourceException">The item cannot be read or has no title.</exception>
+public delegate Task<string> TaskSourceResolver(string @ref, CancellationToken ct);
+
+public sealed class TaskSourceException(string message) : Exception(message);
 
 /// <summary>A request's <c>driven</c> block, made ready to run (ADR 0039): tasks resolved to goals, limits derived from the request, the profile and the
 /// preset.</summary>
@@ -14,7 +24,7 @@ public static class DrivenBatch
 
     /// <returns>The tasks ready to run, and the ones that failed to resolve (their outcome, already final).</returns>
     /// <exception cref="ChargehandException">The profile has driven sessions off; ids repeat; a task names a <c>ref</c> and no task source is configured; or a task continues one the run log cannot continue from.</exception>
-    public static async Task<(IReadOnlyList<ResolvedTask> Ready, IReadOnlyList<TaskOutcome> Failed)> PrepareAsync(RunRequest request, DrivenSettings profile, ITaskSource? source,
+    public static async Task<(IReadOnlyList<ResolvedTask> Ready, IReadOnlyList<TaskOutcome> Failed)> PrepareAsync(RunRequest request, BatchOptions profile, TaskSourceResolver? source,
         CancellationToken ct, ContinuationSource? continuations = null)
     {
         if (!profile.Enabled)
@@ -42,7 +52,7 @@ public static class DrivenBatch
             }
             try
             {
-                ready.Add(new ResolvedTask(task.Id, task.Ref, await source!.ResolveAsync(task.Ref!, ct), task.MaxTurns, task.MaxMinutes, task.Size, task.BudgetUsd, DependsOn: task.DependsOn, Title: task.Title));
+                ready.Add(new ResolvedTask(task.Id, task.Ref, await source!(task.Ref!, ct), task.MaxTurns, task.MaxMinutes, task.Size, task.BudgetUsd, DependsOn: task.DependsOn, Title: task.Title));
             }
             catch (TaskSourceException e)
             {
@@ -66,7 +76,7 @@ public static class DrivenBatch
 
     /// <param name="priced">The credential has a dollar price (an API key): the dollar cap is required and enforced. A subscription has none, so the token cap is required.</param>
     /// <param name="perTaskUsd">A task's dollar cap where the credential is priced.</param>
-    public static BatchLimits Limits(RunRequest request, DrivenSettings profile, DrivenPreset preset, decimal perTaskUsd, bool priced, SemaphoreSlim? global)
+    public static BatchLimits Limits(RunRequest request, BatchOptions profile, DrivenPreset preset, decimal perTaskUsd, bool priced, SemaphoreSlim? global)
     {
         var driven = request.Driven!;
         if (priced && driven.MaxUsdTotal is null)

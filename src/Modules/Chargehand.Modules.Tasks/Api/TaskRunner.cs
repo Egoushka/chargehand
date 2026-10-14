@@ -49,12 +49,12 @@ public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, stri
 /// session's tally changes, and the handover's <c>verify_finished</c>, <c>pushed</c> and <c>pr_opened</c>. With a <paramref name="state"/> (P3) the task's progress is saved, and a task it shows as begun is taken up where it
 /// stood after a server restart (ADR 0043). <paramref name="detaching"/> says the server is stopping rather than the run being cancelled: the session container is then left running for the next process.
 /// A task with <see cref="ResolvedTask.Upstream"/> (ADR 0049) starts from the branches of the tasks it depends on: <paramref name="stacker"/> makes one branch of them, named for this task, and its bundle seeds
-/// the first session. With a <paramref name="learning"/> store, a task that ends writes what it taught (ADR 0045). Where the <paramref name="state"/> keeps records, each session, its governor log, the pull request's checks and the CI fix
-/// attempts are kept for the console (CHARGEHAND-214). <paramref name="results"/> (P4) builds, checks and signs the task's result. With <paramref name="steps"/>, each session start is a recorded step (ADR 0061), and a start a restart cut short is taken up under its own run id.</summary>
+/// the first session. With a <paramref name="learning"/> store, a task that ends writes what it taught (ADR 0045). With <paramref name="records"/>, each session, its governor log, the pull request's checks and the CI fix
+/// attempts are kept for the console (CHARGEHAND-214), and <paramref name="stops"/> holds how an operator stops the session the task waits on. <paramref name="results"/> (P4) builds, checks and signs the task's result. With <paramref name="steps"/>, each session start is a recorded step (ADR 0061), and a start a restart cut short is taken up under its own run id.</summary>
 public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspace, ISessionVolumes volumes, IBranchHandover handover, IRunLog log, TaskTokenMinter mint,
     TaskRunnerSettings settings, ITaskResults results,
     TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, ITaskState? state = null, Func<bool>? detaching = null, IStackSeeder? stacker = null, ILearningStore? learning = null, IBranchSeeder? brancher = null,
-    Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null, DrivenJournal? steps = null) : ITaskRunner
+    Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null, DrivenJournal? steps = null, TaskRecordStore? records = null, SessionStops? stops = null) : ITaskRunner
 {
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultUsagePoll = TimeSpan.FromSeconds(5);

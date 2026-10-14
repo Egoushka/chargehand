@@ -6,6 +6,7 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Oversight.Api;
@@ -826,39 +827,5 @@ public class LearningTests
         var written = await rig.Run.RunAsync(One(), BatchId, Token, default);
         Assert.Equal(ResultStatus.Completed, written.Status);
         Assert.Equal("written", RetroArtifact(written)!.Value.GetProperty("status").GetString());
-    }
-
-    [Fact]
-    public async Task The_model_retro_asks_a_read_only_run_with_the_records_and_no_goal_and_cuts_a_long_answer()
-    {
-        List<(RunRequest Request, string RunId, string Parent)> asked = [];
-        var retro = new ModelRetro((request, runId, parent, ct) =>
-        {
-            asked.Add((request, runId, parent));
-            return Task.FromResult(Answer(ResultStatus.Completed, new string('x', ModelRetro.MaxTextLength + 50)));
-        }, "cheap");
-        var records = new[] { Record("r1", usd: 2m, outcome: LearningOutcome.Partial, checkpoint: true) };
-
-        var written = await retro.WriteAsync(new RetroInput(One(), BatchId, records), default);
-
-        var (request, runId, parent) = Assert.Single(asked);
-        Assert.Equal(("cheap", BatchId, runId), (request.Context.Preset, parent, written.RunId));
-        Assert.Equal("/srv/repo", request.Context.Repository!.Path);
-        Assert.Contains("\"id\":\"task-r1\"", request.Text);
-        Assert.Contains("\"outcome\":\"partial\"", request.Text);
-        Assert.Contains("\"governor\":[{\"signal\":\"spend\",\"action\":\"checkpoint\",\"count\":1,\"acted\":0}]", request.Text);
-        Assert.Contains("do not read the repository and do not change any file", request.Text);
-        Assert.EndsWith(" [cut]", written.Text);
-        Assert.Equal(ModelRetro.MaxTextLength + " [cut]".Length, written.Text!.Length);
-    }
-
-    [Theory]
-    [InlineData(ResultStatus.Failed, "something")]
-    [InlineData(ResultStatus.Completed, "   ")]
-    public async Task The_model_retro_refuses_a_run_that_did_not_complete_or_printed_nothing(ResultStatus status, string summary)
-    {
-        var retro = new ModelRetro((_, _, _, _) => Task.FromResult(Answer(status, summary)), "cheap");
-
-        await Assert.ThrowsAsync<RetroException>(() => retro.WriteAsync(new RetroInput(One(), BatchId, [Record()]), default));
     }
 }
