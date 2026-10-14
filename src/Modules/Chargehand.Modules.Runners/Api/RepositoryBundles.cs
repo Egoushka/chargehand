@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 
-namespace Chargehand.Modules.Handover.Api;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <summary>The repository at the pinned commit as one git bundle, for a runner that cannot see the server's checkouts (ADR 0058). The bundle holds the commit's whole history under <c>HEAD</c>, which is what
 /// a clone would fetch and what <c>git log</c> in the session shows. It is made from the server's own checkout, which sits detached at the commit (<c>git bundle create</c> refuses a bare commit and a shallow
@@ -45,16 +45,16 @@ public sealed class RepositoryBundles(string directory, long maxBytes = Reposito
         if (File.Exists(final) && new FileInfo(final) is { Length: > 0 } existing && DateTime.UtcNow - existing.LastWriteTimeUtc < (keepFor ?? TimeSpan.FromDays(1)))
             return final;
         Directory.CreateDirectory(directory);
-        var env = Handover.GitEnvironment(directory);
+        var env = GitProcess.Environment(directory);
         // The checkout is made detached at the pinned commit; anything else would send a different repository state than the one the batch is pinned to.
-        var head = await Handover.Git.RunAsync(sourcePath, env, ["rev-parse", "--verify", "HEAD^{commit}"], GitTimeout, ct);
-        var wanted = await Handover.Git.RunAsync(sourcePath, env, ["rev-parse", "--verify", "--end-of-options", $"{commit}^{{commit}}"], GitTimeout, ct);
+        var head = await GitProcess.RunAsync(sourcePath, env, ["rev-parse", "--verify", "HEAD^{commit}"], GitTimeout, ct);
+        var wanted = await GitProcess.RunAsync(sourcePath, env, ["rev-parse", "--verify", "--end-of-options", $"{commit}^{{commit}}"], GitTimeout, ct);
         if (head.ExitCode != 0 || wanted.ExitCode != 0 || head.Stdout.Trim() != wanted.Stdout.Trim())
             throw Failed($"chargehand's checkout is not at commit {commit[..Math.Min(12, commit.Length)]}, so it cannot be bundled for a runner on another machine");
         var temp = Path.Combine(directory, $"{commit}.{Guid.NewGuid():N}.tmp");
         try
         {
-            var made = await Handover.Git.RunAsync(sourcePath, env, ["bundle", "create", temp, "HEAD"], GitTimeout, ct);
+            var made = await GitProcess.RunAsync(sourcePath, env, ["bundle", "create", temp, "HEAD"], GitTimeout, ct);
             if (made.ExitCode != 0)
                 throw Failed($"could not bundle the repository: {made.Tail}");
             var length = new FileInfo(temp).Length;

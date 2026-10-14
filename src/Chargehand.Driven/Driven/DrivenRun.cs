@@ -106,7 +106,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     // With several runners (ADR 0058) the pool places each task; with one host, the memory rule of ADR 0045 alone.
     private readonly IAdmission? _admission = services?.Runners is { Count: > 0 } runners
-        ? new RunnerPool(runners, profile.Driven?.Admission ?? new DrivenAdmission(), services.Poll, log: message => Console.Error.WriteLine($"chargehand: {message}"))
+        ? new RunnerPool([.. runners.Select(r => new PoolSite(r.Config, r.Host))], profile.Driven?.Admission ?? new DrivenAdmission(), services.Poll, log: message => Console.Error.WriteLine($"chargehand: {message}"))
         : services?.Host is { } host
             ? new HostAdmission(host, profile.Driven?.Admission ?? new DrivenAdmission(), services.Poll, log: message => Console.Error.WriteLine($"chargehand: {message}"))
             : null;
@@ -131,6 +131,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     /// <summary>The runners a profile names (ADR 0058) and their admission state; null with one runner.</summary>
     public RunnerPool? Pool => _admission as RunnerPool;
+
+    /// <summary>The runners a batch may use, with the engines that reach them; empty when driven sessions are off.</summary>
+    public IReadOnlyList<RunnerSite> Sites => services is null ? [] : SitesOf(services);
 
     /// <summary>Where admission reads the host's free memory and load; null when driven sessions are off.</summary>
     public IHostSource? Host => services?.Host;
@@ -360,9 +363,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var busy = known.Except(done).ToHashSet(StringComparer.Ordinal);
         List<string> removed = [];
         var pool = _admission as RunnerPool;
+        var sites = SitesOf(services);
         if (pool is not null)
-            pool.Sweep = async (site, token) => await SweepSiteAsync(site, known, busy, token);
-        foreach (var site in SitesOf(services))
+            pool.Sweep = async (site, token) => await SweepSiteAsync(sites.First(s => s.Name == site.Name), known, busy, token);
+        foreach (var site in sites)
         {
             try
             {

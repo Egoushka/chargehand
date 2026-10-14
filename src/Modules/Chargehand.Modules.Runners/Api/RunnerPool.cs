@@ -1,12 +1,18 @@
 using System.Text.Json;
-using Chargehand.Config;
 using Chargehand.Kernel;
-using Chargehand.Modules.Runners.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Runners.Api;
+
+/// <summary>One runner as <see cref="RunnerPool"/> places tasks on it: its settings from the profile and its <c>GET /host</c>.</summary>
+/// <param name="Config">What the profile says about it.</param>
+/// <param name="Host">Its <c>GET /host</c>; null: tasks are placed on it by count only.</param>
+public sealed record PoolSite(DrivenRunnerEntry Config, IHostSource? Host = null)
+{
+    public string Name => Config.Name;
+}
 
 /// <summary>A runner as <see cref="RunnerPool.StatusAsync"/> reports it: whether it answered, why not, its last host figures and the sessions this server runs there.</summary>
-public sealed record RunnerStatus(RunnerSite Site, bool Reachable, string? Why, HostSnapshot? Snapshot, int Running, long ElapsedMs);
+public sealed record RunnerStatus(PoolSite Site, bool Reachable, string? Why, HostSnapshot? Snapshot, int Running, long ElapsedMs);
 
 /// <summary>Picks a runner for each task (ADR 0058). A runner is eligible when it answered <c>GET /host</c> within <see cref="ProbeTimeout"/> (an answer is reused for <see cref="HealthTtl"/>; a
 /// runner that did not answer is skipped for 15 seconds, then 30, doubling to 2 minutes), is not draining, has a session slot under its <c>max_sessions</c>, and passes the memory and load rule of
@@ -26,9 +32,9 @@ public sealed class RunnerPool : IAdmission, IDisposable
     /// <summary>How long no runner may be usable before the pool refuses a task.</summary>
     public static readonly TimeSpan Patience = TimeSpan.FromMinutes(15);
 
-    private sealed class State(RunnerSite site, HostAdmission admission)
+    private sealed class State(PoolSite site, HostAdmission admission)
     {
-        public RunnerSite Site { get; } = site;
+        public PoolSite Site { get; } = site;
         public HostAdmission Admission { get; } = admission;
         public HostSnapshot? Snapshot { get; set; }
         public DateTimeOffset? Probed { get; set; }
@@ -50,7 +56,7 @@ public sealed class RunnerPool : IAdmission, IDisposable
 
     /// <param name="interval">How often a waiting task asks again; <see cref="HostAdmission"/>'s default when null.</param>
     /// <param name="probeTimeout"><see cref="ProbeTimeout"/> when null.</param>
-    public RunnerPool(IReadOnlyList<RunnerSite> sites, DrivenAdmission admission, TimeSpan? interval = null, TimeProvider? time = null, Action<string>? log = null, TimeSpan? probeTimeout = null)
+    public RunnerPool(IReadOnlyList<PoolSite> sites, DrivenAdmission admission, TimeSpan? interval = null, TimeProvider? time = null, Action<string>? log = null, TimeSpan? probeTimeout = null)
     {
         _time = time ?? TimeProvider.System;
         _log = log;
@@ -61,10 +67,10 @@ public sealed class RunnerPool : IAdmission, IDisposable
 
     public TimeSpan Interval { get; }
 
-    public IReadOnlyList<RunnerSite> Sites => [.. _states.Select(s => s.Site)];
+    public IReadOnlyList<PoolSite> Sites => [.. _states.Select(s => s.Site)];
 
     /// <summary>Cleans a runner of what no batch owns the first time it answers (ADR 0043); set after the sweep at a server start. Until it has run for a runner, nothing is placed there.</summary>
-    public Func<RunnerSite, CancellationToken, Task>? Sweep { get; set; }
+    public Func<PoolSite, CancellationToken, Task>? Sweep { get; set; }
 
     /// <summary>The runner did not answer at the sweep at a server start: it is swept before its first task.</summary>
     public void MarkUnswept(string runner)
@@ -117,37 +123,7 @@ public sealed class RunnerPool : IAdmission, IDisposable
 
             var now = _time.GetUtcNow();
             List<string> reasons = [];
-            List<(State State, HostAssessment Assessment)> candidates = [];
-            var usable = 0;
-            foreach (var state in _states)
-            {
-                var probe = await ProbeAsync(state, ct);
-                if (!probe.Healthy)
-                {
-                    reasons.Add($"{state.Site.Name}: {probe.Why}");
-                    continue;
-                }
-                if (probe.Snapshot is { IsDraining: true } draining)
-                {
-                    reasons.Add($"{state.Site.Name}: draining{(draining.StateReason is null ? "" : $" ({draining.StateReason})")}");
-                    continue;
-                }
-                usable++;
-                if (state.Site.Config.MaxSessions is { } max && state.Admission.Running >= max)
-                {
-                    reasons.Add($"{state.Site.Name}: {state.Admission.Running} of {max} sessions running");
-                    continue;
-                }
-                var assessment = state.Admission.Assess(probe.Snapshot, requestMb);
-                if (!assessment.Known && !state.SaidUnknown)
-                {
-                    state.SaidUnknown = true;
-                    _log?.Invoke($"admission: runner '{state.Site.Name}' reports neither memory nor load; tasks are placed on it by count only");
-                }
-                candidates.Add((state, assessment));
-                if (!assessment.Fits)
-                    reasons.Add($"{state.Site.Name}: {assessment.Detail}");
-            }
+            var (candidates, usable) = await CandidatesAsync(requestMb, reasons, ct);
 
             if (usable == 0)
             {
@@ -186,6 +162,44 @@ public sealed class RunnerPool : IAdmission, IDisposable
         _gate.Dispose();
         foreach (var state in _states)
             state.Admission.Dispose();
+    }
+
+    /// <summary>Every runner that answered and is not draining counts as usable; of those, the ones with a session slot are assessed against <paramref name="requestMb"/>. Why each one
+    /// cannot take the task goes into <paramref name="reasons"/>.</summary>
+    private async Task<(List<(State State, HostAssessment Assessment)> Candidates, int Usable)> CandidatesAsync(int requestMb, List<string> reasons, CancellationToken ct)
+    {
+        List<(State State, HostAssessment Assessment)> candidates = [];
+        var usable = 0;
+        foreach (var state in _states)
+        {
+            var probe = await ProbeAsync(state, ct);
+            if (!probe.Healthy)
+            {
+                reasons.Add($"{state.Site.Name}: {probe.Why}");
+                continue;
+            }
+            if (probe.Snapshot is { IsDraining: true } draining)
+            {
+                reasons.Add($"{state.Site.Name}: draining{(draining.StateReason is null ? "" : $" ({draining.StateReason})")}");
+                continue;
+            }
+            usable++;
+            if (state.Site.Config.MaxSessions is { } max && state.Admission.Running >= max)
+            {
+                reasons.Add($"{state.Site.Name}: {state.Admission.Running} of {max} sessions running");
+                continue;
+            }
+            var assessment = state.Admission.Assess(probe.Snapshot, requestMb);
+            if (!assessment.Known && !state.SaidUnknown)
+            {
+                state.SaidUnknown = true;
+                _log?.Invoke($"admission: runner '{state.Site.Name}' reports neither memory nor load; tasks are placed on it by count only");
+            }
+            candidates.Add((state, assessment));
+            if (!assessment.Fits)
+                reasons.Add($"{state.Site.Name}: {assessment.Detail}");
+        }
+        return (candidates, usable);
     }
 
     private static AdmissionDecision Place(State state, int requestMb, string? detail)

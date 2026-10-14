@@ -4,7 +4,6 @@ using System.Text;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
-using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Server;
@@ -107,15 +106,15 @@ public sealed class RemoteWorkspaceTests : IDisposable
     {
         _source = Path.Combine(_dir.Path, "checkout");
         Directory.CreateDirectory(_source);
-        RepositoryBundlesTests.Git(_source, "init", "-q", "-b", "main");
+        TestGit.Run(_source, "init", "-q", "-b", "main");
         File.WriteAllText(Path.Combine(_source, "a.txt"), "one\n");
-        RepositoryBundlesTests.Git(_source, "add", "-A");
-        RepositoryBundlesTests.Git(_source, "commit", "-q", "-m", "one");
+        TestGit.Run(_source, "add", "-A");
+        TestGit.Run(_source, "commit", "-q", "-m", "one");
         File.WriteAllText(Path.Combine(_source, "b.txt"), "two\n");
-        RepositoryBundlesTests.Git(_source, "add", "-A");
-        RepositoryBundlesTests.Git(_source, "commit", "-q", "-m", "two");
-        _commit = RepositoryBundlesTests.Git(_source, "rev-parse", "HEAD").Trim();
-        RepositoryBundlesTests.Git(_source, "checkout", "-q", "--detach", _commit);
+        TestGit.Run(_source, "add", "-A");
+        TestGit.Run(_source, "commit", "-q", "-m", "two");
+        _commit = TestGit.Run(_source, "rev-parse", "HEAD").Trim();
+        TestGit.Run(_source, "checkout", "-q", "--detach", _commit);
     }
 
     public void Dispose() => _dir.Dispose();
@@ -160,11 +159,11 @@ public sealed class RemoteWorkspaceTests : IDisposable
         // What arrived is a bundle git accepts, and a clone of it is the repository at the commit.
         var received = Path.Combine(_dir.Path, "received.bundle");
         await File.WriteAllBytesAsync(received, sent);
-        RepositoryBundlesTests.Git(_source, "bundle", "verify", received);
+        TestGit.Run(_source, "bundle", "verify", received);
         var clone = Path.Combine(_dir.Path, "clone");
-        RepositoryBundlesTests.Git(_dir.Path, "clone", "-q", "--no-checkout", received, clone);
-        RepositoryBundlesTests.Git(clone, "checkout", "-q", "-b", "chargehand/run1", _commit);
-        Assert.Equal(["two", "one"], RepositoryBundlesTests.Git(clone, "log", "--format=%s").Trim().Split('\n'));
+        TestGit.Run(_dir.Path, "clone", "-q", "--no-checkout", received, clone);
+        TestGit.Run(clone, "checkout", "-q", "-b", "chargehand/run1", _commit);
+        Assert.Equal(["two", "one"], TestGit.Run(clone, "log", "--format=%s").Trim().Split('\n'));
     }
 
     [Fact]
@@ -292,11 +291,11 @@ public sealed class RemoteWorkspaceTests : IDisposable
         var work = Path.Combine(_dir.Path, "session");
         Directory.CreateDirectory(work);
         File.WriteAllText(Path.Combine(work, "c.txt"), "three\n");
-        RepositoryBundlesTests.Git(work, "init", "-q", "-b", "main");
-        RepositoryBundlesTests.Git(work, "add", "-A");
-        RepositoryBundlesTests.Git(work, "commit", "-q", "-m", "three");
+        TestGit.Run(work, "init", "-q", "-b", "main");
+        TestGit.Run(work, "add", "-A");
+        TestGit.Run(work, "commit", "-q", "-m", "three");
         var resultBundle = Path.Combine(_dir.Path, "result.bundle");
-        RepositoryBundlesTests.Git(work, "bundle", "create", resultBundle, "main");
+        TestGit.Run(work, "bundle", "create", resultBundle, "main");
         var bytes = await File.ReadAllBytesAsync(resultBundle);
         remote.Engine.Files["chargehand-out-run1/chargehand.bundle"] = bytes;
         remote.Engine.Files["chargehand-out-run1/session-outcome.json"] = """{"status":"completed"}"""u8.ToArray();
@@ -309,7 +308,7 @@ public sealed class RemoteWorkspaceTests : IDisposable
         Assert.Equal(bytes, await File.ReadAllBytesAsync(Path.Combine(into, "chargehand.bundle")));
         Assert.Equal("""{"status":"completed"}""", await File.ReadAllTextAsync(Path.Combine(into, "session-outcome.json")));
         Assert.False(File.Exists(Path.Combine(into, "driven-report.json")));       // the session wrote none
-        RepositoryBundlesTests.Git(work, "bundle", "verify", Path.Combine(into, "chargehand.bundle"));
+        TestGit.Run(work, "bundle", "verify", Path.Combine(into, "chargehand.bundle"));
     }
 
     [Fact]
