@@ -55,9 +55,10 @@ public sealed partial class TaskRunner
         var sessionEnded = DateTimeOffset.UtcNow;
 
         await Tolerant(task.Id, () => volumes.FetchOutputAsync(runId, outDirectory, ct), ct);
-        state?.Update(task.Id, e => e with { Phase = TaskPhase.Finished });
         run.Session = SessionDriver.ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, exited.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, exited.ExitCode, [], false);
         NoteSession(task, run, sessionEnded);
+        // Saved after the session's events are published: a task that is Finished has published them, and a restart that reads the outcome again does not.
+        state?.Update(task.Id, e => e with { Phase = TaskPhase.Finished });
         var session = run.Session;
         var reportFile = Path.Combine(outDirectory, "driven-report.json");
         run.ReportJson = File.Exists(reportFile) ? await File.ReadAllTextAsync(reportFile, ct) : null;
@@ -68,17 +69,18 @@ public sealed partial class TaskRunner
         return Continues(session, run.Continuation, run.Total, run.Best, seeded);
     }
 
-    /// <summary>The session's governor decisions, records, question and span.</summary>
+    /// <summary>The session's governor decisions, records, question and span. An outcome read again after a restart (the task was saved Finished) publishes no events: they were published before.</summary>
     private void NoteSession(ResolvedTask task, TaskRun run, DateTimeOffset sessionEnded)
     {
         var session = run.Session;
+        var reread = run.Resumed is { Phase: TaskPhase.Finished } resumed && resumed.RunId == run.RunId;
         run.Decisions.AddRange(session.Governor ?? []);
-        foreach (var d in session.Governor ?? [])
+        foreach (var d in reread ? [] : session.Governor ?? [])
             Publish(task.Id, RunEventKind.Governor, Describe(d));
         RecordSession(task, run.Open!.Value.Role, run.RunId, run.SessionStarted, sessionEnded, session);
         RecordGovernor(task, run.RunId, run.OutDirectory, session);
         run.Open = null;
-        if (session.Status == SessionStatus.NeedsInput)
+        if (session.Status == SessionStatus.NeedsInput && !reread)
             Publish(task.Id, RunEventKind.Question, session.Questions.Count > 0 ? $"the session asked:\n{string.Join('\n', session.Questions.Select(q => $"- {q}"))}" : "the session asked for input but named no question");
         using var call = Telemetry.Source.StartActivity(DrivenTelemetry.SessionSpan, ActivityKind.Client, run.Span?.Context ?? default, startTime: run.SessionStarted);
         DrivenTelemetry.TagSession(call, session, settings.Prices ?? new Dictionary<string, ModelPrice>(), settings.UsageOnSpans);
