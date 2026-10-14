@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Driven;
+using Chargehand.Modules.Forge.Api;
 
 namespace Chargehand.Automation;
 

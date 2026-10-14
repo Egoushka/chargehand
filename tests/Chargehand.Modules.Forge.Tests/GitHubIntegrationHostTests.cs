@@ -1,8 +1,8 @@
 using System.Net;
 using System.Text.Json;
-using Chargehand.Driven;
+using Chargehand.Modules.Forge.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Forge.Tests;
 
 /// <summary>ADR 0046: the integrator's calls to GitHub, as the App. Every request carries the installation token in its header and nowhere else; every merge is pinned to a head commit and is squash.</summary>
 public class GitHubIntegrationHostTests

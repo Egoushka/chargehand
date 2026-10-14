@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Forge.Api;
 
 /// <summary>GitLab over REST API v4, with one token (<c>PRIVATE-TOKEN</c>) for everything (ADR 0046, ADR 0047). A pull request is a merge request: a draft is a title that starts with <c>Draft:</c>,
 /// auto-merge is <c>merge_when_pipeline_succeeds</c> pinned to the head commit, and "the required checks" are the jobs of the head pipeline that are not allowed to fail, because GitLab's gate is
@@ -30,7 +30,7 @@ public sealed partial class GitLabForge(HttpClient http, string token) : IForge
         try
         {
             using var request = Request(HttpMethod.Post, $"{ProjectPath(repo)}/merge_requests",
-                new { source_branch = head, target_branch = @base, title = DraftPrefix().IsMatch(title) ? title : $"Draft: {title}", description = body });
+                new MergeRequestDraft(head, @base, DraftPrefix().IsMatch(title) ? title : $"Draft: {title}", body));
             response = await http.SendAsync(request, ct);
         }
         catch (HttpRequestException e)
@@ -64,7 +64,7 @@ public sealed partial class GitLabForge(HttpClient http, string token) : IForge
         {
             using var current = JsonDocument.Parse(await RestAsync(HttpMethod.Get, MergeRequestPath(repo, number), null, "the merge request's title", ct));
             var isDraft = current.RootElement.TryGetProperty("title", out var t) && DraftPrefix().IsMatch(t.GetString() ?? "");
-            await RestAsync(HttpMethod.Put, MergeRequestPath(repo, number), new { title = isDraft && !DraftPrefix().IsMatch(title) ? $"Draft: {title}" : title, description = body }, "the edit", ct);
+            await RestAsync(HttpMethod.Put, MergeRequestPath(repo, number), new TitleAndDescription(isDraft && !DraftPrefix().IsMatch(title) ? $"Draft: {title}" : title, body), "the edit", ct);
         }
         catch (IntegrationException e)
         {
@@ -124,7 +124,7 @@ public sealed partial class GitLabForge(HttpClient http, string token) : IForge
         using var mr = JsonDocument.Parse(await RestAsync(HttpMethod.Get, MergeRequestPath(repository, number), null, "the merge request's head", ct));
         if (mr.RootElement.TryGetProperty("sha", out var sha) && sha.GetString() != expectedHeadSha)
             throw new IntegrationException("the merge request's head moved, so the branch was not rebased");
-        await RestAsync(HttpMethod.Put, $"{MergeRequestPath(repository, number)}/rebase", new { }, "the rebase", ct);
+        await RestAsync(HttpMethod.Put, $"{MergeRequestPath(repository, number)}/rebase", new NoFields(), "the rebase", ct);
     }
 
     /// <summary>The handle names the project and the number; <paramref name="repository"/> is not needed here (one token serves every project).</summary>
@@ -134,20 +134,20 @@ public sealed partial class GitLabForge(HttpClient http, string token) : IForge
         using var mr = JsonDocument.Parse(await RestAsync(HttpMethod.Get, MergeRequestPath(project, number), null, "the merge request's title", ct));
         var title = mr.RootElement.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
         if (DraftPrefix().IsMatch(title))
-            await RestAsync(HttpMethod.Put, MergeRequestPath(project, number), new { title = DraftPrefix().Replace(title, "") }, "marking the merge request ready", ct);
+            await RestAsync(HttpMethod.Put, MergeRequestPath(project, number), new TitleOnly(DraftPrefix().Replace(title, "")), "marking the merge request ready", ct);
     }
 
     public async Task EnableAutoMergeAsync(RemoteRepository repository, string nodeId, string headSha, CancellationToken ct)
     {
         var (project, number) = Handle(nodeId);
-        await RestAsync(HttpMethod.Put, $"{MergeRequestPath(project, number)}/merge", new { merge_when_pipeline_succeeds = true, sha = headSha, squash = true }, "enabling auto-merge", ct);
+        await RestAsync(HttpMethod.Put, $"{MergeRequestPath(project, number)}/merge", new AutoMergeRequest(MergeWhenPipelineSucceeds: true, headSha, Squash: true), "enabling auto-merge", ct);
     }
 
     public async Task MergeNowAsync(RemoteRepository repository, int number, string headSha, CancellationToken ct) =>
-        await RestAsync(HttpMethod.Put, $"{MergeRequestPath(repository, number)}/merge", new { sha = headSha, squash = true }, "the merge", ct);
+        await RestAsync(HttpMethod.Put, $"{MergeRequestPath(repository, number)}/merge", new GitLabMerge(headSha, Squash: true), "the merge", ct);
 
     public async Task CommentAsync(RemoteRepository repository, int number, string body, CancellationToken ct) =>
-        await RestAsync(HttpMethod.Post, $"{MergeRequestPath(repository, number)}/notes", new { body }, "the comment", ct);
+        await RestAsync(HttpMethod.Post, $"{MergeRequestPath(repository, number)}/notes", new CommentBody(body), "the comment", ct);
 
     public async Task<string> JobLogTailAsync(RemoteRepository repository, long jobId, int maxChars, CancellationToken ct)
     {
@@ -223,7 +223,7 @@ public sealed partial class GitLabForge(HttpClient http, string token) : IForge
     {
         var request = new HttpRequestMessage(method, path);
         if (body is not null)
-            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+            request.Content = new StringContent(JsonSerializer.Serialize(body, body.GetType(), ForgeJsonContext.Default), Encoding.UTF8, "application/json");
         request.Headers.Add("PRIVATE-TOKEN", token);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("chargehand", "1"));

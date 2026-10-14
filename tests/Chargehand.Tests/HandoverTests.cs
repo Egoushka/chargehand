@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Forge.Api;
 
 namespace Chargehand.Tests;
 

@@ -3,9 +3,8 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Chargehand.Modules.Forge.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Forge.Api;
 
 /// <param name="Owner">The owner on GitHub; on GitLab the namespace, which can be nested (<c>group/subgroup</c>).</param>
 /// <param name="Forge">The code host of the remote; <see cref="Parse(string)"/> only reads GitHub's shape, <see cref="Parse(string, DrivenForge?)"/> decides.</param>
@@ -55,7 +54,7 @@ public sealed class GitHubPullRequests(HttpClient http, string token) : IPullReq
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Name)}/pulls")
         {
-            Content = new StringContent(JsonSerializer.Serialize(new { title, head, @base, body, draft = true, maintainer_can_modify = false }), Encoding.UTF8, "application/json"),
+            Content = new StringContent(JsonSerializer.Serialize(new DraftPullRequest(title, head, @base, body, Draft: true, MaintainerCanModify: false), ForgeJsonContext.Default.DraftPullRequest), Encoding.UTF8, "application/json"),
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
@@ -95,7 +94,7 @@ public sealed class GitHubPullRequests(HttpClient http, string token) : IPullReq
     {
         using var request = new HttpRequestMessage(HttpMethod.Patch, $"repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Name)}/pulls/{number.ToString(System.Globalization.CultureInfo.InvariantCulture)}")
         {
-            Content = new StringContent(JsonSerializer.Serialize(new { title, body }), Encoding.UTF8, "application/json"),
+            Content = new StringContent(JsonSerializer.Serialize(new TitleAndBody(title, body), ForgeJsonContext.Default.TitleAndBody), Encoding.UTF8, "application/json"),
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));

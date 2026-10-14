@@ -1,8 +1,8 @@
 using System.Net;
 using System.Text.Json;
-using Chargehand.Driven;
+using Chargehand.Modules.Forge.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Forge.Tests;
 
 /// <summary>The one thing chargehand does on a code host: open a draft pull request (ADR 0039). It has no way to merge, and no way to open anything else.</summary>
 public class GitHubPullRequestsTests
