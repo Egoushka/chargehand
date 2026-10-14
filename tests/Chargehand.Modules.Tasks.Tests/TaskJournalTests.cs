@@ -124,6 +124,31 @@ public sealed class TaskJournalTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task An_event_the_tasks_phase_does_not_take_is_refused_and_not_written()
+    {
+        var tasks = await TaskJournal.OpenAsync(_journal, Batch, [Planned]);
+        await tasks.FinishedAsync(Completed);
+
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => tasks.PlacedAsync("t1", "r2"));
+
+        Assert.Contains("TaskPlaced does not apply to task t1, which is ended", refused.Message, StringComparison.Ordinal);
+        Assert.Equal(["finished"], (await _journal.ReadEventsAsync(TaskJournal.FlowOf(Batch))).Select(e => e.Kind));
+        Assert.Null(tasks.Entry("t1")!.Runner);
+    }
+
+    /// <summary>A flow written by hand or by a bug: an event its phase does not take is skipped on replay, and the ones after it fold.</summary>
+    [Fact]
+    public async Task A_refused_event_in_the_flow_is_skipped_on_replay()
+    {
+        await _journal.AppendEventAsync(TaskJournal.FlowOf(Batch), "container_started", """{"task":"t1","container":"chargehand-run-1"}""");
+        await _journal.AppendEventAsync(TaskJournal.FlowOf(Batch), "placed", """{"task":"t1","runner":"r1"}""");
+
+        var tasks = await TaskJournal.OpenAsync(_journal, Batch, [Planned]);
+
+        Assert.Equal(Shown(Planned with { Runner = "r1" }), Shown(tasks.Entry("t1")!));
+    }
+
+    [Fact]
     public async Task A_task_the_batch_does_not_have_changes_nothing_and_writes_nothing()
     {
         var tasks = await TaskJournal.OpenAsync(_journal, Batch, [Planned]);

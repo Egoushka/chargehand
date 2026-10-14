@@ -44,16 +44,37 @@ internal abstract record TaskCommand;
 /// <summary>Keep the event in the journal's <c>&lt;batch&gt;/tasks</c> flow (<see cref="TaskJournal"/>).</summary>
 internal sealed record JournalTaskEvent(TaskEvent Event) : TaskCommand;
 
+/// <summary>The event does not apply in the entry's phase: nothing is kept and the entry stays as it is. A writer that asks for it has a bug; on a replay of the flow it is skipped.</summary>
+internal sealed record RefuseTaskEvent(string Why) : TaskCommand;
+
 /// <summary>Tell the batch the task ended. The batch carries it out: its scheduler gets the outcome back from the run and appends the end again after its caps
 /// (<see cref="TaskJournal.FinishedAsync"/>).</summary>
 internal sealed record ReportTaskEnd(TaskOutcome Outcome) : TaskCommand;
 
 /// <summary>A task's entry as a state machine (C4 brief, section 3): Pending → Started → Finished, Started again for each continuation (or back to Finished when one cannot start), then
-/// HandedOver or Failed; a replace goes back to Pending. Pure: no I/O, no clock. Every event applies in any phase, as the writes it replaces did.</summary>
+/// HandedOver or Failed; a replace goes back to Pending. Pure: no I/O, no clock. Since the journal is the source of the entry, an event its phase does not take is refused (<see cref="Refusal"/>).</summary>
 internal static class TaskMachine
 {
     public static (TaskEntry State, IReadOnlyList<TaskCommand> Commands) Decide(TaskEntry state, TaskEvent input) =>
-        (Fold(state, input), input is TaskFinished finished ? [new JournalTaskEvent(input), new ReportTaskEnd(finished.Outcome)] : [new JournalTaskEvent(input)]);
+        Refusal(state, input) is { } why ? (state, [new RefuseTaskEvent(why)])
+        : (Fold(state, input), input is TaskFinished finished ? [new JournalTaskEvent(input), new ReportTaskEnd(finished.Outcome)] : [new JournalTaskEvent(input)]);
+
+    /// <summary>Why the entry's phase does not take the event; null: it does. An ended task (handed over, or failed with its outcome) takes only another end, as the scheduler's cap rewrite is
+    /// (C4 brief, section 3, item 1), and an import. A run's events need a begun task (Started or Finished): a continuation begins from a read session (Finished) and fails back from its start
+    /// (Started). The placement, the first start and a replace come before or instead of a run, so any phase but an ended one takes them.</summary>
+    private static string? Refusal(TaskEntry e, TaskEvent input)
+    {
+        var ended = e is { Phase: TaskPhase.HandedOver } or { Phase: TaskPhase.Failed, Outcome: not null };
+        var takes = input switch
+        {
+            TaskFinished or TaskImported => true,
+            TaskPlaced or TaskBegan or TaskReplaced => !ended,
+            TaskContinuationBegan => e.Phase == TaskPhase.Finished,
+            TaskContinuationFailed => e.Phase == TaskPhase.Started,
+            _ => e.Phase is TaskPhase.Started or TaskPhase.Finished,
+        };
+        return takes ? null : $"{input.GetType().Name} does not apply to task {e.Id}, which is {(ended ? "ended" : e.Phase.ToString().ToLowerInvariant())}";
+    }
 
     private static TaskEntry Fold(TaskEntry e, TaskEvent input) => input switch
     {

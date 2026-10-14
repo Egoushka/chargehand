@@ -97,6 +97,7 @@ public sealed class TaskJournal : IDisposable
     }
 
     /// <summary>Appends the event and folds it in. A cancel of the caller does not stop it: the change happened, as a saved snapshot did before. A task the batch does not have changes nothing.</summary>
+    /// <exception cref="InvalidOperationException">The task's phase does not take the event (<see cref="RefuseTaskEvent"/>); nothing is appended.</exception>
     internal async Task RecordAsync(string taskId, TaskEvent e)
     {
         await _write.WaitAsync(CancellationToken.None).ConfigureAwait(false);
@@ -105,6 +106,8 @@ public sealed class TaskJournal : IDisposable
             if (Entry(taskId) is not { } entry)
                 return;
             var (next, commands) = TaskMachine.Decide(entry, e);
+            if (commands.OfType<RefuseTaskEvent>().FirstOrDefault() is { } refused)
+                throw new InvalidOperationException(refused.Why);
             // ReportTaskEnd is the batch's to carry out (see the command).
             foreach (var journal in commands.OfType<JournalTaskEvent>())
             {
