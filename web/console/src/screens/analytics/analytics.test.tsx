@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AnalyticsBody, PrCounts, SeriesPoint } from '../../api/analytics';
 import { SlotMemory } from '../../charts/colors';
 import { formatInterval, wilson } from '../../charts/stats';
@@ -592,6 +592,15 @@ const pressed = (name: string) =>
   screen.getByRole('button', { name }).getAttribute('aria-pressed') === 'true';
 
 describe('Analytics', () => {
+  // The fixtures and the screen both read the clock; a fixed one keeps the buckets and the series order the same on every run.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse('2026-10-14T12:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('shows spend, pass rate, false stops and merges as figures, each with the field it is read from', async () => {
     const t = now();
     const body = generated({ since: '30d', bucket: 'day', group_by: 'repository' }, t);
@@ -646,17 +655,24 @@ describe('Analytics', () => {
     const head = within(rows[0] as HTMLElement)
       .getAllByRole('columnheader')
       .map((c) => c.textContent);
-    expect(head).toEqual(['Bucket (UTC)', ...REPOS, 'Total']);
+    // The series run largest first, so which repository leads is the data's to say, not the test's.
+    expect(head[0]).toBe('Bucket (UTC)');
+    expect(head.slice(1, -1).sort()).toEqual([...REPOS].sort());
+    expect(head.at(-1)).toBe('Total');
     // The total column is the sum of the others, to the cent.
     let checked = 0;
+    const columns = [0, 0, 0];
     for (const row of rows.slice(1)) {
       const cells = within(row)
         .getAllByRole('cell')
         .map((c) => Number((c.textContent ?? '').replace(/[^0-9.]/g, '')));
       if (cells.length !== 5) continue;
       expect(cells[4]).toBeCloseTo((cells[1] ?? 0) + (cells[2] ?? 0) + (cells[3] ?? 0), 1);
+      for (let i = 0; i < 3; i++) columns[i] = (columns[i] ?? 0) + (cells[i + 1] ?? 0);
       checked += 1;
     }
+    expect(columns[0]).toBeGreaterThanOrEqual(columns[1] ?? 0);
+    expect(columns[1]).toBeGreaterThanOrEqual(columns[2] ?? 0);
     expect(checked).toBeGreaterThan(20);
     fireEvent.click(spend.getByRole('button', { name: 'Hide data' }));
     expect(spend.queryByRole('table')).toBeNull();

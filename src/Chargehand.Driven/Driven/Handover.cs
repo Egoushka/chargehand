@@ -72,7 +72,7 @@ public sealed record ChangeSummary(IReadOnlyList<FileChange> Files, string? Diff
 /// fetches the session's bundle into it (a bundle is objects and refs, no configuration, no hooks), and then checks the branch itself: it descends from the base, it changes
 /// something, its diff carries no secret and no CI configuration, and the repository's tests pass in a fresh container. Only then does it push <c>chargehand/&lt;run&gt;</c>
 /// (never anything else, never forced) with a credential that cannot push the default branch, and open a <b>draft</b> pull request. It never merges. A session that says
-/// its tests pass is not believed: the verification here is chargehand's own. With <paramref name="steps"/>, the push and the pull request are recorded steps of batch <paramref name="batchId"/>
+/// its tests pass is not believed: the verification here is chargehand's own. With <paramref name="steps"/>, the verification, the push and the pull request are recorded steps of batch <paramref name="batchId"/>
 /// (ADR 0061), keyed by the handed-over run: a finished one is not done again, and one a restart cut short first looks for what it may have left (the branch at the commit, an open pull request
 /// for the branch).</summary>
 public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pullRequests, DrivenForge? forge = null, DrivenJournal? steps = null, string? batchId = null) : IBranchHandover
@@ -159,17 +159,15 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         }
         else
         {
-            VerificationRecord raw;
             try
             {
-                raw = await verifier.VerifyAsync(new BranchVerification(input.RunId, bundle, input.Branch, plan.Argv, input.VerifyTimeout ?? TimeSpan.FromMinutes(10)), ct);
+                verification = await VerifyAsync(new BranchVerification(input.RunId, bundle, input.Branch, plan.Argv, input.VerifyTimeout ?? TimeSpan.FromMinutes(10)), plan.Source, secrets, ct);
             }
             catch (Exception e) when (input.Partial && e is not OperationCanceledException)
             {
                 // The work is kept whether or not the tests could run; say that they did not.
-                raw = new VerificationRecord(plan.Argv, plan.Source, -1, $"the verification could not run: {e.Message}", false, TimeSpan.Zero, false);
+                verification = new VerificationRecord(plan.Argv, plan.Source, -1, Redact($"the verification could not run: {e.Message}", secrets), false, TimeSpan.Zero, false);
             }
-            verification = raw with { Source = plan.Source, OutputTail = Redact(raw.OutputTail, secrets) };
             var passed = verification.ExitCode == 0 && !verification.TimedOut;
             input.Report?.Invoke(new HandoverEvent(RunEventKind.VerifyFinished, string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"tests {(passed ? "passed" : verification.TimedOut ? "timed out" : $"failed (exit {verification.ExitCode})")} in {verification.Duration.TotalSeconds:0}s: {string.Join(' ', verification.Argv)}")));
@@ -219,6 +217,18 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         {
             return new(HandoverStatus.PrFailed, Redact(e.Message, secrets), ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity);
         }
+    }
+
+    /// <summary>The verification as step <c>handover/&lt;run&gt;/verify</c>, redacted before it is recorded. A run id has one bundle, so its recorded verdict, passed or failed, stands for the
+    /// branch: a resumed handover does not verify again. A verifier that throws is recorded as a failure, so the next handover verifies again.</summary>
+    private async Task<VerificationRecord> VerifyAsync(BranchVerification verification, string source, IReadOnlyList<string> secrets, CancellationToken ct)
+    {
+        async Task<VerificationRecord> Verify(StepAttempt attempt, CancellationToken token)
+        {
+            var raw = await verifier.VerifyAsync(verification, token);
+            return raw with { Source = source, OutputTail = Redact(raw.OutputTail, secrets) };
+        }
+        return steps is null ? await Verify(new StepAttempt(1, false), ct) : await steps.RunAsync(StepKey.Verify(batchId!, verification.RunId), Verify, HandoverSteps.Default.VerificationRecord, ct);
     }
 
     /// <summary>The push as step <c>handover/&lt;run&gt;/push</c>. Run again, it asks the remote first: a branch that already holds the commit is taken as pushed, so it is not pushed twice.</summary>
@@ -437,6 +447,7 @@ internal sealed record PushedBranch(string Branch, string Commit, bool Adopted =
 /// <summary>The recorded result of a handover's pull request: <paramref name="OnFallback"/> when it was opened against the fallback base.</summary>
 internal sealed record OpenedPullRequest(PullRequestRef PullRequest, bool OnFallback);
 
+[JsonSerializable(typeof(VerificationRecord))]
 [JsonSerializable(typeof(PushedBranch))]
 [JsonSerializable(typeof(OpenedPullRequest))]
 internal sealed partial class HandoverSteps : JsonSerializerContext;

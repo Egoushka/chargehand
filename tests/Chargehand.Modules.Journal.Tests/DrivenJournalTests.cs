@@ -24,6 +24,8 @@ public sealed class DrivenJournalTests : IDisposable
         Assert.Equal(new StepKey("b", "session/t1/r"), StepKey.Session("b", "t1", "r"));
         Assert.Equal(new StepKey("b", "handover/r/push"), StepKey.Push("b", "r"));
         Assert.Equal(new StepKey("b", "handover/r/pr"), StepKey.PullRequest("b", "r"));
+        Assert.Equal(new StepKey("b", "prep/r/verify"), StepKey.VerifyPrep("b", "r"));
+        Assert.Equal(new StepKey("b", "handover/r/verify"), StepKey.Verify("b", "r"));
     }
 
     [Fact]
@@ -118,6 +120,39 @@ public sealed class DrivenJournalTests : IDisposable
 
         Assert.Equal(new StepAttempt(2, Resumed: false), seen);
         Assert.True(seen!.Value.Repeated);
+    }
+
+    [Fact]
+    public async Task A_reset_step_runs_again_as_a_first_attempt_and_a_started_one_is_refused()
+    {
+        List<StepAttempt> attempts = [];
+        Task Step(StepAttempt attempt, CancellationToken ct)
+        {
+            attempts.Add(attempt);
+            return Task.CompletedTask;
+        }
+
+        using var cut = new CancellationTokenSource();
+        await using (var first = await DrivenJournal.OpenAsync(_directory))
+        {
+            Assert.False(await first.ResetAsync(Key));
+            await first.RunAsync(Key, Step);
+            Assert.True(await first.ResetAsync(Key));
+            await first.RunAsync(Key, Step);
+            await first.RunAsync(Key, Step);
+            await first.ResetAsync(Key);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first.RunAsync(Key, async (_, ct) =>
+            {
+                await cut.CancelAsync();
+                ct.ThrowIfCancellationRequested();
+            }, cut.Token));
+        }
+
+        await using var second = await DrivenJournal.OpenAsync(_directory);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => second.ResetAsync(Key));
+        await second.RunAsync(Key, Step);
+
+        Assert.Equal([new StepAttempt(1, false), new StepAttempt(1, false), new StepAttempt(2, Resumed: true)], attempts);
     }
 
     [Fact]
