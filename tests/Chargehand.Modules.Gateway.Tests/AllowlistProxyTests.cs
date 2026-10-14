@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using Chargehand.Egress;
+using Chargehand.Modules.Gateway.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Gateway.Tests;
 
 /// <summary>The CONNECT-only forward proxy, against a local stub standing in for an allowed host.</summary>
 public class AllowlistProxyTests

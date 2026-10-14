@@ -42,7 +42,7 @@ public interface IServiceEngine
 }
 
 /// <summary>The egress proxy's container (ADR 0039): the server image started with its <c>egress</c> verb, one per batch.</summary>
-/// <param name="Allow">Host patterns for <see cref="Chargehand.Egress.AllowlistMatcher"/>.</param>
+/// <param name="Allow">Host patterns for <see cref="Chargehand.Modules.Gateway.Api.AllowlistMatcher"/>.</param>
 /// <param name="Forwards">Operator-named forwards, <c>listen-port=host:port</c>: how a session reaches the chargehand server from the internal network.</param>
 /// <param name="Gateway">The model endpoint (the credential exchange); null: the container has none.</param>
 public sealed record EgressSpec(string BatchId, string Image, string Network, IReadOnlyList<string> Allow, int Port = 3128, IReadOnlyList<string>? Forwards = null,
@@ -52,7 +52,7 @@ public sealed record EgressSpec(string BatchId, string Image, string Network, IR
 /// <param name="Credential">The real model credential. It lives in the egress container and nowhere else: not in a session container, not in an image, not in a log.</param>
 /// <param name="TokenKey">The batch's key for run tokens, 64 hex characters (<c>ModelTokens.NewKey</c>).</param>
 /// <param name="Host">The one host requests are forwarded to.</param>
-public sealed record ModelGatewaySpec(string Credential, string TokenKey, string Host = Chargehand.Egress.EgressCli.DefaultModelHost, int Port = ModelGatewaySpec.DefaultPort)
+public sealed record ModelGatewaySpec(string Credential, string TokenKey, string Host = Chargehand.Modules.Gateway.Api.EgressCli.DefaultModelHost, int Port = ModelGatewaySpec.DefaultPort)
 {
     public const int DefaultPort = 3129;
 }

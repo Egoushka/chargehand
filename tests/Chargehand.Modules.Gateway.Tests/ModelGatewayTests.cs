@@ -3,9 +3,9 @@ using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
-using Chargehand.Egress;
+using Chargehand.Modules.Gateway.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Gateway.Tests;
 
 /// <summary>ADR 0039, decision 9: the model endpoint of the egress container. The upstream is an in-process fake handler, so no TLS and no network is involved; the gateway itself
 /// listens on a loopback port and is spoken to with a plain HTTP client, as a session's Claude Code would.</summary>

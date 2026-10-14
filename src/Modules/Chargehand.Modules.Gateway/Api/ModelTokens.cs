@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Chargehand.Egress;
+namespace Chargehand.Modules.Gateway.Api;
 
 /// <param name="RunId">The run the token was minted for.</param>
 /// <param name="MaxTokens">Input plus output tokens the run may use through the gateway; 0 means no cap.</param>

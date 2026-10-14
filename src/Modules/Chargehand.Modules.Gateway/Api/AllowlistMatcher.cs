@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
 
-namespace Chargehand.Egress;
+namespace Chargehand.Modules.Gateway.Api;
 
 /// <param name="Allowed">Whether the connection may go ahead.</param>
 /// <param name="Reason">Why not, in words; empty when allowed.</param>
@@ -69,19 +69,25 @@ public sealed partial class AllowlistMatcher
             return false;
         var b = address.GetAddressBytes();
         if (address.AddressFamily == AddressFamily.InterNetwork)
-            return !(b[0] == 10
-                || (b[0] == 172 && b[1] is >= 16 and <= 31)
-                || (b[0] == 192 && b[1] == 168)
-                || (b[0] == 169 && b[1] == 254)
-                || (b[0] == 100 && b[1] is >= 64 and <= 127)
-                || (b[0] == 192 && b[1] == 0 && b[2] == 0)
-                || b[0] >= 224);
+            return !IsReservedV4(b);
         if (address.AddressFamily == AddressFamily.InterNetworkV6)
-            return !((b[0] & 0xfe) == 0xfc                       // fc00::/7 unique local
-                || (b[0] == 0xfe && (b[1] & 0xc0) == 0x80)       // fe80::/10 link-local
-                || b[0] == 0xff);                                // multicast
+            return !IsReservedV6(b);
         return false;
     }
+
+    private static bool IsReservedV4(byte[] b) =>
+        b[0] == 10
+        || (b[0] == 172 && b[1] is >= 16 and <= 31)
+        || (b[0] == 192 && b[1] == 168)
+        || (b[0] == 169 && b[1] == 254)
+        || (b[0] == 100 && b[1] is >= 64 and <= 127)
+        || (b[0] == 192 && b[1] == 0 && b[2] == 0)
+        || b[0] >= 224;
+
+    private static bool IsReservedV6(byte[] b) =>
+        (b[0] & 0xfe) == 0xfc                       // fc00::/7 unique local
+        || (b[0] == 0xfe && (b[1] & 0xc0) == 0x80)  // fe80::/10 link-local
+        || b[0] == 0xff;                            // multicast
 
     private static string Normalize(string host) => host.Trim().TrimEnd('.').ToLowerInvariant();
 

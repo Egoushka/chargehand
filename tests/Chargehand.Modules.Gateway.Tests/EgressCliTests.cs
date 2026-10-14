@@ -1,6 +1,6 @@
-using Chargehand.Egress;
+using Chargehand.Modules.Gateway.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Gateway.Tests;
 
 public class EgressCliTests
 {

@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 
-namespace Chargehand.Egress;
+namespace Chargehand.Modules.Gateway.Api;
 
 /// <summary>Counts the tokens of one model response as it streams past (ADR 0039): <c>message_start</c> carries the input and the first output count, each
 /// <c>message_delta</c> the running output count, all integers. It reads server-sent events line by line and keeps nothing but two numbers: no text of the response survives a

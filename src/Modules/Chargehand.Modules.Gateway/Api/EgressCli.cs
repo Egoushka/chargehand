@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text.Json;
 
-namespace Chargehand.Egress;
+namespace Chargehand.Modules.Gateway.Api;
 
 /// <param name="Listen">Where the proxy listens; inside a batch's egress container, 0.0.0.0 on its port.</param>
 /// <param name="ModelListen">Where the model endpoint listens (<see cref="ModelGateway"/>); null: the container has none.</param>
@@ -73,7 +73,7 @@ public static class EgressCli
         if (Parse(args, error) is not { } options)
             return 2;
         await using var proxy = new AllowlistProxy(new AllowlistMatcher(options.Allow), log: e =>
-            error.WriteLine(JsonSerializer.Serialize(new { at = e.At, run = e.RunId, host = e.Host, port = e.Port, allowed = e.Allowed, reason = e.Reason })));
+            error.WriteLine(JsonSerializer.Serialize(new EgressLogLine(e.At, e.RunId, e.Host, e.Port, e.Allowed, e.Reason), GatewayJsonContext.Default.EgressLogLine)));
         await proxy.StartAsync(options.Listen, ct);
         await using var gateway = StartModelGateway(options, error);
         if (options.ModelListen is not null && gateway is null)
@@ -108,7 +108,7 @@ public static class EgressCli
             return null;
         }
         var gateway = new ModelGateway(key, credential, options.ModelHost, log: e =>
-            error.WriteLine(JsonSerializer.Serialize(new { at = e.At, model_run = e.RunId, status = e.Status, tokens = e.Tokens, reason = e.Reason })));
+            error.WriteLine(JsonSerializer.Serialize(new GatewayLogLine(e.At, e.RunId, e.Status, e.Tokens, e.Reason), GatewayJsonContext.Default.GatewayLogLine)));
         gateway.Start(listen.Address.Equals(IPAddress.Any) ? $"http://+:{listen.Port}/" : $"http://{listen.Address}:{listen.Port}/");
         error.WriteLine($"model endpoint listening on {listen}, forwarding to {options.ModelHost}");
         return gateway;

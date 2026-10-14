@@ -122,7 +122,7 @@ if (argv is ["egress", .. var egressArgs])
     using var stop = new CancellationTokenSource();
     using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-    return await Chargehand.Egress.EgressCli.RunAsync(egressArgs, Console.Error, stop.Token);
+    return await Chargehand.Modules.Gateway.Api.EgressCli.RunAsync(egressArgs, Console.Error, stop.Token);
 }
 // The runner service holds the container engine's socket so `serve` never has to (ADR 0039); it is profile-free as well.
 if (argv is ["runner", .. var runnerArgs])

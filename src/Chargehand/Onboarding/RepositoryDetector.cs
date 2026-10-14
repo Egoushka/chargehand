@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Chargehand.Egress;
+using Chargehand.Modules.Gateway.Api;
 
 namespace Chargehand.Onboarding;
 
