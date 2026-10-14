@@ -1,5 +1,6 @@
 using Chargehand.Config;
 using Chargehand.Containers;
+using Chargehand.Modules.Forge.Api;
 using Chargehand.Onboarding;
 using Chargehand.Verification;
 

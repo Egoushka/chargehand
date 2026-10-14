@@ -5,7 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Forge.Api;
 
 public sealed class GitHubAppException(string message) : Exception(message);
 
@@ -27,12 +27,8 @@ public static class GitHubAppJwt
     public static string Create(long appId, string privateKeyPem, DateTimeOffset now)
     {
         var header = Base64Url(Encoding.UTF8.GetBytes("""{"alg":"RS256","typ":"JWT"}"""));
-        var claims = Base64Url(JsonSerializer.SerializeToUtf8Bytes(new
-        {
-            iat = now.Subtract(Backdate).ToUnixTimeSeconds(),
-            exp = now.Add(Lifetime).ToUnixTimeSeconds(),
-            iss = appId.ToString(CultureInfo.InvariantCulture),
-        }));
+        var claims = Base64Url(JsonSerializer.SerializeToUtf8Bytes(
+            new AppClaims(now.Subtract(Backdate).ToUnixTimeSeconds(), now.Add(Lifetime).ToUnixTimeSeconds(), appId.ToString(CultureInfo.InvariantCulture)), ForgeJsonContext.Default.AppClaims));
         var signingInput = $"{header}.{claims}";
         try
         {

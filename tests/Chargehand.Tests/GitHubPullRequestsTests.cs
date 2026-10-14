@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Chargehand.Driven;
+using Chargehand.Modules.Forge.Api;
 
 namespace Chargehand.Tests;
 

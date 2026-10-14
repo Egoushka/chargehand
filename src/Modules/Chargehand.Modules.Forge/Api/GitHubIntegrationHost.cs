@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Forge.Api;
 
 public sealed class IntegrationException(string message) : Exception(message);
 
@@ -73,7 +73,7 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
 
     public async Task<PrSnapshot> GetAsync(RemoteRepository repository, int number, CancellationToken ct)
     {
-        using var data = await GraphQlAsync(repository, "the pull request's state", StateQuery, new { owner = repository.Owner, name = repository.Name, number }, ct);
+        using var data = await GraphQlAsync(repository, "the pull request's state", StateQuery, new PullRequestVariables(repository.Owner, repository.Name, number), ct);
         try
         {
             var pr = data.RootElement.GetProperty("repository").GetProperty("pullRequest");
@@ -116,24 +116,24 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
     }
 
     public async Task UpdateBranchAsync(RemoteRepository repository, int number, string expectedHeadSha, CancellationToken ct) =>
-        await RestAsync(repository, HttpMethod.Put, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/update-branch", new { expected_head_sha = expectedHeadSha }, "the branch update", ct);
+        await RestAsync(repository, HttpMethod.Put, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/update-branch", new BranchUpdate(expectedHeadSha), "the branch update", ct);
 
     public async Task MarkReadyAsync(RemoteRepository repository, string nodeId, CancellationToken ct)
     {
-        using var _ = await GraphQlAsync(repository, "marking the pull request ready", "mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{isDraft}}}", new { id = nodeId }, ct);
+        using var _ = await GraphQlAsync(repository, "marking the pull request ready", "mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{isDraft}}}", new NodeVariables(nodeId), ct);
     }
 
     public async Task EnableAutoMergeAsync(RemoteRepository repository, string nodeId, string headSha, CancellationToken ct)
     {
         using var _ = await GraphQlAsync(repository, "enabling auto-merge", "mutation($id:ID!,$oid:GitObjectID){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:SQUASH,expectedHeadOid:$oid}){pullRequest{number}}}",
-            new { id = nodeId, oid = headSha }, ct);
+            new AutoMergeVariables(nodeId, headSha), ct);
     }
 
     public async Task MergeNowAsync(RemoteRepository repository, int number, string headSha, CancellationToken ct) =>
-        await RestAsync(repository, HttpMethod.Put, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/merge", new { merge_method = "squash", sha = headSha }, "the merge", ct);
+        await RestAsync(repository, HttpMethod.Put, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/merge", new SquashMerge("squash", headSha), "the merge", ct);
 
     public async Task CommentAsync(RemoteRepository repository, int number, string body, CancellationToken ct) =>
-        await RestAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", new { body }, "the comment", ct);
+        await RestAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", new CommentBody(body), "the comment", ct);
 
     /// <summary>Each job's workflow run (<c>GET actions/jobs/{id}</c>), then <c>rerun-failed-jobs</c> once per run. Needs the App's Actions permission to write; without it GitHub answers 403 and the message says so.</summary>
     public async Task<int> RerunFailedJobsAsync(RemoteRepository repository, IReadOnlyList<long> jobIds, CancellationToken ct)
@@ -214,7 +214,7 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
     {
         var request = new HttpRequestMessage(method, path);
         if (body is not null)
-            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+            request.Content = new StringContent(JsonSerializer.Serialize(body, body.GetType(), ForgeJsonContext.Default), Encoding.UTF8, "application/json");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("chargehand", "1"));
@@ -249,7 +249,7 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
     private async Task<JsonDocument> GraphQlAsync(RemoteRepository repository, string what, string query, object variables, CancellationToken ct)
     {
         var token = await TokenAsync(repository, ct);
-        using var request = Request(HttpMethod.Post, "graphql", new { query, variables }, token);
+        using var request = Request(HttpMethod.Post, "graphql", new GraphQlRequest(query, variables), token);
         var (status, _, text) = await SendAsync(request, what, token, ct);
         if (status != HttpStatusCode.OK)
             throw new IntegrationException(Redact($"GitHub answered {(int)status} to {what}: {GitHubApi.Message(text)}", token));

@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Driven;
+using Chargehand.Modules.Forge.Api;
 
 namespace Chargehand.Tests;
 

@@ -5,6 +5,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Forge.Api;
 using Chargehand.Server;
 using Chargehand.Workspace;
 
