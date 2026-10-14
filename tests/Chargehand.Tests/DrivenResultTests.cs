@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Kernel;
 using Chargehand.Results;
 using Chargehand.Verification;
 

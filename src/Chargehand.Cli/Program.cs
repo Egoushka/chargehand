@@ -351,7 +351,7 @@ async Task<int> Run()
     catch (ChargehandException e)
     {
         // The runtime refused before a run started (not running, another version): no prompt was sent, so the chain is empty.
-        result = new ResultContract("result/v1", Orchestrator.NewRunId(), "run", ActivityTraceId.CreateRandom().ToHexString(),
+        result = new ResultContract("result/v1", RunIds.New(), "run", ActivityTraceId.CreateRandom().ToHexString(),
             new PromptChain([], new AsSent("", "", "", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))), ResultStatus.Failed, e.Message, [], [], [], [e.Message], 0,
             new Usage(0, 0, 0, 0, 0), e.Error);
     }

@@ -1,7 +1,7 @@
 using Chargehand.Config;
 using Chargehand.Containers;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.Onboarding;
-using Chargehand.Verification;
 
 namespace Chargehand.Driven;
 
