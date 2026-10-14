@@ -228,10 +228,10 @@ public sealed partial class TaskRunner
                 if (key == lastChecks)
                     return;
                 lastChecks = key;
-                state?.Append(new ChecksRecord(task.Id, o.At, pr.Number, o.HeadSha, o.MergeStatus, o.IsDraft, o.AutoMerge, o.Decision,
+                records?.Append(settings.BatchId, new ChecksRecord(task.Id, o.At, pr.Number, o.HeadSha, o.MergeStatus, o.IsDraft, o.AutoMerge, o.Decision,
                     [.. o.Checks.Select(c => new CheckRecord(c.Name, c.Required, JsonNamingPolicy.SnakeCaseLower.ConvertName(c.Outcome.ToString()), c.JobId))]));
             },
-            a => state?.Append(new CiAttemptRecord(task.Id, a.Attempt, a.MaxAttempts, a.At, a.JobsKey, a.Failing, a.Pushed, a.Detail)));
+            a => records?.Append(settings.BatchId, new CiAttemptRecord(task.Id, a.Attempt, a.MaxAttempts, a.At, a.JobsKey, a.Failing, a.Pushed, a.Detail)));
     }
 
     /// <summary>A continuation's start that failed for a reason outside the task (the runner is full or unreachable, the seed was refused, the call timed out) must not cost the work
