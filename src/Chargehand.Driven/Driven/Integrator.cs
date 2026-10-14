@@ -90,21 +90,10 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                 return Say(report, IntegrationAction.None, pr.Merged ? "the pull request is already merged" : "the pull request is closed");
             if (mode == IntegrationMode.Merge && await host.BehindByAsync(target.Repository, pr.BaseBranch, target.Branch, ct) > 0)
             {
-                try
-                {
-                    await host.UpdateBranchAsync(target.Repository, target.Number, pr.HeadSha, ct);
-                }
-                catch (IntegrationException e)
-                {
-                    await CommentOnceAsync(target, pr, ConflictMarker, "chargehand could not bring this branch up to date with its base, so it is not merging it; a person needs to resolve it.", ct);
-                    return Say(report, IntegrationAction.NeedsAttention, $"the branch is behind its base and could not be updated: {e.Message}");
-                }
-                var moved = await WaitForHeadAsync(target, pr.HeadSha, ct);
-                if (moved is null)
-                    return Say(report, IntegrationAction.NeedsAttention, "the branch was behind its base and an update was requested, but its head has not moved yet; not merged");
-                report("the branch was behind its base and was updated");
-                headMoved?.Invoke(moved.HeadSha);
-                pr = moved;
+                var (stopped, moved) = await UpdateBranchAsync(target, pr, report, headMoved, ct);
+                if (stopped is not null)
+                    return stopped;
+                pr = moved!;
             }
             if (pr.IsDraft)
             {
@@ -112,43 +101,69 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                 report("marked ready for review");
                 pr = await host.GetAsync(target.Repository, target.Number, ct);
             }
-            if (mode == IntegrationMode.Ask)
-            {
-                if (target.TestIntegrity is { } why)
-                {
-                    await CommentOnceAsync(target, pr, TestIntegrityMarker, $"chargehand marked this pull request ready but does not merge it: {why}. A person decides.", ct);
-                    return Say(report, IntegrationAction.Asked, $"marked ready; not merged because of test integrity ({why})");
-                }
-                await CommentOnceAsync(target, pr, AskMarker, "chargehand marked this pull request ready. This repository's policy is \"ask\", so chargehand does not merge it; a person decides.", ct);
-                return Say(report, IntegrationAction.Asked, "marked ready; the repository's policy is ask, so it is left for a person to merge");
-            }
-            if (pr.MergeStatus == "DIRTY")
-            {
-                await CommentOnceAsync(target, pr, ConflictMarker, "This pull request conflicts with its base branch, so chargehand is not merging it; a person needs to resolve it.", ct);
-                return Say(report, IntegrationAction.NeedsAttention, "the pull request conflicts with its base; not merged");
-            }
-            if (pr.AutoMerge)
-                return Say(report, IntegrationAction.AutoMergeEnabled, "auto-merge was already enabled");
-            if (pr.MergeStatus == "CLEAN")
-                return await MergeNowAsync(target, pr.HeadSha, report, ct);
-            try
-            {
-                await host.EnableAutoMergeAsync(target.Repository, pr.NodeId, pr.HeadSha, ct);
-            }
-            catch (IntegrationException)
-            {
-                // GitHub refuses auto-merge on a pull request that is mergeable already; then the merge itself goes through the same rules.
-                var fresh = await host.GetAsync(target.Repository, target.Number, ct);
-                if (fresh.IsDraft || fresh.MergeStatus is not ("CLEAN" or "UNSTABLE"))
-                    throw;
-                return await MergeNowAsync(target, fresh.HeadSha, report, ct);
-            }
-            return Say(report, IntegrationAction.AutoMergeEnabled, $"auto-merge (squash) enabled for {Short(pr.HeadSha)}; {host.Name} merges once the required checks pass");
+            return mode == IntegrationMode.Ask ? await AskAsync(target, pr, report, ct) : await MergeAsync(target, pr, report, ct);
         }
         catch (IntegrationException e)
         {
             return Say(report, IntegrationAction.Failed, $"integration stopped: {e.Message}");
         }
+    }
+
+    /// <summary>A branch behind its base brought up to date: the pull request at its new head, or the result that stops the integration.</summary>
+    private async Task<(IntegrationResult? Stopped, PrSnapshot? Moved)> UpdateBranchAsync(IntegrationTarget target, PrSnapshot pr, Action<string> report, Action<string>? headMoved, CancellationToken ct)
+    {
+        try
+        {
+            await host.UpdateBranchAsync(target.Repository, target.Number, pr.HeadSha, ct);
+        }
+        catch (IntegrationException e)
+        {
+            await CommentOnceAsync(target, pr, ConflictMarker, "chargehand could not bring this branch up to date with its base, so it is not merging it; a person needs to resolve it.", ct);
+            return (Say(report, IntegrationAction.NeedsAttention, $"the branch is behind its base and could not be updated: {e.Message}"), null);
+        }
+        var moved = await WaitForHeadAsync(target, pr.HeadSha, ct);
+        if (moved is null)
+            return (Say(report, IntegrationAction.NeedsAttention, "the branch was behind its base and an update was requested, but its head has not moved yet; not merged"), null);
+        report("the branch was behind its base and was updated");
+        headMoved?.Invoke(moved.HeadSha);
+        return (null, moved);
+    }
+
+    private async Task<IntegrationResult> AskAsync(IntegrationTarget target, PrSnapshot pr, Action<string> report, CancellationToken ct)
+    {
+        if (target.TestIntegrity is { } why)
+        {
+            await CommentOnceAsync(target, pr, TestIntegrityMarker, $"chargehand marked this pull request ready but does not merge it: {why}. A person decides.", ct);
+            return Say(report, IntegrationAction.Asked, $"marked ready; not merged because of test integrity ({why})");
+        }
+        await CommentOnceAsync(target, pr, AskMarker, "chargehand marked this pull request ready. This repository's policy is \"ask\", so chargehand does not merge it; a person decides.", ct);
+        return Say(report, IntegrationAction.Asked, "marked ready; the repository's policy is ask, so it is left for a person to merge");
+    }
+
+    private async Task<IntegrationResult> MergeAsync(IntegrationTarget target, PrSnapshot pr, Action<string> report, CancellationToken ct)
+    {
+        if (pr.MergeStatus == "DIRTY")
+        {
+            await CommentOnceAsync(target, pr, ConflictMarker, "This pull request conflicts with its base branch, so chargehand is not merging it; a person needs to resolve it.", ct);
+            return Say(report, IntegrationAction.NeedsAttention, "the pull request conflicts with its base; not merged");
+        }
+        if (pr.AutoMerge)
+            return Say(report, IntegrationAction.AutoMergeEnabled, "auto-merge was already enabled");
+        if (pr.MergeStatus == "CLEAN")
+            return await MergeNowAsync(target, pr.HeadSha, report, ct);
+        try
+        {
+            await host.EnableAutoMergeAsync(target.Repository, pr.NodeId, pr.HeadSha, ct);
+        }
+        catch (IntegrationException)
+        {
+            // GitHub refuses auto-merge on a pull request that is mergeable already; then the merge itself goes through the same rules.
+            var fresh = await host.GetAsync(target.Repository, target.Number, ct);
+            if (fresh.IsDraft || fresh.MergeStatus is not ("CLEAN" or "UNSTABLE"))
+                throw;
+            return await MergeNowAsync(target, fresh.HeadSha, report, ct);
+        }
+        return Say(report, IntegrationAction.AutoMergeEnabled, $"auto-merge (squash) enabled for {Short(pr.HeadSha)}; {host.Name} merges once the required checks pass");
     }
 
     /// <summary>Watch the required checks of a pull request that <see cref="IntegrateAsync"/> handled. When some fail and every required check has finished, <paramref name="fix"/> runs a session on the branch,
@@ -161,55 +176,24 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
         var maxPolls = Math.Max(1, (int)(TimeSpan.FromMinutes(CiFix.Wait) / PollEvery));
         var polls = 0;
         string? fixedHead = null;
-        void Look(PrSnapshot pr, string decision) => watch?.Checks?.Invoke(new CheckObservation(DateTimeOffset.UtcNow, pr.HeadSha, pr.MergeStatus, pr.IsDraft, pr.AutoMerge, pr.Checks, decision));
         try
         {
             while (true)
             {
                 var pr = await host.GetAsync(target.Repository, target.Number, ct);
-                if (pr.Merged)
+                if (Ended(pr, report, watch) is { } ended)
+                    return ended;
+                var check = Check(pr, fixedHead, watch);
+                var step = await ActAsync(target, pr, check, mode, fix, report, headMoved, watch, ct);
+                if (step.Stop is { } stop)
+                    return stop;
+                if (step.Fixed)
                 {
-                    Look(pr, "merged");
-                    return Say(report, IntegrationAction.Merged, "merged");
-                }
-                if (pr.Closed)
-                {
-                    Look(pr, "closed");
-                    return Say(report, IntegrationAction.None, "the pull request was closed");
-                }
-                var required = pr.Checks.Where(c => c.Required).ToList();
-                var failing = required.Where(c => c.Outcome == CheckOutcome.Failed).Select(c => c.Name).Distinct().ToList();
-                // No required check reported yet is "still waiting": a fresh head has none until its workflows start.
-                var pending = pr.HeadSha == fixedHead || required.Count == 0 || required.Any(c => c.Outcome == CheckOutcome.Pending);
-                var decision = CiFixPolicy.Decide(FixMarker.Parse(pr.Comments), failing, pending, CiFix.Attempts);
-                Look(pr, JsonNamingPolicy.SnakeCaseLower.ConvertName(decision.Action.ToString()));
-                if (decision.Action == CiFixAction.Done && required.Any(c => c.Outcome == CheckOutcome.Other))
-                    return Say(report, IntegrationAction.NeedsAttention, "a required check ended without passing or failing (cancelled, or waiting for a person)");
-                if (decision.Action == CiFixAction.Done)
-                {
-                    if (mode == IntegrationMode.Ask)
-                        return Say(report, IntegrationAction.Asked, "required checks passed; left for a person to merge");
-                    if (!pr.AutoMerge && await IntegrateAsync(target, report, ct, headMoved) is { Action: IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.NeedsAttention } done)
-                        return done;
-                }
-                else if (decision.Action is CiFixAction.Fix or CiFixAction.GiveUp && CiFix.Attempts == 0)
-                    return Say(report, IntegrationAction.NeedsAttention, $"required checks failed ({string.Join(", ", failing)}); the CI fixer is off");
-                else if (decision.Action == CiFixAction.GiveUp)
-                {
-                    await CommentOnceAsync(target, pr, FixMarker.GaveUp(decision.JobsKey), $"chargehand is not trying again: {decision.Reason}. A person needs to look at the failing checks.", ct);
-                    return Say(report, IntegrationAction.NeedsAttention, $"CI fix stopped: {decision.Reason}");
-                }
-                else if (decision.Action == CiFixAction.Fix)
-                {
-                    var result = await FixAsync(target, pr, failing, required, decision, fix, report, watch, ct);
-                    if (!result.Pushed)
-                        return Say(report, IntegrationAction.NeedsAttention, $"CI fix attempt {decision.Attempt} pushed nothing: {result.Detail}");
-                    report($"CI fix attempt {decision.Attempt} pushed: {result.Detail}");
                     (fixedHead, polls) = (pr.HeadSha, 0);
                     continue;
                 }
                 if (++polls > maxPolls)
-                    return Say(report, IntegrationAction.NeedsAttention, $"stopped watching after {CiFix.Wait} minutes: " + (decision.Action == CiFixAction.Done ? $"{host.Name} has not merged it yet" : "the required checks have not all finished"));
+                    return Say(report, IntegrationAction.NeedsAttention, $"stopped watching after {CiFix.Wait} minutes: " + (check.Decision.Action == CiFixAction.Done ? $"{host.Name} has not merged it yet" : "the required checks have not all finished"));
                 await _delay(PollEvery, ct);
             }
         }
@@ -218,6 +202,77 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
             return Say(report, IntegrationAction.Failed, $"watching the required checks stopped: {e.Message}");
         }
     }
+
+    private static IntegrationResult? Ended(PrSnapshot pr, Action<string> report, IntegrationWatch? watch)
+    {
+        if (pr.Merged)
+        {
+            Look(watch, pr, "merged");
+            return Say(report, IntegrationAction.Merged, "merged");
+        }
+        if (pr.Closed)
+        {
+            Look(watch, pr, "closed");
+            return Say(report, IntegrationAction.None, "the pull request was closed");
+        }
+        return null;
+    }
+
+    /// <summary>The required checks of the head and what <see cref="CiFixPolicy"/> decides about them.</summary>
+    private FollowCheck Check(PrSnapshot pr, string? fixedHead, IntegrationWatch? watch)
+    {
+        var required = pr.Checks.Where(c => c.Required).ToList();
+        var failing = required.Where(c => c.Outcome == CheckOutcome.Failed).Select(c => c.Name).Distinct().ToList();
+        // No required check reported yet is "still waiting": a fresh head has none until its workflows start.
+        var pending = pr.HeadSha == fixedHead || required.Count == 0 || required.Any(c => c.Outcome == CheckOutcome.Pending);
+        var decision = CiFixPolicy.Decide(FixMarker.Parse(pr.Comments), failing, pending, CiFix.Attempts);
+        Look(watch, pr, JsonNamingPolicy.SnakeCaseLower.ConvertName(decision.Action.ToString()));
+        return new FollowCheck(required, failing, decision);
+    }
+
+    /// <summary>What one look at the checks leads to: a result that ends the watch, a fix that pushed (the watch starts over on the new head), or neither (it polls again).</summary>
+    private async Task<FollowStep> ActAsync(IntegrationTarget target, PrSnapshot pr, FollowCheck check, IntegrationMode mode, CiFixSession fix, Action<string> report, Action<string>? headMoved,
+        IntegrationWatch? watch, CancellationToken ct)
+    {
+        var (required, failing, decision) = check;
+        if (decision.Action == CiFixAction.Done && required.Any(c => c.Outcome == CheckOutcome.Other))
+            return new(Say(report, IntegrationAction.NeedsAttention, "a required check ended without passing or failing (cancelled, or waiting for a person)"), false);
+        if (decision.Action == CiFixAction.Done)
+            return new(await DoneAsync(target, pr, mode, report, headMoved, ct), false);
+        if (decision.Action is CiFixAction.Fix or CiFixAction.GiveUp && CiFix.Attempts == 0)
+            return new(Say(report, IntegrationAction.NeedsAttention, $"required checks failed ({string.Join(", ", failing)}); the CI fixer is off"), false);
+        if (decision.Action == CiFixAction.GiveUp)
+        {
+            await CommentOnceAsync(target, pr, FixMarker.GaveUp(decision.JobsKey), $"chargehand is not trying again: {decision.Reason}. A person needs to look at the failing checks.", ct);
+            return new(Say(report, IntegrationAction.NeedsAttention, $"CI fix stopped: {decision.Reason}"), false);
+        }
+        if (decision.Action != CiFixAction.Fix)
+            return new(null, false);
+        var result = await FixAsync(target, pr, failing, required, decision, fix, report, watch, ct);
+        if (!result.Pushed)
+            return new(Say(report, IntegrationAction.NeedsAttention, $"CI fix attempt {decision.Attempt} pushed nothing: {result.Detail}"), false);
+        report($"CI fix attempt {decision.Attempt} pushed: {result.Detail}");
+        return new(null, true);
+    }
+
+    /// <summary>Every required check passed: ask leaves it to a person; otherwise a merge chargehand makes or cannot make ends the watch, and null waits for the host's auto-merge.</summary>
+    private async Task<IntegrationResult?> DoneAsync(IntegrationTarget target, PrSnapshot pr, IntegrationMode mode, Action<string> report, Action<string>? headMoved, CancellationToken ct)
+    {
+        if (mode == IntegrationMode.Ask)
+            return Say(report, IntegrationAction.Asked, "required checks passed; left for a person to merge");
+        if (!pr.AutoMerge && await IntegrateAsync(target, report, ct, headMoved) is { Action: IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.NeedsAttention } done)
+            return done;
+        return null;
+    }
+
+    private static void Look(IntegrationWatch? watch, PrSnapshot pr, string decision) =>
+        watch?.Checks?.Invoke(new CheckObservation(DateTimeOffset.UtcNow, pr.HeadSha, pr.MergeStatus, pr.IsDraft, pr.AutoMerge, pr.Checks, decision));
+
+    private sealed record FollowCheck(List<CheckStatus> Required, List<string> Failing, CiFixDecision Decision);
+
+    /// <param name="Stop">The result that ends the watch; null: it goes on.</param>
+    /// <param name="Fixed">A fix session pushed, so the watch starts over on the new head.</param>
+    private readonly record struct FollowStep(IntegrationResult? Stop, bool Fixed);
 
     private async Task<CiFixResult> FixAsync(IntegrationTarget target, PrSnapshot pr, List<string> failing, List<CheckStatus> required, CiFixDecision decision, CiFixSession fix, Action<string> report,
         IntegrationWatch? watch, CancellationToken ct)
