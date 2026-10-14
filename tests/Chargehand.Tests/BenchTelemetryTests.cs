@@ -2,6 +2,8 @@ using Chargehand.Bench;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Tests;
 

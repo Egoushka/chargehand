@@ -5,7 +5,11 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.RunLog;
 using Chargehand.Server;
 
@@ -230,13 +234,13 @@ public class ConsoleBatchTests
         var request = ConsoleSeed.BatchRequest(new DrivenTask("t1", Goal: "one"), new DrivenTask("t2", Goal: "two", DependsOn: ["t1"]), new DrivenTask("t3", Goal: "three"));
         await rig.Log.AppendAsync(ConsoleSeed.Start("run-live", request, "alice", ConsoleRig.Now.AddMinutes(-20)), default);
         var started = ConsoleRig.Now.AddMinutes(-19);
-        new BatchStateStore(rig.BatchDirectory).Save(new BatchState("run-live", started, new string('0', 32), request, "token-key-do-not-return",
+        var key = await OpenBatchSeed.SaveAsync(rig.BatchDirectory, rig.Log, new OpenBatch("run-live", started, new string('0', 32), request,
         [
             new TaskEntry("t1", null, "one", TaskPhase.Started, "run-s2", "chargehand/run-s1", "chargehand-run-s2", started, Continuation: 1, Runs: ["run-s1", "run-s2"], Size: "L", SizeFrom: "plan"),
             new TaskEntry("t2", null, "two", DependsOn: ["t1"]),
             new TaskEntry("t3", null, "three", TaskPhase.HandedOver, "run-s3", "chargehand/run-s3", Started: started,
                 Outcome: new TaskOutcome("t3", TaskState.Completed, "run-s3", null, null, 0, 900, "chargehand/run-s3", "https://example.test/o/r/pull/3")),
-        ], [], Actor: "alice"));
+        ], [], Actor: "alice"), rig.Driven);
         using var alice = rig.As("alice");
 
         var text = await ConsoleRig.Text(alice, "/v1/batches/run-live");
@@ -250,8 +254,8 @@ public class ConsoleBatchTests
         Assert.Equal(("pending", "pending"), (tasks["t2"].GetProperty("state").GetString(), tasks["t2"].GetProperty("phase").GetString()));
         Assert.Equal(["t1"], tasks["t2"].GetProperty("depends_on").EnumerateArray().Select(d => d.GetString()));
         Assert.Equal(("completed", "https://example.test/o/r/pull/3"), (tasks["t3"].GetProperty("state").GetString(), tasks["t3"].GetProperty("pr_url").GetString()));
-        Assert.DoesNotContain("token-key-do-not-return", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("token-key-do-not-return", await ConsoleRig.Text(alice, "/v1/batches/run-live/tasks/t1"), StringComparison.Ordinal);
+        Assert.DoesNotContain(key, text, StringComparison.Ordinal);
+        Assert.DoesNotContain(key, await ConsoleRig.Text(alice, "/v1/batches/run-live/tasks/t1"), StringComparison.Ordinal);
     }
 
     private static RunRequest DrivenRequest(params string[] goals) =>

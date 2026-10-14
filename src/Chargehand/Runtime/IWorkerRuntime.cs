@@ -1,4 +1,5 @@
 using Chargehand.Kernel;
+using Chargehand.Modules.Research.Api;
 
 namespace Chargehand.Runtime;
 
@@ -113,5 +114,3 @@ public sealed record WorkerMessage(
 public enum WorkerMessageKind { User, Assistant, Compaction, Idle, Other }
 
 public sealed record PermissionRequest(string Id, string Action, IReadOnlyList<string> Resources);
-
-public sealed record FileDiff(string File, string Patch, int Additions, int Deletions, string Status);

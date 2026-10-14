@@ -3,7 +3,12 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.RunLog;
 
 namespace Chargehand.Server;
@@ -179,17 +184,17 @@ internal static class ConsoleBatches
 
     /// <summary>The batch the caller may see: its start record and its saved state while unfinished. Null: unknown, not a batch, or not the caller's. A batch this process accepted but has not started has
     /// neither yet; <c>GET /v1/runs/{id}</c> answers for it.</summary>
-    private static (StartRecord Start, BatchState? Live)? Locate(ConsoleContext c, RunIndex index, Principal? who, string runId)
+    private static (StartRecord Start, OpenBatch? Live)? Locate(ConsoleContext c, RunIndex index, Principal? who, string runId)
     {
         if (!index.Starts.TryGetValue(runId, out var start) || start.Request.Driven is null || !Principal.Sees(who, start.Actor))
             return null;
         return (start, c.Driven?.LiveBatches().FirstOrDefault(b => b.RunId == runId));
     }
 
-    private sealed record Assembled(string? Actor, BatchRepository? Repository, BatchLimitsBody Limits, string? Delivery, RunRecord? Run, BatchState? Live, IReadOnlyList<Seed> Tasks, IReadOnlyList<PlanEntry> Plan,
+    private sealed record Assembled(string? Actor, BatchRepository? Repository, BatchLimitsBody Limits, string? Delivery, RunRecord? Run, OpenBatch? Live, IReadOnlyList<Seed> Tasks, IReadOnlyList<PlanEntry> Plan,
         string BatchRunId);
 
-    private static Assembled Assemble(ConsoleContext c, RunIndex index, StartRecord start, BatchState? live, IReadOnlyList<LearningEntry> learning)
+    private static Assembled Assemble(ConsoleContext c, RunIndex index, StartRecord start, OpenBatch? live, IReadOnlyList<LearningEntry> learning)
     {
         var request = start.Request;
         var run = index.RunOf(start.RunId);

@@ -27,5 +27,9 @@ dotnet_diagnostic.CA1859.severity = none
 # ADR 0060: the skeleton's complexity budget. CA1502 reads the threshold from src/CodeMetricsConfig.txt.
 dotnet_diagnostic.CA1502.severity = error
 
+[src/Chargehand.Driven/**.cs]
+# C4 (owner decision 2026-10-14): the wiring left in Driven until C6 keeps the skeleton's budget, so C4's exit cannot pass with high-complexity code outside the modules.
+dotnet_diagnostic.CA1502.severity = error
+
 [*.md]
 trim_trailing_whitespace = false

@@ -7,7 +7,10 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Oversight.Api;
 using Chargehand.RunLog;
 using Chargehand.Server;
 
@@ -84,11 +87,8 @@ internal sealed class ConsoleRig : IAsyncDisposable
     /// <summary>A key for <paramref name="account"/>; the account must be declared.</summary>
     public HttpClient As(string account) => Server.As(Server.Keys.Create(account, "test").Key);
 
-    public ValueTask DisposeAsync()
-    {
-        Driven.Dispose();
-        return Server.DisposeAsync();
-    }
+    /// <summary>The server's run service disposes the driven run once its batches have ended.</summary>
+    public ValueTask DisposeAsync() => Server.DisposeAsync();
 
     public static async Task<JsonElement> Get(HttpClient http, string path)
     {

@@ -1,6 +1,9 @@
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Tests;
 
@@ -276,7 +279,7 @@ public class DrivenAnswersTests
     }
 
     [Fact]
-    public async Task A_restart_before_the_continued_tasks_container_started_seeds_it_again_from_the_kept_bundle()
+    public async Task A_restart_before_the_continued_tasks_container_started_starts_it_again_under_its_run_id_from_the_kept_bundle()
     {
         using var rig = new DrivenRunTests.Rig(durable: true, outcomes: Script());
         await rig.Run.RunAsync(Ask(), First, Token, default);
@@ -293,14 +296,16 @@ public class DrivenAnswersTests
         Assert.Equal(firstRun, entry.Best!.RunId);
         var lost = rig.Engine.Started[1].RunId;
         rig.Engine.Gone.Add($"chargehand-{lost}");
-        rig.Volumes.NoOutput.Add(lost);
         rig.Engine.OnStart = null;
 
         var result = await rig.Run.RunAsync(state.Request, state.RunId, Token, default, null, () => false, state);
 
         Assert.Equal(ResultStatus.Completed, result.Status);
-        Assert.Equal(2, rig.Volumes.Seeds.Count);
-        Assert.All(rig.Volumes.Seeds, s => Assert.EndsWith(Path.Combine("out", firstRun, "chargehand.bundle"), s.Path));
+        // The start runs again under the same run id (ADR 0061); the seed it wrote before the cut is not written again.
+        Assert.Equal([firstRun, lost, lost], rig.Engine.Started.Select(s => s.RunId));
+        var seed = Assert.Single(rig.Volumes.Seeds);
+        Assert.Equal(lost, seed.RunId);
+        Assert.EndsWith(Path.Combine("out", firstRun, "chargehand.bundle"), seed.Path);
         Assert.Equal($"chargehand/{firstRun}", rig.Volumes.Tasks[^1].Branch);
         Assert.Contains("- Postgres", rig.Volumes.Tasks[^1].Goal);
         Assert.Equal($"chargehand/{firstRun}", rig.Handover.Inputs[^1].Branch);

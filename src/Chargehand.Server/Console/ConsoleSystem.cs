@@ -2,9 +2,16 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using Chargehand.Config;
-using Chargehand.Containers;
 using Chargehand.Driven;
 using Chargehand.Kernel;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Intake.Api;
+using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Server;
 
@@ -147,8 +154,9 @@ internal static class ConsoleSystem
         if (c.Driven?.Pool is { } pool)
         {
             var statuses = await pool.StatusAsync(ct);
+            var sites = c.Driven.Sites;
             return await Task.WhenAll(statuses.Select(async s => new RunnerStatusBody(s.Site.Name, HostOf(s.Site.Config.Url), s.Reachable, s.Why, s.ElapsedMs, s.Reachable ? s.Snapshot?.State is null ? null : s.Snapshot.IsDraining : null,
-                s.Reachable && s.Snapshot?.IsDraining == true ? s.Snapshot.StateReason : null, s.Running, s.Site.Config.MaxSessions, s.Reachable ? await CountAsync(s.Site.Engine, ct) : null)));
+                s.Reachable && s.Snapshot?.IsDraining == true ? s.Snapshot.StateReason : null, s.Running, s.Site.Config.MaxSessions, s.Reachable ? await CountAsync(sites.First(r => r.Name == s.Site.Name).Engine, ct) : null)));
         }
         return [.. configured.Select((r, i) => i == 0 && c.Driven?.Engine is not null
             ? new RunnerStatusBody(r.Name, HostOf(r.Url), first.Reachable, first.Error, first.ElapsedMs, snapshot?.State is null ? null : snapshot.IsDraining, snapshot?.IsDraining == true ? snapshot.StateReason : null, null,
@@ -196,7 +204,7 @@ internal static class ConsoleSystem
 
     /// <summary>A container's name tells its kind and the run it belongs to (<c>chargehand-&lt;run&gt;</c> for a session, <c>chargehand-egress-&lt;batch&gt;</c>, <c>chargehand-svc-&lt;service&gt;-&lt;batch&gt;</c>,
     /// <c>chargehand-prep-</c> and <c>chargehand-xfer-&lt;run&gt;</c>); the saved state of an unfinished batch ties a session's name to its batch and task.</summary>
-    internal static ContainerBody Container(string name, IReadOnlyList<BatchState> live)
+    internal static ContainerBody Container(string name, IReadOnlyList<OpenBatch> live)
     {
         string? After(string prefix) => name.StartsWith(prefix, StringComparison.Ordinal) ? name[prefix.Length..] : null;
         if (After("chargehand-egress-") is { } egress)

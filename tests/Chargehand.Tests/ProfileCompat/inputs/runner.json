@@ -1,0 +1,10 @@
+{
+  "schema": "profile/v1",
+  "driven": {
+    "enabled": true,
+    "runner": { "url": "http://runner:4400", "api_key_secret": "runner-key" },
+    "governor": { "mode": "off" },
+    "admission": {},
+    "learning": {}
+  }
+}

@@ -1,6 +1,9 @@
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Tests;
 

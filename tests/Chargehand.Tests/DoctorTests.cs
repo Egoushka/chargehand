@@ -1,6 +1,8 @@
 using System.Net;
 using Chargehand.Config;
 using Chargehand.Kernel;
+using Chargehand.Modules.Gateway.Api;
+using Chargehand.Modules.Runners.Api;
 using Chargehand.Onboarding;
 
 namespace Chargehand.Tests;

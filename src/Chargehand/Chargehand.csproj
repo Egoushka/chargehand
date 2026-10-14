@@ -10,8 +10,20 @@
     <ProjectReference Include="..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
     <!-- ADR 0060: the port runs old to new; this project calls ported modules until it is empty. -->
     <ProjectReference Include="..\Modules\Chargehand.Modules.Accounts\Chargehand.Modules.Accounts.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Batches\Chargehand.Modules.Batches.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Forge\Chargehand.Modules.Forge.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Gateway\Chargehand.Modules.Gateway.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Handover\Chargehand.Modules.Handover.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Intake\Chargehand.Modules.Intake.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Ledger\Chargehand.Modules.Ledger.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Memory\Chargehand.Modules.Memory.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Oversight\Chargehand.Modules.Oversight.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Research\Chargehand.Modules.Research.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Runners\Chargehand.Modules.Runners.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Sessions\Chargehand.Modules.Sessions.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Tasks\Chargehand.Modules.Tasks.csproj" />
+    <ProjectReference Include="..\Runtimes\Chargehand.Runtimes.ClaudeCode\Chargehand.Runtimes.ClaudeCode.csproj" />
+    <ProjectReference Include="..\Runtimes\Chargehand.Runtimes.OpenCode\Chargehand.Runtimes.OpenCode.csproj" />
   </ItemGroup>
 
   <ItemGroup>

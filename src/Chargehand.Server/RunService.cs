@@ -3,8 +3,11 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.RunLog;
 using Microsoft.AspNetCore.Http;
 
@@ -16,7 +19,7 @@ namespace Chargehand.Server;
 /// the CLI shares (ADR 0018); events live here only while the run is unfinished.
 /// </summary>
 public sealed class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping, DrivenRun? driven = null,
-    int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null, IRunLog? log = null, TimeProvider? clock = null) : IDisposable
+    int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null, IRunLog? log = null, TimeProvider? clock = null) : IDisposable, IAsyncDisposable
 {
     /// <summary>Unfinished top-level runs held at most; beyond it a new run is refused (HTTP 429). A session's research and review runs do not count: the child gate and the session count bound them.</summary>
     public const int MaxUnfinished = 10;
@@ -28,11 +31,28 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
     private readonly SemaphoreSlim _childGate = new(Math.Max(1, maxSessionCalls), Math.Max(1, maxSessionCalls));
     private readonly ConcurrentDictionary<string, RunHandle> _runs = new();
 
+    /// <summary>The runs' background work until it ends, so a stop can wait for it.</summary>
+    private readonly ConcurrentDictionary<Task, byte> _executing = new();
+
     public void Dispose()
     {
         _gate.Dispose();
         _childGate.Dispose();
         driven?.Dispose();
+    }
+
+    /// <summary>Waits for the runs the host's stop cancelled to write their end, then disposes: the gates and the driven run's journal are still in use until then.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        await Task.WhenAll(_executing.Keys).ConfigureAwait(false);
+        Dispose();
+    }
+
+    private void Track(Func<Task> execute)
+    {
+        var task = Task.Run(execute, CancellationToken.None);
+        _executing[task] = 0;
+        _ = task.ContinueWith(t => _executing.TryRemove(t, out _), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
     public RunTokenService Tokens { get; } = stateDirectory is null ? new() : RunTokenService.LoadOrCreate(Path.Combine(stateDirectory, "run-token.key"));
@@ -121,10 +141,10 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         // ponytail: count-then-add is not atomic; two racing calls can exceed the bound by one.
         if (chargeTo is null && _runs.Values.Count(r => !r.IsChild) >= MaxUnfinished)
             return null;
-        var run = new RunHandle(Orchestrator.NewRunId(), stopping) { IsChild = chargeTo is not null, Actor = actor };
+        var run = new RunHandle(RunIds.New(), stopping) { IsChild = chargeTo is not null, Actor = actor, IsBatch = request.Driven is not null };
         _runs[run.Id] = run;
         run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
-        _ = Task.Run(() => Execute(run, request, parentRunId, chargeTo));
+        Track(() => Execute(run, request, parentRunId, chargeTo));
         return run;
     }
 
@@ -139,10 +159,10 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         var swept = await driven.SweepOrphansAsync(open, ct);
         foreach (var state in open)
         {
-            var run = new RunHandle(state.RunId, stopping) { Actor = state.Actor };
+            var run = new RunHandle(state.RunId, stopping) { Actor = state.Actor, IsBatch = true };
             _runs[run.Id] = run;
             run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
-            _ = Task.Run(() => Execute(run, state.Request, null, null, state), CancellationToken.None);
+            Track(() => Execute(run, state.Request, null, null, state));
         }
         return swept;
     }
@@ -186,7 +206,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         }
     }
 
-    private async Task Execute(RunHandle run, RunRequest request, string? parentRunId, string? chargeTo, BatchState? resume = null)
+    private async Task Execute(RunHandle run, RunRequest request, string? parentRunId, string? chargeTo, OpenBatch? resume = null)
     {
         var gate = chargeTo is null ? _gate : _childGate;
         try
@@ -243,6 +263,19 @@ public sealed class RunHandle(string id, CancellationToken stopping) : IDisposab
 
     /// <summary>Started through a session's run token: it runs on the child gate.</summary>
     public bool IsChild { get; init; }
+
+    /// <summary>A driven batch: its events can replay from the journal (ADR 0061).</summary>
+    public bool IsBatch { get; init; }
+
+    /// <summary>Completes at the next <see cref="Publish"/>.</summary>
+    internal Task Changed
+    {
+        get
+        {
+            lock (_events)
+                return _changed.Task;
+        }
+    }
 
     /// <summary>Cancelled by the server's shutdown or by <see cref="CancelByCaller"/>.</summary>
     public CancellationToken Token => _cancel.Token;

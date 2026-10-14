@@ -1,6 +1,7 @@
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
+using Chargehand.Runtimes.ClaudeCode.Api;
 
 namespace Chargehand.Tests;
 

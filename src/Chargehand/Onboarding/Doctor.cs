@@ -1,7 +1,10 @@
 using System.Text.RegularExpressions;
 using Chargehand.Config;
 using Chargehand.Kernel;
+using Chargehand.Modules.Gateway.Api;
+using Chargehand.Modules.Runners.Api;
 using Chargehand.Runtime;
+using Chargehand.Runtimes.ClaudeCode.Api;
 
 namespace Chargehand.Onboarding;
 

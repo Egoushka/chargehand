@@ -33,7 +33,8 @@ public class ArchitectureTests
     [Fact]
     public void Automation_references_Driven_and_the_server_references_Automation()
     {
-        Assert.Contains(Driven, References(Automation));
+        // The project reference: the compiled assembly drops it once no Driven type is used, as the port moves them into modules.
+        Assert.Contains($@"..\{Driven}\{Driven}.csproj", File.ReadAllText(Repo.Path("src", Automation, $"{Automation}.csproj")));
         Assert.Contains(Automation, References("Chargehand.Server"));
     }
 

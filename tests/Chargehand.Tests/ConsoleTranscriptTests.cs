@@ -5,6 +5,10 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
+using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Server;
 using Chargehand.Workspace;
 
@@ -28,15 +32,15 @@ public class ConsoleTranscriptTests
 
     private static string Line(string text) => JsonSerializer.Serialize(new { type = "assistant", message = new { content = new[] { new { type = "text", text } } } });
 
-    private sealed record Setup(ConsoleRig Rig, DrivenRunTests.FakeVolumes Volumes) : IAsyncDisposable
+    private sealed record Setup(ConsoleRig Rig, DrivenFakes.FakeVolumes Volumes) : IAsyncDisposable
     {
         public ValueTask DisposeAsync() => Rig.DisposeAsync();
     }
 
     private static async Task<Setup> StartAsync(string? actor = null, bool seed = true)
     {
-        var volumes = new DrivenRunTests.FakeVolumes(_ => SessionStatus.Completed);
-        var engine = new DrivenRunTests.FakeEngine();
+        var volumes = new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed);
+        var engine = new DrivenFakes.FakeEngine();
         var rig = await ConsoleRig.StartAsync(accounts: [Alice(), Bob()], profile: WithCredential, services: _ => new DrivenServices(engine, engine, volumes, _ => throw new NotSupportedException(), null,
             (_, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo", ConsoleRig.Commit, "https://github.com/o/r.git", "main")), new DrivenRunTests.NoEvidenceProblems(), name => $"value-of-{name}"));
         if (seed)
@@ -193,14 +197,14 @@ public class ConsoleTranscriptTests
         var request = ConsoleSeed.BatchRequest(new DrivenTask("t1", Goal: "one"));
         await s.Rig.Log.AppendAsync(ConsoleSeed.Start("run-live", request, "alice", ConsoleRig.Now.AddMinutes(-20)), default);
         var started = ConsoleRig.Now.AddMinutes(-19);
-        new BatchStateStore(s.Rig.BatchDirectory).Save(new BatchState("run-live", started, new string('0', 32), request, "TOKEN-KEY",
-            [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-s1", "chargehand/run-s1", "chargehand-run-s1", started, Runs: ["run-s1"])], [], Actor: "alice"));
+        var key = await OpenBatchSeed.SaveAsync(s.Rig.BatchDirectory, s.Rig.Log, new OpenBatch("run-live", started, new string('0', 32), request,
+            [new TaskEntry("t1", null, "one", TaskPhase.Started, "run-s1", "chargehand/run-s1", "chargehand-run-s1", started, Runs: ["run-s1"])], [], Actor: "alice"), s.Rig.Driven);
         s.Volumes.Transcripts["run-s1"] = Line("working on it") + "\n";
         using var alice = s.Rig.As("alice");
 
         var text = await ConsoleRig.Text(alice, Route("run-s1", batch: "run-live"));
 
         Assert.Contains("working on it", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("TOKEN-KEY", text, StringComparison.Ordinal);
+        Assert.DoesNotContain(key, text, StringComparison.Ordinal);
     }
 }
