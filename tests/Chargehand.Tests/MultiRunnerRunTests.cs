@@ -380,6 +380,35 @@ public class MultiRunnerRunTests
         Assert.Empty(Directory.GetFiles(rig.StateDirectory, "*.json"));
     }
 
+    /// <summary>ADR 0063: the placements a task used up survive a restart. Two placements fail before the server stops; after the restart the task has one left, so the box's silence fails it.
+    /// Without the journal it would start over with three, and the laptop, which answers from its second start on, would run it.</summary>
+    [Fact]
+    public async Task A_restart_keeps_the_placements_a_task_used_up_and_the_third_runner_that_does_not_answer_fails_it()
+    {
+        using var rig = new Rig(boxMb: 30000, laptopMb: 9000, durable: true);
+        rig.Box.Engine.OnStart = _ => new RunnerUnreachableException("the runner could not be reached: network is unreachable");
+        var laptopStarts = 0;
+        rig.Laptop.Engine.OnStart = _ => Interlocked.Increment(ref laptopStarts) == 1 ? new RunnerUnreachableException("the runner could not be reached: connection reset") : null;
+        using var stop = new CancellationTokenSource();
+        var replaced = 0;
+        await rig.Run.RunAsync(Request("one"), "run-batch-p", g => $"tok-{g.RunId}", stop.Token, e =>
+        {
+            if (e.Detail?.Contains("placing the task again", StringComparison.Ordinal) == true && Interlocked.Increment(ref replaced) == 2)
+                stop.Cancel();
+        }, () => false);
+        Assert.Equal(1, laptopStarts);
+        var state = Assert.Single(await rig.Restart().UnfinishedAsync(default));
+
+        var result = await rig.RunAsync(state.Request, "run-batch-p", state);
+
+        var row = Rows(result).Single();
+        Assert.Equal(("failed", "container_unavailable"), (row.GetProperty("status").GetString(), row.GetProperty("error_code").GetString()));
+        Assert.Contains("runner 'box' could not be reached", row.GetProperty("detail").GetString(), StringComparison.Ordinal);
+        // One attempt after the restart, on the box; the laptop was not tried again.
+        Assert.Equal((1, 2), (laptopStarts, rig.Box.Engine.Started.Count));
+        Assert.Empty(rig.Handover.Inputs);
+    }
+
     [Fact]
     public async Task A_task_that_began_on_a_runner_the_profile_no_longer_has_fails_saying_so_and_the_rest_of_the_batch_goes_on()
     {
