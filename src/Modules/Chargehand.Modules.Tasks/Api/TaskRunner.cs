@@ -13,6 +13,7 @@ using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Core;
 
 namespace Chargehand.Modules.Tasks.Api;
 
@@ -145,7 +146,7 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
     public async Task<TaskOutcome> RunAsync(ResolvedTask task, IProgress<TaskUsage> progress, CancellationToken ct)
     {
         var entry = state?.Entry(task.Id);
-        if (entry is { Phase: TaskPhase.HandedOver or TaskPhase.Failed, Outcome: { } done })
+        if (TaskResume.Decide(entry, new ResumeFacts()) is TakeUp { Kind: ResumeKind.Done, Outcome: { } done })
             return done;
         var run = await PrepareAsync(task, entry, ct);
         // A child of the batch's span: the task's result carries the batch's trace id, so it resolves in Langfuse.
@@ -220,6 +221,15 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
     }
 
     private bool Detaching => detaching?.Invoke() == true;
+
+    /// <summary>A transition of the task's entry (<see cref="TaskMachine"/>), saved through P3 until the journal keeps the events (C4 slice S6). The end goes to the batch, which folds it the same way.</summary>
+    private void Record(string taskId, TaskEvent e)
+    {
+        if (e is TaskFinished finished)
+            state?.Finish(finished.Outcome);
+        else
+            state?.Update(taskId, entry => TaskMachine.Decide(entry, e).State);
+    }
 
     private static void DeleteQuietly(string directory)
     {
