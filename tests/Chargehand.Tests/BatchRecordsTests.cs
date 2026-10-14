@@ -1,5 +1,6 @@
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Journal.Api;
 
 namespace Chargehand.Tests;
 
@@ -90,6 +91,52 @@ public class BatchRecordsTests
         new BatchRecords(dir.Path).AppendEvent("run-1", Event("run-1", RunEventKind.Governor, "t1", "past the cap"));
 
         Assert.Equal(BatchRecords.MaxEvents, first.ReadEvents("run-1")!.Count);
+    }
+
+    [Fact]
+    public async Task A_journaled_batchs_events_land_in_the_journal_in_order_with_gap_free_sequence_numbers_until_its_end()
+    {
+        using var dir = new TempDir();
+        await using var journal = await DrivenJournal.OpenAsync(Path.Combine(dir.Path, "batches"));
+        var records = new BatchRecords(dir.Path);
+        records.Journal("run-1", journal);
+        records.AppendEvent("run-1", Event("run-1", RunEventKind.Started));
+        records.AppendEvent("run-2", Event("run-2", RunEventKind.Started));
+        records.AppendEvent("run-1", Event("run-1", RunEventKind.ContainerStarted, "t1", new string('d', 5000)));
+        records.AppendEvent("run-1", Event("run-1", RunEventKind.TaskFinished, "t1", "task t1: completed"));
+        records.AppendEvent("run-1", RunStatus.Of("run-1", RunState.Completed, RunEventKind.RunFinished) with { Result = ConsoleSeed.Result("run-1", ResultStatus.Completed, "done") });
+        // An operator's note on the finished batch goes to the records only: its flow is forgotten by now.
+        records.AppendEvent("run-1", Event("run-1", RunEventKind.Governor, detail: "noted"));
+
+        var journaled = await journal.ReadEventsAsync("run-1");
+
+        Assert.Equal([1L, 2L, 3L], journaled.Select(e => e.Sequence));
+        Assert.Equal(["started", "container_started", "task_finished"], journaled.Select(e => e.Kind));
+        var parsed = BatchRecords.Parse(journaled);
+        Assert.Equal(records.ReadEvents("run-1")!.Take(3).Select(e => (e.Event, e.TaskId, e.Detail)), parsed.Select(p => (p.Event.Event, p.Event.TaskId, p.Event.Detail)));
+        Assert.Empty(await journal.ReadEventsAsync("run-2"));
+    }
+
+    [Fact]
+    public async Task The_journal_keeps_a_tasks_progress_as_the_records_do_at_most_once_in_30_seconds()
+    {
+        using var dir = new TempDir();
+        var clock = new ManualTimeProvider();
+        await using var journal = await DrivenJournal.OpenAsync(Path.Combine(dir.Path, "batches"));
+        var records = new BatchRecords(dir.Path, clock);
+        records.Journal("run-1", journal);
+
+        for (var i = 0; i < 6; i++)
+        {
+            records.AppendEvent("run-1", Event("run-1", RunEventKind.SessionProgress, "t1", $"tick {i}", tokens: 100 * (i + 1)));
+            records.AppendEvent("run-1", Event("run-1", RunEventKind.Governor, "t1", $"decision {i}"));
+            clock.Advance(TimeSpan.FromSeconds(10));
+        }
+
+        var journaled = BatchRecords.Parse(await journal.ReadEventsAsync("run-1"));
+        Assert.Equal(["tick 0", "tick 3"], journaled.Where(e => e.Event.Event == RunEventKind.SessionProgress).Select(e => e.Event.Detail));
+        Assert.Equal(6, journaled.Count(e => e.Event.Event == RunEventKind.Governor));
+        Assert.Equal(Enumerable.Range(1, 8).Select(n => (long)n), journaled.Select(e => e.Sequence));
     }
 
     private static readonly DateTimeOffset At = new(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);

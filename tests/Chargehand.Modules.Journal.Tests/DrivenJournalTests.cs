@@ -140,4 +140,37 @@ public sealed class DrivenJournalTests : IDisposable
 
         Assert.Equal(3, runs);
     }
+
+    [Fact]
+    public async Task A_batchs_events_read_back_in_order_after_any_sequence_number_and_after_a_restart()
+    {
+        await using (var first = await DrivenJournal.OpenAsync(_directory))
+        {
+            List<long> sequences = [await first.AppendEventAsync("batch-1", "started", "{}")];
+            sequences.Add(await first.AppendEventAsync("batch-1", "plan", "{\"n\":1}"));
+            sequences.Add(await first.AppendEventAsync("batch-1", "governor", "{\"n\":2}"));
+            Assert.Equal([1L, 2L, 3L], sequences);
+            Assert.Equal([2L, 3L], (await first.ReadEventsAsync("batch-1", after: 1)).Select(e => e.Sequence));
+        }
+
+        await using var second = await DrivenJournal.OpenAsync(_directory);
+        await second.AppendEventAsync("batch-1", "task_finished", "{\"n\":3}");
+        var after = await second.ReadEventsAsync("batch-1", after: 2);
+
+        Assert.Equal([(3L, "governor", "{\"n\":2}"), (4L, "task_finished", "{\"n\":3}")], after.Select(e => (e.Sequence, e.Kind, e.Payload)));
+        Assert.Empty(await second.ReadEventsAsync("batch-1", after: 4));
+    }
+
+    [Fact]
+    public async Task Forgetting_a_batch_removes_its_events_and_no_other_batch_s()
+    {
+        await using var journal = await DrivenJournal.OpenAsync(_directory);
+        await journal.AppendEventAsync("batch-1", "started", "{}");
+        await journal.AppendEventAsync("batch-2", "started", "{}");
+
+        await journal.ForgetAsync("batch-1");
+
+        Assert.Empty(await journal.ReadEventsAsync("batch-1"));
+        Assert.Single(await journal.ReadEventsAsync("batch-2"));
+    }
 }

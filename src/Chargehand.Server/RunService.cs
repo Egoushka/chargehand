@@ -121,7 +121,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         // ponytail: count-then-add is not atomic; two racing calls can exceed the bound by one.
         if (chargeTo is null && _runs.Values.Count(r => !r.IsChild) >= MaxUnfinished)
             return null;
-        var run = new RunHandle(Orchestrator.NewRunId(), stopping) { IsChild = chargeTo is not null, Actor = actor };
+        var run = new RunHandle(Orchestrator.NewRunId(), stopping) { IsChild = chargeTo is not null, Actor = actor, IsBatch = request.Driven is not null };
         _runs[run.Id] = run;
         run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
         _ = Task.Run(() => Execute(run, request, parentRunId, chargeTo));
@@ -139,7 +139,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         var swept = await driven.SweepOrphansAsync(open, ct);
         foreach (var state in open)
         {
-            var run = new RunHandle(state.RunId, stopping) { Actor = state.Actor };
+            var run = new RunHandle(state.RunId, stopping) { Actor = state.Actor, IsBatch = true };
             _runs[run.Id] = run;
             run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
             _ = Task.Run(() => Execute(run, state.Request, null, null, state), CancellationToken.None);
@@ -243,6 +243,19 @@ public sealed class RunHandle(string id, CancellationToken stopping) : IDisposab
 
     /// <summary>Started through a session's run token: it runs on the child gate.</summary>
     public bool IsChild { get; init; }
+
+    /// <summary>A driven batch: its events can replay from the journal (ADR 0061).</summary>
+    public bool IsBatch { get; init; }
+
+    /// <summary>Completes at the next <see cref="Publish"/>.</summary>
+    internal Task Changed
+    {
+        get
+        {
+            lock (_events)
+                return _changed.Task;
+        }
+    }
 
     /// <summary>Cancelled by the server's shutdown or by <see cref="CancelByCaller"/>.</summary>
     public CancellationToken Token => _cancel.Token;

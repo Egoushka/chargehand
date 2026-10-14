@@ -95,6 +95,13 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             records?.AppendEvent(batchRunId, e);
     }
 
+    /// <summary>Whether a batch's events are journaled, so <see cref="JournaledEventsAsync"/> can replay them.</summary>
+    public bool JournalsEvents => _steps is not null && records is not null;
+
+    /// <summary>A batch's journaled events after sequence <paramref name="after"/>, oldest first: those of this process and of one a restart interrupted. Empty when <see cref="JournalsEvents"/> is off.</summary>
+    public async Task<IReadOnlyList<(long Sequence, RunStatus Event)>> JournaledEventsAsync(string batch, long after, CancellationToken ct) =>
+        JournalsEvents ? BatchRecords.Parse(await (await _steps!.Value).ReadEventsAsync(batch, after, ct: ct)) : [];
+
     // With several runners (ADR 0058) the pool places each task; with one host, the memory rule of ADR 0045 alone.
     private readonly IAdmission? _admission = services?.Runners is { Count: > 0 } runners
         ? new RunnerPool(runners, profile.Driven?.Admission ?? new DrivenAdmission(), services.Poll, log: message => Console.Error.WriteLine($"chargehand: {message}"))
@@ -148,6 +155,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         // The batch's events go to disk as well as to the caller, so its timeline outlives a restart (CHARGEHAND-214).
         if (records is not null)
         {
+            if (_steps is not null)
+                records.Journal(runId, await _steps.Value);
             var caller = progress;
             progress = e =>
             {
