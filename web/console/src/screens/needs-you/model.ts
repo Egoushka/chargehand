@@ -1,4 +1,4 @@
-import type { InboxItem, InboxKind } from '../../api/inbox';
+import type { InboxItem, InboxKind, InboxResolved } from '../../api/inbox';
 
 export type Filter = 'all' | InboxKind;
 
@@ -45,4 +45,18 @@ export function waitingFor(reason: string | null | undefined): string {
 /** The run to open for an item: the batch, else the run itself. */
 export function targetRun(item: InboxItem): string | null {
   return item.batch_run_id ?? item.run_id ?? null;
+}
+
+/** What left the inbox without you (ADR 0064), in words; empty when nothing did. */
+export function resolvedNote(resolved: InboxResolved | undefined): string {
+  if (!resolved) return '';
+  const auto = resolved.superseded + resolved.infrastructure + resolved.continued;
+  const parts = [
+    auto > 0 ? `${auto} resolved on their own` : '',
+    resolved.dismissed > 0 ? `${resolved.dismissed} dismissed` : '',
+    resolved.duplicates > 0
+      ? `${resolved.duplicates} duplicate${resolved.duplicates === 1 ? '' : 's'} folded`
+      : '',
+  ].filter(Boolean);
+  return parts.join(', ');
 }

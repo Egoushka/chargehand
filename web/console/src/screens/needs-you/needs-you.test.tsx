@@ -1,10 +1,18 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { answerRequest } from '../../api/answer';
-import { BATCH_A, COMMIT, inbox, inboxItems, longQuestion, REPO } from '../../testing/fixtures';
+import {
+  BATCH_A,
+  BATCH_B,
+  COMMIT,
+  inbox,
+  inboxItems,
+  longQuestion,
+  REPO,
+} from '../../testing/fixtures';
 import { renderConsole } from '../../testing/render';
 import { serveApi } from '../../testing/server';
-import { ordered, summary, waitingFor } from './model';
+import { ordered, resolvedNote, summary, waitingFor } from './model';
 
 const cards = () => screen.getAllByRole('article');
 const findCard = async (name: RegExp | string) =>
@@ -113,6 +121,84 @@ describe('Needs you', () => {
     expect(screen.getByText('Scrub personal data from the export job')).toBeTruthy();
     fireEvent.click(within(filter).getByRole('button', { name: /All/ }));
     expect(cards()).toHaveLength(3);
+  });
+});
+
+describe('dismissing', () => {
+  it('dismisses one item by its id, says so with an Undo that restores it, and refreshes the inbox', async () => {
+    const api = serveApi();
+    renderConsole('/console/needs-you');
+    const failure = await findCard('Scrub personal data from the export job');
+    const before = api.calls.filter((c) => c.path.startsWith('/v1/inbox?')).length;
+
+    fireEvent.click(failure.getByRole('button', { name: 'Dismiss t1-pii-scrub' }));
+
+    await waitFor(() => expect(api.last('/v1/inbox/dismiss')).toBeTruthy());
+    expect(api.last('/v1/inbox/dismiss')?.body).toEqual({
+      ids: [`failure:${BATCH_B}:t1-pii-scrub`],
+    });
+    expect(api.last('/v1/inbox/dismiss')?.method).toBe('POST');
+    expect(await screen.findByText('Dismissed t1-pii-scrub')).toBeTruthy();
+    await waitFor(() =>
+      expect(api.calls.filter((c) => c.path.startsWith('/v1/inbox?')).length).toBeGreaterThan(
+        before,
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() =>
+      expect(api.last('/v1/inbox/restore')?.body).toEqual({
+        ids: [`failure:${BATCH_B}:t1-pii-scrub`],
+      }),
+    );
+  });
+
+  it('dismisses all the items the filter shows and no others', async () => {
+    const api = serveApi();
+    renderConsole('/console/needs-you');
+    await screen.findAllByRole('article');
+    const filter = screen.getByRole('group', { name: 'Filter' });
+    fireEvent.click(within(filter).getByRole('button', { name: /PRs/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss all 1 shown' }));
+
+    await waitFor(() =>
+      expect(api.last('/v1/inbox/dismiss')?.body).toEqual({
+        ids: ['pull_request:https://github.com/example/payments-api/pull/412'],
+      }),
+    );
+    expect(await screen.findByText('Dismissed 1 item')).toBeTruthy();
+  });
+
+  it('marks a failure that stands for several and says what left the inbox on its own', async () => {
+    const body = inbox();
+    const failure = body.items.find((i) => i.kind === 'failure');
+    if (failure) failure.count = 17;
+    body.resolved = {
+      superseded: 4,
+      infrastructure: 25,
+      continued: 2,
+      dismissed: 1,
+      duplicates: 16,
+    };
+    serveApi({ inbox: body });
+    renderConsole('/console/needs-you');
+    const card = await findCard('Scrub personal data from the export job');
+
+    expect(card.getByText('×17')).toBeTruthy();
+    expect(
+      screen.getByText(/31 resolved on their own, 1 dismissed, 16 duplicates folded/),
+    ).toBeTruthy();
+    expect((await findCard('example/payments-api #412')).queryByText(/^×/)).toBeNull();
+  });
+
+  it('puts the resolved counts in words, and nothing for a server that sends none', () => {
+    expect(resolvedNote(undefined)).toBe('');
+    expect(
+      resolvedNote({ superseded: 0, infrastructure: 0, continued: 0, dismissed: 0, duplicates: 0 }),
+    ).toBe('');
+    expect(
+      resolvedNote({ superseded: 1, infrastructure: 0, continued: 0, dismissed: 0, duplicates: 1 }),
+    ).toBe('1 resolved on their own, 1 duplicate folded');
   });
 });
 

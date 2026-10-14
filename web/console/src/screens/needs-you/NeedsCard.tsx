@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { type Ref, useId, useState } from 'react';
 import { useAnswer } from '../../api/answer';
-import type { InboxItem } from '../../api/inbox';
+import { type InboxItem, useDismiss } from '../../api/inbox';
 import { baseName, formatDateTime, formatTime, shortId } from '../../lib/format';
 import { inboxStatus } from '../../lib/status';
 import { safeHttpUrl } from '../../lib/url';
@@ -55,6 +55,13 @@ export function NeedsCard({ item, cursor, answerRef, cardRef }: NeedsCardProps) 
         {item.pull_request?.test_integrity_flagged ? (
           <Badge size="s" tone="warn" label="test-integrity flagged" />
         ) : null}
+        {(item.count ?? 1) > 1 ? (
+          <Badge
+            size="s"
+            label={`×${item.count}`}
+            title={`${item.count} identical failures; this is the newest`}
+          />
+        ) : null}
         <span className="spacer" />
         <span className="dim mono" title={formatDateTime(item.at)}>
           {formatTime(item.at)}
@@ -85,8 +92,45 @@ export function NeedsCard({ item, cursor, answerRef, cardRef }: NeedsCardProps) 
             {openLabel}
           </Link>
         ) : null}
+        <DismissButton item={item} />
       </div>
     </article>
+  );
+}
+
+/** Takes the item out of the inbox for everyone who sees it; the notice offers Undo. */
+function DismissButton({ item }: { item: InboxItem }) {
+  const toast = useToast();
+  const dismiss = useDismiss();
+  const label = item.task_id ?? (item.run_id ? shortId(item.run_id) : item.title);
+  return (
+    <Button
+      variant="quiet"
+      label="Dismiss"
+      aria-label={`Dismiss ${label}`}
+      loading={dismiss.isPending}
+      onClick={() =>
+        dismiss.mutate(
+          { ids: [item.id] },
+          {
+            onSuccess: () =>
+              toast.push({
+                tone: 'ok',
+                icon: 'check',
+                title: `Dismissed ${label}`,
+                actions: [{ label: 'Undo', onSelect: () => void dismiss.restore([item.id]) }],
+              }),
+            onError: (error) =>
+              toast.push({
+                tone: 'danger',
+                icon: 'alert-triangle',
+                title: 'Not dismissed',
+                body: error.message,
+              }),
+          },
+        )
+      }
+    />
   );
 }
 

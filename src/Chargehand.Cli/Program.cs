@@ -509,7 +509,8 @@ async Task<int> Serve()
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
-        Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json")),
+        Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
+        InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json")),
         orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", UI /ui/, console /console/" : "")})");
