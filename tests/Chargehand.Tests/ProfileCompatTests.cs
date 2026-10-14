@@ -1,5 +1,9 @@
 using System.Text.Json;
 using Chargehand.Config;
+using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Memory.Api;
 
 namespace Chargehand.Tests;
 
@@ -21,4 +25,12 @@ public class ProfileCompatTests
         var loaded = JsonSerializer.Serialize(Profile.Load(Repo.Path(profile.Split('/'))), Snapshot);
         Assert.Equal(File.ReadAllText(Repo.Path("tests", "Chargehand.Tests", "ProfileCompat", Path.GetFileName(profile))), loaded);
     }
+
+    [Theory]
+    [InlineData(typeof(IReadOnlyDictionary<string, ModelPrice>), typeof(LedgerSettingsJsonContext))]
+    [InlineData(typeof(IReadOnlyList<AccountSettings>), typeof(AccountsSettingsJsonContext))]
+    [InlineData(typeof(List<MemoryProviderSettings>), typeof(MemorySettingsJsonContext))]
+    [InlineData(typeof(DrivenForge), typeof(ForgeSettingsJsonContext))]
+    public void A_modules_section_is_bound_by_the_modules_source_generated_context(Type section, Type context) =>
+        Assert.IsType(context, Profile.LoadJson.GetTypeInfo(section).OriginatingResolver);
 }

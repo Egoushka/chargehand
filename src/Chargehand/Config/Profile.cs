@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
@@ -77,12 +78,21 @@ public sealed record Profile(
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
     };
 
+    /// <summary>What <see cref="Load"/> reads with (ADR 0060): <see cref="Json"/>'s options, each module's source-generated context for its own
+    /// sections first, then reflection for the sections still declared here.</summary>
+    internal static readonly JsonSerializerOptions LoadJson = new(Json)
+    {
+        TypeInfoResolver = JsonTypeInfoResolver.Combine(LedgerSettingsJsonContext.Default, AccountsSettingsJsonContext.Default,
+            MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, new DefaultJsonTypeInfoResolver()),
+    };
+
     /// <summary>Owner-visible defaults (this record's own default values) when the file does not exist.</summary>
     public static Profile Load(string path)
     {
         if (!File.Exists(path))
             return new Profile("profile/v1");
-        var profile = JsonSerializer.Deserialize<Profile>(File.ReadAllText(path), Json) ?? throw new InvalidDataException($"{path}: empty profile");
+        var profile = JsonSerializer.Deserialize(File.ReadAllText(path), (JsonTypeInfo<Profile>)LoadJson.GetTypeInfo(typeof(Profile)))
+            ?? throw new InvalidDataException($"{path}: empty profile");
         var servers = profile.McpServers ?? new Dictionary<string, McpServerSettings>();
         foreach (var (name, server) in servers)
             server.Validate(name);
@@ -237,7 +247,7 @@ internal sealed class MemoryListConverter : JsonConverter<IReadOnlyList<MemoryPr
         switch (reader.TokenType)
         {
             case JsonTokenType.StartArray:
-                var providers = JsonSerializer.Deserialize<List<MemoryProviderSettings>>(ref reader, options) ?? [];
+                var providers = JsonSerializer.Deserialize(ref reader, (JsonTypeInfo<List<MemoryProviderSettings>>)options.GetTypeInfo(typeof(List<MemoryProviderSettings>))) ?? [];
                 return providers.Contains(null!) ? throw new JsonException("memory: every entry must be an object") : providers;
             case JsonTokenType.StartObject:
                 throw new ChargehandException(ErrorCode.InvalidRequest, "memory is a list now: the object form (backend, url, namespace) was removed",
@@ -248,7 +258,7 @@ internal sealed class MemoryListConverter : JsonConverter<IReadOnlyList<MemoryPr
     }
 
     public override void Write(Utf8JsonWriter writer, IReadOnlyList<MemoryProviderSettings> value, JsonSerializerOptions options) =>
-        JsonSerializer.Serialize(writer, (IEnumerable<MemoryProviderSettings>)value, options);
+        JsonSerializer.Serialize(writer, value, (JsonTypeInfo<IEnumerable<MemoryProviderSettings>>)options.GetTypeInfo(typeof(IEnumerable<MemoryProviderSettings>)));
 }
 
 /// <param name="UsageOnSpans">Call spans carry tokens and cost (ADR 0021). Only for calls no gateway records, e.g. Claude
