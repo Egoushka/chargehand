@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Kernel;
 
 /// <param name="Kind">The pattern's name; never the matched text.</param>
 public sealed record ScanFinding(string Kind, string? Path);
@@ -76,7 +76,7 @@ public static partial class DiffScan
             }
         var found = false;
         foreach (var literal in literals.Where(l => l.Length >= 8))
-            foreach (var form in new[] { literal, JsonSerializer.Serialize(literal)[1..^1] }.Distinct())
+            foreach (var form in new[] { literal, JsonEncodedText.Encode(literal).Value }.Distinct())
                 if (text.Contains(form, StringComparison.Ordinal))
                 {
                     text = text.Replace(form, "[redacted]", StringComparison.Ordinal);

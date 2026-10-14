@@ -3,13 +3,13 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using Chargehand.Config;
+using Chargehand.Contracts;
 using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Driven;
 
 /// <summary>The rungs of ADR 0045's ladder. A warn has no channel into the session yet (the driver closes its stdin), so it is only logged.</summary>
-[JsonConverter(typeof(SnakeCaseEnum<GovernorAction>))]
+[JsonConverter(typeof(SnakeCaseEnumConverter<GovernorAction>))]
 public enum GovernorAction { Warn, Checkpoint, Stop }
 
 /// <summary>The governor's settings for one session, in <c>task.json</c>: the profile's <c>driven.governor</c> with the task's budget resolved.</summary>
