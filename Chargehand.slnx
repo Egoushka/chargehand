@@ -49,6 +49,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Chargehand.Architecture.Tests/Chargehand.Architecture.Tests.csproj" />
     <Project Path="tests/Chargehand.Kernel.Tests/Chargehand.Kernel.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Forge.Tests/Chargehand.Modules.Forge.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Journal.Tests/Chargehand.Modules.Journal.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Memory.Tests/Chargehand.Modules.Memory.Tests.csproj" />
     <Project Path="tests/Chargehand.Tests/Chargehand.Tests.csproj" />

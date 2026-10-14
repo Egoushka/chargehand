@@ -3,9 +3,10 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Chargehand.Driven;
+using Chargehand.Modules.Forge.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Forge.Tests;
 
 /// <summary>ADR 0046: the integrator acts as a GitHub App. The App's JWT is RS256 and short, the installation token is cached until near its expiry, and neither the key nor a token is ever in a message.</summary>
 public class GitHubAppAuthTests

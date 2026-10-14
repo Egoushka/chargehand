@@ -1,5 +1,6 @@
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Journal.Api;
 
 namespace Chargehand.Tests;

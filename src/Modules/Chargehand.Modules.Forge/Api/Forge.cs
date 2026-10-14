@@ -1,8 +1,6 @@
 using System.Text.RegularExpressions;
-using Chargehand.Config;
-using Chargehand.Modules.Forge.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Forge.Api;
 
 public enum ForgeKind { GitHub, GitLab }
 

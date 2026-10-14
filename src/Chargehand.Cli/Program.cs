@@ -436,11 +436,11 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     Chargehand.Driven.PlanRunner childRun = async (request, runId, parentRunId, token) =>
         await orchestrator.RunAsync(request, token, runId, parentRunId: parentRunId, actor: (await runLog.ReadAsync(parentRunId, token)).Start?.Actor);
     return new Chargehand.Driven.DrivenRun(profile, runLog, root, new Chargehand.Driven.DrivenServices(engine, workspace, volumes,
-        push => new Chargehand.Driven.GitHubPullRequests(new HttpClient { BaseAddress = GitHubApiRoot(driven) }, push.Value),
+        push => new Chargehand.Modules.Forge.Api.GitHubPullRequests(new HttpClient { BaseAddress = GitHubApiRoot(driven) }, push.Value),
         driven.TaskSource is { } source ? new Chargehand.Mcp.McpTaskSource(source, mcpPool) : null,
         orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck, Host: hostSource,
-        Integration: IntegrationHost(driven), ForgeFor: (remote, token) => new Chargehand.Driven.GitLabForge(
-            new HttpClient { BaseAddress = Chargehand.Driven.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token),
+        Integration: IntegrationHost(driven), ForgeFor: (remote, token) => new Chargehand.Modules.Forge.Api.GitLabForge(
+            new HttpClient { BaseAddress = Chargehand.Modules.Forge.Api.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token),
         Planner: new Chargehand.Driven.ModelPlanner(childRun, driven.Planning?.Preset ?? "cheap"),
         Retro: new Chargehand.Driven.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap"), Runners: sites),
         stateDirectory, learning, records);
@@ -451,13 +451,13 @@ Uri GitHubApiRoot(Chargehand.Config.DrivenSettings driven) =>
     new(Environment.GetEnvironmentVariable("CHARGEHAND_E2E_GITHUB_API") ?? (driven.Forge is { Kind: "github", BaseUrl: { } baseUrl } ? baseUrl.TrimEnd('/') + "/" : "https://api.github.com/"));
 
 // The App's token source lives as long as the process, so a token is fetched once an hour at most (ADR 0046). The key is read from the secret store only when a token is needed.
-Chargehand.Driven.IIntegrationHost? IntegrationHost(Chargehand.Config.DrivenSettings driven)
+Chargehand.Modules.Forge.Api.IIntegrationHost? IntegrationHost(Chargehand.Config.DrivenSettings driven)
 {
     if (driven.Integrator is not { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId })
         return null;
     var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
-    return new Chargehand.Driven.GitHubIntegrationHost(api,
-        new Chargehand.Driven.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System));
+    return new Chargehand.Modules.Forge.Api.GitHubIntegrationHost(api,
+        new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System));
 }
 
 // GitHub intake (ADR 0051): null unless the profile has automation.github. It reads and comments as the integrator's GitHub App; its state sits next to the run log.
@@ -466,7 +466,7 @@ Chargehand.Automation.GitHubIntake? GitHubIntake()
     if (profile.Automation?.Github is not { } github || profile.Driven is not { Integrator: { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId } } driven)
         return null;
     var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
-    var tokens = new Chargehand.Driven.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System);
+    var tokens = new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System);
     var state = Chargehand.Automation.IntakeState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"));
     return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, integrator: new Chargehand.Driven.IntegratorPolicy(driven.Integrator));
 }
