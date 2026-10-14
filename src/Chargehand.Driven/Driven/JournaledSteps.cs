@@ -5,17 +5,17 @@ using Chargehand.Modules.Journal.Api;
 namespace Chargehand.Driven;
 
 /// <summary>The session's workspace helper as a recorded step, keyed <c>prep/&lt;run&gt;</c> in the batch's flow (ADR 0061). A task is prepared once per run id, so a key that completed never
-/// runs again. A step that is run again (the server stopped or the call was cancelled between its intent and its result, or it failed) first clears what the earlier attempt left. The volume is
-/// removed here: a clone does not go into a part-filled one. The helper container is not: the engine removes a stopped one under its fixed name before it runs the helper
+/// runs again. Every attempt first clears the work volume, because a clone does not go into a filled one: a step run again (the server stopped or the call was cancelled between its intent and
+/// its result, or it failed) finds what the earlier attempt left, and a first attempt after a reset can find the volume of a session that died, when a kill fell between the removal of its
+/// container and of its volume. The helper container is not removed here: the engine removes a stopped one under its fixed name before it runs the helper
 /// (<c>DockerCliEngine.RunHelperAsync</c>, #261 and #266), on a runner as well as on a local engine, and a running one is another call for the same run, which is waited for.
 /// The verification's own workspace is another key (<see cref="JournaledVerifierWorkspace"/>). A session that ran and ended without an outcome resets this key, so its next start prepares the volume fresh.</summary>
 public sealed class JournaledWorkspaceEngine(IWorkspaceEngine inner, IContainerEngine engine, DrivenJournal steps, string batchId) : IWorkspaceEngine
 {
     public Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct) =>
-        steps.RunAsync(StepKey.Prep(batchId, spec.RunId), async (attempt, token) =>
+        steps.RunAsync(StepKey.Prep(batchId, spec.RunId), async (_, token) =>
         {
-            if (attempt.Repeated)
-                await engine.RemoveVolumeAsync(spec.WorkVolume, token);
+            await engine.RemoveVolumeAsync(spec.WorkVolume, token);
             await inner.PrepareWorkspaceAsync(spec, token);
         }, ct);
 }

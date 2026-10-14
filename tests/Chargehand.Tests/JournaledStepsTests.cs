@@ -154,7 +154,7 @@ public sealed class JournaledStepsTests : IDisposable
     }
 
     [Fact]
-    public async Task A_prep_that_failed_is_prepared_again_with_the_volume_cleared_first()
+    public async Task A_prep_that_failed_is_prepared_again_and_each_attempt_clears_the_volume_first()
     {
         var engine = Daemon("prep");
         using var journal = await DrivenJournal.OpenAsync(State);
@@ -167,7 +167,7 @@ public sealed class JournaledStepsTests : IDisposable
         await workspace.PrepareWorkspaceAsync(Workspace, default);
 
         Assert.Equal(2, failing.Calls);
-        Assert.Equal(["volume rm -f chargehand-work-run1"], Calls());
+        Assert.Equal(["volume rm -f chargehand-work-run1", "volume rm -f chargehand-work-run1"], Calls());
     }
 
     [Fact]
