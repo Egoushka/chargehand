@@ -409,7 +409,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", profile.Secret(runner.ApiKeySecret));
         return new Chargehand.Modules.Runners.Api.RunnerClient(http);
     }
-    var bundles = new Chargehand.Modules.Handover.Api.RepositoryBundles(Path.Combine(profile.WorkerRoot, ".driven", "bundles"));
+    var bundles = new Chargehand.Modules.Runners.Api.RepositoryBundles(Path.Combine(profile.WorkerRoot, ".driven", "bundles"));
     if (driven.ResolvedRunners() is [var runner, ..])
     {
         var client = RunnerClientFor(runner);
@@ -429,7 +429,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         sites = [.. driven.ResolvedRunners().Select(entry =>
         {
             var client = RunnerClientFor(entry);
-            return new Chargehand.Driven.RunnerSite(entry, client, entry.Workspace == Chargehand.Modules.Runners.Api.WorkspaceMode.Bundle ? new Chargehand.Driven.BundleWorkspaceEngine(client, client, bundles) : client, driven.Images is { Count: > 0 } list
+            return new Chargehand.Driven.RunnerSite(entry, client, entry.Workspace == Chargehand.Modules.Runners.Api.WorkspaceMode.Bundle ? new Chargehand.Modules.Runners.Api.BundleWorkspaceEngine(client, client, bundles) : client, driven.Images is { Count: > 0 } list
                 ? new Chargehand.Modules.Sessions.Api.EngineSessionVolumes(client, driven.ImageFor(list[0], entry.Platform))
                 : new Chargehand.Modules.Sessions.Api.UnavailableSessionVolumes(), client);
         })];

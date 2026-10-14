@@ -1,10 +1,9 @@
-using System.Diagnostics;
 using Chargehand.Contracts;
-using Chargehand.Driven;
 using Chargehand.Kernel;
-using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Runners.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Runners.Tests;
 
 /// <summary>ADR 0058, with real git: the repository at the pinned commit as one bundle, made once, from a checkout detached at that commit.</summary>
 public sealed class RepositoryBundlesTests : IDisposable
@@ -20,36 +19,19 @@ public sealed class RepositoryBundlesTests : IDisposable
         _source = Path.Combine(_dir.Path, "checkout");
         _bundles = Path.Combine(_dir.Path, "bundles");
         Directory.CreateDirectory(_source);
-        Git(_source, "init", "-q", "-b", "main");
+        TestGit.Run(_source, "init", "-q", "-b", "main");
         File.WriteAllText(Path.Combine(_source, "a.txt"), "one\n");
-        Git(_source, "add", "-A");
-        Git(_source, "commit", "-q", "-m", "one");
-        _first = Git(_source, "rev-parse", "HEAD").Trim();
+        TestGit.Run(_source, "add", "-A");
+        TestGit.Run(_source, "commit", "-q", "-m", "one");
+        _first = TestGit.Run(_source, "rev-parse", "HEAD").Trim();
         File.WriteAllText(Path.Combine(_source, "b.txt"), "two\n");
-        Git(_source, "add", "-A");
-        Git(_source, "commit", "-q", "-m", "two");
-        _second = Git(_source, "rev-parse", "HEAD").Trim();
-        Git(_source, "checkout", "-q", "--detach", _second);
+        TestGit.Run(_source, "add", "-A");
+        TestGit.Run(_source, "commit", "-q", "-m", "two");
+        _second = TestGit.Run(_source, "rev-parse", "HEAD").Trim();
+        TestGit.Run(_source, "checkout", "-q", "--detach", _second);
     }
 
     public void Dispose() => _dir.Dispose();
-
-    private static readonly string[] Identity = ["-c", "user.name=t", "-c", "user.email=t@example.test", "-c", "commit.gpgsign=false"];
-
-    internal static string Git(string where, params string[] args)
-    {
-        var psi = new ProcessStartInfo("git") { WorkingDirectory = where, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in Identity.Concat(args))
-            psi.ArgumentList.Add(a);
-        psi.Environment["GIT_CONFIG_GLOBAL"] = "/dev/null";
-        psi.Environment["GIT_CONFIG_SYSTEM"] = "/dev/null";
-        using var process = Process.Start(psi)!;
-        var output = process.StandardOutput.ReadToEnd();
-        var error = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-        Assert.True(process.ExitCode == 0, $"git {string.Join(' ', args)}: {error}");
-        return output;
-    }
 
     [Fact]
     public async Task The_bundle_holds_the_commits_history_and_a_clone_of_it_can_be_checked_out_at_the_commit()
@@ -57,11 +39,11 @@ public sealed class RepositoryBundlesTests : IDisposable
         var path = await new RepositoryBundles(_bundles).BundleAsync(_source, _second, default);
 
         Assert.Equal(Path.Combine(_bundles, $"{_second}.bundle"), path);
-        Git(_source, "bundle", "verify", path);
+        TestGit.Run(_source, "bundle", "verify", path);
         var clone = Path.Combine(_dir.Path, "clone");
-        Git(_dir.Path, "clone", "-q", "--no-checkout", path, clone);
-        Git(clone, "checkout", "-q", "-b", "chargehand/run1", _second);
-        Assert.Equal(["two", "one"], Git(clone, "log", "--format=%s").Trim().Split('\n'));
+        TestGit.Run(_dir.Path, "clone", "-q", "--no-checkout", path, clone);
+        TestGit.Run(clone, "checkout", "-q", "-b", "chargehand/run1", _second);
+        Assert.Equal(["two", "one"], TestGit.Run(clone, "log", "--format=%s").Trim().Split('\n'));
         Assert.Equal("one\n", File.ReadAllText(Path.Combine(clone, "a.txt")));
         Assert.Equal("two\n", File.ReadAllText(Path.Combine(clone, "b.txt")));
         // A bundle carries objects and refs: no configuration of the checkout, no hooks.
@@ -116,7 +98,7 @@ public sealed class RepositoryBundlesTests : IDisposable
     [Fact]
     public async Task A_checkout_that_is_not_at_the_commit_is_not_bundled_and_leaves_nothing_behind()
     {
-        Git(_source, "checkout", "-q", "--detach", _first);
+        TestGit.Run(_source, "checkout", "-q", "--detach", _first);
         var bundles = new RepositoryBundles(_bundles);
 
         var e = await Assert.ThrowsAsync<ChargehandException>(() => bundles.BundleAsync(_source, _second, default));
@@ -125,7 +107,7 @@ public sealed class RepositoryBundlesTests : IDisposable
         Assert.Contains("is not at commit", e.Message);
         Assert.False(Directory.Exists(_bundles) && Directory.GetFiles(_bundles).Length > 0);
         // The failure is not kept: once the checkout is right the same object makes it.
-        Git(_source, "checkout", "-q", "--detach", _second);
+        TestGit.Run(_source, "checkout", "-q", "--detach", _second);
         Assert.True(File.Exists(await bundles.BundleAsync(_source, _second, default)));
     }
 
@@ -152,7 +134,7 @@ public sealed class RepositoryBundlesTests : IDisposable
         var path = await new RepositoryBundles(_bundles).BundleAsync(_source, _second, default);
 
         Assert.Equal(stale, path);
-        Git(_source, "bundle", "verify", path);                 // replaced by a real one
+        TestGit.Run(_source, "bundle", "verify", path);                 // replaced by a real one
         Assert.False(File.Exists(old));
     }
 }

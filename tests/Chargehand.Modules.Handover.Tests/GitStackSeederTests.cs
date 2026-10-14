@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Runners.Api;
 using Chargehand.Tests;
 
 namespace Chargehand.Modules.Handover.Tests;
@@ -116,13 +117,13 @@ public sealed class GitStackSeederTests : IDisposable
     {
         // `git fetch` and `git merge` spawn `git maintenance run --auto --detach`, whose repack deletes loose objects after the awaited call has returned.
         var trace = Path.Combine(_dir.Path, "trace2.jsonl");
-        var env = Handover.GitEnvironment(_scratch);
+        var env = GitProcess.Environment(_scratch);
         env["GIT_TRACE2_EVENT"] = trace;
         Directory.CreateDirectory(_scratch);
         var clone = Path.Combine(_scratch, "clone");
-        Assert.Equal(0, (await Handover.Git.RunAsync(_scratch, env, ["clone", "--quiet", "--no-hardlinks", "--template=", "--", _source, clone], TimeSpan.FromMinutes(1), default)).ExitCode);
+        Assert.Equal(0, (await GitProcess.RunAsync(_scratch, env, ["clone", "--quiet", "--no-hardlinks", "--template=", "--", _source, clone], TimeSpan.FromMinutes(1), default)).ExitCode);
         var a = Session("a", "a.txt", "ONE\ntwo\nthree\n");
-        var fetch = await Handover.Git.RunAsync(clone, env, ["fetch", "--quiet", a.BundlePath, $"refs/heads/{a.Branch}:refs/heads/{a.Branch}"], TimeSpan.FromMinutes(1), default);
+        var fetch = await GitProcess.RunAsync(clone, env, ["fetch", "--quiet", a.BundlePath, $"refs/heads/{a.Branch}:refs/heads/{a.Branch}"], TimeSpan.FromMinutes(1), default);
 
         Assert.Equal(0, fetch.ExitCode);
         Assert.Contains("\"fetch\"", File.ReadAllText(trace));          // the trace did record the commands

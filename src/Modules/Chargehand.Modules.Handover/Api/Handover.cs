@@ -6,6 +6,7 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Journal.Api;
+using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 
 namespace Chargehand.Modules.Handover.Api;
@@ -122,17 +123,17 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         if (Directory.Exists(scratch))
             Directory.Delete(scratch, recursive: true);
         var env = run.Env;
-        var clone = await Git.RunAsync(input.ScratchRoot, env, ["-c", "core.hooksPath=/dev/null", "clone", "--quiet", "--no-hardlinks", "--template=", "--", input.SourceRepository, scratch], GitTimeout, ct);
+        var clone = await GitProcess.RunAsync(input.ScratchRoot, env, ["-c", "core.hooksPath=/dev/null", "clone", "--quiet", "--no-hardlinks", "--template=", "--", input.SourceRepository, scratch], GitTimeout, ct);
         if (clone.ExitCode != 0)
             return run.Refuse($"chargehand could not clone its checkout: {clone.Tail}", ErrorCode.SessionFailed);
-        var verify = await Git.RunAsync(scratch, env, ["bundle", "verify", run.Bundle], GitTimeout, ct);
+        var verify = await GitProcess.RunAsync(scratch, env, ["bundle", "verify", run.Bundle], GitTimeout, ct);
         if (verify.ExitCode != 0)
             return run.Refuse($"the bundle does not verify against the base: {verify.Tail}", ErrorCode.SessionFailed);
-        var fetch = await Git.RunAsync(scratch, env, ["-c", "fetch.fsckObjects=true", "-c", "core.hooksPath=/dev/null", "fetch", "--quiet", run.Bundle, $"refs/heads/{input.Branch}:refs/heads/{input.Branch}"], GitTimeout, ct);
+        var fetch = await GitProcess.RunAsync(scratch, env, ["-c", "fetch.fsckObjects=true", "-c", "core.hooksPath=/dev/null", "fetch", "--quiet", run.Bundle, $"refs/heads/{input.Branch}:refs/heads/{input.Branch}"], GitTimeout, ct);
         if (fetch.ExitCode != 0)
             return run.Refuse($"the bundle has no usable {input.Branch}: {fetch.Tail}", ErrorCode.SessionFailed);
-        var commit = run.Commit = (await Git.RunAsync(scratch, env, ["rev-parse", $"refs/heads/{input.Branch}"], GitTimeout, ct)).Stdout.Trim();
-        if ((await Git.RunAsync(scratch, env, ["merge-base", "--is-ancestor", input.BaseCommit, commit], GitTimeout, ct)).ExitCode != 0)
+        var commit = run.Commit = (await GitProcess.RunAsync(scratch, env, ["rev-parse", $"refs/heads/{input.Branch}"], GitTimeout, ct)).Stdout.Trim();
+        if ((await GitProcess.RunAsync(scratch, env, ["merge-base", "--is-ancestor", input.BaseCommit, commit], GitTimeout, ct)).ExitCode != 0)
             return run.Refuse("the branch does not descend from the commit the session started at", ErrorCode.SessionFailed, commit: commit);
         return null;
     }
@@ -141,14 +142,14 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
     private static async Task<HandoverOutcome?> ScanDiffAsync(HandoverRun run, CancellationToken ct)
     {
         var (input, scratch, env, commit) = (run.Input, run.Scratch, run.Env, run.Commit);
-        var names = await Git.RunAsync(scratch, env, ["diff", "--name-only", "-z", input.BaseCommit, commit], GitTimeout, ct);
+        var names = await GitProcess.RunAsync(scratch, env, ["diff", "--name-only", "-z", input.BaseCommit, commit], GitTimeout, ct);
         run.Changed = [.. names.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries)];
         var changed = run.Changed;
         if (changed.Count == 0)
             return run.Refuse("the branch has no change against its base", ErrorCode.SessionFailed, commit: commit);
-        var numstat = await Git.RunAsync(scratch, env, ["diff", "--numstat", "--no-renames", "-z", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
+        var numstat = await GitProcess.RunAsync(scratch, env, ["diff", "--numstat", "--no-renames", "-z", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
         run.Changes = new ChangeSummary(ParseNumstat(numstat.Stdout), null, false);
-        var diff = await Git.RunAsync(scratch, env, ["diff", "--no-color", "-U0", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
+        var diff = await GitProcess.RunAsync(scratch, env, ["diff", "--no-color", "-U0", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
         if (diff.Truncated)
             return run.Refuse("the diff is too large to scan", ErrorCode.SessionFailed, changed: changed, commit: commit);
         var findings = DiffScan.Scan(diff.Stdout, run.Secrets, changed);
@@ -161,10 +162,10 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
     private static async Task<HandoverOutcome?> ScanHistoryAsync(HandoverRun run, CancellationToken ct)
     {
         var (input, scratch, env, commit, changed) = (run.Input, run.Scratch, run.Env, run.Commit, run.Changed);
-        var history = await Git.RunAsync(scratch, env, ["log", "-m", "-p", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--format=", $"{input.BaseCommit}..{commit}"], GitTimeout, ct, MaxDiffBytes);
+        var history = await GitProcess.RunAsync(scratch, env, ["log", "-m", "-p", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--format=", $"{input.BaseCommit}..{commit}"], GitTimeout, ct, MaxDiffBytes);
         if (history.Truncated)
             return run.Refuse("the branch's history is too large to scan", ErrorCode.SessionFailed, changed: changed, commit: commit);
-        var touched = (await Git.RunAsync(scratch, env, ["log", "-m", "--name-only", "-z", "--no-renames", "--format=", $"{input.BaseCommit}..{commit}"], GitTimeout, ct, MaxDiffBytes))
+        var touched = (await GitProcess.RunAsync(scratch, env, ["log", "-m", "--name-only", "-z", "--no-renames", "--format=", $"{input.BaseCommit}..{commit}"], GitTimeout, ct, MaxDiffBytes))
             .Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries).Select(n => n.Trim('\n')).Where(n => n.Length > 0).Distinct().ToList();
         var historyFindings = DiffScan.Scan(history.Stdout, run.Secrets, touched);
         if (historyFindings.Count > 0)
@@ -176,7 +177,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
     private static async Task<HandoverOutcome?> SummarizeAsync(HandoverRun run, CancellationToken ct)
     {
         var (input, commit, changed) = (run.Input, run.Commit, run.Changed);
-        var unified = await Git.RunAsync(run.Scratch, run.Env, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", input.BaseCommit, commit], GitTimeout, ct, MaxChangesDiffBytes);
+        var unified = await GitProcess.RunAsync(run.Scratch, run.Env, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", input.BaseCommit, commit], GitTimeout, ct, MaxChangesDiffBytes);
         run.Changes = run.Changes! with { Diff = CutAtLine(Redact(unified.Stdout, run.Secrets), unified.Truncated, out var cut), DiffTruncated = cut };
         var ci = DiffScan.CiPaths(changed);
         if (ci.Count > 0 && !input.AllowCiChanges)
@@ -188,7 +189,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
     private async Task<HandoverOutcome?> VerifyBranchAsync(HandoverRun run, CancellationToken ct)
     {
         var (input, commit, changed) = (run.Input, run.Commit, run.Changed);
-        var checkout = await Git.RunAsync(run.Scratch, run.Env, ["-c", "core.hooksPath=/dev/null", "checkout", "--quiet", input.Branch], GitTimeout, ct);
+        var checkout = await GitProcess.RunAsync(run.Scratch, run.Env, ["-c", "core.hooksPath=/dev/null", "checkout", "--quiet", input.Branch], GitTimeout, ct);
         if (checkout.ExitCode != 0)
             return run.Refuse($"chargehand could not check the branch out: {checkout.Tail}", ErrorCode.SessionFailed, changed: changed, commit: commit);
         var plan = VerifyCommand.Resolve(input.VerifyCommand, run.Scratch);
@@ -294,7 +295,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
 
         public string Scratch { get; } = Path.Combine(input.ScratchRoot, input.RunId);
 
-        public Dictionary<string, string> Env { get; } = GitEnvironment(input.ScratchRoot);
+        public Dictionary<string, string> Env { get; } = GitProcess.Environment(input.ScratchRoot);
 
         public string Commit { get; set; } = "";
 
