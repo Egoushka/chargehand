@@ -163,19 +163,4 @@ public sealed partial class TaskRunner
             return null;
         }
     }
-
-    private static SessionOutcome? ReadOutcome(string directory)
-    {
-        var file = Path.Combine(directory, "session-outcome.json");
-        if (!File.Exists(file))
-            return null;
-        try
-        {
-            return JsonSerializer.Deserialize<SessionOutcome>(File.ReadAllText(file), OutcomeJson);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
 }

@@ -7,6 +7,7 @@ using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Runtimes.ClaudeCode.Api;
@@ -54,6 +55,10 @@ public class ProfileTests
         var path = dir.Write("local.json", $$$"""{"schema":"profile/v1","driven":{"limits":{{{limits}}}}}""");
         Assert.Equal(ErrorCode.InvalidRequest, Assert.Throws<ChargehandException>(() => Profile.Load(path)).Code);
     }
+
+    [Fact]
+    public void The_profile_binds_the_limits_block_with_the_tasks_modules_source_generated_context() =>
+        Assert.IsType<TasksSettingsJsonContext>(Profile.LoadJson.GetTypeInfo(typeof(DrivenLimits)).OriginatingResolver);
 
     [Fact]
     public void Governor_history_keeps_the_defaults_it_left_out_and_refuses_values_that_cannot_work()

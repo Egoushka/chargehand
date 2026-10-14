@@ -1,6 +1,7 @@
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Driven;
 

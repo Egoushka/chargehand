@@ -7,6 +7,7 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.Results;
 using Chargehand.Verification;
 

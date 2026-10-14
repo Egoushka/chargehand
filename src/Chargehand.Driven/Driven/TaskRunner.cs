@@ -14,6 +14,7 @@ using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.Results;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
@@ -68,8 +69,6 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
 
     /// <summary>How long a task waits for a runner that stops answering during a session (ADR 0058): a laptop that sleeps, a path that flaps. Past it the task fails and the session is swept later.</summary>
     public static readonly TimeSpan DefaultOutageGrace = TimeSpan.FromMinutes(10);
-
-    private static readonly JsonSerializerOptions OutcomeJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
     /// <summary>The most memory (MiB) any session container of a task has used, by task id; tasks of a batch run at once on one runner instance.</summary>
     private readonly ConcurrentDictionary<string, int> _memoryPeaks = new();

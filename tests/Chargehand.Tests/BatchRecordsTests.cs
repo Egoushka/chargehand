@@ -2,6 +2,7 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Tests;
 

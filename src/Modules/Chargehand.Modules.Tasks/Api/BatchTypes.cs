@@ -1,7 +1,7 @@
 using Chargehand.Contracts;
 using Chargehand.Modules.Sessions.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Tasks.Api;
 
 public enum TaskState { Completed, Failed, NeedsInput, NotStarted, Cancelled }
 

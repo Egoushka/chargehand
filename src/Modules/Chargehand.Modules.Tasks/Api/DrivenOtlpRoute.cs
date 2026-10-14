@@ -3,7 +3,7 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Runners.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Tasks.Api;
 
 /// <summary>Where a session's Claude Code sends its own OpenTelemetry logs and metrics (ADR 0042): an OTLP/HTTP collector named by <c>driven.network.otlp_url</c>, reached through a
 /// forward on the batch's egress container like the model gateway. Only <c>http</c>: whether Claude Code's exporter goes through the proxy for an <c>https</c> collector is unchecked.

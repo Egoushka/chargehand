@@ -3,6 +3,7 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Driven;
 

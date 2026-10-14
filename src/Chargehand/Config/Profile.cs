@@ -15,6 +15,7 @@ using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.Runtime;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Runtimes.OpenCode.Api;
@@ -85,7 +86,7 @@ public sealed record Profile(
     {
         TypeInfoResolver = JsonTypeInfoResolver.Combine(LedgerSettingsJsonContext.Default, AccountsSettingsJsonContext.Default,
             MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, HandoverSettingsJsonContext.Default, IntakeSettingsJsonContext.Default,
-            BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default, SessionsSettingsJsonContext.Default,
+            BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default, SessionsSettingsJsonContext.Default, TasksSettingsJsonContext.Default,
             OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, ProfileJsonContext.Default),
     };
 
@@ -321,40 +322,6 @@ public sealed partial record DrivenSettings(
     DrivenLearning? Learning = null,
     IReadOnlyList<DrivenRunnerEntry>? Runners = null,
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? ImageVariants = null);
-
-/// <summary>The preset's <c>driven</c> limits, set per server. A key left out keeps the preset's value; the preset's allowlist stays the preset's
-/// (<c>network.allow</c> adds hosts). Prompts and permissions are not here: they are what Prompt CI evaluates.</summary>
-public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes = null, int? MaxTurns = null, long? MaxTokens = null, int? MemoryMb = null,
-    double? Cpus = null, int? Pids = null, int? MaxContinuations = null)
-{
-    public DrivenPreset Apply(DrivenPreset preset) => preset with
-    {
-        MaxMinutes = MaxMinutes ?? preset.MaxMinutes,
-        NoProgressMinutes = NoProgressMinutes ?? preset.NoProgressMinutes,
-        MaxTurns = MaxTurns ?? preset.MaxTurns,
-        MaxTokens = MaxTokens ?? preset.MaxTokens,
-        MemoryMb = MemoryMb ?? preset.MemoryMb,
-        Cpus = Cpus ?? preset.Cpus,
-        Pids = Pids ?? preset.Pids,
-        MaxContinuations = MaxContinuations ?? preset.MaxContinuations,
-    };
-
-    /// <summary>Throws an invalid_request error naming the key when a value is outside what the preset schema and the container template accept.</summary>
-    internal void Validate()
-    {
-        var problems = new List<string>();
-        if (MaxMinutes is < 1) problems.Add("max_minutes must be at least 1");
-        if (NoProgressMinutes is < 1) problems.Add("no_progress_minutes must be at least 1");
-        if (MaxTurns is < 1) problems.Add("max_turns must be at least 1");
-        if (MaxTokens is < 1) problems.Add("max_tokens must be at least 1");
-        if (MemoryMb is < 256 or > 65_536) problems.Add("memory_mb must be 256 to 65536");
-        if (Cpus is < 0.1 or > 32) problems.Add("cpus must be 0.1 to 32");
-        if (Pids is < 16 or > 4096) problems.Add("pids must be 16 to 4096");
-        if (MaxContinuations is < 0 or > 5) problems.Add("max_continuations must be 0 to 5");
-        if (problems.Count > 0)
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.limits: {string.Join("; ", problems)}", "Fix driven.limits in the profile; docs/guide/driven.md lists the keys.");
-    }
-}
 
 /// <param name="Outside">A network besides the default one that the batch's egress container joins: the one the chargehand server sits on.</param>
 /// <param name="McpForward"><c>host:port</c> of the chargehand server as the egress container reaches it. Set, a session can call chargehand for research and review through a forward on its batch network; unset, it cannot.</param>
