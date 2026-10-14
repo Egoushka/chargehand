@@ -251,6 +251,7 @@
   "prompt_enhancer": null,
   "max_parallel_nodes": 2,
   "automation": null,
+  "preset_services": null,
   "roots": [
     "/srv/chargehand/work",
     "/path/to/your/repositories"

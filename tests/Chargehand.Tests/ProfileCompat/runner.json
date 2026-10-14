@@ -71,6 +71,7 @@
   "prompt_enhancer": null,
   "max_parallel_nodes": 2,
   "automation": null,
+  "preset_services": null,
   "roots": [
     "/var/tmp/chargehand/work"
   ],
