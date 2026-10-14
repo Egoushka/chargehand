@@ -7,6 +7,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-10-14
+
+Inbox items resolve on their own, and a person can dismiss the rest.
+
+### Upgrade
+
+- Dismissals are kept in `inbox/dismissed.json` beside the run log, so that directory must stay writable (it already is for the run log). Nothing else to set.
+- A profile's governor probe and wait patterns now match with the linear-time regex engine: a pattern that uses a lookaround, a backreference or an atomic group is refused by the profile check. Rewrite such a pattern, or leave the setting out for the built-in ones.
+- Batches that were running before the upgrade resume as before.
+
+### Added
+
+- The needs-you inbox drops what a later run made moot (ADR 0064): a question or failure superseded by a later task of the same account that asked the same, an infrastructure failure (`checkout_invalid`, `internal`, `lost`, ...) once a later run on the repository finished ok, and a question a batch continued or retried. Identical failures fold into the newest with a count.
+- `POST /v1/inbox/dismiss` and `POST /v1/inbox/restore` store a person's dismissals in `inbox/dismissed.json`. `inbox/v1` stays: `counts` is what is open, items gain `count`, and the body gains `resolved`. The console gets **Dismiss** per card, **Dismiss all shown**, **Undo**, a count badge and the resolved line.
+- A server restart keeps the batch scheduler's rate-limit pause, the placements a task used up and an operator's cancel of a task that had not started (ADR 0063).
+
+### Fixed
+
+- A server stop waits for its runs to write their end before it disposes, so a run no longer writes into a directory that is already gone.
+- The governor no longer throws on a plain command when the host is loaded: its patterns had a 50 ms wall-clock match timeout, and now match in linear time with none.
+
+### Changed
+
+- Internal: task and batch state are journal events in `<batch>/tasks`, and the batch lifecycle, planner and task result builder moved into their own projects. No behaviour change beyond the above.
+
 ## [0.9.5] - 2026-10-14
 
 Workers can reach a gateway that identifies callers by a header.
@@ -832,7 +857,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.9.5...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.9.6...HEAD
+[0.9.6]: https://github.com/Egoushka/chargehand/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/Egoushka/chargehand/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/Egoushka/chargehand/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/Egoushka/chargehand/compare/v0.9.2...v0.9.3
