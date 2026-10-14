@@ -1,11 +1,15 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Chargehand.Contracts;
-using Chargehand.Driven;
 using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Sessions.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Handover.Tests;
+
+// Inside this namespace, "Handover" is the module's namespace; the alias names the class.
+using Handover = Chargehand.Modules.Handover.Api.Handover;
 
 /// <summary>ADR 0039: what happens to a session's branch after the session. chargehand checks it itself, and pushes and opens a draft pull request only if
 /// every check passes.</summary>

@@ -1,4 +1,4 @@
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Handover.Api;
 
 /// <param name="TaskId">The finished task the branch came from.</param>
 /// <param name="Branch">Its branch, <c>chargehand/&lt;run&gt;</c>.</param>

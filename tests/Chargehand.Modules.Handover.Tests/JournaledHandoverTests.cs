@@ -1,9 +1,12 @@
 using Chargehand.Contracts;
-using Chargehand.Driven;
 using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Journal.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Handover.Tests;
+
+// Inside this namespace, "Handover" is the module's namespace; the alias names the class.
+using Handover = Chargehand.Modules.Handover.Api.Handover;
 
 /// <summary>ADR 0061, handover slice: the push and the pull request are recorded steps keyed by the handed-over run. "Killed" is a handover cancelled while a hook of the remote or the host's
 /// answer hangs, with the journal closed; "restarted" is the same handover run again on a journal opened on the same file. Whatever the cut, the task ends with one branch and one pull request.</summary>

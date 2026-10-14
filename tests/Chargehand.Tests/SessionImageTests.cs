@@ -79,7 +79,7 @@ public class SessionImageTests
         RepositoryBundlesTests.Git(source, "checkout", "-q", "--detach", commit);
         var run = "b" + Guid.NewGuid().ToString("N")[..10];
         var engine = new Chargehand.Containers.DockerCliEngine();
-        var workspace = new Chargehand.Driven.BundleWorkspaceEngine(engine, engine, new Chargehand.Driven.RepositoryBundles(Path.Combine(dir.Path, "bundles")));
+        var workspace = new Chargehand.Driven.BundleWorkspaceEngine(engine, engine, new Chargehand.Modules.Handover.Api.RepositoryBundles(Path.Combine(dir.Path, "bundles")));
         try
         {
             await engine.CreateVolumeAsync($"chargehand-out-{run}", run, default);

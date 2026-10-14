@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Chargehand.Containers;
 using Chargehand.Driven;
+using Chargehand.Modules.Handover.Api;
 
 namespace Chargehand.Tests;
 

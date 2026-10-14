@@ -14,22 +14,6 @@ internal static class ChangeRun
 {
     private const double UntestedConfidence = 0.5;
 
-    /// <summary>Changed paths that decide whether the verification means anything: tests, build files, scripts, workflows and the
-    /// verification command's own entry point. The worker may edit them; the artifact lists them so a reader can see it.</summary>
-    internal static IReadOnlyList<string> VerificationPaths(IReadOnlyList<string> changed, VerifyPlan? plan) =>
-        [.. changed.Where(p => IsVerificationPath(p, plan))];
-
-    private static bool IsVerificationPath(string path, VerifyPlan? plan)
-    {
-        var name = Path.GetFileName(path);
-        var segments = path.Split('/');
-        return segments[..^1].Any(s => s is "test" or "tests" or "scripts" or ".github" or "__tests__")
-            || name.Contains("test", StringComparison.OrdinalIgnoreCase) || name.Contains("spec", StringComparison.OrdinalIgnoreCase)
-            || name is "Makefile" or "package.json" or "pyproject.toml" or "Cargo.toml" or "go.mod" or "pytest.ini" or "Directory.Build.props"
-            || name.EndsWith(".csproj", StringComparison.Ordinal) || name.EndsWith(".sln", StringComparison.Ordinal) || name.EndsWith(".slnx", StringComparison.Ordinal)
-            || (plan is not null && plan.Argv.Count > 0 && (plan.Argv[0] == path || plan.Argv[0] == "./" + path));
-    }
-
     /// <summary>The feedback a failed check sends the worker as its next prompt.</summary>
     internal static string Feedback(VerifyOutcome outcome, int attempt, bool network) =>
         $"The verification command `{string.Join(' ', outcome.Plan.Argv)}` did not pass (attempt {attempt}): " +
@@ -60,7 +44,7 @@ internal static class ChangeRun
         {
             Json("branch", "application/vnd.chargehand.branch+json", new { repository = branch.Repository, branch = branch.Branch, commit = branch.Commit, @base = branch.Base }),
             Inline("diff", "text/x-diff", diff),
-            Json("verification", "application/json", VerificationRecord(verification, attempts, sandboxKind, network, VerificationPaths(changedPaths, plan))),
+            Json("verification", "application/json", VerificationRecord(verification, attempts, sandboxKind, network, VerifyCommand.VerificationPaths(changedPaths, plan))),
         };
         var merged = contract with { Artifacts = [.. contract.Artifacts, .. artifacts] };
         if (verification is null)
