@@ -13,13 +13,13 @@ using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Runtimes.ClaudeCode.Api;
-using Chargehand.Verification;
 using Chargehand.Workspace;
 
 namespace Chargehand.Tests;

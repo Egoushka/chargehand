@@ -45,7 +45,11 @@ public sealed record PushedWork(string Branch, string Base);
 /// <param name="Branch">The task branch, <c>chargehand/&lt;first run id&gt;</c>; a continuation uses the same name, because the bundle holds that ref.</param>
 /// <param name="Commits">Commits past the base the bundle holds.</param>
 /// <param name="Base">The commit the earlier task started at; a continuation has to start at the same one.</param>
-public sealed record KeptWork(string Branch, string BundleRun, int Commits, string Base);
+public sealed record KeptWork(string Branch, string BundleRun, int Commits, string Base)
+{
+    /// <summary>The kind of the result artifact that carries it.</summary>
+    public const string ArtifactKind = "kept-work";
+}
 
 /// <summary>Runs one task to its end: the container, the session, the handover. It reports usage as it goes and stops when cancelled.</summary>
 public interface ITaskRunner
