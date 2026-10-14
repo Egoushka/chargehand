@@ -51,9 +51,10 @@ public sealed class AllowlistProxy(AllowlistMatcher matcher, Func<string, Cancel
             }
         }
         // Stop() can land between the cancellation check and the accept: then the accept throws "Not listening". Or it can close the
-        // socket under a pending accept, which fails as OperationAborted rather than as a cancellation.
+        // socket under a pending accept, which fails with whatever the platform says about a closed socket (OperationAborted on macOS,
+        // InvalidArgument on Linux) rather than as a cancellation. Once a stop was asked for, any of these is the stop.
         catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException
-            || (e is InvalidOperationException or SocketException { SocketErrorCode: SocketError.OperationAborted } && ct.IsCancellationRequested))
+            || (e is InvalidOperationException or SocketException && ct.IsCancellationRequested))
         { }
     }
 
