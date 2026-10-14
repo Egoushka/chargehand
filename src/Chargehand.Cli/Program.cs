@@ -13,6 +13,7 @@ using Chargehand.Mcp;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.Runners.Api;
 using Chargehand.OpenCode;
 using Chargehand.Prompts;
 using Chargehand.RunLog;
@@ -226,7 +227,7 @@ switch (argv)
     case ["show", var id]:
         return await Show(id);
     case ["runs", "kill", "--all"]:
-        return await Chargehand.Containers.RunsCli.KillAllAsync(new Chargehand.Containers.DockerCliEngine(), Console.Out, Console.Error, ct);
+        return await Chargehand.Modules.Runners.Api.RunsCli.KillAllAsync(new Chargehand.Modules.Runners.Api.DockerCliEngine(), Console.Out, Console.Error, ct);
     case ["learn", "report", .. var learnOptions]:
         return await Chargehand.Modules.Oversight.Api.LearningCli.RunAsync(learnOptions, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow, ct);
     case ["reconcile", var id]:
@@ -314,17 +315,17 @@ Chargehand.Bench.AcceptanceLimits BenchLimits()
 }
 
 /// <summary>The engine a benchmark's acceptance checks start containers with: the runner service when the profile names one, else this machine's Docker.</summary>
-(Chargehand.Containers.IContainerEngine, Chargehand.Containers.IWorkspaceEngine, Chargehand.Containers.IOutVolumeEngine) BenchEngines(Profile p)
+(Chargehand.Modules.Runners.Api.IContainerEngine, Chargehand.Modules.Runners.Api.IWorkspaceEngine, Chargehand.Modules.Runners.Api.IOutVolumeEngine) BenchEngines(Profile p)
 {
     // A benchmark's acceptance checks read the server's checkouts, so they use a runner that shares its disk (ADR 0058).
     if (p.Driven?.ResolvedRunners().FirstOrDefault(r => r.Workspace == Chargehand.Modules.Runners.Api.WorkspaceMode.Shared) is { } runner)
     {
         var http = new HttpClient { BaseAddress = new Uri(runner.Url) };
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", p.Secret(runner.ApiKeySecret));
-        var client = new Chargehand.Runner.RunnerClient(http);
+        var client = new Chargehand.Modules.Runners.Api.RunnerClient(http);
         return (client, client, client);
     }
-    var docker = new Chargehand.Containers.DockerCliEngine();
+    var docker = new Chargehand.Modules.Runners.Api.DockerCliEngine();
     return (docker, docker, docker);
 }
 
@@ -397,16 +398,16 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     var records = new Chargehand.Driven.BatchRecords(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "records"));
     if (profile.Driven is not { Enabled: true } driven)
         return new Chargehand.Driven.DrivenRun(profile, runLog, root, null, learning: learning, records: records);
-    Chargehand.Containers.IContainerEngine engine;
-    Chargehand.Containers.IWorkspaceEngine workspace;
-    Chargehand.Driven.IHostSource hostSource;
+    Chargehand.Modules.Runners.Api.IContainerEngine engine;
+    Chargehand.Modules.Runners.Api.IWorkspaceEngine workspace;
+    Chargehand.Modules.Runners.Api.IHostSource hostSource;
     IReadOnlyList<Chargehand.Driven.RunnerSite>? sites = null;
-    Chargehand.Runner.RunnerClient RunnerClientFor(Chargehand.Modules.Runners.Api.DrivenRunnerEntry runner)
+    Chargehand.Modules.Runners.Api.RunnerClient RunnerClientFor(Chargehand.Modules.Runners.Api.DrivenRunnerEntry runner)
     {
         // The client times each call out itself (a control call, or a transfer of repository size), so the HttpClient's 100 seconds must not cut a transfer short (ADR 0058).
         var http = new HttpClient { BaseAddress = new Uri(runner.Url), Timeout = Timeout.InfiniteTimeSpan };
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", profile.Secret(runner.ApiKeySecret));
-        return new Chargehand.Runner.RunnerClient(http);
+        return new Chargehand.Modules.Runners.Api.RunnerClient(http);
     }
     var bundles = new Chargehand.Modules.Handover.Api.RepositoryBundles(Path.Combine(profile.WorkerRoot, ".driven", "bundles"));
     if (driven.ResolvedRunners() is [var runner, ..])
@@ -416,11 +417,11 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     }
     else
     {
-        var docker = new Chargehand.Containers.DockerCliEngine();
-        (engine, workspace, hostSource) = (docker, docker, new Chargehand.Driven.HostProbe());
+        var docker = new Chargehand.Modules.Runners.Api.DockerCliEngine();
+        (engine, workspace, hostSource) = (docker, docker, new Chargehand.Modules.Runners.Api.HostProbe());
     }
     // Both engines move files through a volume with a helper started from the session image; without an image no batch starts anyway.
-    Chargehand.Driven.ISessionVolumes volumes = engine is Chargehand.Containers.IOutVolumeEngine files && driven.Images is { Count: > 0 } images
+    Chargehand.Driven.ISessionVolumes volumes = engine is Chargehand.Modules.Runners.Api.IOutVolumeEngine files && driven.Images is { Count: > 0 } images
         ? new Chargehand.Driven.EngineSessionVolumes(files, images[0])
         : new Chargehand.Driven.UnavailableSessionVolumes();
     // A profile that names its runners (ADR 0058) gets a pool: each runner has its own client, and its volumes' helper starts the image for its platform.

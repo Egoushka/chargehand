@@ -1,7 +1,7 @@
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 
-namespace Chargehand.Containers;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <param name="ProxyHost">The egress container's name, which the internal network's DNS resolves.</param>
 /// <param name="ModelPort">The port of the egress container's model endpoint; 0: it has none.</param>

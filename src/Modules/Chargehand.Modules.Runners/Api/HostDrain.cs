@@ -1,7 +1,6 @@
 using System.Diagnostics;
-using Chargehand.Driven;
 
-namespace Chargehand.Runner;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <summary>When a runner asks the server for no new session (ADR 0058). Each rule is off unless enabled: the drain file exists (an operator's switch), the machine is on battery power, or its lid is
 /// closed. A laptop in either of the last two states is about to sleep or may at any moment, and a session on a sleeping machine stops with it. A draining runner keeps the sessions it has.</summary>

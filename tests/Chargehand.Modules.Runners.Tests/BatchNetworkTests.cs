@@ -1,6 +1,6 @@
-using Chargehand.Containers;
+using Chargehand.Modules.Runners.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Runners.Tests;
 
 /// <summary>The per-batch internal network and its egress container (ADR 0039), against a recording fake engine.</summary>
 public class BatchNetworkTests

@@ -1,6 +1,5 @@
-using Chargehand.Containers;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <summary>The memory and load of the machine the container engine runs on, asked of the engine (ADR 0058). On Linux the runner reads its own <c>/proc</c>; on a Mac the engine is in a virtual machine with its
 /// own memory limit (OrbStack's <c>memory_mib</c>), which is what a session can use and what the Mac's free memory says nothing about. A throwaway container of the session image reads the figures
@@ -28,7 +27,7 @@ public sealed class EngineHostProbe(DockerCliEngine engine, string image, TimeSp
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new Chargehand.Runner.RunnerUnreachableException("the engine did not answer the host probe in 20 seconds (is the session image on it?)");
+            throw new Chargehand.Modules.Runners.Api.RunnerUnreachableException("the engine did not answer the host probe in 20 seconds (is the session image on it?)");
         }
         var snapshot = Parse(text);
         lock (_gate)

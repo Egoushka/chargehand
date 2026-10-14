@@ -1,6 +1,6 @@
-using Chargehand.Containers;
+using Chargehand.Modules.Runners.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Runners.Tests;
 
 /// <summary>ADR 0039: the helper that fills a session's workspace volume from the read-only source, and what it can never hold.</summary>
 public class WorkspaceTemplateTests

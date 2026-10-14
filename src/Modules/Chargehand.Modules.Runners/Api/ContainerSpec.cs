@@ -1,4 +1,4 @@
-namespace Chargehand.Containers;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <summary>What one driven-session container is (ADR 0039). Everything else about its <c>docker run</c> line is fixed by
 /// <see cref="ContainerTemplate"/>; a caller cannot add a flag, a mount, a network mode or a capability.</summary>

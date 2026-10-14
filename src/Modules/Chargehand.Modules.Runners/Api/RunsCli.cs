@@ -1,6 +1,6 @@
 using Chargehand.Kernel;
 
-namespace Chargehand.Containers;
+namespace Chargehand.Modules.Runners.Api;
 
 /// <summary><c>chargehand runs kill --all</c>: removes every driven-session container, and the networks made for them, by their label (ADR 0039).
 /// It needs neither a running server nor the run log, so it works when the server is the thing that has gone wrong. On a host where the

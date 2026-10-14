@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Chargehand.Modules.Runners.Api;
 
 namespace Chargehand.Tests;
 
@@ -78,13 +79,13 @@ public class SessionImageTests
         var commit = RepositoryBundlesTests.Git(source, "rev-parse", "HEAD").Trim();
         RepositoryBundlesTests.Git(source, "checkout", "-q", "--detach", commit);
         var run = "b" + Guid.NewGuid().ToString("N")[..10];
-        var engine = new Chargehand.Containers.DockerCliEngine();
+        var engine = new Chargehand.Modules.Runners.Api.DockerCliEngine();
         var workspace = new Chargehand.Driven.BundleWorkspaceEngine(engine, engine, new Chargehand.Modules.Handover.Api.RepositoryBundles(Path.Combine(dir.Path, "bundles")));
         try
         {
             await engine.CreateVolumeAsync($"chargehand-out-{run}", run, default);
 
-            await workspace.PrepareWorkspaceAsync(new Chargehand.Containers.WorkspaceSpec(run, Image!, source, $"chargehand-work-{run}", $"chargehand/{run}", commit), default);
+            await workspace.PrepareWorkspaceAsync(new Chargehand.Modules.Runners.Api.WorkspaceSpec(run, Image!, source, $"chargehand-work-{run}", $"chargehand/{run}", commit), default);
 
             var psi = new ProcessStartInfo("docker", ["run", "--rm", "--user", "10001:10001", "-v", $"chargehand-work-{run}:/work:ro", "--entrypoint", "sh", Image!, "-c",
                 "git config --global safe.directory '*' 2>/dev/null; cd /work && git rev-parse --abbrev-ref HEAD && git log --format=%s && cat a.txt b.txt && git status --porcelain && git config core.hooksPath"])
