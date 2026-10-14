@@ -5,6 +5,7 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Server;
 using Chargehand.Workspace;

@@ -3,9 +3,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.Runtime;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Sessions.Api;
 
 /// <summary>The spans of a driven batch (ADR 0042), on the same source and in the same Langfuse project as an orchestrator run: <c>chargehand.driven.run</c> for the batch,
 /// <c>chargehand.driven.task</c> per task, and under it <c>chargehand.driven.session</c>, the Claude Code session as one generation. The batch's trace id is the one every
@@ -38,10 +37,10 @@ public static partial class DrivenTelemetry
             ["output"] = t.Output,
             ["cache_read_input_tokens"] = t.CacheRead,
             ["cache_creation_input_tokens"] = t.CacheWrite,
-        }));
+        }, SessionsJsonContext.Default.DictionaryStringInt64));
         // Unknown cost (ADR 0026) reports no cost_details rather than a $0 that would read as measured.
         if (PriceUsd(prices, session) is { } usd)
-            span.SetTag("langfuse.observation.cost_details", JsonSerializer.Serialize(new Dictionary<string, decimal> { ["total"] = usd }));
+            span.SetTag("langfuse.observation.cost_details", JsonSerializer.Serialize(new Dictionary<string, decimal> { ["total"] = usd }, SessionsJsonContext.Default.DictionaryStringDecimal));
         // Claude Code's own list-price figure, beside the table's, for a check; on a subscription neither is a bill.
         span.SetTag("chargehand.claude_code.cost_usd", session.CostUsd);
     }

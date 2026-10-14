@@ -1,8 +1,8 @@
 using System.Text;
 using System.Text.Json;
-using Chargehand.Driven;
+using Chargehand.Modules.Sessions.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Sessions.Tests;
 
 /// <summary>ADR 0045: a stopped session's handoff is built from facts, with no model call. <see cref="SessionTrace"/> takes what it needs from the stream, <see cref="HandoffBuilder"/>
 /// renders the two files and keeps secrets out of them.</summary>

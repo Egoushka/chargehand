@@ -1,5 +1,6 @@
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Sessions.Api;
 
 namespace Chargehand.Tests;
 

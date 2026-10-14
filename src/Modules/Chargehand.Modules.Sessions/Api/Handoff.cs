@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Chargehand.Kernel;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Sessions.Api;
 
 /// <param name="Added">Lines added; 0 for a binary file.</param>
 public sealed record ChangedPath(string Path, long Added, long Removed);
@@ -45,15 +45,15 @@ public static class HandoffBuilder
 
     private const int MarkdownChanges = 100;
 
-    private static readonly JsonSerializerOptions Json = new()
+    private static readonly SessionsJsonContext Json = new(new JsonSerializerOptions
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 
-    private sealed record Document(int Version, string Reason, int Turns, string? BaseCommit, string? HeadCommit, IReadOnlyList<string> Commits, IReadOnlyList<ChangedPath> Changes,
+    internal sealed record Document(int Version, string Reason, int Turns, string? BaseCommit, string? HeadCommit, IReadOnlyList<string> Commits, IReadOnlyList<ChangedPath> Changes,
         int ChangesOmitted, TestRun? LastTest, IReadOnlyList<StepState> Tasks, IReadOnlyList<TodoItem> Todos, IReadOnlyList<ToolCall> Calls, IReadOnlyList<HandoffFinding> Findings);
 
     public static HandoffFiles Build(HandoffFacts facts, IReadOnlyList<string> secrets)
@@ -97,7 +97,7 @@ public static class HandoffBuilder
         }
 
         var document = new Document(1, facts.Reason, facts.Turns, facts.BaseCommit, facts.HeadCommit, commits, changes, omitted, lastTest, facts.Steps, todos, calls, findings);
-        return new HandoffFiles(JsonSerializer.Serialize(document, Json), Markdown(document), findings);
+        return new HandoffFiles(JsonSerializer.Serialize(document, Json.Document), Markdown(document), findings);
     }
 
     /// <summary>The newest calls and the longest list of paths that fit: the oldest calls go first, then paths, then the tail of the text.</summary>
@@ -131,24 +131,8 @@ public static class HandoffBuilder
             b.Append(step.Passes ? "- [x] " : "- [ ] ").Append(step.Name).Append('\n');
         b.Append("\nA step is checked when its latest tool call returned without an error.\n\n");
 
-        if (d.Todos.Count > 0)
-        {
-            b.Append("## The session's own todo list\n\n");
-            foreach (var todo in d.Todos)
-                b.Append(todo.Status == "completed" ? "- [x] " : "- [ ] ").Append(OneLine(todo.Text)).Append(todo.Status is "completed" or "pending" ? "" : $" ({todo.Status})").Append('\n');
-            b.Append('\n');
-        }
-
-        b.Append("## Last test run\n\n");
-        if (d.LastTest is { } test)
-            b.Append('`').Append(OneLine(test.Command)).Append("`: ").Append(test.IsError switch
-            {
-                null => "no result, the session was stopped while it ran",
-                true => test.ExitCode is { } code ? $"failed, exit code {code.ToString(CultureInfo.InvariantCulture)}" : "failed",
-                false => "passed",
-            }).Append("\n\n");
-        else
-            b.Append("None.\n\n");
+        RenderTodos(b, d);
+        RenderLastTest(b, d);
 
         b.Append("## Commits on the branch\n\n");
         if (d.Commits.Count == 0)
@@ -164,17 +148,47 @@ public static class HandoffBuilder
         if (d.Changes.Count + d.ChangesOmitted > changes && d.Changes.Count > 0)
             b.Append(string.Create(CultureInfo.InvariantCulture, $"- and {d.Changes.Count + d.ChangesOmitted - changes} more\n"));
 
+        RenderCalls(b, d, calls);
+
+        if (d.Findings.Count > 0)
+            b.Append("\n## Left out\n\n").Append(string.Create(CultureInfo.InvariantCulture, $"{d.Findings.Count} item(s) matched a secret pattern and were dropped: "))
+                .AppendJoin(", ", d.Findings.Select(f => $"{f.Kind} ({f.Item})")).Append(".\n");
+        return b.ToString();
+    }
+
+    private static void RenderTodos(StringBuilder b, Document d)
+    {
+        if (d.Todos.Count > 0)
+        {
+            b.Append("## The session's own todo list\n\n");
+            foreach (var todo in d.Todos)
+                b.Append(todo.Status == "completed" ? "- [x] " : "- [ ] ").Append(OneLine(todo.Text)).Append(todo.Status is "completed" or "pending" ? "" : $" ({todo.Status})").Append('\n');
+            b.Append('\n');
+        }
+    }
+
+    private static void RenderLastTest(StringBuilder b, Document d)
+    {
+        b.Append("## Last test run\n\n");
+        if (d.LastTest is { } test)
+            b.Append('`').Append(OneLine(test.Command)).Append("`: ").Append(test.IsError switch
+            {
+                null => "no result, the session was stopped while it ran",
+                true => test.ExitCode is { } code ? $"failed, exit code {code.ToString(CultureInfo.InvariantCulture)}" : "failed",
+                false => "passed",
+            }).Append("\n\n");
+        else
+            b.Append("None.\n\n");
+    }
+
+    private static void RenderCalls(StringBuilder b, Document d, int calls)
+    {
         b.Append("\n## Last tool calls, oldest first\n\n");
         if (calls == 0)
             b.Append(d.Calls.Count == 0 ? "None.\n" : "Left out to keep this short.\n");
         foreach (var call in d.Calls.Skip(d.Calls.Count - calls))
             b.Append("- ").Append(call.Name).Append(": ").Append(OneLine(call.Arguments.Count == 1 && call.Arguments.ContainsKey("command")
                 ? call.Arguments["command"] : string.Join("; ", call.Arguments.Select(a => $"{a.Key}={a.Value}")))).Append('\n');
-
-        if (d.Findings.Count > 0)
-            b.Append("\n## Left out\n\n").Append(string.Create(CultureInfo.InvariantCulture, $"{d.Findings.Count} item(s) matched a secret pattern and were dropped: "))
-                .AppendJoin(", ", d.Findings.Select(f => $"{f.Kind} ({f.Item})")).Append(".\n");
-        return b.ToString();
     }
 
     private static string Short(string? commit) => commit is null ? "unknown" : commit[..Math.Min(commit.Length, 10)];

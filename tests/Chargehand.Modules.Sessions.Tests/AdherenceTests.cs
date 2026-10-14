@@ -1,6 +1,7 @@
-using Chargehand.Driven;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Sessions.Tests;
 
 /// <summary>Whether a stored session stream kept to the change skill's steps (ADR 0039). The streams here are synthetic: tool calls only.</summary>
 public class AdherenceTests

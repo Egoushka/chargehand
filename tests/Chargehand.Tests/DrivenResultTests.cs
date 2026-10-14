@@ -7,6 +7,7 @@ using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.Results;
 using Chargehand.Verification;
 

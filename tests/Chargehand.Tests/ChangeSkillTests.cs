@@ -73,7 +73,7 @@ public class ChangeSkillTests
     [Fact]
     public void The_drivers_prompt_and_the_skill_agree_on_the_words_they_share()
     {
-        var prompt = Chargehand.Driven.SessionCli.DefaultPrompt;
+        var prompt = Chargehand.Modules.Sessions.Api.SessionCli.DefaultPrompt;
         foreach (var shared in new[] { "NEEDS_INPUT:", "CHARGEHAND_BRANCH", "CHARGEHAND_REPOSITORY_PATH", "CHARGEHAND_BASE_COMMIT", "```json" })
         {
             Assert.Contains(shared, prompt, StringComparison.Ordinal);

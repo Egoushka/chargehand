@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Chargehand.Modules.Runners.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Sessions.Api;
 
 /// <summary>What the server knows about the task's repository and the batch, for the session's environment note (ADR 0048). The toolchains of the image are not here: the session reads
 /// them from the image itself.</summary>
@@ -38,14 +38,14 @@ public sealed partial record ToolchainManifest(IReadOnlyDictionary<string, strin
         ("java", ["-version"]), ("gradle", ["--version"]), ("mvn", ["--version"]), ("go", ["version"]), ("cargo", ["--version"]), ("docker", ["--version"]),
     ];
 
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower, WriteIndented = true };
+    private static readonly SessionsJsonContext Json = new(new JsonSerializerOptions(JsonSerializerDefaults.Web) { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower, WriteIndented = true });
 
     /// <returns>Null when the file is missing or not a manifest.</returns>
     public static ToolchainManifest? Load(string path)
     {
         try
         {
-            return File.Exists(path) ? JsonSerializer.Deserialize<ToolchainManifest>(File.ReadAllText(path), Json) : null;
+            return File.Exists(path) ? JsonSerializer.Deserialize(File.ReadAllText(path), Json.ToolchainManifest) : null;
         }
         catch (Exception e) when (e is JsonException or IOException)
         {
@@ -53,7 +53,7 @@ public sealed partial record ToolchainManifest(IReadOnlyDictionary<string, strin
         }
     }
 
-    public string ToJson() => JsonSerializer.Serialize(this, Json);
+    public string ToJson() => JsonSerializer.Serialize(this, Json.ToolchainManifest);
 
     /// <param name="run">Runs a tool with its arguments and returns its combined output; null when the tool is not there or did not answer.</param>
     public static async Task<ToolchainManifest> ProbeAsync(Func<string, IReadOnlyList<string>, CancellationToken, Task<string?>> run, CancellationToken ct)

@@ -1,6 +1,7 @@
 using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Sessions.Api;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;

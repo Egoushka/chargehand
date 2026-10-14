@@ -4,6 +4,7 @@ using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Workspace;

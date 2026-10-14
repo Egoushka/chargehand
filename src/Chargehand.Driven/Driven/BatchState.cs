@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Modules.Sessions.Api;
 
 namespace Chargehand.Driven;
 

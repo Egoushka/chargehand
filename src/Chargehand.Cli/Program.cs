@@ -100,7 +100,7 @@ if (argv is ["verify", .. var verifyArgs])
     return Chargehand.Signing.VerifyCli.Run(verifyArgs, Console.Out, Console.Error);
 // Reads stored session streams only (ADR 0039).
 if (argv is ["runs", "adherence", .. var adherenceArgs])
-    return Chargehand.Driven.AdherenceCli.Run(adherenceArgs, Console.Out, Console.Error);
+    return Chargehand.Modules.Sessions.Api.AdherenceCli.Run(adherenceArgs, Console.Out, Console.Error);
 // A client of a running server: it reads the profile only for what --url and the environment leave out.
 if (argv is ["watch" or "cancel", var watchRun, .. var watchOptions])
 {
@@ -139,7 +139,7 @@ if (argv is ["session", .. var sessionArgs])
     using var stop = new CancellationTokenSource();
     using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-    return await Chargehand.Driven.SessionCli.RunAsync(sessionArgs, Console.Error, stop.Token);
+    return await Chargehand.Modules.Sessions.Api.SessionCli.RunAsync(sessionArgs, Console.Error, stop.Token);
 }
 // What a fresh verification container runs (ADR 0039); not for a person to type.
 if (argv is ["verify-branch", .. var verifyBranchArgs])
@@ -421,17 +421,17 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         (engine, workspace, hostSource) = (docker, docker, new Chargehand.Modules.Runners.Api.HostProbe());
     }
     // Both engines move files through a volume with a helper started from the session image; without an image no batch starts anyway.
-    Chargehand.Driven.ISessionVolumes volumes = engine is Chargehand.Modules.Runners.Api.IOutVolumeEngine files && driven.Images is { Count: > 0 } images
-        ? new Chargehand.Driven.EngineSessionVolumes(files, images[0])
-        : new Chargehand.Driven.UnavailableSessionVolumes();
+    Chargehand.Modules.Sessions.Api.ISessionVolumes volumes = engine is Chargehand.Modules.Runners.Api.IOutVolumeEngine files && driven.Images is { Count: > 0 } images
+        ? new Chargehand.Modules.Sessions.Api.EngineSessionVolumes(files, images[0])
+        : new Chargehand.Modules.Sessions.Api.UnavailableSessionVolumes();
     // A profile that names its runners (ADR 0058) gets a pool: each runner has its own client, and its volumes' helper starts the image for its platform.
     if (driven.NamesRunners)
         sites = [.. driven.ResolvedRunners().Select(entry =>
         {
             var client = RunnerClientFor(entry);
             return new Chargehand.Driven.RunnerSite(entry, client, entry.Workspace == Chargehand.Modules.Runners.Api.WorkspaceMode.Bundle ? new Chargehand.Driven.BundleWorkspaceEngine(client, client, bundles) : client, driven.Images is { Count: > 0 } list
-                ? new Chargehand.Driven.EngineSessionVolumes(client, driven.ImageFor(list[0], entry.Platform))
-                : new Chargehand.Driven.UnavailableSessionVolumes(), client);
+                ? new Chargehand.Modules.Sessions.Api.EngineSessionVolumes(client, driven.ImageFor(list[0], entry.Platform))
+                : new Chargehand.Modules.Sessions.Api.UnavailableSessionVolumes(), client);
         })];
     // The planning and retro runs belong to the account of the batch they serve (ADR 0050).
     Chargehand.Driven.PlanRunner childRun = async (request, runId, parentRunId, token) =>

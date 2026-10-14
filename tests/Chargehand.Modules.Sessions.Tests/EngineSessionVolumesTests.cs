@@ -1,11 +1,12 @@
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
-using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Sessions.Tests;
 
 /// <summary>ADR 0039: the task goes into the run's output volume as task.json, and the bundle, the report and the outcome come out into a directory chargehand owns.</summary>
 public class EngineSessionVolumesTests

@@ -6,6 +6,7 @@ using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.Server;
 
 namespace Chargehand.Tests;

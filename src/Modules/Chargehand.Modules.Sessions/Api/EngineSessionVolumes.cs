@@ -3,14 +3,14 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Runners.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Sessions.Api;
 
 /// <summary>Moves the task and the results through a session's output volume with the container engine's own file helper (the Docker CLI, or the runner service over HTTP),
 /// so the runner's allowlist still decides what is touched. <paramref name="image"/> is the session image: the helper needs only <c>sh</c> and <c>cat</c>.</summary>
 public sealed class EngineSessionVolumes(IOutVolumeEngine engine, string image) : ISessionVolumes
 {
     public Task WriteTaskAsync(string runId, SessionTask task, CancellationToken ct) =>
-        engine.WriteOutFileAsync(Spec(runId, "task.json"), JsonSerializer.SerializeToUtf8Bytes(task, SessionCli.Json), ct);
+        engine.WriteOutFileAsync(Spec(runId, "task.json"), JsonSerializer.SerializeToUtf8Bytes(task, SessionCli.Context.SessionTask), ct);
 
     public async Task WriteSeedAsync(string runId, string bundlePath, CancellationToken ct) =>
         await engine.WriteOutFileAsync(Spec(runId, ContainerTemplate.SeedFile), await File.ReadAllBytesAsync(bundlePath, ct), ct);
@@ -43,7 +43,7 @@ public sealed class EngineSessionVolumes(IOutVolumeEngine engine, string image) 
             return null;
         try
         {
-            return JsonSerializer.Deserialize<SessionUsage>(buffer.ToArray(), SessionCli.Json) is { Tokens: >= 0 } usage
+            return JsonSerializer.Deserialize(buffer.ToArray(), SessionCli.Context.SessionUsage) is { Tokens: >= 0 } usage
                 ? new TaskUsage(usage.Tokens, 0, usage.Turns is >= 0 ? usage.Turns : null, Enum.TryParse<SessionStage>(usage.Stage, ignoreCase: true, out var stage) ? stage : null,
                     usage.CacheRead, usage.CacheWrite, usage.UsdEstimate, usage.UsdEstimatePartial)
                 : null;

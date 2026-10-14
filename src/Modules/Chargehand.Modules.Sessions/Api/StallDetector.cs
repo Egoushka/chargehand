@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Chargehand.Modules.Oversight.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Sessions.Api;
 
 /// <summary>Why a driven session was ended by the driver rather than by itself; the wire names go in the session outcome.</summary>
 public enum StallReason { NoProgress, Repeating, TurnLimit, WallClock }
@@ -57,6 +57,11 @@ public sealed class StallDetector
             return;
         if (!message.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
             return;
+        OnToolCalls(content);
+    }
+
+    private void OnToolCalls(JsonElement content)
+    {
         foreach (var block in content.EnumerateArray())
         {
             if (block.ValueKind != JsonValueKind.Object || !block.TryGetProperty("type", out var t) || t.GetString() != "tool_use")
