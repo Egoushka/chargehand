@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Handover.Api;
 
 /// <param name="Image">The session image (it has the toolchains and git).</param>
 /// <param name="SourcePath">chargehand's checkout of the pinned commit, mounted read-only into the workspace helper.</param>
@@ -16,6 +16,9 @@ public sealed record ContainerVerifierSettings(string Image, string SourcePath, 
 /// and nothing else in its environment: no model credential and no run token. Its one stdout record is read after it ends, so nothing the tests print can be mistaken for a verdict.</summary>
 public sealed class ContainerVerifier(IContainerEngine engine, IWorkspaceEngine workspace, ContainerVerifierSettings settings, TimeSpan? poll = null, TimeSpan? slack = null) : IBranchVerifier
 {
+    /// <summary>What starts the one record line <c>chargehand verify-branch</c> prints in the container.</summary>
+    public const string Marker = "CHARGEHAND_VERIFICATION ";
+
     private const int LogBytes = 64 * 1024;
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan DefaultSlack = TimeSpan.FromSeconds(90);
@@ -60,15 +63,15 @@ public sealed class ContainerVerifier(IContainerEngine engine, IWorkspaceEngine 
         }
     }
 
-    /// <summary>The last <see cref="VerifyBranchCli.Marker"/> line of the logs; a container that ended without one failed, with its logs (and a note if it ran out of memory) as the reason.</summary>
+    /// <summary>The last <see cref="Marker"/> line of the logs; a container that ended without one failed, with its logs (and a note if it ran out of memory) as the reason.</summary>
     private static VerificationRecord Parse(string logs, BranchVerification v, ContainerState state, TimeSpan elapsed)
     {
-        var line = logs.Split('\n').LastOrDefault(l => l.StartsWith(VerifyBranchCli.Marker, StringComparison.Ordinal));
+        var line = logs.Split('\n').LastOrDefault(l => l.StartsWith(Marker, StringComparison.Ordinal));
         if (line is not null)
         {
             try
             {
-                using var doc = JsonDocument.Parse(line[VerifyBranchCli.Marker.Length..]);
+                using var doc = JsonDocument.Parse(line[Marker.Length..]);
                 var r = doc.RootElement;
                 return new VerificationRecord([.. r.GetProperty("argv").EnumerateArray().Select(a => a.GetString()!)], "detected", r.GetProperty("exit_code").GetInt32(),
                     r.GetProperty("output_tail").GetString() ?? "", r.GetProperty("timed_out").GetBoolean(), TimeSpan.FromMilliseconds(r.GetProperty("duration_ms").GetInt64()), true);

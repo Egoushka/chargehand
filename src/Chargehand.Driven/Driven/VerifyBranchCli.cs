@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Sandbox;
 
 namespace Chargehand.Driven;
@@ -10,7 +11,7 @@ namespace Chargehand.Driven;
 /// tail, never to stdout, so nothing the tests print can forge the record. Exit code 0 when the command ran (its own verdict is in the record), 2 when it could not.</summary>
 public static class VerifyBranchCli
 {
-    public const string Marker = "CHARGEHAND_VERIFICATION ";
+    public const string Marker = ContainerVerifier.Marker;
 
     public const string Usage = "usage: chargehand verify-branch --bundle <file> --branch chargehand/<run> --timeout-seconds <n> [--work <dir>] -- <command...>";
 

@@ -18,11 +18,12 @@
     <ProjectReference Include="..\..\src\Modules\Chargehand.Modules.Handover\Chargehand.Modules.Handover.csproj" />
   </ItemGroup>
 
-  <!-- The test clock, temporary directory and fake integration host the old suite shares; linked rather than copied. -->
+  <!-- The test clock, temporary directory, fake integration host and Docker gate the old suite shares; linked rather than copied. -->
   <ItemGroup>
     <Compile Include="..\Chargehand.Tests\ManualTimeProvider.cs" Link="ManualTimeProvider.cs" />
     <Compile Include="..\Chargehand.Tests\TempDir.cs" Link="TempDir.cs" />
     <Compile Include="..\Chargehand.Tests\FakeIntegrationHost.cs" Link="FakeIntegrationHost.cs" />
+    <Compile Include="..\Chargehand.Tests\DockerFactAttribute.cs" Link="DockerFactAttribute.cs" />
   </ItemGroup>
 
 </Project>

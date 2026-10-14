@@ -14,6 +14,7 @@ using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.Runtime;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Runtimes.OpenCode.Api;
@@ -84,7 +85,7 @@ public sealed record Profile(
     {
         TypeInfoResolver = JsonTypeInfoResolver.Combine(LedgerSettingsJsonContext.Default, AccountsSettingsJsonContext.Default,
             MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, HandoverSettingsJsonContext.Default, IntakeSettingsJsonContext.Default,
-            BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default,
+            BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default, SessionsSettingsJsonContext.Default,
             OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, ProfileJsonContext.Default),
     };
 

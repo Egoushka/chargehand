@@ -1,6 +1,7 @@
-using Chargehand.Onboarding;
+using Chargehand.Modules.Gateway.Api;
+using Chargehand.Tests;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Gateway.Tests;
 
 /// <summary>chargehand init: what a repository's marker files say about its ecosystems, test command and package hosts.</summary>
 public class RepositoryDetectorTests

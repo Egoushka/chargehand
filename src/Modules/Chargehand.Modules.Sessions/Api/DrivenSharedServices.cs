@@ -1,8 +1,9 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.RegularExpressions;
-using Chargehand.Contracts;
 using Chargehand.Kernel;
+using Microsoft.Extensions.Options;
 
-namespace Chargehand.Config;
+namespace Chargehand.Modules.Sessions.Api;
 
 /// <summary>ADR 0048: what a batch's containers share. Off unless a key is set; with none, every session and the verifier start as before, cold.</summary>
 /// <param name="Caches">Ecosystems whose package cache is a named volume mounted into the sessions and the verifier of one repository: <c>nuget</c>, <c>npm</c>, <c>pip</c>, <c>gradle</c>, <c>maven</c>.</param>
@@ -20,36 +21,46 @@ public sealed partial record DrivenSharedServices(IReadOnlyList<string>? Caches 
 
     /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
     /// <param name="sessionImages"><c>driven.images</c>.</param>
-    internal void Validate(IReadOnlyList<string>? sessionImages)
+    public void Validate(IReadOnlyList<string>? sessionImages) => SettingsValidation.ThrowIfFailed(new DrivenSharedServicesValidator().Validate(null, new DrivenSharedServicesCheck(this, sessionImages)),
+        "driven.services", "Fix driven.services in the profile; docs/guide/driven.md lists the keys.");
+
+    internal List<string> Problems(IReadOnlyList<string>? sessionImages) => [.. CacheProblems(), .. ImageProblems(sessionImages), .. RepositoryProblems()];
+
+    private IEnumerable<string> CacheProblems()
     {
-        var problems = new List<string>();
         foreach (var cache in Caches ?? [])
             if (!CacheEcosystems.Contains(cache))
-                problems.Add($"caches entry '{cache}' must be one of {string.Join(", ", CacheEcosystems)}");
+                yield return $"caches entry '{cache}' must be one of {string.Join(", ", CacheEcosystems)}";
         if ((Caches ?? []).Distinct().Count() != (Caches ?? []).Count)
-            problems.Add("caches lists an ecosystem twice");
+            yield return "caches lists an ecosystem twice";
+    }
+
+    private IEnumerable<string> ImageProblems(IReadOnlyList<string>? sessionImages)
+    {
         foreach (var (ecosystem, image) in Images ?? new Dictionary<string, string>())
         {
             if (!Ecosystem().IsMatch(ecosystem))
-                problems.Add($"images key '{ecosystem}' must be an ecosystem name such as gradle");
+                yield return $"images key '{ecosystem}' must be an ecosystem name such as gradle";
             if (!ImageReference().IsMatch(image))
-                problems.Add($"images.{ecosystem} must be pinned by digest (name@sha256:<64 hex>)");
+                yield return $"images.{ecosystem} must be pinned by digest (name@sha256:<64 hex>)";
             else if (sessionImages?.Contains(image, StringComparer.Ordinal) != true)
-                problems.Add($"images.{ecosystem} must also be listed in driven.images, which is what the runner allows");
+                yield return $"images.{ecosystem} must also be listed in driven.images, which is what the runner allows";
         }
+    }
+
+    private IEnumerable<string> RepositoryProblems()
+    {
         foreach (var (repository, services) in Repositories ?? new Dictionary<string, IReadOnlyList<DrivenTestService>>())
         {
             if (!RepositoryName().IsMatch(repository))
-                problems.Add($"repositories key '{repository}' must be owner/repo");
+                yield return $"repositories key '{repository}' must be owner/repo";
             if (services.Count > MaxServices)
-                problems.Add($"repositories.{repository} has more than {MaxServices} services");
+                yield return $"repositories.{repository} has more than {MaxServices} services";
             if (services.Select(s => s.Name).Distinct(StringComparer.Ordinal).Count() != services.Count)
-                problems.Add($"repositories.{repository} names a service twice");
-            foreach (var service in services)
-                problems.AddRange(service.Problems($"repositories.{repository}.{service.Name}"));
+                yield return $"repositories.{repository} names a service twice";
+            foreach (var problem in services.SelectMany(service => service.Problems($"repositories.{repository}.{service.Name}")))
+                yield return problem;
         }
-        if (problems.Count > 0)
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.services: {string.Join("; ", problems)}", "Fix driven.services in the profile; docs/guide/driven.md lists the keys.");
     }
 
     public const int MaxServices = 4;
@@ -64,6 +75,16 @@ public sealed partial record DrivenSharedServices(IReadOnlyList<string>? Caches 
     internal static partial Regex ImageReference();
 }
 
+/// <summary><c>driven.services</c> with <c>driven.images</c>, which its images must be listed in: what <see cref="DrivenSharedServicesValidator"/> checks.</summary>
+internal sealed record DrivenSharedServicesCheck(DrivenSharedServices Services, IReadOnlyList<string>? SessionImages) : IValidatableObject
+{
+    IEnumerable<ValidationResult> IValidatableObject.Validate(ValidationContext validationContext) => SettingsValidation.Results(Services.Problems(SessionImages));
+}
+
+/// <summary><c>driven.services</c>' validator, source-generated (ADR 0060).</summary>
+[OptionsValidator]
+internal sealed partial class DrivenSharedServicesValidator : IValidateOptions<DrivenSharedServicesCheck>;
+
 /// <summary>A service a repository's tests need (a database, a queue), started from a pinned image on the batch's internal network and reachable from the session and the verifier by <paramref name="Name"/>.</summary>
 /// <param name="Name">Lowercase letters and digits; the host name on the batch network.</param>
 /// <param name="Image">By digest; the runner must list it in <c>--service-images</c>.</param>
@@ -75,7 +96,9 @@ public sealed partial record DrivenSharedServices(IReadOnlyList<string>? Caches 
 public sealed partial record DrivenTestService(string Name, string Image, int Port, IReadOnlyDictionary<string, string>? Env = null, IReadOnlyList<string>? Tmpfs = null, string? Note = null,
     int MemoryMb = 512)
 {
-    internal IEnumerable<string> Problems(string path)
+    internal IEnumerable<string> Problems(string path) => [.. AddressProblems(path), .. ContentProblems(path)];
+
+    private IEnumerable<string> AddressProblems(string path)
     {
         if (!ServiceName().IsMatch(Name))
             yield return $"{path}: name must be lowercase letters and digits, starting with a letter, at most 24";
@@ -85,6 +108,10 @@ public sealed partial record DrivenTestService(string Name, string Image, int Po
             yield return $"{path}: port must be 1 to 65535";
         if (MemoryMb is < 64 or > 8192)
             yield return $"{path}: memory_mb must be 64 to 8192";
+    }
+
+    private IEnumerable<string> ContentProblems(string path)
+    {
         foreach (var (name, value) in Env ?? new Dictionary<string, string>())
         {
             if (!EnvName().IsMatch(name) || name.StartsWith("LD_", StringComparison.Ordinal))

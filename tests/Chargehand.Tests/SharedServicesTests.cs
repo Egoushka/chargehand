@@ -2,6 +2,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
@@ -532,6 +533,10 @@ public class SharedServicesTests
         Assert.Contains("driven.services", e.Message);
         Assert.Contains(problem, e.Message);
     }
+
+    [Fact]
+    public void The_profile_binds_the_services_block_with_the_sessions_modules_source_generated_context() =>
+        Assert.IsType<SessionsSettingsJsonContext>(Profile.LoadJson.GetTypeInfo(typeof(DrivenSharedServices)).OriginatingResolver);
 
     [Fact]
     public void The_profile_schema_describes_the_services_block()

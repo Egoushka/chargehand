@@ -1,8 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Chargehand.Modules.Gateway.Api;
 
-namespace Chargehand.Onboarding;
+namespace Chargehand.Modules.Gateway.Api;
 
 /// <summary>One ecosystem found in a repository: the marker files that gave it away and the package hosts its restore needs.</summary>
 public sealed record DetectedEcosystem(string Name, IReadOnlyList<string> Markers, IReadOnlyList<string> Hosts);
@@ -44,17 +43,28 @@ public static partial class RepositoryDetector
     public static RepositoryScan Scan(string directory)
     {
         var files = Names(directory);
-        var scripts = Names(Path.Combine(directory, "scripts"));
         var ecosystems = new List<DetectedEcosystem>();
         var verify = new List<VerifyCandidate>();
+        AddScripts(directory, files, verify);
+        AddDotNetAndNode(directory, files, ecosystems, verify);
+        AddPython(files, ecosystems, verify);
+        AddOthers(files, ecosystems, verify);
+        return new RepositoryScan(ecosystems, verify);
+    }
 
+    private static void AddScripts(string directory, HashSet<string> files, List<VerifyCandidate> verify)
+    {
+        var scripts = Names(Path.Combine(directory, "scripts"));
         if (scripts.Contains("check.sh"))
             verify.Add(new(["sh", "scripts/check.sh"], "scripts/check.sh"));
         foreach (var script in scripts.Where(s => s.StartsWith("test", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
             verify.Add(new(script.EndsWith(".sh", StringComparison.Ordinal) ? ["sh", $"scripts/{script}"] : [$"./scripts/{script}"], $"scripts/{script}"));
         if (files.Contains("Makefile") && HasTestTarget(Path.Combine(directory, "Makefile")))
             verify.Add(new(["make", "test"], "Makefile test target"));
+    }
 
+    private static void AddDotNetAndNode(string directory, HashSet<string> files, List<DetectedEcosystem> ecosystems, List<VerifyCandidate> verify)
+    {
         if (files.Where(f => f.EndsWith(".sln", StringComparison.Ordinal) || f.EndsWith(".slnx", StringComparison.Ordinal) || f.EndsWith(".csproj", StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToList() is { Count: > 0 } dotnet)
         {
             ecosystems.Add(new("dotnet", dotnet, DotNetHosts));
@@ -68,7 +78,10 @@ public static partial class RepositoryDetector
             if (HasTestScript(Path.Combine(directory, "package.json")))
                 verify.Add(new(NodeCommand(lockFile), lockFile ?? "package.json"));
         }
+    }
 
+    private static void AddPython(HashSet<string> files, List<DetectedEcosystem> ecosystems, List<VerifyCandidate> verify)
+    {
         var requirements = files.Where(f => RequirementsFile().IsMatch(f)).Order(StringComparer.Ordinal).ToList();
         if (files.Contains("pyproject.toml") || requirements.Count > 0)
         {
@@ -79,7 +92,10 @@ public static partial class RepositoryDetector
                 : "pip install -e . pytest";
             verify.Add(new(["sh", "-c", $"{install} && python3 -m pytest -q"], markers[0]));
         }
+    }
 
+    private static void AddOthers(HashSet<string> files, List<DetectedEcosystem> ecosystems, List<VerifyCandidate> verify)
+    {
         if (files.Contains("go.mod"))
         {
             ecosystems.Add(new("go", ["go.mod"], GoHosts));
@@ -103,8 +119,6 @@ public static partial class RepositoryDetector
             ecosystems.Add(new("maven", ["pom.xml"], MavenHosts));
             verify.Add(new(["mvn", "-B", "test"], "pom.xml"));
         }
-
-        return new RepositoryScan(ecosystems, verify);
     }
 
     /// <summary>The package hosts an ecosystem's restore needs (<c>dotnet</c>, <c>node</c>, <c>python</c>, <c>go</c>, <c>rust</c>, <c>gradle</c>, <c>maven</c>); none for any other name.</summary>
