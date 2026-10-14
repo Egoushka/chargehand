@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
 

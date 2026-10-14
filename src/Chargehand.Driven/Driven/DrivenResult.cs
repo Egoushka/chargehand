@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Driven;
