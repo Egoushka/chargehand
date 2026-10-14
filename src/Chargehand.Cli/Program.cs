@@ -13,6 +13,7 @@ using Chargehand.Mcp;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.OpenCode;
 using Chargehand.Prompts;

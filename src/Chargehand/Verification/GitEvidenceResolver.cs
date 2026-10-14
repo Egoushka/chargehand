@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Runtime;
 
 namespace Chargehand.Verification;

@@ -16,7 +16,7 @@ public sealed class ContinuationSource(IRunLog log)
     /// <summary>How long an ended task's output volume (its bundle and handoff) is kept for a continuation: the sweep at a server start leaves it alone until then.</summary>
     public static readonly TimeSpan KeptFor = TaskRunner.KeptFor;
 
-    public const string KeptWorkKind = "kept-work";
+    public const string KeptWorkKind = KeptWork.ArtifactKind;
 
     /// <exception cref="ChargehandException"><see cref="ErrorCode.InvalidRequest"/>: the batch or task is not in the run log, or did not end in a state that can continue.</exception>
     public async Task<ResolvedTask> ResolveAsync(DrivenTask task, CancellationToken ct)
