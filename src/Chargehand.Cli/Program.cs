@@ -596,7 +596,8 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
             _ => throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code takes at most one of api_key_secret and oauth_token_secret",
                 "Set one of claude_code.api_key_secret and claude_code.oauth_token_secret in the profile, not both."),
         };
-        var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct, cc.BaseUrl is null ? null : new Uri(cc.BaseUrl));
+        var headers = cc.CustomHeadersSecret is { } headersItem ? cc.CustomHeaders(profile.Secret(headersItem)) : null;
+        var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct, cc.BaseUrl is null ? null : new Uri(cc.BaseUrl), headers);
         return (claude, claude.Version);
     }
     IOpenCodeClient client;

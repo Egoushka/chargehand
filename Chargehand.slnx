@@ -59,6 +59,7 @@
     <Project Path="tests/Chargehand.Modules.Research.Tests/Chargehand.Modules.Research.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Runners.Tests/Chargehand.Modules.Runners.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Sessions.Tests/Chargehand.Modules.Sessions.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Tasks.Tests/Chargehand.Modules.Tasks.Tests.csproj" />
     <Project Path="tests/Chargehand.Tests/Chargehand.Tests.csproj" />
   </Folder>
 </Solution>

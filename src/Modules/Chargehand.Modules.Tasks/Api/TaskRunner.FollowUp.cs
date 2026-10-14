@@ -10,6 +10,7 @@ using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Core;
 
 namespace Chargehand.Modules.Tasks.Api;
 
@@ -27,7 +28,7 @@ public sealed partial class TaskRunner
             // A restart during the follow-up keeps this outcome rather than handing the task over again; the pull request itself holds the count of fix attempts (ADR 0046).
             var early = Outcome(task, run.RunId, result, run.Total, handed, settings.Priced, partial, startNote);
             await LearnAsync(task, early, run.Session, run.Total, run.Continuation, run.Decisions, handed, partial, run.LastHead, run.Budget);
-            state?.Finish(early);
+            Record(task.Id, new TaskFinished(early));
             follow = await FollowUpAsync(task, handed!, Path.Combine(handoverRun.OutDirectory, "chargehand.bundle"), run.Best?.Commits ?? 0, run.Branch, partial, run.Total, run.Containers, run.Span,
                 run.TraceId, progress, sha => run.LastHead = sha, run.Budget, ct);
         }
@@ -36,7 +37,7 @@ public sealed partial class TaskRunner
         if (follow.Detail is { } integration)
             outcome = outcome with { Detail = outcome.Detail is { } before ? $"{before}; {integration}" : integration };
         await LearnAsync(task, outcome, run.Session, spent, run.Continuation, run.Decisions, handed, partial, run.LastHead, run.Budget);
-        state?.Finish(outcome);
+        Record(task.Id, new TaskFinished(outcome));
         run.Ended = true;
         run.Span?.SetTag("chargehand.task.continuations", run.Continuation);
         Tag(run.Span, outcome, spent, run.Started);
