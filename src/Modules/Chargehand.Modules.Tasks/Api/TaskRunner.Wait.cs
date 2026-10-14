@@ -17,15 +17,17 @@ public sealed partial class TaskRunner
         var every = poll ?? DefaultPoll;
         var usageClock = Stopwatch.StartNew();
         var seen = new UsagePoll(prior, settings.Priced);
+        var session = SessionState.Waiting(since + TimeSpan.FromMinutes(maxMinutes) + WallClockSlack, stopGrace ?? DefaultGrace);
         try
         {
             while (true)
             {
                 var state = await Tolerant(taskId, () => engine.InspectAsync(container, ct), ct);
                 var peak = NotePeak(taskId, state);
-                if (state.Status != ContainerStatus.Running)
+                (session, var command) = SessionMachine.Decide(session, new SessionObserved(state.Status, DateTimeOffset.UtcNow));
+                if (command == SessionAction.End)
                     return state;
-                if (DateTimeOffset.UtcNow - since > TimeSpan.FromMinutes(maxMinutes) + WallClockSlack)
+                if (command == SessionAction.Kill)
                 {
                     await engine.SignalAsync(container, "SIGKILL", CancellationToken.None);
                     var killed = await engine.InspectAsync(container, CancellationToken.None);
@@ -40,19 +42,29 @@ public sealed partial class TaskRunner
                 await Task.Delay(every, ct);
             }
         }
-        catch (OperationCanceledException) when (!Detaching)
+        catch (OperationCanceledException)
         {
-            await InterruptAsync(container, every);
+            // A stopping server leaves the session running for the next process.
+            (session, var command) = SessionMachine.Decide(session, new SessionCancelled(Detaching));
+            if (command == SessionAction.Interrupt)
+                await InterruptAsync(container, every, session);
             throw;
         }
     }
 
-    private async Task InterruptAsync(string container, TimeSpan every)
+    private async Task InterruptAsync(string container, TimeSpan every, SessionState session)
     {
         await engine.SignalAsync(container, "SIGINT", CancellationToken.None);
         var grace = Stopwatch.StartNew();
-        while (grace.Elapsed < (stopGrace ?? DefaultGrace) && (await engine.InspectAsync(container, CancellationToken.None)).Status == ContainerStatus.Running)
+        while (true)
+        {
+            (session, var command) = SessionMachine.Decide(session, new SessionGraceTick(grace.Elapsed));
+            if (command == SessionAction.Inspect)
+                (session, command) = SessionMachine.Decide(session, new SessionObserved((await engine.InspectAsync(container, CancellationToken.None)).Status));
+            if (command == SessionAction.Kill)
+                break;
             await Task.Delay(every, CancellationToken.None);
+        }
         await engine.SignalAsync(container, "SIGKILL", CancellationToken.None);
     }
 
