@@ -55,7 +55,7 @@ public sealed partial class TaskRunner
         var sessionEnded = DateTimeOffset.UtcNow;
 
         await Tolerant(task.Id, () => volumes.FetchOutputAsync(runId, outDirectory, ct), ct);
-        run.Session = SessionDriver.ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, exited.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, exited.ExitCode, [], false);
+        run.Session = SessionMachine.OutcomeOf(SessionDriver.ReadOutcome(outDirectory), exited);
         NoteSession(task, run, sessionEnded);
         // Saved after the session's events are published: a task that is Finished has published them, and a restart that reads the outcome again does not.
         state?.Update(task.Id, e => e with { Phase = TaskPhase.Finished });
@@ -175,19 +175,24 @@ public sealed partial class TaskRunner
     private async Task<string?> AdoptAsync(string taskId, string runId, CancellationToken ct)
     {
         var name = $"chargehand-{runId}";
-        var state = await Tolerant(taskId, () => engine.InspectAsync(name, ct), ct);
-        if (state.Status == ContainerStatus.Missing)
-            return null;
-        if (state.Status == ContainerStatus.Running || state.Status == ContainerStatus.Exited && await HasOutcomeAsync(taskId, runId, ct))
-            return name;
-        if (state.Status == ContainerStatus.Exited)
+        var found = await Tolerant(taskId, () => engine.InspectAsync(name, ct), ct);
+        var (session, command) = SessionMachine.Decide(SessionState.Restarting, new SessionObserved(found.Status));
+        if (command == SessionAction.CheckOutcome)
+            (_, command) = SessionMachine.Decide(session, new SessionOutcomeChecked(await HasOutcomeAsync(taskId, runId, ct)));
+        switch (command)
         {
-            await steps!.ResetAsync(StepKey.Prep(settings.BatchId, runId), ct);
-            await RemoveSessionAsync(runId, name, ct);
-            return null;
+            case SessionAction.Adopt:
+                return name;
+            case SessionAction.ResetPrepAndRemove:
+                await steps!.ResetAsync(StepKey.Prep(settings.BatchId, runId), ct);
+                await RemoveSessionAsync(runId, name, ct);
+                return null;
+            case SessionAction.Remove:
+                await engine.RemoveAsync(name, ct);
+                return null;
+            default:
+                return null;
         }
-        await engine.RemoveAsync(name, ct);
-        return null;
     }
 
     /// <summary>The session's container, workspace and task file, up to the container's start.</summary>
