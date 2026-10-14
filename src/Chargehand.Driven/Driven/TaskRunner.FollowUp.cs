@@ -10,6 +10,7 @@ using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Driven;
 
@@ -199,7 +200,7 @@ public sealed partial class TaskRunner
             f.Containers[fixRun] = container;
             await WaitAsync(container, fixRun, task.Id, integrator.CiFix.Minutes, f.Progress, sessionStarted, running, token);
             await Tolerant(task.Id, () => volumes.FetchOutputAsync(fixRun, outDirectory, token), token);
-            session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, "no_outcome", 0, 0, 0, 0, null, null, [], false);
+            session = SessionDriver.ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, "no_outcome", 0, 0, 0, 0, null, null, [], false);
         }
         catch (Exception e)
         {

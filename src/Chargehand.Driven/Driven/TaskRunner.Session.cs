@@ -8,6 +8,7 @@ using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Driven;
 
@@ -56,7 +57,7 @@ public sealed partial class TaskRunner
 
         await Tolerant(task.Id, () => volumes.FetchOutputAsync(runId, outDirectory, ct), ct);
         journal?.Update(task.Id, e => e with { Phase = TaskPhase.Finished });
-        run.Session = ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, state.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, state.ExitCode, [], false);
+        run.Session = SessionDriver.ReadOutcome(outDirectory) ?? new SessionOutcome(SessionStatus.Failed, state.OomKilled ? "out_of_memory" : "no_outcome", 0, 0, 0, 0, null, state.ExitCode, [], false);
         NoteSession(task, run, sessionEnded);
         var session = run.Session;
         var reportFile = Path.Combine(outDirectory, "driven-report.json");

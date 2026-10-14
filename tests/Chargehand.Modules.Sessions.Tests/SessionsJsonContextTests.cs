@@ -77,6 +77,32 @@ public sealed class SessionsJsonContextTests
         Same(Decision, LineOptions(), Context(LineOptions()).GovernorDecision);
 
     [Fact]
+    public void The_task_runner_reads_the_outcome_file_and_the_governor_log_as_reflection_read_them()
+    {
+        using var dir = new Chargehand.Tests.TempDir();
+        var full = new SessionOutcome(SessionStatus.Stalled, "max_turns", 12, 100, 200, 300, 1.5m, 0, [Text], true, "abc", 400, "s1", "model-a",
+            new Dictionary<string, TokenCounts> { ["model-a"] = new(1, 2, 0, 3, 4) }, 0.75m, At, true, 3, Text, [Decision], "def");
+        dir.Write("session-outcome.json", JsonSerializer.Serialize(full, OutcomeOptions()));
+        var read = SessionDriver.ReadOutcome(dir.Path);
+        Assert.Equal(JsonSerializer.Serialize(JsonSerializer.Deserialize<SessionOutcome>(File.ReadAllText(Path.Combine(dir.Path, "session-outcome.json")), LineOptions()), LineOptions()),
+            JsonSerializer.Serialize(read, LineOptions()));
+        Assert.Equal(JsonSerializer.Serialize(full, LineOptions()), JsonSerializer.Serialize(read, LineOptions()));
+
+        // A line that is not a decision is skipped; the rest are read in order.
+        var line = JsonSerializer.Serialize(Decision, LineOptions());
+        dir.Write(SessionDriver.GovernorFile, $"{line}\nnot json\n{line}\n");
+        var decisions = SessionDriver.ReadGovernorLog(dir.Path);
+        Assert.Equal([line, line], decisions!.Select(d => JsonSerializer.Serialize(d, LineOptions())));
+
+        // No file, or a file that is not an outcome: nothing.
+        using var empty = new Chargehand.Tests.TempDir();
+        Assert.Null(SessionDriver.ReadOutcome(empty.Path));
+        Assert.Null(SessionDriver.ReadGovernorLog(empty.Path));
+        empty.Write("session-outcome.json", "{ not json");
+        Assert.Null(SessionDriver.ReadOutcome(empty.Path));
+    }
+
+    [Fact]
     public void The_manifest_is_written_and_read_as_before()
     {
         var manifest = new ToolchainManifest(new Dictionary<string, string> { ["dotnet"] = "10.0.100", ["node"] = Text }, ["go"]);

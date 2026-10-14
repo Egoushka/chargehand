@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Driven;
 

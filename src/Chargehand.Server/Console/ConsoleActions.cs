@@ -2,6 +2,7 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Tasks.Api;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;

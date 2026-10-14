@@ -3,6 +3,7 @@ using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.RunLog;
 
 namespace Chargehand.Driven;

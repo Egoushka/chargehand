@@ -7,6 +7,7 @@ using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Driven;
 
@@ -40,36 +41,9 @@ public sealed partial class TaskRunner
     {
         if (records is null)
             return;
-        var all = ReadGovernorLog(outDirectory) ?? session.Governor ?? [];
+        var all = SessionDriver.ReadGovernorLog(outDirectory) ?? session.Governor ?? [];
         if (all.Count > 0)
             records.Append(settings.BatchId, new GovernorRecord(task.Id, runId, all.Count, [.. all.Take(BatchRecords.MaxDecisionsPerSession)]));
-    }
-
-    private static List<GovernorDecision>? ReadGovernorLog(string directory)
-    {
-        var file = Path.Combine(directory, ContainerTemplate.GovernorFile);
-        if (!File.Exists(file))
-            return null;
-        List<GovernorDecision> decisions = [];
-        try
-        {
-            foreach (var line in File.ReadLines(file))
-            {
-                try
-                {
-                    if (JsonSerializer.Deserialize<GovernorDecision>(line, OutcomeJson) is { } decision)
-                        decisions.Add(decision);
-                }
-                catch (JsonException)
-                {
-                }
-            }
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-        return decisions;
     }
 
     private static string StopReason(SessionOutcome session) =>

@@ -3,6 +3,7 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Server;
 
