@@ -8,6 +8,7 @@ using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Tasks.Core;
 
 namespace Chargehand.Modules.Tasks.Api;
 
@@ -25,8 +26,7 @@ public sealed partial class TaskRunner
         else
         {
             run.SessionStarted = DateTimeOffset.UtcNow;
-            var sessionStarted = run.SessionStarted;
-            state?.Update(task.Id, e => e with { SessionStarted = sessionStarted });
+            Record(task.Id, new TaskSessionStarting(run.SessionStarted));
             run.Open = (run.RunId, run.SessionStarted, run.Continuation == 0 ? "first" : "continuation");
             run.Container = await StartSessionAsync(task, run.RunId, run.Branch, run.Goal, run.MaxTurns, run.MaxMinutes, Remaining(run.Prior), run.Prior?.UsdEstimate ?? 0, run.Seed, run.SessionStarted,
                 run.StartDetail, run.Span, run.TraceId, run.Budget, ct);
@@ -58,7 +58,7 @@ public sealed partial class TaskRunner
         run.Session = SessionMachine.OutcomeOf(SessionDriver.ReadOutcome(outDirectory), exited);
         NoteSession(task, run, sessionEnded);
         // Saved after the session's events are published: a task that is Finished has published them, and a restart that reads the outcome again does not.
-        state?.Update(task.Id, e => e with { Phase = TaskPhase.Finished });
+        Record(task.Id, new TaskSessionRead());
         var session = run.Session;
         var reportFile = Path.Combine(outDirectory, "driven-report.json");
         run.ReportJson = File.Exists(reportFile) ? await File.ReadAllTextAsync(reportFile, ct) : null;
@@ -104,20 +104,8 @@ public sealed partial class TaskRunner
         run.OutDirectory = Path.Combine(settings.ScratchRoot, "out", run.RunId);
         Directory.CreateDirectory(run.OutDirectory);
         run.Containers[run.RunId] = null;
-        var (next, allRuns, count, earlier, seedBundle, sessionGoal, detail) = (run.RunId, run.Runs.ToList(), run.Continuation, run.Total, new BestBundle(run.Best!.RunId, run.Best.Commits), run.Goal, run.StartDetail);
-        state?.Update(task.Id, e => e with
-        {
-            Phase = TaskPhase.Started,
-            RunId = next,
-            Container = null,
-            Continuation = count,
-            Prior = earlier,
-            Runs = allRuns,
-            SessionStarted = DateTimeOffset.UtcNow,
-            Best = seedBundle,
-            SessionGoal = sessionGoal,
-            StartDetail = detail
-        });
+        Record(task.Id, new TaskContinuationBegan(run.RunId, run.Runs.ToList(), run.Continuation, run.Total, DateTimeOffset.UtcNow, new BestBundle(run.Best!.RunId, run.Best.Commits), run.Goal,
+            run.StartDetail));
         try
         {
             run.SessionStarted = DateTimeOffset.UtcNow;
@@ -134,8 +122,7 @@ public sealed partial class TaskRunner
             run.Continuation--;
             run.Runs.RemoveAt(run.Runs.Count - 1);
             (run.RunId, run.OutDirectory) = (previousRun, previousOut);
-            var (back, backRuns, backCount) = (run.RunId, run.Runs.ToList(), run.Continuation);
-            state?.Update(task.Id, x => x with { Phase = TaskPhase.Finished, RunId = back, Container = null, Continuation = backCount, Runs = backRuns });
+            Record(task.Id, new TaskContinuationFailed(run.RunId, run.Runs.ToList(), run.Continuation));
             return false;
         }
         run.Containers[run.RunId] = run.Container;
@@ -211,7 +198,7 @@ public sealed partial class TaskRunner
         AddServiceEnvironment(env, task, runId, maxMinutes, left, sessionStarted, span, traceId);
         var container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
             preset.MemoryMb, preset.Cpus, preset.Pids, ["session"], Caches: settings.Shared?.Caches is { Count: > 0 } caches ? caches : null), ct);
-        state?.Update(task.Id, e => e with { Container = container });
+        Record(task.Id, new TaskContainerStarted(container));
         Publish(task.Id, RunEventKind.ContainerStarted, detail, s => s with { Branch = branch });
         return container;
     }

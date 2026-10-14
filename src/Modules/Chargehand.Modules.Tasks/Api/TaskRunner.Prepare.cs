@@ -3,6 +3,7 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Tasks.Core;
 
 namespace Chargehand.Modules.Tasks.Api;
 
@@ -11,7 +12,7 @@ public sealed partial class TaskRunner
 {
     private async Task<TaskRun> PrepareAsync(ResolvedTask task, TaskEntry? entry, CancellationToken ct)
     {
-        var (resumed, interrupted, restartSeed) = await ResumeAsync(task, entry, ct);
+        var (resumed, interrupted, restartSeed) = await ResumeAsync(entry, ct);
         var run = NewRun(task, resumed, interrupted, restartSeed);
         Carry(run, task, resumed);
         if (restartSeed is not null && interrupted is null)
@@ -19,8 +20,7 @@ public sealed partial class TaskRunner
             // The same session again under a new run id: the name of the one that never started is not reused.
             run.RunId = RunIds.New();
             run.Runs[^1] = run.RunId;
-            var (again, allRuns) = (run.RunId, run.Runs.ToList());
-            state?.Update(task.Id, e => e with { RunId = again, Runs = allRuns, Container = null });
+            Record(task.Id, new TaskRunRenamed(run.RunId, run.Runs.ToList()));
         }
         // A task that continues an earlier one starts with that task's bundle as its best, so a session that adds nothing to it neither continues nor loses it (ADR 0045).
         run.Best = (resumed?.Best ?? (resumed is null && task.From?.Kept is { } carried ? new BestBundle(carried.BundleRun, carried.Commits) : null)) is { } kept
@@ -34,28 +34,48 @@ public sealed partial class TaskRunner
     }
 
     /// <summary>The task as a restart left it: begun (<c>Resumed</c>), its session's start cut short (<c>Interrupted</c>), and the bundle a continuation starts again from (<c>RestartSeed</c>).</summary>
-    private async Task<(TaskEntry? Resumed, TaskEntry? Interrupted, string? RestartSeed)> ResumeAsync(ResolvedTask task, TaskEntry? entry, CancellationToken ct)
+    /// <remarks><see cref="TaskResume"/> decides; this finds out each fact it asks for. A session start the restart cut short runs again under the run id it was given: its step adopts or removes
+    /// what the cut attempt left, and its finished steps are not repeated.</remarks>
+    private async Task<(TaskEntry? Resumed, TaskEntry? Interrupted, string? RestartSeed)> ResumeAsync(TaskEntry? entry, CancellationToken ct)
     {
-        var resumed = entry is { Phase: TaskPhase.Started or TaskPhase.Finished, RunId: not null } ? entry : null;
-        // A session start the restart cut short runs again under the run id it was given: its step adopts or removes what the cut attempt left, and its finished steps are not repeated.
-        var interrupted = resumed is { Phase: TaskPhase.Started } && await StartCutAsync(task.Id, resumed.RunId!, ct) ? resumed : null;
-        var restartSeed = interrupted is { Continuation: > 0, Runs: { Count: > 1 } runsSoFar } ? await RestoreBundleAsync(runsSoFar[^2], ct) : null;
-        if (interrupted is { Continuation: 0 })
-            // A first session starts as it did the first time, under the same run id and branch.
-            resumed = null;
-        else if (restartSeed is null)
-            // A continuation whose seed is gone is handled as any other begun task.
-            interrupted = null;
-        if (interrupted is null && resumed is not null && await GoneWithoutOutputAsync(resumed, ct))
+        var facts = new ResumeFacts();
+        while (true)
         {
-            // Nothing to take up. A continuation that never started is started again from the previous session's bundle (ADR 0044); any other task begins again
-            // under a new run id and branch. The old attempt's leftovers are cleared either way.
-            await RemoveRunAsync(resumed.RunId!, resumed.Container);
-            restartSeed = resumed.Continuation > 0 && resumed.Runs is { Count: > 1 } known ? await RestoreBundleAsync(known[^2], ct) : null;
-            if (restartSeed is null)
-                resumed = null;
+            var step = TaskResume.Decide(entry, facts);
+            if (step is TakeUp up)
+                return up.Kind switch
+                {
+                    ResumeKind.Attach => (entry, null, null),
+                    ResumeKind.RestartFirstSession => (null, entry, null),
+                    ResumeKind.RestartContinuation => (entry, entry, up.Seed),
+                    ResumeKind.RestartContinuationRenamed => (entry, null, up.Seed),
+                    _ => (null, null, null),
+                };
+            facts = await FindOutAsync(entry!, step, facts, ct);
         }
-        return (resumed, interrupted, restartSeed);
+    }
+
+    /// <summary>The fact a resume step asks for, added to those found so far; or the old attempt's leftovers cleared.</summary>
+    private async Task<ResumeFacts> FindOutAsync(TaskEntry entry, ResumeStep step, ResumeFacts facts, CancellationToken ct)
+    {
+        switch (step)
+        {
+            case AskStartCut a:
+                return facts with { StartCut = await StartCutAsync(entry.Id, a.RunId, ct) };
+            case AskCutSeed a:
+                return facts with { CutSeed = new SeedLookup(await RestoreBundleAsync(a.RunId, ct)) };
+            case InspectContainer i:
+                return facts with { Status = (await Tolerant(entry.Id, () => engine.InspectAsync(i.Container, ct), ct)).Status };
+            case AskOutcome a:
+                return facts with { HasOutcome = await HasOutcomeAsync(entry.Id, a.RunId, ct) };
+            case RemoveRun r:
+                await RemoveRunAsync(r.RunId, r.Container);
+                return facts with { Removed = true };
+            case AskGoneSeed a:
+                return facts with { GoneSeed = new SeedLookup(await RestoreBundleAsync(a.RunId, ct)) };
+            default:
+                throw new InvalidOperationException($"no fact for {step.GetType().Name}");
+        }
     }
 
     private TaskRun NewRun(ResolvedTask task, TaskEntry? resumed, TaskEntry? interrupted, string? restartSeed)
@@ -106,21 +126,7 @@ public sealed partial class TaskRunner
             run.StartDetail = stack.StartDetail;
         }
         if (run.Resumed is null)
-            state?.Update(task.Id, e => e with
-            {
-                Phase = TaskPhase.Started,
-                RunId = run.RunId,
-                Branch = run.Branch,
-                Started = run.Started,
-                Container = null,
-                Continuation = 0,
-                Prior = null,
-                Runs = [run.RunId],
-                SessionStarted = DateTimeOffset.UtcNow,
-                Best = run.Best is null ? null : new BestBundle(run.Best.RunId, run.Best.Commits),
-                SessionGoal = null,
-                StartDetail = null
-            });
+            Record(task.Id, new TaskBegan(run.RunId, run.Branch, run.Started, DateTimeOffset.UtcNow, run.Best is null ? null : new BestBundle(run.Best.RunId, run.Best.Commits)));
     }
 
     /// <summary>The bundle of an earlier session on the host: the file the task kept, or else read again from that session's output volume (a restart may have cleared the scratch directory).</summary>
@@ -204,11 +210,6 @@ public sealed partial class TaskRunner
             throw new ChargehandException(ErrorCode.SessionFailed, $"could not start from the tasks it depends on: {made.Failure}", "Send the tasks again.");
         return bundle;
     }
-
-    /// <summary>A task begun before a restart whose container is gone and whose output volume holds no outcome: there is nothing to take up.</summary>
-    private async Task<bool> GoneWithoutOutputAsync(TaskEntry entry, CancellationToken ct) =>
-        (await Tolerant(entry.Id, () => engine.InspectAsync(entry.Container ?? $"chargehand-{entry.RunId}", ct), ct)).Status == ContainerStatus.Missing
-        && !await HasOutcomeAsync(entry.Id, entry.RunId!, ct);
 
     private async Task<bool> HasOutcomeAsync(string taskId, string runId, CancellationToken ct)
     {
