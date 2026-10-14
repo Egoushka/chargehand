@@ -355,12 +355,23 @@ public class ProfileTests
     [Fact]
     public void A_command_source_that_hangs_falls_through_to_the_next_source()
     {
-        var profile = new Profile("profile/v1", Secrets: [new SecretSource(Command: ["sleep", "30"]), new SecretSource(Command: ["echo", "from-second"])])
+        // The next source is env, not a second command: the timeout is per command, so a fallback command would get the same 300 ms and fail
+        // whenever a loaded machine is slow to start it.
+        var item = $"profile-tests-after-a-hang-{Guid.NewGuid():N}";
+        var name = item.ToUpperInvariant().Replace('-', '_');
+        var profile = new Profile("profile/v1", Secrets: [new SecretSource(Command: ["sleep", "30"]), new SecretSource(Env: true)])
         {
             CommandTimeout = TimeSpan.FromMilliseconds(300),
         };
-
-        Assert.Equal("from-second", profile.Secret("anything"));
+        Environment.SetEnvironmentVariable(name, "from-second");
+        try
+        {
+            Assert.Equal("from-second", profile.Secret(item));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(name, null);
+        }
     }
 
     [Fact]
