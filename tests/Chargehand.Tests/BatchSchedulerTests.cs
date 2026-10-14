@@ -52,14 +52,27 @@ public class BatchSchedulerTests
         }
 
         public void Finish(string id, TaskState state = TaskState.Completed, long tokens = 100, decimal usd = 0, ErrorCode? error = null) =>
-            Pending[id].TrySetResult(new TaskOutcome(id, state, $"run-{id}", null, error, usd, tokens, state == TaskState.Completed ? $"chargehand/run-{id}" : null,
+            PendingOf(id).TrySetResult(new TaskOutcome(id, state, $"run-{id}", null, error, usd, tokens, state == TaskState.Completed ? $"chargehand/run-{id}" : null,
                 state == TaskState.Completed ? $"https://example.test/pull/{id}" : null));
+
+        private TaskCompletionSource<TaskOutcome> PendingOf(string id)
+        {
+            lock (_lock)
+                return Pending[id];
+        }
+
+        // Under the lock: a start adds to Started and to Pending in one step, and an unlocked count can see the first without the second.
+        private int StartedCount()
+        {
+            lock (_lock)
+                return Started.Count;
+        }
 
         public async Task WaitStarted(int count)
         {
-            for (var i = 0; i < 200 && Started.Count < count; i++)
+            for (var i = 0; i < 200 && StartedCount() < count; i++)
                 await Task.Delay(25);
-            Assert.True(Started.Count >= count, $"expected {count} started, saw {Started.Count}");
+            Assert.True(StartedCount() >= count, $"expected {count} started, saw {StartedCount()}");
         }
     }
 
