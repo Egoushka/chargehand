@@ -54,7 +54,7 @@ public static partial class ExtensionsCheck
             CheckEnhancer(enhancer, listings, report);
 
         foreach (var preset in presets.OrderBy(p => p.Name, StringComparer.Ordinal))
-            foreach (var use in preset.NodeKinds.Values.SelectMany(k => k.Services ?? []).GroupBy(u => u.Server))
+            foreach (var use in preset.NodeKinds.Values.SelectMany(k => profile.ServicesFor(preset.Name, k.Services) ?? []).GroupBy(u => u.Server))
                 CheckService(preset.Name, use.Key, [.. use.SelectMany(u => u.Tools).Distinct()], servers, listings, report);
 
         if (report.Lines.Count == 0)

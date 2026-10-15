@@ -78,6 +78,8 @@ const string Usage = """
                                    reads a repository's marker files, prints its ecosystems, the proposed context.verify and the
                                    package hosts the driven egress allowlist lacks, and writes a starter profile (never over a file without --force)
       doctor [--profile <path>]    checks a setup, one ok/warn/fail line per check with the fix; exit 1 when a check fails
+      incident <repo path> [--commit <ref>]
+                                   reads an alert on stdin (Alertmanager or Grafana webhook JSON, or text) and prints a request/v1 for the incident preset; pipe it to run
     prompts/ and presets/ come from the current directory when it has both (a checkout), else from the install; the
     run log is the profile's run_log, else runs/run-log.jsonl in a checkout, else a per-user file (README).
     """;
@@ -181,6 +183,9 @@ if (argv is ["bench", ..])
 // Profile-free: init writes the profile, and doctor reports one that does not load.
 if (argv is ["init", .. var initArgs])
     return Chargehand.Onboarding.InitCli.Run(initArgs, Directory.GetCurrentDirectory(), profilePath, DrivenPresetAllow(), Console.Out, Console.Error);
+// Profile-free: it maps an alert to a request for `run` (CHARGEHAND-192).
+if (argv is ["incident", .. var incidentArgs])
+    return await Chargehand.Incident.IncidentCli.RunAsync(incidentArgs, Directory.GetCurrentDirectory(), Console.In, Console.Out, Console.Error, DateTimeOffset.UtcNow, CancellationToken.None);
 if (argv is ["doctor", .. var doctorArgs])
 {
     using var stop = new CancellationTokenSource();

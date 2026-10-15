@@ -292,7 +292,7 @@ public sealed class Orchestrator(
         var facts = recall.Prompt;
         chain = chain with { Blocks = [.. chain.Blocks, .. recall.Blocks] };
         // Granted once per run and shared by every node; the tools hash covers the grant, and is today's when there is none.
-        var granted = await Grant(kind.Services, run, extensions, ct);
+        var granted = await Grant(profile.ServicesFor(request.Context.Preset, kind.Services), run, extensions, ct);
         if (granted.Count > 0)
             chain = chain with { AsSent = chain.AsSent with { ToolsSha256 = PromptChains.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules, granted) } };
 

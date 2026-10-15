@@ -223,6 +223,16 @@
   "prompt_enhancer": null,
   "max_parallel_nodes": 2,
   "automation": null,
+  "preset_services": {
+    "incident": [
+      {
+        "server": "notes",
+        "tools": [
+          "search_*"
+        ]
+      }
+    ]
+  },
   "roots": [
     "/srv/chargehand/work"
   ],
