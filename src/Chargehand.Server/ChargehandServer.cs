@@ -263,6 +263,18 @@ public static partial class ChargehandServer
             return Json(new { halted = false }, StatusCodes.Status200OK);
         });
 
+        // Liveness for any key; ?deep=1 (owner) also calls the intake model, which is what a canary needs: the process can be up while every run fails.
+        app.MapGet("/v1/health", async (HttpContext ctx, RunService runs) =>
+        {
+            var version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0";
+            if (ctx.Request.Query["deep"] != "1")
+                return Json(new HealthReport("ok", version, runs.Halted, null), StatusCodes.Status200OK);
+            if (OwnerOnly(ctx) is { } refused)
+                return refused;
+            var probe = await orchestrator.ProbeAsync(TimeSpan.FromSeconds(60), ctx.RequestAborted);
+            return Json(new HealthReport(probe.Ok ? "ok" : "failing", version, runs.Halted, probe), probe.Ok ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
+        });
+
         app.MapGet("/v1/runs/{id}", async (string id, HttpContext ctx, RunService runs) =>
         {
             var who = PrincipalHttp.Of(ctx);
@@ -388,3 +400,6 @@ public static partial class ChargehandServer
 
 /// <summary>What the HTTP host adds for its MCP tools; absent over stdio. <paramref name="Wait"/>: how long a call without <c>Prefer: wait</c> waits for a run.</summary>
 public sealed record McpHttp(TimeSpan Wait, IRunLog Log);
+
+/// <summary><c>GET /v1/health</c>: <paramref name="Probe"/> only with <c>?deep=1</c>.</summary>
+public sealed record HealthReport(string Status, string Version, bool Halted, ModelProbe? Probe);

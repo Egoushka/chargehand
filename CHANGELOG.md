@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `GET /v1/health` answers for any key; `GET /v1/health?deep=1` (owner) also calls the intake model once and answers 503 with the reason when it fails. `scripts/canary.sh` calls it and posts a failure to an ntfy topic: a server whose gateway was retired stayed up for days while every run failed. The compose healthcheck uses the liveness route.
+- `request/v1`'s `contract_version` has a description, so a client that shows only types and descriptions no longer sends a guessed value first.
+
+### Added
+
 ### Changed
 
 - Over HTTP an MCP `orchestrate` call without `Prefer: wait=N` returns the run id after 50 s instead of waiting for the result: Claude Code ends a call after about 60 s, and the caller got neither the result nor the id. Collect the result with the `result` tool. Over stdio a call still waits for its result.
