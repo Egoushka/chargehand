@@ -240,10 +240,23 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         var (exit, stdout, stderr) = await Exec(_binary, Path.GetTempPath(),
             [.. CommonArgs(model), "--output-format", "json", "--no-session-persistence", "--tools", "",
                 "--system-prompt", "Follow the instructions in the user message exactly."], prompt, ct, env);
-        var result = exit == 0 && stdout.Length > 0 ? JsonDocument.Parse(stdout).RootElement : default;
+        // A failed call can exit non-zero with its reason only in the stdout result (a gateway's refusal), nothing on stderr.
+        var result = ParseResult(stdout);
         if (result.ValueKind != JsonValueKind.Object || result.GetProperty("is_error").GetBoolean())
             throw new InvalidOperationException($"claude -p exited {exit}: {(result.ValueKind == JsonValueKind.Object ? ErrorText(result) : stderr.Trim())}");
         return result.GetProperty("result").GetString() ?? "";
+    }
+
+    private static JsonElement ParseResult(string stdout)
+    {
+        try
+        {
+            return stdout.Length > 0 ? JsonDocument.Parse(stdout).RootElement : default;
+        }
+        catch (JsonException)
+        {
+            return default;
+        }
     }
 
     private Session Get(string sessionId) =>

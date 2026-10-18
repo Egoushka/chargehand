@@ -11,6 +11,7 @@ All notable changes to this project are documented here. The format follows
 
 - The plugin's MCP server starts on a machine that has both `claude` and `opencode` on `PATH`: its entry names the `claude_code` runtime instead of failing with `runtime_ambiguous`.
 - With no `claude_code` profile block, a Claude Code CLI newer than the adapter's pin (same major) is taken instead of refused with `runtime_version_mismatch`; Claude Code updates itself, so the exact pin broke the zero-config path within days of each CLI release. A profile's `claude_code.version` may now be written `>=2.1.283` for the same rule, and an exact version stays an exact pin.
+- A Claude Code call that exits non-zero names its reason (the CLI's error result, such as a gateway refusing the model id) instead of `claude -p exited 1: ` with nothing after it.
 
 ## [0.9.6] - 2026-10-14
 

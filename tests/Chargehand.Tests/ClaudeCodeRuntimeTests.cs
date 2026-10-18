@@ -330,6 +330,24 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
     }
 
     [Fact]
+    public async Task Generate_names_the_cause_when_claude_exits_non_zero_with_an_error_result()
+    {
+        // Seen with a gateway that refused the model id: exit 1, nothing on stderr, the reason only in the stdout result.
+        var claude = _dir.Write("claude", """
+            #!/bin/sh
+            if [ "$1" = "--version" ]; then echo "2.1.195 (Claude Code)"; exit 0; fi
+            echo '{"type":"result","subtype":"success","is_error":true,"result":"API Error: 400 could not auto resolve a provider"}'
+            exit 1
+            """);
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(claude, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", new ClaudeCodeCredential("k", false), CancellationToken.None);
+
+        var e = await Assert.ThrowsAsync<InvalidOperationException>(() => rt.GenerateAsync(null, "spec please", CancellationToken.None));
+        Assert.Equal("claude -p exited 1: API Error: 400 could not auto resolve a provider", e.Message);
+    }
+
+    [Fact]
     public async Task A_version_other_than_the_pin_is_refused()
     {
         var claude = FakeClaude("");
