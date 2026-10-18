@@ -88,4 +88,14 @@ public class ChangeSkillTests
         foreach (var text in new[] { "Commit or stash your changes first", "ask the user all of them in one message", "Tell the user: the branch name" })
             Assert.Contains(text, Skill.Replace("\r\n", "\n").Replace("\n", " "), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void The_local_flag_names_the_local_server_and_the_request_field_on_both_calls()
+    {
+        var text = Skill.Replace("\r\n", "\n").Replace("\n", " ");
+
+        Assert.Contains("[--local]", text, StringComparison.Ordinal);
+        Assert.Contains("MCP server named `chargehand-local`", text, StringComparison.Ordinal);
+        Assert.Contains("`context.delivery` = \"local\" on every call in steps 2 and 7", text, StringComparison.Ordinal);
+    }
 }

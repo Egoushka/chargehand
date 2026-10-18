@@ -217,7 +217,7 @@ internal sealed class SiteBatches
             Path.Combine(profile.WorkerRoot, ".driven"), _setup.Model, _setup.Claude.Version,
             Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", route.Model?.BaseUrl, route.Forward is not null || route.Model?.Forwarded == true || route.Otlp is not null, route.Otlp,
             profile.Prices, profile.Telemetry?.UsageOnSpans == true, route.Exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), _checkout.Integrator, _shared, _c.Actor,
-            RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge));
+            RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge), profile.DeliveryPolicy.Forced(_c.Request.Context.Repository!.Path));
     }
 
     /// <summary>A runner's events: a started session is noted for the router, and when the profile names its runners each event says which one.</summary>

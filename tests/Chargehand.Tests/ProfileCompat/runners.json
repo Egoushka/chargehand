@@ -122,6 +122,7 @@
   "max_parallel_nodes": 2,
   "automation": null,
   "preset_services": null,
+  "delivery": null,
   "roots": [
     "/var/tmp/chargehand/work"
   ],

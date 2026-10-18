@@ -32,10 +32,11 @@ public sealed record PushCredential(string Value, PushCredentialKind Kind = Push
 /// <param name="PolicyNote">What the pull request body says chargehand does next (ADR 0046), for a repository that opted in to integration; null: the draft is not merged and chargehand will not merge it.</param>
 /// <param name="UpdateReused">The title and body replace those of a pull request the host already had for the branch (a task continued on it), as a finished task's replace the <c>[partial]</c> ones. Off, a reused pull request is left as it is.</param>
 /// <param name="Goal">The task's goal; with it, a passing branch that changes only tests and build files is flagged unless the goal asks for that work (<see cref="TestIntegrity"/>). Null: not assessed.</param>
+/// <param name="LocalOnly">The repository is local-only (ADR 0069): the hand-over refuses before any git or forge call.</param>
 /// <param name="FallbackBaseBranch">For a pull request stacked on another task's branch (ADR 0049), <paramref name="BaseBranch"/> is that branch: if the host refuses it, the pull request is opened against this one instead and says so.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
-    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false, string? FallbackBaseBranch = null);
+    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false, string? FallbackBaseBranch = null, bool LocalOnly = false);
 
 /// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
 public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
@@ -92,6 +93,8 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         if (input.Credential is { } credential)
             secrets.Add(credential.Value);
         var run = new HandoverRun(input, secrets);
+        if (input.LocalOnly)
+            return run.Refuse("the repository is local-only: nothing is pushed and no pull request is opened", ErrorCode.LocalOnly);
         if (await FetchAsync(run, ct) is { } notFetched)
             return notFetched;
         if (await ScanDiffAsync(run, ct) is { } diffRefused)

@@ -29,6 +29,7 @@ question "No test command found" and a confidence of at most 0.5.
    there, in the sandbox. What the tests write (caches, build output) never reaches the branch. A failure goes back to
    the worker with the last 8 KiB of output, at most twice (`verify.max_fix_rounds` in the preset).
 4. Chargehand commits with the repository's hooks and signing off. Nothing is pushed or merged.
+5. With local delivery (below), the branch is then fetched into your repository.
 
 The result carries three artifacts: `branch` (the clone's path, the branch, its commit and the base), `diff`
 (`base..HEAD`, at most 64 KiB) and `verification` (command, sandbox, network, exit code, attempts, output tail, and the
@@ -40,6 +41,16 @@ git fetch <clone path> chargehand/<run>/writer
 
 A run that is still red after the last round has status `failed`, `error.code` `verification_failed` and the same
 artifacts, so the attempt is not lost.
+
+## Local delivery
+
+For code that must stay on the machine, set `context.delivery` to `"local"`, or put the repository's directory under `delivery.local_only` in the profile ([ADR 0069](../adr/0069-local-delivery.md)). The profile wins: a repository under a `local_only` root is always local, and a request that says `push` for it fails `local_only`.
+
+A local `code` run fetches its branch into your repository as `chargehand/<run>/writer` and the `branch` artifact names your repository (`"delivery": "local"`). The fetch adds objects and one new branch; it does not touch your working tree, index, `HEAD` or current branch, and never moves an existing branch. If it cannot, the run fails `delivery_failed` and the branch stays in the run clone.
+
+Local also means: no push, no pull request, no forge call, no driven batch (refused `local_only`), no intake of that repository (the profile does not load), no prompt enhancer, and recall and retain only for `memory` entries with `"local_ok": true`. To keep verified claims of private code, mark a store that may hold them (a separate bank) `local_ok` and leave the shared one unmarked; mark none to keep nothing. Telemetry is not changed by the mode: omit the profile's `telemetry` block for a server that runs private repositories.
+
+A server that does not hold the repository cannot refuse it: keep private checkouts out of a shared server's `repository_roots`, and run them on the machine that has them (`chargehand serve` there). `/chargehand:change --local` sends `delivery: "local"` on every call and uses only the MCP server named `chargehand-local`.
 
 ## The sandbox
 
@@ -62,7 +73,7 @@ that points at a restored one); without either it fails in the sandbox, and the 
 - **It does not stop the worker from editing the tests.** A green branch means the command passed, not that the
   change is right. The `verification` artifact lists changed test and build paths, and the `review` preset and a
   person are the checks on the rest.
-- **It does not push, open a pull request or merge.**
+- **It does not push, open a pull request or merge.** Local delivery only adds a branch to your repository.
 - **It runs one writer per run.** The preset has no `split`.
 - **It cannot use ignored files.** The tests run on tracked and new, non-ignored files only; a repository that needs
   `node_modules` or a restored `obj` from the workspace must restore inside the command.

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Verification;
 using Chargehand.Workspace;
@@ -30,7 +31,7 @@ internal static class ChangeRun
     }
 
     internal static ResultContract Finish(ResultContract contract, BranchInfo? branch, string diff, VerifyOutcome? verification, int attempts, string sandboxKind,
-        bool network, IReadOnlyList<string> changedPaths, VerifyPlan? plan)
+        bool network, IReadOnlyList<string> changedPaths, VerifyPlan? plan, string delivery = DeliveryMode.Push, string? landFailure = null)
     {
         if (branch is null)
             return contract with
@@ -42,11 +43,19 @@ internal static class ChangeRun
             };
         var artifacts = new List<Artifact>
         {
-            Json("branch", "application/vnd.chargehand.branch+json", new { repository = branch.Repository, branch = branch.Branch, commit = branch.Commit, @base = branch.Base }),
+            Json("branch", "application/vnd.chargehand.branch+json", new { repository = branch.Repository, branch = branch.Branch, commit = branch.Commit, @base = branch.Base, delivery }),
             Inline("diff", "text/x-diff", diff),
             Json("verification", "application/json", VerificationRecord(verification, attempts, sandboxKind, network, VerifyCommand.VerificationPaths(changedPaths, plan))),
         };
         var merged = contract with { Artifacts = [.. contract.Artifacts, .. artifacts] };
+        if (landFailure is not null)
+            return merged with
+            {
+                Status = ResultStatus.Failed,
+                OpenQuestions = [.. merged.OpenQuestions, $"The branch could not be fetched into the repository: {landFailure}"],
+                Error = new ResultError(ErrorCode.DeliveryFailed, $"the branch could not be fetched into the repository: {landFailure}", false,
+                    $"The branch {branch.Branch} is still in {branch.Repository}; fetch it by hand: git fetch {branch.Repository} {branch.Branch}:{branch.Branch}"),
+            };
         if (verification is null)
             return merged with
             {

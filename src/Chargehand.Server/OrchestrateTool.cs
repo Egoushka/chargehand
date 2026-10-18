@@ -36,7 +36,7 @@ public static class OrchestrateTool
             Name = Name,
             Description = "Run a request through chargehand: intake turns it into a Task Spec, coding-agent workers (OpenCode or Claude Code) answer it, and the result "
                         + "comes back as result/v1 with evidence for every claim. The arguments are the request/v1 fields themselves: contract_version, text and context at the top level, "
-                        + "not wrapped in a \"request\" object.",
+                        + "not wrapped in a \"request\" object. context.delivery \"local\" keeps a run on this machine: a writing run leaves a local branch in the repository and nothing is pushed, opened or sent to a forge; the server's profile can force it.",
             UseStructuredContent = true,
             OutputSchema = Schema(ContractSchemas.Result),
         });

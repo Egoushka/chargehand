@@ -458,6 +458,31 @@ public class DrivenRunTests
         Assert.Empty(rig.Engine.Calls);
     }
 
+    [Theory]
+    [InlineData(null, "/srv")]
+    [InlineData("local", null)]
+    public async Task A_batch_for_a_local_repository_is_refused_before_the_push_credential_is_read_or_a_container_exists(string? delivery, string? localOnlyRoot)
+    {
+        using var rig = new Rig();
+        var profile = rig.Profile with { Delivery = localOnlyRoot is null ? null : new DeliverySettings([localOnlyRoot]) };
+        var credentialsRead = 0;
+        var run = new DrivenRun(profile, rig.Log, Repo.Root,
+            new DrivenServices(rig.Engine, rig.Engine, new FakeVolumes(_ => SessionStatus.Completed), _ => throw new NotSupportedException(), null,
+                (_, _, _) => throw new NotSupportedException(), new NoEvidenceProblems(), n =>
+                {
+                    credentialsRead++;
+                    return n;
+                }));
+        var request = Request("Add a retry");
+        request = request with { Context = request.Context with { Delivery = delivery } };
+
+        var result = await run.RunAsync(request, "run-batch-local", Token, default);
+
+        Assert.Equal(ErrorCode.LocalOnly, result.Error!.Code);
+        Assert.Equal(0, credentialsRead);
+        Assert.Empty(rig.Engine.Calls);
+    }
+
     [Fact]
     public async Task A_gateway_url_gives_the_session_a_base_url_through_a_second_forward_and_the_key_it_was_issued()
     {
