@@ -1,0 +1,61 @@
+name: release-please
+
+# The release (spec: release system, 2026-10-19). On every push to main release-please keeps one pull request open
+# that bumps the version files and writes the CHANGELOG.md section from the Conventional Commit titles; merging it
+# creates the GitHub Release vX.Y.Z, which starts release.yml. The token is the egoushka-release App's, not
+# GITHUB_TOKEN: a pull request or release made with GITHUB_TOKEN starts no workflow, so CI would never run on the
+# release pull request and release.yml would never start.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+env:
+  # release-please names its branch after the target branch and the package (release-please-config.json package-name).
+  RELEASE_BRANCH: release-please--branches--main--components--chargehand
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app.outputs.token }}
+      # release-please rebuilds its branch from main on every run, so this runs every time and is a no-op when nothing changed.
+      - name: Release branch
+        id: branch
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/branches/$RELEASE_BRANCH" --silent 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.branch.outputs.exists == 'true'
+        with:
+          ref: ${{ env.RELEASE_BRANCH }}
+          token: ${{ steps.app.outputs.token }}
+      - name: Sync the version release-please cannot write
+        if: steps.branch.outputs.exists == 'true'
+        env:
+          SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          scripts/sync-version.sh
+          if git diff --quiet; then
+            echo "versions already in step"
+            exit 0
+          fi
+          git -c user.name="${SLUG}[bot]" -c user.email="${SLUG}[bot]@users.noreply.github.com" commit -am "chore: sync the plugin's server version"
+          git push origin "HEAD:$RELEASE_BRANCH"
