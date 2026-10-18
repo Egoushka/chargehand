@@ -6,8 +6,8 @@ name: release
 # the release job pushes amd64, the session-arm64 job builds arm64 on an arm64 runner and turns each tag into an index of the two), and on nuget.org the dnx tool Chargehand (ADR 0027) and
 # Chargehand.Contracts, each when its version is new there, when the repository variable NUGET_USER names the nuget.org
 # account whose trusted-publishing policy trusts this workflow. The release waits for the owner's approval only when its pull request carries the label needs-approval (environment release); otherwise it runs in release-auto. A release without a changelog section fails first.
-# When NUGET_USER is set, the mcp-registry job then lists the version in the MCP Registry (ADR 0027). The pin job then asks
-# Renovate to open the homelab-gitops pin pull request.
+# When NUGET_USER is set, the mcp-registry job then lists the version in the MCP Registry (ADR 0027). The hosted Renovate app
+# opens the homelab-gitops pin pull request within minutes of the image push; nothing here asks it to.
 on:
   release:
     types: [published]
@@ -265,20 +265,3 @@ jobs:
             sleep 30
           done
           exit 1
-
-  # Renovate's first-party rule opens the homelab-gitops pin pull request; asking now saves waiting for its nightly run.
-  pin:
-    needs: [release, session-arm64]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions: {}
-    steps:
-      - env:
-          GH_TOKEN: ${{ secrets.RENOVATE_DISPATCH_TOKEN }}
-        run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "::notice::no RENOVATE_DISPATCH_TOKEN: Renovate pins $GITHUB_REF_NAME on its nightly run"
-            exit 0
-          fi
-          gh workflow run renovate.yml -R Egoushka/engineering-standards -f repository=Egoushka/homelab-gitops
-          echo "Renovate asked to pin $GITHUB_REF_NAME in Egoushka/homelab-gitops" >> "$GITHUB_STEP_SUMMARY"

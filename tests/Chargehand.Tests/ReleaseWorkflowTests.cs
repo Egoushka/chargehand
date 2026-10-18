@@ -95,10 +95,9 @@ public sealed partial class ReleaseWorkflowTests
     }
 
     [Fact]
-    public void The_pin_job_asks_renovate_once_every_image_is_pushed()
+    public void Nothing_dispatches_renovate_the_hosted_app_opens_the_pin_pull_request_itself()
     {
-        var pin = Job("pin");
-        Assert.Contains("    needs: [release, session-arm64]", pin);
-        Assert.Contains(pin, l => l.Contains("gh workflow run renovate.yml -R Egoushka/engineering-standards -f repository=Egoushka/homelab-gitops", StringComparison.Ordinal));
+        Assert.Equal(-1, Array.FindIndex(Lines, Array.IndexOf(Lines, "jobs:") + 1, l => l == "  pin:"));
+        Assert.DoesNotContain(Lines, l => l.Contains("renovate.yml", StringComparison.Ordinal) || l.Contains("RENOVATE_DISPATCH_TOKEN", StringComparison.Ordinal));
     }
 }
