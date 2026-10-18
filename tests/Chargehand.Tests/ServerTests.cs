@@ -245,14 +245,17 @@ public class ServerTests
     public void Prefer_wait_is_read_and_capped(string? prefer, int seconds) => Assert.Equal(TimeSpan.FromSeconds(seconds), ChargehandServer.Wait(prefer));
 
     [Theory]
-    [InlineData(false, "", -1)]        // a research or review call waits for its result
-    [InlineData(true, "", 10)]         // a batch runs for minutes or hours, and an MCP client cannot set Prefer per call: it gets the run id after the default wait
-    [InlineData(true, "wait=3", 3)]
-    [InlineData(false, "wait=3", 3)]
-    public void An_MCP_call_waits_for_the_result_unless_it_starts_a_batch(bool driven, string prefer, int seconds)
+    [InlineData(false, "", 50, 50)]    // over HTTP a research or review call answers before a client's 60 s timeout, with the run id if unfinished
+    [InlineData(false, "", null, -1)]  // over stdio (no HTTP wait registered) it waits for its result
+    [InlineData(true, "", 50, 10)]     // a batch runs for minutes or hours, and an MCP client cannot set Prefer per call: it gets the run id after the default wait
+    [InlineData(true, "", null, 10)]
+    [InlineData(true, "wait=3", 50, 3)]
+    [InlineData(false, "wait=3", 50, 3)]
+    public void An_MCP_call_over_HTTP_answers_within_the_client_timeout(bool driven, string prefer, int? httpWait, int seconds)
     {
         var request = driven ? new RunRequest("request/v1", "x", new RequestContext(false, "driven"), Driven: new RequestDriven([new DrivenTask("t1", Goal: "g")])) : Runs.DraftRequest();
-        Assert.Equal(seconds < 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(seconds), OrchestrateTool.WaitFor(request, prefer));
+        var wait = httpWait is { } w ? TimeSpan.FromSeconds(w) : (TimeSpan?)null;
+        Assert.Equal(seconds < 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(seconds), OrchestrateTool.WaitFor(request, prefer, wait));
     }
 
     internal static async Task WaitUntil(Func<Task<bool>> condition)
