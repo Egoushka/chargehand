@@ -493,6 +493,17 @@ Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? Sch
     return morning => new Chargehand.Automation.Scheduler(schedules, runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, new Chargehand.Automation.HttpScheduleNotifier(), morning);
 }
 
+// Plane intake (ADR 0067): null unless the profile has automation.plane. The key is read from the secret store at each call; its state sits next to the run log.
+Chargehand.Automation.PlaneIntake? PlaneIntake()
+{
+    if (profile.Automation?.Plane is not { Url: { } url, ApiKeySecret: { } apiKeySecret, Workspace: { } workspace } plane)
+        return null;
+    var api = new HttpClient { BaseAddress = new Uri(url.TrimEnd('/') + "/") };
+    var state = Chargehand.Automation.PlaneState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "plane.json"));
+    return new Chargehand.Automation.PlaneIntake(plane, new Chargehand.Automation.PlaneHost(api, workspace, () => profile.Secret(apiKeySecret)), runLog,
+        new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state);
+}
+
 // The console's account view says whether a credential's secret item resolves, never its value.
 bool SecretResolves(string item)
 {
@@ -530,7 +541,7 @@ async Task<int> Serve()
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json")),
-        orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake(), Schedules());
+        orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake(), Schedules(), PlaneIntake());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", UI /ui/, console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);

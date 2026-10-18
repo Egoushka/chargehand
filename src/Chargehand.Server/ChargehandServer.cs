@@ -69,7 +69,8 @@ public static partial class ChargehandServer
         + "returns a run id instead of result/v1 is still running, and the result tool with that run_id reads it.";
 
     public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log, Chargehand.Driven.DrivenRun? driven = null, Chargehand.Automation.GitHubIntake? intake = null,
-        Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? scheduler = null)
+        Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? scheduler = null,
+        Chargehand.Automation.PlaneIntake? plane = null)
     {
         var address = IPAddress.Parse(settings.Listen);
         IReadOnlyList<string> hosts = settings.AllowedHosts ?? [];
@@ -106,6 +107,9 @@ public static partial class ChargehandServer
                 var source = new ServerMorningSource(() => new ConsoleContext(settings, runs, log, driven, new SecretPresence(settings.SecretPresent), dismissals));
                 return new ScheduleService(scheduler(source), runs);
             });
+        // ADR 0067: only when the profile has automation.plane.
+        if (plane is not null)
+            builder.Services.AddHostedService(sp => new PlaneIntakeService(plane, sp.GetRequiredService<RunService>()));
         // ADR 0045: reads back what became of the pull requests, only where there are learning records.
         if (driven?.Learning is not null)
             builder.Services.AddHostedService(_ => new PrOutcomeRefresher(driven));
