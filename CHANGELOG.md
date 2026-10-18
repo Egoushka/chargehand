@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `driven.services.verify` names the command that verifies a repository's branches when the request names none, per `owner/repo`. The verifier has no container engine, so a suite whose tests start their own containers (Testcontainers) failed verification whatever the change; a command can now skip those tests or point them at a test service.
+
 ### Fixed
 
 - The plugin's MCP server starts on a machine that has both `claude` and `opencode` on `PATH`: its entry names the `claude_code` runtime instead of failing with `runtime_ambiguous`.

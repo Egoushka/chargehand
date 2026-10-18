@@ -257,6 +257,16 @@ The request is refused as `invalid_request` before anything starts when the earl
 
 `env` holds test values for a container with no route out, never a real secret. The runner starts only images on its `--service-images`. A service may take a few seconds before it accepts connections (the note tells the session to retry); tasks of one repository in a batch share its services, so tests that need isolation use their own database names.
 
+**A verify command per repository** (`driven.services.verify`, per `owner/repo`, an argument vector). It verifies that repository's branches when the request has no `context.verify`. The verifier has no container engine, so tests that start their own containers (Testcontainers) always fail there; name a command that skips them, or one that points them at a test service above:
+
+```json
+"services": {
+  "verify": { "owner/repo": ["dotnet", "test", "--filter", "Category!=Docker"] }
+}
+```
+
+The repository's CI still runs the whole suite on the pull request. The command lives in the profile, not the repository, so the change being verified cannot choose its own check.
+
 **A JDK image by ecosystem** (`driven.services.images`, `{"gradle": "<digest>", "maven": "<digest>"}`). A repository whose top level has that ecosystem gets that image for its sessions and its verification; the value must also be in `driven.images`. `images/session-jdk/Dockerfile` builds `FROM` the session image and adds a JDK, Gradle (checksum-verified) and Maven; the release workflow pushes it as `chargehand-session-jdk`. By hand: `docker build -f images/session-jdk/Dockerfile --build-arg BASE=<session image by digest> -t chargehand-session-jdk .`. It makes JVM Gradle and Maven repositories verifiable; it has no Android SDK. The Gradle and Maven package hosts are not in the driven preset's allowlist: add them under `driven.network.allow` (`chargehand init` lists them).
 
 Not built yet: a code index of the base commit mounted read-only into sessions (decided in the ADR, deferred), a readiness wait for services, a size or age limit on cache volumes.
