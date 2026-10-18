@@ -33,6 +33,10 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, Prom
     public async Task<TaskSpec> CreateSpecAsync(RunRequest request, CancellationToken ct) =>
         (await RunAsync(request, ct)).Spec ?? throw new InvalidOperationException("intake needs input");
 
+    /// <summary>The checkout the request is about. Intake runs with no tools, and on Claude Code in the temp directory, which it otherwise took for the target.</summary>
+    private static string RepositoryText(RepositoryRef? repository) =>
+        repository is null ? "" : $"Repository: {repository.Path} at commit {repository.Commit}. The worker reads this checkout; it is not your working directory, and a request that names no path is about it.\n";
+
     public async Task<IntakeOutcome> RunAsync(RunRequest request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Text))
@@ -41,7 +45,7 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, Prom
             return new(null, "The request names no repository checkout and commit (context.repository).", []);
 
         var calls = new List<IntakeCall>();
-        var prompt = $"{block.Text}\nJSON Schema:\n{ContractSchemas.Text(ContractSchemas.TaskSpec)}\n\nUse id \"{runId}\".\nRequest:\n{request.Text}\n{InputsText(request.Inputs)}";
+        var prompt = $"{block.Text}\nJSON Schema:\n{ContractSchemas.Text(ContractSchemas.TaskSpec)}\n\nUse id \"{runId}\".\n{RepositoryText(request.Context.Repository)}Request:\n{request.Text}\n{InputsText(request.Inputs)}";
         string? errors = null;
         for (var attempt = 0; attempt < 2; attempt++)
         {

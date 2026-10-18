@@ -17,6 +17,18 @@ public class IntakeInputsTests
     }
 
     [Fact]
+    public async Task Intake_is_told_the_repository_is_the_requests_checkout_not_its_working_directory()
+    {
+        // Seen on Claude Code: intake runs in the temp directory and, told nothing else, asked which repository a path-less question meant.
+        var runtime = new ScriptedRuntime("");
+        var request = new RunRequest("request/v1", "In which file is the RuntimeKind enum declared?", new RequestContext(false, "cheap", Repository: new RepositoryRef("/repos/app", "abc1234")));
+        await new GenerateIntake(runtime, null, PromptBlock.Create("intake/task-spec", "0.0.0", "Intake."), "run-1", needsRepository: true).RunAsync(request, CancellationToken.None);
+
+        Assert.Contains("Repository: /repos/app at commit abc1234. The worker reads this checkout; it is not your working directory, and a request that names no path is about it.",
+            runtime.IntakePrompts.Single(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Each_input_reaches_intake_with_its_id_kind_size_and_text()
     {
         var prompt = await IntakePrompt(new CallerInput("goal", "goal", "Make the README greet."), new CallerInput("tests", "test-output", "exit 0"));
