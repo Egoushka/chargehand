@@ -19,6 +19,8 @@ branch itself, push it and open a draft pull request. Follow the steps below wit
 - Steps 2, 7 and 8: where a step would ask the user questions, stop working, print a line `NEEDS_INPUT:` followed by the questions, one per line, and
   finish. Do not guess the answers.
 - Step 3: the branch named in the environment variable `CHARGEHAND_BRANCH` already exists and is checked out; use it instead of creating `change/<slug>`.
+- Running the tests: run them in the foreground with a long enough timeout for them to finish, even a slow suite; never start them as a background task and never end your turn to wait for one,
+  because ending your turn ends this session and the work in that background task is lost with no report.
 - Step 9: do not write or commit the report file; chargehand records the outcome itself.
 - Step 10: do not push and do not open a pull request. Finish with one fenced ```json block, `{"summary": ..., "claims": [...], "tests": {...}}`, as the
   session's system prompt describes it: each claim names the code lines it rests on, and what you did not verify is said, not guessed.

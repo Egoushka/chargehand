@@ -108,6 +108,11 @@ public static partial class SessionDriver
             psi.ArgumentList.Add(a);
         psi.Environment["CHARGEHAND_BRANCH"] = options.Task.Branch;
         psi.Environment["CHARGEHAND_DRIVEN"] = "1";
+        // A background Bash task (and auto-backgrounding on timeout) would die silently when the session's own
+        // end_turn ends the headless process, so disable both; the foreground timeout widens to cover a long test run instead.
+        psi.Environment["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1";
+        psi.Environment["BASH_DEFAULT_TIMEOUT_MS"] = options.Task.BashMaxTimeoutMs.ToString(CultureInfo.InvariantCulture);
+        psi.Environment["BASH_MAX_TIMEOUT_MS"] = options.Task.BashMaxTimeoutMs.ToString(CultureInfo.InvariantCulture);
         return psi;
     }
 

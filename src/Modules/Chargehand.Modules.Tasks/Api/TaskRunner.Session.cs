@@ -192,7 +192,8 @@ public sealed partial class TaskRunner
         if (seed is not null)
             await volumes.WriteSeedAsync(runId, seed, ct);
         await volumes.WriteTaskAsync(runId, new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices,
-            Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd, budget), Environment: settings.Shared?.ForSession()), ct);
+            Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd, budget), Environment: settings.Shared?.ForSession(),
+            BashMaxTimeoutMs: Math.Min(preset.BashMaxTimeoutMs, maxMinutes * 60_000)), ct);
 
         var env = ModelEnvironment(runId, maxMinutes, left, sessionStarted);
         AddServiceEnvironment(env, task, runId, maxMinutes, left, sessionStarted, span, traceId);

@@ -161,7 +161,8 @@
             "memory_mb": { "type": "integer", "minimum": 256, "maximum": 65536 },
             "cpus": { "type": "number", "minimum": 0.1, "maximum": 32 },
             "pids": { "type": "integer", "minimum": 16, "maximum": 4096 },
-            "max_continuations": { "type": "integer", "minimum": 0, "maximum": 5, "description": "Further sessions on the same branch after one is stopped by the turn limit or the wall clock with work committed (ADR 0044). Each gets max_turns and max_minutes again; max_tokens is shared. Default 2; 0: none." }
+            "max_continuations": { "type": "integer", "minimum": 0, "maximum": 5, "description": "Further sessions on the same branch after one is stopped by the turn limit or the wall clock with work committed (ADR 0044). Each gets max_turns and max_minutes again; max_tokens is shared. Default 2; 0: none." },
+            "bash_max_timeout_ms": { "type": "integer", "minimum": 60000, "maximum": 3600000, "description": "Claude Code's foreground Bash timeout in the session container (its own BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS), so a long test run finishes in the foreground instead of being pushed to a background task. Bounded by the task's own max_minutes. Default 1800000 (30 min)." }
           }
         },
         "planning": {

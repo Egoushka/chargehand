@@ -6,12 +6,12 @@ namespace Chargehand.Modules.Tasks.Api;
 
 /// <summary>The limits of a driven session's container (ADR 0039); null on a preset that does not run one.</summary>
 public sealed record DrivenPreset(int MaxMinutes = 45, int NoProgressMinutes = 10, int MaxTurns = 80, long? MaxTokens = null, int MemoryMb = 4096,
-    double Cpus = 2, int Pids = 512, IReadOnlyList<string>? Allow = null, int MaxContinuations = 2);
+    double Cpus = 2, int Pids = 512, IReadOnlyList<string>? Allow = null, int MaxContinuations = 2, int BashMaxTimeoutMs = 1_800_000);
 
 /// <summary>The preset's <c>driven</c> limits, set per server. A key left out keeps the preset's value; the preset's allowlist stays the preset's
 /// (<c>network.allow</c> adds hosts). Prompts and permissions are not here: they are what Prompt CI evaluates.</summary>
 public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes = null, int? MaxTurns = null, long? MaxTokens = null, int? MemoryMb = null,
-    double? Cpus = null, int? Pids = null, int? MaxContinuations = null) : IValidatableObject
+    double? Cpus = null, int? Pids = null, int? MaxContinuations = null, int? BashMaxTimeoutMs = null) : IValidatableObject
 {
     public DrivenPreset Apply(DrivenPreset preset) => preset with
     {
@@ -23,6 +23,7 @@ public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes
         Cpus = Cpus ?? preset.Cpus,
         Pids = Pids ?? preset.Pids,
         MaxContinuations = MaxContinuations ?? preset.MaxContinuations,
+        BashMaxTimeoutMs = BashMaxTimeoutMs ?? preset.BashMaxTimeoutMs,
     };
 
     /// <summary>Throws an invalid_request error naming the key when a value is outside what the preset schema and the container template accept.</summary>
@@ -41,6 +42,7 @@ public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes
         if (Cpus is < 0.1 or > 32) yield return "cpus must be 0.1 to 32";
         if (Pids is < 16 or > 4096) yield return "pids must be 16 to 4096";
         if (MaxContinuations is < 0 or > 5) yield return "max_continuations must be 0 to 5";
+        if (BashMaxTimeoutMs is < 60_000 or > 3_600_000) yield return "bash_max_timeout_ms must be 60000 to 3600000";
     }
 }
 

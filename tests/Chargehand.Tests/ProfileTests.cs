@@ -42,6 +42,16 @@ public class ProfileTests
         var limits = Profile.Load(path).Driven!.Limits!;
         var merged = limits.Apply(new DrivenPreset(MaxMinutes: 45, MaxTurns: 80, MemoryMb: 4096, Cpus: 2));
         Assert.Equal((90, 80, 8192, 2d), (merged.MaxMinutes, merged.MaxTurns, merged.MemoryMb, merged.Cpus));
+        Assert.Equal(1_800_000, merged.BashMaxTimeoutMs);  // left out: the preset's own default
+    }
+
+    [Fact]
+    public void Driven_limits_can_override_the_bash_timeout()
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("local.json", """{"schema":"profile/v1","driven":{"limits":{"bash_max_timeout_ms":900000}}}""");
+        var merged = Profile.Load(path).Driven!.Limits!.Apply(new DrivenPreset());
+        Assert.Equal(900_000, merged.BashMaxTimeoutMs);
     }
 
     [Theory]
@@ -49,6 +59,8 @@ public class ProfileTests
     [InlineData("""{"memory_mb":128}""")]
     [InlineData("""{"cpus":64}""")]
     [InlineData("""{"pids":4}""")]
+    [InlineData("""{"bash_max_timeout_ms":1000}""")]
+    [InlineData("""{"bash_max_timeout_ms":9999999}""")]
     public void Driven_limits_outside_the_containers_bounds_are_refused(string limits)
     {
         using var dir = new TempDir();

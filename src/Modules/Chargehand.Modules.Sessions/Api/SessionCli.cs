@@ -32,6 +32,8 @@ public static class SessionCli
           finish saying why it cannot be done. Never stop after research alone and never edit a test to make it pass.
         - The working tree is already clean; do not stop for uncommitted changes.
         - Do not push, do not open a pull request, do not merge: chargehand does that after it checks your branch itself.
+        - Run the tests in the foreground with a long enough timeout for them to finish, even a slow suite: never start them as a background task and never end your turn to wait for one,
+          because ending your turn ends this session and the work in that background task is lost with no report. Print your report before you finish, not after.
         - Finish with one fenced ```json block: {"summary": string, "claims": [{"text": string, "evidence": [ "path:start-end" ]}], "tests": {"command": string, "exit_code": number}}.
           Each claim names the code lines it rests on. Say what you did not verify instead of guessing.
         """;

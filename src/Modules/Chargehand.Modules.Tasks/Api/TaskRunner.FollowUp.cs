@@ -49,7 +49,8 @@ public sealed partial class TaskRunner
     {
         var (session, best) = (run.Session, run.Best);
         var finished = session.Status == SessionStatus.Completed && run.ReportJson is not null && DrivenReport.Parse(run.ReportJson) is not null;
-        var partial = !finished && best is not null && (Salvageable(session) || session.Status == SessionStatus.NeedsInput || best.RunId != run.RunId);
+        // Completed but not finished can only mean the report was missing or unparseable (the session ended its turn normally without printing one): its bundle is salvaged like any other unfinished session.
+        var partial = !finished && best is not null && (Salvageable(session) || session.Status is SessionStatus.Completed or SessionStatus.NeedsInput || best.RunId != run.RunId);
         var handoverRun = partial ? (best!.RunId, best.OutDirectory) : (run.RunId, run.OutDirectory);
         HandoverOutcome? handed = null;
         if (finished)

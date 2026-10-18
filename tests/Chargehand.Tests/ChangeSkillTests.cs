@@ -74,7 +74,11 @@ public class ChangeSkillTests
     public void The_drivers_prompt_and_the_skill_agree_on_the_words_they_share()
     {
         var prompt = Chargehand.Modules.Sessions.Api.SessionCli.DefaultPrompt;
-        foreach (var shared in new[] { "NEEDS_INPUT:", "CHARGEHAND_BRANCH", "CHARGEHAND_REPOSITORY_PATH", "CHARGEHAND_BASE_COMMIT", "```json" })
+        foreach (var shared in new[]
+        {
+            "NEEDS_INPUT:", "CHARGEHAND_BRANCH", "CHARGEHAND_REPOSITORY_PATH", "CHARGEHAND_BASE_COMMIT", "```json",
+            "never start them as a background task and", "never end your turn to wait for one",
+        })
         {
             Assert.Contains(shared, prompt, StringComparison.Ordinal);
             Assert.Contains(shared, Skill, StringComparison.Ordinal);
