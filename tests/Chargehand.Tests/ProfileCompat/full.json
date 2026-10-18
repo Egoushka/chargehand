@@ -174,7 +174,10 @@
       "memory_mb": 8192,
       "cpus": null,
       "pids": null,
-      "max_continuations": 2
+      "max_continuations": 2,
+      "check_retries": null,
+      "goal_reminder_minutes": null,
+      "goal_reminder_turns": null
     },
     "governor": {
       "mode": "enforce",

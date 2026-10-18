@@ -9,6 +9,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- A check gate for driven sessions (ADR 0066): when a session finishes, the driver runs the repository's rules (`.chargehand/checks`, read at the base commit) and the task's acceptance criteria (`driven.tasks[].acceptance`: `command`, `exit_code`, `output`) in the session's container. A failure resumes the session with the command and its output as the next turn, up to `driven.limits.check_retries` (default 2); still failing, the task ends `verification_failed` with its work on a partial draft pull request. The result's `checks` artifact lists each check with passed or not.
+- A goal reminder: a long driven session is re-sent its goal and checks every `driven.limits.goal_reminder_minutes` (default 60, 0 off) or `goal_reminder_turns`, through a `PostToolUse` hook.
+- This repository's own rule: `scripts/check-file-lines.sh` checks the ADR 0060 line budget without a build, and `.chargehand/checks` runs it.
+
 ### Changed
 
 - Over HTTP an MCP `orchestrate` call without `Prefer: wait=N` returns the run id after 50 s instead of waiting for the result: Claude Code ends a call after about 60 s, and the caller got neither the result nor the id. Collect the result with the `result` tool. Over stdio a call still waits for its result.
