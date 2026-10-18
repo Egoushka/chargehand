@@ -43,14 +43,14 @@ openssl rand -hex 32     # one per key below
 |---|---|
 | `CHARGEHAND_API_KEY` | bearer key for every route. Required; compose refuses to start without it |
 | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` | the worker's credential. Exactly one. An API key bills per token; the token uses your subscription |
-| `CHARGEHAND_IMAGE` | server and runner image, a release tag. Defaults to 0.10.1 |
+| `CHARGEHAND_IMAGE` | server and runner image, a release tag. Defaults to the release in `.env.example` |
 
 Driven mode adds `CHARGEHAND_RUNNER_KEY`, `CHARGEHAND_PUSH_TOKEN`, `CHARGEHAND_SESSION_IMAGE` and `CHARGEHAND_WORK_DIR` (see step 3). Each variable is documented in `.env.example`. The compose file hands each service only what it reads: the runner never gets the model credential.
 
 **Pin by digest.** A tag can move; a digest cannot. After choosing a [release](https://github.com/Egoushka/chargehand/releases):
 
 ```bash
-./pin-digests.sh 0.10.1
+./pin-digests.sh <version>
 ```
 
 It rewrites `CHARGEHAND_IMAGE` to `tag@sha256:...`, sets `CHARGEHAND_SESSION_IMAGE`, and replaces the session image in `profile.json`. The runner starts only images given by digest, so in driven mode the session image must be pinned and the value in `.env` and in `driven.images` must be the same; the script keeps them so. Run it again for each upgrade.
