@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Pull request review starts on a server whose checkouts are mounted read-only: when the fetch of `refs/pull/N/head` fails, it uses that ref if a job outside the server already fetched it (a host job that runs `git fetch origin '+refs/pull/*/head:refs/pull/*/head'`). 0.10.0 refused every review there with `cannot open '.git/FETCH_HEAD': Read-only file system`.
+
 ## [0.10.0] - 2026-10-18
 
 Work starts on its own: from Plane work items, on a schedule, and as a review of every pull request; the plugin and the local server work again.
