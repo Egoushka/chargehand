@@ -258,6 +258,29 @@ public class ServerTests
         Assert.Equal(seconds < 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(seconds), OrchestrateTool.WaitFor(request, prefer, wait));
     }
 
+    [Fact]
+    public async Task Health_is_liveness_and_deep_calls_the_intake_model()
+    {
+        var runtime = new ScriptedRuntime(Runs.DraftReply);
+        await using var s = await TestServer.StartAsync(runtime);
+
+        var live = await s.Http.GetAsync("/v1/health");
+        Assert.Equal(HttpStatusCode.OK, live.StatusCode);
+        Assert.Empty(runtime.IntakePrompts);
+
+        var deep = await s.Http.GetAsync("/v1/health?deep=1");
+        Assert.Equal(HttpStatusCode.OK, deep.StatusCode);
+        Assert.True(JsonDocument.Parse(await deep.Content.ReadAsStringAsync()).RootElement.GetProperty("probe").GetProperty("ok").GetBoolean());
+
+        // The process up, every run failing: what the canary is for (seen when a gateway was retired under a running server).
+        runtime.GenerateFailures.Enqueue(new InvalidOperationException("claude -p exited 1: API Error: 400"));
+        var failing = await s.Http.GetAsync("/v1/health?deep=1");
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, failing.StatusCode);
+        var body = JsonDocument.Parse(await failing.Content.ReadAsStringAsync()).RootElement;
+        Assert.Equal("failing", body.GetProperty("status").GetString());
+        Assert.Contains("API Error: 400", body.GetProperty("probe").GetProperty("error").GetString(), StringComparison.Ordinal);
+    }
+
     internal static async Task WaitUntil(Func<Task<bool>> condition)
     {
         for (var i = 0; i < 200; i++)
