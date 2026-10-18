@@ -11,8 +11,9 @@ All notable changes to this project are documented here. The format follows
 
 - `GET /v1/health` answers for any key; `GET /v1/health?deep=1` (owner) also calls the intake model once and answers 503 with the reason when it fails. `scripts/canary.sh` calls it and posts a failure to an ntfy topic: a server whose gateway was retired stayed up for days while every run failed. The compose healthcheck uses the liveness route.
 - `request/v1`'s `contract_version` has a description, so a client that shows only types and descriptions no longer sends a guessed value first.
-
-### Added
+- A check gate for driven sessions (ADR 0066): when a session finishes, the driver runs the repository's rules (`.chargehand/checks`, read at the base commit) and the task's acceptance criteria (`driven.tasks[].acceptance`: `command`, `exit_code`, `output`) in the session's container. A failure resumes the session with the command and its output as the next turn, up to `driven.limits.check_retries` (default 2); still failing, the task ends `verification_failed` with its work on a partial draft pull request. The result's `checks` artifact lists each check with passed or not.
+- A goal reminder: a long driven session is re-sent its goal and checks every `driven.limits.goal_reminder_minutes` (default 60, 0 off) or `goal_reminder_turns`, through a `PostToolUse` hook.
+- This repository's own rule: `scripts/check-file-lines.sh` checks the ADR 0060 line budget without a build, and `.chargehand/checks` runs it.
 
 ### Changed
 

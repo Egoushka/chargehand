@@ -21,6 +21,8 @@ internal sealed record McpConfigHeaders(string Authorization);
 [JsonSerializable(typeof(GovernorDecision))]
 [JsonSerializable(typeof(ToolchainManifest))]
 [JsonSerializable(typeof(McpConfigFile))]
+[JsonSerializable(typeof(ReminderHookOutput))]
+[JsonSerializable(typeof(ReminderSettings))]
 [JsonSerializable(typeof(HandoffBuilder.Document))]
 [JsonSerializable(typeof(Dictionary<string, long>))]
 [JsonSerializable(typeof(Dictionary<string, decimal>))]

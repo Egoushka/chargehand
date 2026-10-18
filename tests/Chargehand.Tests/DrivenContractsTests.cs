@@ -92,6 +92,19 @@ public class DrivenContractsTests
         Assert.Contains("\"continue_from\":{\"run_id\":", JsonSerializer.Serialize(task, ContractJson.Options));
     }
 
+    [Fact]
+    public void A_tasks_acceptance_criteria_validate_and_round_trip()
+    {
+        var json = Request("""{"tasks":[{"id":"t1","goal":"g","acceptance":[{"command":"./smoke.sh","output":"ok"},{"command":"test -f x","exit_code":1}]}]}""");
+        Assert.Empty(Validate(json));
+        var task = JsonSerializer.Deserialize<RunRequest>(json, ContractJson.Options)!.Driven!.Tasks.Single();
+        Assert.Equal([new AcceptanceCheck("./smoke.sh", 0, "ok"), new AcceptanceCheck("test -f x", 1)], task.Acceptance);
+        Assert.NotEmpty(Validate(Request("""{"tasks":[{"id":"t1","goal":"g","acceptance":[{"exit_code":0}]}]}""")));
+        Assert.NotEmpty(Validate(Request("""{"tasks":[{"id":"t1","goal":"g","acceptance":[{"command":"x","shell":"bash"}]}]}""")));
+        Assert.Contains(DrivenRules.Problems(new RequestDriven([new DrivenTask("t1", Goal: "g", Acceptance: [new AcceptanceCheck(" ")])])),
+            p => p == "task 't1': an acceptance check needs a command");
+    }
+
     [Theory]
     [InlineData("""{"tasks":[{"id":"t1","goal":"g","answers":["a"]}]}""", false)]                                                  // answers need continue_from (a rule, not the schema)
     [InlineData("""{"tasks":[{"id":"t1","continue_from":{"run_id":"r1"}}]}""", true)]                                              // task_id missing

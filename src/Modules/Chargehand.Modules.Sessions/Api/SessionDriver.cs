@@ -23,6 +23,9 @@ public static partial class SessionDriver
 
     public const string GovernorFile = ContainerTemplate.GovernorFile;
 
+    /// <summary>The reason of a session whose branch still failed a repository check or an acceptance criterion after its retries.</summary>
+    public const string ChecksFailed = "checks_failed";
+
     private static readonly SessionsJsonContext LineJson = new(new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
 
     private static readonly SessionsJsonContext OutcomeJson = new(new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower, WriteIndented = true });
@@ -30,11 +33,14 @@ public static partial class SessionDriver
     /// <summary>No shell tool is withheld: the container is the boundary (ADR 0039), and the model needs one to run the repository's tests.</summary>
     private const string AllowedTools = "Bash,Read,Edit,Write,Glob,Grep,mcp__chargehand__orchestrate";
 
-    public static IReadOnlyList<string> ClaudeArgs(SessionTask task, string pluginDirectory, string mcpConfigFile, string promptFile)
+    /// <param name="settingsFile">Claude Code settings with the goal reminder's hook; null: none.</param>
+    /// <param name="resume">The session to resume and its next turn (the check gate's feedback); null: a new session on the goal.</param>
+    public static IReadOnlyList<string> ClaudeArgs(SessionTask task, string pluginDirectory, string mcpConfigFile, string promptFile, string? settingsFile = null,
+        (string SessionId, string Prompt)? resume = null)
     {
         List<string> args =
         [
-            "-p", $"/chargehand:change {task.Goal}",
+            "-p", resume is { } next ? next.Prompt : $"/chargehand:change {task.Goal}",
             "--plugin-dir", pluginDirectory,
             "--permission-mode", "dontAsk",
             "--allowedTools", AllowedTools,
@@ -46,6 +52,10 @@ public static partial class SessionDriver
             args.AddRange(["--model", task.Model]);
         if (task.MaxUsd is { } usd)
             args.AddRange(["--max-budget-usd", usd.ToString(CultureInfo.InvariantCulture)]);
+        if (settingsFile is not null)
+            args.AddRange(["--settings", settingsFile]);
+        if (resume is { } r)
+            args.AddRange(["--resume", r.SessionId]);
         return args;
     }
 
@@ -67,27 +77,23 @@ public static partial class SessionDriver
             var mcpFile = Path.Combine(scratch.FullName, "mcp.json");
             await WritePrivate(mcpFile, options.McpUrl is { } url && options.McpToken is { } token ? McpConfig(url, token) : """{"mcpServers":{}}""", ct);
 
-            var psi = StartInfo(options, mcpFile, promptFile);
             var started = DateTimeOffset.UtcNow;
+            var rules = await SessionChecks.RulesAsync(options.WorkDirectory, start, ct);
+            var reminder = GoalReminder.For(task, started);
+            var files = new Files(mcpFile, promptFile, reminder is null ? null : Path.Combine(scratch.FullName, "settings.json"), Path.Combine(scratch.FullName, "reminder.json"));
+            if (files.Settings is not null)
+                await File.WriteAllTextAsync(files.Settings, GoalReminder.Settings(), ct);
             var detector = new StallDetector(TimeSpan.FromSeconds(task.NoProgressSeconds), 5, task.MaxTurns, TimeSpan.FromMinutes(task.MaxMinutes), started);
-            using var process = Process.Start(psi) ?? throw new InvalidOperationException("could not start Claude Code");
-            process.StandardInput.Close();
-            var stderr = process.StandardError.ReadToEndAsync(ct);
             await using var stream = new StreamWriter(new FileStream(Path.Combine(options.OutDirectory, "stream.jsonl"), FileMode.Create, FileAccess.Write), new UTF8Encoding(false));
             var governor = task.Governor is { Mode: not GovernorMode.Off } governed ? new Governor(governed) : null;
             await using var governorLog = governor is null ? null
                 : new StreamWriter(new FileStream(Path.Combine(options.OutDirectory, GovernorFile), FileMode.Create, FileAccess.Write), new UTF8Encoding(false));
-            var run = new Run(options, process, stream, detector, governor, governorLog, new SemaphoreSlim(1, 1));
+            var run = new Run(options, stream, detector, governor, governorLog, new SemaphoreSlim(1, 1),
+                reminder is null ? null : new Reminding(reminder, files.Reminder, GoalReminder.Text(task, rules)));
 
-            var reader = Task.Run(() => run.ReadAsync(ct), ct);
-            var exit = process.WaitForExitAsync(ct);
-            var measuring = await run.WatchAsync(exit, start, started, ct);
-            await exit;
-            await reader;
-            _ = await stderr;
-            if (measuring is not null)
-                await measuring;
-            return await run.FinishAsync(start, ct);
+            await run.DriveAsync(StartInfo(options, files, null), start, started, ct);
+            var checks = await run.GateAsync(rules, start, resume => StartInfo(options, files, resume), ct);
+            return await run.FinishAsync(start, checks, ct);
         }
         finally
         {
@@ -95,7 +101,10 @@ public static partial class SessionDriver
         }
     }
 
-    private static ProcessStartInfo StartInfo(SessionOptions options, string mcpFile, string promptFile)
+    /// <summary>The scratch files a Claude Code process is started with; <c>Settings</c> is null when no reminder is set.</summary>
+    private sealed record Files(string Mcp, string Prompt, string? Settings, string Reminder);
+
+    private static ProcessStartInfo StartInfo(SessionOptions options, Files files, (string SessionId, string Prompt)? resume)
     {
         var psi = new ProcessStartInfo(options.Command.File)
         {
@@ -104,16 +113,20 @@ public static partial class SessionDriver
             RedirectStandardError = true,
             RedirectStandardInput = true,
         };
-        foreach (var a in options.Command.LeadingArgs.Concat(ClaudeArgs(options.Task, options.PluginDirectory, mcpFile, promptFile)))
+        foreach (var a in options.Command.LeadingArgs.Concat(ClaudeArgs(options.Task, options.PluginDirectory, files.Mcp, files.Prompt, files.Settings, resume)))
             psi.ArgumentList.Add(a);
         psi.Environment["CHARGEHAND_BRANCH"] = options.Task.Branch;
         psi.Environment["CHARGEHAND_DRIVEN"] = "1";
+        if (files.Settings is not null)
+            psi.Environment[GoalReminder.FileVariable] = files.Reminder;
         return psi;
     }
 
-    /// <summary>The session's status and reason: the cause it was stopped for, else what the stream's result and the questions say.</summary>
-    private static (SessionStatus Status, string Reason) Conclude(StopCause stoppedBy, Tally tally, IReadOnlyList<string> questions)
+    /// <summary>The session's status and reason: the cause it was stopped for, else a branch that failed the check gate, else what the stream's result and the questions say.</summary>
+    private static (SessionStatus Status, string Reason) Conclude(StopCause stoppedBy, Tally tally, IReadOnlyList<string> questions, bool checksFailed = false)
     {
+        if (stoppedBy.Cause is null && checksFailed)
+            return (SessionStatus.Failed, ChecksFailed);
         var rateLimited = tally.ResultIsError && UsageLimit.Matches(tally.ResultText);
         var status = stoppedBy.Cause?.Status
             ?? (rateLimited ? SessionStatus.RateLimited : questions.Count > 0 ? SessionStatus.NeedsInput : tally.HasResult && !tally.ResultIsError ? SessionStatus.Completed : SessionStatus.Failed);

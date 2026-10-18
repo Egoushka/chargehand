@@ -11,15 +11,15 @@ namespace Chargehand.Modules.Sessions.Tests;
 /// <summary>The in-container driver (ADR 0039): runs headless Claude Code, ends it when it stalls, and leaves a bundle, a report and an outcome.</summary>
 public class SessionDriverTests
 {
-    private const string Canary = "canary-secret-value-123";
+    internal const string Canary = "canary-secret-value-123";
     private static readonly string AwsKey = "AKIA" + "IOSFODNN7EXAMPLE";
 
     private static readonly JsonSerializerOptions Snake = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
-    private static SessionTask Task(int noProgressSeconds = 60, long? maxTokens = null) =>
+    internal static SessionTask Task(int noProgressSeconds = 60, long? maxTokens = null) =>
         new("run1", "Add a retry to the fetch client", "chargehand/run1", MaxTurns: 80, MaxMinutes: 5, NoProgressSeconds: noProgressSeconds, MaxTokens: maxTokens);
 
-    private sealed class Workspace : IDisposable
+    internal sealed class Workspace : IDisposable
     {
         public TempDir Dir { get; } = new();
         public string Work => Path.Combine(Dir.Path, "work");
@@ -59,15 +59,15 @@ public class SessionDriverTests
         public void Dispose() => Dir.Dispose();
     }
 
-    private static SessionOptions Options(Workspace w, string script, SessionTask task, string[]? secrets = null) =>
+    internal static SessionOptions Options(Workspace w, string script, SessionTask task, string[]? secrets = null) =>
         new(w.Work, w.Out, task, new SessionCommand("/bin/sh", [w.Dir.Write("claude.sh", script)]), secrets ?? [Canary], PromptText: "system prompt", McpUrl: null, McpToken: null);
 
-    private const string Init = """{"type":"system","subtype":"init","session_id":"s"}""";
+    internal const string Init = """{"type":"system","subtype":"init","session_id":"s"}""";
 
-    private static string Assistant(string id, string text, string usage = """{"input_tokens":100,"output_tokens":20}""") =>
+    internal static string Assistant(string id, string text, string usage = """{"input_tokens":100,"output_tokens":20}""") =>
         JsonSerializer.Serialize(new { type = "assistant", message = new { id, content = new[] { new { type = "text", text } }, usage = JsonDocument.Parse(usage).RootElement } });
 
-    private static string Result(string text = "done") =>
+    internal static string Result(string text = "done") =>
         JsonSerializer.Serialize(new
         {
             type = "result",
@@ -77,7 +77,7 @@ public class SessionDriverTests
             usage = new { input_tokens = 150, output_tokens = 40, cache_read_input_tokens = 500 },
         });
 
-    private static string Emit(params string[] lines) => string.Join("\n", lines.Select(l => $"cat <<'EOF_LINE'\n{l}\nEOF_LINE"));
+    internal static string Emit(params string[] lines) => string.Join("\n", lines.Select(l => $"cat <<'EOF_LINE'\n{l}\nEOF_LINE"));
 
     [Fact]
     public async Task A_finished_session_leaves_a_bundle_a_report_and_a_completed_outcome()

@@ -6,9 +6,17 @@ namespace Chargehand.Modules.Sessions.Api;
 
 public static partial class SessionDriver
 {
-    /// <summary>One running session: what <see cref="RunAsync"/> watches while Claude Code runs, and the outcome it writes when it ends.</summary>
-    private sealed class Run(SessionOptions options, Process process, StreamWriter stream, StallDetector detector, Governor? governor, StreamWriter? governorLog, SemaphoreSlim governorGate)
+    /// <summary>The goal reminder of a session, the file the hook claims and the text it carries.</summary>
+    private sealed record Reminding(GoalReminder Gate, string File, string Text);
+
+    /// <summary>One running session: what <see cref="RunAsync"/> watches while Claude Code runs (the first process, then one per check-gate round, each resuming the session), and
+    /// the outcome it writes when it ends.</summary>
+    private sealed class Run(SessionOptions options, StreamWriter stream, StallDetector detector, Governor? governor, StreamWriter? governorLog, SemaphoreSlim governorGate,
+        Reminding? reminder)
     {
+        private Process _process = null!;
+        private int? _exitCode;
+        private bool _checksFailed;
         private readonly SessionTask _task = options.Task;
         private readonly Tally _tally = new(options.Task.Prices);
         private readonly SessionTrace _trace = new();
@@ -30,7 +38,7 @@ public static partial class SessionDriver
                     && _stoppedBy.Set(SessionStatus.Stalled, Governor.StopReason(acting)!))
                 {
                     made = [.. made.Select(d => d == acting ? d with { Acted = true } : d)];
-                    Interrupt(process);
+                    Interrupt(_process);
                 }
                 foreach (var d in made)
                 {
@@ -46,10 +54,73 @@ public static partial class SessionDriver
             }
         }
 
+        /// <summary>Starts one Claude Code process and watches it until it exits.</summary>
+        public async Task DriveAsync(ProcessStartInfo psi, string? start, DateTimeOffset started, CancellationToken ct)
+        {
+            using var current = Process.Start(psi) ?? throw new InvalidOperationException("could not start Claude Code");
+            _process = current;
+            _process.StandardInput.Close();
+            var stderr = _process.StandardError.ReadToEndAsync(ct);
+            var reader = Task.Run(() => ReadAsync(ct), ct);
+            var exit = _process.WaitForExitAsync(ct);
+            var measuring = await WatchAsync(exit, start, started, ct);
+            await exit;
+            await reader;
+            _ = await stderr;
+            if (measuring is not null)
+                await measuring;
+            _exitCode = _process.ExitCode;
+        }
+
+        /// <summary>The check gate: while the session finished on its own, run the repository's checks and the task's criteria; a failure resumes the session with the
+        /// failure as its next turn, at most <see cref="SessionTask.CheckRetries"/> times and within the wall clock.</summary>
+        /// <returns>The last round's results; null when none ran.</returns>
+        public async Task<IReadOnlyList<CheckResult>?> GateAsync(IReadOnlyList<string> rules, string? start, Func<(string SessionId, string Prompt), ProcessStartInfo> resume,
+            CancellationToken ct)
+        {
+            if (rules.Count == 0 && _task.Acceptance is not { Count: > 0 })
+                return null;
+            IReadOnlyList<CheckResult>? results = null;
+            for (var attempt = 1; Finished(); attempt++)
+            {
+                results = await SessionChecks.RunAllAsync(rules, _task.Acceptance, options.WorkDirectory, attempt, options.Secrets, ct);
+                if (results.All(r => r.Passed))
+                    return results;
+                if (attempt > _task.CheckRetries || _tally.SessionId is not { } session || detector.Check(DateTimeOffset.UtcNow) is StallReason.WallClock)
+                {
+                    _checksFailed = true;
+                    return results;
+                }
+                // The checks' own time is not the session's silence.
+                detector.Touch(DateTimeOffset.UtcNow);
+                _tally.NewProcess();
+                await DriveAsync(resume((session, SessionChecks.Feedback(results, attempt, _task.CheckRetries))), start, DateTimeOffset.UtcNow, ct);
+            }
+            // A resumed session that did not finish keeps its own status.
+            return results;
+        }
+
+        private bool Finished() => _stoppedBy.Cause is null && _tally.HasResult && !_tally.ResultIsError && Extract(_tally).Questions.Count == 0;
+
+        private void Remind()
+        {
+            if (reminder is null || !reminder.Gate.Due(DateTimeOffset.UtcNow, detector.Turns))
+                return;
+            try
+            {
+                File.WriteAllText(reminder.File + ".tmp", GoalReminder.Payload(reminder.Text));
+                File.Move(reminder.File + ".tmp", reminder.File, overwrite: true);
+            }
+            catch (IOException)
+            {
+                // A reminder that cannot be written only waits for the next interval.
+            }
+        }
+
         public async Task ReadAsync(CancellationToken ct)
         {
             string? line;
-            while ((line = await process.StandardOutput.ReadLineAsync(ct)) is not null)
+            while ((line = await _process.StandardOutput.ReadLineAsync(ct)) is not null)
             {
                 await stream.WriteLineAsync(Redact(line, options.Secrets));
                 await stream.FlushAsync(ct);
@@ -73,7 +144,7 @@ public static partial class SessionDriver
                 }
                 WriteUsage(options.OutDirectory, new SessionUsage(_tally.Input + _tally.Output, detector.Turns, _stage, _tally.CacheRead, _tally.CacheWrite, _tally.UsdEstimate, _tally.UsdEstimatePartial), ref _lastUsage);
                 if (_task.MaxTokens is { } cap && _tally.Input + _tally.Output >= cap && _stoppedBy.Set(SessionStatus.TokenCap, "token_cap"))
-                    Interrupt(process);
+                    Interrupt(_process);
             }
         }
 
@@ -100,15 +171,16 @@ public static partial class SessionDriver
                             return governor.OnDiff(lines, turn, _spentSoFar, DateTimeOffset.UtcNow);
                     }, Govern, ct);
                 }
+                Remind();
                 if (detector.Check(DateTimeOffset.UtcNow) is { } stall && _stoppedBy.Set(SessionStatus.Stalled, StallDetector.Wire(stall)))
-                    Interrupt(process);
+                    Interrupt(_process);
                 if (_stoppedBy.Cause is not null && !exit.IsCompleted && DateTimeOffset.UtcNow - _stoppedBy.At > Grace)
-                    process.Kill(entireProcessTree: true);
+                    _process.Kill(entireProcessTree: true);
             }
             return measuring;
         }
 
-        public async Task<SessionOutcome> FinishAsync(string? start, CancellationToken ct)
+        public async Task<SessionOutcome> FinishAsync(string? start, IReadOnlyList<CheckResult>? checks, CancellationToken ct)
         {
             string? governorHash = null;
             if (governorLog is not null)
@@ -125,13 +197,13 @@ public static partial class SessionDriver
             var (report, questions) = Extract(_tally);
             if (report is not null)
                 await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "driven-report.json"), Redact(report, options.Secrets), ct);
-            var (status, reason) = Conclude(_stoppedBy, _tally, questions);
+            var (status, reason) = Conclude(_stoppedBy, _tally, questions, _checksFailed);
             await stream.DisposeAsync();
             var streamHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(options.OutDirectory, "stream.jsonl"), ct)));
-            var outcome = new SessionOutcome(status, reason, detector.Turns, _tally.Input, _tally.Output, _tally.CacheRead, _tally.CostUsd, process.ExitCode,
+            var outcome = new SessionOutcome(status, reason, detector.Turns, _tally.Input, _tally.Output, _tally.CacheRead, _tally.CostUsd, _exitCode,
                 [.. questions.Select(q => Redact(q, options.Secrets))], bundle, streamHash, _tally.CacheWrite, _tally.SessionId, _tally.Model, _tally.ModelUsage.Count == 0 ? null : _tally.ModelUsage,
                 _tally.UsdEstimate, status == SessionStatus.RateLimited ? UsageLimit.ResetsAt(_tally.ResultText) : null, _tally.UsdEstimatePartial, commits, snapshotNote,
-                governor is null ? null : _decisions, governorHash);
+                governor is null ? null : _decisions, governorHash, checks, reminder?.Gate.Sent ?? 0);
             await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "session-outcome.json"), Redact(JsonSerializer.Serialize(outcome, OutcomeJson.SessionOutcome), options.Secrets), ct);
             return outcome;
         }

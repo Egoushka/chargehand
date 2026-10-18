@@ -102,7 +102,8 @@ public sealed partial class BatchLifecycle
     {
         var asked = request.Driven?.Tasks.FirstOrDefault(t => t.Id == entry.Id);
         return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, entry.Size ?? asked?.Size, asked?.BudgetUsd, entry.From, entry.DependsOn ?? asked?.DependsOn,
-            SplitFrom: entry.SplitFrom, SizeFrom: entry.SizeFrom, Title: entry.Title, Runner: entry.Phase == TaskPhase.Pending ? null : entry.Runner ?? "");
+            SplitFrom: entry.SplitFrom, SizeFrom: entry.SizeFrom, Title: entry.Title, Runner: entry.Phase == TaskPhase.Pending ? null : entry.Runner ?? "",
+            Acceptance: asked?.Acceptance);
     }
 
     /// <summary>Runs the batch's tasks under its limits (<see cref="BatchScheduler"/>, ADR 0039): each end is journaled before the next step, and told as a <c>task_finished</c> event, as is a task that

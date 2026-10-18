@@ -35,8 +35,8 @@ public class ProfileMessageTests
     [InlineData("learning", """{"schema":"profile/v1","driven":{"learning":{"retro_preset":"","pr_days":0,"pr_check_minutes":0}}}""",
         """driven.learning: retro_preset must not be empty; pr_days must be at least 1; pr_check_minutes must be at least 1""",
         """Fix driven.learning in the profile; docs/guide/driven.md lists the keys.""")]
-    [InlineData("limits", """{"schema":"profile/v1","driven":{"limits":{"max_minutes":0,"memory_mb":10,"cpus":64,"pids":1,"max_continuations":9}}}""",
-        """driven.limits: max_minutes must be at least 1; memory_mb must be 256 to 65536; cpus must be 0.1 to 32; pids must be 16 to 4096; max_continuations must be 0 to 5""",
+    [InlineData("limits", """{"schema":"profile/v1","driven":{"limits":{"max_minutes":0,"memory_mb":10,"cpus":64,"pids":1,"max_continuations":9,"check_retries":6,"goal_reminder_minutes":-1,"goal_reminder_turns":0}}}""",
+        """driven.limits: max_minutes must be at least 1; memory_mb must be 256 to 65536; cpus must be 0.1 to 32; pids must be 16 to 4096; max_continuations must be 0 to 5; check_retries must be 0 to 5; goal_reminder_minutes must be 0 (off) or more; goal_reminder_turns must be at least 1""",
         """Fix driven.limits in the profile; docs/guide/driven.md lists the keys.""")]
     [InlineData("mcp", """{"schema":"profile/v1","mcp_servers":{"ok":{"url":"http://ok.test"},"bad":{"url":"http://b.test","command":["x"]}}}""",
         """mcp_servers.bad: set only one of url and command""",

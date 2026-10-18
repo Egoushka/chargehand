@@ -67,6 +67,8 @@ public static partial class SessionDriver
     private sealed class Tally(IReadOnlyDictionary<string, ModelPrice>? prices = null)
     {
         private readonly Dictionary<string, (string? Model, TokenCounts Tokens)> _perMessage = [];
+        // The messages since the last result: a result's totals replace them, and each resumed process (the check gate) ends in a result of its own.
+        private readonly HashSet<string> _open = [];
         private long _resultIn, _resultOut, _resultCache, _resultCacheWrite;
 
         public List<string> Texts { get; } = [];
@@ -74,10 +76,10 @@ public static partial class SessionDriver
         public bool ResultIsError { get; private set; }
         public string? ResultText { get; private set; }
         public decimal? CostUsd { get; private set; }
-        public long Input => HasResult ? _resultIn : _perMessage.Values.Sum(v => v.Tokens.Input);
-        public long Output => HasResult ? _resultOut : _perMessage.Values.Sum(v => v.Tokens.Output);
-        public long CacheRead => HasResult ? _resultCache : _perMessage.Values.Sum(v => v.Tokens.CacheRead);
-        public long CacheWrite => HasResult ? _resultCacheWrite : _perMessage.Values.Sum(v => v.Tokens.CacheWrite);
+        public long Input => _resultIn + Open(t => t.Input);
+        public long Output => _resultOut + Open(t => t.Output);
+        public long CacheRead => _resultCache + Open(t => t.CacheRead);
+        public long CacheWrite => _resultCacheWrite + Open(t => t.CacheWrite);
         public string? SessionId { get; private set; }
         public string? Model { get; private set; }
         public Dictionary<string, TokenCounts> ModelUsage { get; } = [];
@@ -87,6 +89,15 @@ public static partial class SessionDriver
 
         /// <summary>Some message's model had no price, so <see cref="UsdEstimate"/> sums only the others.</summary>
         public bool UsdEstimatePartial => Estimate().Partial;
+
+        private long Open(Func<TokenCounts, long> count) => _open.Sum(id => count(_perMessage[id].Tokens));
+
+        /// <summary>A resumed process starts: the last one's result no longer says whether the session finished.</summary>
+        public void NewProcess()
+        {
+            HasResult = false;
+            ResultIsError = false;
+        }
 
         private (decimal? Usd, bool Partial) Estimate()
         {
@@ -137,7 +148,10 @@ public static partial class SessionDriver
                 var counts = new TokenCounts(Long(u, "input_tokens"), Long(u, "output_tokens"), 0, Long(u, "cache_read_input_tokens"), Long(u, "cache_creation_input_tokens"));
                 // A message with no usage (Claude Code's synthetic error messages) has no price and nothing to count.
                 if (counts.Input + counts.Output + counts.CacheRead + counts.CacheWrite > 0)
+                {
                     _perMessage[id.GetString()!] = (m.TryGetProperty("model", out var mm) && mm.ValueKind == JsonValueKind.String ? mm.GetString() : null, counts);
+                    _open.Add(id.GetString()!);
+                }
             }
             AddTexts(m);
         }
@@ -155,18 +169,23 @@ public static partial class SessionDriver
             HasResult = true;
             ResultIsError = e.TryGetProperty("is_error", out var err) && err.ValueKind == JsonValueKind.True;
             if (e.TryGetProperty("total_cost_usd", out var cost) && cost.ValueKind == JsonValueKind.Number)
-                CostUsd = cost.GetDecimal();
+                CostUsd = (CostUsd ?? 0) + cost.GetDecimal();
             if (e.TryGetProperty("usage", out var ru) && ru.ValueKind == JsonValueKind.Object)
             {
-                _resultIn = Long(ru, "input_tokens");
-                _resultOut = Long(ru, "output_tokens");
-                _resultCache = Long(ru, "cache_read_input_tokens");
-                _resultCacheWrite = Long(ru, "cache_creation_input_tokens");
+                _resultIn += Long(ru, "input_tokens");
+                _resultOut += Long(ru, "output_tokens");
+                _resultCache += Long(ru, "cache_read_input_tokens");
+                _resultCacheWrite += Long(ru, "cache_creation_input_tokens");
+                _open.Clear();
             }
             if (e.TryGetProperty("modelUsage", out var mu) && mu.ValueKind == JsonValueKind.Object)
                 foreach (var p in mu.EnumerateObject().Where(p => p.Value.ValueKind == JsonValueKind.Object))
-                    ModelUsage[p.Name] = new TokenCounts(Long(p.Value, "inputTokens"), Long(p.Value, "outputTokens"), 0, Long(p.Value, "cacheReadInputTokens"),
-                        Long(p.Value, "cacheCreationInputTokens"));
+                {
+                    var counts = new TokenCounts(Long(p.Value, "inputTokens"), Long(p.Value, "outputTokens"), 0, Long(p.Value, "cacheReadInputTokens"), Long(p.Value, "cacheCreationInputTokens"));
+                    ModelUsage[p.Name] = ModelUsage.TryGetValue(p.Name, out var before)
+                        ? new TokenCounts(before.Input + counts.Input, before.Output + counts.Output, 0, before.CacheRead + counts.CacheRead, before.CacheWrite + counts.CacheWrite)
+                        : counts;
+                }
             if (e.TryGetProperty("result", out var result) && result.ValueKind == JsonValueKind.String && result.GetString() is { } r)
             {
                 ResultText = r;
