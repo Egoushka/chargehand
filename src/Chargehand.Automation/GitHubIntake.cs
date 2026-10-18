@@ -39,6 +39,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private readonly Regex _mention = new($@"(?<!\w){Regex.Escape(settings.Mention)}(?![\w-])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private readonly HashSet<string> _allowed = new(settings.AllowedAuthors ?? [], StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<(string Repository, int Number), IntakePull> _pulls = [];
+    private readonly PullReviews _reviews = new(settings, host, log, heads, state, clock ?? TimeProvider.System, warn ?? (message => Console.Error.WriteLine($"chargehand: {message}")));
 
     private enum Outcome { Started, Settled, Deferred, Skipped }
 
@@ -71,6 +72,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     {
         _pulls.Clear();
         await ReportEndedAsync(ct);
+        await _reviews.ReportEndedAsync(ct);
         foreach (var (name, repository) in settings.Repositories ?? new Dictionary<string, AutomationRepository>())
         {
             try
@@ -82,6 +84,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                     await ReviewCommentsAsync(name, ct);
                     await RoundsAsync(name, starter, ct);
                 }
+                if (settings.ReviewPulls)
+                    await _reviews.StartAsync(name, repository, starter, ct);
             }
             catch (IntakeException e)
             {

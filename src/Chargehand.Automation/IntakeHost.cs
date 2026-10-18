@@ -20,6 +20,11 @@ public sealed record IntakeComment(long Id, int IssueNumber, string Author, stri
 /// <param name="BaseRepository">The repository the pull request is against.</param>
 public sealed record IntakePull(int Number, string HeadBranch, string? HeadRepository, string BaseRepository, bool Open);
 
+/// <summary>An open pull request as the review loop sees it (ADR 0051).</summary>
+/// <param name="Body">The description; empty when there is none.</param>
+/// <param name="HeadSha">The commit its head branch points at now.</param>
+public sealed record ReviewablePull(int Number, string Title, string Body, string Author, string HeadSha, bool Draft);
+
 /// <summary>An inline comment of a review, on a line of a file of a pull request.</summary>
 /// <param name="Line">The line it is on in the head commit, else the line it was made on; null when the review comment is on the file as a whole.</param>
 /// <param name="IsReply">It answers another comment of a thread.</param>
@@ -51,6 +56,13 @@ public interface IIntakeHost
     /// <summary>The bodies of an issue's or pull request's conversation comments, oldest first: where the hidden markers of fix attempts and review rounds are.</summary>
     Task<IReadOnlyList<string>> CommentBodiesAsync(string repository, int number, CancellationToken ct);
 
+    /// <summary>The open pull requests of a repository, drafts included.</summary>
+    Task<IReadOnlyList<ReviewablePull>> OpenPullsAsync(string repository, CancellationToken ct);
+
+    /// <summary>The pull request's whole diff as GitHub renders it.</summary>
+    /// <exception cref="IntakeException">GitHub answered 406 or 422 when the diff is too large to render.</exception>
+    Task<string> PullDiffAsync(string repository, int number, CancellationToken ct);
+
     /// <returns>The new comment's id.</returns>
     Task<long> CommentAsync(string repository, int number, string body, CancellationToken ct);
 }
@@ -70,4 +82,8 @@ public interface IRepositoryHeads
     /// <summary>Fetches the checkout at <paramref name="path"/> and returns the commit its remote's default branch points at.</summary>
     /// <exception cref="IntakeException">The checkout could not be fetched or has no default branch.</exception>
     Task<string> CurrentCommitAsync(string path, CancellationToken ct);
+
+    /// <summary>Fetches the head of pull request <paramref name="number"/> (<c>refs/pull/N/head</c>) into the checkout at <paramref name="path"/>, keeps it under <c>refs/chargehand/pull/N</c>, and returns its commit.</summary>
+    /// <exception cref="IntakeException">The head could not be fetched.</exception>
+    Task<string> FetchPullHeadAsync(string path, int number, CancellationToken ct);
 }
