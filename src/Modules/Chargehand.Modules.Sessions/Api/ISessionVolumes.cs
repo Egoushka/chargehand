@@ -23,6 +23,11 @@ public interface ISessionVolumes
     /// of a file (the default). It is not part of a task's own work: nothing in a batch reads it.</summary>
     /// <exception cref="ChargehandException">The runner refused the read or could not be reached.</exception>
     Task<byte[]?> ReadTranscriptTailAsync(string runId, int maxBytes, CancellationToken ct) => Task.FromResult<byte[]?>(null);
+
+    /// <summary>The running session's own <c>chargehand.bundle</c> (refreshed while it works, not only once it stops), written to <paramref name="path"/>; false if the volume has
+    /// none yet, or if this deployment cannot read it mid-session (the default). A session's own review call reads this instead of its task's base checkout (ADR 0062), so it sees
+    /// the branch's commits, which otherwise exist only inside the session's container.</summary>
+    Task<bool> FetchBundleAsync(string runId, string path, CancellationToken ct) => Task.FromResult(false);
 }
 
 /// <summary>Used where the engine cannot move files through a volume: a batch then ends each task as <c>container_unavailable</c> before any session container starts.</summary>

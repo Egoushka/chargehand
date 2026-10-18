@@ -426,6 +426,8 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     Chargehand.Modules.Sessions.Api.ISessionVolumes volumes = engine is Chargehand.Modules.Runners.Api.IOutVolumeEngine files && driven.Images is { Count: > 0 } images
         ? new Chargehand.Modules.Sessions.Api.EngineSessionVolumes(files, images[0])
         : new Chargehand.Modules.Sessions.Api.UnavailableSessionVolumes();
+    // Lets a session's own review call read its live bundle (ADR 0062); a profile that names runners (ADR 0058) wires only this, the default, site's volumes.
+    orchestrator.SessionVolumes = volumes;
     // A profile that names its runners (ADR 0058) gets a pool: each runner has its own client, and its volumes' helper starts the image for its platform.
     if (driven.NamesRunners)
         sites = [.. driven.ResolvedRunners().Select(entry =>

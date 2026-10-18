@@ -62,5 +62,15 @@ public sealed class EngineSessionVolumes(IOutVolumeEngine engine, string image) 
         return await tailer.ReadOutTailAsync(Spec(runId, ContainerTemplate.TranscriptFile), Math.Clamp(maxBytes, 1, ContainerTemplate.MaxTailBytes), buffer, ct) ? buffer.ToArray() : null;
     }
 
+    public async Task<bool> FetchBundleAsync(string runId, string path, CancellationToken ct)
+    {
+        bool found;
+        await using (var file = new FileStream(path, FileMode.Create, FileAccess.Write))
+            found = await engine.ReadOutFileAsync(Spec(runId, "chargehand.bundle"), file, ct);
+        if (!found)
+            File.Delete(path);
+        return found;
+    }
+
     private OutFileSpec Spec(string runId, string name) => new(runId, image, RunnerNames.Out(runId), name);
 }

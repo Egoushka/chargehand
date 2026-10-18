@@ -18,4 +18,6 @@ public sealed class JournaledSessionVolumes(ISessionVolumes inner, DrivenJournal
     public Task<TaskUsage?> ReadUsageAsync(string runId, CancellationToken ct) => inner.ReadUsageAsync(runId, ct);
 
     public Task<byte[]?> ReadTranscriptTailAsync(string runId, int maxBytes, CancellationToken ct) => inner.ReadTranscriptTailAsync(runId, maxBytes, ct);
+
+    public Task<bool> FetchBundleAsync(string runId, string path, CancellationToken ct) => inner.FetchBundleAsync(runId, path, ct);
 }

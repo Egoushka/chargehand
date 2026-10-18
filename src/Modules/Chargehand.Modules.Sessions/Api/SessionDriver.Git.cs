@@ -34,6 +34,11 @@ public static partial class SessionDriver
         return (await Git(options.WorkDirectory, ["bundle", "create", Path.Combine(options.OutDirectory, "chargehand.bundle"), branch, "--not", "--remotes"], ct)).Exit == 0;
     }
 
+    /// <summary>The branch's head, or null when the branch does not exist yet (nothing to bundle). Used to tell a mid-session poll that the branch moved, without
+    /// re-bundling on every tick.</summary>
+    private static async Task<string?> BranchHeadAsync(SessionOptions options, CancellationToken ct) =>
+        await Git(options.WorkDirectory, ["rev-parse", "--verify", "--quiet", $"refs/heads/{options.Task.Branch}"], ct) is { Exit: 0 } head ? head.Stdout.Trim() : null;
+
     private static async Task<int> CommitsAsync(SessionOptions options, string start, CancellationToken ct)
     {
         var counted = await Git(options.WorkDirectory, ["rev-list", "--count", $"{start}..{options.Task.Branch}"], ct);

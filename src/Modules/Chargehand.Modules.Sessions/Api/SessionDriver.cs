@@ -18,6 +18,10 @@ public static partial class SessionDriver
     /// <summary>How often the driver measures the branch's diff for the governor's no-growth rule; a measure is taken only when a turn has passed since the last.</summary>
     private static readonly TimeSpan DiffEvery = TimeSpan.FromSeconds(30);
 
+    /// <summary>How often the driver checks the branch for a new head, to refresh <c>chargehand.bundle</c> while the session is still running: a session's own review
+    /// call (ADR 0062) reads this bundle, not the task's base checkout, so it sees the branch's commits instead of needing them to exist outside the container.</summary>
+    private static readonly TimeSpan BundleCheckEvery = TimeSpan.FromSeconds(2);
+
     /// <summary>The governor decisions <c>session-outcome.json</c> carries; the log file has every one.</summary>
     public const int MaxGovernorDecisions = 50;
 

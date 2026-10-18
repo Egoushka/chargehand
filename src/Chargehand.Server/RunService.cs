@@ -215,9 +215,12 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
             try
             {
                 // A batch holds one slot of the main gate and schedules its own tasks (ADR 0039); without a driven setup the orchestrator refuses the request.
+                // A session's own call on the review preset is checked out from its live bundle, not its task's base commit (ADR 0062); chargeTo is set
+                // only for a genuine session-token call (OrchestrateTool), so this weakens nothing about which repository or commit RunScope admits.
+                var sessionBundleRunId = chargeTo is not null && request.Context.Preset == "review" ? chargeTo : null;
                 var result = request.Driven is not null && driven is not null
                     ? await driven.RunAsync(request, run.Id, g => MintToken(g, run.Actor), run.Token, run.Publish, () => run.CancelledByCaller, resume, run.Actor)
-                    : await orchestrator.RunAsync(request, run.Token, run.Id, run.Publish, parentRunId, () => run.CancelledByCaller, run.Actor);
+                    : await orchestrator.RunAsync(request, run.Token, run.Id, run.Publish, parentRunId, () => run.CancelledByCaller, run.Actor, sessionBundleRunId);
                 if (chargeTo is not null)
                     Ledger.Charge(chargeTo, result.Usage.Usd ?? 0, result.Usage.Input + result.Usage.Output);
                 run.Complete(result);

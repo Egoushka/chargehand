@@ -48,14 +48,21 @@ public sealed class Orchestrator(
 {
     public const string NodeKindName = "worker";
 
+    /// <summary>Set by the driven runner once it is wired up (ADR 0058: only the default/first runner site gets this), so a session's own review call
+    /// can be checked out from its live bundle instead of the task's base commit (ADR 0062). Null: every call uses <see cref="Checkout"/>, as before.</summary>
+    public ISessionVolumes? SessionVolumes { get; set; }
+
     /// <param name="runId">The id to run under (the HTTP interface hands it out before the run starts); a new one if null.</param>
     /// <param name="progress">Receives run-status/v1 events: started, intake, node started and finished, run finished.</param>
     /// <param name="parentRunId">The run this one resends with answers, if any; recorded in the start record.</param>
     /// <param name="cancelledByCaller">True once the caller cancelled this run on purpose (not a shutdown): the run then ends as a failed result with
     /// <c>cancelled</c> and is recorded, instead of the cancellation escaping.</param>
     /// <param name="actor">The account that started the run (ADR 0050); on the start record, the run record and the result.</param>
+    /// <param name="sessionBundleRunId">Set only for a driven session's own call on the review preset (ADR 0062): the id to fetch that session's live
+    /// <c>chargehand.bundle</c> from, through <see cref="SessionVolumes"/>, so the call sees the branch's commits instead of the task's base checkout.
+    /// Null for every other call, including a non-session call pinned to the same repository and commit (RunScope's pinning is unchanged).</param>
     public async Task<ResultContract> RunAsync(RunRequest request, CancellationToken ct, string? runId = null, Action<RunStatus>? progress = null,
-        string? parentRunId = null, Func<bool>? cancelledByCaller = null, string? actor = null)
+        string? parentRunId = null, Func<bool>? cancelledByCaller = null, string? actor = null, string? sessionBundleRunId = null)
     {
         var started = DateTimeOffset.UtcNow;
         runId ??= RunIds.New();
@@ -158,7 +165,8 @@ public sealed class Orchestrator(
                         [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
                     _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
                         $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
-                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, ct),
+                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker,
+                        sessionBundleRunId, ct),
                 };
             }
         }
@@ -265,10 +273,12 @@ public sealed class Orchestrator(
     /// <summary>Runs the plan's nodes (one for answer) and returns the node's contract, or the merged one for a split.</summary>
     private async Task<ResultContract> Execute(RunRequest request, TaskSpec spec, IReadOnlyList<PlanNode> plan, string kindName, NodeKind kind, string? workerModel,
         IReadOnlyList<(string Key, string Value)> instructions, PromptChain chain, IReadOnlyList<PromptBlock> callerBlocks, string runId, string traceId,
-        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, IWorkerRuntime worker, CancellationToken ct)
+        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, IWorkerRuntime worker, string? sessionBundleRunId, CancellationToken ct)
     {
         var (directory, commit, repository) = kind.Checkout
-            ? await Checkout(request.Context.Repository!, kind, ct)
+            ? sessionBundleRunId is not null && SessionVolumes is not null
+                ? await CheckoutSessionBundle(sessionBundleRunId, request.Context.Repository!, kind, ct)
+                : await Checkout(request.Context.Repository!, kind, ct)
             : (EmptyDirectory(), "", "");
         // A writing node works in its own clone on its own branch; the shared checkout stays clean for other runs (ADR 0035).
         var workspace = kind.Writes ? await RunWorkspace.CreateAsync(directory, commit, profile.WorkerRoot, runId, plan[0].Id, ct) : null;
@@ -542,6 +552,56 @@ public sealed class Orchestrator(
             : throw new ChargehandException(ErrorCode.CheckoutHasSecrets, $"the repository tracks files the preset denies reading, which grep would still reach: " +
                 $"{string.Join(", ", denied.Take(5))}{(denied.Count > 5 ? ", ..." : "")}",
                 "Pin a commit that does not track them, or remove them from the repository.");
+    }
+
+    /// <summary>
+    /// A session's own review call (ADR 0062) reads a checkout built from its live <c>chargehand.bundle</c> (<see cref="SessionVolumes"/>), not from
+    /// <paramref name="repo"/>'s commit: the branch's commits exist only inside the session's container until it stops, so the task's base checkout
+    /// never has them. Falls back to <see cref="Checkout"/> when the volume has no bundle yet (the branch has made no commit, or the fetch failed),
+    /// so an early review call gets the same base checkout it did before this fix instead of an error.
+    /// </summary>
+    private async Task<(string Directory, string Commit, string Repository)> CheckoutSessionBundle(string runId, RepositoryRef repo, NodeKind kind, CancellationToken ct)
+    {
+        var source = await Git(Path.GetFullPath(repo.Path), ct, "rev-parse", "--show-toplevel")
+            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{repo.Path} is not a git checkout", "Point context.repository.path at a git working tree.");
+        if (!profile.Roots.Any(root => Under(source, RealPath(root))))
+            throw new ChargehandException(ErrorCode.RepositoryNotAllowed,
+                $"repository {source} is outside the profile's repository_roots ({string.Join(", ", profile.Roots)}); workers read only repositories under them",
+                $"Clone the repository under one of those roots, or add a directory that contains {source} to repository_roots (\"/\" allows any).");
+        var bundlePath = Path.Combine(Path.GetTempPath(), $"chargehand-session-{runId}-{Guid.NewGuid():N}.bundle");
+        try
+        {
+            if (!await SessionVolumes!.FetchBundleAsync(runId, bundlePath, ct))
+                return await Checkout(repo, kind, ct);
+            var refName = (await Git(Path.GetTempPath(), ct, "bundle", "list-heads", bundlePath))
+                ?.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Split(' ', 2) is [_, var r] ? r : null;
+            if (refName is null)
+                throw new ChargehandException(ErrorCode.CheckoutInvalid, "the session's bundle has no heads", "Retry once the session has made its first commit.");
+            var id = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(source)))[..8];
+            var dir = Path.Combine(Path.GetFullPath(profile.WorkerRoot), ".checkouts", $"{Path.GetFileName(source)}-{id}", $"session-{runId}");
+            OutsideHome(dir + Path.DirectorySeparatorChar);
+            // Rebuilt every time: the branch moves while the session runs, and this is one small repository with a handful of commits.
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, recursive: true);
+            Directory.CreateDirectory(dir);
+            if (await Git(dir, ct, "init", "-q") is null
+                || await Git(dir, ct, "fetch", "-q", bundlePath, refName) is null
+                || await Git(dir, ct, "checkout", "-q", "--detach", "FETCH_HEAD") is null)
+                throw new ChargehandException(ErrorCode.CheckoutInvalid, $"could not build a checkout from the session's bundle at {bundlePath}",
+                    "Check that worker_root is writable and has free space.");
+            var commit = await Git(dir, ct, "rev-parse", "HEAD")
+                ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, "the session's bundle checkout has no HEAD", "Retry the review.");
+            var denied = await DeniedFiles(dir, kind.Permissions, ct);
+            return denied.Count == 0
+                ? (dir, commit, RepositoryLabel.From(null, Path.GetFileName(source)))
+                : throw new ChargehandException(ErrorCode.CheckoutHasSecrets, "the session's branch tracks files the preset denies reading, which grep would still reach: " +
+                    $"{string.Join(", ", denied.Take(5))}{(denied.Count > 5 ? ", ..." : "")}",
+                    "Pin a commit that does not track them, or remove them from the repository.");
+        }
+        finally
+        {
+            File.Delete(bundlePath);
+        }
     }
 
     private static bool Under(string path, string root) =>

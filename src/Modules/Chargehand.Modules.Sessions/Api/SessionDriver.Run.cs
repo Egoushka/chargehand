@@ -77,12 +77,13 @@ public static partial class SessionDriver
             }
         }
 
-        /// <returns>The diff measure still running when the session exited, if any.</returns>
+        /// <returns>The diff measure and the bundle refresh still running when the session exited, if any (combined into one task).</returns>
         public async Task<Task?> WatchAsync(Task exit, string? start, DateTimeOffset started, CancellationToken ct)
         {
             using var watch = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
             Task? measuring = null;
             var measuredAt = (Turn: 0, At: started);
+            var bundle = new BundleState(started, null, null);
             while (!exit.IsCompleted)
             {
                 var tick = watch.WaitForNextTickAsync(ct).AsTask();
@@ -100,12 +101,29 @@ public static partial class SessionDriver
                             return governor.OnDiff(lines, turn, _spentSoFar, DateTimeOffset.UtcNow);
                     }, Govern, ct);
                 }
+                bundle = await RefreshBundleAsync(options, bundle, ct);
                 if (detector.Check(DateTimeOffset.UtcNow) is { } stall && _stoppedBy.Set(SessionStatus.Stalled, StallDetector.Wire(stall)))
                     Interrupt(process);
                 if (_stoppedBy.Cause is not null && !exit.IsCompleted && DateTimeOffset.UtcNow - _stoppedBy.At > Grace)
                     process.Kill(entireProcessTree: true);
             }
-            return measuring;
+            return measuring is null ? bundle.Bundling : bundle.Bundling is null ? measuring : Task.WhenAll(measuring, bundle.Bundling);
+        }
+
+        /// <summary>What <see cref="RefreshBundleAsync"/> carries between polls: when it last checked the branch, the head it last bundled, and the
+        /// bundling task still running, if any.</summary>
+        private readonly record struct BundleState(DateTimeOffset CheckedAt, string? Head, Task? Bundling);
+
+        /// <summary>Bundles the branch again when it has moved since the last bundle, no more often than <see cref="BundleCheckEvery"/>, and only once
+        /// the previous bundling finished: a session's own review call reads this bundle while the session still runs (ADR 0062).</summary>
+        private static async Task<BundleState> RefreshBundleAsync(SessionOptions options, BundleState state, CancellationToken ct)
+        {
+            if (state.Bundling is { IsCompleted: false } || DateTimeOffset.UtcNow - state.CheckedAt < BundleCheckEvery)
+                return state;
+            var head = await BranchHeadAsync(options, ct);
+            return string.IsNullOrEmpty(head) || head == state.Head
+                ? state with { CheckedAt = DateTimeOffset.UtcNow }
+                : new BundleState(DateTimeOffset.UtcNow, head, BundleAsync(options, ct));
         }
 
         public async Task<SessionOutcome> FinishAsync(string? start, CancellationToken ct)
