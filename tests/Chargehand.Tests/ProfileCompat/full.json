@@ -174,7 +174,8 @@
       "memory_mb": 8192,
       "cpus": null,
       "pids": null,
-      "max_continuations": 2
+      "max_continuations": 2,
+      "bash_max_timeout_ms": null
     },
     "governor": {
       "mode": "enforce",
