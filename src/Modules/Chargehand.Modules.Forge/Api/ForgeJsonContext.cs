@@ -31,7 +31,8 @@ internal sealed record TitleAndBody(string Title, string Body);
 
 internal sealed record BranchUpdate(string ExpectedHeadSha);
 
-internal sealed record SquashMerge(string MergeMethod, string Sha);
+/// <param name="CommitMessage">The body of the squash commit; left out, GitHub builds its own (ADR 0070 puts the run trailers in it).</param>
+internal sealed record SquashMerge(string MergeMethod, string Sha, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CommitMessage = null);
 
 internal sealed record CommentBody(string Body);
 
@@ -42,7 +43,7 @@ internal sealed record PullRequestVariables(string Owner, string Name, int Numbe
 
 internal sealed record NodeVariables(string Id);
 
-internal sealed record AutoMergeVariables(string Id, string Oid);
+internal sealed record AutoMergeVariables(string Id, string Oid, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Body = null);
 
 internal sealed record MergeRequestDraft(string SourceBranch, string TargetBranch, string Title, string Description);
 

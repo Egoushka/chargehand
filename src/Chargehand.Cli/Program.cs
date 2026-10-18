@@ -54,6 +54,9 @@ const string Usage = """
       accounts add <account> [--label <text>] | list | revoke <key-id>
                                    keys of the accounts in the profile's http.accounts; a new key is printed once (ADR 0050)
       show <run-id>                prints a run and its calls from the run log
+      why <path>:<line> [--repo <dir>] [--stream <stream.jsonl>]
+                                   which run wrote that line (git blame, the commit's Chargehand-* trailers, then the run log's goal and the
+                                   batch records' session); with --stream, the session messages that edited the file. Works without a profile
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
       cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
       routes [run-log.jsonl ...]   routing report per preset, node kind and model; suggestions only
@@ -191,6 +194,17 @@ if (argv is ["incident", .. var incidentArgs])
 // Profile-free: it reads a repository's git log and prints a request for `run` (CHARGEHAND-191).
 if (argv is ["release-notes", .. var releaseNotesArgs])
     return await Chargehand.ReleaseNotes.ReleaseNotesCli.RunAsync(releaseNotesArgs, Directory.GetCurrentDirectory(), Console.Out, Console.Error, CancellationToken.None);
+// Reads git blame and, where it can, the run log (ADR 0070): with no profile or no log it still answers from the commit's trailers.
+if (argv is ["why", .. var whyArgs])
+{
+    var whySetting = Profile.Load(profilePath).RunLog;
+    var (_, whyLogPath) = InstallPaths.Resolve(whySetting, Directory.GetCurrentDirectory(), AppContext.BaseDirectory,
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify));
+    using var stop = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Modules.Tasks.Api.WhyCli.RunAsync(whyArgs, new JsonlRunLog(whyLogPath), Path.Combine(Path.GetDirectoryName(Path.GetFullPath(whyLogPath))!, "records"),
+        Directory.GetCurrentDirectory(), Console.Out, Console.Error, stop.Token);
+}
 if (argv is ["doctor", .. var doctorArgs])
 {
     using var stop = new CancellationTokenSource();

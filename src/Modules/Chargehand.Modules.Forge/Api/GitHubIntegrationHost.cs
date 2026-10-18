@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Chargehand.Kernel;
 
 namespace Chargehand.Modules.Forge.Api;
 
@@ -125,12 +126,45 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
 
     public async Task EnableAutoMergeAsync(RemoteRepository repository, string nodeId, string headSha, CancellationToken ct)
     {
-        using var _ = await GraphQlAsync(repository, "enabling auto-merge", "mutation($id:ID!,$oid:GitObjectID){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:SQUASH,expectedHeadOid:$oid}){pullRequest{number}}}",
-            new AutoMergeVariables(nodeId, headSha), ct);
+        // The squash commit keeps the run trailers only if they are in the message GitHub is given (ADR 0070).
+        var body = await TrailersAsync(async () => RunMessages(await GraphQlAsync(repository, "reading the pull request's commits", CommitsQuery, new NodeVariables(nodeId), ct)), ct);
+        using var _ = await GraphQlAsync(repository, "enabling auto-merge", body is null ? AutoMergeMutation : AutoMergeMutationWithBody, new AutoMergeVariables(nodeId, headSha, body), ct);
     }
 
-    public async Task MergeNowAsync(RemoteRepository repository, int number, string headSha, CancellationToken ct) =>
-        await RestAsync(repository, HttpMethod.Put, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/merge", new SquashMerge("squash", headSha), "the merge", ct);
+    public async Task MergeNowAsync(RemoteRepository repository, int number, string headSha, CancellationToken ct)
+    {
+        var message = await TrailersAsync(async () => RunMessages(await RestAsync(repository, HttpMethod.Get, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/commits?per_page=100", null, "the pull request's commits", ct)), ct);
+        await RestAsync(repository, HttpMethod.Put, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/merge", new SquashMerge("squash", headSha, message), "the merge", ct);
+    }
+
+    private const string CommitsQuery = "query($id:ID!){node(id:$id){... on PullRequest{commits(first:100){nodes{commit{message}}}}}}";
+
+    private const string AutoMergeMutation = "mutation($id:ID!,$oid:GitObjectID){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:SQUASH,expectedHeadOid:$oid}){pullRequest{number}}}";
+
+    private const string AutoMergeMutationWithBody = "mutation($id:ID!,$oid:GitObjectID,$body:String){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:SQUASH,expectedHeadOid:$oid,commitBody:$body}){pullRequest{number}}}";
+
+    /// <summary>The run trailers of the pull request's commits; null when there are none or the commits could not be read: the merge then goes ahead with GitHub's own message.</summary>
+    private static async Task<string?> TrailersAsync(Func<Task<IEnumerable<string>>> messages, CancellationToken ct)
+    {
+        try
+        {
+            return Provenance.Collect(await messages());
+        }
+        catch (Exception e) when (e is IntegrationException or JsonException or KeyNotFoundException or InvalidOperationException && !ct.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The commit messages in a REST list of a pull request's commits (<c>commit.message</c>), or in the GraphQL answer of <see cref="CommitsQuery"/>.</summary>
+    private static IEnumerable<string> RunMessages(string commits)
+    {
+        using var doc = JsonDocument.Parse(commits);
+        return [.. doc.RootElement.EnumerateArray().Select(c => c.GetProperty("commit").GetProperty("message").GetString() ?? "")];
+    }
+
+    private static IEnumerable<string> RunMessages(JsonDocument data) =>
+        [.. data.RootElement.GetProperty("node").GetProperty("commits").GetProperty("nodes").EnumerateArray().Select(c => c.GetProperty("commit").GetProperty("message").GetString() ?? "")];
 
     public async Task CommentAsync(RemoteRepository repository, int number, string body, CancellationToken ct) =>
         await RestAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", new CommentBody(body), "the comment", ct);

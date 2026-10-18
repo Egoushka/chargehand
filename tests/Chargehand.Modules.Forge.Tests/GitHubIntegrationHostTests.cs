@@ -83,12 +83,51 @@ public class GitHubIntegrationHostTests
 
         Assert.All(handler.Requests, r => Assert.Equal("https://api.example.test/graphql", r.Url));
         Assert.Contains("markPullRequestReadyForReview", handler.Requests[0].Body);
-        using var merge = JsonDocument.Parse(handler.Requests[1].Body!);
+        Assert.Contains("commits(first:100)", handler.Requests[1].Body);
+        using var merge = JsonDocument.Parse(handler.Requests[2].Body!);
         var query = merge.RootElement.GetProperty("query").GetString()!;
         Assert.Contains("enablePullRequestAutoMerge", query);
         Assert.Contains("mergeMethod:SQUASH", query);
         Assert.Contains("expectedHeadOid", query);
         Assert.Equal("abc1234", merge.RootElement.GetProperty("variables").GetProperty("oid").GetString());
+        Assert.DoesNotContain("commitBody", query);
+    }
+
+    private const string Trailers = "Chargehand-Run: r1\nChargehand-Spend: $0.50";
+
+    private static string Commits(params string[] messages) => JsonSerializer.Serialize(messages.Select(m => new { commit = new { message = m } }));
+
+    [Fact]
+    public async Task Auto_merge_gives_github_the_run_trailers_of_the_pull_requests_commits_as_the_squash_body()
+    {
+        var handler = new Canned((_, body) => Json(body!.Contains("commits(first:100)", StringComparison.Ordinal)
+            ? JsonSerializer.Serialize(new { data = new { node = new { commits = new { nodes = JsonSerializer.Deserialize<JsonElement>(Commits($"feat: a\n\n{Trailers}", $"fix: b\n\n{Trailers}")) } } } })
+            : """{"data":{"ok":{}}}"""));
+        await Host(handler).EnableAutoMergeAsync(Repo, "PR_node", "abc1234", default);
+
+        using var merge = JsonDocument.Parse(handler.Requests[1].Body!);
+        Assert.Contains("commitBody:$body", merge.RootElement.GetProperty("query").GetString());
+        Assert.Equal(Trailers, merge.RootElement.GetProperty("variables").GetProperty("body").GetString());
+    }
+
+    [Fact]
+    public async Task A_merge_now_gives_github_the_run_trailers_once_per_run_as_the_commit_message()
+    {
+        var handler = new Canned((request, _) => request.Method == HttpMethod.Get ? Json(Commits($"feat: a\n\n{Trailers}", $"fix: b\n\n{Trailers}", "human")) : Json("{}"));
+        await Host(handler).MergeNowAsync(Repo, 7, "abc1234", default);
+
+        Assert.Equal("https://api.example.test/repos/o/r/pulls/7/commits?per_page=100", handler.Requests[0].Url);
+        using var merge = JsonDocument.Parse(handler.Requests[1].Body!);
+        Assert.Equal(Trailers, merge.RootElement.GetProperty("commit_message").GetString());
+    }
+
+    [Fact]
+    public async Task A_merge_goes_ahead_with_githubs_own_message_when_the_commits_cannot_be_read()
+    {
+        var handler = new Canned((request, _) => request.Method == HttpMethod.Get ? Json("""{"message":"nope"}""", HttpStatusCode.Forbidden) : Json("{}"));
+        await Host(handler).MergeNowAsync(Repo, 7, "abc1234", default);
+
+        Assert.DoesNotContain("commit_message", handler.Requests[1].Body);
     }
 
     [Fact]
@@ -106,10 +145,11 @@ public class GitHubIntegrationHostTests
         Assert.Equal("https://api.example.test/repos/o/r/compare/main...chargehand%2Frun1", handler.Requests[0].Url);
         Assert.Equal((HttpMethod.Put, "https://api.example.test/repos/o/r/pulls/7/update-branch"), (handler.Requests[1].Method, handler.Requests[1].Url));
         Assert.Contains("\"expected_head_sha\":\"abc1234\"", handler.Requests[1].Body);
-        Assert.Equal((HttpMethod.Put, "https://api.example.test/repos/o/r/pulls/7/merge"), (handler.Requests[2].Method, handler.Requests[2].Url));
-        Assert.Contains("\"merge_method\":\"squash\"", handler.Requests[2].Body);
-        Assert.Contains("\"sha\":\"abc1234\"", handler.Requests[2].Body);
-        Assert.Equal((HttpMethod.Post, "https://api.example.test/repos/o/r/issues/7/comments"), (handler.Requests[3].Method, handler.Requests[3].Url));
+        Assert.Equal((HttpMethod.Get, "https://api.example.test/repos/o/r/pulls/7/commits?per_page=100"), (handler.Requests[2].Method, handler.Requests[2].Url));
+        Assert.Equal((HttpMethod.Put, "https://api.example.test/repos/o/r/pulls/7/merge"), (handler.Requests[3].Method, handler.Requests[3].Url));
+        Assert.Contains("\"merge_method\":\"squash\"", handler.Requests[3].Body);
+        Assert.Contains("\"sha\":\"abc1234\"", handler.Requests[3].Body);
+        Assert.Equal((HttpMethod.Post, "https://api.example.test/repos/o/r/issues/7/comments"), (handler.Requests[4].Method, handler.Requests[4].Url));
         Assert.All(handler.Requests, r => Assert.Equal("Bearer ghs_secrettoken", r.Auth));
         Assert.All(handler.Requests.Skip(1), r => Assert.DoesNotContain("ghs_secrettoken", r.Body));
     }
@@ -177,8 +217,8 @@ public class GitHubIntegrationHostTests
         await host.CommentAsync(Repo, 7, "x", default);
         await host.MarkReadyAsync(Repo, "PR_node", default);
 
-        Assert.Equal(["Bearer ghs_acme-org", "Bearer ghs_acme-org", "Bearer ghs_acme-org", "Bearer ghs_o", "Bearer ghs_o"], handler.Requests.Select(r => r.Auth));
-        Assert.Equal([("acme-org", "mobile"), ("acme-org", "mobile"), ("acme-org", "mobile"), ("o", "r"), ("o", "r")], tokens.Asked);
+        Assert.Equal(["Bearer ghs_acme-org", "Bearer ghs_acme-org", "Bearer ghs_acme-org", "Bearer ghs_acme-org", "Bearer ghs_o", "Bearer ghs_o"], handler.Requests.Select(r => r.Auth));
+        Assert.Equal([("acme-org", "mobile"), ("acme-org", "mobile"), ("acme-org", "mobile"), ("acme-org", "mobile"), ("o", "r"), ("o", "r")], tokens.Asked);
     }
 
     [Fact]

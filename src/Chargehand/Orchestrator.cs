@@ -347,7 +347,8 @@ public sealed class Orchestrator(
                 supportCheck: profile.SupportCheck ? (contract, scope, ct2) => SupportCheck.RunAsync(worker, ParseModel(profile.IntakeModel), contract, scope, ct2) : null).RunAsync(nodeRequest, token, primed);
             if (workspace is not null && nodeResult.Contract.Status == ResultStatus.Completed)
             {
-                var branch = await workspace.CommitAsync(ChangeRun.CommitMessage(nodeResult.Contract.Summary), token);
+                var provenance = ChangeRun.ProvenanceOf(runId, $"opencode {opencodeVersion}", modelLabel, nodeResult.Calls, prices, lastCheck, attempts);
+                var branch = await workspace.CommitAsync(Provenance.Apply(ChangeRun.CommitMessage(nodeResult.Contract.Summary), provenance), token);
                 string? landFailure = null;
                 if (local && branch is not null)
                     (branch, landFailure) = await LandAsync(workspace, branch, request.Context.Repository!.Path, token);
