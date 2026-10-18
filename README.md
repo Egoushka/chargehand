@@ -132,6 +132,7 @@ docker run -p <private-ip>:4300:4300 -v <dir-with-profile.json>:/config:ro -e CH
 | `POST /v1/runs` | takes `request/v1`. With `Prefer: wait=N` (default 10 s, at most 60): `200` and `result/v1` if the run finishes in time, else `202`, `run-status/v1` and a `Location` |
 | `GET /v1/runs/{id}` | `202` while queued or running, `200` and `result/v1` once finished, `410` if the process that ran it ended first |
 | `GET /v1/runs/{id}/events` | server-sent events `accepted`, `started`, `intake`, `node_started`, `node_finished`, `run_finished` |
+| `GET /v1/health` | `{status, version, halted}` for any key. `?deep=1` (owner): also calls the intake model once and answers `503` with the reason when it fails. `scripts/canary.sh` calls it; see [docs/guide/reference.md](docs/guide/reference.md#http-routes) |
 | `/v1/mcp` | MCP over Streamable HTTP: tool `orchestrate`, `inputSchema` `request/v1`, `outputSchema` `result/v1` |
 
 MCP clients that opt in to the tasks extension get long runs as tasks. When intake answers with questions, the call
