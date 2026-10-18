@@ -68,6 +68,9 @@ public static class TaskResultBuilder
                 "Retry once the limit lifts. The batch holds its remaining tasks until then.", ChargehandException.Retryable(ErrorCode.RateLimited)),
             SessionStatus.TokenCap => draft.Unfinished(ErrorCode.CostCapReached, "the session reached its token cap and was stopped",
                 "Raise max_tokens_total in the request (and the preset's max_tokens), or give the task a narrower goal."),
+            SessionStatus.Failed when s.Reason == SessionDriver.ChecksFailed => draft.Unfinished(ErrorCode.VerificationFailed,
+                $"the branch failed {s.Checks?.Count(c => !c.Passed) ?? 0} of {s.Checks?.Count ?? 0} checks after the session's retries: {string.Join(", ", s.Checks?.Where(c => !c.Passed).Select(c => $"`{c.Command}`") ?? [])}",
+                "Read the checks artifact (output_tail of each failed check), then fix the change or narrow the goal and send the task again."),
             SessionStatus.Failed => draft.Unfinished(ErrorCode.SessionFailed, $"the session did not finish: {(s.Reason.Length > 0 ? s.Reason.Replace('_', ' ') : "it failed")}",
                 "Read the session log (the session-log artifact) and send the task again."),
             _ => null,
@@ -158,6 +161,17 @@ public static class TaskResultBuilder
         return Inline("changes", "application/vnd.chargehand.changes+json", content, Json.ChangesArtifact);
     }
 
+    /// <summary>The <c>checks</c> artifact; the output tails go when it would not fit inline.</summary>
+    private static Artifact Checks(IReadOnlyList<CheckResult> checks)
+    {
+        ChecksArtifact Content(bool tails) => new(checks.All(c => c.Passed), checks.Max(c => c.Attempt),
+            [.. checks.Select(c => new CheckArtifact(c.Kind, c.Command, c.Passed, c.ExitCode, c.ExpectedExitCode, c.ExpectedOutput, tails ? c.OutputTail : null))], !tails);
+        var content = Content(tails: true);
+        if (Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(content, Json.ChecksArtifact)) > MaxInlineBytes)
+            content = Content(tails: false);
+        return Inline("checks", "application/json", content, Json.ChecksArtifact);
+    }
+
     private static Artifact Inline<T>(string kind, string mediaType, T value, JsonTypeInfo<T> type)
     {
         var content = JsonSerializer.Serialize(value, type);
@@ -186,6 +200,8 @@ public static class TaskResultBuilder
                 Artifacts.Add(new Artifact("governor-log", "application/jsonl", governorHash, Uri: $"volume:{RunnerNames.Out(input.RunId)}/{SessionDriver.GovernorFile}"));
             if (input.Kept is { } kept)
                 Artifacts.Add(Inline(KeptWork.ArtifactKind, "application/json", kept, Json.KeptWork));
+            if (s.Checks is { Count: > 0 } checks)
+                Artifacts.Add(Checks(checks));
         }
 
         public DrivenTaskInput Input { get; }

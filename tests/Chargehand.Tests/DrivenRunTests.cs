@@ -185,6 +185,31 @@ public class DrivenRunTests
     }
 
     [Fact]
+    public async Task A_tasks_acceptance_criteria_and_the_check_and_reminder_limits_reach_the_session()
+    {
+        var volumes = new FakeVolumes(_ => SessionStatus.Completed);
+        using var rig = new Rig(volumes: volumes, limits: new DrivenLimits(CheckRetries: 1, GoalReminderTurns: 30));
+        var request = Request("Add a retry");
+        AcceptanceCheck[] acceptance = [new("./smoke.sh", Output: "retry ok")];
+        request = request with { Driven = request.Driven! with { Tasks = [request.Driven.Tasks[0] with { Acceptance = acceptance }] } };
+        await rig.Run.RunAsync(request, "run-batch-accept", Token, default);
+
+        var task = volumes.Tasks.Single();
+        Assert.Equal(acceptance, task.Acceptance);
+        Assert.Equal((1, 60, 30), (task.CheckRetries, task.ReminderMinutes, task.ReminderTurns));
+    }
+
+    [Fact]
+    public async Task A_reminder_interval_of_zero_minutes_sends_no_reminder()
+    {
+        var volumes = new FakeVolumes(_ => SessionStatus.Completed);
+        using var rig = new Rig(volumes: volumes, limits: new DrivenLimits(GoalReminderMinutes: 0));
+        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-noremind", Token, default);
+        Assert.Null(volumes.Tasks.Single().ReminderMinutes);
+        Assert.Null(volumes.Tasks.Single().Acceptance);
+    }
+
+    [Fact]
     public async Task Without_profile_limits_the_presets_apply()
     {
         var preset = Preset.Load(Path.Combine(Repo.Root, "presets"), "driven").Driven!;

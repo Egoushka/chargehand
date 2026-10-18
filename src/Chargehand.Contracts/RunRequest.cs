@@ -54,8 +54,13 @@ public sealed record RequestDriven(
 /// <param name="ContinueFrom">An earlier batch's task that ended <c>needs_input</c> or stopped with work kept: this task starts from that task's branch and takes its goal, so it needs neither <c>goal</c> nor <c>ref</c>.</param>
 /// <param name="DependsOn">Ids of tasks of this batch that must end <c>completed</c> first; the task starts from their branches (ADR 0049). Null or empty: independent.</param>
 /// <param name="Title">The title of the task's pull request, one line; null: the goal's first sentence, cut to 72 characters. The pull request body holds the whole goal either way.</param>
+/// <param name="Acceptance">Commands the session's branch must pass before the task counts as done; each is run in the session's working tree and its failure is sent back to the session.</param>
 public sealed record DrivenTask(string Id, string? Ref = null, string? Goal = null, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null,
-    IReadOnlyList<string>? Answers = null, ContinueFrom? ContinueFrom = null, IReadOnlyList<string>? DependsOn = null, string? Title = null);
+    IReadOnlyList<string>? Answers = null, ContinueFrom? ContinueFrom = null, IReadOnlyList<string>? DependsOn = null, string? Title = null,
+    IReadOnlyList<AcceptanceCheck>? Acceptance = null);
+
+/// <summary>A machine-checkable acceptance criterion: a shell command, the exit code it must end with and, when set, text its output must contain.</summary>
+public sealed record AcceptanceCheck(string Command, int ExitCode = 0, string? Output = null);
 
 /// <param name="RunId">The earlier batch's run id.</param>
 /// <param name="TaskId">The task's id in that batch.</param>
@@ -72,6 +77,8 @@ public static class DrivenRules
             .Concat(driven.Tasks.Where(t => t.BudgetUsd is <= 0).Select(t => $"task '{t.Id}': budget_usd must be above 0"))
             .Concat(driven.Tasks.Where(t => t.Title is not null && (string.IsNullOrWhiteSpace(t.Title) || t.Title.Length > MaxTitleLength || t.Title.AsSpan().ContainsAny('\r', '\n')))
                 .Select(t => $"task '{t.Id}': title must be one line of 1 to {MaxTitleLength} characters"))
+            .Concat(driven.Tasks.Where(t => t.Acceptance is { Count: > MaxAcceptance }).Select(t => $"task '{t.Id}': at most {MaxAcceptance} acceptance checks"))
+            .Concat(driven.Tasks.Where(t => t.Acceptance?.Any(a => string.IsNullOrWhiteSpace(a.Command)) == true).Select(t => $"task '{t.Id}': an acceptance check needs a command"))
             .Concat(driven.Tasks.Where(t => t.Answers is not null && t.ContinueFrom is null).Select(t => $"task '{t.Id}': answers need continue_from"))
             .Concat(driven.Tasks.Where(t => t.ContinueFrom is not null && (t.Goal is not null || t.Ref is not null)).Select(t => $"task '{t.Id}': continue_from takes the earlier task's goal; leave out goal and ref"))
             .Concat(driven.Tasks.Where(t => t.Answers?.Any(string.IsNullOrWhiteSpace) == true).Select(t => $"task '{t.Id}': answers must not be empty"))
@@ -139,6 +146,8 @@ public static class DrivenRules
     public const int MaxMinutesCeiling = 480;
 
     public const int MaxTitleLength = 200;
+
+    public const int MaxAcceptance = 20;
 
     /// <summary>All problems of a request that carries <c>driven</c>: duplicate task ids and a missing <c>context.repository</c>.</summary>
     public static IReadOnlyList<string> Problems(RunRequest request)
