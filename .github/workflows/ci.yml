@@ -181,6 +181,11 @@ jobs:
         with:
           fetch-depth: 0
       - run: scripts/check-commits.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+      # A squash merge makes the title the commit on main, and release-please reads only main.
+      - name: The pull request title is a Conventional Commit
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$TITLE" > "$RUNNER_TEMP/title" && scripts/check-commit-msg.sh "$RUNNER_TEMP/title"
 
   dependencies:
     if: github.event_name == 'pull_request'
