@@ -7,8 +7,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-18
+
+Work starts on its own: from Plane work items, on a schedule, and as a review of every pull request; the plugin and the local server work again.
+
+### Upgrade
+
+- Over HTTP an MCP call without `Prefer: wait` now returns the run id after 50 s; collect the result with the new `result` tool. Over stdio nothing changes.
+- Nothing else to set: every new automation (`automation.github.review_pulls`, `automation.plane`, `automation.schedules`) is off until the profile names it.
+
 ### Added
 
+- The MCP tool `result` takes a run id and returns that run's `result/v1`, or its `run-status/v1` while it runs (ADR 0065).
+- Intake reviews every open pull request of the watched repositories: `automation.github.review_pulls` (default off) starts a read-only `review` run per head commit and posts one comment with the findings and their evidence; `max_reviews_per_day` (default 20) caps it. See `docs/guide/intake.md`.
+- Recurring work on a schedule within a monthly cap (ADR 0068): `automation.schedules` lists entries with `at` (`daily HH:MM`, `weekly <day> HH:MM`, `monthly <1-28> HH:MM`, UTC), a built-in `template` (`dependency-upgrades`, `doc-drift`, `flaky-tests`, `morning-report`) or a free `goal`, a `repository` and `max_per_month`. Read-only results and the morning report are POSTed to `notify_url`. A slot missed while the server was down runs once at startup. See `docs/guide/schedules.md`.
+- A read-only `design` preset drafts an ADR from the current code (CHARGEHAND-189). The request text is the goal; the result's summary is the draft in the shape of `docs/adr/template.md` (context, options with trade-offs, decision, consequences, reopen if) and its claims carry the file citations the draft stands on, checked at the pinned commit and then by the support check. It writes no file. Prompt CI cell `design/worker` (new preset: it gates the preset from the next change on).
+- A read-only `incident` preset diagnoses an alert from logs, metrics and traces (CHARGEHAND-192). The alert is the input `alert`; the worker queries the MCP services the profile maps to the preset and reads the code at the pinned commit, and returns `Alert:`, `Likely cause:`, `Confidence:` and `Next checks:` in the summary, with the next checks and what it could not verify in `open_questions`. Each statement of the cause is a claim citing a service reply (`session_message`), a code location (`file`) or the alert (`input`); confidence is capped at 0.4 when no service result was seen. The profile gains `preset_services` (additive; `profile/v1` schema): services by preset name, replacing that preset's own `services`, so a shipped preset needs no private copy to reach your servers. Every server must be an `mcp_servers` key and a bare `*` is refused; `extensions check` reads it. `chargehand incident <repo path> [--commit <ref>] < alert` builds the `incident` request from an Alertmanager or Grafana webhook payload, or text, on stdin (no profile, no network). There is no webhook route: a payload carries no repository or commit, and a trigger that starts runs belongs to the automation project, so the run API is called with that request (see the reference guide). Prompt CI cell `incident/worker` (new preset: it gates the preset from the next change on).
+- A read-only `release-notes` preset drafts Keep a Changelog notes from the commits between two refs (CHARGEHAND-191), and `chargehand release-notes <repo path> --from <ref> [--to <ref>]` builds its request from local git: the range's first-parent log (at most 200 commits) becomes one input per commit, its id the first 12 hex characters of the hash, and `context.repository` pins the target commit. No forge API, no profile, no network call; no schema change. Every line of the notes is a claim citing its commit (kind `commit`, checked in the checkout) and the commit's input (compared with the line by the support check). The version-bump pull request is not opened here: a driven task can do it with the notes as its goal. Prompt CI cell `release-notes/worker` (new preset: it gates the preset from the next change on).
+- `driven.services.verify` names the command that verifies a repository's branches when the request names none, per `owner/repo`. The verifier has no container engine, so a suite whose tests start their own containers (Testcontainers) failed verification whatever the change; a command can now skip those tests or point them at a test service.
+- `GET /v1/health` answers for any key; `GET /v1/health?deep=1` (owner) also calls the intake model once and answers 503 with the reason when it fails. `scripts/canary.sh` calls it and posts a failure to an ntfy topic: a server whose gateway was retired stayed up for days while every run failed. The compose healthcheck uses the liveness route.
+- `request/v1`'s `contract_version` has a description, so a client that shows only types and descriptions no longer sends a guessed value first.
+- A check gate for driven sessions (ADR 0066): when a session finishes, the driver runs the repository's rules (`.chargehand/checks`, read at the base commit) and the task's acceptance criteria (`driven.tasks[].acceptance`: `command`, `exit_code`, `output`) in the session's container. A failure resumes the session with the command and its output as the next turn, up to `driven.limits.check_retries` (default 2); still failing, the task ends `verification_failed` with its work on a partial draft pull request. The result's `checks` artifact lists each check with passed or not.
+- A goal reminder: a long driven session is re-sent its goal and checks every `driven.limits.goal_reminder_minutes` (default 60, 0 off) or `goal_reminder_turns`, through a `PostToolUse` hook.
+- This repository's own rule: `scripts/check-file-lines.sh` checks the ADR 0060 line budget without a build, and `.chargehand/checks` runs it.
 - Plane intake (ADR 0067, `automation.plane`): a work item moved into a chosen state starts a driven batch of one task. chargehand polls Plane's REST API with an API key, moves the item to a started state, comments the pull request link and moves it to a review (or failed) state when the batch ends. State names, not ids; caps as GitHub intake; state in `intake/plane.json`.
 
 ### Changed
@@ -17,6 +38,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The plugin's MCP server starts on a machine that has both `claude` and `opencode` on `PATH`: its entry names the `claude_code` runtime instead of failing with `runtime_ambiguous`.
+- With no `claude_code` profile block, a Claude Code CLI newer than the adapter's pin (same major) is taken instead of refused with `runtime_version_mismatch`; Claude Code updates itself, so the exact pin broke the zero-config path within days of each CLI release. A profile's `claude_code.version` may now be written `>=2.1.283` for the same rule, and an exact version stays an exact pin.
+- A Claude Code call that exits non-zero names its reason (the CLI's error result, such as a gateway refusing the model id) instead of `claude -p exited 1: ` with nothing after it.
+- Intake is told the request's repository and commit (intake prompt 0.4.0): on Claude Code it runs in the temp directory, and a question that named no path came back `needs_input` asking which repository it meant.
 
 ## [0.9.6] - 2026-10-14
 
@@ -866,7 +891,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.9.6...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Egoushka/chargehand/compare/v0.9.6...v0.10.0
 [0.9.6]: https://github.com/Egoushka/chargehand/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/Egoushka/chargehand/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/Egoushka/chargehand/compare/v0.9.3...v0.9.4
