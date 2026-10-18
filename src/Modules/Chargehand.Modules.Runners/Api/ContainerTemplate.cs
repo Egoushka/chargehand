@@ -22,6 +22,9 @@ public static partial class ContainerTemplate
         "CHARGEHAND_MCP_URL", "CHARGEHAND_RUN_TOKEN", "CHARGEHAND_RUN_ID", "CHARGEHAND_BRANCH", "CHARGEHAND_DRIVEN",
         "CHARGEHAND_REPOSITORY_PATH", "CHARGEHAND_BASE_COMMIT",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_AUTOUPDATER", "DISABLE_TELEMETRY",
+        // A driven session must not lose work waiting on a background command (CLAUDE_CODE_DISABLE_BACKGROUND_TASKS turns run_in_background and
+        // auto-backgrounding-on-timeout off; BASH_DEFAULT_TIMEOUT_MS/BASH_MAX_TIMEOUT_MS raise the foreground timeout to cover a long test run).
+        "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "BASH_DEFAULT_TIMEOUT_MS", "BASH_MAX_TIMEOUT_MS",
         // ADR 0048: where the package managers keep their cache (each only with its fixed value, see EnvFileLines) and the test services of the batch.
         "NUGET_PACKAGES", "npm_config_cache", "PIP_CACHE_DIR", "GRADLE_USER_HOME", "MAVEN_OPTS", ServicesVariable,
     };

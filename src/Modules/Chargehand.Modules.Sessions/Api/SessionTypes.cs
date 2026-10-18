@@ -13,11 +13,14 @@ namespace Chargehand.Modules.Sessions.Api;
 /// starts an older session image.</param>
 /// <param name="Governor">ADR 0045's governor for this session; null or <c>off</c>: none.</param>
 /// <param name="Environment">What the server knows for the session's environment note (ADR 0048); null: the note has the image's facts only.</param>
+/// <param name="BashMaxTimeoutMs">Claude Code's foreground Bash timeout (its own <c>BASH_DEFAULT_TIMEOUT_MS</c> and <c>BASH_MAX_TIMEOUT_MS</c>), so a long test run finishes before the
+/// model is pushed to background it; default: Claude Code's own built-in <c>BASH_MAX_TIMEOUT_MS</c> default.</param>
 public sealed record SessionTask(string RunId, string Goal, string Branch, int MaxTurns, int MaxMinutes, int NoProgressSeconds,
     long? MaxTokens = null, string? Model = null, decimal? MaxUsd = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, ModelPrice>? Prices = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SessionGovernor? Governor = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SessionEnvironment? Environment = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SessionEnvironment? Environment = null,
+    int BashMaxTimeoutMs = 600_000);
 
 /// <summary>How to start Claude Code: the program and arguments that go before its own (a test runs a script as <c>sh script</c>).</summary>
 public sealed record SessionCommand(string File, IReadOnlyList<string> LeadingArgs)
