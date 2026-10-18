@@ -87,6 +87,7 @@ public sealed partial class ReleaseWorkflowTests
         var gate = string.Join('\n', Job("gate"));
         Assert.Contains("*,needs-approval,*) environment=release ;;", gate);
         Assert.Contains("*) environment=release-auto ;;", gate);
+        Assert.Contains("|| { labels=needs-approval;", gate);      // a failed lookup asks for the approval rather than skipping it
         var release = Job("release");
         Assert.Contains("    needs: gate", release);
         Assert.Contains("    environment: ${{ needs.gate.outputs.environment }}", release);

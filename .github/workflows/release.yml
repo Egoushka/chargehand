@@ -22,7 +22,8 @@ permissions:
 
 jobs:
   # The owner asks for an approval by labelling the release pull request needs-approval; without it the release runs
-  # in release-auto, which has no reviewers. A release with no pull request (made by hand) also runs unapproved.
+  # in release-auto, which has no reviewers. A release with no pull request (made by hand) also runs unapproved; one whose
+  # labels cannot be read waits for the approval.
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -36,7 +37,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[].labels[].name] | join(",")' 2>/dev/null) || labels=
+          labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[].labels[].name] | join(",")' 2>/dev/null) || { labels=needs-approval; echo "::warning::could not read the release pull request's labels; asking for the approval"; }
           case ",$labels," in
             *,needs-approval,*) environment=release ;;
             *) environment=release-auto ;;
