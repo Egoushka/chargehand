@@ -338,6 +338,25 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         Assert.NotNull(e.Action);
     }
 
+    [Theory]
+    [InlineData(">=2.1.100")]
+    [InlineData(">=2.1.195")]
+    public async Task A_minimum_pin_takes_that_version_or_a_newer_one_of_its_major(string pin)
+    {
+        var rt = await ClaudeCodeWorkerRuntime.ConnectAsync(FakeClaude(""), pin, new ClaudeCodeCredential("k", false), CancellationToken.None);
+        Assert.Equal("claude-code/2.1.195", rt.Version);
+    }
+
+    [Theory]
+    [InlineData(">=2.1.196")]
+    [InlineData(">=1.0.0")]
+    [InlineData(">=two")]
+    public async Task A_minimum_pin_refuses_an_older_cli_another_major_or_no_version(string pin)
+    {
+        var e = await Assert.ThrowsAsync<ChargehandException>(() => ClaudeCodeWorkerRuntime.ConnectAsync(FakeClaude(""), pin, new ClaudeCodeCredential("k", false), CancellationToken.None));
+        Assert.Equal(ErrorCode.RuntimeVersionMismatch, e.Code);
+    }
+
     [Fact]
     public async Task A_missing_binary_is_runtime_unavailable()
     {

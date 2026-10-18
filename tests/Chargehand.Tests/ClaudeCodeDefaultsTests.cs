@@ -5,7 +5,7 @@ using Chargehand.Runtimes.ClaudeCode.Api;
 
 namespace Chargehand.Tests;
 
-/// <summary>A detected claude CLI runs with no claude_code block (ADR 0026): pinned version, the credential the environment holds.</summary>
+/// <summary>A detected claude CLI runs with no claude_code block (ADR 0026): the pinned version or newer, the credential the environment holds.</summary>
 public class ClaudeCodeDefaultsTests
 {
     [Fact]
@@ -13,7 +13,7 @@ public class ClaudeCodeDefaultsTests
     {
         var cc = ClaudeCodeSettings.Detect(item => item == "anthropic-api-key");
 
-        Assert.Equal(("claude", ClaudeCodeSettings.PinnedVersion, "anthropic-api-key", (string?)null), (cc.Binary, cc.Version, cc.ApiKeySecret, cc.OauthTokenSecret));
+        Assert.Equal(("claude", ClaudeCodeSettings.MinimumVersion, "anthropic-api-key", (string?)null), (cc.Binary, cc.Version, cc.ApiKeySecret, cc.OauthTokenSecret));
     }
 
     [Fact]
@@ -37,6 +37,13 @@ public class ClaudeCodeDefaultsTests
     {
         var cc = ClaudeCodeSettings.Detect(_ => false);
 
-        Assert.Equal(("claude", ClaudeCodeSettings.PinnedVersion, (string?)null, (string?)null), (cc.Binary, cc.Version, cc.ApiKeySecret, cc.OauthTokenSecret));
+        Assert.Equal(("claude", ClaudeCodeSettings.MinimumVersion, (string?)null, (string?)null), (cc.Binary, cc.Version, cc.ApiKeySecret, cc.OauthTokenSecret));
+    }
+
+    [Fact]
+    public void A_detected_cli_takes_the_pin_or_newer()
+    {
+        // Claude Code updates itself; an exact pin with no profile would refuse every CLI within days of a release.
+        Assert.Equal(">=" + ClaudeCodeSettings.PinnedVersion, ClaudeCodeSettings.Detect(_ => false).Version);
     }
 }

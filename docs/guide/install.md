@@ -157,7 +157,7 @@ The runner reaches the engine through `tecnativa/docker-socket-proxy`, pinned by
 | `dubious ownership` or `permission denied` on a checkout | the checkout is not owned by uid 1654: clone it as in step 3, or `chown -R 1654:1654` it |
 | the server restarts in a loop | read `docker compose logs chargehand`: no model credential in `.env`, or an invalid profile |
 | the runner exits at start with a usage line | a missing `CHARGEHAND_RUNNER_KEY`, or a session image given as a tag |
-| `runtime_version_mismatch` | the profile's `claude_code.version` differs from the image's pinned one (2.1.283 in 0.9.6); leave the block out |
+| `runtime_version_mismatch` | the profile's `claude_code.version` differs from the image's CLI: leave the block out (then 2.1.283 or newer of major 2 is taken), or write the version as `>=2.1.283` |
 | a batch ends `container_unavailable` | the engine is unreachable from the runner: `docker compose logs docker-proxy`; check `DOCKER_SOCKET` |
 
 ## What has been checked
