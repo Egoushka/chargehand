@@ -30,6 +30,14 @@ public class PluginManifestTests
     }
 
     [Fact]
+    public void Mcp_entry_names_the_claude_code_runtime()
+    {
+        // Inside Claude Code the claude CLI is on PATH; with opencode beside it, selection by PATH alone refuses to start (ADR 0026).
+        var server = Json("plugins", "chargehand", ".mcp.json").GetProperty("mcpServers").GetProperty("chargehand");
+        Assert.Equal("claude_code", server.GetProperty("env").GetProperty("CHARGEHAND_RUNTIME").GetString());
+    }
+
+    [Fact]
     public void Marketplace_lists_the_plugin_directory()
     {
         var entry = Json(".claude-plugin", "marketplace.json").GetProperty("plugins")[0];

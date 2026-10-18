@@ -49,7 +49,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
     /// <summary>Where the per-turn MCP config directories go: the system temp directory, never a session's checkout.</summary>
     internal string ConfigRoot { get; set; } = Path.GetTempPath();
 
-    /// <summary>Refuses a CLI whose version differs from the pinned one. <c>claude --version</c> prints "2.1.283 (Claude Code)".</summary>
+    /// <summary>Refuses a CLI whose version differs from the pinned one, or for a <c>&gt;=</c> pin is older or of another major. <c>claude --version</c> prints "2.1.283 (Claude Code)".</summary>
     public static async Task<ClaudeCodeWorkerRuntime> ConnectAsync(string binary, string pinnedVersion, ClaudeCodeCredential credential, CancellationToken ct,
         Uri? baseUrl = null, string? customHeaders = null)
     {
@@ -66,7 +66,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         if (run.Exit != 0)
             throw new ChargehandException(ErrorCode.RuntimeUnavailable, $"{binary} --version exited {run.Exit}: {run.Stderr.Trim()}",
                 $"Run {binary} --version by hand and fix what it reports.");
-        if (version != pinnedVersion)
+        if (!Satisfies(version, pinnedVersion))
             throw new ChargehandException(ErrorCode.RuntimeVersionMismatch, $"Claude Code CLI is {version}; this adapter is pinned to {pinnedVersion}.",
                 $"Install Claude Code {pinnedVersion}, or change claude_code.version in the profile.");
         var runtime = new ClaudeCodeWorkerRuntime(binary, credential, version, baseUrl, customHeaders);
@@ -76,6 +76,15 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
                 $"Run {binary} and sign in, or set CLAUDE_CODE_OAUTH_TOKEN (from claude setup-token) or ANTHROPIC_API_KEY.");
         SweepStaleConfigs(runtime.ConfigRoot, TimeSpan.FromDays(1));
         return runtime;
+    }
+
+    /// <summary>An exact pin matches only itself; <c>&gt;=X.Y.Z</c> matches X.Y.Z and newer versions of major X.</summary>
+    internal static bool Satisfies(string version, string pin)
+    {
+        if (!pin.StartsWith(">=", StringComparison.Ordinal))
+            return version == pin;
+        return System.Version.TryParse(pin[2..], out var minimum) && System.Version.TryParse(version, out var actual)
+            && actual.Major == minimum.Major && actual >= minimum;
     }
 
     /// <summary>
@@ -231,10 +240,23 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         var (exit, stdout, stderr) = await Exec(_binary, Path.GetTempPath(),
             [.. CommonArgs(model), "--output-format", "json", "--no-session-persistence", "--tools", "",
                 "--system-prompt", "Follow the instructions in the user message exactly."], prompt, ct, env);
-        var result = exit == 0 && stdout.Length > 0 ? JsonDocument.Parse(stdout).RootElement : default;
+        // A failed call can exit non-zero with its reason only in the stdout result (a gateway's refusal), nothing on stderr.
+        var result = ParseResult(stdout);
         if (result.ValueKind != JsonValueKind.Object || result.GetProperty("is_error").GetBoolean())
             throw new InvalidOperationException($"claude -p exited {exit}: {(result.ValueKind == JsonValueKind.Object ? ErrorText(result) : stderr.Trim())}");
         return result.GetProperty("result").GetString() ?? "";
+    }
+
+    private static JsonElement ParseResult(string stdout)
+    {
+        try
+        {
+            return stdout.Length > 0 ? JsonDocument.Parse(stdout).RootElement : default;
+        }
+        catch (JsonException)
+        {
+            return default;
+        }
     }
 
     private Session Get(string sessionId) =>
