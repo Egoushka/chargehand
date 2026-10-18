@@ -31,6 +31,16 @@
       "min_items": 8
     },
     {
+      "name": "incident/worker",
+      "dataset": "chargehand-incident-worker",
+      "kind": "worker",
+      "preset": "incident",
+      "files": ["prompts/preset/incident.md", "presets/incident.yaml"],
+      "quality_tolerance": 0.10,
+      "cost_tolerance": 0.30,
+      "min_items": 8
+    },
+    {
       "name": "code/writer",
       "dataset": "chargehand-code-writer",
       "kind": "worker",

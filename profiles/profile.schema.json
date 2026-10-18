@@ -616,6 +616,23 @@
         }
       }
     },
+    "preset_services": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+      "description": "Services by preset name (ADR 0034): the MCP servers of mcp_servers whose tools that preset's workers may call. A list here replaces the preset's own services, so a shipped read-only preset such as incident gets this profile's logs, metrics and traces servers without a private copy of the preset file. Explicit tool names only: a glob is allowed, a bare * is not. Workers stay read-only whatever a server offers.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["server", "tools"],
+          "properties": {
+            "server": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "A key of mcp_servers." },
+            "tools": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^(?!\\*+$).+$" } }
+          }
+        }
+      }
+    },
     "prompt_enhancer": {
       "description": "A prompt enhancer (ADR 0040), unset by default: an entry of mcp_servers that lists the tools enhance and feedback (whetstone's contract). A client sends it the prompt and the repository, commit, task kind and client name, shows the rewrite beside the original and sends the original unless the user accepts it; the outcome goes back through feedback. A slow, failing or unreachable enhancer means the original is sent.",
       "type": "object",
