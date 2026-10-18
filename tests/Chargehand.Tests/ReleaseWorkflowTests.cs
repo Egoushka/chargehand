@@ -8,10 +8,10 @@ public sealed partial class ReleaseWorkflowTests
 {
     private static readonly string[] Lines = File.ReadAllLines(Repo.Path(".github", "workflows", "release.yml"));
 
-    /// <summary>The lines of one top-level job.</summary>
+    /// <summary>The lines of one job under <c>jobs:</c> (the <c>on:</c> block above it has keys of the same shape).</summary>
     private static string[] Job(string name)
     {
-        var start = Array.FindIndex(Lines, l => l == $"  {name}:");
+        var start = Array.FindIndex(Lines, Array.IndexOf(Lines, "jobs:") + 1, l => l == $"  {name}:");
         Assert.True(start >= 0, $"no job {name}");
         var end = Array.FindIndex(Lines, start + 1, l => JobStart().IsMatch(l));
         return Lines[start..(end < 0 ? Lines.Length : end)];
@@ -77,5 +77,27 @@ public sealed partial class ReleaseWorkflowTests
     public void The_mcp_registry_job_still_follows_the_release_job()
     {
         Assert.Contains("    needs: release", Job("mcp-registry"));
+    }
+
+    [Fact]
+    public void A_release_published_by_release_please_starts_it_and_the_owner_approves_only_on_request()
+    {
+        Assert.Contains("  release:", Lines.TakeWhile(l => l != "jobs:"));      // on: release (types: [published]), not a tag push
+        Assert.DoesNotContain(Lines, l => l.Contains("tags: ['v*']", StringComparison.Ordinal));
+        var gate = string.Join('\n', Job("gate"));
+        Assert.Contains("*,needs-approval,*) environment=release ;;", gate);
+        Assert.Contains("*) environment=release-auto ;;", gate);
+        var release = Job("release");
+        Assert.Contains("    needs: gate", release);
+        Assert.Contains("    environment: ${{ needs.gate.outputs.environment }}", release);
+        Assert.DoesNotContain(release, l => l.Contains("gh release create", StringComparison.Ordinal));      // release-please made the release
+    }
+
+    [Fact]
+    public void The_pin_job_asks_renovate_once_every_image_is_pushed()
+    {
+        var pin = Job("pin");
+        Assert.Contains("    needs: [release, session-arm64]", pin);
+        Assert.Contains(pin, l => l.Contains("gh workflow run renovate.yml -R Egoushka/engineering-standards -f repository=Egoushka/homelab-gitops", StringComparison.Ordinal));
     }
 }
