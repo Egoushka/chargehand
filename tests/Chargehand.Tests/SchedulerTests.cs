@@ -136,6 +136,8 @@ internal sealed class ScheduleHeads : IRepositoryHeads
     public string? Fail { get; set; }
 
     public Task<string> CurrentCommitAsync(string path, CancellationToken ct) => Fail is null ? Task.FromResult(Commit) : throw new IntakeException(Fail);
+
+    public Task<string> FetchPullHeadAsync(string path, int number, CancellationToken ct) => throw new NotSupportedException("schedules never fetch a pull request");
 }
 
 internal sealed class RecordingStarter(ScheduleLog log) : IBatchStarter
