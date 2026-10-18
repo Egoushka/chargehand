@@ -224,6 +224,23 @@ public sealed class Orchestrator(
             RewriteAccepted: enhanced.Changed ? false : null, CostUsd: ran ? result.Usage.Usd : null, Model: model == "auto" ? null : model), CancellationToken.None);
     }
 
+    /// <summary>One call to the intake model, the cheapest a run makes: whether the runtime, its credential and any gateway answer at all.</summary>
+    public async Task<ModelProbe> ProbeAsync(TimeSpan timeout, CancellationToken ct)
+    {
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        bounded.CancelAfter(timeout);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            await runtime.GenerateAsync(ParseModel(profile.IntakeModel), "Reply with the single word ok.", bounded.Token);
+            return new ModelProbe(true, profile.IntakeModel ?? "auto", sw.ElapsedMilliseconds, null);
+        }
+        catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            return new ModelProbe(false, profile.IntakeModel ?? "auto", sw.ElapsedMilliseconds, e is OperationCanceledException ? $"no answer within {timeout.TotalSeconds:0} s" : e.Message);
+        }
+    }
+
     /// <summary>The support check a driven task's claims go through, or null when the profile has it off.</summary>
     /// <param name="actor">The account whose batch it is: the check's model calls go on that account's credential (ADR 0053).</param>
     public Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? DrivenSupportCheck(string? actor) =>
@@ -673,3 +690,6 @@ public sealed class Orchestrator(
         return new ModelRef(model[..slash], hash < 0 ? model[(slash + 1)..] : model[(slash + 1)..hash], hash < 0 ? null : model[(hash + 1)..]);
     }
 }
+
+/// <summary>What <see cref="Orchestrator.ProbeAsync"/> found: the model answered or why not, and how long it took.</summary>
+public sealed record ModelProbe(bool Ok, string Model, long Milliseconds, string? Error);

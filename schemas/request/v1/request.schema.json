@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": ["contract_version", "text", "context"],
   "properties": {
-    "contract_version": { "const": "request/v1" },
+    "contract_version": { "const": "request/v1", "description": "Always the string \"request/v1\"." },
     "text": { "type": "string", "minLength": 1, "description": "The request in natural language." },
     "context": {
       "type": "object",

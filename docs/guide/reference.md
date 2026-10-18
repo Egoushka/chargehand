@@ -49,6 +49,7 @@ Any other command prints the usage and exits 2. `eval` and `prompts sync` need t
 | `GET /v1/runs` | run summaries, newest first, filtered by `status` and `since`; [Run the HTTP server](server.md#routes) |
 | `POST /v1/runs/{id}/cancel`, `POST /v1/halt`, `POST /v1/resume` | cancel one run, cancel every run and refuse new ones, and lift that; a cancelled run ends `failed` with `cancelled` ([driven sessions](driven.md#limits-and-the-kill-switch)) |
 | `GET /v1/runs/{id}/events` | server-sent events `accepted`, `started`, `intake`, `node_started`, `node_finished`, `run_finished`; a driven batch adds `container_started`, `session_progress`, `verify_finished`, `pushed`, `pr_opened`, `task_finished`, `governor`, `integrated`, `question`, `plan` ([driven guide](driven.md#watching-a-batch)) |
+| `GET /v1/health` | `{status, version, halted}` for any key. `?deep=1` (owner): also calls the intake model once (60 s bound) and adds `probe` `{ok, model, milliseconds, error}`; `503` when it fails. `scripts/canary.sh` calls it and can post a failure to ntfy |
 | `GET /v1/accounts/me`, `GET /v1/learn` | the caller's own caps and spend; what finished driven tasks taught ([Run the HTTP server](server.md#routes)) |
 | `GET /v1/overview` | `overview/v1`: server, runner and host health, session slots, rate-limit pause, the caller's spend against its caps, inbox counts |
 | `GET /v1/inbox` | `inbox/v1`: task questions with the request that answers them, pull requests waiting for a person, failures |
