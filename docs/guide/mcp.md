@@ -1,6 +1,6 @@
 ---
 title: "Use it from an MCP client"
-description: "The orchestrate tool over stdio or Streamable HTTP: setup from a checkout, tasks, intake's questions, and the run id before a client timeout."
+description: "The orchestrate and result tools over stdio or Streamable HTTP: setup from a checkout, tasks, intake's questions, and the run id before a client timeout."
 order: 3
 section: "Guides"
 ---
@@ -71,7 +71,9 @@ A call that carries a progress token gets one progress notification when the run
 chargehand run <run-id> started; GET /v1/runs/<run-id> or `chargehand show <run-id>` reads its result
 ```
 
-When the HTTP request of an MCP call carries `Prefer: wait=N` (N at most 60) and the run has not finished after N seconds, the call returns a tool error. Its first text block names the run and its routes; its second is the run's latest `run-status/v1`. The run goes on, and resending the request would start a second run. Without the header the call waits for the result, except a request with a `driven` block (a batch runs for minutes or hours, and a client cannot set the header per call): it waits 10 s, then answers as if the header said `wait=10`. Over stdio there is no HTTP request, so no header.
+When the HTTP request of an MCP call carries `Prefer: wait=N` (N at most 60) and the run has not finished after N seconds, the call returns a tool error. Its first text block names the run and its routes; its second is the run's latest `run-status/v1`. The run goes on, and resending the request would start a second run. Without the header a request with a `driven` block (a batch runs for minutes or hours, and a client cannot set the header per call) waits 10 s, then answers as if the header said `wait=10`; any other call over HTTP waits 50 s, under the 60 s after which Claude Code gives up on a call ([ADR 0065](../adr/0065-mcp-default-wait-and-a-result-tool.md)). Over stdio there is no HTTP request: the call waits for the result.
+
+The second tool, `result`, reads such a run: call it with `{"run_id": "<run-id>"}`. It waits up to 50 s as well, then returns `result/v1`, or again the tool error with `run-status/v1` while the run goes on, so call it until the result comes. It reads the runs `GET /v1/runs/{id}` would let the caller read.
 
 ## From the package
 

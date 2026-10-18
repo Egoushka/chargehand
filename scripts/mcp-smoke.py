@@ -4,7 +4,7 @@
 Usage: scripts/mcp-smoke.py <dir-with-nupkg>
 Runs `dotnet dnx Chargehand@<Version> --source <dir> -- mcp` from an empty directory, with packages restored into a
 throwaway NUGET_PACKAGES, CHARGEHAND_RUNTIME=claude_code, a dummy token and a fake `claude` that only answers
---version. Sends initialize and tools/list over stdio and expects the orchestrate tool. No model is called.
+--version. Sends initialize and tools/list over stdio and expects the orchestrate and result tools. No model is called.
 Also checks that the packed .mcp/server.json carries the version from Directory.Build.props.
 """
 import json, os, re, subprocess, sys, tempfile, zipfile
@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory() as tmp:
     send({'jsonrpc': '2.0', 'method': 'notifications/initialized'})
     send({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})
     tools = [t['name'] for t in reply(2)['tools']]
-    assert tools == ['orchestrate'], f'tools {tools}'
+    assert sorted(tools) == ['orchestrate', 'result'], f'tools {tools}'
     proc.stdin.close()
     assert proc.wait(timeout=30) == 0, f'chargehand mcp exited {proc.returncode}'
 

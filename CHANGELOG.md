@@ -9,7 +9,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- `driven.services.verify` names the command that verifies a repository's branches when the request names none, per `owner/repo`. The verifier has no container engine, so a suite whose tests start their own containers (Testcontainers) failed verification whatever the change; a command can now skip those tests or point them at a test service.
+### Changed
+
+- Over HTTP an MCP `orchestrate` call without `Prefer: wait=N` returns the run id after 50 s instead of waiting for the result: Claude Code ends a call after about 60 s, and the caller got neither the result nor the id. Collect the result with the `result` tool. Over stdio a call still waits for its result.
 
 ### Fixed
 

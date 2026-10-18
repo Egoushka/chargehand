@@ -138,7 +138,9 @@ MCP clients that opt in to the tasks extension get long runs as tasks. When inta
 comes back as `input_required`. Outside a task, a call with a progress token gets the run id as a progress
 notification when the run starts, and a call whose HTTP request carries `Prefer: wait=N` (at most 60) returns after N
 seconds as a tool error holding the run id and its `run-status/v1`, while the run goes on
-([ADR 0029](docs/adr/0029-mcp-run-id-before-a-client-timeout.md)).
+([ADR 0029](docs/adr/0029-mcp-run-id-before-a-client-timeout.md)). Without the header a call over HTTP returns that way
+after 50 s, and the `result` tool reads the run's result by its id
+([ADR 0065](docs/adr/0065-mcp-default-wait-and-a-result-tool.md)).
 
 `chargehand mcp` serves the same tool, tasks and questions over stdio: the client starts the process, and stdout
 carries only MCP messages, logs go to stderr ([ADR 0027](docs/adr/0027-dnx-package-and-mcp-registry.md)). For
