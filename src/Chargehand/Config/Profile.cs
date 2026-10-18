@@ -53,7 +53,8 @@ public sealed record Profile(
     PromptEnhancerSettings? PromptEnhancer = null,
     int MaxParallelNodes = 2,
     AutomationSettings? Automation = null,
-    IReadOnlyDictionary<string, IReadOnlyList<ServiceUse>>? PresetServices = null)
+    IReadOnlyDictionary<string, IReadOnlyList<ServiceUse>>? PresetServices = null,
+    DeliverySettings? Delivery = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
@@ -128,8 +129,13 @@ public sealed record Profile(
         profile.Driven?.Forge?.Validate();
         profile.Driven?.ValidateRunners();
         profile.Automation?.Validate(profile.Driven?.Enabled == true, profile.Driven?.Integrator);
+        profile.Delivery?.Validate(profile.Automation);
         return profile;
     }
+
+    /// <summary>Which repositories are local-only (ADR 0069); none when the profile has no <c>delivery</c> block.</summary>
+    [JsonIgnore]
+    public DeliveryPolicy DeliveryPolicy => new(Delivery?.LocalOnly);
 
     /// <summary>The provider segment of the placeholder models presets name (e.g. provider/worker-model).</summary>
     public const string PlaceholderProvider = "provider/";
@@ -364,5 +370,26 @@ public sealed record PromptEnhancerSettings(string Server, int? DeadlineMs = nul
         if (EffectiveDeadlineMs is < MinDeadlineMs or > MaxDeadlineMs)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"prompt_enhancer.deadline_ms must be {MinDeadlineMs} to {MaxDeadlineMs}",
                 "Fix deadline_ms in the profile.");
+    }
+}
+
+/// <summary>ADR 0069. Repositories under these directories are always delivered locally: nothing is pushed, no pull request is opened, no forge is called, and a request that asks to push is refused.</summary>
+/// <param name="LocalOnly">Directories, absolute or starting with <c>~/</c>; <c>/</c> makes every repository on the server local-only.</param>
+public sealed record DeliverySettings(IReadOnlyList<string>? LocalOnly = null)
+{
+    /// <summary>A root must be absolute or start with <c>~/</c>, and no watched repository of the intake may sit under one: intake reads the forge and starts pushing batches.</summary>
+    internal void Validate(AutomationSettings? automation)
+    {
+        var roots = LocalOnly ?? [];
+        if (roots.FirstOrDefault(r => string.IsNullOrWhiteSpace(r) || !(Path.IsPathRooted(r) || r.StartsWith("~/", StringComparison.Ordinal))) is { } bad)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"delivery.local_only: '{bad}' must be an absolute directory or start with ~/",
+                "Fix delivery.local_only in the profile; docs/guide/reference.md lists the fields.");
+        var policy = new DeliveryPolicy(roots);
+        var watched = (automation?.Github?.Repositories?.Select(r => ("automation.github.repositories", r.Key, r.Value.Path)) ?? [])
+            .Concat(automation?.Plane?.Projects?.Select(r => ("automation.plane.projects", r.Key, r.Value.Path)) ?? []);
+        foreach (var (section, name, path) in watched)
+            if (policy.Forced(path))
+                throw new ChargehandException(ErrorCode.InvalidRequest, $"{section}.{name}.path is under delivery.local_only: intake reads a forge and starts batches that push",
+                    $"Remove {name} from {section}, or take its checkout out of delivery.local_only.");
     }
 }

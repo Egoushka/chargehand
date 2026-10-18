@@ -7,6 +7,8 @@ section: "Guides"
 
 Driven sessions ([ADR 0039](../adr/0039-driven-writing-sessions.md)) run a list of tasks as headless Claude Code sessions, one container each, following the [`change` skill](change.md), and end each in a pushed branch `chargehand/<run>` and a **draft** pull request. By default chargehand never merges and never enables auto-merge; on the repositories the profile opts in ([ADR 0046](../adr/0046-integrator-and-ci-fixer.md), "Merging by policy" below) it marks the pull request ready and merges it only through the repository's own required checks. **Status: a request with a `driven` block runs the batch, and `scripts/driven-e2e.sh` has run it with a real model on synthetic repositories and on a real TypeScript-on-Node repository; it is deployed on one VPS and has run there once, to a draft pull request; on the subscription the real model credential stays in the batch's egress container and a session holds a per-task token** (see "The model credential"). Keep `driven.enabled` false in a shared profile.
 
+Driven sessions push and open pull requests, so a batch for a local-only repository (`delivery.local_only` or `context.delivery: "local"`) is refused with `local_only` before any credential is read ([Local delivery](writing.md#local-delivery)).
+
 ## How a task is isolated
 
 - **One container per task**, started from one fixed template ([`ContainerTemplate`](../../src/Modules/Chargehand.Modules.Runners/Api/ContainerTemplate.cs)): non-root, read-only root filesystem, no capabilities, `no-new-privileges`, memory, CPU and process limits, one internal network, two named volumes, no Docker socket, no host mount. No value in a request can add a flag, a mount, a network mode or a capability.

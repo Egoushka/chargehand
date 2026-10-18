@@ -73,6 +73,7 @@
         "chargehand",
         "example"
       ],
+      "local_ok": false,
       "effective_namespace": "notes",
       "limits": {
         "max_facts": 5,
@@ -236,6 +237,7 @@
       }
     ]
   },
+  "delivery": null,
   "roots": [
     "/srv/chargehand/work"
   ],

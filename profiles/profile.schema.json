@@ -139,6 +139,14 @@
         "env": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Names of environment variables passed to the command besides PATH, LANG, LC_ALL and TERM." }
       }
     },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where a run's output may go (ADR 0069).",
+      "properties": {
+        "local_only": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Directories, absolute or starting with ~/. A repository under one is always delivered locally: a writing run leaves a local branch in the repository, nothing is pushed, no pull request is opened, no forge is called, and a request that says push is refused with local_only. \"/\" makes the whole server local-only. Intake may not watch a repository under one." }
+      }
+    },
     "driven": {
       "type": "object",
       "additionalProperties": false,
@@ -748,7 +756,8 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "description": "Tags of a retained item (default [\"chargehand\"])."
-        }
+        },
+        "local_ok": { "type": "boolean", "default": false, "description": "A run with local delivery (ADR 0069) may recall from and retain into this provider; false: it is skipped for such a run. Mark only a store that may hold the repository's content." }
       },
       "if": {
         "required": ["retain"],

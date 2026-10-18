@@ -10,7 +10,9 @@ public sealed record RunRequest(
     RequestDriven? Driven = null);
 
 /// <param name="Approved">Runs a request the preset would otherwise stop for approval (preset approval thresholds).</param>
-public sealed record RequestContext(bool Interactive, string Preset, decimal? BudgetUsd = null, RepositoryRef? Repository = null, bool? Approved = null, IReadOnlyList<string>? Verify = null);
+/// <param name="Delivery"><c>local</c>: the run's output stays on the machine (ADR 0069); <c>push</c>: as before; null: the profile decides, else <c>push</c>.</param>
+public sealed record RequestContext(bool Interactive, string Preset, decimal? BudgetUsd = null, RepositoryRef? Repository = null, bool? Approved = null, IReadOnlyList<string>? Verify = null,
+    string? Delivery = null);
 
 public sealed record RepositoryRef(string Path, string Commit);
 

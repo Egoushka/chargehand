@@ -128,6 +128,7 @@
       "timeout_seconds": null,
       "retain": false,
       "retain_tags": null,
+      "local_ok": false,
       "effective_namespace": "chargehand",
       "limits": {
         "max_facts": 10,
@@ -186,6 +187,7 @@
       "timeout_seconds": null,
       "retain": false,
       "retain_tags": null,
+      "local_ok": false,
       "effective_namespace": "chronicle",
       "limits": {
         "max_facts": 10,
@@ -252,6 +254,7 @@
   "max_parallel_nodes": 2,
   "automation": null,
   "preset_services": null,
+  "delivery": null,
   "roots": [
     "/srv/chargehand/work",
     "/path/to/your/repositories"

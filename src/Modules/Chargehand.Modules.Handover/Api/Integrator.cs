@@ -7,7 +7,8 @@ namespace Chargehand.Modules.Handover.Api;
 /// <param name="Partial">The pull request holds unfinished work (ADR 0044): it stays a draft and is never merged.</param>
 /// <param name="TaskGoal">The task's goal, for the goal of a fix session.</param>
 /// <param name="TestIntegrity">Why the change only edits tests or build files for a goal that did not ask for that (<see cref="TestIntegrityFlag.Reason"/>); the pull request is then never merged, whatever the policy.</param>
-public sealed record IntegrationTarget(RemoteRepository Repository, int Number, string Branch, bool Partial, string TaskGoal, string? TestIntegrity = null);
+/// <param name="LocalOnly">The repository is local-only (ADR 0069): the integrator and the CI fixer do nothing and call no forge.</param>
+public sealed record IntegrationTarget(RemoteRepository Repository, int Number, string Branch, bool Partial, string TaskGoal, string? TestIntegrity = null, bool LocalOnly = false);
 
 public enum IntegrationAction { None, Asked, AutoMergeEnabled, Merged, NeedsAttention, Failed }
 
@@ -76,6 +77,8 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
     /// <paramref name="headMoved"/> gets the new head when chargehand's own branch update moved it, so the learning record knows the commits on the branch are still chargehand's (ADR 0045).</summary>
     public async Task<IntegrationResult> IntegrateAsync(IntegrationTarget target, Action<string> report, CancellationToken ct, Action<string>? headMoved = null)
     {
+        if (target.LocalOnly)
+            return new(IntegrationAction.None, "the repository is local-only: the forge is not called");
         var mode = ModeFor(target);
         if (mode == IntegrationMode.Off)
             return new(IntegrationAction.None, "this repository is not opted in to integration");
@@ -168,6 +171,8 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
     /// at most <see cref="DrivenCiFix.Attempts"/> times per pull request and never twice for the same failing jobs (<see cref="CiFixPolicy"/>); the count is read from the pull request's own comments.</summary>
     public async Task<IntegrationResult> FollowAsync(IntegrationTarget target, CiFixSession fix, Action<string> report, CancellationToken ct, Action<string>? headMoved = null, IntegrationWatch? watch = null)
     {
+        if (target.LocalOnly)
+            return new(IntegrationAction.None, "the repository is local-only: the forge is not called");
         var mode = ModeFor(target);
         if (mode == IntegrationMode.Off || target.Partial)
             return new(IntegrationAction.None, "not watched");

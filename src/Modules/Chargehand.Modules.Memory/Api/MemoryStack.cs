@@ -17,7 +17,7 @@ public sealed record MemoryLimits(int MaxFacts = 10, int MaxChars = 4000, TimeSp
 
 /// <summary>One memory the stack asks: a named provider, where in it to look, its limits, and whether a run writes to it.</summary>
 /// <param name="RetainTags">Tags a retained item carries in this source; null keeps the item's own.</param>
-public sealed record MemorySource(string Name, IMemoryProvider Provider, MemoryScope Scope, MemoryLimits Limits, bool Retain = false, IReadOnlyList<string>? RetainTags = null);
+public sealed record MemorySource(string Name, IMemoryProvider Provider, MemoryScope Scope, MemoryLimits Limits, bool Retain = false, IReadOnlyList<string>? RetainTags = null, bool LocalOk = false);
 
 /// <param name="Items">What passed the source's limits, as one line each and cut at the fact cap, before facts another source already returned are dropped.</param>
 /// <param name="SkippedReason">Why the source contributed nothing (failed, timed out); null when it answered.</param>
@@ -43,6 +43,9 @@ public sealed partial class MemoryStack(IReadOnlyList<MemorySource> sources)
     private const int MaxReasonLength = 200;
 
     public IReadOnlyList<MemorySource> Sources => sources;
+
+    /// <summary>The stack a local-delivery run uses (ADR 0069): only the sources the profile cleared with <c>local_ok</c>, for recall and for retain alike. Null: none is cleared, so the run uses no memory.</summary>
+    public MemoryStack? LocalOnly() => sources.Where(s => s.LocalOk).ToList() is { Count: > 0 } cleared ? new MemoryStack(cleared) : null;
 
     /// <summary>Asks every source at once, then merges in list order: one line per fact, labelled with the names of the sources that returned it.</summary>
     public async Task<RecallOutcome> RecallAsync(string query, CancellationToken ct)

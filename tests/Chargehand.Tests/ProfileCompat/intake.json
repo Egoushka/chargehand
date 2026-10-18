@@ -118,6 +118,7 @@
     "plane": null
   },
   "preset_services": null,
+  "delivery": null,
   "roots": [
     "/var/tmp/chargehand/work"
   ],

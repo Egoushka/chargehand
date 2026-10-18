@@ -56,6 +56,8 @@ public enum ErrorCode
     Cancelled,
     TasksIncomplete,
     MergeConflict,
+    LocalOnly,
+    DeliveryFailed,
 }
 
 /// <param name="Support">Whether the text the claim cites supports it, as a model judged (ADR 0036); null when no check ran.</param>
