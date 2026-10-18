@@ -194,13 +194,14 @@ public static partial class ContainerTemplate
     public static IReadOnlyList<string> EgressEnvLines(ModelGatewaySpec gateway) =>
         [$"{Chargehand.Modules.Gateway.Api.EgressCli.CredentialVariable}={gateway.Credential}", $"{Chargehand.Modules.Gateway.Api.EgressCli.KeyVariable}={gateway.TokenKey}"];
 
-    /// <summary>The env file's lines, <c>NAME=value</c>, in name order. Refuses a name outside <see cref="AllowedEnv"/> and a value
-    /// with a line break or NUL (which would add a second variable).</summary>
-    public static IReadOnlyList<string> EnvFileLines(IReadOnlyDictionary<string, string> env)
+    /// <summary>The env file's lines, <c>NAME=value</c>, in name order. Refuses a name outside <see cref="AllowedEnv"/> and <paramref name="extraAllowed"/>
+    /// (the batch's declared <c>session_env</c> names, not a widening of <see cref="AllowedEnv"/> itself) and a value with a line break or NUL (which would
+    /// add a second variable).</summary>
+    public static IReadOnlyList<string> EnvFileLines(IReadOnlyDictionary<string, string> env, IReadOnlyCollection<string>? extraAllowed = null)
     {
         foreach (var (name, value) in env)
         {
-            if (!AllowedEnv.Contains(name))
+            if (!AllowedEnv.Contains(name) && extraAllowed?.Contains(name) != true)
                 throw new ArgumentException($"environment name '{name}' is not one a session container may get", nameof(env));
             if (value.Contains('\n') || value.Contains('\r') || value.Contains('\0'))
                 throw new ArgumentException($"environment value of '{name}' has a line break or NUL", nameof(env));

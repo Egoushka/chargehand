@@ -35,7 +35,7 @@ public sealed class ContainerVerifier(IContainerEngine engine, IWorkspaceEngine 
         var spec = new ContainerSpec(run, settings.Image, RunnerNames.Work(run), RunnerNames.Out(run), settings.Network, env,
             settings.MemoryMb, settings.Cpus, settings.Pids,
             ["verify-branch", "--bundle", "/out/chargehand.bundle", "--branch", verification.Branch, "--timeout-seconds", ((int)Math.Ceiling(verification.Timeout.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture), "--", .. verification.Argv],
-            Caches: settings.Shared?.Caches is { Count: > 0 } caches ? caches : null);
+            Caches: settings.Shared?.Caches is { Count: > 0 } caches ? caches : null, AllowedExtraEnv: settings.Shared?.SessionEnvNames);
         var id = await engine.StartAsync(spec, ct);
         var started = Stopwatch.StartNew();
         try

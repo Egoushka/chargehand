@@ -89,6 +89,23 @@ public class ContainerVerifierTests
     }
 
     [Fact]
+    public async Task With_session_env_the_verification_container_gets_it_and_the_allowlist_accepts_only_the_declared_name()
+    {
+        var engine = new FakeEngine { Logs = Line(0) + "\n" };
+        var postgres = new ServiceSpec("b1", "postgres", "docker.io/library/postgres@sha256:4444444444444444444444444444444444444444444444444444444444444444", "chargehand-net-b1", 5432,
+            new Dictionary<string, string>(), []);
+        var settings = new ContainerVerifierSettings(Image, "/srv/checkouts/repo-abc1234", "abc1234def", "chargehand-net-b1", "http://run1:x@chargehand-egress-b1:3128", 4096, 2, 512,
+            new SharedServicesPlan([], [postgres], [], null, null, SessionEnv: new Dictionary<string, string> { ["SWITCHKNIFE_POSTGRES"] = "Host=postgres;Port=5432" }));
+        await new ContainerVerifier(engine, engine, settings, TimeSpan.FromMilliseconds(5)).VerifyAsync(Request(), default);
+
+        var spec = engine.Started!;
+        Assert.Equal("Host=postgres;Port=5432", spec.Env["SWITCHKNIFE_POSTGRES"]);
+        Assert.Equal(["SWITCHKNIFE_POSTGRES"], spec.AllowedExtraEnv);
+        _ = ContainerTemplate.EnvFileLines(spec.Env, spec.AllowedExtraEnv);
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.EnvFileLines(new Dictionary<string, string> { ["UNDECLARED"] = "x" }, spec.AllowedExtraEnv));
+    }
+
+    [Fact]
     public async Task A_failing_test_is_its_exit_code_and_output_tail()
     {
         var engine = new FakeEngine { Logs = Line(1, "2 failed") };

@@ -52,8 +52,53 @@ public class DrivenSharedServicesTests
     public void Settings_that_can_work_pass()
     {
         var services = new DrivenSharedServices(["nuget"], new Dictionary<string, string> { ["gradle"] = Pinned },
-            new Dictionary<string, IReadOnlyList<DrivenTestService>> { ["o/r"] = [new("postgres", Postgres, 5432)] });
+            new Dictionary<string, IReadOnlyList<DrivenTestService>>
+            {
+                ["o/r"] = [new("postgres", Postgres, 5432, SessionEnv: new Dictionary<string, string> { ["SWITCHKNIFE_POSTGRES"] = "Host=postgres;Port=5432" })],
+            });
         services.Validate([Pinned]);
+    }
+
+    [Fact]
+    public void Session_env_problems_are_named_in_order()
+    {
+        var services = new DrivenSharedServices(Repositories: new Dictionary<string, IReadOnlyList<DrivenTestService>>
+        {
+            ["o/r"] = [new("postgres", Postgres, 5432, SessionEnv: new Dictionary<string, string>
+            {
+                ["bad_name"] = "x",
+                ["PATH"] = "y",
+                ["CHARGEHAND_FOO"] = "z",
+                ["GOOD_NAME"] = "a\nb",
+                ["ALSO_GOOD"] = "{secret:item}",
+            })],
+        });
+
+        var e = Assert.Throws<ChargehandException>(() => services.Validate(null));
+
+        Assert.Equal(ErrorCode.InvalidRequest, e.Code);
+        Assert.Equal("driven.services: repositories.o/r.postgres: session_env name 'bad_name' must be upper case letters, digits and underscores, starting with a letter; "
+            + "repositories.o/r.postgres: session_env name 'PATH' is one chargehand already sets or reserves; "
+            + "repositories.o/r.postgres: session_env name 'CHARGEHAND_FOO' is one chargehand already sets or reserves; "
+            + "repositories.o/r.postgres: session_env value of 'GOOD_NAME' has a line break or NUL; "
+            + "repositories.o/r.postgres: session_env value of 'ALSO_GOOD' must not reference the secret store ({secret:...}): it is set as written, and must not be a real secret", e.Message);
+    }
+
+    [Fact]
+    public void Two_services_may_not_set_the_same_session_env_name()
+    {
+        var services = new DrivenSharedServices(Repositories: new Dictionary<string, IReadOnlyList<DrivenTestService>>
+        {
+            ["o/r"] =
+            [
+                new("postgres", Postgres, 5432, SessionEnv: new Dictionary<string, string> { ["DUP"] = "a" }),
+                new("redis", Postgres, 6379, SessionEnv: new Dictionary<string, string> { ["DUP"] = "b" }),
+            ],
+        });
+
+        var e = Assert.Throws<ChargehandException>(() => services.Validate(null));
+
+        Assert.Equal("driven.services: repositories.o/r: session_env name 'DUP' is set by more than one service", e.Message);
     }
 
     [Fact]
@@ -62,7 +107,7 @@ public class DrivenSharedServicesTests
         const string json = """
             {"caches":["nuget"],"images":{"gradle":"jdk"},"unknown":1,
              // a comment
-             "repositories":{"o/r":[{"name":"postgres","image":"pg","port":5432,"env":{"A":"b"},"tmpfs":["/d"],"note":"n","memory_mb":256}]}}
+             "repositories":{"o/r":[{"name":"postgres","image":"pg","port":5432,"env":{"A":"b"},"tmpfs":["/d"],"note":"n","memory_mb":256,"session_env":{"S":"v"}}]}}
             """;
         var options = new JsonSerializerOptions
         {

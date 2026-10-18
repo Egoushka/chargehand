@@ -249,13 +249,16 @@ The request is refused as `invalid_request` before anything starts when the earl
     "owner/repo": [
       { "name": "postgres", "image": "docker.io/library/postgres@sha256:<digest>", "port": 5432,
         "env": { "POSTGRES_PASSWORD": "test", "POSTGRES_DB": "app" }, "tmpfs": ["/var/lib/postgresql/data"],
-        "note": "user postgres, password test, database app" }
+        "note": "user postgres, password test, database app",
+        "session_env": { "SWITCHKNIFE_POSTGRES": "Host=postgres;Port=5432;Username=postgres;Password=test" } }
     ]
   }
 }
 ```
 
 `env` holds test values for a container with no route out, never a real secret. The runner starts only images on its `--service-images`. A service may take a few seconds before it accepts connections (the note tells the session to retry); tasks of one repository in a batch share its services, so tests that need isolation use their own database names.
+
+**`session_env`** sets variables in the repository's session containers and in its verify run, next to `CHARGEHAND_SERVICES`, so a test fixture reads a connection string instead of parsing `name:port` itself. A name is upper case letters, digits and underscores, starting with a letter, and may not be one chargehand already sets or reserves (its own `CHARGEHAND_*` variables, `PATH`, `HOME`, the proxy variables, or a package manager's cache variable) or be set by two services of the same repository. A value is a plain string: test-only, never a real secret, and never `{secret:...}` (the profile's secret-store syntax), because `session_env` values are set as written, with no resolution step.
 
 **A JDK image by ecosystem** (`driven.services.images`, `{"gradle": "<digest>", "maven": "<digest>"}`). A repository whose top level has that ecosystem gets that image for its sessions and its verification; the value must also be in `driven.images`. `images/session-jdk/Dockerfile` builds `FROM` the session image and adds a JDK, Gradle (checksum-verified) and Maven; the release workflow pushes it as `chargehand-session-jdk`. By hand: `docker build -f images/session-jdk/Dockerfile --build-arg BASE=<session image by digest> -t chargehand-session-jdk .`. It makes JVM Gradle and Maven repositories verifiable; it has no Android SDK. The Gradle and Maven package hosts are not in the driven preset's allowlist: add them under `driven.network.allow` (`chargehand init` lists them).
 

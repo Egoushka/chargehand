@@ -393,6 +393,33 @@ public class SharedServicesTests
         Assert.Equal("postgres=postgres:5432", verifier.Environment()[ContainerTemplate.ServicesVariable]);
     }
 
+    private static DrivenSharedServices SharedWithSessionEnv() => new(
+        Repositories: new Dictionary<string, IReadOnlyList<DrivenTestService>>
+        {
+            ["O/R"] = [new DrivenTestService("postgres", PostgresImage, 5432, new Dictionary<string, string> { ["POSTGRES_PASSWORD"] = "test" },
+                SessionEnv: new Dictionary<string, string> { ["SWITCHKNIFE_POSTGRES"] = "Host=postgres;Port=5432;Username=postgres;Password=test" })],
+        });
+
+    [Fact]
+    public async Task A_services_session_env_reaches_the_session_container_next_to_chargehand_services_and_the_allowlist_accepts_only_the_declared_name()
+    {
+        using var rig = new BatchRig(SharedWithSessionEnv(), "App.csproj");
+        var result = await rig.RunAsync();
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        var session = Assert.Single(rig.Engine.Started);
+        Assert.Equal("Host=postgres;Port=5432;Username=postgres;Password=test", session.Env["SWITCHKNIFE_POSTGRES"]);
+        Assert.Equal("postgres=postgres:5432", session.Env["CHARGEHAND_SERVICES"]);
+        Assert.Equal(["SWITCHKNIFE_POSTGRES"], session.AllowedExtraEnv);
+        ContainerTemplate.RunArgs(session, "/dev/null"); // every value passes the template's checks
+        _ = ContainerTemplate.EnvFileLines(session.Env, session.AllowedExtraEnv);
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.EnvFileLines(session.Env, extraAllowed: null));
+
+        var verifier = Assert.Single(rig.Verifiers).Shared!;
+        Assert.Equal("Host=postgres;Port=5432;Username=postgres;Password=test", verifier.Environment()["SWITCHKNIFE_POSTGRES"]);
+        Assert.Equal(["SWITCHKNIFE_POSTGRES"], verifier.SessionEnvNames);
+    }
+
     [Fact]
     public async Task The_session_is_told_the_repositorys_ecosystems_the_command_that_will_judge_it_and_where_the_caches_and_services_are()
     {

@@ -20,7 +20,8 @@ public sealed class RunnerClient(HttpClient http, long maxDownloadBytes = Docker
     public async Task<string> StartAsync(ContainerSpec spec, CancellationToken ct)
     {
         var body = new RunnerStart(spec.RunId, spec.ImageDigest, spec.WorkVolume, spec.OutVolume, spec.Network, new Dictionary<string, string>(spec.Env),
-            spec.MemoryMb, spec.Cpus, spec.Pids, [.. spec.Command], spec.Caches is { Count: > 0 } caches ? [.. caches] : null);
+            spec.MemoryMb, spec.Cpus, spec.Pids, [.. spec.Command], spec.Caches is { Count: > 0 } caches ? [.. caches] : null,
+            spec.AllowedExtraEnv is { Count: > 0 } extra ? [.. extra] : null);
         return (await Send(HttpMethod.Post, "/start", Json(body, RunnerJsonContext.Default.RunnerStart), RunnerJsonContext.Default.IdReply, ct)).Id;
     }
 

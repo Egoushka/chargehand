@@ -1,0 +1,15 @@
+{
+  "schema": "profile/v1",
+  "driven": {
+    "enabled": true,
+    "services": {
+      "repositories": {
+        "o/r": [
+          { "name": "postgres", "image": "docker.io/library/postgres@sha256:4444444444444444444444444444444444444444444444444444444444444444", "port": 5432,
+            "env": { "POSTGRES_PASSWORD": "test" }, "tmpfs": ["/var/lib/postgresql/data"], "note": "user postgres, password test, database app",
+            "session_env": { "SWITCHKNIFE_POSTGRES": "Host=postgres;Port=5432;Username=postgres;Password=test" } }
+        ]
+      }
+    }
+  }
+}

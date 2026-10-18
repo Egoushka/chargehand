@@ -31,6 +31,7 @@ public class ProfileCompatTests
     [InlineData("tests/Chargehand.Tests/ProfileCompat/inputs/intake.json")]
     [InlineData("tests/Chargehand.Tests/ProfileCompat/inputs/runners.json")]
     [InlineData("tests/Chargehand.Tests/ProfileCompat/inputs/runner.json")]
+    [InlineData("tests/Chargehand.Tests/ProfileCompat/inputs/services.json")]
     public void A_profile_loads_as_its_snapshot(string profile)
     {
         var settings = Profile.Load(Repo.Path(profile.Split('/')));

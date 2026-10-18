@@ -1,0 +1,74 @@
+{
+  "schema": "profile/v1",
+  "opencode": null,
+  "worker_root": "/var/tmp/chargehand/work",
+  "default_preset": "cheap",
+  "intake_model": null,
+  "prices": null,
+  "secrets": null,
+  "run_cap_usd": 1.00,
+  "run_log": null,
+  "telemetry": null,
+  "models": null,
+  "memory": null,
+  "http": null,
+  "claude_code": null,
+  "repository_roots": null,
+  "runtime": null,
+  "mcp_servers": null,
+  "sandbox": null,
+  "support_check": true,
+  "signing": null,
+  "driven": {
+    "names_runners": false,
+    "enabled": true,
+    "max_parallel": 2,
+    "max_parallel_total": 4,
+    "images": null,
+    "network": null,
+    "runner": null,
+    "push_secret": null,
+    "task_source": null,
+    "max_session_calls": 2,
+    "limits": null,
+    "governor": null,
+    "admission": null,
+    "integrator": null,
+    "services": {
+      "caches": null,
+      "images": null,
+      "repositories": {
+        "o/r": [
+          {
+            "name": "postgres",
+            "image": "docker.io/library/postgres@sha256:4444444444444444444444444444444444444444444444444444444444444444",
+            "port": 5432,
+            "env": {
+              "POSTGRES_PASSWORD": "test"
+            },
+            "tmpfs": [
+              "/var/lib/postgresql/data"
+            ],
+            "note": "user postgres, password test, database app",
+            "memory_mb": 512,
+            "session_env": {
+              "SWITCHKNIFE_POSTGRES": "Host=postgres;Port=5432;Username=postgres;Password=test"
+            }
+          }
+        ]
+      }
+    },
+    "forge": null,
+    "planning": null,
+    "learning": null,
+    "runners": null,
+    "image_variants": null
+  },
+  "prompt_enhancer": null,
+  "max_parallel_nodes": 2,
+  "automation": null,
+  "roots": [
+    "/var/tmp/chargehand/work"
+  ],
+  "runtime_blocks": []
+}

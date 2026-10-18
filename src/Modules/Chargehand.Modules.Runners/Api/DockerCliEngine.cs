@@ -28,7 +28,7 @@ public sealed partial class DockerCliEngine(string docker = "docker", IReadOnlyL
 
     public async Task<string> StartAsync(ContainerSpec spec, CancellationToken ct)
     {
-        var result = await RunWithEnvFileAsync(ContainerTemplate.EnvFileLines(spec.Env), envFile => ContainerTemplate.RunArgs(spec, envFile), ct);
+        var result = await RunWithEnvFileAsync(ContainerTemplate.EnvFileLines(spec.Env, spec.AllowedExtraEnv), envFile => ContainerTemplate.RunArgs(spec, envFile), ct);
         if (result.ExitCode != 0)
             throw Unavailable("docker run failed", result, spec.Env);
         return result.Stdout.Trim();

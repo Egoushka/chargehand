@@ -197,7 +197,8 @@ public sealed partial class TaskRunner
         var env = ModelEnvironment(runId, maxMinutes, left, sessionStarted);
         AddServiceEnvironment(env, task, runId, maxMinutes, left, sessionStarted, span, traceId);
         var container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
-            preset.MemoryMb, preset.Cpus, preset.Pids, ["session"], Caches: settings.Shared?.Caches is { Count: > 0 } caches ? caches : null), ct);
+            preset.MemoryMb, preset.Cpus, preset.Pids, ["session"], Caches: settings.Shared?.Caches is { Count: > 0 } caches ? caches : null,
+            AllowedExtraEnv: settings.Shared?.SessionEnvNames), ct);
         await RecordAsync(task.Id, new TaskContainerStarted(container));
         Publish(task.Id, RunEventKind.ContainerStarted, detail, s => s with { Branch = branch });
         return container;

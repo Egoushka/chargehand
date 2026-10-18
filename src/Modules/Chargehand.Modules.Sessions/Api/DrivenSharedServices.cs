@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.RegularExpressions;
 using Chargehand.Kernel;
+using Chargehand.Modules.Runners.Api;
 using Microsoft.Extensions.Options;
 
 namespace Chargehand.Modules.Sessions.Api;
@@ -60,7 +61,16 @@ public sealed partial record DrivenSharedServices(IReadOnlyList<string>? Caches 
                 yield return $"repositories.{repository} names a service twice";
             foreach (var problem in services.SelectMany(service => service.Problems($"repositories.{repository}.{service.Name}")))
                 yield return problem;
+            foreach (var problem in SessionEnvDuplicateProblems(repository, services))
+                yield return problem;
         }
+    }
+
+    private static IEnumerable<string> SessionEnvDuplicateProblems(string repository, IReadOnlyList<DrivenTestService> services)
+    {
+        var names = services.SelectMany(s => (s.SessionEnv ?? new Dictionary<string, string>()).Keys).ToList();
+        foreach (var name in names.GroupBy(n => n, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key).Distinct(StringComparer.Ordinal))
+            yield return $"repositories.{repository}: session_env name '{name}' is set by more than one service";
     }
 
     public const int MaxServices = 4;
@@ -93,10 +103,15 @@ internal sealed partial class DrivenSharedServicesValidator : IValidateOptions<D
 /// <param name="Tmpfs">Directories of the image that are memory-backed (for a database, its data directory), so the service leaves no volume behind.</param>
 /// <param name="Note">One line the session reads next to the address: how to connect, what the user and the database are called.</param>
 /// <param name="MemoryMb">Default 512.</param>
+/// <param name="SessionEnv">Variables set in the session container and in the verify run, next to <c>CHARGEHAND_SERVICES</c> (ADR 0048): a connection string or
+/// other value a test fixture reads. Test values only, never a real secret; a name must not be one chargehand already sets or reserves.</param>
 public sealed partial record DrivenTestService(string Name, string Image, int Port, IReadOnlyDictionary<string, string>? Env = null, IReadOnlyList<string>? Tmpfs = null, string? Note = null,
-    int MemoryMb = 512)
+    int MemoryMb = 512, IReadOnlyDictionary<string, string>? SessionEnv = null)
 {
-    internal IEnumerable<string> Problems(string path) => [.. AddressProblems(path), .. ContentProblems(path)];
+    /// <summary>Names chargehand already sets or reserves on a session or verifier container; a <see cref="SessionEnv"/> name may not be one of these or start with <c>CHARGEHAND_</c>.</summary>
+    private static readonly HashSet<string> ReservedNames = new(ContainerTemplate.AllowedEnv, StringComparer.Ordinal) { "PATH", "HOME" };
+
+    internal IEnumerable<string> Problems(string path) => [.. AddressProblems(path), .. ContentProblems(path), .. SessionEnvProblems(path)];
 
     private IEnumerable<string> AddressProblems(string path)
     {
@@ -124,6 +139,21 @@ public sealed partial record DrivenTestService(string Name, string Image, int Po
                 yield return $"{path}: tmpfs entry '{directory}' must be an absolute path of plain segments";
         if (Note is { } note && (note.Length > 200 || note.Contains('\n') || note.Contains('\r')))
             yield return $"{path}: note must be one line of at most 200 characters";
+    }
+
+    private IEnumerable<string> SessionEnvProblems(string path)
+    {
+        foreach (var (name, value) in SessionEnv ?? new Dictionary<string, string>())
+        {
+            if (!EnvName().IsMatch(name))
+                yield return $"{path}: session_env name '{name}' must be upper case letters, digits and underscores, starting with a letter";
+            else if (ReservedNames.Contains(name) || name.StartsWith("CHARGEHAND_", StringComparison.Ordinal))
+                yield return $"{path}: session_env name '{name}' is one chargehand already sets or reserves";
+            if (value.Contains('\n') || value.Contains('\r') || value.Contains('\0'))
+                yield return $"{path}: session_env value of '{name}' has a line break or NUL";
+            if (value.Contains("{secret:", StringComparison.Ordinal))
+                yield return $"{path}: session_env value of '{name}' must not reference the secret store ({{secret:...}}): it is set as written, and must not be a real secret";
+        }
     }
 
     [GeneratedRegex(@"^[a-z][a-z0-9]{0,23}$")]
