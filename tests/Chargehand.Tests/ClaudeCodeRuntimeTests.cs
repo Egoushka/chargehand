@@ -336,6 +336,7 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
         var claude = _dir.Write("claude", """
             #!/bin/sh
             if [ "$1" = "--version" ]; then echo "2.1.195 (Claude Code)"; exit 0; fi
+            cat > /dev/null
             echo '{"type":"result","subtype":"success","is_error":true,"result":"API Error: 400 could not auto resolve a provider"}'
             exit 1
             """);
