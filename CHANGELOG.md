@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-18
+
+Pull request review works on a server whose checkouts are mounted read-only.
+
 ### Fixed
 
 - Pull request review starts on a server whose checkouts are mounted read-only: when the fetch of `refs/pull/N/head` fails, it uses that ref if a job outside the server already fetched it (a host job that runs `git fetch origin '+refs/pull/*/head:refs/pull/*/head'`). 0.10.0 refused every review there with `cannot open '.git/FETCH_HEAD': Read-only file system`.
@@ -895,7 +899,8 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/Egoushka/chargehand/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/Egoushka/chargehand/compare/v0.9.6...v0.10.0
 [0.9.6]: https://github.com/Egoushka/chargehand/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/Egoushka/chargehand/compare/v0.9.4...v0.9.5
