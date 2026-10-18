@@ -68,7 +68,8 @@ public static partial class ChargehandServer
         + "context.preset (default, cheap, thorough, strict, draft) or context.budget_usd. Runs can take minutes: a call that "
         + "returns a run id instead of result/v1 is still running, and the result tool with that run_id reads it.";
 
-    public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log, Chargehand.Driven.DrivenRun? driven = null, Chargehand.Automation.GitHubIntake? intake = null)
+    public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log, Chargehand.Driven.DrivenRun? driven = null, Chargehand.Automation.GitHubIntake? intake = null,
+        Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? scheduler = null)
     {
         var address = IPAddress.Parse(settings.Listen);
         IReadOnlyList<string> hosts = settings.AllowedHosts ?? [];
@@ -96,6 +97,15 @@ public static partial class ChargehandServer
         // ADR 0051: only when the profile has automation.github. After the resumer, so a restart's own batches are counted before intake starts new ones.
         if (intake is not null)
             builder.Services.AddHostedService(sp => new IntakeService(intake, sp.GetRequiredService<RunService>()));
+        // ADR 0068: only when the profile has automation.schedules. The morning report reads the same run log and inbox the console does.
+        if (scheduler is not null)
+            builder.Services.AddHostedService(sp =>
+            {
+                var runs = sp.GetRequiredService<RunService>();
+                var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
+                var source = new ServerMorningSource(() => new ConsoleContext(settings, runs, log, driven, new SecretPresence(settings.SecretPresent), dismissals));
+                return new ScheduleService(scheduler(source), runs);
+            });
         // ADR 0045: reads back what became of the pull requests, only where there are learning records.
         if (driven?.Learning is not null)
             builder.Services.AddHostedService(_ => new PrOutcomeRefresher(driven));
