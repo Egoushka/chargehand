@@ -335,6 +335,26 @@ public class PullReviewTests
         Assert.Contains("pull request 6", missing.Message);
     }
 
+    [Fact]
+    public async Task A_checkout_that_cannot_fetch_uses_the_pull_head_a_host_job_fetched()
+    {
+        // The server mounts its checkouts read-only and a host job fetches them, refs/pull/* included: a fetch here fails on FETCH_HEAD.
+        using var origin = new TempDir();
+        using var clone = new TempDir();
+        Git(origin.Path, "init", "-q", "-b", "main");
+        File.WriteAllText(Path.Combine(origin.Path, "a.txt"), "one");
+        Git(origin.Path, "add", ".");
+        Git(origin.Path, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "one");
+        var head = Git(origin.Path, "rev-parse", "HEAD");
+        Git(clone.Path, "clone", "-q", origin.Path, ".");
+        Git(clone.Path, "update-ref", "refs/pull/7/head", head);
+        Git(clone.Path, "remote", "set-url", "origin", Path.Combine(origin.Path, "gone"));
+
+        Assert.Equal(head, await new GitRepositoryHeads().FetchPullHeadAsync(clone.Path, 7, default));
+        var missing = await Assert.ThrowsAsync<IntakeException>(() => new GitRepositoryHeads().FetchPullHeadAsync(clone.Path, 8, default));
+        Assert.Contains("could not fetch the head of pull request 8", missing.Message);
+    }
+
     private static string Git(string directory, params string[] args)
     {
         var psi = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true };

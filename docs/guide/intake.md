@@ -113,7 +113,7 @@ Never twice for one commit: the commit is recorded before the comment, and the m
 | `review_pulls` | false | off: nothing is reviewed (a review already running still gets its comment) |
 | `max_reviews_per_day` | 20 (1 to 1000) | the pull request waits, uncommented, until a review leaves the 24-hour window |
 
-Reviews share `max_concurrent` with the batches: a review waits while that many batches and reviews run. They do not count toward `max_starts_per_day`. A diff GitHub will not render (too large) is skipped with a line on stderr. The run reads the head commit and nothing else; the pull request's text is untrusted, and the preset has no edit, shell or web tools. To turn it on add `"review_pulls": true` to `automation.github`.
+Reviews share `max_concurrent` with the batches: a review waits while that many batches and reviews run. They do not count toward `max_starts_per_day`. A diff GitHub will not render (too large) is skipped with a line on stderr. The run reads the head commit and nothing else; the pull request's text is untrusted, and the preset has no edit, shell or web tools. To turn it on add `"review_pulls": true` to `automation.github`. A server whose checkouts are mounted read-only cannot fetch the head itself: keep `refs/pull/*/head` fetched from outside (`git fetch origin '+refs/pull/*/head:refs/pull/*/head'` in the job that updates the checkouts) and chargehand uses that ref.
 
 ## Not covered
 

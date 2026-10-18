@@ -23,7 +23,13 @@ public sealed class GitRepositoryHeads(Action<string>? warn = null) : IRepositor
         var local = $"refs/chargehand/pull/{id}";
         var fetch = await GitAsync(path, ["fetch", "--quiet", "origin", $"+refs/pull/{id}/head:{local}"], ct);
         if (fetch.ExitCode != 0)
-            throw new IntakeException($"could not fetch the head of pull request {id} into {Path.GetFileName(Path.GetFullPath(path))}: {fetch.Output}");
+        {
+            // A read-only checkout cannot fetch; a host job that keeps it current may have fetched refs/pull/* already. The caller
+            // compares the commit with the pull request's head, so a stale ref only waits for the next poll.
+            var kept = await GitAsync(path, ["rev-parse", "--verify", "--end-of-options", $"refs/pull/{id}/head^{{commit}}"], ct);
+            return kept.ExitCode == 0 && kept.Output.Length >= 7 ? kept.Output
+                : throw new IntakeException($"could not fetch the head of pull request {id} into {Path.GetFileName(Path.GetFullPath(path))}: {fetch.Output}");
+        }
         var head = await GitAsync(path, ["rev-parse", "--verify", "--end-of-options", $"{local}^{{commit}}"], ct);
         return head.ExitCode == 0 && head.Output.Length >= 7 ? head.Output : throw new IntakeException($"pull request {id} has no head commit in {Path.GetFileName(Path.GetFullPath(path))}");
     }
