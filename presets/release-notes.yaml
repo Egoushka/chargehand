@@ -1,0 +1,25 @@
+# CHARGEHAND-191: drafts Keep-a-Changelog release notes from the commits between two refs, which the caller sends as inputs (`chargehand release-notes`).
+# Every line cites a commit. Read-only like every preset (ADR 0006): it opens no version-bump pull request.
+schema: preset/v1
+name: release-notes
+version: 0.1.0
+allowed_actions: [answer]
+node_kinds:
+  worker:
+    model: provider/worker-model
+    opencode_agent: build
+    permissions:
+      - { action: "*", resource: "*", effect: allow }
+      - { action: edit, resource: "*", effect: deny }
+      - { action: read, resource: "*.env", effect: deny }
+      - { action: read, resource: "*.env.*", effect: deny }
+      - { action: read, resource: "*.env.example", effect: allow }
+      - { action: shell, resource: "*", effect: deny }
+      - { action: webfetch, resource: "*", effect: deny }
+      - { action: external_directory, resource: "*", effect: deny }
+      - { action: question, resource: "*", effect: deny }
+      - { action: subagent, resource: "*", effect: deny }
+    budget: { max_input_tokens: 400000, max_usd: 1.00 }
+    compaction: { auto: true, keep_tokens: 15000, buffer: 120000 }
+critic: { enabled: false }
+approval: {}
