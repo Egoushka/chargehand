@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Plane intake (ADR 0067, `automation.plane`): a work item moved into a chosen state starts a driven batch of one task. chargehand polls Plane's REST API with an API key, moves the item to a started state, comments the pull request link and moves it to a review (or failed) state when the batch ends. State names, not ids; caps as GitHub intake; state in `intake/plane.json`.
 
 ### Changed
 

@@ -403,6 +403,41 @@
             "review_pulls": { "type": "boolean", "description": "Review every open, non-draft pull request of the watched repositories, once per head commit, and comment the findings. Default false." },
             "max_reviews_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Reviews started in any 24 hours. A pull request over it waits until the window has room. Default 20." }
           }
+        },
+        "plane": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "api_key_secret", "workspace", "projects", "trigger_state", "started_state", "review_state"],
+          "description": "A Plane work item in trigger_state starts a driven batch of one task (ADR 0067). chargehand polls Plane's REST API with an API key. Needs driven.enabled.",
+          "properties": {
+            "url": { "type": "string", "pattern": "^https?://", "description": "The base URL of the Plane instance." },
+            "api_key_secret": { "type": "string", "minLength": 1, "description": "The secret item that holds the Plane API key; sent as X-API-Key." },
+            "workspace": { "type": "string", "minLength": 1, "description": "The workspace slug." },
+            "projects": {
+              "type": "object",
+              "minProperties": 1,
+              "description": "Plane project id to its checkout. A project not listed is never read.",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path"],
+                "properties": {
+                  "path": { "type": "string", "minLength": 1, "description": "The server's checkout of the repository (under repository_roots)." },
+                  "remote": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", "description": "owner/repo, named in comments." }
+                }
+              }
+            },
+            "trigger_state": { "type": "string", "minLength": 1, "description": "The state name that starts a batch." },
+            "started_state": { "type": "string", "minLength": 1, "description": "The state name an item moves to when its batch starts." },
+            "review_state": { "type": "string", "minLength": 1, "description": "The state name an item moves to when its batch ends with a pull request." },
+            "failed_state": { "type": "string", "minLength": 1, "description": "The state name an item moves to when its batch ends without one; left out: it stays in started_state." },
+            "poll_seconds": { "type": "integer", "minimum": 30, "maximum": 3600, "description": "How often the projects are read. Default 120." },
+            "budget_class": { "enum": ["S", "M", "L"], "description": "The size class of a triggered task. Default M." },
+            "max_tokens_total": { "type": "integer", "minimum": 1, "description": "The token cap of one triggered batch. Default 2000000." },
+            "max_usd_total": { "type": "number", "exclusiveMinimum": 0, "description": "The dollar cap of one triggered batch. Default 5." },
+            "max_concurrent": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Triggered batches running at once. Default 2." },
+            "max_starts_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Triggered batches started in any 24 hours. Default 10." }
+          }
         }
       }
     },
