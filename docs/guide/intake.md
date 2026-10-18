@@ -118,3 +118,5 @@ Reviews share `max_concurrent` with the batches: a review waits while that many 
 ## Not covered
 
 Review summaries (the body of a submitted review) are not read, only its inline comments. A webhook instead of the poll. Issues in a repository nobody listed. Labels from a bot account. Not run against GitHub: see the ADR's UNKNOWN lists.
+
+Work that starts on a clock instead of from an issue is in [Scheduled work](schedules.md).

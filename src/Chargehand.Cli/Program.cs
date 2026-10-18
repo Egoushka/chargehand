@@ -479,6 +479,15 @@ Chargehand.Automation.GitHubIntake? GitHubIntake()
     return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator));
 }
 
+// Scheduled work (ADR 0068): null unless the profile has automation.schedules. Its state sits next to the run log.
+Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? Schedules()
+{
+    if (profile.Automation?.Schedules is not { } schedules)
+        return null;
+    var state = Chargehand.Automation.ScheduleState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "schedules", "state.json"));
+    return morning => new Chargehand.Automation.Scheduler(schedules, runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, new Chargehand.Automation.HttpScheduleNotifier(), morning);
+}
+
 // The console's account view says whether a credential's secret item resolves, never its value.
 bool SecretResolves(string item)
 {
@@ -516,7 +525,7 @@ async Task<int> Serve()
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json")),
-        orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake());
+        orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake(), Schedules());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", UI /ui/, console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);

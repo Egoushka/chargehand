@@ -113,7 +113,8 @@
       "max_review_rounds": 2,
       "review_pulls": false,
       "max_reviews_per_day": 20
-    }
+    },
+    "schedules": null
   },
   "preset_services": null,
   "roots": [
