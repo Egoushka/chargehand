@@ -67,7 +67,9 @@ The goal's first line is the issue's title (the pull request's title is cut from
     "max_usd_total": 5,
     "max_concurrent": 2,
     "max_starts_per_day": 10,
-    "max_review_rounds": 3 } }
+    "max_review_rounds": 3,
+    "review_pulls": false,
+    "max_reviews_per_day": 20 } }
 }
 ```
 
@@ -93,6 +95,25 @@ All the comments waiting for a pull request go into one round: a batch of one ta
 When the round ends chargehand comments on the pull request: the changes are on it, with the session's summary; or what stopped it; or its questions (a reply continues the round's task). On an opted-in repository the integrator then follows the pull request as after any task.
 
 A pull request from a fork, a branch that is not `chargehand/<name>`, a closed pull request, and comments of anyone not on `allowed_authors` are ignored. A branch that was deleted or rewritten fails the round with the reason, before a container starts.
+
+## Reviewing every pull request
+
+Off unless `review_pulls` is `true`. Each poll then lists the open pull requests of every watched repository, whoever wrote them. Drafts and pull requests whose author's login ends in `[bot]` are skipped. For a head commit with no review yet (kept in `intake/github.json` as `owner/repo#12@<sha>`), chargehand:
+
+1. fetches `refs/pull/<n>/head` into the repository's `path` checkout with the server's git credentials (kept as `refs/chargehand/pull/<n>`; works for a fork too);
+2. reads the diff from GitHub (cut at 60000 characters, with a marker line saying so);
+3. starts a **read-only run** (not driven) of the `review` preset at that commit, with three inputs: `goal` (the title and description, fenced as text the author wrote), `diff`, and `tests` (`not run by chargehand; see the pull request's checks`).
+
+When the run ends chargehand writes **one comment** on the pull request. It starts with the hidden marker `<!-- chargehand-review <sha> -->`, then the summary, then each claim as a finding with its confidence and evidence locators, or `No findings.`; a failed or stopped run says so with the reason. Model text is neutralised (`@` gets a zero-width space so nobody is pinged, `<` is escaped). A new push is a new commit and gets its own review and comment.
+
+Never twice for one commit: the commit is recorded before the comment, and the marker is looked up on the pull request itself before a run starts and before the comment is posted, so a restart or a lost state file does not repeat either.
+
+| Key | Default | When over it |
+|---|---|---|
+| `review_pulls` | false | off: nothing is reviewed (a review already running still gets its comment) |
+| `max_reviews_per_day` | 20 (1 to 1000) | the pull request waits, uncommented, until a review leaves the 24-hour window |
+
+Reviews share `max_concurrent` with the batches: a review waits while that many batches and reviews run. They do not count toward `max_starts_per_day`. A diff GitHub will not render (too large) is skipped with a line on stderr. The run reads the head commit and nothing else; the pull request's text is untrusted, and the preset has no edit, shell or web tools. To turn it on add `"review_pulls": true` to `automation.github`.
 
 ## Not covered
 

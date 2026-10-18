@@ -50,6 +50,13 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
     public async Task<IReadOnlyList<string>> CommentBodiesAsync(string repository, int number, CancellationToken ct) =>
         [.. (await PagesAsync(repository, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", "the conversation", ct)).Select(c => Text(c, "body") ?? "")];
 
+    public async Task<IReadOnlyList<ReviewablePull>> OpenPullsAsync(string repository, CancellationToken ct) =>
+        [.. (await PagesAsync(repository, $"{RepoPath(repository)}/pulls?state=open", "the open pull requests", ct)).Select(p => Parse(() => new ReviewablePull(p.GetProperty("number").GetInt32(), Text(p, "title") ?? "",
+            Text(p, "body") ?? "", Login(p, "user"), Text(p.GetProperty("head"), "sha") ?? "", p.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True)))];
+
+    public Task<string> PullDiffAsync(string repository, int number, CancellationToken ct) =>
+        SendAsync(repository, HttpMethod.Get, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}", null, "the pull request's diff", DiffMedia, ct);
+
     public async Task<long> CommentAsync(string repository, int number, string body, CancellationToken ct)
     {
         using var doc = JsonDocument.Parse(await SendAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", new { body }, "the comment", ct));
@@ -119,7 +126,13 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
         return $"repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(name)}";
     }
 
-    private async Task<string> SendAsync(string repository, HttpMethod method, string path, object? body, string what, CancellationToken ct)
+    private const string JsonMedia = "application/vnd.github+json";
+    private const string DiffMedia = "application/vnd.github.diff";
+
+    private Task<string> SendAsync(string repository, HttpMethod method, string path, object? body, string what, CancellationToken ct) =>
+        SendAsync(repository, method, path, body, what, JsonMedia, ct);
+
+    private async Task<string> SendAsync(string repository, HttpMethod method, string path, object? body, string what, string accept, CancellationToken ct)
     {
         string token;
         try
@@ -135,7 +148,7 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
         if (body is not null)
             request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("chargehand", "1"));
         request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
         try

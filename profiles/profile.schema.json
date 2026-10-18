@@ -399,7 +399,9 @@
             "max_usd_total": { "type": "number", "exclusiveMinimum": 0, "description": "The dollar cap of one triggered batch, where the credential is priced. Default 5." },
             "max_concurrent": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Triggered batches running at once. A trigger over it waits for a slot, with one comment. Default 2." },
             "max_starts_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Triggered batches started in any 24 hours, answers included. A trigger over it is refused, with one comment. Default 10." },
-            "max_review_rounds": { "type": "integer", "minimum": 0, "maximum": 3, "description": "Review rounds per chargehand pull request: inline review comments of allowed authors, and comments that mention the bot, start a session on the pull request's branch. The CI fixer's attempts count against the same cap of 3 per pull request. Default 3; 0: the loop is off." }
+            "max_review_rounds": { "type": "integer", "minimum": 0, "maximum": 3, "description": "Review rounds per chargehand pull request: inline review comments of allowed authors, and comments that mention the bot, start a session on the pull request's branch. The CI fixer's attempts count against the same cap of 3 per pull request. Default 3; 0: the loop is off." },
+            "review_pulls": { "type": "boolean", "description": "Review every open, non-draft pull request of the watched repositories, once per head commit, and comment the findings. Default false." },
+            "max_reviews_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Reviews started in any 24 hours. A pull request over it waits until the window has room. Default 20." }
           }
         }
       }

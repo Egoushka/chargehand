@@ -15,6 +15,9 @@ public enum IntakePhase { Running, Asked, Done }
 public sealed record IntakeTask(string Repository, int Issue, string BatchRunId, string TaskId, DateTimeOffset Started, string Size, IntakePhase Phase = IntakePhase.Running,
     long? AskedCommentId = null, string? PrUrl = null, string? Branch = null, int? Round = null);
 
+/// <summary>A review of a pull request's head commit that is running, or finished and not yet commented (ADR 0051). The run is a plain read-only run, not a driven batch.</summary>
+public sealed record PullReview(string Repository, int Pull, string Sha, string RunId, DateTimeOffset Started);
+
 /// <summary>A comment on a chargehand pull request that waits for a review round (ADR 0051): read once, kept here until a round takes it or the pull request makes it moot.</summary>
 /// <param name="Id"><c>r&lt;id&gt;</c> for an inline review comment, <c>c&lt;id&gt;</c> for a conversation comment: two id spaces, one list.</param>
 /// <param name="Path">The file an inline comment is on; null for a conversation comment.</param>
@@ -73,6 +76,15 @@ public sealed class IntakeState
     /// <summary>When triggered batches started, for the daily cap; entries older than a day are dropped when the state is saved.</summary>
     public List<DateTimeOffset> Starts { get; init; } = [];
 
+    /// <summary>Head commits already given a review, as <c>owner/repo#12@sha</c>; it only grows, so a commit is reviewed once.</summary>
+    public HashSet<string> Reviewed { get; init; } = [];
+
+    /// <summary>Reviews that run or wait for their comment.</summary>
+    public List<PullReview> Reviews { get; init; } = [];
+
+    /// <summary>When reviews started, for <c>max_reviews_per_day</c>.</summary>
+    public List<DateTimeOffset> ReviewStarts { get; init; } = [];
+
     public static IntakeState Load(string path)
     {
         if (!File.Exists(path))
@@ -89,6 +101,9 @@ public sealed class IntakeState
             Tasks = state.Tasks ?? [],
             Starts = state.Starts ?? [],
             Triggers = state.Triggers ?? [],
+            Reviewed = state.Reviewed ?? [],
+            Reviews = state.Reviews ?? [],
+            ReviewStarts = state.ReviewStarts ?? [],
         };
     }
 
@@ -100,6 +115,7 @@ public sealed class IntakeState
     public void Save(DateTimeOffset now)
     {
         Starts.RemoveAll(s => s <= now - TimeSpan.FromDays(1));
+        ReviewStarts.RemoveAll(s => s <= now - TimeSpan.FromDays(1));
         if (Triggers.Count > MaxTriggers)
             Triggers.RemoveRange(0, Triggers.Count - MaxTriggers);
         if (_path is null)

@@ -90,6 +90,17 @@ internal sealed class FakeGitHub : IIntakeHost
         return id;
     }
 
+    public List<ReviewablePull> OpenPulls { get; } = [];
+
+    public Dictionary<int, string> Diffs { get; } = [];
+
+    public int? DiffFailsWith { get; set; }
+
+    public Task<IReadOnlyList<ReviewablePull>> OpenPullsAsync(string repository, CancellationToken ct) => Task.FromResult<IReadOnlyList<ReviewablePull>>([.. OpenPulls]);
+
+    public Task<string> PullDiffAsync(string repository, int number, CancellationToken ct) =>
+        DiffFailsWith is { } status ? throw new IntakeException($"GitHub answered {status} to the diff", status) : Task.FromResult(Diffs.GetValueOrDefault(number, "diff --git a/x b/x"));
+
     public Task<long> CommentAsync(string repository, int number, string body, CancellationToken ct)
     {
         if (CommentsFail)
@@ -130,6 +141,19 @@ internal sealed class FakeHeads : IRepositoryHeads
     public string Commit { get; set; } = "abc1234def5678abc1234def5678abc1234def56";
 
     public Task<string> CurrentCommitAsync(string path, CancellationToken ct) => Task.FromResult(Commit);
+
+    /// <summary>The commit a pull request's head fetches to; unset, the one the listing named.</summary>
+    public Dictionary<int, string> PullHeads { get; } = [];
+
+    public List<int> Fetched { get; } = [];
+
+    public Func<int, string> Listed { get; set; } = _ => "";
+
+    public Task<string> FetchPullHeadAsync(string path, int number, CancellationToken ct)
+    {
+        Fetched.Add(number);
+        return Task.FromResult(PullHeads.GetValueOrDefault(number) ?? Listed(number));
+    }
 }
 
 internal sealed class FakeRunLog : IRunLog
@@ -167,6 +191,11 @@ internal sealed class FakeRunLog : IRunLog
         var content = System.Text.Json.JsonSerializer.Serialize(value, SnakeCase);
         return new Artifact(kind, "application/json", Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(content))), Content: content);
     }
+
+    /// <summary>Ends a plain (not driven) run with a result, as the run service writes it.</summary>
+    public void Finish(string run, ResultStatus status, string summary, IReadOnlyList<Claim>? claims = null, IReadOnlyList<Evidence>? evidence = null, ResultError? error = null) =>
+        _runs[run] = new RunRecord(run, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "review", null, null,
+            new ResultContract("result/v1", run, "worker", new string('0', 32), new PromptChain([], new AsSent("v", "build", "m", "2026-10-18")), status, summary, claims ?? [], evidence ?? [], [], [], 0.8, new Usage(0, 0, 0, 0, null), error));
 
     public void Forget(string run) => _starts.Remove(run);
 
@@ -229,6 +258,16 @@ internal sealed class IntakeRig : IDisposable
     public GitHubIntake Intake { get; private set; }
 
     public DateTimeOffset Now => Time.GetUtcNow();
+
+    /// <summary>An open pull request GitHub lists, whose head fetches to its listed sha.</summary>
+    public ReviewablePull OpenPull(int number, string sha, string author = "carol", bool draft = false, string title = "Retry the call", string body = "Gives up less often.")
+    {
+        var pull = new ReviewablePull(number, title, body, author, sha, draft);
+        GitHub.OpenPulls.RemoveAll(p => p.Number == number);
+        GitHub.OpenPulls.Add(pull);
+        Heads.Listed = n => GitHub.OpenPulls.Single(p => p.Number == n).HeadSha;
+        return pull;
+    }
 
     private string StatePath => Path.Combine(_dir.Path, "intake", "github.json");
 
