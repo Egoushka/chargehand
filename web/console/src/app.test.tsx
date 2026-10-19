@@ -40,7 +40,10 @@ describe('signing in', () => {
     renderConsole('/console/runs', { key: null });
 
     const field = await screen.findByLabelText('API key');
-    expect(calls).toHaveLength(0);
+    // Only the identity probe, with no key, before the form shows.
+    expect(calls.map((c) => [c.path, c.headers.Authorization])).toEqual([
+      ['/v1/accounts/me', undefined],
+    ]);
     fireEvent.change(field, { target: { value: ` ${LOGIN} ` } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -55,9 +58,24 @@ describe('signing in', () => {
     expect(within(rows[2] as HTMLElement).getByText('cost_cap_reached')).toBeTruthy();
     expect(getKey()).toBe(LOGIN);
     expect(sessionStorage.getItem('chargehand.key')).toBe(LOGIN);
-    const sent = calls.map((c) => c.headers.Authorization);
+    const sent = calls.slice(1).map((c) => c.headers.Authorization);
     expect(sent.length).toBeGreaterThan(0);
     expect(sent.every((auth) => auth === `Bearer ${LOGIN}`)).toBe(true);
+  });
+
+  it('signs in by the Cloudflare Access identity without asking for a key', async () => {
+    const { calls } = serveApi({ runs, identity: true });
+    renderConsole('/console/runs', { key: null });
+
+    expect(await screen.findByRole('table', { name: 'Runs' })).toBeTruthy();
+    expect(screen.queryByLabelText('API key')).toBeNull();
+    expect(getKey()).toBeNull();
+    expect(sessionStorage.getItem('chargehand.key')).toBeNull();
+    expect(
+      calls.every(
+        (c) => c.headers.Authorization === undefined && c.headers['X-Chargehand-Console'] === '1',
+      ),
+    ).toBe(true);
   });
 
   it('stores nothing for a key the server refuses', async () => {

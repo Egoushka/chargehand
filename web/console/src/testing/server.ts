@@ -40,6 +40,8 @@ export interface Scenario {
   replies?: Record<string, [number, unknown, Record<string, string>?]>;
   /** A route that never answers: for a loading state. */
   hang?: string[];
+  /** Cloudflare Access signs the browser in: a call with no key but the console's header is accepted (ADR 0071). */
+  identity?: boolean;
 }
 
 export interface Call {
@@ -65,7 +67,11 @@ export function serveApi(scenario: Scenario = {}) {
     const method = init?.method ?? 'GET';
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
     calls.push({ path: input, method, body, headers });
-    if (headers.Authorization !== `Bearer ${key}`)
+    const byIdentity =
+      scenario.identity &&
+      headers.Authorization === undefined &&
+      headers['X-Chargehand-Console'] === '1';
+    if (!byIdentity && headers.Authorization !== `Bearer ${key}`)
       return Promise.resolve(new Response('', { status: 401 }));
     if (scenario.hang?.includes(path)) return new Promise<Response>(() => {});
     const replace = scenario.replies?.[`${method} ${path}`] ?? scenario.replies?.[path];

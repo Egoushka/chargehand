@@ -8,7 +8,7 @@ import {
 } from '@tanstack/react-router';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useInbox } from '../api/inbox';
-import { clearKey } from '../api/key';
+import { signOut } from '../api/key';
 import { useOverview } from '../api/overview';
 import { meQuery, useHaltToggle } from '../api/queries';
 import { DISPLAY_ZONE_LABEL, formatTime, formatUsd } from '../lib/format';
@@ -207,7 +207,7 @@ export function Shell() {
           },
         ]
       : []),
-    { id: 'out', label: 'Sign out', icon: 'lock' as const, run: () => clearKey() },
+    { id: 'out', label: 'Sign out', icon: 'lock' as const, run: () => signOut() },
   ];
 
   const live = halted ? 'off' : pause?.paused ? 'paused' : overview.isError ? 'off' : undefined;
@@ -354,7 +354,7 @@ export function Shell() {
                           },
                         ]
                       : []),
-                    { id: 'out', label: 'Sign out', icon: 'lock', onSelect: () => clearKey() },
+                    { id: 'out', label: 'Sign out', icon: 'lock', onSelect: () => signOut() },
                   ]}
                 />
               </>
@@ -464,7 +464,7 @@ export function Shell() {
         onHalt={() => setHaltAsk(true)}
         onResume={api.resumeServer}
         onShortcuts={() => setShortcutsOpen(true)}
-        onSignOut={() => clearKey()}
+        onSignOut={() => signOut()}
         onEnableNotifications={() => void enableNotifications()}
       />
       <ShortcutsSheet open={shortcutsOpen} onOpenChange={setShortcutsOpen} />

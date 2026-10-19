@@ -25,6 +25,8 @@ Paste an API key: the owner's `http.api_key_secret` or an account's `chk1.<id>.<
 
 For everyday watching, sign in with an account key. The owner's key can also halt the server.
 
+Behind Cloudflare Access with `http.cloudflare_access` set, the console (not `/ui/`) asks for nothing: it signs in as the account your Access email maps to, and **Sign out** also ends the Access session ([server guide](server.md#sign-in-by-cloudflare-access-identity), [ADR 0071](../adr/0071-sign-in-by-cloudflare-access-identity.md)).
+
 ### Where the key is kept, and what that costs
 
 The key is kept in `sessionStorage`: it lives in that tab, is gone when the tab closes, and is never sent anywhere but the server that served the page, as `Authorization: Bearer ...`. It is not a cookie, so nothing sends it by itself and there is nothing for a forged request to ride on. It is not `localStorage`, so it does not outlive the tab or reach other tabs.

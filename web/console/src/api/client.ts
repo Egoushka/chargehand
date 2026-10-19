@@ -37,11 +37,31 @@ export interface CallOptions {
   key?: string;
 }
 
+/** The bearer key when there is one; with none, the server takes the Cloudflare Access identity, which it accepts only with the console's header (ADR 0071). */
 export function authHeaders(
   key: string | null = getKey(),
   extra: Record<string, string> = {},
 ): Record<string, string> {
-  return { Authorization: `Bearer ${key ?? ''}`, ...extra };
+  return {
+    ...(key ? { Authorization: `Bearer ${key}` } : {}),
+    'X-Chargehand-Console': '1',
+    ...extra,
+  };
+}
+
+/** Who the Cloudflare Access identity signs in as, or null when there is none the server accepts. Leaves the key store alone. */
+export async function probeIdentity<T>(): Promise<T | null> {
+  try {
+    const res = await fetch('/v1/accounts/me', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      referrerPolicy: 'no-referrer',
+      headers: authHeaders(null),
+    });
+    return res.ok ? ((await res.json()) as T) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** One request to the server's own origin with the bearer key. Throws Unauthorized on a 401; any other status is returned. */

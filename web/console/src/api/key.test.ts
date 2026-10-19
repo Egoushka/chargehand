@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import { clearKey, getKey, getKeyState, setKey, subscribeKey } from './key';
+import {
+  clearKey,
+  getKey,
+  getKeyState,
+  setIdentity,
+  setKey,
+  signedIn,
+  signOut,
+  subscribeKey,
+} from './key';
 
 describe('the key store', () => {
   it('keeps the key in sessionStorage and nowhere else', () => {
@@ -14,7 +23,11 @@ describe('the key store', () => {
     setKey('k');
     clearKey('The server rejected the key.');
     expect(sessionStorage.getItem('chargehand.key')).toBeNull();
-    expect(getKeyState()).toEqual({ key: null, notice: 'The server rejected the key.' });
+    expect(getKeyState()).toEqual({
+      key: null,
+      identity: false,
+      notice: 'The server rejected the key.',
+    });
     setKey('k2');
     expect(getKeyState().notice).toBeNull();
   });
@@ -36,5 +49,28 @@ describe('the key store', () => {
     setKey('in-memory');
     expect(getKey()).toBe('in-memory');
     blocked.mockRestore();
+  });
+
+  it('signs in by identity with no key, and ends the Cloudflare session on sign-out', () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    setIdentity();
+    expect(getKey()).toBeNull();
+    expect(signedIn(getKeyState())).toBe(true);
+    expect(sessionStorage.getItem('chargehand.key')).toBeNull();
+    signOut();
+    expect(signedIn(getKeyState())).toBe(false);
+    expect(assign).toHaveBeenCalledWith('/cdn-cgi/access/logout');
+    vi.unstubAllGlobals();
+  });
+
+  it('signs out of a key without leaving the page', () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    setKey('k');
+    signOut();
+    expect(getKey()).toBeNull();
+    expect(assign).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });
