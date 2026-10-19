@@ -293,14 +293,21 @@ public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecr
 /// Raise it only when the model's rate limit allows: every run's workers draw on it.</param>
 /// <param name="Accounts">Accounts besides the implicit <c>owner</c> that <c>ApiKeySecret</c> opens (ADR 0050); their keys come from <c>chargehand accounts add</c>.</param>
 /// <param name="Ui">Serve the web UI at <c>/ui/</c> (ADR 0054) and the operator console at <c>/console/</c> (ADR 0056). Off by default.</param>
+/// <param name="CloudflareAccess">Sign in by the email Cloudflare Access checked, with no key (ADR 0071); null: keys only.</param>
+/// <param name="ProxySignIn">Sign in by the email a trusted single-sign-on proxy forwards, with no key (ADR 0071); null: keys only.</param>
 public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null,
-    int MaxConcurrentRuns = 1, IReadOnlyList<AccountSettings>? Accounts = null, bool Ui = false)
+    int MaxConcurrentRuns = 1, IReadOnlyList<AccountSettings>? Accounts = null, bool Ui = false, CloudflareAccessSettings? CloudflareAccess = null,
+    ProxySignInSettings? ProxySignIn = null)
 {
     /// <summary>Throws an invalid_request error naming the key when an account cannot work.</summary>
     internal void Validate()
     {
         if (AccountSettings.Problems(Accounts ?? []) is { Count: > 0 } problems)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"http: {string.Join("; ", problems)}", "Fix http.accounts in the profile; docs/guide/server.md lists the keys.");
+        if (CloudflareAccess?.Problems(Accounts ?? []).ToList() is { Count: > 0 } access)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"http.cloudflare_access: {string.Join("; ", access)}", "Fix http.cloudflare_access in the profile; docs/guide/server.md lists the keys.");
+        if (ProxySignIn?.Problems(Accounts ?? []).ToList() is { Count: > 0 } proxy)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"http.proxy_sign_in: {string.Join("; ", proxy)}", "Fix http.proxy_sign_in in the profile; docs/guide/server.md lists the keys.");
     }
 }
 

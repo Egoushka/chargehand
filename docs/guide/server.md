@@ -100,6 +100,40 @@ In a batch the key reaches the session container as `ANTHROPIC_API_KEY` (`creden
 
 **Not isolated.** Accounts share the worker root and the checkouts, the server's model credential and rate limit (those without a `model` of their own), the memory providers (a fact one account's run retained can be recalled by another), and for batches the runner, the container engine, the push credential and the package caches. Separate runners and networks per account are CHARGEHAND-202.
 
+### Sign-in by Cloudflare Access identity
+
+When the server is reached through Cloudflare Access, the console can sign in by the email Access already checked, with no key to paste ([ADR 0071](../adr/0071-sign-in-by-cloudflare-access-identity.md)):
+
+```json
+{
+  "http": {
+    "cloudflare_access": {
+      "team_domain": "myteam.cloudflareaccess.com",
+      "audience": "<the Access application's AUD tag>",
+      "identities": { "me@example.com": "owner", "alice@example.com": "alice" }
+    }
+  }
+}
+```
+
+The server takes the identity only from a request with no `Authorization` header, a valid `Cf-Access-Jwt-Assertion` token (RS256 under the team's published keys, this audience, the team as issuer, not expired) and the console's `X-Chargehand-Console: 1` header, which a page on another origin cannot send. The email must be in `identities`, mapped to `owner` or an account of `http.accounts`; any other request gets `401`. A key, when one is sent, decides alone. MCP clients and API callers keep using keys.
+
+A single-sign-on proxy such as Pangolin forwards the email in a header it does not sign, so it is trusted only on a signed-on host and from the proxy's own address:
+
+```json
+{
+  "http": {
+    "proxy_sign_in": {
+      "hosts": ["console.example.com"],
+      "proxies": ["traefik"],
+      "identities": { "me@example.com": "owner" }
+    }
+  }
+}
+```
+
+`proxies` takes addresses or host names (resolved every 30 seconds); `header` defaults to `Remote-Email`. The email is taken only from a console call with no `Authorization` header, for one of `hosts`, from one of `proxies` ([ADR 0071](../adr/0071-sign-in-by-cloudflare-access-identity.md)).
+
 ## Binding and allowed hosts
 
 | field | default | meaning |

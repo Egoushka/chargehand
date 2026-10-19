@@ -207,7 +207,9 @@
     "allowed_hosts": null,
     "max_concurrent_runs": 1,
     "accounts": null,
-    "ui": false
+    "ui": false,
+    "cloudflare_access": null,
+    "proxy_sign_in": null
   },
   "claude_code": null,
   "repository_roots": [

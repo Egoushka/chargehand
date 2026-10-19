@@ -39,11 +39,17 @@ namespace Chargehand.Server;
 /// <param name="Profile">The profile, for the console's read routes (CHARGEHAND-209): the owner's <c>system</c> and <c>repositories</c> views and intake's settings. Null: those views are empty.</param>
 /// <param name="SecretPresent">Whether a secret item resolves, for an account's credential state; null: it is not known.</param>
 /// <param name="IntakeStatePath">Intake's state file (<c>intake/github.json</c>) for <c>GET /v1/intake</c>; null: none.</param>
+/// <param name="Access">Sign-in by Cloudflare Access identity (ADR 0071); null: keys only.</param>
+/// <param name="AccessCerts">Reads the team's signing keys; null: an HTTPS GET of <see cref="CloudflareAccessSettings.CertsUrl"/>.</param>
+/// <param name="ProxySignIn">Sign-in by the email a trusted single-sign-on proxy forwards (ADR 0071); null: keys only.</param>
+/// <param name="ProxyResolver">Resolves the proxies' names; null: DNS.</param>
 /// <param name="InboxDismissalsPath">The file of the inbox's dismissals (<c>inbox/dismissed.json</c>, ADR 0064); null: nothing can be dismissed.</param>
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
     IReadOnlyList<string>? AllowedHosts = null, int MaxConcurrentRuns = 1, int MaxSessionCalls = 2, string? StateDirectory = null,
     IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null, bool Ui = false,
-    Profile? Profile = null, Func<string, bool>? SecretPresent = null, string? IntakeStatePath = null, string? InboxDismissalsPath = null, TimeSpan? McpWait = null);
+    Profile? Profile = null, Func<string, bool>? SecretPresent = null, string? IntakeStatePath = null, string? InboxDismissalsPath = null, TimeSpan? McpWait = null,
+    CloudflareAccessSettings? Access = null, Func<CancellationToken, Task<string>>? AccessCerts = null,
+    ProxySignInSettings? ProxySignIn = null, Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? ProxyResolver = null);
 
 /// <summary>
 /// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
@@ -118,6 +124,10 @@ public static partial class ChargehandServer
         app.UseHostFiltering();
         var expected = Encoding.UTF8.GetBytes($"Bearer {settings.ApiKey}");
         var accounts = settings.Accounts is { Count: > 0 } declared && settings.AccountKeysFile is { } keysFile ? new AccountDirectory(declared, new AccountKeyStore(keysFile), new AccountKeyUse(AccountKeyUse.FileFor(keysFile), settings.Clock)) : null;
+        var access = settings.Access is { } accessSettings ? new CloudflareAccessVerifier(accessSettings, settings.AccessCerts ?? Certs(accessSettings), settings.Clock) : null;
+        var proxies = settings.ProxySignIn is { } proxy ? new TrustedProxies(proxy.Proxies, settings.ProxyResolver, settings.Clock) : null;
+        if (access is not null)
+            app.Lifetime.ApplicationStopped.Register(access.Dispose);
         app.Use(async (ctx, next) =>
         {
             // The UI's and the console's files are public and carry no data; the page calls the routes below with a key (ADR 0054, 0056).
@@ -158,7 +168,21 @@ public static partial class ChargehandServer
                 await next(ctx);
                 return;
             }
-            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            // No key at all: the identity Cloudflare Access checked (ADR 0071), for the console's own calls only.
+            if (header.Length == 0 && access is not null && await AccessPrincipal(ctx, access, settings) is { } identity)
+            {
+                Identify(ctx, identity);
+                await next(ctx);
+                return;
+            }
+            if (header.Length == 0 && proxies is not null && await ProxyPrincipal(ctx, proxies, settings) is { } forwarded)
+            {
+                Identify(ctx, forwarded);
+                await next(ctx);
+                return;
+            }
+            // The console's first call, with no key: "no identity" is an answer, not an error, so the browser logs nothing.
+            ctx.Response.StatusCode = ctx.Request.Path == IdentityPath ? StatusCodes.Status204NoContent : StatusCodes.Status401Unauthorized;
         });
 
         app.MapPost("/v1/runs", async (HttpContext ctx, RunService runs) =>
@@ -209,8 +233,9 @@ public static partial class ChargehandServer
 
         ConsoleRoutes.Map(app, settings, log, driven);
 
-        app.MapGet("/v1/accounts/me", async (HttpContext ctx, RunService runs) =>
-            Json(await AccountStanding.ReadAsync(PrincipalHttp.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
+        foreach (var path in new[] { "/v1/accounts/me", IdentityPath })
+            app.MapGet(path, async (HttpContext ctx, RunService runs) =>
+                Json(await AccountStanding.ReadAsync(PrincipalHttp.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
 
         app.MapGet("/v1/runs", async (HttpContext ctx) =>
         {
