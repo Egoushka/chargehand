@@ -384,3 +384,60 @@ describe('a research run that has not produced a result', () => {
     await waitFor(() => expect(calls.length).toBeGreaterThan(before));
   });
 });
+
+describe('the artifacts of a single run', () => {
+  it('lists what the result carries, inline content as JSON and a reference with its hash', async () => {
+    serve({
+      ...researchResult(),
+      artifacts: [
+        {
+          kind: 'pull-request',
+          media_type: 'application/json',
+          sha256: 'a'.repeat(64),
+          content: JSON.stringify({ url: `${WEB}/pull/9` }),
+        },
+        {
+          kind: 'governor-log',
+          media_type: 'text/plain',
+          sha256: 'b'.repeat(64),
+          uri: 'volume://x',
+        },
+      ],
+    });
+    renderConsole(`/console/runs/${ID}`);
+    const panel = (await screen.findByRole('heading', { name: 'Artifacts' })).closest(
+      'section',
+    ) as HTMLElement;
+    expect(within(panel).getByText('pull-request')).toBeTruthy();
+    expect(within(panel).getByRole('link', { name: `${WEB}/pull/9` })).toBeTruthy();
+    expect(within(panel).getByText('b'.repeat(64))).toBeTruthy();
+  });
+
+  it('shows no panel for a result without artifacts', async () => {
+    serve(researchResult());
+    renderConsole(`/console/runs/${ID}`);
+    await screen.findByText(/Payments retry through RetryPolicy/);
+    expect(screen.queryByRole('heading', { name: 'Artifacts' })).toBeNull();
+  });
+});
+
+describe('cancelling a single run', () => {
+  it('asks first, then sends the cancel', async () => {
+    const api = serveApi({
+      runs: [singleRun(ID, Date.now(), { status: 'running', finished_at: null })],
+      replies: {
+        [`/v1/runs/${ID}`]: [202, { status: 'running' }],
+        [`POST /v1/runs/${ID}/cancel`]: [202, {}],
+      },
+    });
+    renderConsole(`/console/runs/${ID}`);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel run' }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(api.calls.some((c) => c.path.endsWith('/cancel'))).toBe(false);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel run' }));
+    await screen.findByText('Cancelling the run');
+    expect(api.calls.some((c) => c.method === 'POST' && c.path.endsWith(`/${ID}/cancel`))).toBe(
+      true,
+    );
+  });
+});

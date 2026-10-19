@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [Unreleased]
+
+One web UI (ADR 0072): the page at `/ui/` is gone and `/ui/` redirects to the operator console at `/console/`. The console gained what `/ui/` had and it lacked: **Start a run** takes a single run (goal, preset, repository at its head) beside the batch composer, Runs has a **Session calls** filter (hidden by default), and a run that is not a batch shows its artifacts and can be cancelled from its page. `http.ui` now serves only the console, and the start line of `chargehand serve` ends `console /console/`.
+
 ## [0.12.0](https://github.com/Egoushka/chargehand/compare/v0.11.0...v0.12.0) (2026-10-19)
 
 

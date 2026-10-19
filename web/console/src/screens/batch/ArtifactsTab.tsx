@@ -150,7 +150,13 @@ function Viewer({
   return item.ref ? <RefView item={item} ref_={item.ref} /> : null;
 }
 
-function ChangesView({ changes, verification }: { changes: unknown; verification: unknown }) {
+export function ChangesView({
+  changes,
+  verification,
+}: {
+  changes: unknown;
+  verification: unknown;
+}) {
   const c = asRecord(changes);
   const totals = changeTotals(changes);
   const diff = typeof c?.diff === 'string' ? c.diff : null;

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { runQuery } from '../../api/queries';
+import { runQuery, useCancelRuns } from '../../api/queries';
 import type { RunResult, RunSummary } from '../../api/types';
 import { useRunEvents } from '../../api/useRunEvents';
 import {
@@ -16,6 +16,7 @@ import { useToast } from '../../shell/toasts';
 import {
   Badge,
   Button,
+  ConfirmDialog,
   cssVars,
   EmptyState,
   ErrorState,
@@ -30,6 +31,7 @@ import {
   StatusPill,
 } from '../../ui';
 import { eventDetail, eventKind } from '../batch/model';
+import { Artifacts, runArtifacts } from './Artifacts';
 import {
   type ClaimRow,
   claimRows,
@@ -48,6 +50,8 @@ import './research.css';
 export function Research({ run }: { run: RunSummary }) {
   const reply = useQuery(runQuery(run.run_id));
   const toast = useToast();
+  const cancel = useCancelRuns();
+  const [confirming, setConfirming] = useState(false);
   const data = reply.data;
   const result = data?.state === 'finished' ? data.result : null;
   const word = result ? runStatus(result.status) : data?.state === 'lost' ? 'lost' : 'running';
@@ -89,6 +93,14 @@ export function Research({ run }: { run: RunSummary }) {
           </div>
         </div>
         <div className="screen__actions">
+          {data?.state === 'running' ? (
+            <Button
+              variant="danger-quiet"
+              label="Cancel run"
+              loading={cancel.isPending}
+              onClick={() => setConfirming(true)}
+            />
+          ) : null}
           {result ? (
             <Button
               size="sm"
@@ -131,6 +143,40 @@ export function Research({ run }: { run: RunSummary }) {
       ) : null}
       {data?.state === 'running' ? <Running runId={run.run_id} /> : null}
       {result ? <Result result={result} rows={rows} run={run} /> : null}
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={`Cancel ${run.run_id.slice(-6)}?`}
+        text="The run stops and ends failed with the code cancelled."
+        keepLabel="Keep running"
+        confirmLabel="Cancel run"
+        onConfirm={() => {
+          setConfirming(false);
+          cancel.mutate([run.run_id], {
+            onSuccess: ([outcome]) =>
+              toast.push(
+                outcome?.result === 'cancelling'
+                  ? { tone: 'ok', icon: 'check', title: 'Cancelling the run' }
+                  : {
+                      tone: 'warn',
+                      icon: 'alert-triangle',
+                      title: 'The run was not cancelled',
+                      body:
+                        outcome?.result === 'finished'
+                          ? 'It had finished, or another process runs it.'
+                          : (outcome?.message ?? 'The server could not cancel it.'),
+                    },
+              ),
+            onError: (error) =>
+              toast.push({
+                tone: 'danger',
+                icon: 'alert-triangle',
+                title: 'Cannot cancel',
+                body: error.message,
+              }),
+          });
+        }}
+      />
     </div>
   );
 }
@@ -333,6 +379,7 @@ function Result({ result, rows, run }: { result: RunResult; rows: ClaimRow[]; ru
           </Panel>
         </div>
       </div>
+      {runArtifacts(result).length > 0 ? <Artifacts artifacts={runArtifacts(result)} /> : null}
     </>
   );
 }

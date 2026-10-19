@@ -54,7 +54,7 @@ Sources: [README](../../README.md#how-a-run-works), [ADR 0009](../adr/0009-resul
 - [Install with Docker Compose](install.md): the release images on one Docker host, Core only or with the runner behind a socket proxy, and a first run.
 - [Use it from an MCP client](mcp.md): the `orchestrate` tool over stdio or HTTP.
 - [Run the HTTP server](server.md): `chargehand serve`, its routes and the container image.
-- [Web UI](web-ui.md): a page at `/ui/` for runs, live events, results with linked citations, starting and cancelling runs, and spend against an account's caps.
+- [Web UI](web-ui.md): the operator console at `/console/` for runs, live events, results with linked citations, starting and cancelling runs and batches, and spend against an account's caps.
 - [Writing a branch](writing.md): the `code` preset, its sandbox, what it verifies and what it does not.
 - [Driven writing sessions](driven.md): a list of tasks as parallel headless sessions in containers, ending in draft pull requests; what is built and what is not wired yet.
 - [Several runners](runners.md): driven sessions on more than one machine, a server's runner plus a laptop: the `runners` list, how a task gets a runner, a remote runner's repository, images by platform.

@@ -7,12 +7,15 @@ namespace Chargehand.Server;
 
 /// <summary>
 /// The operator console (ADR 0056): the Vite build in <c>web/console/dist</c>, embedded when it exists and served at <c>/console/</c> when <c>http.ui</c> is on.
-/// Same rules as <see cref="WebUi"/>: the files are public and need no key, the page signs in with an API key and calls the routes the server already has, and
+/// The files are public and need no key, the page signs in with an API key (or, behind Cloudflare Access, by the identity the proxy sends) and calls the routes the server already has, and
 /// every response carries a Content-Security-Policy that allows only this origin's scripts and styles. A build without the web build serves a short page that says so.
 /// </summary>
 public static class WebConsole
 {
     public const string Prefix = "/console";
+
+    /// <summary>The path of the page of plain scripts that the console replaced (ADR 0054, 0072); it now sends the browser to the console.</summary>
+    public const string LegacyPrefix = "/ui";
 
     /// <summary>Scripts and styles from this origin only, no inline of either, calls to this origin only, no frames, no base or form targets. <c>web/console/csp.ts</c> holds the same text.</summary>
     public const string ContentSecurityPolicy =
@@ -32,8 +35,8 @@ public static class WebConsole
     /// <summary>One answer: the file, a client route's <c>index.html</c>, a refusal, or the not-built page.</summary>
     internal sealed record Reply(int Status, string ContentType, byte[] Body, string CacheControl);
 
-    /// <summary>Whether <paramref name="path"/> is the console's: <c>/console</c> or below it.</summary>
-    public static bool Serves(PathString path) => path.StartsWithSegments(Prefix);
+    /// <summary>Whether <paramref name="path"/> is the console's, or the old page's that redirects to it: <c>/console</c> or <c>/ui</c> or below.</summary>
+    public static bool Serves(PathString path) => path.StartsWithSegments(Prefix) || path.StartsWithSegments(LegacyPrefix);
 
     /// <summary>Whether the web build was embedded.</summary>
     public static bool Built => Files.Value.ContainsKey("index.html");
@@ -58,6 +61,9 @@ public static class WebConsole
         }
         app.MapGet(Prefix, Serve);
         app.MapGet(Prefix + "/{**path}", Serve);
+        // A bookmark of the old page lands on the console. A temporary redirect, so a browser never keeps it past a later change.
+        app.MapGet(LegacyPrefix, () => HttpResults.Redirect(Prefix + "/"));
+        app.MapGet(LegacyPrefix + "/{**path}", () => HttpResults.Redirect(Prefix + "/"));
     }
 
     /// <summary>

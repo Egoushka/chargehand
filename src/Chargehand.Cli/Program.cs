@@ -543,7 +543,7 @@ async Task<int> Serve()
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn),
         orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake(), Schedules(), PlaneIntake());
     await app.StartAsync(ct);
-    Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", UI /ui/, console /console/" : "")})");
+    Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);
     return 0;
 }
