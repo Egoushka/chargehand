@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.12.0](https://github.com/Egoushka/chargehand/compare/v0.11.0...v0.12.0) (2026-10-19)
+
+
+### Features
+
+* **enhancer:** per-request enhance switch, parent_request_id and review_findings (ADR 0070) ([#372](https://github.com/Egoushka/chargehand/issues/372)) ([13dddd6](https://github.com/Egoushka/chargehand/commit/13dddd6fa459da3d4958d86bd6d070a3b63cfacc))
+* **server:** sign in to the console by proxy-checked identity (ADR 0071) ([#374](https://github.com/Egoushka/chargehand/issues/374)) ([149f762](https://github.com/Egoushka/chargehand/commit/149f762326a425bb94ab716b307354ae0e26fc3a))
+
 ## [0.11.0](https://github.com/Egoushka/chargehand/compare/v0.10.1...v0.11.0) (2026-10-19)
 
 Local delivery (ADR 0069): `context.delivery: "local"` (additive to `request/v1`) and the profile's `delivery.local_only` keep a run on the machine. A local `code` run fetches its branch into the caller's repository as a new local branch and nothing is pushed, opened or sent to a forge; the profile wins over the request, and a `push` request for a local-only repository fails `local_only`. Driven batches, the hand-over, the integrator, the CI fixer and intake each refuse a local-only repository. A local run recalls from and retains into only `memory` entries marked `local_ok`, and skips the prompt enhancer. New error codes `local_only` and `delivery_failed`. `/chargehand:change --local` uses the `chargehand-local` server.
