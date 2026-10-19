@@ -51,26 +51,12 @@ describe('the key store', () => {
     blocked.mockRestore();
   });
 
-  it('signs in by identity with no key, and ends the Cloudflare session on sign-out', () => {
-    const assign = vi.fn();
-    vi.stubGlobal('location', { ...window.location, assign });
+  it('signs in by identity with no key, and sign-out leaves the page as it is', () => {
     setIdentity();
     expect(getKey()).toBeNull();
     expect(signedIn(getKeyState())).toBe(true);
     expect(sessionStorage.getItem('chargehand.key')).toBeNull();
     signOut();
     expect(signedIn(getKeyState())).toBe(false);
-    expect(assign).toHaveBeenCalledWith('/cdn-cgi/access/logout');
-    vi.unstubAllGlobals();
-  });
-
-  it('signs out of a key without leaving the page', () => {
-    const assign = vi.fn();
-    vi.stubGlobal('location', { ...window.location, assign });
-    setKey('k');
-    signOut();
-    expect(getKey()).toBeNull();
-    expect(assign).not.toHaveBeenCalled();
-    vi.unstubAllGlobals();
   });
 });

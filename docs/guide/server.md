@@ -118,6 +118,22 @@ When the server is reached through Cloudflare Access, the console can sign in by
 
 The server takes the identity only from a request with no `Authorization` header, a valid `Cf-Access-Jwt-Assertion` token (RS256 under the team's published keys, this audience, the team as issuer, not expired) and the console's `X-Chargehand-Console: 1` header, which a page on another origin cannot send. The email must be in `identities`, mapped to `owner` or an account of `http.accounts`; any other request gets `401`. A key, when one is sent, decides alone. MCP clients and API callers keep using keys.
 
+A single-sign-on proxy such as Pangolin forwards the email in a header it does not sign, so it is trusted only on a signed-on host and from the proxy's own address:
+
+```json
+{
+  "http": {
+    "proxy_sign_in": {
+      "hosts": ["console.example.com"],
+      "proxies": ["traefik"],
+      "identities": { "me@example.com": "owner" }
+    }
+  }
+}
+```
+
+`proxies` takes addresses or host names (resolved every 30 seconds); `header` defaults to `Remote-Email`. The email is taken only from a console call with no `Authorization` header, for one of `hosts`, from one of `proxies` ([ADR 0071](../adr/0071-sign-in-by-cloudflare-access-identity.md)).
+
 ## Binding and allowed hosts
 
 | field | default | meaning |

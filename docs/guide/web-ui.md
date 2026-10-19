@@ -25,7 +25,7 @@ Paste an API key: the owner's `http.api_key_secret` or an account's `chk1.<id>.<
 
 For everyday watching, sign in with an account key. The owner's key can also halt the server.
 
-Behind Cloudflare Access with `http.cloudflare_access` set, the console (not `/ui/`) asks for nothing: it signs in as the account your Access email maps to, and **Sign out** also ends the Access session ([server guide](server.md#sign-in-by-cloudflare-access-identity), [ADR 0071](../adr/0071-sign-in-by-cloudflare-access-identity.md)).
+Behind Cloudflare Access with `http.cloudflare_access` set, or a single-sign-on proxy with `http.proxy_sign_in`, the console (not `/ui/`) asks for nothing: it signs in as the account your Access email maps to, and **Sign out** shows the key form until you reload ([server guide](server.md#sign-in-by-cloudflare-access-identity), [ADR 0071](../adr/0071-sign-in-by-cloudflare-access-identity.md)).
 
 ### Where the key is kept, and what that costs
 

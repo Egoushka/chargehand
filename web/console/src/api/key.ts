@@ -1,5 +1,5 @@
 // The API key lives in sessionStorage: it ends with the tab and is sent only to this origin, as the bearer header (ADR 0054, 0056).
-// Behind Cloudflare Access there is no key: the server takes the identity Cloudflare checked (ADR 0071), and `identity` says so.
+// Behind Cloudflare Access or a single-sign-on proxy there is no key: the server takes the identity they checked (ADR 0071), and `identity` says so.
 const STORAGE_KEY = 'chargehand.key';
 
 export interface KeyState {
@@ -57,9 +57,7 @@ export function setIdentity(): void {
   publish({ key: null, identity: true, notice: null });
 }
 
-/** Sign out on purpose. An identity sign-in also ends the Cloudflare Access session, or the next page load would sign in again. */
+/** Sign out on purpose. An identity sign-in belongs to the proxy in front, which stays signed in: this tab shows the key form until the page loads again. */
 export function signOut(): void {
-  const identity = state.identity;
   clearKey();
-  if (identity) window.location.assign('/cdn-cgi/access/logout');
 }
