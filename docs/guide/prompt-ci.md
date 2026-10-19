@@ -23,7 +23,7 @@ Changed files map to the eval cells in [evals/cells.json](../../evals/cells.json
 | `draft/draft` | `draft` | `prompts/core/draft.md`, `prompts/preset/draft.md`, `presets/draft.yaml` | 0.10 | +15% |
 | `intake` | none | `prompts/intake/task-spec.md` | 0.10 | +15% |
 
-Every cell needs at least 8 items. A changed prompt or preset file that no cell gates fails the gate unless the owner passes `--allow-uncovered`; the prompt blocks and preset files of `default`, `thorough` and `strict` have no cell. The items are real tasks in the orchestrator's Langfuse datasets. [evals/example.jsonl](../../evals/example.jsonl) shows their format with questions about this repository. The `review/worker` cell shipped in 0.4.0, and [docs/benchmarks.md](../benchmarks.md) records no calibration for it.
+Every cell needs at least 8 items; a cell whose dataset is empty is skipped with a warning in the job summary, not blocked. A changed prompt or preset file that no cell gates fails the gate unless the owner passes `--allow-uncovered`; the prompt blocks and preset files of `default`, `thorough` and `strict` have no cell. The items are real tasks in the orchestrator's Langfuse datasets. [evals/example.jsonl](../../evals/example.jsonl) shows their format with questions about this repository. The `review/worker` cell shipped in 0.4.0, and [docs/benchmarks.md](../benchmarks.md) records no calibration for it.
 
 ## Where it runs
 

@@ -24,6 +24,22 @@ public class GateTests
     }
 
     [Fact]
+    public void An_empty_dataset_skips_the_gate_with_a_warning()
+    {
+        var v = Gate.Decide(Cell, [], null);
+        Assert.False(v.Blocked, v.Reason);
+        Assert.Equal("0 items, gate skipped — seed CHARGEHAND-57", v.Reason);
+    }
+
+    [Fact]
+    public void Too_few_items_still_block()
+    {
+        var v = Gate.Decide(Cell, Pairs([0, 0, 0]), null);
+        Assert.True(v.Blocked);
+        Assert.Equal("3 items; the gate needs at least 8", v.Reason);
+    }
+
+    [Fact]
     public void A_clear_quality_drop_blocks()
     {
         var v = Gate.Decide(Cell, Pairs([-0.3, -0.25, -0.35, -0.3, -0.2, -0.4, -0.3, -0.25]), null);

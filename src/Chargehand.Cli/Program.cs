@@ -610,6 +610,8 @@ async Task<int> EvalGate(string baseRoot, string changeRoot, IReadOnlyList<strin
         Console.WriteLine($"| {v.Cell} | {v.Items} | {v.QualityDelta:+0.000;-0.000} | {v.QualityT:0.00} | {v.CostChange:+0%;-0%} | {v.CostT:0.00} | {(v.Blocked ? "BLOCK" : "pass")}: {v.Reason} |");
     var allowUncovered = options.Contains("--allow-uncovered");
     var blockedByUncovered = uncovered.Count > 0 && !allowUncovered;
+    foreach (var v in verdicts.Where(v => v is { Items: 0, Blocked: false }))
+        Console.WriteLine($"::warning title=prompt-ci::{v.Cell}: {v.Reason}");
     foreach (var f in uncovered)
         Console.WriteLine($"uncovered: {f} (no eval cell gates it{(blockedByUncovered ? "" : "; allowed")})");
     foreach (var f in fresh)
