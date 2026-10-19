@@ -9,10 +9,12 @@ public sealed record RunRequest(
     IReadOnlyList<PromptBlock>? CallerBlocks = null,
     RequestDriven? Driven = null);
 
+/// <param name="Enhance"><c>false</c>: the run skips the prompt enhancer, with no <c>enhance</c> call and no <c>feedback</c> report, so a replay cannot train the enhancer on itself (ADR 0070); null or <c>true</c>: as before.</param>
+/// <param name="ParentRequestId">The enhancer's request id of the prompt whose run wrote this request's text; sent to the enhancer as <c>context.parent_request_id</c> (ADR 0070).</param>
 /// <param name="Approved">Runs a request the preset would otherwise stop for approval (preset approval thresholds).</param>
 /// <param name="Delivery"><c>local</c>: the run's output stays on the machine (ADR 0069); <c>push</c>: as before; null: the profile decides, else <c>push</c>.</param>
 public sealed record RequestContext(bool Interactive, string Preset, decimal? BudgetUsd = null, RepositoryRef? Repository = null, bool? Approved = null, IReadOnlyList<string>? Verify = null,
-    string? Delivery = null);
+    string? Delivery = null, bool? Enhance = null, string? ParentRequestId = null);
 
 public sealed record RepositoryRef(string Path, string Commit);
 

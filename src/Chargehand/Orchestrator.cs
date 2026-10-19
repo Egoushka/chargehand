@@ -196,20 +196,21 @@ public sealed class Orchestrator(
     /// </summary>
     private async Task<Enhanced?> Enhance(RunRequest request, Activity? run, CancellationToken ct)
     {
-        if (enhancer is null || string.IsNullOrWhiteSpace(request.Text))
+        if (enhancer is null || request.Context.Enhance == false || string.IsNullOrWhiteSpace(request.Text))
             return null;
         var answer = await enhancer.EnhanceAsync(request.Text, EnhanceContextOf(request), ct);
         run?.SetTag("chargehand.enhancer.rewrite_offered", answer.Changed);
         return answer;
     }
 
-    /// <summary>Exactly the four fields ADR 0040 allows. The repository is the checkout's folder name, never its path; a commit that is not a hex id is left out.</summary>
+    /// <summary>Exactly the five fields ADR 0040 and 0070 allow. The repository is the checkout's folder name, never its path; a commit that is not a hex id is left out, and so is a parent request id outside 1 to 128 characters.</summary>
     internal static EnhanceContext EnhanceContextOf(RunRequest request)
     {
         var repo = request.Context.Repository;
         var name = repo is null ? null : Path.GetFileName(repo.Path.TrimEnd('/', '\\'));
         return new EnhanceContext(string.IsNullOrEmpty(name) ? null : name,
-            repo is not null && Regex.IsMatch(repo.Commit, "^[0-9a-f]{7,40}$") ? repo.Commit : null, request.Context.Preset);
+            repo is not null && Regex.IsMatch(repo.Commit, "^[0-9a-f]{7,40}$") ? repo.Commit : null, request.Context.Preset,
+            ParentRequestId: request.Context.ParentRequestId is { Length: >= 1 and <= 128 } parent ? parent : null);
     }
 
     /// <summary>

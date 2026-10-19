@@ -19,6 +19,8 @@
         "budget_usd": { "type": "number", "exclusiveMinimum": 0 },
         "verify": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "description": "The command that verifies a change, as an argument vector, for a preset whose node writes. Absent: chargehand detects the repository's test command." },
         "delivery": { "enum": ["local", "push"], "description": "local: the run's output stays on the machine (a writing run commits to a local branch in the repository and nothing is pushed, opened or sent to a forge); push: the default behaviour. A profile can force local for a repository, and then push is refused with local_only." },
+        "enhance": { "type": "boolean", "description": "false: the run skips the server's prompt enhancer: nothing is sent to it before the run and nothing is reported to it after, so a replay of a stored prompt does not train the enhancer on itself. Absent or true: the profile's prompt_enhancer, if any, sees the run (ADR 0070)." },
+        "parent_request_id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "The prompt enhancer's request id of the prompt whose run wrote this request's text (an orchestrator prompt starting a worker), sent to the enhancer as context.parent_request_id. Ignored without a prompt enhancer or with enhance false (ADR 0070)." },
         "approved": { "type": "boolean", "description": "true: run even if the preset's approval thresholds (risk, estimate) would stop it with needs_input." },
         "repository": {
           "type": "object",

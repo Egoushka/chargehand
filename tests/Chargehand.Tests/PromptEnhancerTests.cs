@@ -192,6 +192,21 @@ public class PromptEnhancerTests
     }
 
     [Fact]
+    public async Task Enhance_and_feedback_carry_the_parent_request_and_review_findings_when_set()
+    {
+        var profile = ProfileWith("""{"server":"gw"}""");
+        await using var server = Whetstone(PassThrough);
+        await using var pool = PoolFor(profile, server);
+        var enhancer = new McpPromptEnhancer(profile.PromptEnhancer!, pool);
+
+        await enhancer.EnhanceAsync(Prompt, new EnhanceContext(ParentRequestId: "req-parent"), CancellationToken.None);
+        await enhancer.FeedbackAsync("req-1", new EnhanceOutcome(ReviewFindings: 0), CancellationToken.None);
+
+        Assert.Equal("req-parent", server.Calls[0].Arguments["context"].GetProperty("parent_request_id").GetString());
+        Assert.Equal(0, server.Calls[1].Arguments["outcome"].GetProperty("review_findings").GetInt32());
+    }
+
+    [Fact]
     public async Task A_pass_through_answer_has_no_rewrite()
     {
         var profile = ProfileWith("""{"server":"gw"}""");
