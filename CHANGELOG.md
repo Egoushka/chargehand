@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.11.0](https://github.com/Egoushka/chargehand/compare/v0.10.1...v0.11.0) (2026-10-19)
+
+
+### Features
+
+* **delivery:** local delivery for writing runs (ADR 0069) ([#369](https://github.com/Egoushka/chargehand/issues/369)) ([b8a1631](https://github.com/Egoushka/chargehand/commit/b8a163185ffc62ee5e5b86f352c8bc5b0e6d2b11))
+
 ## [0.10.1] - 2026-10-18
 
 Pull request review works on a server whose checkouts are mounted read-only.
