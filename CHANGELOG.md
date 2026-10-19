@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.13.1](https://github.com/Egoushka/chargehand/compare/v0.13.0...v0.13.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **prompt-ci:** skip the gate for an empty eval dataset with a warning (CHARGEHAND-229) ([#377](https://github.com/Egoushka/chargehand/issues/377)) ([a3dac88](https://github.com/Egoushka/chargehand/commit/a3dac88899c5ba264a632a3c5bd138685fbccbfe))
+
 ## [0.13.0](https://github.com/Egoushka/chargehand/compare/v0.12.0...v0.13.0) (2026-10-19)
 
 
