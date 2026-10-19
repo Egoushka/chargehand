@@ -73,6 +73,20 @@ public class ChangeRunTests
     }
 
     [Fact]
+    public async Task The_branch_commit_names_the_run_that_wrote_it()
+    {
+        using var s = Make((dir, _) => File.WriteAllText(Path.Combine(dir, "feature.txt"), "feature\n"));
+        var r = await s.Orchestrator.RunAsync(Request(s.Source, Sh("test -f feature.txt")), CancellationToken.None);
+
+        var clone = Artifact(r, "branch").GetProperty("repository").GetString()!;
+        var trailers = Provenance.Read(Git(clone, "log", "-1", "--format=%B"));
+        Assert.Equal(r.TaskId, trailers[Provenance.RunKey]);
+        Assert.StartsWith("opencode 2.0.16", trailers[Provenance.RuntimeKey], StringComparison.Ordinal);
+        Assert.Contains("verification passed after 1 attempt", trailers[Provenance.ChecksKey], StringComparison.Ordinal);
+        Assert.Equal(r.TaskId, Git(clone, "log", "-1", "--format=%(trailers:key=Chargehand-Run,valueonly)"));
+    }
+
+    [Fact]
     public async Task The_worker_edits_its_own_clone_and_the_source_and_shared_checkout_stay_untouched()
     {
         using var s = Make((dir, _) => File.WriteAllText(Path.Combine(dir, "feature.txt"), "feature\n"));

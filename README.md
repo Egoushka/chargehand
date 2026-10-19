@@ -94,6 +94,7 @@ otherwise from the ones the build copies next to the binary. The run log is the 
 |---|---|
 | `run < request.json` | `request/v1` in, `result/v1` out |
 | `show <run-id>` | calls, tokens, cache %, cost |
+| `why <path>:<line>` | the run that wrote a line: its commit's `Chargehand-*` trailers, goal, session ([ADR 0070](docs/adr/0070-provenance-trailers-on-commits.md)) |
 | `cache <run-id>` | cache reads and writes per call, and the first block that broke a shared prefix |
 | `reconcile <run-id> < spend-rows.jsonl` | joins calls to exported gateway spend rows |
 | `serve` | HTTP and MCP, on 127.0.0.1 unless the profile opens it (profile `http`); with `http.ui` also the [web UI](docs/guide/web-ui.md) at `/ui/` and the operator console at `/console/` |

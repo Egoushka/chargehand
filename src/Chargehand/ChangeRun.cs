@@ -3,7 +3,9 @@ using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Sessions.Api;
+using Chargehand.Runtime;
 using Chargehand.Verification;
 using Chargehand.Workspace;
 
@@ -28,6 +30,17 @@ internal static class ChangeRun
         var line = (summary.Split('\n', 2)[0]).Trim();
         var message = $"chargehand: {(line.Length == 0 ? "change" : line)}";
         return message.Length <= 72 ? message : message[..71] + "…";
+    }
+
+    /// <summary>The trailers of the branch's commit (ADR 0070): the run, what its calls cost so far, and how the last check ended. The result is not named: it cites this commit, so its hash cannot be in it.</summary>
+    internal static Provenance ProvenanceOf(string runId, string runtime, string model, IReadOnlyList<WorkerMessage> calls, IPriceTable prices, VerifyOutcome? check, int attempts)
+    {
+        var counts = calls.Select(c => c.Tokens).OfType<TokenCounts>().ToList();
+        var input = counts.Sum(t => t.Input) + counts.Sum(t => t.CacheRead) + counts.Sum(t => t.CacheWrite);
+        decimal? usd = calls.Select(c => c.Tokens is { } t ? prices.PriceUsd(c.Model ?? model, t) : null).OfType<decimal>().ToList() is { Count: > 0 } priced ? priced.Sum() : null;
+        var checks = check is null ? "no verification command" : $"{(check.Passed ? "verification passed" : "verification failed")} after {attempts} attempt{(attempts == 1 ? "" : "s")}: {string.Join(' ', check.Plan.Argv)}";
+        return new Provenance(runId, Runtime: runtime, Model: calls.Select(c => c.Model).FirstOrDefault(m => m is not null) ?? model, Usd: usd,
+            Tokens: counts.Count == 0 ? null : counts.Sum(t => t.Input + t.Output), CachePercent: input == 0 ? null : (int)(counts.Sum(t => t.CacheRead) * 100 / input), Checks: checks);
     }
 
     internal static ResultContract Finish(ResultContract contract, BranchInfo? branch, string diff, VerifyOutcome? verification, int attempts, string sandboxKind,

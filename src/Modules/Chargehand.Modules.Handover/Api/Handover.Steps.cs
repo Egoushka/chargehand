@@ -41,9 +41,12 @@ public sealed partial class Handover
     /// <summary>The draft as step <c>handover/&lt;run&gt;/pr</c>, with the body it was opened with. Run again, it looks the branch's open pull request up first and opens one only if there is none.</summary>
     private async Task<(PullRequestRef Pr, string Body)> OpenPullRequestAsync(HandoverInput input, RemoteRepository repository, string body, CancellationToken ct)
     {
+        // The last paragraph of the body: the squash merge's message is built from the body, and git reads trailers only at the end of a message.
+        var trailers = input.Provenance is { } provenance ? $"\n\n{provenance.Block()}\n" : "";
         var fallbackBody = input.FallbackBaseBranch is { } fallback
-            ? $"{body.TrimEnd()}\n\nThis pull request is based on `{fallback}`, not on `{input.BaseBranch}`: the host did not accept that branch as a base (it may be gone). The branch holds the earlier task's work as well.\n"
+            ? $"{body.TrimEnd()}\n\nThis pull request is based on `{fallback}`, not on `{input.BaseBranch}`: the host did not accept that branch as a base (it may be gone). The branch holds the earlier task's work as well.{trailers}"
             : body;
+        body = body.TrimEnd() + trailers;
         async Task<OpenedPullRequest> Open(StepAttempt attempt, CancellationToken token)
         {
             if (attempt.Repeated && await pullRequests.FindByHeadAsync(repository, input.Branch, token) is { } existing)

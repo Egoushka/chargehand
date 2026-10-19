@@ -129,7 +129,7 @@ public class HandoverTests
         }
     }
 
-    private sealed class FakePullRequests(Exception? failure = null, bool reused = false, Exception? editFailure = null) : IPullRequests
+    internal sealed class FakePullRequests(Exception? failure = null, bool reused = false, Exception? editFailure = null) : IPullRequests
     {
         public List<(string Head, string Base, string Title, string Body)> Created { get; } = [];
 
