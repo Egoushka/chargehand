@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.11.0](https://github.com/Egoushka/chargehand/compare/v0.10.1...v0.11.0) (2026-10-19)
+
+Local delivery (ADR 0069): `context.delivery: "local"` (additive to `request/v1`) and the profile's `delivery.local_only` keep a run on the machine. A local `code` run fetches its branch into the caller's repository as a new local branch and nothing is pushed, opened or sent to a forge; the profile wins over the request, and a `push` request for a local-only repository fails `local_only`. Driven batches, the hand-over, the integrator, the CI fixer and intake each refuse a local-only repository. A local run recalls from and retains into only `memory` entries marked `local_ok`, and skips the prompt enhancer. New error codes `local_only` and `delivery_failed`. `/chargehand:change --local` uses the `chargehand-local` server.
+
+
+### Features
+
+* **delivery:** local delivery for writing runs (ADR 0069) ([#369](https://github.com/Egoushka/chargehand/issues/369)) ([b8a1631](https://github.com/Egoushka/chargehand/commit/b8a163185ffc62ee5e5b86f352c8bc5b0e6d2b11))
+
 ## [0.10.1] - 2026-10-18
 
 Pull request review works on a server whose checkouts are mounted read-only.
