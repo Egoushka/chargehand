@@ -71,13 +71,17 @@ export function serveApi(scenario: Scenario = {}) {
       scenario.identity &&
       headers.Authorization === undefined &&
       headers['X-Chargehand-Console'] === '1';
+    if (path === '/v1/accounts/identity' && !byIdentity) {
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }
     if (!byIdentity && headers.Authorization !== `Bearer ${key}`)
       return Promise.resolve(new Response('', { status: 401 }));
     if (scenario.hang?.includes(path)) return new Promise<Response>(() => {});
     const replace = scenario.replies?.[`${method} ${path}`] ?? scenario.replies?.[path];
     if (replace) return Promise.resolve(json(replace[1], replace[0], replace[2]));
     const now = Date.now();
-    if (path === '/v1/accounts/me') return Promise.resolve(json(scenario.me ?? fx.me({}, now)));
+    if (path === '/v1/accounts/me' || path === '/v1/accounts/identity')
+      return Promise.resolve(json(scenario.me ?? fx.me({}, now)));
     if (path === '/v1/overview')
       return Promise.resolve(json(scenario.overview ?? fx.overview({}, now)));
     if (path === '/v1/inbox')

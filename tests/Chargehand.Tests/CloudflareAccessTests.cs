@@ -93,6 +93,16 @@ public class CloudflareAccessTests
     }
 
     [Fact]
+    public async Task The_identity_probe_answers_204_not_401_when_there_is_none()
+    {
+        await using var s = await Start();
+        using var http = new HttpClient { BaseAddress = s.BaseAddress };
+
+        Assert.Equal(HttpStatusCode.NoContent, (await http.GetAsync(ChargehandServer.IdentityPath)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await http.GetAsync("/v1/accounts/me")).StatusCode);
+    }
+
+    [Fact]
     public async Task Only_the_consoles_own_calls_take_the_identity()
     {
         await using var s = await Start();

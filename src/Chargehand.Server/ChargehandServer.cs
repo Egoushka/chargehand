@@ -181,7 +181,8 @@ public static partial class ChargehandServer
                 await next(ctx);
                 return;
             }
-            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            // The console's first call, with no key: "no identity" is an answer, not an error, so the browser logs nothing.
+            ctx.Response.StatusCode = ctx.Request.Path == IdentityPath ? StatusCodes.Status204NoContent : StatusCodes.Status401Unauthorized;
         });
 
         app.MapPost("/v1/runs", async (HttpContext ctx, RunService runs) =>
@@ -232,8 +233,9 @@ public static partial class ChargehandServer
 
         ConsoleRoutes.Map(app, settings, log, driven);
 
-        app.MapGet("/v1/accounts/me", async (HttpContext ctx, RunService runs) =>
-            Json(await AccountStanding.ReadAsync(PrincipalHttp.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
+        foreach (var path in new[] { "/v1/accounts/me", IdentityPath })
+            app.MapGet(path, async (HttpContext ctx, RunService runs) =>
+                Json(await AccountStanding.ReadAsync(PrincipalHttp.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
 
         app.MapGet("/v1/runs", async (HttpContext ctx) =>
         {

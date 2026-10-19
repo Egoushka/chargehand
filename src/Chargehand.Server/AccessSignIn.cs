@@ -9,6 +9,9 @@ public static partial class ChargehandServer
     /// answers, so a request that rides only on the browser's Cloudflare cookie is refused (ADR 0071).</summary>
     public const string ConsoleHeader = "X-Chargehand-Console";
 
+    /// <summary>Like <c>/v1/accounts/me</c>, but answers <c>204</c> instead of <c>401</c> when the request has no identity the server accepts.</summary>
+    public const string IdentityPath = "/v1/accounts/identity";
+
     private static readonly HttpClient AccessHttp = new() { Timeout = TimeSpan.FromSeconds(10) };
 
     /// <summary>The account a Cloudflare Access token's email maps to; null when the request is not the console's, the token is not valid, or the email is not listed.</summary>

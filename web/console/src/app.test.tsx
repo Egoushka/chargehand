@@ -42,7 +42,7 @@ describe('signing in', () => {
     const field = await screen.findByLabelText('API key');
     // Only the identity probe, with no key, before the form shows.
     expect(calls.map((c) => [c.path, c.headers.Authorization])).toEqual([
-      ['/v1/accounts/me', undefined],
+      ['/v1/accounts/identity', undefined],
     ]);
     fireEvent.change(field, { target: { value: ` ${LOGIN} ` } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));

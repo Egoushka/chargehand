@@ -49,16 +49,16 @@ export function authHeaders(
   };
 }
 
-/** Who the Cloudflare Access identity signs in as, or null when there is none the server accepts. Leaves the key store alone. */
+/** Who the proxy's identity signs in as, or null (the server answers 204) when there is none it accepts. Leaves the key store alone. */
 export async function probeIdentity<T>(): Promise<T | null> {
   try {
-    const res = await fetch('/v1/accounts/me', {
+    const res = await fetch('/v1/accounts/identity', {
       cache: 'no-store',
       credentials: 'same-origin',
       referrerPolicy: 'no-referrer',
       headers: authHeaders(null),
     });
-    return res.ok ? ((await res.json()) as T) : null;
+    return res.status === 200 ? ((await res.json()) as T) : null;
   } catch {
     return null;
   }
