@@ -21,7 +21,7 @@ Restart `chargehand serve`; its start line then ends `console /console/`. Open `
 
 Paste an API key: the owner's `http.api_key_secret` or an account's `chk1.<id>.<secret>` ([accounts](server.md#accounts-and-named-keys)). The page checks it with `GET /v1/accounts/me`. A wrong key shows an error and nothing is stored. **Sign out** removes the key. There is no server-side session. For everyday watching, sign in with an account key; the owner's key can also halt the server.
 
-Behind Cloudflare Access with `http.cloudflare_access` set, or a single-sign-on proxy with `http.proxy_sign_in`, the console (not `/ui/`) asks for nothing: it signs in as the account your Access email maps to, and **Sign out** shows the key form until you reload ([server guide](server.md#sign-in-by-cloudflare-access-identity), [ADR 0071](../adr/0071-sign-in-by-cloudflare-access-identity.md)).
+Behind Cloudflare Access with `http.cloudflare_access` set, or a single-sign-on proxy with `http.proxy_sign_in`, the console asks for nothing: it signs in as the account your Access email maps to, and **Sign out** shows the key form until you reload ([server guide](server.md#sign-in-by-cloudflare-access-identity), [ADR 0071](../adr/0071-sign-in-by-cloudflare-access-identity.md)).
 
 ### Where the key is kept, and what that costs
 
