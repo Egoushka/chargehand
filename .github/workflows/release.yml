@@ -1,17 +1,18 @@
 name: release
 
-# A tag v<Version> publishes the release (ADR 0024, decision D8): the GitHub Release with the version's CHANGELOG.md
-# section, the server image ghcr.io/<owner>/chargehand:<Version>, the session image of driven sessions
+# A GitHub Release vX.Y.Z, created by release-please when its pull request merges (release-please.yml), publishes the
+# release (ADR 0024, decision D8): the server image ghcr.io/<owner>/chargehand:<Version>, the session image of driven sessions
 # ghcr.io/<owner>/chargehand-session:<Version> (ADR 0039) with its JDK variant ghcr.io/<owner>/chargehand-session-jdk:<Version> (ADR 0048), both for linux/amd64 and linux/arm64 (ADR 0058:
 # the release job pushes amd64, the session-arm64 job builds arm64 on an arm64 runner and turns each tag into an index of the two), and on nuget.org the dnx tool Chargehand (ADR 0027) and
 # Chargehand.Contracts, each when its version is new there, when the repository variable NUGET_USER names the nuget.org
-# account whose trusted-publishing policy trusts this workflow. The release environment waits for the owner's approval. A tag without a changelog section fails first.
-# When NUGET_USER is set, the mcp-registry job then lists the version in the MCP Registry (ADR 0027).
+# account whose trusted-publishing policy trusts this workflow. The release waits for the owner's approval only when its pull request carries the label needs-approval (environment release); otherwise it runs in release-auto. A release without a changelog section fails first.
+# When NUGET_USER is set, the mcp-registry job then lists the version in the MCP Registry (ADR 0027). The hosted Renovate app
+# opens the homelab-gitops pin pull request within minutes of the image push; nothing here asks it to.
 on:
-  push:
-    tags: ['v*']
+  release:
+    types: [published]
 
-# One tag push can arrive twice (v0.3.0, v0.4.1): the later run cancels the earlier one waiting at the environment gate.
+# One release can start two runs (a tag push arrived twice for v0.3.0 and v0.4.1): the later cancels the earlier one waiting at the environment gate.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
@@ -20,11 +21,36 @@ permissions:
   contents: read
 
 jobs:
-  release:
+  # The owner asks for an approval by labelling the release pull request needs-approval; without it the release runs
+  # in release-auto, which has no reviewers. A release with no pull request (made by hand) also runs unapproved; one whose
+  # labels cannot be read waits for the approval.
+  gate:
     runs-on: ubuntu-latest
-    environment: release
+    timeout-minutes: 5
     permissions:
-      contents: write
+      contents: read
+      pull-requests: read
+    outputs:
+      environment: ${{ steps.pick.outputs.environment }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[].labels[].name] | join(",")' 2>/dev/null) || { labels=needs-approval; echo "::warning::could not read the release pull request's labels; asking for the approval"; }
+          case ",$labels," in
+            *,needs-approval,*) environment=release ;;
+            *) environment=release-auto ;;
+          esac
+          echo "environment=$environment" >> "$GITHUB_OUTPUT"
+          echo "$GITHUB_REF_NAME: environment $environment (labels: ${labels:-none})" >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    needs: gate
+    runs-on: ubuntu-latest
+    environment: ${{ needs.gate.outputs.environment }}
+    permissions:
+      contents: read
       packages: write
       id-token: write
     outputs:
@@ -40,7 +66,7 @@ jobs:
             echo "tag $GITHUB_REF_NAME does not match Version $version" >&2
             exit 1
           fi
-          scripts/release-notes.sh "$version" > "$RUNNER_TEMP/notes.md"
+          scripts/release-notes.sh "$version" > /dev/null
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}:$version" >> "$GITHUB_ENV"
           echo "SESSION_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-session:$version" >> "$GITHUB_ENV"
@@ -110,10 +136,6 @@ jobs:
           user: ${{ vars.NUGET_USER }}
       - if: steps.pack.outputs.new == 'true'
         run: dotnet nuget push "$RUNNER_TEMP"/nupkg/*.nupkg --api-key "${{ steps.nuget.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
-      - name: GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --title "$VERSION" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
 
   # ADR 0058: the session images for linux/arm64, so a Mac (or any arm64 machine) can be a runner. Built natively on an arm64 runner, not under emulation: the image runs dotnet, node and
   # npm while it builds. A job of its own after the release job, so it sits behind that job's environment approval (needs) without a second one, and an arm64 failure leaves the amd64
