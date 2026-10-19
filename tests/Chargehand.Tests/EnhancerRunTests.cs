@@ -27,12 +27,15 @@ public class EnhancerRunTests
     };
 
     // A clock nobody advances: the deadline never fires, so a slow in-process server cannot turn into "no call reached it".
-    private static async Task<(ResultContract Result, ScriptedRuntime Runtime)> RunAsync(string workerRoot, Profile profile, McpConnectionPool pool, RepositoryRef repo)
+    private static async Task<(ResultContract Result, ScriptedRuntime Runtime)> RunAsync(string workerRoot, Profile profile, McpConnectionPool pool, RepositoryRef repo, Func<RequestContext, RequestContext>? context = null)
     {
+        var request = Runs.CheapRequest(repo);
+        if (context is not null)
+            request = request with { Context = context(request.Context) };
         var runtime = new ScriptedRuntime(Runs.WorkerReply);
         var result = await new Orchestrator(profile, runtime, "2.0.16", Repo.Root, new JsonlRunLog(Path.Combine(workerRoot, "log.jsonl")), new Dictionary<string, int>(),
                 enhancer: PromptEnhancers.From(profile, pool, new ManualTimeProvider()))
-            .RunAsync(Runs.CheapRequest(repo), CancellationToken.None);
+            .RunAsync(request, CancellationToken.None);
         return (result, runtime);
     }
 
@@ -126,5 +129,60 @@ public class EnhancerRunTests
 
         Assert.Equal(ResultStatus.Completed, result.Status);
         Assert.Contains(runtime.Prompts, p => p.Contains("What does the README say?", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_request_with_enhance_false_neither_asks_nor_reports()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        var profile = WithEnhancer(root.Path);
+        await using var server = Whetstone(Rewrite);
+        await using var pool = PoolFor(profile, server);
+
+        var (result, runtime) = await RunAsync(root.Path, profile, pool, repo, c => c with { Enhance = false, ParentRequestId = "req-1" });
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Empty(server.Calls);
+        Assert.Contains(runtime.Prompts, p => p.Contains("What does the README say?", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Enhance_true_changes_nothing()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        var profile = WithEnhancer(root.Path);
+        await using var server = Whetstone(PassThrough);
+        await using var pool = PoolFor(profile, server);
+
+        await RunAsync(root.Path, profile, pool, repo, c => c with { Enhance = true });
+
+        Assert.Equal(["enhance", "feedback"], server.Calls.Select(c => c.Tool));
+    }
+
+    [Fact]
+    public async Task A_parent_request_id_goes_to_enhance_as_context()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        var profile = WithEnhancer(root.Path);
+        await using var server = Whetstone(PassThrough);
+        await using var pool = PoolFor(profile, server);
+
+        await RunAsync(root.Path, profile, pool, repo, c => c with { ParentRequestId = "req-parent" });
+
+        var context = Assert.Single(server.Calls, c => c.Tool == "enhance").Arguments["context"];
+        Assert.Equal("req-parent", context.GetProperty("parent_request_id").GetString());
+    }
+
+    [Theory]
+    [InlineData("")]
+    public void A_parent_request_id_outside_1_to_128_characters_is_left_out(string id)
+    {
+        var request = Runs.CheapRequest(new RepositoryRef("/srv/repo", "abc1234"));
+        Assert.Null(Orchestrator.EnhanceContextOf(request with { Context = request.Context with { ParentRequestId = id } }).ParentRequestId);
+        Assert.Null(Orchestrator.EnhanceContextOf(request with { Context = request.Context with { ParentRequestId = new string('x', 129) } }).ParentRequestId);
+        Assert.Equal(new string('x', 128), Orchestrator.EnhanceContextOf(request with { Context = request.Context with { ParentRequestId = new string('x', 128) } }).ParentRequestId);
     }
 }
