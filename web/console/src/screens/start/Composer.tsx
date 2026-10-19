@@ -1,5 +1,5 @@
 import { useNavigate } from '@tanstack/react-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import type { RepositoryBody } from '../../api/repositories';
 import { StartRefused, useStartBatch } from '../../api/start';
 import type { SystemBody } from '../../api/system';
@@ -47,6 +47,8 @@ import { TaskEditor } from './TaskEditor';
 import { applyTemplate } from './templates';
 
 export interface ComposerProps {
+  /** The switch to a single run, drawn in the header. */
+  lead?: ReactNode;
   initial: Draft;
   /** The run this was cloned from. */
   from?: string;
@@ -108,6 +110,7 @@ export function rulesFrom(system: SystemBody | null): EstimateRules {
 
 /** The form, its JSON twin, the checks, and the start. All of its state is one Draft; the form and the JSON are two ways to edit it. */
 export function Composer({
+  lead,
   initial,
   from,
   notes: initialNotes,
@@ -331,6 +334,7 @@ export function Composer({
           </p>
         </div>
         <div className="screen__actions">
+          {lead}
           <Segmented<'form' | 'json'>
             label="View"
             touch={phone}

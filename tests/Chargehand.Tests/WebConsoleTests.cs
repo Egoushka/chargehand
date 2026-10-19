@@ -46,7 +46,27 @@ public partial class WebConsoleTests
         var page = await anonymous.GetAsync("/console/");
         Assert.Equal("text/html; charset=utf-8", page.Content.Headers.ContentType!.ToString());
         Assert.Equal(WebConsole.Built ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable, page.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await anonymous.GetAsync("/ui/")).StatusCode);
+    }
+
+    [Fact]
+    public async Task The_old_ui_path_sends_the_browser_to_the_console_and_needs_no_key_only_when_the_ui_is_on()
+    {
+        await using var on = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), ui: true);
+        using var anonymous = Plain(on, follow: false);
+
+        foreach (var path in new[] { "/ui", "/ui/", "/ui/main.js", "/ui/runs/r1" })
+        {
+            var res = await anonymous.GetAsync(path);
+            Assert.Equal(HttpStatusCode.Redirect, res.StatusCode);
+            Assert.Equal("/console/", res.Headers.Location!.OriginalString);
+        }
+        // A neighbour of that name is not under /ui and still needs the key.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/uix")).StatusCode);
+
+        await using var off = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
+        using var closed = Plain(off, follow: false);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await closed.GetAsync("/ui/")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await off.Http.GetAsync("/ui/")).StatusCode);
     }
 
     [Fact]

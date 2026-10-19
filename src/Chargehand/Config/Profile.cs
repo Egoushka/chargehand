@@ -292,7 +292,7 @@ public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecr
 /// <param name="MaxConcurrentRuns">Runs executing at once; 1 (the default) runs them one at a time, as ADR 0011's per-model limit assumes.
 /// Raise it only when the model's rate limit allows: every run's workers draw on it.</param>
 /// <param name="Accounts">Accounts besides the implicit <c>owner</c> that <c>ApiKeySecret</c> opens (ADR 0050); their keys come from <c>chargehand accounts add</c>.</param>
-/// <param name="Ui">Serve the web UI at <c>/ui/</c> (ADR 0054) and the operator console at <c>/console/</c> (ADR 0056). Off by default.</param>
+/// <param name="Ui">Serve the operator console at <c>/console/</c> (ADR 0056); <c>/ui/</c> redirects to it (ADR 0072). Off by default.</param>
 /// <param name="CloudflareAccess">Sign in by the email Cloudflare Access checked, with no key (ADR 0071); null: keys only.</param>
 /// <param name="ProxySignIn">Sign in by the email a trusted single-sign-on proxy forwards, with no key (ADR 0071); null: keys only.</param>
 public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null,

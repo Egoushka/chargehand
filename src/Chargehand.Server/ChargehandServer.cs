@@ -35,7 +35,7 @@ namespace Chargehand.Server;
 /// <param name="Accounts">The accounts besides the owner that the profile declares (ADR 0050).</param>
 /// <param name="AccountKeysFile">The file that holds their keys, as salted hashes; null: no account key opens anything.</param>
 /// <param name="Clock">The time the accounts' day and month windows are cut by; null: the system's.</param>
-/// <param name="Ui">Serve the web UI at /ui/ (ADR 0054) and the operator console at /console/ (ADR 0056).</param>
+/// <param name="Ui">Serve the operator console at /console/ (ADR 0056); /ui/ redirects to it (ADR 0072).</param>
 /// <param name="Profile">The profile, for the console's read routes (CHARGEHAND-209): the owner's <c>system</c> and <c>repositories</c> views and intake's settings. Null: those views are empty.</param>
 /// <param name="SecretPresent">Whether a secret item resolves, for an account's credential state; null: it is not known.</param>
 /// <param name="IntakeStatePath">Intake's state file (<c>intake/github.json</c>) for <c>GET /v1/intake</c>; null: none.</param>
@@ -130,8 +130,8 @@ public static partial class ChargehandServer
             app.Lifetime.ApplicationStopped.Register(access.Dispose);
         app.Use(async (ctx, next) =>
         {
-            // The UI's and the console's files are public and carry no data; the page calls the routes below with a key (ADR 0054, 0056).
-            if (settings.Ui && (WebUi.Serves(ctx.Request.Path) || WebConsole.Serves(ctx.Request.Path)))
+            // The console's files (and the redirect from /ui/) are public and carry no data; the page calls the routes below with a key (ADR 0056).
+            if (settings.Ui && WebConsole.Serves(ctx.Request.Path))
             {
                 await next(ctx);
                 return;
@@ -227,7 +227,6 @@ public static partial class ChargehandServer
 
         if (settings.Ui)
         {
-            WebUi.Map(app);
             WebConsole.Map(app);
         }
 

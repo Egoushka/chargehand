@@ -36,7 +36,7 @@ What stays from 0054: the repository is public, the page holds a bearer key that
   - Dependabot (npm, weekly, minor and patch grouped) proposes updates; a major version is its own pull request;
   - no CDN, no remote script, font or style; the Node base image in the Dockerfile is pinned by digest, and its version must equal `.nvmrc` (CI checks);
   - few direct dependencies (4 runtime packages at the foundation, 9 after the first amendment below, 10 after the second); each new one is argued in the pull request that adds it.
-- **`/ui/` stays until the console reaches parity,** then goes with its `Ui/` folder and tests. Parity means: the runs list with its filters, a run with its live events, claims, tasks and artifacts, cancel, start a run or batch, learning, spend against caps, halt and resume. Until then `/ui/` takes bug fixes only. Both paths are behind `http.ui`.
+- **`/ui/` stays until the console reaches parity (reached and removed by 0072),** then goes with its `Ui/` folder and tests. Parity means: the runs list with its filters, a run with its live events, claims, tasks and artifacts, cancel, start a run or batch, learning, spend against caps, halt and resume. Until then `/ui/` takes bug fixes only. Both paths are behind `http.ui`.
 - **Today's console is the foundation:** the router with a placeholder for each planned screen (overview, runs, run, needs you, new, analytics, learning, intake, repositories, accounts, system), a typed client for the routes that exist (`/v1/runs`, `/v1/runs/{id}`, `/v1/runs/{id}/events`, `/v1/accounts/me`, `/v1/learn`, halt and resume), sign-in, and the runs table. Types are written by hand from `schemas/`; generating them is a follow-up.
 
 ## Consequences

@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Modules.Accounts.Api;
@@ -11,12 +10,10 @@ using Chargehand.Server;
 
 namespace Chargehand.Tests;
 
-/// <summary>The web UI (ADR 0054): off unless asked for, served with a strict policy, calling only the server's own routes; and the routes it needs.</summary>
-public partial class WebUiTests
+/// <summary>The routes the operator console reads for who is signed in and for the run list (ADR 0054, 0056).</summary>
+public class AccountsMeTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);
-
-    private static string UiDirectory => Repo.Path("src", "Chargehand.Server", "Ui");
 
     private static ManualTimeProvider ClockAtNow()
     {
@@ -36,141 +33,6 @@ public partial class WebUiTests
         await log.AppendAsync(new StartRecord(runId, finished.AddMinutes(-1), new string('0', 32), req, 1, null, "earlier-boot", actor), CancellationToken.None);
         var result = Runs.Completed() with { TaskId = runId, Usage = new Usage(tokens, 0, 0, 0, usd), Actor = actor };
         await log.AppendAsync(new RunRecord(runId, finished.AddMinutes(-1), finished, req.Context.Preset, null, null, result, Actor: actor), CancellationToken.None);
-    }
-
-    [Fact]
-    public async Task The_ui_is_off_unless_the_profile_turns_it_on()
-    {
-        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
-        using var anonymous = Plain(s);
-
-        foreach (var path in new[] { "/ui", "/ui/", "/ui/main.js" })
-        {
-            Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(path)).StatusCode);
-            Assert.Equal(HttpStatusCode.NotFound, (await s.Http.GetAsync(path)).StatusCode);
-        }
-    }
-
-    [Fact]
-    public async Task The_ui_is_served_without_a_key_under_a_strict_policy()
-    {
-        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), ui: true);
-        using var anonymous = Plain(s);
-
-        var page = await anonymous.GetAsync("/ui/");
-        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
-        Assert.Equal("text/html; charset=utf-8", page.Content.Headers.ContentType!.ToString());
-        Assert.Contains("<title>chargehand</title>", await page.Content.ReadAsStringAsync(), StringComparison.Ordinal);
-        Assert.Equal(await page.Content.ReadAsStringAsync(), await (await anonymous.GetAsync("/ui/index.html")).Content.ReadAsStringAsync());
-
-        foreach (var path in new[] { "/ui/", "/ui/main.js", "/ui/app.css", "/ui/missing.js" })
-        {
-            var res = await anonymous.GetAsync(path);
-            Assert.Equal(WebUi.ContentSecurityPolicy, res.Headers.GetValues("Content-Security-Policy").Single());
-            Assert.Equal("nosniff", res.Headers.GetValues("X-Content-Type-Options").Single());
-            Assert.Equal("no-referrer", res.Headers.GetValues("Referrer-Policy").Single());
-            Assert.Equal("DENY", res.Headers.GetValues("X-Frame-Options").Single());
-        }
-        Assert.Equal("text/javascript; charset=utf-8", (await anonymous.GetAsync("/ui/main.js")).Content.Headers.ContentType!.ToString());
-        Assert.Equal("text/css; charset=utf-8", (await anonymous.GetAsync("/ui/app.css")).Content.Headers.ContentType!.ToString());
-        Assert.Equal(HttpStatusCode.OK, (await anonymous.GetAsync("/ui/learn.js")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await anonymous.GetAsync("/ui/missing.js")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await anonymous.GetAsync("/ui/..%2Fappsettings.json")).StatusCode);
-    }
-
-    [Fact]
-    public async Task The_ui_path_without_a_slash_redirects_and_opens_nothing_else()
-    {
-        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), ui: true);
-        using var anonymous = Plain(s, follow: false);
-
-        var redirect = await anonymous.GetAsync("/ui");
-        Assert.Equal(HttpStatusCode.Redirect, redirect.StatusCode);
-        Assert.Equal("/ui/", redirect.Headers.Location!.OriginalString);
-        // Only /ui and below skip the key; a neighbour of that name and every API route still need it.
-        foreach (var path in new[] { "/uix", "/ui-other/", "/v1/runs", "/v1/accounts/me", "/v1/mcp" })
-            Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(path)).StatusCode);
-        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await anonymous.PostAsync("/ui/", null)).StatusCode);
-    }
-
-    [Fact]
-    public void The_policy_allows_no_inline_script_no_eval_and_no_other_origin()
-    {
-        var directives = WebUi.ContentSecurityPolicy.Split(';', StringSplitOptions.TrimEntries).ToDictionary(d => d.Split(' ')[0], d => d[(d.IndexOf(' ') + 1)..]);
-
-        Assert.Equal("'none'", directives["default-src"]);
-        Assert.Equal("'self'", directives["script-src"]);
-        Assert.Equal("'self'", directives["style-src"]);
-        Assert.Equal("'self'", directives["connect-src"]);
-        Assert.Equal("'none'", directives["frame-ancestors"]);
-        Assert.DoesNotContain("unsafe", WebUi.ContentSecurityPolicy, StringComparison.Ordinal);
-        Assert.DoesNotContain("*", WebUi.ContentSecurityPolicy, StringComparison.Ordinal);
-        Assert.DoesNotContain("http", WebUi.ContentSecurityPolicy, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void The_embedded_files_are_the_files_in_the_folder()
-    {
-        var onDisk = Directory.EnumerateFiles(UiDirectory, "*", SearchOption.AllDirectories).Select(f => System.IO.Path.GetRelativePath(UiDirectory, f).Replace('\\', '/')).Order().ToList();
-
-        Assert.Contains("index.html", onDisk);
-        Assert.Equal(onDisk, WebUi.Paths.Order().ToList());
-    }
-
-    [GeneratedRegex(@"(https?:)?//[A-Za-z0-9]")]
-    private static partial Regex Origin();
-
-    [GeneratedRegex(@"\b(?:innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function|importScripts|WebSocket|XMLHttpRequest|EventSource|sendBeacon|cookie)\b")]
-    private static partial Regex Forbidden();
-
-    [GeneratedRegex(@"\bimport\s*(?:[^'""]*from\s*)?['""]([^'""]+)['""]")]
-    private static partial Regex Import();
-
-    [Fact]
-    public void No_static_file_names_an_external_origin_or_runs_inline_code()
-    {
-        foreach (var path in WebUi.Paths)
-        {
-            var text = System.Text.Encoding.UTF8.GetString(WebUi.Read(path));
-            // A URL with a host in a literal would be a request to another origin; the code builds the server's own paths only.
-            Assert.False(Origin().IsMatch(text), $"{path} names another origin");
-            switch (System.IO.Path.GetExtension(path))
-            {
-                case ".html":
-                    Assert.DoesNotContain("<style", text, StringComparison.OrdinalIgnoreCase);
-                    Assert.DoesNotContain("style=", text, StringComparison.OrdinalIgnoreCase);
-                    Assert.DoesNotContain("javascript:", text, StringComparison.OrdinalIgnoreCase);
-                    Assert.Empty(Regex.Matches(text, @"\son\w+\s*=", RegexOptions.IgnoreCase));
-                    // Every script has a src; none is inline.
-                    Assert.All(Regex.Matches(text, @"<script\b[^>]*>").Select(m => m.Value), tag => Assert.Contains("src=\"", tag, StringComparison.Ordinal));
-                    Assert.All(Regex.Matches(text, @"(?:src|href)=""([^""]*)""").Select(m => m.Groups[1].Value), url => Assert.True(!url.Contains(':') || url.StartsWith("data:", StringComparison.Ordinal), url));
-                    break;
-                case ".css":
-                    Assert.DoesNotContain("@import", text, StringComparison.Ordinal);
-                    Assert.All(Regex.Matches(text, @"url\(([^)]*)\)").Select(m => m.Groups[1].Value.Trim('"', '\'')), url => Assert.StartsWith("data:", url, StringComparison.Ordinal));
-                    break;
-                case ".js":
-                    Assert.Empty(Forbidden().Matches(text).Select(m => m.Value));
-                    Assert.All(Import().Matches(text).Select(m => m.Groups[1].Value), specifier => Assert.StartsWith("./", specifier, StringComparison.Ordinal));
-                    // One place talks to the network, and it is the one that adds the key.
-                    Assert.True(path == "api.js" || !text.Contains("fetch(", StringComparison.Ordinal), $"{path} calls fetch");
-                    break;
-            }
-        }
-    }
-
-    [Fact]
-    public void The_key_is_kept_in_session_storage_and_nowhere_else()
-    {
-        var api = System.Text.Encoding.UTF8.GetString(WebUi.Read("api.js"));
-        Assert.Contains("sessionStorage.setItem(KEY", api, StringComparison.Ordinal);
-        foreach (var path in WebUi.Paths.Where(p => p.EndsWith(".js", StringComparison.Ordinal)))
-        {
-            var text = System.Text.Encoding.UTF8.GetString(WebUi.Read(path));
-            // localStorage holds a repository's web address, never the key.
-            Assert.True(path == "citations.js" || !text.Contains("localStorage", StringComparison.Ordinal), $"{path} uses localStorage");
-            Assert.DoesNotContain("document.cookie", text, StringComparison.Ordinal);
-        }
     }
 
     [Fact]

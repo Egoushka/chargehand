@@ -30,6 +30,15 @@ const dataRows = () =>
 beforeEach(() => layout());
 afterEach(() => vi.useRealTimers());
 
+describe('the runs model: session calls', () => {
+  it('hides a batch’s research and review calls unless asked for', () => {
+    const call = run('c', { parent_run_id: 'run-parent' }, NOW);
+    expect(matchesFilters(call, DEFAULT_FILTERS, NOW)).toBe(false);
+    expect(matchesFilters(call, { ...DEFAULT_FILTERS, calls: true }, NOW)).toBe(true);
+    expect(matchesFilters(run('b', {}, NOW), DEFAULT_FILTERS, NOW)).toBe(true);
+  });
+});
+
 describe('the runs model', () => {
   const runs = runList(40, NOW);
   const failed = runs.find((r) => r.status === 'failed' && r.error_code === 'verification_failed');
