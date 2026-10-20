@@ -35,7 +35,7 @@ The tests call no model. They run the orchestrator on a scripted runtime ([Scrip
 | [Services: MCP tools for a preset's workers](#services-mcp-tools-for-a-presets-workers) | partial | [GoalSixTests](../../tests/Chargehand.Tests/GoalSixTests.cs), [ServiceResolverTests](../../tests/Chargehand.Tests/ServiceResolverTests.cs), [ClaudeCodeServicesTests](../../tests/Chargehand.Tests/ClaudeCodeServicesTests.cs), [OpenCodeServicesTests](../../tests/Chargehand.Tests/OpenCodeServicesTests.cs), [ADR 0034](../adr/0034-memory-and-services-over-mcp.md) |
 | [Running with no profile file](#running-with-no-profile-file) | partial | [ProfileTests](../../tests/Chargehand.Tests/ProfileTests.cs), [ROADMAP.md](../../ROADMAP.md) |
 | [Claude Code plugin, `/chargehand:change`](#claude-code-plugin-chargehandchange) | partial | [ChangeSkillTests](../../tests/Chargehand.Tests/ChangeSkillTests.cs), [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs) |
-| [`Chargehand` and `Chargehand.Contracts` on nuget.org](#chargehand-and-chargehandcontracts-on-nugetorg) | works | [mcp-smoke.py](../../scripts/mcp-smoke.py), [release.yml](../../.github/workflows/release.yml), [README](../../README.md#from-the-package) |
+| [`Chargehand` and `Chargehand.Contracts` on nuget.org](#chargehand-and-chargehandcontracts-on-nugetorg) | works | [mcp-smoke.py](../../scripts/mcp-smoke.py), [release.yml](../../.github/workflows/release.yml), [MCP page](mcp.md#from-the-package) |
 | [Listing in the MCP Registry](#listing-in-the-mcp-registry) | works | [McpServerJsonTests](../../tests/Chargehand.Tests/McpServerJsonTests.cs), [release.yml](../../.github/workflows/release.yml), [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) |
 | [Writing nodes in worktrees](#writing-nodes-in-worktrees) | works since 0.8.0 | [ChangeRunTests](../../tests/Chargehand.Tests/ChangeRunTests.cs), [SandboxTests](../../tests/Chargehand.Tests/SandboxTests.cs), [write-e2e.sh](../../scripts/write-e2e.sh), [ADR 0035](../adr/0035-sandboxed-writing-workers.md) |
 | [Checking that the cited text supports each claim](#checking-that-the-cited-text-supports-each-claim) | not yet | [ROADMAP.md](../../ROADMAP.md), [GitEvidenceResolver.cs](../../src/Chargehand/Verification/GitEvidenceResolver.cs) |
@@ -193,7 +193,7 @@ What is missing: [Running with no profile file](#running-with-no-profile-file-1)
 - [ChangeSkillTests](../../tests/Chargehand.Tests/ChangeSkillTests.cs), [PluginManifestTests](../../tests/Chargehand.Tests/PluginManifestTests.cs), and `claude plugin validate --strict` in [ci.yml](../../.github/workflows/ci.yml).
 - [change-e2e.sh](../../scripts/change-e2e.sh) is an end-to-end check that [change-e2e.yml](../../.github/workflows/change-e2e.yml) runs on demand
 - the repository records no result of it.
-- The plugin's MCP entry runs the `Chargehand` package, which is now on nuget.org ([README](../../README.md#claude-code-plugin)).
+- The plugin's MCP entry runs the `Chargehand` package, which is now on nuget.org ([the change command](change.md)).
 
 What is missing: [Claude Code plugin](#claude-code-plugin).
 
@@ -202,7 +202,7 @@ What is missing: [Claude Code plugin](#claude-code-plugin).
 - nuget.org's flat-container index lists `Chargehand` 0.4.0 and 0.4.1 and `Chargehand.Contracts` 1.2.0-alpha (checked on 2026-09-29); [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md) found neither there on 2026-09-28.
 - [release.yml](../../.github/workflows/release.yml) packs and pushes each package whose version is new there, when the repository variable `NUGET_USER` is set.
 - [mcp-smoke.py](../../scripts/mcp-smoke.py) packs the tool and starts it from an empty directory in CI ([ci.yml](../../.github/workflows/ci.yml)).
-- [README](../../README.md#from-the-package) has the `dnx` lines.
+- [The MCP page](mcp.md#from-the-package) has the `dnx` lines.
 
 ### Listing in the MCP Registry
 
