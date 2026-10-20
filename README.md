@@ -1,260 +1,135 @@
+<!-- readme:header:start -->
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Egoushka/Egoushka/main/assets/card-chargehand-dark.svg"><img alt="chargehand" src="https://raw.githubusercontent.com/Egoushka/Egoushka/main/assets/card-chargehand-light.svg" width="100%"></picture>
+
+<p>
+  <img alt="status: Active" src="https://img.shields.io/badge/status-Active-2ea44f">
+  <a href="https://github.com/Egoushka/chargehand/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Egoushka/chargehand/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="last commit" src="https://img.shields.io/github/last-commit/Egoushka/chargehand?label=last%20change">
+</p>
+<!-- readme:header:end -->
+
 # chargehand
 
-[![ci](https://github.com/Egoushka/chargehand/actions/workflows/ci.yml/badge.svg)](https://github.com/Egoushka/chargehand/actions/workflows/ci.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Egoushka/chargehand/badge)](https://scorecard.dev/viewer/?uri=github.com/Egoushka/chargehand)
-[![release](https://img.shields.io/github/v/release/Egoushka/chargehand)](https://github.com/Egoushka/chargehand/releases)
-[![license](https://img.shields.io/github/license/Egoushka/chargehand)](LICENSE)
+> An orchestrator for coding agents (Claude Code, OpenCode): send a question or a change, get back typed JSON where every claim cites a file at a pinned commit.
 
-chargehand turns a request into a typed **Task Spec**, runs it on one or more coding-agent sessions
-([OpenCode](https://opencode.ai) or Claude Code), and returns a **result contract** with evidence for every claim.
-People call it from a CLI; programs call it over HTTP or MCP.
+<!-- readme:status:start -->
+**Active**. I work on it this month.
+<!-- readme:status:end -->
 
-**Status: before 1.0** (the release badge shows the version). Workers are read-only by default; the `code` preset (since 0.8.0) makes one write a branch that passes its tests in a sandbox. See the [changelog](CHANGELOG.md) for what shipped, the [roadmap](ROADMAP.md) for what comes
-next, and [benchmarks](docs/benchmarks.md) for how it performs. The [guide](docs/guide/index.md) walks through
-using it, and [what it does, and how we know](docs/guide/capabilities.md) gives each capability's status with its evidence.
+```mermaid
+flowchart LR
+  caller[You or a program<br/>CLI · HTTP · MCP] -- request --> intake[Intake<br/>picks an action]
+  intake -- answer or split --> workers[Agent sessions<br/>Claude Code or OpenCode]
+  intake -- ask · deny · improve --> result
+  workers -- claims + citations --> resolver[Evidence resolver<br/>checks each citation]
+  resolver --> result[Typed result<br/>claims · open questions · cost]
+  workers -. code preset, driven batches .-> branch[Tested branch<br/>or draft pull request]
+  resolver --> log[(Run log<br/>tokens · cache · prompts)]
+```
 
 ## Why
 
 Coding agents answer in prose. A program that calls one needs something it can check: claims tied to files at a
-commit, diffs, session messages or caller inputs, plus a confidence and the exact prompt chain behind the answer.
+commit, diffs, session messages or the caller's own inputs, plus a confidence and the exact prompts behind the answer.
+I also wanted the control flow (the task graph, budgets, retries, parallelism) in code rather than in a prompt, so each
+agent's context stays small, cached and disposable.
 
-chargehand keeps control flow (task graph, budgets, retries, parallelism) in code, not in a prompt. Each worker's
-context stays small, cached and disposable.
+## What it does
 
-Non-goals: its own agent loop, direct calls to model providers, parallelism for its own sake.
+- **Answers with checked citations.** A *citation* is a file and line range, a commit, a diff range, a session
+  message or an input id. Each one must exist at the pinned commit before a claim leaves its worker; the worker gets
+  one repair turn, and claims that still fail move to open questions.
+- **Splits a question** into 2 to 4 read-only subtasks run as a task graph, when intake chooses it and the preset
+  allows it. Later subtasks reuse the first one's cached prompt prefix.
+- **Presets** set the tools, the token and dollar budgets and the allowed actions: `default`, `cheap`, `thorough`,
+  `strict`, `draft` (for programs that bring their own facts), `review`, and `code`, which writes a branch that passes
+  its tests in a sandbox.
+- **Driven batches** run a list of tasks as parallel Claude Code sessions, one locked-down container each, and end
+  each in a draft pull request.
+- **Plugs into your tools.** An MCP server (stdio or HTTP), an HTTP API, a CLI, a Claude Code plugin
+  (`/chargehand:change`: one prompt to a reviewed change on a local branch) and an operator console in the browser.
+- **Measures itself.** The run log records tokens, cache hits, cost and the prompt chain of every call; *Prompt CI*
+  gates prompt and preset changes on paired evals before they merge.
 
-## How a run works
+Not here: an agent loop of its own, direct calls to model providers, a model gateway, a memory store (it uses yours
+over MCP), a hosted service. A citation that resolves points at something that exists; checking that the cited text
+supports the claim is planned, not built ([roadmap](ROADMAP.md)).
 
-1. **Intake** reads `request/v1` and writes a Task Spec with one action.
-2. The action decides what happens next:
-   - `answer` runs one worker session.
-   - `split` runs 2–4 read-only subtasks as a task graph; later nodes fork the first node's cached prefix.
-   - `deny`, `ask` and `improve` stop and return a reason, questions or an improved request.
-   - A preset can require approval above a risk or cost estimate.
-3. The **evidence resolver** checks every claim. Claims that do not resolve move to `open_questions`.
-4. You get `result/v1`. The run log records tokens, cache hits, cost and the prompt chain of every call.
-
-**Presets** set tools, budgets and allowed actions: `default`, `cheap`, `thorough`, `strict`, and `draft` for program
-callers that bring their own facts. Optional long-term **memory**, a **cache report** per run, **Prompt CI** that gates
-prompt changes on paired evals, and a **routing report** round it out.
-
-**Memory and services** come from MCP servers you list in the profile's `mcp_servers`; with none listed, a run is
-unchanged. A run recalls from any number of memory servers at once, each fact labelled with its source, and with retain
-on it stores only claims whose citations resolved, with their locators, repository and commit. A preset can give
-workers read-only tools from a server. `chargehand extensions check` verifies the setup before a run does. See
-[Memory and services](docs/guide/memory-and-services.md) for the Hindsight and Chronicle setups.
+> [!WARNING]
+> Before 1.0. The images have no `latest` tag: pin an exact version and read the [changelog](CHANGELOG.md) before you upgrade.
 
 ## Quick start
 
-To run the server from the release images instead, with Docker Compose and no .NET SDK, see
-[Install with Docker Compose](docs/guide/install.md) (`deploy/compose/`). To run from a clone, you need the .NET 10 SDK
-and one worker runtime.
-
-1. Copy `profiles/example.json` to `profiles/local.json` and fill in your gateway, models, prices and secret-store
-   item names. Profiles reference secrets by item name and never hold them.
-2. Pick a runtime:
-   - **OpenCode**: with `opencode` on `PATH` (pinned 2.0.18), no profile block is needed. `run`, `serve` and `mcp`
-     start their own `opencode serve` on 127.0.0.1 and a free port, with a random password and their own state
-     under `chargehand/opencode` in the per-user data directory, and stop it on exit. Providers come from the
-     environment variables OpenCode reads (e.g. `ANTHROPIC_API_KEY`); edit `xdg/config/opencode/opencode.json` in
-     that directory for more, chargehand never overwrites it. To use a server you run yourself, start it with
-     `scripts/opencode-serve.sh <opencode-binary> profiles/local.opencode.json 4296` (config from
-     `profiles/opencode.example.json`) and add the profile's `opencode` block (`url`, `password_secret`, `version`);
-     then nothing is started. The script turns off OpenCode's project configuration (a checkout's own `opencode.json`
-     could start a command); set `OPENCODE_DISABLE_PROJECT_CONFIG=1` and `OPENCODE_CONFIG_PROJECT_DISABLE=1` if you start
-     the server another way. See [ADR 0030](docs/adr/0030-default-opencode-server.md) and
-     [ADR 0004](docs/adr/0004-opencode-major-and-runtime-adapter.md).
-   - **Claude Code**: with `claude` on `PATH` (pinned 2.1.283) and signed in (run `claude` once and log in),
-     no login setup is needed: workers use the CLI's own login. Placeholder models the profile's `models` map does not
-     name (all of them with no profile) fall back to the CLI's default model. To use another credential, set one of
-     `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`), not both. The profile's
-     `claude_code` block (`version`, `binary`, and at most one of `api_key_secret` or `oauth_token_secret`) overrides that.
-     See [ADR 0020](docs/adr/0020-claude-code-runtime-adapter.md).
-3. List the directories your repositories live in as `repository_roots` (`/` allows any). A request names a
-   repository and a commit; the worker reads a clone of it at that commit under `worker_root`, which stays outside
-   the OpenCode user's home directory ([ADR 0023](docs/adr/0023-repository-roots-and-worker-clones.md),
-   [ADR 0003](docs/adr/0003-where-it-runs.md)). Without `repository_roots`, `run` and `mcp` also allow the directory
-   they were launched in; `serve` allows only `worker_root` ([ADR 0028](docs/adr/0028-default-repository-roots.md)).
-4. Run a request:
+From a clone, ask one question about chargehand itself. Needs the .NET 10 SDK, git, and Claude Code 2.1.283 on
+`PATH`, signed in (run `claude` once). With no profile, the workers use the CLI's own login and default model.
 
 ```bash
+git clone https://github.com/Egoushka/chargehand.git && cd chargehand
+cat > request.json <<EOF
+{
+  "contract_version": "request/v1",
+  "text": "Where does a split node decide whether to fork the first node's session? Cite the code.",
+  "context": { "interactive": false, "preset": "default",
+               "repository": { "path": "$PWD", "commit": "$(git rev-parse HEAD)" } }
+}
+EOF
 dotnet run --project src/Chargehand.Cli -- run < request.json
 ```
 
-## Commands
+It prints `result/v1` on stdout: claims with citations, open questions, a confidence and the cost. The
+[quickstart guide](docs/guide/quickstart.md) explains every field, OpenCode instead of Claude Code, and what to do
+when a run fails.
 
-All commands run as `dotnet run --project src/Chargehand.Cli -- <command>` and read `profiles/local.json`.
-
-`prompts/` and `presets/` come from the current directory when it holds both (this checkout, or `/app` in the image),
-otherwise from the ones the build copies next to the binary. The run log is the profile's `run_log`; unset, it is
-`runs/run-log.jsonl` in a checkout and `chargehand/run-log.jsonl` under the per-user data directory
-(`~/.local/share` on Linux, `~/Library/Application Support` on macOS) anywhere else.
-
-| command | what it does |
-|---|---|
-| `run < request.json` | `request/v1` in, `result/v1` out |
-| `show <run-id>` | calls, tokens, cache %, cost |
-| `why <path>:<line>` | the run that wrote a line: its commit's `Chargehand-*` trailers, goal, session ([ADR 0070](docs/adr/0070-provenance-trailers-on-commits.md)) |
-| `cache <run-id>` | cache reads and writes per call, and the first block that broke a shared prefix |
-| `reconcile <run-id> < spend-rows.jsonl` | joins calls to exported gateway spend rows |
-| `serve` | HTTP and MCP, on 127.0.0.1 unless the profile opens it (profile `http`); with `http.ui` also the [operator console](docs/guide/web-ui.md) at `/console/` |
-| `mcp` | MCP over stdio, for a client that starts chargehand itself; no port, no key |
-| `routes` | routing report per preset, node kind and model |
-| `score <run-id> <0-1> [name]` | records a hand score for a run |
-| `eval seed\|push\|gate` | Prompt CI: propose items, push them to Langfuse, gate a change |
-| `prompts sync` | mirrors prompt blocks to Langfuse |
-| `learn report [--since 30d]` | what finished driven tasks cost and how their pull requests ended, per repository and size class |
-| `extensions check [--preset <name>] [--probe <query>]` | checks the profile's MCP servers, memory mappings and the presets' services against the tools each server lists |
-| `init [<repo path>] [--profile <out>] [--force]` | reads a repository's marker files and writes a starter profile with the proposed test command and the package hosts to allow |
-| `doctor [--profile <path>]` | one ok/warn/fail line per setup check (profile, server, runner, images, secrets, roots, egress, model credential), each with its fix |
-
-Prompt CI runs on its own for a pull request that changes `prompts/` or `presets/`: `.github/workflows/prompt-ci.yml`
-hands it to a self-hosted runner, which posts the commit status. A fork's pull request or a preset change waits for an
-approval in the `prompt-ci-review` environment. The runner has one eval profile per runtime and a default; the label
-`prompt-ci:<runtime>` picks another. `scripts/prompt-ci.sh <pr-number>` runs it by hand
-([ADR 0019](docs/adr/0019-prompt-ci-and-routing-report.md), [ADR 0025](docs/adr/0025-prompt-ci-on-a-self-hosted-runner.md)).
-
-## HTTP and MCP
-
-`chargehand serve` binds 127.0.0.1 and requires `Authorization: Bearer <key>` on every route. The key comes from the
-secret-store item named by the profile's `http.api_key_secret`
-([ADR 0018](docs/adr/0018-callable-interface-http-mcp-run-store.md)). On a private network, `http.listen` binds another
-address and `http.allowed_hosts` names the host clients use; a tag `v<Version>` publishes the server image
-`ghcr.io/<owner>/chargehand:<Version>` with the Claude Code runtime
-([ADR 0024](docs/adr/0024-server-on-a-private-network-and-release-images.md)):
-
-```bash
-docker run -p <private-ip>:4300:4300 -v <dir-with-profile.json>:/config:ro -e CHARGEHAND_API_KEY=... \
-  ghcr.io/<owner>/chargehand:<Version>
-```
-
-| route | behaviour |
-|---|---|
-| `POST /v1/runs` | takes `request/v1`. With `Prefer: wait=N` (default 10 s, at most 60): `200` and `result/v1` if the run finishes in time, else `202`, `run-status/v1` and a `Location` |
-| `GET /v1/runs/{id}` | `202` while queued or running, `200` and `result/v1` once finished, `410` if the process that ran it ended first |
-| `GET /v1/runs/{id}/events` | server-sent events `accepted`, `started`, `intake`, `node_started`, `node_finished`, `run_finished` |
-| `GET /v1/health` | `{status, version, halted}` for any key. `?deep=1` (owner): also calls the intake model once and answers `503` with the reason when it fails. `scripts/canary.sh` calls it; see [docs/guide/reference.md](docs/guide/reference.md#http-routes) |
-| `/v1/mcp` | MCP over Streamable HTTP: tool `orchestrate`, `inputSchema` `request/v1`, `outputSchema` `result/v1` |
-
-MCP clients that opt in to the tasks extension get long runs as tasks. When intake answers with questions, the call
-comes back as `input_required`. Outside a task, a call with a progress token gets the run id as a progress
-notification when the run starts, and a call whose HTTP request carries `Prefer: wait=N` (at most 60) returns after N
-seconds as a tool error holding the run id and its `run-status/v1`, while the run goes on
-([ADR 0029](docs/adr/0029-mcp-run-id-before-a-client-timeout.md)). Without the header a call over HTTP returns that way
-after 50 s, and the `result` tool reads the run's result by its id
-([ADR 0065](docs/adr/0065-mcp-default-wait-and-a-result-tool.md)).
-
-`chargehand mcp` serves the same tool, tasks and questions over stdio: the client starts the process, and stdout
-carries only MCP messages, logs go to stderr ([ADR 0027](docs/adr/0027-dnx-package-and-mcp-registry.md)). For
-Claude Code, from a checkout:
-
-```bash
-claude mcp add chargehand -- dotnet run --project <checkout>/src/Chargehand.Cli -- mcp
-```
-
-### From the package
-
-The package is a .NET tool that `dnx` (.NET 10 SDK) fetches from [nuget.org](https://www.nuget.org/packages/Chargehand)
-and runs; no install step, no port, no key. Pin `<version>` to one of its versions. Pass the Claude Code credential as
-one of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`; `CHARGEHAND_RUNTIME` and `CHARGEHAND_PROFILE` are optional. If
-a desktop app does not see your shell's `PATH`, give the full path to `dnx`.
-
-Claude Code:
+To use it from an MCP client without a clone, run the package from nuget.org with `dnx`, pinned to a release:
 
 ```bash
 claude mcp add chargehand -e CLAUDE_CODE_OAUTH_TOKEN=<token> -- dnx Chargehand@<version> --yes -- mcp
 ```
 
-VS Code, `.vscode/mcp.json`:
+## How it works
 
-```json
-{
-  "inputs": [{ "id": "claude-token", "type": "promptString", "description": "claude setup-token", "password": true }],
-  "servers": {
-    "chargehand": {
-      "type": "stdio",
-      "command": "dnx",
-      "args": ["Chargehand@<version>", "--yes", "--", "mcp"],
-      "env": { "CLAUDE_CODE_OAUTH_TOKEN": "${input:claude-token}" }
-    }
-  }
-}
-```
+1. **Intake** reads the request (`request/v1`) and writes a *Task Spec*: one action, `answer`, `split`, `ask`, `deny`
+   or `improve`. The last three stop the run with questions, a reason or a better request. A preset can also stop a
+   run for approval above a risk or cost estimate.
+2. **Workers** are ordinary Claude Code or OpenCode sessions on a clone of the repository at the pinned commit,
+   inside the directories the profile allows. chargehand never calls a model provider itself.
+3. **The evidence resolver** checks every citation against git, the session and the request. The invariant: no claim
+   reaches the result unless its citations resolved.
+4. **The result** (`result/v1`) carries the claims, the open questions, usage and the prompt chain. The same record
+   goes to the run log, which `show`, `cache` and `routes` read.
 
-Claude Desktop, `claude_desktop_config.json`:
+Writing runs follow the same path with a sandboxed worker: the `code` preset verifies a branch with the repository's
+tests, and driven batches add an egress allowlist, a runner that alone holds the Docker socket, and a check gate
+before a pull request opens. [ARCHITECTURE.md](ARCHITECTURE.md) maps the code.
 
-```json
-{
-  "mcpServers": {
-    "chargehand": {
-      "command": "dnx",
-      "args": ["Chargehand@<version>", "--yes", "--", "mcp"],
-      "env": { "CLAUDE_CODE_OAUTH_TOKEN": "<token>" }
-    }
-  }
-}
-```
+## Numbers
 
-`scripts/mcp-smoke.py <dir>` runs a locally packed tool (`dotnet pack src/Chargehand.Cli -o <dir>`) the same way and
-lists its tools; CI runs it on every change.
+| | Value | Source |
+|---|---|---|
+| Citations that resolved, read-only runs | 50 of 50 (phase 3), 99 of 99 (phase 4) | [benchmarks](docs/benchmarks.md) |
+| Cost of a split against one plain session | 1.53× ($0.00754 vs $0.00492 a run) for a blind score of 0.967 vs 0.950 | [phase 4](docs/benchmarks.md) |
+| Deliberate prompt regressions Prompt CI blocked | 1 of 2, and only after the score added completeness | [Prompt CI](docs/benchmarks.md) |
+| Quality benchmark on public repositories | 13 tasks over 4 pinned repositories; no real run yet | [benchmark](docs/guide/benchmark.md) |
+| Users | 1, me | counted |
 
-## Claude Code plugin
+## Lessons
 
-`/chargehand:change <goal>` takes one prompt to a reviewed change on a local branch `change/<slug>`: chargehand
-researches the goal with citations checked against the current commit, your session writes the change and runs the
-tests, chargehand reviews the diff with the `review` preset, the session fixes what holds (at most 2 fix rounds), and a
-report lands in `.chargehand/reports/<slug>.md` as its own commit. Nothing is pushed.
+- **Parallelism did not pay on the questions I measured.** Splits resolved every citation but cost half again as
+  much for a small score gain, so the shipped `default`, `review` and `draft` presets allow no split
+  ([ADR 0017](docs/adr/0017-split-runs-forked-siblings-and-merge.md)).
+- **A score that measures what run-time checks already enforce catches nothing.** The first Prompt CI score measured
+  grounding, which the resolver already forces, so a prompt that dropped a third of the claims passed. The score now
+  multiplies grounding by completeness ([ADR 0019](docs/adr/0019-prompt-ci-and-routing-report.md)).
 
-```text
-/plugin marketplace add Egoushka/chargehand
-/plugin install chargehand@chargehand
-```
+## Docs
 
-The plugin starts chargehand through `dnx`, so it needs the .NET 10 SDK; the `Chargehand` package it runs is on
-nuget.org. To run a checkout of chargehand instead of the package, point a `chargehand` MCP server at it:
-
-```json
-{"mcpServers": {"chargehand": {"command": "dotnet", "args": ["run", "--project", "<checkout>/src/Chargehand.Cli", "--", "mcp"]}}}
-```
-
-With no profile the workers run on the agent CLI's default model. To pick models, set `CHARGEHAND_PROFILE` to a
-profile whose `models` map names them; `scripts/change-e2e.sh` writes a minimal one. `--budget` applies to each
-chargehand call, and a run makes up to four (one research, up to three reviews).
-
-## Repository layout
-
-| path | contents |
-|---|---|
-| `src/Chargehand` | orchestrator: intake, task graph, worker node, evidence resolver, prompt registry, memory, run log |
-| `src/Chargehand.Driven` | driven writing sessions: containers, egress proxy, runner client, sessions, batches, governor, integrator (references the orchestrator; [ADR 0047](docs/adr/0047-core-and-driven-assemblies.md)) |
-| `src/Chargehand.Contracts` | contract package: schemas, C# types, validator (versioned by schema major) |
-| `src/Chargehand.OpenCode` | OpenCode V2 client and worker-runtime adapter |
-| `src/Chargehand.ClaudeCode` | Claude Code worker-runtime adapter |
-| `src/Chargehand.Mcp` | MCP client: one connection per profile `mcp_servers` entry (Streamable HTTP, SSE or stdio), secret placeholders |
-| `src/Chargehand.Automation` | work that starts without a caller: GitHub intake from issue labels and mentions ([ADR 0051](docs/adr/0051-intake-from-github.md)), and the quality benchmark `chargehand bench` ([ADR 0052](docs/adr/0052-quality-benchmark-on-public-repositories.md)); references Driven |
-| `src/Chargehand.Server` | HTTP interface and MCP server |
-| `src/Chargehand.Cli` | CLI entry point, packed as the `Chargehand` dnx tool and MCP server |
-| `.mcp/server.json` | MCP Registry entry, packed into the tool; the pack stamps the version over `0.0.0` |
-| `schemas/` | JSON Schemas `request`, `task-spec`, `result`, `run-status`, `preset`, with valid and invalid examples |
-| `presets/` | shipped presets |
-| `prompts/` | versioned prompt blocks (core, intake, preset) |
-| `evals/` | Prompt CI cells and a synthetic example; real items live in Langfuse datasets |
-| `profiles/` | profile schema and examples; your own goes in the gitignored `profiles/local.*` |
-| `samples/ContentEngineCall` | a program caller built from `Chargehand.Contracts` only |
-| `docs/adr/` | architecture decision records |
-| `docs/mcp-server-2025-12-11.schema.json` | the MCP Registry `server.json` schema the entry is tested against |
-| `docs/opencode-api.md` | the OpenCode V2 HTTP API surface this project uses, generated from the live spec |
-
-## Build and test
-
-```bash
-dotnet build
-dotnet test
-dotnet format --verify-no-changes
-```
-
-Contributions: see [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: see [SECURITY.md](SECURITY.md).
-
-## License
-
-[Apache-2.0](LICENSE).
+- [Overview](docs/guide/index.md): what it is, how a run works, what it leaves out, status
+- [What it does, and how we know](docs/guide/capabilities.md): each capability with its status and evidence
+- [Quickstart](docs/guide/quickstart.md) · [Install with Docker Compose](docs/guide/install.md): from a clone, or from the release images
+- [Use it from an MCP client](docs/guide/mcp.md) · [Run the HTTP server](docs/guide/server.md) · [Web UI](docs/guide/web-ui.md)
+- [Writing a branch](docs/guide/writing.md) · [Driven writing sessions](docs/guide/driven.md) · [Several runners](docs/guide/runners.md)
+- [The change command](docs/guide/change.md): the Claude Code plugin
+- [Memory and services](docs/guide/memory-and-services.md) · [Prompt CI](docs/guide/prompt-ci.md) · [Benchmark](docs/guide/benchmark.md)
+- [Reference](docs/guide/reference.md): commands, routes, presets, contracts, profile fields, environment variables
+- [Architecture](ARCHITECTURE.md) · [Decisions](docs/guide/decisions.md) · [Changelog](CHANGELOG.md) · [Roadmap](ROADMAP.md)
+- [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Apache-2.0 license](LICENSE)

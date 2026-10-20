@@ -29,7 +29,7 @@ chargehand keeps the control flow in code: the task graph, budgets, retries and 
 
 A citation that resolves points at something that exists. chargehand does not yet read the cited lines against the claim: that support check is planned for 0.8 in [ROADMAP.md](../../ROADMAP.md). This guide says "citations checked" for that reason.
 
-Sources: [README](../../README.md#how-a-run-works), [ADR 0009](../adr/0009-result-contract.md), [ADR 0017](../adr/0017-split-runs-forked-siblings-and-merge.md), [GitEvidenceResolver.cs](../../src/Chargehand/Verification/GitEvidenceResolver.cs).
+Sources: [README](../../README.md#how-it-works), [ADR 0009](../adr/0009-result-contract.md), [ADR 0017](../adr/0017-split-runs-forked-siblings-and-merge.md), [GitEvidenceResolver.cs](../../src/Chargehand/Verification/GitEvidenceResolver.cs).
 
 ## What it does not do
 
