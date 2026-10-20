@@ -804,7 +804,6 @@ button.li {
 
 /* Two columns need more than a tablet leaves beside the rail: stack them. */
 @media (max-width: 1023px) {
-  .g2e,
   .g-split {
     grid-template-columns: minmax(0, 1fr);
   }
