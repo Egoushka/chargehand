@@ -26,7 +26,12 @@ export function Tooltip({
     <RadixTooltip.Root>
       <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
       <RadixTooltip.Portal>
-        <RadixTooltip.Content className="ch-tooltip" side={side} sideOffset={6}>
+        <RadixTooltip.Content
+          className="ch-tooltip"
+          side={side}
+          sideOffset={6}
+          collisionPadding={8}
+        >
           {content}
         </RadixTooltip.Content>
       </RadixTooltip.Portal>

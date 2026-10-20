@@ -348,6 +348,7 @@
 
 .ch-tooltip {
   z-index: var(--z-popover);
+  max-width: min(280px, calc(100vw - 16px));
   padding: 4px 8px;
   border: 1px solid var(--border-hover);
   border-radius: var(--radius-2);

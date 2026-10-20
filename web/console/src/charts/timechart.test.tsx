@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { type ChartColors, readChartColors, slotVar } from './colors';
-import { cumulative, plotOptions, TimeChart, type TimeSeries } from './TimeChart';
+import { cumulative, plotOptions, TimeChart, type TimeSeries, tipLeft } from './TimeChart';
 
 const colors: ChartColors = {
   slots: ['#grey', '#one', '#two', '#three'],
@@ -28,6 +28,18 @@ describe('cumulative', () => {
       [150, 70, 200],
     ]);
     expect(cumulative([], 2)).toEqual([]);
+  });
+});
+
+describe('tipLeft', () => {
+  it('sits right of the bucket, flips left near the right edge, and is pushed in when neither side has room', () => {
+    expect(tipLeft(100, 200, 640)).toBe(112);
+    // The right-most bucket: there is no room on the right, so the tip moves left whole instead of narrowing.
+    expect(tipLeft(630, 200, 640)).toBe(418);
+    // A phone: neither side holds it, so it keeps its width against the nearer edge, inside the chart.
+    expect(tipLeft(150, 260, 340)).toBe(80);
+    expect(tipLeft(5, 260, 340)).toBe(17);
+    expect(tipLeft(330, 400, 340)).toBe(0);
   });
 });
 
