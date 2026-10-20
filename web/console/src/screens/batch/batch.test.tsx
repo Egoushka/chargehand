@@ -304,7 +304,7 @@ describe('the Events tab', () => {
     await waitFor(() => expect(log.textContent).not.toContain('t1-schema'));
     expect(within(log).getAllByText(/./).length).toBeLessThan(total);
 
-    fireEvent.click(screen.getByRole('button', { name: 'PRs and merges' }));
+    fireEvent.click(screen.getByRole('button', { name: 'PRs' }));
     expect(await screen.findByText('No event matches this filter')).toBeTruthy();
   });
 

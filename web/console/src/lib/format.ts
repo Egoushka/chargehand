@@ -116,6 +116,11 @@ export function baseName(path: string | null | undefined): string {
   return path ? (path.split(/[\\/]/).filter(Boolean).pop() ?? path) : DASH;
 }
 
+/** The last two segments of a path or `owner/repo`, so checkouts with the same leaf stay apart; the full text belongs in the title. */
+export function shortRepo(path: string | null | undefined): string {
+  return path ? path.split(/[\\/]/).filter(Boolean).slice(-2).join('/') || path : DASH;
+}
+
 /** `ok` when the figure is the share `value / cap`: none under 70 %, `warn` from 70 %, `danger` from 90 % (CapMeter). */
 export function capLevel(percent: number): 'warn' | 'danger' | undefined {
   return percent >= 90 ? 'danger' : percent >= 70 ? 'warn' : undefined;

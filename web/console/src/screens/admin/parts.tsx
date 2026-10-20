@@ -1,12 +1,22 @@
 // biome-ignore-all lint/a11y/noNoninteractiveTabindex: a region that scrolls must be reachable by keyboard
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import { formatTime } from '../../lib/format';
-import { cx, Panel, Skeleton } from '../../ui';
+import { cx, Panel, Skeleton, useScrollEdges } from '../../ui';
 import './admin.css';
 
 /** Marks an affordance the server has no route for yet: shown disabled, with this beside it. */
 export function Later({ children = 'later' }: { children?: ReactNode }) {
   return <span className="later">{children}</span>;
+}
+
+/** A disabled action with "later" beside it, drawn muted and without a border so it does not read as a button that failed. */
+export function Planned({ children }: { children: ReactNode }) {
+  return (
+    <span className="planned">
+      {children}
+      <Later />
+    </span>
+  );
 }
 
 /**
@@ -18,8 +28,15 @@ export function ScrollBox({
   children,
   ...rest
 }: { label: string } & ComponentPropsWithoutRef<'section'>) {
+  const edges = useScrollEdges<HTMLElement>();
   return (
-    <section {...rest} className={cx('wide-scroll', className)} tabIndex={0} aria-label={label}>
+    <section
+      {...rest}
+      ref={edges}
+      className={cx('wide-scroll', className)}
+      tabIndex={0}
+      aria-label={label}
+    >
       {children}
     </section>
   );

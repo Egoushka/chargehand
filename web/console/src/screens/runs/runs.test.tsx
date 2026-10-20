@@ -415,6 +415,19 @@ describe('Runs', () => {
     expect(toggle.textContent).toContain('1');
   });
 
+  it('on a phone, says a running run has no count yet instead of a bare dash', async () => {
+    viewport(true);
+    serveApi({
+      runs: [run('run-20261013-000001-aaaaaa', { status: 'running', tokens: null, usd: null })],
+    });
+    renderConsole('/console/runs');
+    const card = (await screen.findByRole('link', { name: 'run-20261013-000001-aaaaaa' })).closest(
+      'li',
+    ) as HTMLElement;
+    expect(within(card).getByText(/tokens not counted yet/)).toBeTruthy();
+    expect(within(card).queryByText('—')).toBeNull();
+  });
+
   it('refreshes quickly while a run is active and slowly when nothing is', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { calls } = serveApi({ runs: runList(4) });

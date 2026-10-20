@@ -461,10 +461,10 @@ export const EVENT_GROUPS: ReadonlyArray<{
   { id: 'governor', label: 'Governor', kinds: ['governor'] },
   {
     id: 'needs',
-    label: 'Questions and ends',
+    label: 'Questions, ends',
     kinds: ['question', 'task_finished', 'run_finished'],
   },
-  { id: 'prs', label: 'PRs and merges', kinds: ['pushed', 'pr_opened', 'integrated'] },
+  { id: 'prs', label: 'PRs', kinds: ['pushed', 'pr_opened', 'integrated'] },
 ];
 
 export const eventKind = (e: RunStatus): string => e.event ?? e.status;

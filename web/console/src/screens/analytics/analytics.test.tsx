@@ -619,7 +619,9 @@ describe('Analytics', () => {
     expect(
       spend.getByText(`≈ $${total.usd_estimate.toFixed(2)}`.replace(/(\d)(?=(\d{3})+\.)/g, '$1,')),
     ).toBeTruthy();
-    expect(spend.getByText('tasks.total.usd_estimate')).toBeTruthy();
+    expect(spend.getByText("from the server's task totals").getAttribute('title')).toBe(
+      'GET /v1/analytics · tasks.total.usd_estimate',
+    );
     expect(spend.getByText(/of \d+ tasks priced/).textContent).toContain(
       `${total.usd_estimate_known} of ${total.tasks} tasks priced`,
     );
@@ -628,7 +630,9 @@ describe('Analytics', () => {
     ).toBeTruthy();
     expect(kpi('Pass rate').getByText(/95% CI \d+–\d+%/)).toBeTruthy();
     expect(kpi('Governor false stops').getByText(/still completed/)).toBeTruthy();
-    expect(kpi('Pull requests merged').getByText('tasks.total.prs')).toBeTruthy();
+    expect(
+      kpi('Pull requests merged').getByText("from the server's task totals").getAttribute('title'),
+    ).toBe('GET /v1/analytics · tasks.total.prs');
   });
 
   it('draws the spend over time stacked by repository, with a legend and a data table whose rows add up', async () => {

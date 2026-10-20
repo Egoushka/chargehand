@@ -24,7 +24,7 @@ import {
 } from '../../ui';
 import { isForbidden, useOwnerGate } from '../admin/gate';
 import { OwnerOnly } from '../admin/OwnerOnly';
-import { Later, lastSeen, NotRecorded, PanelSkeleton, ScrollBox } from '../admin/parts';
+import { Later, lastSeen, NotRecorded, PanelSkeleton, Planned, ScrollBox } from '../admin/parts';
 import {
   capsRows,
   credentialView,
@@ -64,8 +64,9 @@ export function Accounts() {
           </p>
         </div>
         <div className="screen__actions">
-          <Button label="Add account" icon="plus" disabled />
-          <Later />
+          <Planned>
+            <Button label="Add account" icon="plus" disabled />
+          </Planned>
         </div>
       </div>
 
@@ -267,10 +268,9 @@ function KeysPanel({ account }: { account: AccountBody }) {
       count={keys.length}
       flush
       aside={
-        <>
+        <Planned>
           <Button label="New key" size="sm" icon="plus" disabled />
-          <Later />
-        </>
+        </Planned>
       }
     >
       {keys.length === 0 ? (

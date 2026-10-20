@@ -53,6 +53,17 @@ describe('the rail (desktop)', () => {
     fireEvent.click(within(rail).getByRole('button', { name: 'Expand the rail' }));
     expect(rail.className).not.toContain('ch-rail--collapsed');
   });
+
+  it('shows icons only at tablet width, whatever was saved, and offers no toggle there', async () => {
+    viewport('tablet');
+    serveApi();
+    renderConsole('/console/');
+    const rail = await screen.findByRole('navigation', { name: 'Main' });
+    expect(rail.className).toContain('ch-rail--collapsed');
+    expect(getPreferences().railCollapsed).toBe(false);
+    expect(within(rail).getByRole('link', { name: 'Runs' })).toBeTruthy();
+    expect(within(rail).queryByRole('button', { name: /the rail/ })).toBeNull();
+  });
 });
 
 describe('the top bar', () => {

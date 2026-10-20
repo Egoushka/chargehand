@@ -37,7 +37,7 @@ import {
 } from './model';
 import './system.css';
 
-const CONTAINER_COLS = 'minmax(0,1.6fr) 76px minmax(0,1.2fr) 88px 72px';
+const CONTAINER_COLS = 'minmax(160px,1.6fr) 76px minmax(0,1.2fr) 88px 72px';
 const PRESET_COLS = '92px 84px 92px minmax(0,1fr)';
 const RUNNER_COLS = '96px minmax(0,1.4fr) 84px 64px 88px 108px';
 
@@ -182,7 +182,7 @@ function ContainersPanel({ runner }: { runner: RunnerBody }) {
             </TableHead>
             {rows.map((row) => (
               <TableRow key={row.name}>
-                <Cell mono className="wrap" title={row.name}>
+                <Cell mono title={row.name}>
                   {row.name}
                 </Cell>
                 <Cell>
@@ -389,7 +389,7 @@ function EnginePanel({ data }: { data: SystemBody }) {
           ],
           [
             'Runner',
-            <span key="r" className="row">
+            <span key="r" className="row system-runner">
               <i className="dot" data-tone={view.tone} />
               {data.runner.host ?? 'local container engine'} · {view.text}
             </span>,

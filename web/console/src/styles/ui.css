@@ -554,6 +554,50 @@
   background: var(--series, var(--neutral-8));
 }
 
+/* ---------- strips that scroll sideways ---------- */
+/* useScrollEdges marks the ends of a strip or table that hide content; those ends fade, since the scrollbar is hidden or thin. */
+[data-edges="end"] {
+  mask-image: linear-gradient(to right, black calc(100% - var(--space-8)), transparent);
+}
+
+[data-edges="start"] {
+  mask-image: linear-gradient(to right, transparent, black var(--space-8));
+}
+
+[data-edges="start end"] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--space-8),
+    black calc(100% - var(--space-8)),
+    transparent
+  );
+}
+
+.ch-seg button {
+  flex: none;
+  white-space: nowrap;
+}
+
+.ch-live {
+  white-space: nowrap;
+}
+
+/* ---------- tablet: the rail shows icons only (Shell), and a two-column screen becomes one column ---------- */
+@media (min-width: 768px) and (max-width: 1099px) {
+  .g2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .g2 > .stack {
+    display: contents;
+  }
+
+  .g2 > .stack > * {
+    order: var(--o, 5);
+  }
+}
+
 /* ---------- phone: touch targets ---------- */
 @media (max-width: 767px) {
   /* What the phone has another way to reach: a button that the tab bar or the page already offers. */
@@ -626,10 +670,18 @@
     padding: var(--space-3);
   }
 
-  .ch-seg button {
-    min-height: 40px;
+  .ch-seg button,
+  .ch-seg--touch button {
+    height: var(--size-touch);
     padding: 0 var(--space-3);
     font-size: 14px;
+  }
+
+  /* An id link keeps its line height and takes a touch-high hit area. */
+  a.mono-b {
+    display: inline-block;
+    margin-block: calc((18px - var(--size-touch)) / 2);
+    padding-block: calc((var(--size-touch) - 18px) / 2);
   }
 
   .link {

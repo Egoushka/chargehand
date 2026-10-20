@@ -14,8 +14,8 @@
   display: block;
   margin-top: 2px;
   color: var(--text-subtle);
-  font: 400 11px / 14px var(--font-mono);
-  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 14px;
 }
 
 .an-notes {

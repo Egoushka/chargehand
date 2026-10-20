@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { batchQuery } from '../../api/batch';
 import { ApiError } from '../../api/client';
 import { meQuery, useCancelRuns } from '../../api/queries';
@@ -68,6 +68,14 @@ export function Batch({ run, tab, taskId, onTab, onTask, onOpenTaskPage }: Batch
   const owner = useQuery(meQuery()).data?.owner === true;
   const cancel = useCancelRuns();
   const [confirming, setConfirming] = useState(false);
+  const tabsTop = useRef<HTMLDivElement>(null);
+  const shownTab = useRef(tab);
+  // On a phone the header fills the first screen: when the tab changes, bring the tab bar to the top so the section shows.
+  useEffect(() => {
+    if (shownTab.current === tab) return;
+    shownTab.current = tab;
+    if (phone) tabsTop.current?.scrollIntoView({ block: 'start' });
+  }, [tab, phone]);
   const now = useNow(1000);
   const query = useQuery({
     ...batchQuery(run.run_id, EVENTS),
@@ -293,19 +301,25 @@ export function Batch({ run, tab, taskId, onTab, onTask, onOpenTaskPage }: Batch
           <SegmentedMeter segments={progress.segments} label={progress.label} />
         </div>
       </div>
-      <Tabs
-        label="Batch sections"
-        touch={phone}
-        value={tab}
-        onValueChange={(id) => onTab(id as TabId)}
-        items={TABS.map((t) => ({ id: t.id, label: t.label, count: counts[t.id] }))}
-      >
-        {TABS.map((t) => (
-          <TabPanel key={t.id} value={t.id}>
-            <div className="tab-body">{t.id === tab ? content[t.id]() : null}</div>
-          </TabPanel>
-        ))}
-      </Tabs>
+      <div ref={tabsTop} className="tabs-top">
+        <Tabs
+          label="Batch sections"
+          touch={phone}
+          value={tab}
+          onValueChange={(id) => {
+            onTab(id as TabId);
+            // On a phone the header fills the first screen: bring the tab bar to the top so the chosen section shows.
+            if (phone) tabsTop.current?.scrollIntoView({ block: 'start' });
+          }}
+          items={TABS.map((t) => ({ id: t.id, label: t.label, count: counts[t.id] }))}
+        >
+          {TABS.map((t) => (
+            <TabPanel key={t.id} value={t.id}>
+              <div className="tab-body">{t.id === tab ? content[t.id]() : null}</div>
+            </TabPanel>
+          ))}
+        </Tabs>
+      </div>
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}

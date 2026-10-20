@@ -75,3 +75,19 @@
 .run-card__meta {
   white-space: normal;
 }
+
+/* The id link covers the card on a phone, so a tap anywhere on it opens the run. */
+.run-card {
+  position: relative;
+}
+
+.run-card__open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.run-card a:not(.run-card__open) {
+  position: relative;
+  z-index: 1;
+}

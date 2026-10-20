@@ -2,6 +2,7 @@
 // biome-ignore-all lint/a11y/useFocusableInteractive: header cells and cells are not controls; a sort button inside one is
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import { cssVars, cx } from './cx';
+import { useScrollEdges } from './scrollEdges';
 
 /**
  * The dense table: a grid of fixed-height rows (`--row-h` follows the density), numbers right-aligned, unknown an em dash.
@@ -30,9 +31,10 @@ export function Table({
 
 /** The box that scrolls a table sideways when the screen is narrower than it. A tab stop, so the keyboard can scroll it too. */
 export function TableScroll({ label, children }: { label: string; children: ReactNode }) {
+  const edges = useScrollEdges<HTMLDivElement>();
   return (
     // biome-ignore lint/a11y/noNoninteractiveTabindex: a region that scrolls sideways must be reachable by keyboard
-    <div className="table-scroll" role="region" aria-label={label} tabIndex={0}>
+    <div ref={edges} className="table-scroll" role="region" aria-label={label} tabIndex={0}>
       {children}
     </div>
   );
