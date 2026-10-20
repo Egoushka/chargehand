@@ -11,6 +11,7 @@ import {
   formatTokens,
   formatUsd,
   middleTruncate,
+  repoLabel,
   shortId,
 } from './format';
 import { inboxStatus, runStatus, STATUS, taskStatus } from './status';
@@ -135,6 +136,11 @@ describe('names', () => {
     expect(baseName('/srv/app')).toBe('app');
     expect(baseName('example/payments-api')).toBe('payments-api');
     expect(baseName(null)).toBe(DASH);
+  });
+
+  it('labels a checkout path by its last two segments and owner/name as it is', () => {
+    expect(repoLabel('/srv/chargehand/work/bench/clauses')).toBe('bench/clauses');
+    expect(repoLabel('Egoushka/approvals')).toBe('Egoushka/approvals');
   });
 
   it('truncates the middle, keeping both ends', () => {

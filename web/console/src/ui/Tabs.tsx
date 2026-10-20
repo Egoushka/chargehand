@@ -1,5 +1,5 @@
 import * as RadixTabs from '@radix-ui/react-tabs';
-import type { ReactNode } from 'react';
+import { type ReactNode, useEffect, useRef } from 'react';
 import { Count } from './Badge';
 import { cx } from './cx';
 
@@ -22,9 +22,33 @@ export interface TabsProps {
 
 /** Underline tabs for the sections of a screen. Tabs scroll sideways rather than wrap; the active one carries the accent underline. */
 export function Tabs({ items, value, onValueChange, touch, label, children }: TabsProps) {
+  const list = useRef<HTMLDivElement>(null);
+
+  // A tab that sits past the edge of the strip is brought in, by the strip's own scroll so the page does not jump.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: it runs when the selected tab changes, which the effect reads from the DOM
+  useEffect(() => {
+    const strip = list.current;
+    const tab = strip?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!strip || !tab) return;
+    const a = strip.getBoundingClientRect();
+    const b = tab.getBoundingClientRect();
+    if (b.right > a.right) strip.scrollLeft += b.right - a.right + 16;
+    else if (b.left < a.left) strip.scrollLeft -= a.left - b.left + 16;
+  }, [value]);
+
+  // On a phone the section above the strip can fill the screen: a new tab's body is then below the fold, so the strip goes to the top.
+  const pick = (id: string) => {
+    onValueChange(id);
+    if (touch) list.current?.scrollIntoView?.({ block: 'start' });
+  };
+
   return (
-    <RadixTabs.Root value={value} onValueChange={onValueChange}>
-      <RadixTabs.List className={cx('ch-tabs', touch && 'ch-tabs--touch')} aria-label={label}>
+    <RadixTabs.Root value={value} onValueChange={pick}>
+      <RadixTabs.List
+        ref={list}
+        className={cx('ch-tabs', touch && 'ch-tabs--touch')}
+        aria-label={label}
+      >
         {items.map((item) => (
           <RadixTabs.Trigger key={item.id} value={item.id} className="ch-tab">
             {item.label}

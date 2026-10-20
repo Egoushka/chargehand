@@ -15,7 +15,7 @@
   margin-top: 2px;
   color: var(--text-subtle);
   font: 400 11px / 14px var(--font-mono);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .an-notes {

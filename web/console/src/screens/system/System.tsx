@@ -182,7 +182,7 @@ function ContainersPanel({ runner }: { runner: RunnerBody }) {
             </TableHead>
             {rows.map((row) => (
               <TableRow key={row.name}>
-                <Cell mono className="wrap" title={row.name}>
+                <Cell mono title={row.name}>
                   {row.name}
                 </Cell>
                 <Cell>

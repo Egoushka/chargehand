@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { useMemo, useRef, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 import { type AnalyticsBucket, type AnalyticsGroupBy, analyticsQuery } from '../../api/analytics';
 import { learnQuery, meQuery } from '../../api/queries';
 import { batchDurationsQuery, useRecentBatches } from '../../api/recent';
@@ -214,7 +214,13 @@ export function Analytics() {
                     <>
                       {f.sub}
                       <span className="kpi-src" title={`GET /v1/analytics · ${f.source}`}>
-                        {f.source}
+                        {f.source.split(/(?<=[._])/).map((part, i) => (
+                          // biome-ignore lint/suspicious/noArrayIndexKey: the parts of one fixed string, never reordered
+                          <Fragment key={i}>
+                            {i > 0 ? <wbr /> : null}
+                            {part}
+                          </Fragment>
+                        ))}
                       </span>
                     </>
                   }

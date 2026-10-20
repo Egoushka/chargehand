@@ -185,7 +185,7 @@ export function TaskView({ batchId, taskId, mode, onOpenPage }: TaskViewProps) {
             to="/runs/$runId"
             params={{ runId: batchId }}
             search={{ tab: 'tasks' }}
-            className={buttonClass({ variant: 'quiet', size: phone ? 'touch' : undefined })}
+            className={buttonClass({ size: phone ? 'touch' : undefined })}
           >
             Open the batch
           </Link>
@@ -526,7 +526,7 @@ function Question({ detail }: { detail: NonNullable<ReturnType<typeof useBatchTa
       {task.answered ? (
         <div className="card__sent" role="status">
           <Icon name="check" />
-          <span>This question was answered by</span>
+          <span>This question was answered in run</span>
           {task.answered_by.map((link) => (
             <Link
               key={link.run_id}

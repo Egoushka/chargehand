@@ -116,6 +116,13 @@ export function baseName(path: string | null | undefined): string {
   return path ? (path.split(/[\\/]/).filter(Boolean).pop() ?? path) : DASH;
 }
 
+/** A repository for a table cell: `owner/name` as is, a checkout path by its last two segments (the full path stays in the cell's title). */
+export function repoLabel(repository: string): string {
+  return repository.startsWith('/')
+    ? repository.split('/').filter(Boolean).slice(-2).join('/')
+    : repository;
+}
+
 /** `ok` when the figure is the share `value / cap`: none under 70 %, `warn` from 70 %, `danger` from 90 % (CapMeter). */
 export function capLevel(percent: number): 'warn' | 'danger' | undefined {
   return percent >= 90 ? 'danger' : percent >= 70 ? 'warn' : undefined;

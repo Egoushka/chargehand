@@ -359,7 +359,7 @@ describe('the question of a task', () => {
       },
     );
     renderConsole(page('t3-memory-ttl'));
-    expect(await screen.findByText('This question was answered by')).toBeTruthy();
+    expect(await screen.findByText('This question was answered in run')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'bbb222' })).toBeTruthy();
     expect(screen.queryByLabelText('Your answer 1')).toBeNull();
   });

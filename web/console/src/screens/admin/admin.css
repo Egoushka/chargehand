@@ -6,9 +6,10 @@
   align-items: center;
   height: 16px;
   padding: 0 4px;
-  border: 1px solid var(--border-hover);
+  margin-inline: var(--space-2);
+  border: 1px dashed var(--border);
   border-radius: var(--radius-1);
-  color: var(--text-muted);
+  color: var(--text-subtle);
   font: 500 11px / 14px var(--font-sans);
   white-space: nowrap;
 }
@@ -104,5 +105,12 @@
 
   .g2e > .stack > * {
     order: var(--o, 5);
+  }
+}
+
+/* Two columns need more than a tablet leaves beside the rail: stack them. */
+@media (max-width: 1023px) {
+  .g2e {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

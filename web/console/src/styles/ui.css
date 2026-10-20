@@ -627,7 +627,7 @@
   }
 
   .ch-seg button {
-    min-height: 40px;
+    min-height: var(--size-touch);
     padding: 0 var(--space-3);
     font-size: 14px;
   }
@@ -636,6 +636,20 @@
     display: inline-flex;
     align-items: center;
     min-height: var(--size-touch);
+  }
+
+  /* A run id or a repository in a list is a few characters wide: the link grows to a finger's size without moving the row. */
+  .mono-b {
+    display: inline-block;
+    padding-block: 13px;
+    margin-block: -13px;
+  }
+
+  /* A switch is 16 px high; its touch area is the 44 px around it. */
+  .ch-switch::after {
+    content: "";
+    position: absolute;
+    inset: -14px -8px;
   }
 
   .li {
@@ -731,4 +745,72 @@ button.li {
 .meter-name {
   color: var(--text);
   font-weight: 500;
+}
+
+/* ---------- sideways scrolling cues ---------- */
+/* A strip or table that scrolls sideways fades at the edge that has more behind it, where the browser can tie the fade to the scroll. */
+@property --fade-l {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --fade-r {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes edge-fade {
+  0% {
+    --fade-l: 0px;
+    --fade-r: 32px;
+  }
+  8%,
+  92% {
+    --fade-l: 32px;
+    --fade-r: 32px;
+  }
+  100% {
+    --fade-l: 32px;
+    --fade-r: 0px;
+  }
+}
+
+@supports (animation-timeline: scroll()) {
+  .ch-tabs,
+  .ch-seg--touch,
+  .table-scroll,
+  .wide-scroll {
+    animation: edge-fade linear both;
+    animation-timeline: scroll(self inline);
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--fade-l),
+      #000 calc(100% - var(--fade-r)),
+      transparent
+    );
+  }
+}
+
+.ch-seg--touch button {
+  white-space: nowrap;
+}
+
+.ch-live {
+  white-space: nowrap;
+}
+
+/* Two columns need more than a tablet leaves beside the rail: stack them. */
+@media (max-width: 1023px) {
+  .g2e,
+  .g-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.table-scroll:focus-visible,
+.wide-scroll:focus-visible {
+  outline-offset: -2px;
 }

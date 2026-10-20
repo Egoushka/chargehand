@@ -12,6 +12,7 @@ import {
   formatCount,
   formatTime,
   formatUsd,
+  repoLabel,
   shortId,
 } from '../../lib/format';
 import { useIsPhone } from '../../shell/useIsPhone';
@@ -45,7 +46,7 @@ import {
 } from './model';
 import './learning.css';
 
-const COLS = 'minmax(104px, 1.1fr) 36px 44px 64px 64px 80px 52px 72px 64px 84px minmax(120px, 1fr)';
+const COLS = 'minmax(150px, 1.4fr) 36px 44px 64px 64px 80px 52px 72px 64px 84px minmax(120px, 1fr)';
 
 /** The budget a task of each size class was last held to, with the rule that chose it, read from the newest finished batches. */
 function BudgetsInForce({
@@ -223,7 +224,9 @@ export function Learning() {
                     <div className="li__main">
                       <div className="row">
                         <SizeBadge size={r.size as 'S' | 'M' | 'L'} />
-                        <span className="b li__title">{r.repository}</span>
+                        <span className="b li__title" title={r.repository}>
+                          {repoLabel(r.repository)}
+                        </span>
                       </div>
                       <div className="li__meta ln-wrap">
                         {formatCount(r.tasks)} tasks · median {r.median} · completed {r.completed}
@@ -263,7 +266,7 @@ export function Learning() {
                   {rows.map((r) => (
                     <TableRow key={r.key}>
                       <Cell strong title={r.repository}>
-                        {r.repository}
+                        {repoLabel(r.repository)}
                       </Cell>
                       <Cell>
                         <SizeBadge size={r.size as 'S' | 'M' | 'L'} />
