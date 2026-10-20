@@ -8,7 +8,8 @@ namespace Chargehand.Server;
 
 /// <summary>Dismissing inbox items and undoing it (ADR 0064): <c>POST /v1/inbox/dismiss</c> and <c>POST /v1/inbox/restore</c>, each with <c>{"ids": [...]}</c>, the ids as the inbox shows them (a pull
 /// request's holds its URL, so the ids travel in the body, not the path). For the owner and for an account, each for the items its own inbox shows; an id the caller's inbox does not hold is
-/// <c>unknown</c>, and a request with nothing but unknown ids is a <c>404</c>. Safe to send twice: an item dismissed already reads <c>changed: false</c>.</summary>
+/// <c>unknown</c>, and a request with nothing but unknown ids is a <c>404</c>. Safe to send twice: an item dismissed already reads <c>changed: false</c>. A group's id (<c>groups</c> of the inbox) stands for
+/// every failure in it.</summary>
 internal static class ConsoleDismissals
 {
     public const int MaxIds = 500;
@@ -39,6 +40,10 @@ internal static class ConsoleDismissals
         var view = await ConsoleInbox.ViewAsync(c, who, DateTimeOffset.MinValue, ctx.RequestAborted);
         // Two entries can share an id (a task that failed twice with different codes): an id dismisses both.
         var open = view.Open.GroupBy(e => e.Item.Id).ToDictionary(g => g.Key, g => g.SelectMany(e => e.Members).Distinct().ToList());
+        // A group (CHARGEHAND-237) dismisses every failure in it; restoring it, those the caller can see.
+        foreach (var group in view.Groups)
+            open[group.Group.Id] = [.. group.Members];
+        var dismissedAs = store.Read().Where(e => view.Closed[e.Key].Contains(ConsoleInbox.Dismissed)).ToLookup(e => e.Value.Shown, e => e.Key);
         List<string> changed = [], unchanged = [], unknown = [];
         try
         {
@@ -48,7 +53,9 @@ internal static class ConsoleDismissals
                     (store.Add(members, id, who is { IsOwner: false } ? who.Name : null, c.Now).Count > 0 ? changed : unchanged).Add(id);
                 else if (dismiss && view.Closed[id].Contains(ConsoleInbox.Dismissed))
                     unchanged.Add(id);
-                else if (!dismiss && (view.Closed.Contains(id) || open.ContainsKey(id)))
+                else if (dismiss && dismissedAs.Contains(id))
+                    unchanged.Add(id);
+                else if (!dismiss && (view.Closed.Contains(id) || open.ContainsKey(id) || dismissedAs.Contains(id)))
                     (store.Remove(id).Count > 0 ? changed : unchanged).Add(id);
                 else
                     unknown.Add(id);

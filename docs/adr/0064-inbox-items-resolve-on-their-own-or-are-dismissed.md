@@ -1,6 +1,6 @@
 # 0064. Inbox items resolve on their own, or a person dismisses them
 
-- Status: accepted
+- Status: accepted; grouping and the pull request rules amended by 0073
 - Date: 2026-10-14
 
 ## Context

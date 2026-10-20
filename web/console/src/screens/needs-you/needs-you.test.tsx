@@ -5,6 +5,7 @@ import {
   BATCH_A,
   BATCH_B,
   COMMIT,
+  groupedInbox,
   inbox,
   inboxItems,
   longQuestion,
@@ -12,7 +13,7 @@ import {
 } from '../../testing/fixtures';
 import { renderConsole } from '../../testing/render';
 import { serveApi } from '../../testing/server';
-import { ordered, resolvedNote, summary, waitingFor } from './model';
+import { ordered, resolvedNote, rowIds, rows, summary, waitingFor } from './model';
 
 const cards = () => screen.getAllByRole('article');
 const findCard = async (name: RegExp | string) =>
@@ -199,6 +200,86 @@ describe('dismissing', () => {
     expect(
       resolvedNote({ superseded: 1, infrastructure: 0, continued: 0, dismissed: 0, duplicates: 1 }),
     ).toBe('1 resolved on their own, 1 duplicate folded');
+  });
+});
+
+describe('grouped failures', () => {
+  const groupCard = () => findCard(/6 failures: checkout_has_secrets on infra-config/);
+
+  it('shows failures with one repository and code as one card with the count, the newest and the rest behind Show all', async () => {
+    serveApi({ inbox: groupedInbox() });
+    renderConsole('/console/needs-you');
+    const card = await groupCard();
+
+    expect(cards()).toHaveLength(4);
+    expect(card.getByText('×6')).toBeTruthy();
+    expect(card.getByText('Newest: Review pull request example/infra-config#43.')).toBeTruthy();
+    expect(card.getByText(/grep would still reach\. Use a preset that allows them/)).toBeTruthy();
+    expect(card.queryByRole('list')).toBeNull();
+    const toggle = card.getByRole('button', { name: 'Show 3 runs' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(toggle);
+
+    const list = card.getByRole('list', { name: 'The checkout_has_secrets failures' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(list).getByText('×4')).toBeTruthy();
+    expect(
+      within(list)
+        .getByRole('link', { name: /Open run run-review-1/ })
+        .getAttribute('href'),
+    ).toBe('/console/runs/run-review-1');
+    expect(card.getByRole('button', { name: 'Hide runs' }).getAttribute('aria-expanded')).toBe(
+      'true',
+    );
+  });
+
+  it('dismisses the whole group by its id in one call, with an Undo that restores it', async () => {
+    const api = serveApi({ inbox: groupedInbox() });
+    renderConsole('/console/needs-you');
+    const card = await groupCard();
+
+    fireEvent.click(
+      card.getByRole('button', { name: 'Dismiss all 6 checkout_has_secrets failures' }),
+    );
+
+    await waitFor(() =>
+      expect(api.last('/v1/inbox/dismiss')?.body).toEqual({
+        ids: ['group:checkout_has_secrets:failure:run-review-3'],
+      }),
+    );
+    expect(await screen.findByText('Dismissed 6 checkout_has_secrets failures')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() =>
+      expect(api.last('/v1/inbox/restore')?.body).toEqual({
+        ids: ['group:checkout_has_secrets:failure:run-review-3'],
+      }),
+    );
+  });
+
+  it('folds a group only where two or more of its items are in the list, and Dismiss all shown sends the group id', () => {
+    const body = groupedInbox();
+    const all = rows(ordered(body.items, 'all'), body.groups);
+    expect(all.map((r) => r.type)).toEqual(['item', 'item', 'item', 'group']);
+    expect(rowIds(all)).toContain('group:checkout_has_secrets:failure:run-review-3');
+    const one = body.items.filter(
+      (i) => i.id !== 'failure:run-review-1' && i.id !== 'failure:run-review-2',
+    );
+    expect(rows(one, body.groups).every((r) => r.type === 'item')).toBe(true);
+    expect(rows(body.items).every((r) => r.type === 'item')).toBe(true);
+  });
+
+  it('counts failures about a closed pull request as resolved on their own', () => {
+    expect(
+      resolvedNote({
+        superseded: 1,
+        infrastructure: 0,
+        continued: 0,
+        dismissed: 0,
+        duplicates: 0,
+        pr_closed: 2,
+      }),
+    ).toBe('3 resolved on their own');
   });
 });
 

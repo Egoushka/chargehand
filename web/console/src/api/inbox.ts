@@ -47,6 +47,23 @@ export interface InboxResolved {
   dismissed: number;
   /** Failures folded into an identical newer one. */
   duplicates: number;
+  /** A failure about a pull request that was merged or closed since. Absent from a server before CHARGEHAND-237. */
+  pr_closed?: number;
+}
+
+/**
+ * Open failures with the same repository and code (CHARGEHAND-237), two or more. Each item stays in `items`; `id` dismisses or
+ * restores all of them, and `items` lists their ids newest first (with a `limit`, some may not be in the body's `items`).
+ */
+export interface InboxGroup {
+  id: string;
+  kind: 'failure';
+  repository?: string | null;
+  reason?: string | null;
+  /** The failures it stands for: the sum of its items' `count`. */
+  count: number;
+  at: string;
+  items: string[];
 }
 
 /** `inbox/v1`: what needs a person, newest first. */
@@ -57,6 +74,8 @@ export interface InboxBody extends ContractMeta {
   items: InboxItem[];
   /** Absent from a server before ADR 0064. */
   resolved?: InboxResolved;
+  /** Absent from a server before CHARGEHAND-237. */
+  groups?: InboxGroup[];
 }
 
 export const inboxQuery = (limit = 100) =>
