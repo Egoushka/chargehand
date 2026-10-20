@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.14.0](https://github.com/Egoushka/chargehand/compare/v0.13.2...v0.14.0) (2026-10-20)
+
+
+### Features
+
+* **console:** group repeated inbox failures and resolve them on the pull request's state (CHARGEHAND-237) ([#383](https://github.com/Egoushka/chargehand/issues/383)) ([770eff9](https://github.com/Egoushka/chargehand/commit/770eff9313caf441de13a8cbb820a6a1f7557823))
+
+
+### Bug Fixes
+
+* **console:** keep chart tooltips whole near a screen edge (CHARGEHAND-235) ([#380](https://github.com/Egoushka/chargehand/issues/380)) ([70fa617](https://github.com/Egoushka/chargehand/commit/70fa617a640dafd23d31960294d1a8ded5e9ff51))
+
 ## [0.13.2](https://github.com/Egoushka/chargehand/compare/v0.13.1...v0.13.2) (2026-10-19)
 
 
