@@ -73,7 +73,9 @@ describe('the batch header', () => {
     serve({ batches: { [BATCH_A]: done }, runs: [done.run] });
     renderConsole(open());
     expect(await screen.findByText('tasks_incomplete', { selector: '.b' })).toBeTruthy();
-    expect(screen.getByText(/Send the tasks that did not finish again/)).toBeTruthy();
+    expect(screen.getByText(/Send the tasks that did not finish again/).textContent).toBe(
+      '3 of 8 tasks did not produce a pull request. Send the tasks that did not finish again.',
+    );
     expect(screen.queryByRole('button', { name: 'Cancel batch' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Halt server' })).toBeNull();
     expect(screen.getByText('39m')).toBeTruthy();

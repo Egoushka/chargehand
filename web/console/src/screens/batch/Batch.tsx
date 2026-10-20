@@ -265,7 +265,9 @@ export function Batch({ run, tab, taskId, onTab, onTask, onOpenTaskPage }: Batch
             <div className="b">{batch.result.error.code}</div>
             <div className="dim">
               {batch.result.error.message}
-              {batch.result.error.action ? ` ${batch.result.error.action}` : ''}
+              {batch.result.error.action
+                ? `${/[.!?]$/.test(batch.result.error.message) ? '' : '.'} ${batch.result.error.action}`
+                : ''}
             </div>
           </div>
         </div>

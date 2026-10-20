@@ -37,7 +37,7 @@ import {
 } from './model';
 import './accounts.css';
 
-const COLS = '96px 72px minmax(0,1fr) minmax(0,1.1fr) minmax(0,1.1fr) 112px 156px 52px';
+const COLS = '96px 72px minmax(96px,1fr) minmax(144px,1.1fr) minmax(144px,1.1fr) 136px 156px 52px';
 
 /** Who may call the server, what they may run and spend, and whose model credential pays. Read-only: the profile is the place to change any of it today. */
 export function Accounts() {
@@ -201,7 +201,7 @@ function AccountRow({
         </button>
       </Cell>
       <Cell>{roleBadge(account)}</Cell>
-      <Cell className="dim" title={repos.title}>
+      <Cell className="dim account-repos" title={repos.title}>
         {repos.text}
       </Cell>
       <Cell>

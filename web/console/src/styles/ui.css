@@ -574,6 +574,12 @@
   );
 }
 
+/* The fade would hide the edges of a focus ring: draw it inside the box. */
+.table-scroll:focus-visible,
+.wide-scroll:focus-visible {
+  outline-offset: -2px;
+}
+
 .ch-seg button {
   flex: none;
   white-space: nowrap;
@@ -585,7 +591,9 @@
 
 /* ---------- tablet: the rail shows icons only (Shell), and a two-column screen becomes one column ---------- */
 @media (min-width: 768px) and (max-width: 1099px) {
-  .g2 {
+  .g2,
+  .g2e,
+  .g-split {
     grid-template-columns: minmax(0, 1fr);
   }
 
