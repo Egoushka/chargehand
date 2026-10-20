@@ -224,6 +224,45 @@ export function inbox(items: InboxItem[] = inboxItems(), now = Date.now()): Inbo
   };
 }
 
+export const INFRA_REPO = '/srv/repos/example/infra-config';
+
+/** The inbox as it looked with repeats (CHARGEHAND-237): three reviews of one repository failed with one code, folded into a group. */
+export function groupedInbox(now = Date.now()): InboxBody {
+  const reviews: InboxItem[] = [3, 2, 1].map((n) => ({
+    kind: 'failure',
+    id: `failure:run-review-${n}`,
+    at: iso(now, 60 * (4 - n)),
+    actor: 'owner',
+    run_id: `run-review-${n}`,
+    repository: INFRA_REPO,
+    title: `Review pull request example/infra-config#${40 + n}.`,
+    questions: [],
+    error: {
+      code: 'checkout_has_secrets',
+      message:
+        'the repository tracks files the preset denies reading, which grep would still reach',
+      retryable: false,
+      action: 'Use a preset that allows them, or stop tracking them.',
+    },
+    reason: 'checkout_has_secrets',
+    subject: 'run',
+    count: n === 3 ? 4 : 1,
+  }));
+  const body = inbox([...inboxItems(now), ...reviews], now);
+  body.groups = [
+    {
+      id: 'group:checkout_has_secrets:failure:run-review-3',
+      kind: 'failure',
+      repository: INFRA_REPO,
+      reason: 'checkout_has_secrets',
+      count: 6,
+      at: iso(now, 60),
+      items: reviews.map((r) => r.id),
+    },
+  ];
+  return body;
+}
+
 export function run(id: string, over: Partial<RunSummary> = {}, now = Date.now()): RunSummary {
   return {
     contract_version: 'run-summary/v1',

@@ -24,18 +24,29 @@ public sealed record InboxCounts(int Questions, int PullRequests, int Failures, 
 /// <param name="Continued">A question that a batch answered or retried.</param>
 /// <param name="Dismissed">A person dismissed it.</param>
 /// <param name="Duplicates">Open failures folded into an identical newer one (its <c>count</c>).</param>
-public sealed record InboxResolved(int Superseded, int Infrastructure, int Continued, int Dismissed, int Duplicates);
+/// <param name="PrClosed">A failure about a pull request that was merged or closed since.</param>
+public sealed record InboxResolved(int Superseded, int Infrastructure, int Continued, int Dismissed, int Duplicates, int PrClosed = 0);
+
+/// <summary>Open failures with the same repository and code (CHARGEHAND-237), so the console shows them as one card. Only for two items or more; each item stays in <c>items</c>.</summary>
+/// <param name="Id">The id to dismiss or restore the whole group by: <c>group:</c>, the code, and the newest item's id.</param>
+/// <param name="Count">The failures it stands for: the sum of its items' <c>count</c>.</param>
+/// <param name="At">When the newest failure in it happened.</param>
+/// <param name="Items">Its item ids, newest first; with a <c>limit</c> some may not be in <c>items</c>.</param>
+public sealed record InboxGroup(string Id, string Kind, string? Repository, string? Reason, int Count, DateTimeOffset At, IReadOnlyList<string> Items);
 
 /// <summary><c>inbox/v1</c>: what needs a person, newest first.</summary>
 public sealed record InboxBody(string ContractVersion, DateTimeOffset GeneratedAt, DateTimeOffset Since, InboxCounts Counts, IReadOnlyList<InboxItem> Items, IReadOnlyList<string> NotRecorded,
-    InboxResolved Resolved);
+    InboxResolved Resolved, IReadOnlyList<InboxGroup>? Groups = null);
 
 /// <summary>An open item and the ids of the items it stands for.</summary>
 internal sealed record InboxEntry(InboxItem Item, IReadOnlyList<string> Members);
 
+/// <summary>A group as the inbox shows it, and every item id its entries stand for (what dismissing it dismisses).</summary>
+internal sealed record InboxGroupEntry(InboxGroup Group, IReadOnlyList<string> Members);
+
 /// <summary>The inbox before the limit: the open entries, newest first, and why each other item left.</summary>
 /// <param name="Closed">Item id to <see cref="InboxRules"/>' reason or <c>dismissed</c>.</param>
-internal sealed record InboxView(IReadOnlyList<InboxEntry> Open, ILookup<string, string> Closed, InboxResolved Resolved);
+internal sealed record InboxView(IReadOnlyList<InboxEntry> Open, ILookup<string, string> Closed, InboxResolved Resolved, IReadOnlyList<InboxGroupEntry> Groups);
 
 /// <summary>The "needs you" inbox of the console: task questions nobody answered, pull requests chargehand will not merge, and failures. Derived from the run log and the learning records on every call:
 /// an item leaves when what it names changes (a pull request is merged or closed), when a rule of <see cref="InboxRules"/> resolves it, or when a person dismissed it (the one thing stored).</summary>
@@ -53,6 +64,7 @@ internal static class ConsoleInbox
         "Pull requests that chargehand did not open, and a batch the integrator left on 'ask' before this server wrote learning records, are not listed.",
         "Superseded and infrastructure items are resolved by rules over the run log (ADR 0064); a rule can resolve an item a person still meant to look at, and resolved items are counted, not listed.",
         "A dismissal is kept by item id: a new failure of the same kind is a new item, and an owner's dismissal hides an account's item from the account too.",
+        "Whether a pull request was merged or closed is known only for pull requests chargehand opened; a review of anyone else's stays open until a later review of the same head completes, or Dismiss.",
     ];
 
     public static async Task<InboxBody> BuildAsync(ConsoleContext c, Principal? who, DateTimeOffset since, int limit, CancellationToken ct)
@@ -60,7 +72,7 @@ internal static class ConsoleInbox
         var view = await ViewAsync(c, who, since, ct);
         var open = view.Open.Select(e => e.Item).ToList();
         var counts = new InboxCounts(open.Count(i => i.Kind == "question"), open.Count(i => i.Kind == "pull_request"), open.Count(i => i.Kind == "failure"), open.Count);
-        return new InboxBody(Contract, c.Now, since, counts, [.. open.Take(Math.Clamp(limit, 1, 500))], NotRecorded, view.Resolved);
+        return new InboxBody(Contract, c.Now, since, counts, [.. open.Take(Math.Clamp(limit, 1, 500))], NotRecorded, view.Resolved, [.. view.Groups.Select(g => g.Group)]);
     }
 
     /// <summary>Counts only, for the overview.</summary>
@@ -83,9 +95,18 @@ internal static class ConsoleInbox
             .Select(g => new InboxEntry(g[0].Item with { Count = g.Count }, [.. g.Select(x => x.Item.Id)]))
             .OrderByDescending(e => e.Item.At).ToList();
         int Of(string reason) => decided.Count(d => d.Reason == reason);
-        var resolved = new InboxResolved(Of(InboxRules.Superseded), Of(InboxRules.Infrastructure), Of(InboxRules.Continued), Of(Dismissed), open.Sum(e => e.Members.Count - 1));
-        return new InboxView(open, decided.Where(d => d.Reason is not null).ToLookup(d => d.Candidate.Item.Id, d => d.Reason!), resolved);
+        var resolved = new InboxResolved(Of(InboxRules.Superseded), Of(InboxRules.Infrastructure), Of(InboxRules.Continued), Of(Dismissed), open.Sum(e => e.Members.Count - 1), Of(InboxRules.PrClosed));
+        return new InboxView(open, decided.Where(d => d.Reason is not null).ToLookup(d => d.Candidate.Item.Id, d => d.Reason!), resolved, Groups(open));
     }
+
+    public const string GroupPrefix = "group:";
+
+    /// <summary>Open failures with the same repository and code, two or more, newest group first.</summary>
+    private static List<InboxGroupEntry> Groups(IReadOnlyList<InboxEntry> open) =>
+        [.. open.Where(e => e.Item.Kind == "failure").GroupBy(e => (e.Item.Repository, e.Item.Reason)).Where(g => g.Count() > 1)
+            .Select(g => g.ToList())
+            .Select(g => new InboxGroupEntry(new InboxGroup($"{GroupPrefix}{g[0].Item.Reason}:{g[0].Item.Id}", "failure", g[0].Item.Repository, g[0].Item.Reason, g.Sum(e => e.Item.Count), g[0].Item.At,
+                [.. g.Select(e => e.Item.Id)]), [.. g.SelectMany(e => e.Members).Distinct(StringComparer.Ordinal)]))];
 
     private static IEnumerable<InboxCandidate> Questions(RunIndex index, Principal? who, DateTimeOffset since)
     {

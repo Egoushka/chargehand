@@ -1,4 +1,4 @@
-import type { InboxItem, InboxKind, InboxResolved } from '../../api/inbox';
+import type { InboxGroup, InboxItem, InboxKind, InboxResolved } from '../../api/inbox';
 
 export type Filter = 'all' | InboxKind;
 
@@ -16,6 +16,40 @@ export function ordered(items: InboxItem[], filter: Filter): InboxItem[] {
   return items
     .filter((item) => filter === 'all' || item.kind === filter)
     .sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || b.at.localeCompare(a.at));
+}
+
+/** A card of the list: one item, or a group of failures with the same repository and code and its items here, newest first. */
+export type Row =
+  | { type: 'item'; id: string; item: InboxItem }
+  | { type: 'group'; id: string; group: InboxGroup; items: InboxItem[] };
+
+/** The ordered items as cards: the items of a group fold into one card where its newest item stands. */
+export function rows(items: InboxItem[], groups: InboxGroup[] = []): Row[] {
+  const groupOf = new Map<string, InboxGroup>();
+  for (const group of groups) for (const id of group.items) groupOf.set(id, group);
+  const members = new Map<string, InboxItem[]>();
+  for (const item of items) {
+    const group = groupOf.get(item.id);
+    if (group) members.set(group.id, [...(members.get(group.id) ?? []), item]);
+  }
+  const out: Row[] = [];
+  for (const item of items) {
+    const group = groupOf.get(item.id);
+    const shown = group ? (members.get(group.id) ?? []) : [];
+    if (!group || shown.length < 2) out.push({ type: 'item', id: item.id, item });
+    else if (shown[0] === item) out.push({ type: 'group', id: group.id, group, items: shown });
+  }
+  return out;
+}
+
+/** The ids "Dismiss all shown" sends: a group's id stands for all of its failures. */
+export function rowIds(list: Row[]): string[] {
+  return list.map((row) => row.id);
+}
+
+/** How many items the cards stand for. */
+export function rowItems(list: Row[]): number {
+  return list.reduce((n, row) => n + (row.type === 'group' ? row.group.items.length : 1), 0);
 }
 
 export function summary(counts: {
@@ -50,7 +84,8 @@ export function targetRun(item: InboxItem): string | null {
 /** What left the inbox without you (ADR 0064), in words; empty when nothing did. */
 export function resolvedNote(resolved: InboxResolved | undefined): string {
   if (!resolved) return '';
-  const auto = resolved.superseded + resolved.infrastructure + resolved.continued;
+  const auto =
+    resolved.superseded + resolved.infrastructure + resolved.continued + (resolved.pr_closed ?? 0);
   const parts = [
     auto > 0 ? `${auto} resolved on their own` : '',
     resolved.dismissed > 0 ? `${resolved.dismissed} dismissed` : '',

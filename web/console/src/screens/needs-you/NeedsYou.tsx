@@ -17,7 +17,18 @@ import {
   Skeleton,
   Switch,
 } from '../../ui';
-import { FILTERS, type Filter, ordered, resolvedNote, summary, targetRun } from './model';
+import { GroupCard } from './GroupCard';
+import {
+  FILTERS,
+  type Filter,
+  ordered,
+  resolvedNote,
+  rowIds,
+  rowItems,
+  rows,
+  summary,
+  targetRun,
+} from './model';
 import { NeedsCard } from './NeedsCard';
 import './needs-you.css';
 import { useNavigate } from '@tanstack/react-router';
@@ -33,12 +44,16 @@ export function NeedsYou() {
   const cards = useRef(new Map<string, HTMLElement>());
   const answers = useRef(new Map<string, HTMLTextAreaElement>());
   const data = inbox.data;
-  const items = useMemo(() => ordered(data?.items ?? [], filter), [data, filter]);
+  const items = useMemo(
+    () => rows(ordered(data?.items ?? [], filter), data?.groups),
+    [data, filter],
+  );
   const at = Math.min(cursor, Math.max(0, items.length - 1));
   const resolved = resolvedNote(data?.resolved);
 
   function dismissShown() {
-    const ids = items.map((item) => item.id);
+    const ids = rowIds(items);
+    const shown = rowItems(items);
     if (ids.length === 0) return;
     dismiss.mutate(
       { ids },
@@ -47,7 +62,7 @@ export function NeedsYou() {
           toast.push({
             tone: 'ok',
             icon: 'check',
-            title: `Dismissed ${ids.length} item${ids.length === 1 ? '' : 's'}`,
+            title: `Dismissed ${shown} item${shown === 1 ? '' : 's'}`,
             actions: [{ label: 'Undo', onSelect: () => void dismiss.restore(ids) }],
           }),
         onError: (error) =>
@@ -81,7 +96,8 @@ export function NeedsYou() {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || keysBelongElsewhere(event.target))
         return;
-      const item = items[at];
+      const row = items[at];
+      const item = row?.type === 'group' ? row.items[0] : row?.item;
       if (event.key === 'j') move(1);
       else if (event.key === 'k') move(-1);
       else if (event.key === 'Enter' && item) {
@@ -114,7 +130,7 @@ export function NeedsYou() {
             <Button
               variant="quiet"
               label="Dismiss all shown"
-              aria-label={`Dismiss all ${items.length} shown`}
+              aria-label={`Dismiss all ${rowItems(items)} shown`}
               loading={dismiss.isPending}
               onClick={dismissShown}
             />
@@ -201,22 +217,34 @@ export function NeedsYou() {
                 />
               </div>
             ) : (
-              items.map((item, index) => (
-                <li key={item.id}>
-                  <NeedsCard
-                    item={item}
-                    cursor={index === at}
-                    cardRef={(el) => {
-                      if (el) cards.current.set(item.id, el);
-                      else cards.current.delete(item.id);
-                    }}
-                    answerRef={(el) => {
-                      if (el) answers.current.set(item.id, el);
-                      else answers.current.delete(item.id);
-                    }}
-                  />
-                </li>
-              ))
+              items.map((row, index) => {
+                const cardRef = (el: HTMLElement | null) => {
+                  if (el) cards.current.set(row.id, el);
+                  else cards.current.delete(row.id);
+                };
+                return (
+                  <li key={row.id}>
+                    {row.type === 'group' ? (
+                      <GroupCard
+                        group={row.group}
+                        items={row.items}
+                        cursor={index === at}
+                        cardRef={cardRef}
+                      />
+                    ) : (
+                      <NeedsCard
+                        item={row.item}
+                        cursor={index === at}
+                        cardRef={cardRef}
+                        answerRef={(el) => {
+                          if (el) answers.current.set(row.id, el);
+                          else answers.current.delete(row.id);
+                        }}
+                      />
+                    )}
+                  </li>
+                );
+              })
             )}
           </ul>
           <div className="stack">

@@ -35,3 +35,34 @@
 .notify-row .ch-switch {
   flex: none;
 }
+
+/* A group's failures, one row each: the title takes what is left and cuts with an ellipsis. */
+.group-list {
+  display: grid;
+  gap: var(--space-2);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.group-list__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.group-list__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .group-list__row a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--size-touch);
+  }
+}

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import * as fx from '../src/testing/fixtures';
 import { SIZES, settle, shot, sidewaysScroll, violations } from './looks.ts';
 import { listenForViolations, mockApi, signIn, watch } from './mock.ts';
 
@@ -98,6 +99,32 @@ for (const [device, viewport] of Object.entries(SIZES)) {
 
         await settle(page);
         await shot(page, `needs-you-answered-${device}-${scheme}`);
+        expect(await violations(page)).toEqual([]);
+        expect(await seen.finish()).toEqual([]);
+      });
+
+      test('Needs you: repeated failures read as one group card, expanded and not', async ({
+        page,
+      }) => {
+        await mockApi(page, { replies: { '/v1/inbox': { body: fx.groupedInbox(Date.now()) } } });
+        const seen = watch(page);
+        await signIn(page);
+        const nav = page.getByRole('navigation', { name: 'Main' });
+        await nav.getByRole('link', { name: /^Needs you/ }).click();
+
+        const card = page.getByRole('article', { name: /6 failures: checkout_has_secrets/ });
+        await expect(card).toBeVisible();
+        await expect(page.getByRole('article')).toHaveCount(4);
+        await settle(page);
+        expect(await sidewaysScroll(page)).toBeLessThanOrEqual(0);
+        await shot(page, `needs-you-grouped-${device}-${scheme}`);
+        expect(await violations(page)).toEqual([]);
+
+        await card.getByRole('button', { name: 'Show 3 runs' }).click();
+        await expect(card.getByRole('list')).toBeVisible();
+        await settle(page);
+        expect(await sidewaysScroll(page)).toBeLessThanOrEqual(0);
+        await shot(page, `needs-you-grouped-open-${device}-${scheme}`);
         expect(await violations(page)).toEqual([]);
         expect(await seen.finish()).toEqual([]);
       });
