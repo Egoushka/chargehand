@@ -23,6 +23,7 @@ import {
   ErrorState,
   Field,
   HeadCell,
+  hiddenEdges,
   highlight,
   ICONS,
   Icon,
@@ -35,6 +36,7 @@ import {
   Menu,
   NavItem,
   Panel,
+  revealSelected,
   Segmented,
   SegmentedMeter,
   SizeBadge,
@@ -344,6 +346,63 @@ describe('Tabs and Segmented', () => {
     expect(screen.getByRole('button', { name: '7 d' }).getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: '24 h' }));
     expect(onChange).toHaveBeenCalledWith('24h');
+  });
+});
+
+describe('strips that scroll sideways', () => {
+  const box = (scrollLeft: number, scrollWidth: number, clientWidth: number) => ({
+    scrollLeft,
+    scrollWidth,
+    clientWidth,
+  });
+
+  it('names the ends that hide content', () => {
+    expect(hiddenEdges(box(0, 300, 300))).toBe('');
+    expect(hiddenEdges(box(0, 600, 300))).toBe('end');
+    expect(hiddenEdges(box(150, 600, 300))).toBe('start end');
+    expect(hiddenEdges(box(300, 600, 300))).toBe('start');
+  });
+
+  it('marks a tab strip that overflows, and updates the mark as it scrolls', () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(600);
+    const client = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300);
+    try {
+      render(
+        <Tabs
+          value="a"
+          onValueChange={() => {}}
+          label="Wide"
+          items={[
+            { id: 'a', label: 'A' },
+            { id: 'b', label: 'B' },
+          ]}
+        />,
+      );
+      const strip = screen.getByRole('tablist', { name: 'Wide' });
+      expect(strip.dataset.edges).toBe('end');
+      strip.scrollLeft = 300;
+      fireEvent.scroll(strip);
+      expect(strip.dataset.edges).toBe('start');
+    } finally {
+      width.mockRestore();
+      client.mockRestore();
+    }
+  });
+
+  it('scrolls the strip, not the page, to bring the selected item into view', () => {
+    const strip = document.createElement('div');
+    const item = document.createElement('button');
+    item.setAttribute('aria-selected', 'true');
+    strip.append(item);
+    const rect = (left: number, right: number) => ({ left, right }) as DOMRect;
+    strip.getBoundingClientRect = () => rect(0, 300);
+    item.getBoundingClientRect = () => rect(340, 400);
+    revealSelected(strip, '[aria-selected="true"]');
+    expect(strip.scrollLeft).toBe(132);
+    strip.scrollLeft = 200;
+    item.getBoundingClientRect = () => rect(-50, 10);
+    revealSelected(strip, '[aria-selected="true"]');
+    expect(strip.scrollLeft).toBe(118);
   });
 });
 

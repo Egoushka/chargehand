@@ -29,7 +29,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
+}
+
+/* The label fills the row up to the switch, so the whole row toggles it: on a phone that is a 44 px target. */
+.notify-row label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  align-self: stretch;
+  padding-right: var(--space-3);
+  cursor: pointer;
+}
+
+@media (max-width: 767px) {
+  .notify-row {
+    min-height: var(--size-touch);
+  }
 }
 
 .notify-row .ch-switch {

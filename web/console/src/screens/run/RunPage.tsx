@@ -78,6 +78,8 @@ export function RunPage() {
           params: { runId },
           search: (prev) => ({ ...prev, tab: next }),
           replace: true,
+          // A tab is a section of the same page: the page keeps its place (Batch moves it to the tab bar on a phone).
+          resetScroll: false,
         })
       }
       onTask={(task) => {

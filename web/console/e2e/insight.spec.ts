@@ -57,7 +57,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
 
         await expect(page.getByRole('heading', { level: 1, name: 'Analytics' })).toBeVisible();
         await expect(page.getByText('Governor false stops')).toBeVisible();
-        await expect(page.getByText('tasks.total.usd_estimate')).toBeVisible();
+        await expect(page.getByTitle('GET /v1/analytics · tasks.total.usd_estimate')).toBeVisible();
         const spend = 'Spend per day, stacked by repository';
         await expect(page.getByRole('img', { name: spend })).toBeVisible();
         await expect(

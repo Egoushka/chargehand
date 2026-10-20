@@ -42,7 +42,7 @@ import { type ShellApi, ShellContext } from './ShellContext';
 import { GROUP_LABELS, SCREENS, type Screen, TAB_BAR } from './screens';
 import { useToast } from './toasts';
 import { useAttention } from './useAttention';
-import { useIsPhone } from './useIsPhone';
+import { useIsPhone, useIsTablet } from './useIsPhone';
 
 /** The current time of day in the display zone, refreshed each half minute for the top bar. */
 function useClock(): Date {
@@ -61,7 +61,9 @@ export function Shell() {
   const matchRoute = useMatchRoute();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const phone = useIsPhone();
+  const tablet = useIsTablet();
   const prefs = usePreferences();
+  const collapsed = prefs.railCollapsed || tablet;
   const toast = useToast();
   const me = useQuery(meQuery());
   const overview = useOverview();
@@ -184,7 +186,7 @@ export function Shell() {
       />
     );
     return (
-      <Tooltip key={screen.to} content={screen.label} disabled={!prefs.railCollapsed}>
+      <Tooltip key={screen.to} content={screen.label} disabled={!collapsed}>
         {item}
       </Tooltip>
     );
@@ -222,12 +224,12 @@ export function Shell() {
 
   return (
     <ShellContext.Provider value={api}>
-      <div className="app" data-rail={prefs.railCollapsed && !phone ? 'collapsed' : 'expanded'}>
+      <div className="app" data-rail={collapsed && !phone ? 'collapsed' : 'expanded'}>
         <button type="button" className="ch-btn skip" onClick={() => main.current?.focus()}>
           Skip to content
         </button>
         {phone ? null : (
-          <Rail collapsed={prefs.railCollapsed} label="Main" className="app__rail">
+          <Rail collapsed={collapsed} label="Main" className="app__rail">
             <Brand />
             {(['main', 'insight', 'configure'] as const).map((group) => {
               const screens = visible.filter((s) => s.group === group);
@@ -239,7 +241,7 @@ export function Shell() {
               );
             })}
             <div className="ch-rail__foot">
-              <Tooltip content="Keyboard shortcuts" disabled={!prefs.railCollapsed}>
+              <Tooltip content="Keyboard shortcuts" disabled={!collapsed}>
                 <button
                   type="button"
                   className="ch-nav"
@@ -250,18 +252,20 @@ export function Shell() {
                   <span className="ch-nav__label">Shortcuts</span>
                 </button>
               </Tooltip>
-              <Tooltip content="Collapse the rail" disabled={!prefs.railCollapsed}>
-                <button
-                  type="button"
-                  className="ch-nav"
-                  aria-label={prefs.railCollapsed ? 'Expand the rail' : 'Collapse the rail'}
-                  aria-pressed={prefs.railCollapsed}
-                  onClick={toggleRail}
-                >
-                  <span className="ch-i ch-i-panel-left" aria-hidden="true" />
-                  <span className="ch-nav__label">Collapse</span>
-                </button>
-              </Tooltip>
+              {tablet ? null : (
+                <Tooltip content="Collapse the rail" disabled={!collapsed}>
+                  <button
+                    type="button"
+                    className="ch-nav"
+                    aria-label={collapsed ? 'Expand the rail' : 'Collapse the rail'}
+                    aria-pressed={collapsed}
+                    onClick={toggleRail}
+                  >
+                    <span className="ch-i ch-i-panel-left" aria-hidden="true" />
+                    <span className="ch-nav__label">Collapse</span>
+                  </button>
+                </Tooltip>
+              )}
             </div>
           </Rail>
         )}

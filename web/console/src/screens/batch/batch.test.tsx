@@ -73,7 +73,9 @@ describe('the batch header', () => {
     serve({ batches: { [BATCH_A]: done }, runs: [done.run] });
     renderConsole(open());
     expect(await screen.findByText('tasks_incomplete', { selector: '.b' })).toBeTruthy();
-    expect(screen.getByText(/Send the tasks that did not finish again/)).toBeTruthy();
+    expect(screen.getByText(/Send the tasks that did not finish again/).textContent).toBe(
+      '3 of 8 tasks did not produce a pull request. Send the tasks that did not finish again.',
+    );
     expect(screen.queryByRole('button', { name: 'Cancel batch' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Halt server' })).toBeNull();
     expect(screen.getByText('39m')).toBeTruthy();
@@ -304,7 +306,7 @@ describe('the Events tab', () => {
     await waitFor(() => expect(log.textContent).not.toContain('t1-schema'));
     expect(within(log).getAllByText(/./).length).toBeLessThan(total);
 
-    fireEvent.click(screen.getByRole('button', { name: 'PRs and merges' }));
+    fireEvent.click(screen.getByRole('button', { name: 'PRs' }));
     expect(await screen.findByText('No event matches this filter')).toBeTruthy();
   });
 
