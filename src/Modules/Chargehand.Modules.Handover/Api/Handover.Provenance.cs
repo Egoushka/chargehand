@@ -4,7 +4,7 @@ using Chargehand.Modules.Runners.Api;
 
 namespace Chargehand.Modules.Handover.Api;
 
-/// <summary>The trailers that say which run wrote each commit (ADR 0070), added in the scratch clone after the tests pass and before the push.</summary>
+/// <summary>The trailers that say which run wrote each commit (ADR 0074), added in the scratch clone after the tests pass and before the push.</summary>
 public sealed partial class Handover
 {
     /// <summary>

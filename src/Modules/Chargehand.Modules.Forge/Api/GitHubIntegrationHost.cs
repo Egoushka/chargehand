@@ -141,7 +141,7 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
 
     public async Task EnableAutoMergeAsync(RemoteRepository repository, string nodeId, string headSha, CancellationToken ct)
     {
-        // The squash commit keeps the run trailers only if they are in the message GitHub is given (ADR 0070).
+        // The squash commit keeps the run trailers only if they are in the message GitHub is given (ADR 0074).
         var body = await TrailersAsync(async () => RunMessages(await GraphQlAsync(repository, "reading the pull request's commits", CommitsQuery, new NodeVariables(nodeId), ct)), ct);
         using var _ = await GraphQlAsync(repository, "enabling auto-merge", body is null ? AutoMergeMutation : AutoMergeMutationWithBody, new AutoMergeVariables(nodeId, headSha, body), ct);
     }

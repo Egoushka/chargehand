@@ -7,7 +7,7 @@ using Chargehand.Modules.Ledger.Api;
 namespace Chargehand.Modules.Tasks.Api;
 
 /// <summary>
-/// <c>chargehand why &lt;path&gt;:&lt;line&gt; [--repo &lt;dir&gt;] [--stream &lt;stream.jsonl&gt;]</c> (ADR 0070): <c>git blame</c> for the line, the <c>Chargehand-*</c> trailers of the commit it points at, then what the run log and the
+/// <c>chargehand why &lt;path&gt;:&lt;line&gt; [--repo &lt;dir&gt;] [--stream &lt;stream.jsonl&gt;]</c> (ADR 0074): <c>git blame</c> for the line, the <c>Chargehand-*</c> trailers of the commit it points at, then what the run log and the
 /// batch records know of that run, and the session messages that edited the file when the session's stream is given. A line a person wrote, or one from a commit without trailers, is said to be so.
 /// Exit 0 when the line was traced (to a run or to a commit without one), 1 when it could not be, 2 for a usage error.
 /// </summary>

@@ -32,7 +32,7 @@ internal static class ChangeRun
         return message.Length <= 72 ? message : message[..71] + "…";
     }
 
-    /// <summary>The trailers of the branch's commit (ADR 0070): the run, what its calls cost so far, and how the last check ended. The result is not named: it cites this commit, so its hash cannot be in it.</summary>
+    /// <summary>The trailers of the branch's commit (ADR 0074): the run, what its calls cost so far, and how the last check ended. The result is not named: it cites this commit, so its hash cannot be in it.</summary>
     internal static Provenance ProvenanceOf(string runId, string runtime, string model, IReadOnlyList<WorkerMessage> calls, IPriceTable prices, VerifyOutcome? check, int attempts)
     {
         var counts = calls.Select(c => c.Tokens).OfType<TokenCounts>().ToList();
