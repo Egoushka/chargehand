@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.15.1](https://github.com/Egoushka/chargehand/compare/v0.15.0...v0.15.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **intake:** keep polling after a GitHub timeout, clone a read-only checkout, retry an unreachable push ([#390](https://github.com/Egoushka/chargehand/issues/390)) ([902e45a](https://github.com/Egoushka/chargehand/commit/902e45aa7efbca66e039828c5385f2a13d2b2abd))
+
 ## [0.15.0](https://github.com/Egoushka/chargehand/compare/v0.14.1...v0.15.0) (2026-10-21)
 
 
