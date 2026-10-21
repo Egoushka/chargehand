@@ -8,7 +8,7 @@ namespace Chargehand.Automation;
 public sealed record ScheduledRun(string Entry, string RunId, DateTimeOffset Started, ScheduleKind Kind, int Attempts = 0);
 
 /// <summary>What the scheduler remembers across a restart (ADR 0068), in one JSON file beside the run log written whole through a temporary file: per entry the moment up to which its occurrences are dealt with,
-/// the starts in the current month, and the runs not yet seen to end.</summary>
+/// the starts in the current month, the runs not yet seen to end, and the alerts already taken.</summary>
 public sealed class ScheduleState
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower, WriteIndented = true };
@@ -29,6 +29,9 @@ public sealed class ScheduleState
 
     public List<ScheduledRun> Running { get; init; } = [];
 
+    /// <summary>Per <c>security-alerts</c> entry, the alerts already made into a task (<see cref="SecurityAlert.Key"/>). An alert leaves the list when GitHub no longer lists it open, so one that reopens is taken again.</summary>
+    public Dictionary<string, List<string>> Taken { get; init; } = [];
+
     public static string MonthOf(DateTimeOffset at) => at.UtcDateTime.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture);
 
     public int StartsIn(string entry, DateTimeOffset at) => Starts.GetValueOrDefault(entry)?.GetValueOrDefault(MonthOf(at)) ?? 0;
@@ -45,7 +48,7 @@ public sealed class ScheduleState
         if (!File.Exists(path))
             return new ScheduleState(path);
         var state = JsonSerializer.Deserialize<ScheduleState>(File.ReadAllText(path), Json) ?? throw new InvalidDataException($"{path}: empty schedule state");
-        return new ScheduleState(path) { Handled = state.Handled ?? [], Starts = state.Starts ?? [], Running = state.Running ?? [] };
+        return new ScheduleState(path) { Handled = state.Handled ?? [], Starts = state.Starts ?? [], Running = state.Running ?? [], Taken = state.Taken ?? [] };
     }
 
     public void Save(DateTimeOffset now)

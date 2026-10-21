@@ -1,6 +1,6 @@
 ---
 title: "Scheduled work"
-description: "Recurring work on a clock within a monthly cap: dependency upgrades, doc drift, flaky-test suspects and a morning report, with results posted to a notification URL."
+description: "Recurring work on a clock within a monthly cap: dependency upgrades, doc drift, flaky tests from CI history, security alerts as tasks and a morning report, with results posted to a notification URL."
 order: 15
 section: "Guides"
 ---
@@ -25,6 +25,7 @@ Scheduled work ([ADR 0068](../adr/0068-scheduled-work-within-a-monthly-cap.md)) 
 - `repository.path`: the server's checkout, under `repository_roots`. Each run starts from the commit `origin/HEAD` points at after a fetch. Not used by `morning-report`.
 - `max_per_month`: 1 to 100, counted per calendar month in UTC. Default 4; 31 for `morning-report`. An occurrence over the cap is skipped and logged.
 - `budget_class`: S, M or L for a driven entry (default S).
+- `max_tasks`: `security-alerts` only, 1 to 10 (default 3): new alerts taken per run, one task each.
 - `notify_url`: an ntfy-style URL. The text goes in the body, the `Title` header carries the title. The URL can hold a secret topic, so it is never logged. Required by `morning-report`.
 
 ## Templates
@@ -34,6 +35,7 @@ Scheduled work ([ADR 0068](../adr/0068-scheduled-work-within-a-monthly-cap.md)) 
 | `dependency-upgrades` | driven | Updates dependencies to the latest compatible minor and patch versions, runs the tests, opens one pull request listing what changed and what was skipped. Needs `driven.enabled`. |
 | `doc-drift` | read-only | Finds statements in README and docs/ that the code contradicts; each finding cites the doc line and the code line. |
 | `flaky-tests` | read-only | Reads the last 14 days of CI history through the forge and gives the worker the jobs that failed and then passed on the same commit, with the failed test names from each failed log; the worker explains each from the test code, then reads the rest of the tests for flake patterns (timing, ordering, shared state). Without history it reads the test code only and says so. See [CI history](#ci-history). |
+| `security-alerts` | driven | Reads the repository's open code-scanning and Dependabot alerts as the GitHub App and starts one batch with a task per alert not taken before, most severe first, at most `max_tasks`; each task fixes its alert and opens a pull request, or says why it is a false positive. Needs `driven.enabled`, the App and two more permissions. See [Security alerts](#security-alerts). |
 | `morning-report` | none | No model call. Last 24 hours of top-level runs and batches (finished, failed, need you, denied, still going), spend, and the open inbox items, POSTed to `notify_url`. |
 
 ## CI history
@@ -45,6 +47,19 @@ Scheduled work ([ADR 0068](../adr/0068-scheduled-work-within-a-monthly-cap.md)) 
 - A flake is a job (workflow or stage, and name) with a failed attempt and a later passed one on the same commit, on any branch or pull request. At most 10, newest first. Each failed attempt's log is read for test names in the forms of `dotnet test`, `go test`, pytest, jest, Maven Surefire and `cargo test`; when none is found the worker gets the last 600 characters of the log. A log that expired still counts the flake.
 
 No integrator App, an `origin` that is no forge's, or a refusal (a missing permission) means no history: the server logs `schedules: flaky-tests: ...` and the template reads the test code only. A failed read never stops the run.
+
+## Security alerts
+
+`security-alerts` is off unless an entry names it: the entry's `repository.path` is the repository that opts in, one entry per repository. The checkout's `origin` must be on GitHub, and `driven.integrator` must name the App, which reads the alerts. Give the App two more repository permissions (read-only): **Code scanning alerts** and **Dependabot alerts**; until then GitHub answers `403` and that kind is skipped with a log line.
+
+```json
+{ "id": "alerts", "at": "weekly tue 05:00", "template": "security-alerts", "repository": { "path": "/srv/repos/app" }, "max_tasks": 2, "budget_class": "S" }
+```
+
+- Each run reads one page of 100 open alerts of each kind (`code-scanning/alerts`, `dependabot/alerts`). A kind GitHub refuses (`403`: not enabled, or no permission; `404`: no analysis) is skipped and logged; an outage retries the occurrence after 10 minutes.
+- An alert is taken once: its key (`dependabot-7`, `code-scanning-12`) is kept in `schedules/state.json` under `taken`. A taken alert GitHub no longer lists open is forgotten, so one that reopens is taken again; a kind that could not be read keeps its taken alerts.
+- The new alerts, most severe first (critical, high or error, medium, low or warning, note), up to `max_tasks`, become one driven batch with one task each (`alert-dependabot-7`), run one at a time, each titled `Fix Dependabot alert #7: <summary>`. The task's goal is the template's text and the alert: the rule and location, or the package, manifest, vulnerable range and first patched version, and the alert's link.
+- No new alert: nothing starts, the occurrence is dealt with and does not count against `max_per_month`.
 
 ## Behaviour
 

@@ -33,6 +33,8 @@ public class ScheduleSettingsTests
     {
         Assert.Equal(ScheduleKind.Driven, Load(Entry("\"template\":\"dependency-upgrades\"")).Automation!.Schedules!.Entries![0].Kind());
         Assert.Equal(ScheduleKind.ReadOnly, Load(Entry("\"template\":\"flaky-tests\"")).Automation!.Schedules!.Entries![0].Kind());
+        var alerts = Load(Entry("\"template\":\"security-alerts\",\"max_tasks\":5")).Automation!.Schedules!.Entries![0];
+        Assert.Equal((ScheduleKind.Driven, 5, 3), (alerts.Kind(), alerts.Tasks(), (alerts with { MaxTasks = null }).Tasks()));
         var report = Load("{\"notify_url\":\"https://ntfy.example/topic\",\"entries\":[{\"id\":\"am\",\"at\":\"daily 06:00\",\"template\":\"morning-report\"}]}").Automation!.Schedules!.Entries![0];
         Assert.Equal((ScheduleKind.Report, 31), (report.Kind(), report.Cap()));
         Assert.Null(report.Text());
@@ -60,6 +62,8 @@ public class ScheduleSettingsTests
     [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","template":"doc-drift","repository":{"path":"/p"},"max_per_month":0}]}""", "max_per_month")]
     [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","template":"doc-drift","repository":{"path":"/p"},"max_per_month":101}]}""", "max_per_month")]
     [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","template":"doc-drift","repository":{"path":"/p"},"budget_class":"XL"}]}""", "budget_class")]
+    [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","template":"doc-drift","repository":{"path":"/p"},"max_tasks":2}]}""", "max_tasks applies to the security-alerts template")]
+    [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","template":"security-alerts","repository":{"path":"/p"},"max_tasks":11}]}""", "max_tasks must be 1 to 10")]
     [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","template":"doc-drift"}]}""", "repository.path")]
     [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","template":"morning-report"}]}""", "needs notify_url")]
     [InlineData("""{"notify_url":"ntfy.example/topic","entries":[{"id":"a","at":"daily 04:00","template":"morning-report"}]}""", "notify_url must be")]

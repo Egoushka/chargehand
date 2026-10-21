@@ -9,7 +9,7 @@ namespace Chargehand.Automation;
 
 /// <summary>The GitHub implementation of <see cref="IIntakeHost"/>: REST only. The token comes from <see cref="IInstallationTokens"/> and is redacted from every message. A list is read up to
 /// <see cref="MaxPages"/> pages of 100.</summary>
-public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens) : IIntakeHost
+public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens) : IIntakeHost, ISecurityAlerts
 {
     public const int MaxPages = 10;
 
@@ -110,6 +110,61 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
             return false;
         }
     }
+
+    /// <summary>One page of 100 of each kind (<c>code-scanning/alerts</c>, <c>dependabot/alerts</c>, <c>state=open</c>). A kind GitHub refuses (403: not enabled or no permission; 404: no analysis) is skipped
+    /// with its reason; the App needs Code scanning alerts and Dependabot alerts read.</summary>
+    public async Task<SecurityAlertsRead> OpenAlertsAsync(string repository, CancellationToken ct)
+    {
+        List<SecurityAlert> alerts = [];
+        List<string> skipped = [];
+        foreach (var (kind, path, read) in new (string, string, Func<JsonElement, SecurityAlert>)[]
+            { (SecurityAlerts.CodeScanning, "code-scanning/alerts", CodeScanningAlert), (SecurityAlerts.Dependabot, "dependabot/alerts", DependabotAlert) })
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(await SendAsync(repository, HttpMethod.Get, $"{RepoPath(repository)}/{path}?state=open&per_page=100", null, $"the {kind} alerts", ct));
+                alerts.AddRange(doc.RootElement.EnumerateArray().Select(a => Parse(() => read(a))));
+            }
+            catch (IntakeException e) when (e.Status is 403 or 404)
+            {
+                skipped.Add($"{kind}: {e.Message}");
+            }
+            catch (JsonException)
+            {
+                throw new IntakeException($"GitHub answered the {kind} alerts with a body that is not a list");
+            }
+        }
+        return new SecurityAlertsRead(alerts, skipped);
+    }
+
+    private static SecurityAlert CodeScanningAlert(JsonElement a)
+    {
+        var rule = a.GetProperty("rule");
+        var instance = a.TryGetProperty("most_recent_instance", out var i) && i.ValueKind == JsonValueKind.Object ? i : default;
+        var location = instance.ValueKind == JsonValueKind.Object && instance.TryGetProperty("location", out var l) && l.ValueKind == JsonValueKind.Object ? l : default;
+        var where = location.ValueKind == JsonValueKind.Object ? $"{Text(location, "path")}:{OptionalInt(location, "start_line")?.ToString(CultureInfo.InvariantCulture) ?? "?"}" : "no location";
+        var message = instance.ValueKind == JsonValueKind.Object && instance.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.Object ? Text(m, "text") : null;
+        var tool = a.TryGetProperty("tool", out var t) && t.ValueKind == JsonValueKind.Object ? Text(t, "name") : null;
+        return new SecurityAlert(SecurityAlerts.CodeScanning, a.GetProperty("number").GetInt32(), Text(rule, "security_severity_level") ?? Text(rule, "severity") ?? "unknown",
+            OneLine(Text(rule, "description") ?? Text(rule, "id") ?? "a code-scanning rule"),
+            $"Rule {Text(rule, "id") ?? "?"}{(tool is null ? "" : $" ({tool})")} at {where}{(message is null ? "" : $": {message}")}", Text(a, "html_url"));
+    }
+
+    private static SecurityAlert DependabotAlert(JsonElement a)
+    {
+        var advisory = a.GetProperty("security_advisory");
+        var vulnerability = a.GetProperty("security_vulnerability");
+        var package = vulnerability.GetProperty("package");
+        var patched = vulnerability.TryGetProperty("first_patched_version", out var p) && p.ValueKind == JsonValueKind.Object ? Text(p, "identifier") : null;
+        var manifest = a.TryGetProperty("dependency", out var d) && d.ValueKind == JsonValueKind.Object ? Text(d, "manifest_path") : null;
+        var ids = string.Join(", ", new[] { Text(advisory, "ghsa_id"), Text(advisory, "cve_id") }.OfType<string>());
+        return new SecurityAlert(SecurityAlerts.Dependabot, a.GetProperty("number").GetInt32(), Text(vulnerability, "severity") ?? Text(advisory, "severity") ?? "unknown",
+            OneLine(Text(advisory, "summary") ?? "a vulnerable dependency"),
+            $"Package {Text(package, "ecosystem")} {Text(package, "name")}{(manifest is null ? "" : $" in {manifest}")}, vulnerable {Text(vulnerability, "vulnerable_version_range") ?? "?"}, "
+            + $"first patched {patched ?? "none yet"}{(ids.Length == 0 ? "" : $" ({ids})")}", Text(a, "html_url"));
+    }
+
+    private static string OneLine(string text) => text.ReplaceLineEndings(" ").Trim();
 
     private async Task<IReadOnlyList<JsonElement>> PagesAsync(string repository, string path, string what, CancellationToken ct)
     {

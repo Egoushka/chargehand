@@ -97,7 +97,16 @@ internal sealed class ScheduleRig : IDisposable
 
     public ScheduleState State => ScheduleState.Load(StateFile);
 
-    private Scheduler Build() => new(_settings, Log, Heads, ScheduleState.Load(StateFile), Notifier, Morning, Time, Warnings.Add, Flakes);
+    private ISecurityAlerts? _alerts;
+
+    private Scheduler Build() => new(_settings, Log, Heads, ScheduleState.Load(StateFile), Notifier, Morning, Time, Warnings.Add, Flakes, _alerts);
+
+    /// <summary>The alerts reader of <c>security-alerts</c>, or none (no App); the scheduler is built again on the same state.</summary>
+    public void UseAlerts(ISecurityAlerts? alerts)
+    {
+        _alerts = alerts;
+        Restart();
+    }
 
     /// <summary>A new process on the same state file.</summary>
     public void Restart() => Scheduler = Build();
