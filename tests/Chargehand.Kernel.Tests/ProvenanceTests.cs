@@ -1,6 +1,6 @@
 namespace Chargehand.Kernel.Tests;
 
-/// <summary>The trailers a run puts on its commits (ADR 0070): the format, where they go in a message, and that they read back.</summary>
+/// <summary>The trailers a run puts on its commits (ADR 0074): the format, where they go in a message, and that they read back.</summary>
 public class ProvenanceTests
 {
     private static readonly Provenance Full = new("r-42", "CHARGEHAND-7", "claude-code 2.1.0", "sonnet", 0.4m, 183400, 61, "tests passed; 2 criteria passed", "ab12");

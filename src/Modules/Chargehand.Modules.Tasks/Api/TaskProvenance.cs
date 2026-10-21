@@ -3,7 +3,7 @@ using Chargehand.Modules.Sessions.Api;
 
 namespace Chargehand.Modules.Tasks.Api;
 
-/// <summary>The trailers of a driven session's commits (ADR 0070), worked out from the task and the session's outcome file.</summary>
+/// <summary>The trailers of a driven session's commits (ADR 0074), worked out from the task and the session's outcome file.</summary>
 internal static class TaskProvenance
 {
     /// <param name="spent">The session whose commits these are; for a partial handover, the task's total, since the branch holds the work of several sessions.</param>
