@@ -239,6 +239,8 @@ public class DrivenIntegrationTests
 
         public Task<PrSnapshot> GetAsync(RemoteRepository repository, int number, CancellationToken ct) => inner.GetAsync(repository, number, ct);
 
+        public Task<ChecksGate> ChecksGateAsync(RemoteRepository repository, string branch, CancellationToken ct) => inner.ChecksGateAsync(repository, branch, ct);
+
         public Task<int> BehindByAsync(RemoteRepository repository, string baseBranch, string branch, CancellationToken ct) => inner.BehindByAsync(repository, baseBranch, branch, ct);
 
         public Task UpdateBranchAsync(RemoteRepository repository, int number, string expectedHeadSha, CancellationToken ct) => inner.UpdateBranchAsync(repository, number, expectedHeadSha, ct);

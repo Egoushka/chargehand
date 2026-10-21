@@ -51,6 +51,8 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
 
     private const string TestIntegrityMarker = "<!-- chargehand-integration test-integrity -->";
 
+    private const string NoChecksMarker = "<!-- chargehand-integration no-required-checks -->";
+
     private readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? ((span, ct) => Task.Delay(span, ct));
 
     public DrivenCiFix CiFix { get; } = ciFix ?? new DrivenCiFix();
@@ -89,6 +91,10 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
             var pr = await host.GetAsync(target.Repository, target.Number, ct);
             if (pr.Merged || pr.Closed)
                 return Say(report, IntegrationAction.None, pr.Merged ? "the pull request is already merged" : "the pull request is closed");
+            // Auto-merge waits only for required checks: without one, a merge would land before CI runs (CHARGEHAND-244).
+            var gate = mode == IntegrationMode.Merge ? await host.ChecksGateAsync(target.Repository, pr.BaseBranch, ct) : ChecksGate.Required;
+            if (gate != ChecksGate.Required)
+                mode = IntegrationMode.Ask;
             if (mode == IntegrationMode.Merge && await host.BehindByAsync(target.Repository, pr.BaseBranch, target.Branch, ct) > 0)
             {
                 var (stopped, moved) = await UpdateBranchAsync(target, pr, report, headMoved, ct);
@@ -102,7 +108,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                 report("marked ready for review");
                 pr = await host.GetAsync(target.Repository, target.Number, ct);
             }
-            return mode == IntegrationMode.Ask ? await AskAsync(target, pr, report, ct) : await MergeAsync(target, pr, report, ct);
+            return mode == IntegrationMode.Ask ? await AskAsync(target, pr, gate, report, ct) : await MergeAsync(target, pr, report, ct);
         }
         catch (IntegrationException e)
         {
@@ -130,8 +136,17 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
         return (null, moved);
     }
 
-    private async Task<IntegrationResult> AskAsync(IntegrationTarget target, PrSnapshot pr, Action<string> report, CancellationToken ct)
+    private async Task<IntegrationResult> AskAsync(IntegrationTarget target, PrSnapshot pr, ChecksGate gate, Action<string> report, CancellationToken ct)
     {
+        if (gate != ChecksGate.Required)
+        {
+            var reason = gate == ChecksGate.None
+                ? $"its base branch {pr.BaseBranch} has no rule that requires a status check, so {host.Name} would merge it before CI runs"
+                : $"chargehand could not read the rules of its base branch {pr.BaseBranch}, so it cannot tell whether {host.Name} would wait for CI";
+            await CommentOnceAsync(target, pr, NoChecksMarker, $"chargehand marked this pull request ready but does not merge it: {reason}. Add a rule that requires your CI checks on {pr.BaseBranch} and chargehand will merge the next one; a person decides about this one.", ct);
+            Console.Error.WriteLine($"chargehand: warning: {target.Repository.Owner}/{target.Repository.Name} is set to merge, but {reason}; treated as ask");
+            return Say(report, IntegrationAction.Asked, $"marked ready; not merged because {reason} (treated as ask)");
+        }
         if (target.TestIntegrity is { } why)
         {
             await CommentOnceAsync(target, pr, TestIntegrityMarker, $"chargehand marked this pull request ready but does not merge it: {why}. A person decides.", ct);
@@ -179,6 +194,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
         var maxPolls = Math.Max(1, (int)(TimeSpan.FromMinutes(CiFix.Wait) / PollEvery));
         var polls = 0;
         string? fixedHead = null;
+        var gateRead = mode != IntegrationMode.Merge;
         try
         {
             while (true)
@@ -186,6 +202,13 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                 var pr = await host.GetAsync(target.Repository, target.Number, ct);
                 if (Ended(pr, report, watch) is { } ended)
                     return ended;
+                // No required check will ever report on a branch without the rule, so there is nothing to wait for.
+                if (!gateRead)
+                {
+                    gateRead = true;
+                    if (await host.ChecksGateAsync(target.Repository, pr.BaseBranch, ct) != ChecksGate.Required)
+                        return new(IntegrationAction.None, "not watched: the base branch requires no checks");
+                }
                 var check = Check(pr, fixedHead, watch);
                 var step = await ActAsync(target, pr, check, mode, fix, report, headMoved, watch, ct);
                 if (step.Stop is { } stop)

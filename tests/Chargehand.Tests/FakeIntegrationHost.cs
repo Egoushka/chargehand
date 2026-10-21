@@ -28,6 +28,11 @@ internal sealed class FakeIntegrationHost : IIntegrationHost
 
     public Dictionary<long, string> Logs { get; } = [];
 
+    /// <summary>What the base branch's rules say; not in <see cref="Calls"/>, so the order of the calls that change the pull request reads as before.</summary>
+    public ChecksGate Gate { get; set; } = ChecksGate.Required;
+
+    public Task<ChecksGate> ChecksGateAsync(RemoteRepository repository, string branch, CancellationToken ct) => Task.FromResult(Gate);
+
     public static PrSnapshot Snapshot(string head = "aaaaaaa1", bool draft = true, string status = "DRAFT", bool autoMerge = false, bool merged = false, IReadOnlyList<CheckStatus>? checks = null) =>
         new("PR_node", 7, head, "main", draft, merged, false, status, autoMerge, checks ?? [], []);
 

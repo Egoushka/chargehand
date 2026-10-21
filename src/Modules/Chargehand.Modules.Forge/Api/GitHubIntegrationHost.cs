@@ -24,10 +24,13 @@ public sealed record PrSnapshot(string NodeId, int Number, string HeadSha, strin
 
 /// <summary>What the integrator does on a forge (ADR 0046), each call as the GitHub App (on GitLab, with the forge token). Every merge is pinned to a head commit and goes through the repository's rules:
 /// there is no call here that bypasses one. It is a different interface from <see cref="IPullRequests"/>, which still opens drafts and nothing else; <see cref="IForge"/> joins them.</summary>
-public interface IIntegrationHost
+public interface IIntegrationHost : IBranchRules
 {
     /// <summary>The forge's name in the words chargehand writes about it.</summary>
     string Name => "GitHub";
+
+    /// <summary>A forge that cannot read its branch rules says so, and the integrator then asks instead of merging.</summary>
+    Task<ChecksGate> IBranchRules.ChecksGateAsync(RemoteRepository repository, string branch, CancellationToken ct) => Task.FromResult(ChecksGate.Unknown);
 
     Task<PrSnapshot> GetAsync(RemoteRepository repository, int number, CancellationToken ct);
 
@@ -98,6 +101,18 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
         catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or JsonException or FormatException)
         {
             throw new IntegrationException("GitHub answered with a body that is not a pull request's state");
+        }
+    }
+
+    public async Task<ChecksGate> ChecksGateAsync(RemoteRepository repository, string branch, CancellationToken ct)
+    {
+        try
+        {
+            return await GitHubBranchRules.ReadAsync(http, await TokenAsync(repository, ct), repository, branch, ct);
+        }
+        catch (IntegrationException)
+        {
+            return ChecksGate.Unknown;
         }
     }
 

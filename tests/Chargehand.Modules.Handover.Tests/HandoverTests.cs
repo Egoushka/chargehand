@@ -56,14 +56,16 @@ public class HandoverTests
         public string Scratch => Path.Combine(Dir.Path, "scratch");
         public string BaseCommit { get; }
 
-        public Fixture(Action<string>? edit = null, bool commit = true, bool makeBundle = true, bool rejectAll = false, bool orphan = false, bool revert = false, Action<string>? afterBundle = null, Action<string>? thenEdit = null)
+        public Fixture(Action<string>? edit = null, bool commit = true, bool makeBundle = true, bool rejectAll = false, bool orphan = false, bool revert = false, Action<string>? afterBundle = null, Action<string>? thenEdit = null,
+            bool untested = false, string file = "retry.txt")
         {
             Directory.CreateDirectory(Source);
             Directory.CreateDirectory(Out);
             Directory.CreateDirectory(Scratch);
             G(Source, "init", "-q", "-b", "main");
             File.WriteAllText(Path.Combine(Source, "README.md"), "hello\n");
-            File.WriteAllText(Path.Combine(Source, "package.json"), """{"scripts":{"test":"echo ok"}}""");
+            if (!untested)
+                File.WriteAllText(Path.Combine(Source, "package.json"), """{"scripts":{"test":"echo ok"}}""");
             G(Source, "add", "-A");
             G(Source, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "base");
             BaseCommit = G(Source, "rev-parse", "HEAD").Trim();
@@ -77,7 +79,8 @@ public class HandoverTests
                 G(Work, "checkout", "-q", "-b", "chargehand/run1", BaseCommit);
             if (commit)
             {
-                File.WriteAllText(Path.Combine(Work, "retry.txt"), "retry twice\n");
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(Work, file))!);
+                File.WriteAllText(Path.Combine(Work, file), "retry twice\n");
                 edit?.Invoke(Work);
                 G(Work, "add", "-A");
                 G(Work, "commit", "-q", "-m", "feat: retry");
