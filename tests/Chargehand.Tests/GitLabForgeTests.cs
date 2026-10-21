@@ -36,11 +36,12 @@ public class GitLabForgeTests
 
     private static string Path(Seen seen) => seen.Url[Api.Length..];
 
-    // The merge request, its pipeline's jobs and its notes (newest first, as GitLab sorts them for sort=desc).
+    // The project (pipelines must succeed), the merge request, its pipeline's jobs and its notes (newest first, as GitLab sorts them for sort=desc).
     private static HttpResponseMessage StateAnswer(HttpRequestMessage request, string? mergeRequest = null, string? jobs = null, string? notes = null)
     {
         var path = request.RequestUri!.PathAndQuery;
-        return path.Contains("/jobs", StringComparison.Ordinal) ? Json(jobs ?? Jobs)
+        return path.EndsWith(Project, StringComparison.Ordinal) ? Json("""{"only_allow_merge_if_pipeline_succeeds":true}""")
+            : path.Contains("/jobs", StringComparison.Ordinal) ? Json(jobs ?? Jobs)
             : path.Contains("/notes", StringComparison.Ordinal) ? Json(notes ?? """[{"body":"<!-- chargehand-ci-fix attempt=1 jobs=0123456789ab -->"},{"body":"hello"}]""")
             : Json(mergeRequest ?? MergeRequest());
     }
