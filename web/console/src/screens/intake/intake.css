@@ -39,3 +39,42 @@
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-2);
 }
+
+.intake-switch {
+  display: inline-flex;
+  align-items: center;
+}
+
+.intake-runs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+}
+
+.intake-run {
+  column-gap: var(--space-1);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.intake-run:hover {
+  text-decoration: underline;
+}
+
+/* A phone's targets are 44 px. */
+@media (max-width: 767px) {
+  .intake-switch,
+  .intake-run {
+    min-height: 44px;
+  }
+
+  .intake-switch {
+    min-width: 44px;
+    justify-content: center;
+  }
+
+  .intake-run {
+    display: inline-flex;
+    align-items: center;
+  }
+}

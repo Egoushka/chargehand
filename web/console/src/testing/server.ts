@@ -5,7 +5,7 @@ import type { AnalyticsBody, AnalyticsBucket, AnalyticsGroupBy } from '../api/an
 import type { BatchBody } from '../api/batch';
 import type { BatchTaskDetailBody } from '../api/batch-task';
 import type { InboxBody } from '../api/inbox';
-import type { IntakeBody } from '../api/intake';
+import type { IntakeBody, IntakeSourcesBody } from '../api/intake';
 import type { OverviewBody } from '../api/overview';
 import type { PullsBody } from '../api/pulls';
 import type { RepositoriesBody } from '../api/repositories';
@@ -30,6 +30,7 @@ export interface Scenario {
   pulls?: PullsBody;
   system?: SystemBody | null;
   intake?: IntakeBody;
+  intakeSources?: IntakeSourcesBody;
   repositories?: RepositoriesBody;
   accounts?: AccountsBody;
   /** Replaces the generated `analytics/v1` for every range. */
@@ -61,6 +62,7 @@ const json = (body: unknown, status = 200, headers: Record<string, string> = {})
 export function serveApi(scenario: Scenario = {}) {
   const key = scenario.key ?? fx.LOGIN;
   const calls: Call[] = [];
+  let sources: IntakeSourcesBody | undefined;
   const mock = vi.fn((input: string, init?: RequestInit) => {
     const [path = ''] = input.split('?');
     const headers = (init?.headers ?? {}) as Record<string, string>;
@@ -130,6 +132,11 @@ export function serveApi(scenario: Scenario = {}) {
           : json(scenario.system ?? adm.systemFull(now)),
       );
     if (path === '/v1/intake') return Promise.resolve(json(scenario.intake ?? adm.intake({}, now)));
+    if (path === '/v1/intake/sources') {
+      sources = sources ?? scenario.intakeSources ?? adm.intakeSources({}, now);
+      if (method === 'PUT') sources = adm.switched(sources, body);
+      return Promise.resolve(json(sources));
+    }
     if (path === '/v1/repositories')
       return Promise.resolve(json(scenario.repositories ?? adm.repositories(now)));
     if (path === '/v1/accounts')

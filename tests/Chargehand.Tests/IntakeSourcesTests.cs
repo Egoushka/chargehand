@@ -156,4 +156,73 @@ public class IntakeSourcesTests
         Assert.Equal(HttpStatusCode.BadRequest, (await server.Http.PutAsJsonAsync("/v1/intake/sources", new { sources = new[] { new { repository = IntakeRig.Repo, enabled = "no" } } })).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await server.Http.PutAsJsonAsync("/v1/intake/sources", new { ids = "x" })).StatusCode);
     }
+
+    [Fact]
+    public async Task A_Plane_project_switched_off_is_not_read_and_its_batch_still_reports_how_it_ended()
+    {
+        using var rig = new PlaneRig();
+        rig.Item(1);
+        await rig.Poll();
+        Assert.True(rig.Intake.Sources.Set(PlaneRig.Project, false));
+        rig.Item(2);
+        rig.Log.End("run-1", PlaneRig.Pr(1));
+        await rig.Poll();
+
+        Assert.Single(rig.Starter.Started);
+        Assert.Contains(rig.Plane.Comments, c => c.Item == "item-1" && c.Text.Contains("draft pull request"));
+
+        rig.Restart();
+        Assert.False(rig.Sources.IsOn(PlaneRig.Project));
+        rig.Intake.Sources.Set(PlaneRig.Project, true);
+        await rig.Poll();
+        Assert.Equal(2, rig.Starter.Started.Count);
+    }
+
+    [Fact]
+    public async Task The_console_lists_each_source_with_its_queue_and_sets_Plane_projects()
+    {
+        using var github = new IntakeRig(new AutomationGitHub(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, [IntakeRig.Author], MaxConcurrent: 1));
+        github.Labeled(7);
+        github.Labeled(8, eventId: 2);
+        await github.Poll();
+        using var plane = new PlaneRig();
+        plane.Item(3);
+        await plane.Poll();
+        await using var server = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), intake: github.Intake, plane: plane.Intake,
+            tweak: (_, s) => s with { IntakeStatePath = github.StateFile, PlaneStatePath = plane.StateFile });
+
+        var listed = await server.Http.GetFromJsonAsync<JsonElement>("/v1/intake/sources");
+        var source = Assert.Single(listed.GetProperty("sources").EnumerateArray());
+        Assert.Equal((1, 1), (source.GetProperty("running").GetInt32(), source.GetProperty("queued").GetInt32()));
+        var recent = Assert.Single(source.GetProperty("recent").EnumerateArray());
+        Assert.Equal(("#7", "running"), (recent.GetProperty("item").GetString(), recent.GetProperty("phase").GetString()));
+        var planes = listed.GetProperty("plane");
+        Assert.True(planes.GetProperty("configured").GetBoolean());
+        var project = Assert.Single(planes.GetProperty("projects").EnumerateArray());
+        Assert.Equal((PlaneRig.Project, true, "octo/repo", 1), (project.GetProperty("project").GetString(), project.GetProperty("enabled").GetBoolean(),
+            project.GetProperty("remote").GetString(), project.GetProperty("running").GetInt32()));
+        Assert.Equal("ABC-3", project.GetProperty("recent")[0].GetProperty("item").GetString());
+
+        var put = await server.Http.PutAsJsonAsync("/v1/intake/sources", new { plane_projects = new[] { new { project = PlaneRig.Project, enabled = false } } });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        Assert.False((await put.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("plane").GetProperty("projects")[0].GetProperty("enabled").GetBoolean());
+        Assert.False(plane.Sources.IsOn(PlaneRig.Project));
+        Assert.True(github.Sources.IsOn(IntakeRig.Repo));
+
+        Assert.Equal(HttpStatusCode.NotFound, (await server.Http.PutAsJsonAsync("/v1/intake/sources", new { plane_projects = new[] { new { project = "proj-typo", enabled = false } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await server.Http.PutAsJsonAsync("/v1/intake/sources", new { plane_projects = "x" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await server.Http.PutAsJsonAsync("/v1/intake/sources", new { sources = Array.Empty<object>() })).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_switch_of_an_intake_the_profile_does_not_have_is_a_conflict()
+    {
+        using var plane = new PlaneRig();
+        await using var server = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), plane: plane.Intake);
+
+        var listed = await server.Http.GetFromJsonAsync<JsonElement>("/v1/intake/sources");
+        Assert.False(listed.GetProperty("configured").GetBoolean());
+        Assert.Single(listed.GetProperty("plane").GetProperty("projects").EnumerateArray());
+        Assert.Equal(HttpStatusCode.Conflict, (await server.Http.PutAsJsonAsync("/v1/intake/sources", new { sources = new[] { new { repository = IntakeRig.Repo, enabled = false } } })).StatusCode);
+    }
 }

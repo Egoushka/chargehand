@@ -31,6 +31,7 @@ export interface Options {
 /** Answers every /v1 call from the fixtures, and records what was asked. */
 export async function mockApi(page: Page, options: Options = {}): Promise<Mock> {
   const mock: Mock = { calls: [] };
+  let sources: ReturnType<typeof adm.intakeSources> | undefined;
   await page.route('**/v1/**', async (route) => {
     const request = route.request();
     const { pathname } = new URL(request.url());
@@ -106,6 +107,12 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
         return options.account
           ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })
           : route.fulfill({ json: adm.intake({}, now) });
+      case '/v1/intake/sources':
+        if (options.account)
+          return route.fulfill({ status: 403, json: { errors: ['owner only'] } });
+        sources = sources ?? adm.intakeSources({}, now);
+        if (request.method() === 'PUT') sources = adm.switched(sources, body);
+        return route.fulfill({ json: sources });
       case '/v1/accounts':
         return options.account
           ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })

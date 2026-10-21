@@ -11,8 +11,10 @@ namespace Chargehand.Automation;
 /// <summary>Starts driven batches from Plane (ADR 0067), the sibling of <see cref="GitHubIntake"/>. Each poll reads the work items of every listed project that are in the trigger state; one that was not
 /// started for its current update time starts a batch of one task whose goal is the item, and is moved to the started state with a comment. When the batch ends the item gets a comment with the pull
 /// request (or why there is none) and moves to the review state (or the failed state). What it acted on is recorded in <see cref="PlaneState"/> before the comment about it, so a restart cannot start
-/// an item twice. The states are found by name at each poll, so renaming one in Plane takes effect, and a project whose states are not all there is skipped with a line on stderr.</summary>
-public sealed class PlaneIntake(AutomationPlane settings, IPlaneHost host, IRunLog log, IRepositoryHeads heads, PlaneState state, TimeProvider? clock = null, Action<string>? warn = null)
+/// an item twice. The states are found by name at each poll, so renaming one in Plane takes effect, and a project whose states are not all there is skipped with a line on stderr. A project switched off in
+/// <see cref="Sources"/> (CHARGEHAND-242) is not read; its batches still report.</summary>
+public sealed class PlaneIntake(AutomationPlane settings, IPlaneHost host, IRunLog log, IRepositoryHeads heads, PlaneState state, TimeProvider? clock = null, Action<string>? warn = null,
+    IntakeSources? sources = null)
 {
     private const int MaxDetail = 600;
     private const int MaxQuestions = 10;
@@ -23,6 +25,12 @@ public sealed class PlaneIntake(AutomationPlane settings, IPlaneHost host, IRunL
     private readonly Dictionary<string, string> _identifiers = [];
 
     private enum Outcome { Started, Settled, Deferred }
+
+    /// <summary>The on/off switch of each listed project, by project id.</summary>
+    public IntakeSources Sources { get; } = sources ?? new IntakeSources();
+
+    /// <summary>The listed projects, by Plane project id.</summary>
+    public IReadOnlyDictionary<string, PlaneProject> Projects => settings.Projects ?? new Dictionary<string, PlaneProject>();
 
     private sealed record Names(string Trigger, string Started, string Review, string? Failed);
 
@@ -55,8 +63,10 @@ public sealed class PlaneIntake(AutomationPlane settings, IPlaneHost host, IRunL
     public async Task PollAsync(IBatchStarter starter, CancellationToken ct)
     {
         await ReportEndedAsync(ct);
-        foreach (var (project, checkout) in settings.Projects ?? new Dictionary<string, PlaneProject>())
+        foreach (var (project, checkout) in Projects)
         {
+            if (!Sources.IsOn(project))
+                continue;
             try
             {
                 await ProjectAsync(project, checkout, starter, ct);

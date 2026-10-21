@@ -1,5 +1,5 @@
-import { queryOptions, useQuery } from '@tanstack/react-query';
-import { getJson } from './client';
+import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApiError, call, getJson, problems } from './client';
 import type { ContractMeta } from './common';
 
 export interface IntakeRepositoryBody {
@@ -111,3 +111,86 @@ export const intakeQuery = () =>
   });
 
 export const useIntake = () => useQuery(intakeQuery());
+
+/** A batch intake started for a source, newest first. `item` is `#12`, `#12 round 2` or a Plane identifier (`ABC-12`). */
+export interface IntakeSourceRunBody {
+  batch_run_id: string;
+  task_id: string;
+  item: string;
+  started: string;
+  phase: 'running' | 'asked' | 'done';
+  pr_url?: string | null;
+}
+
+/** A repository GitHub intake watches, with its switch and its queue. */
+export interface IntakeSourceBody {
+  repository: string;
+  enabled: boolean;
+  /** `listed` in the profile, or `discovered` (the App can see it; its checkout is a managed clone). */
+  origin: 'listed' | 'discovered';
+  path: string;
+  running?: number;
+  /** Review comments waiting for a round, and issues or answers told to wait for a free slot. */
+  queued?: number;
+  recent?: IntakeSourceRunBody[] | null;
+}
+
+/** A project of `automation.plane.projects`. */
+export interface IntakePlaneSourceBody {
+  project: string;
+  enabled: boolean;
+  path: string;
+  remote?: string | null;
+  running: number;
+  recent: IntakeSourceRunBody[];
+}
+
+/**
+ * `intake-sources/v1`: the on/off switch of every source intake watches (CHARGEHAND-241, 242). Owner only.
+ * `configured` is GitHub intake's; `plane` is absent from a server before Plane projects were listed.
+ */
+export interface IntakeSourcesBody {
+  contract_version: 'intake-sources/v1';
+  configured: boolean;
+  discover: boolean;
+  sources: IntakeSourceBody[];
+  /** `queued` counts Plane items waiting for a free slot over all projects: Plane intake's keys do not name the project. */
+  plane?: { configured: boolean; queued: number; projects: IntakePlaneSourceBody[] } | null;
+  not_recorded?: string[] | null;
+}
+
+export const intakeSourcesQuery = () =>
+  queryOptions({
+    queryKey: ['intake-sources'],
+    queryFn: ({ signal }) => getJson<IntakeSourcesBody>('/v1/intake/sources', signal),
+  });
+
+/** One switch: a GitHub repository or a Plane project. */
+export interface SourceSwitch {
+  kind: 'github' | 'plane';
+  id: string;
+  enabled: boolean;
+}
+
+/** `PUT /v1/intake/sources`; answers the whole list. */
+export async function setIntakeSource(change: SourceSwitch): Promise<IntakeSourcesBody> {
+  const entry = { enabled: change.enabled };
+  const reply = await call<IntakeSourcesBody>('/v1/intake/sources', {
+    method: 'PUT',
+    body:
+      change.kind === 'github'
+        ? { sources: [{ repository: change.id, ...entry }] }
+        : { plane_projects: [{ project: change.id, ...entry }] },
+  });
+  if (!reply.ok) throw new ApiError(reply.status, problems(reply));
+  return reply.data;
+}
+
+/** Sets a switch; the answer replaces the cached list. */
+export function useSetIntakeSource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: setIntakeSource,
+    onSuccess: (body) => queryClient.setQueryData(intakeSourcesQuery().queryKey, body),
+  });
+}

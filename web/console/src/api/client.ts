@@ -29,7 +29,7 @@ export interface Reply<T> {
 }
 
 export interface CallOptions {
-  method?: 'GET' | 'POST';
+  method?: 'GET' | 'POST' | 'PUT';
   body?: unknown;
   headers?: Record<string, string>;
   signal?: AbortSignal;
