@@ -17,10 +17,12 @@ image.
   secrets from environment variables, extensions by category, the `Chargehand` tool package on nuget.org, and its
   MCP Registry listing (from 0.4.1: the 0.4.0 package's README could not match the registry's name).
 
-## Stage 3 — One prompt, whole result · ▶ (0.5–0.7; 0.5 open)
+## Stage 3 — One prompt, whole result · ✅ (0.5–0.7)
 
-- ▶ **0.5** `/chargehand:change <goal>` in Claude Code takes one prompt to a reviewed change. Its code shipped in 0.4.0
-  and there is no 0.5.0; what is open is its usage bar (10 real `/ch` tasks, 7 merged), which nothing yet evidences.
+- · **0.5** (superseded) `/chargehand:change <goal>` in Claude Code takes one prompt to a reviewed change. Its code
+  shipped in 0.4.0 and there is no 0.5.0, and the command still ships. Its usage bar (10 real `/ch` tasks, 7 merged) was
+  never met. The goal is closed, superseded by GitHub issue intake (0.9.0): labelling an issue starts a driven batch
+  that ends in a pull request.
 - ✅ **0.6** Runs use your MCP services and memory: any MCP memory server, several at once, retaining only claims whose
   citations resolved, and a preset can give workers read-only tools from an MCP service (released in 0.6.0).
 - ✅ **0.7** Workers write branches that build and pass their tests in a sandbox: the `code` preset, the sandbox and the
