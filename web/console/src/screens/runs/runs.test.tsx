@@ -366,7 +366,6 @@ describe('Runs', () => {
         actor: 'a-service-account-with-a-very-long-name',
         branch: 'chargehand/20261013-a-very-long-branch-name-that-goes-on-and-on',
       },
-      NOW,
     );
     serveApi({ runs: [long] });
     renderConsole('/console/runs');
