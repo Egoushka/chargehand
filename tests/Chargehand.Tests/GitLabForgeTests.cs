@@ -450,4 +450,16 @@ public class GitLabForgeTests
         Assert.Equal($"{Project}/merge_requests/7/notes", Path(comment));
         Assert.Contains("chargehand-ci-fix attempt=1", comment.Body);
     }
+
+    [Theory]
+    [InlineData(HttpStatusCode.OK, """{"only_allow_merge_if_pipeline_succeeds":true}""", ChecksGate.Required)]
+    [InlineData(HttpStatusCode.OK, """{"only_allow_merge_if_pipeline_succeeds":false}""", ChecksGate.None)]
+    [InlineData(HttpStatusCode.Forbidden, """{"message":"403 Forbidden"}""", ChecksGate.Unknown)]
+    public async Task The_gate_is_the_projects_pipelines_must_succeed_setting(HttpStatusCode status, string project, ChecksGate expected)
+    {
+        var handler = new Canned((_, _) => Json(project, status));
+
+        Assert.Equal(expected, await Forge(handler).ChecksGateAsync(Repo, "main", default));
+        Assert.Equal(Project, Path(Assert.Single(handler.Requests)));
+    }
 }

@@ -202,7 +202,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         run.VerificationPaths = VerifyCommand.VerificationPaths(changed, plan);
         if (plan is null)
         {
-            if (!input.AllowNoTests && !input.Partial)
+            if (!input.AllowNoTests && !input.Partial && (run.NoTestsRule = await NoTestsRuleAsync(run, ct)) is null)
                 return run.Refuse("no test command found for this repository; chargehand does not push a change it cannot test (name one in the request's context.verify)", ErrorCode.VerificationFailed, changed: changed, commit: commit);
             return null;
         }
@@ -263,7 +263,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             return new(HandoverStatus.PrFailed, "the remote's owner and repository could not be read from its URL", ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity);
         try
         {
-            var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity);
+            var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity, run.NoTestsRule);
             var (pr, bodyUsed) = await OpenPullRequestAsync(input, repository, prBody, ct);
             var detail = pr.Reused && input.UpdateReused ? await UpdateReusedAsync(run, repository, pr, bodyUsed, ct) : "draft pull request opened";
             input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, detail, pr.Url));
@@ -313,12 +313,16 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
 
         public IReadOnlyList<string> VerificationPaths { get; set; } = [];
 
+        /// <summary>Why a branch with no test command was pushed all the same (<see cref="NoTestsRuleAsync"/>); null otherwise.</summary>
+        public string? NoTestsRule { get; set; }
+
         public HandoverOutcome Refuse(string reason, ErrorCode error, VerificationRecord? verification = null, IReadOnlyList<string>? changed = null, IReadOnlyList<ScanFinding>? findings = null,
             IReadOnlyList<string>? verificationPaths = null, string? commit = null) =>
             new(HandoverStatus.NotPushed, Redact(reason, Secrets), error, Input.Branch, commit, null, verification, changed ?? [], verificationPaths ?? [], findings ?? [], Changes);
     }
 
-    private static string DescribeBody(string body, List<string> changed, VerificationRecord? verification, IReadOnlyList<string> verificationPaths, string? policyNote, TestIntegrityFlag? integrity)
+    private static string DescribeBody(string body, List<string> changed, VerificationRecord? verification, IReadOnlyList<string> verificationPaths, string? policyNote, TestIntegrityFlag? integrity,
+        string? noTestsRule)
     {
         var text = new StringBuilder();
         if (integrity is not null)
@@ -327,7 +331,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         // A flagged pull request is never merged, so the opted-in text about auto-merge would be untrue.
         text.Append(integrity is not null && policyNote is not null ? "Opened by chargehand as a draft. Because of the warning above, chargehand marks it ready for review and does not merge it." : policyNote ?? "Opened by chargehand as a draft; it is not merged and chargehand will not merge it.").Append("\n\n");
         text.Append(verification is null
-            ? "Verification: no test command was found, so nothing was run.\n"
+            ? $"Verification: no test command was found, so nothing was run.{(noTestsRule is null ? "" : $" It was pushed because {noTestsRule}.")}\n"
             : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Verification (chargehand's own run in a fresh container): `{string.Join(' ', verification.Argv)}` exited {verification.ExitCode} in {verification.Duration.TotalSeconds:0}s.\n"));
         text.Append(System.Globalization.CultureInfo.InvariantCulture, $"Changed files: {changed.Count}.\n");
         if (verificationPaths.Count > 0)
