@@ -35,6 +35,9 @@ public class GitHubIntakeTests
         Assert.StartsWith("Add a retry\n\nResolve GitHub issue octo/repo#7.", task.Goal);
         Assert.Contains("<untrusted-github-text>\nIssue title: Add a retry", task.Goal);
         Assert.Contains("The client gives up on the first error.", task.Goal);
+        // The pull request's body holds the goal, so GitHub closes the issue when it merges.
+        Assert.EndsWith("\n\nCloses #7", task.Goal);
+        Assert.Equal("Triggered from GitHub: octo/repo#7.\n\nCloses #7", request.Text);
         var (number, comment) = Assert.Single(rig.GitHub.Posted);
         Assert.Equal(7, number);
         Assert.StartsWith(GitHubIntake.Marker, comment);
@@ -251,6 +254,8 @@ public class GitHubIntakeTests
         Assert.Equal(new ContinueFrom("run-1", "issue-7"), task.ContinueFrom);
         Assert.Equal(["Use exponential backoff, not configurable."], task.Answers);
         Assert.Null(task.Goal);
+        // The continuation's goal starts with this text, and its pull request body replaces the first one's.
+        Assert.EndsWith("\n\nCloses #7", request.Text);
         // Its kept work is a branch from the commit the first run started at, whatever the default branch is now.
         Assert.Equal(rig.Starter.Started[0].Context.Repository, request.Context.Repository);
         Assert.Contains("continues with your answer: run `run-2`", rig.GitHub.Posted.Last().Body);

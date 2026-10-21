@@ -77,6 +77,8 @@ public class AutomationProfileTests
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}},"allowed_authors":[]}}}""", true)]
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}}}}}""", false)] // allowed_authors has no default
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"allowed_authors":["a"]}}}""", false)]
+    [InlineData("""{"schema":"profile/v1","automation":{"github":{"allowed_authors":["a"],"discover":true}}}""", true)] // the App's repositories
+    [InlineData("""{"schema":"profile/v1","automation":{"github":{"allowed_authors":["a"],"discover":false}}}""", false)]
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}},"allowed_authors":["a"],"poll_seconds":10}}}""", false)]
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}},"allowed_authors":["a"],"token":"x"}}}""", false)] // the App is driven.integrator
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":"/p"},"allowed_authors":["a"]}}}""", false)]

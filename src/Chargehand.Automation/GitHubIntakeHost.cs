@@ -63,6 +63,54 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
         return Parse(() => Long(doc.RootElement, "id"));
     }
 
+    public async Task<IReadOnlyList<InstalledRepository>> InstalledRepositoriesAsync(CancellationToken ct)
+    {
+        IReadOnlyList<string> accounts;
+        try
+        {
+            accounts = await tokens.AccountsAsync(ct);
+        }
+        catch (GitHubAppException e)
+        {
+            throw new IntakeException(e.Message);
+        }
+        List<InstalledRepository> all = [];
+        foreach (var account in accounts)
+            for (var page = 1; page <= MaxPages; page++)
+            {
+                // The token is the installation's: the repository part only names the account it is for.
+                using var doc = JsonDocument.Parse(await SendAsync($"{account}/-", HttpMethod.Get, $"installation/repositories?per_page=100&page={page.ToString(CultureInfo.InvariantCulture)}", null, "the installation's repositories", ct));
+                var items = Parse(() => doc.RootElement.GetProperty("repositories").EnumerateArray().Select(r => new InstalledRepository(Text(r, "full_name") ?? throw new KeyNotFoundException(),
+                    Text(r, "clone_url") ?? throw new KeyNotFoundException(), r.TryGetProperty("archived", out var a) && a.ValueKind == JsonValueKind.True)).ToList());
+                all.AddRange(items);
+                if (items.Count < 100)
+                    break;
+            }
+        return all;
+    }
+
+    public async Task<bool> EnsureLabelAsync(string repository, string label, CancellationToken ct)
+    {
+        try
+        {
+            await SendAsync(repository, HttpMethod.Get, $"{RepoPath(repository)}/labels/{Uri.EscapeDataString(label)}", null, "the label", ct);
+            return false;
+        }
+        catch (IntakeException e) when (e.Status == 404)
+        {
+        }
+        try
+        {
+            await SendAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/labels", new { name = label, color = "5319e7", description = "chargehand works on this issue" }, "the new label", ct);
+            return true;
+        }
+        catch (IntakeException e) when (e.Status == 422)
+        {
+            // Someone created it in between.
+            return false;
+        }
+    }
+
     private async Task<IReadOnlyList<JsonElement>> PagesAsync(string repository, string path, string what, CancellationToken ct)
     {
         List<JsonElement> all = [];

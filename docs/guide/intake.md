@@ -48,7 +48,7 @@ The goal's first line is the issue's title (the pull request's title is cut from
 - **Who may start** is the list, and for a label it is the labeller. Writing an issue needs no rights; applying a label needs triage rights.
 - **The issue's text is untrusted** even when an allowed author applies the label to someone else's issue. The fence helps the model; the real boundary is the session's container (no credential, no route out beyond the allowlist) and the handover's checks.
 - **A repository the integrator merges into** (`merge` in `driven.integrator.repositories`, not in `always_ask`) takes work only from an issue **written** by an allowed author. For another author's issue chargehand comments once and starts nothing, because a merge there ends at a check and not at a review. A repository that is `ask` or not listed has no such rule.
-- The App needs the Issues permission (read and write) besides [the integrator's](driven.md#merging-by-policy). It needs no administration and no workflow permission, takes no webhook, and is installed only on the repositories listed.
+- The App needs the Issues permission (read and write) besides [the integrator's](driven.md#merging-by-policy). It needs no administration and no workflow permission and takes no webhook. Install it only on the repositories listed, or, with `discover`, only on those chargehand may work in: then every repository it can see is watched.
 - The token and the key are never in a comment, a log line or an error message. A polling failure is one line on stderr and the next poll tries again.
 
 ## Profile
@@ -75,9 +75,17 @@ The goal's first line is the issue's title (the pull request's title is cut from
 
 `path` is the server's checkout of the repository (under `repository_roots`, with an `origin` remote). Each trigger fetches it with the server's own git credentials and starts from the commit `origin/HEAD` points at; a fetch that fails is a line on stderr and the batch starts from what the checkout has. `poll_seconds` is 30 to 3600. A profile that sets `automation.github` without `driven.enabled` and the integrator's App keys is refused when it loads.
 
+**`discover: true`** makes `repositories` optional: every repository the App's installations can see, archived ones aside, is watched too. chargehand clones each into `<worker_root>/repos/<owner>/<repo>` the first time it sees it and fetches it before each start, both with the App's installation token (sent as a header in git's environment, never written to the clone's config); that directory is always among the repository roots. A repository in `repositories` keeps its own checkout. [Start from a GitHub issue](github-start.md) is the short version for a new user.
+
+**The issue closes on merge.** The goal of an issue's task ends with `Closes #<n>`, and the pull request's body carries the goal, so GitHub closes the issue when the pull request merges. A continuation keeps the line; a review round does not touch the body.
+
+**The trigger label.** The first time intake watches a repository it creates the label (`label`, default `chargehand`) if the repository has none.
+
+**Switching a repository off.** `GET /v1/intake/sources` lists the watched repositories with their switch; `PUT /v1/intake/sources` with `{"sources": [{"repository": "octo/repo", "enabled": false}]}` sets it (owner's key only; a repository intake does not watch is a 404). Off, intake reads nothing of it: labels and comments wait and are read when it is on again. Batches already running still report.
+
 ## State
 
-`intake/github.json` next to the run log: the comment cursor per repository, every trigger acted on or ignored, the tasks with their phase, the review comments waiting for a round, and when batches started. It is written whole through a temporary file. Deleting it makes the server forget what it started: labelled issues start again, and comments from before the next poll are not read.
+`intake/github.json` next to the run log: the comment cursor per repository, every trigger acted on or ignored, the tasks with their phase, the review comments waiting for a round, the repositories whose label was checked, and when batches started. `intake/sources.json` beside it holds the repositories switched off. It is written whole through a temporary file. Deleting it makes the server forget what it started: labelled issues start again, and comments from before the next poll are not read.
 
 ## Review comments on a chargehand pull request
 

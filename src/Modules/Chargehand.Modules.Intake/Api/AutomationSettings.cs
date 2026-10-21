@@ -22,7 +22,8 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
 
 /// <summary>A label on an issue, or a mention of the bot in a comment, by an allowed author starts a driven batch of one task (ADR 0051). chargehand polls: the server is not reachable from GitHub.
 /// It reads and comments as the GitHub App of <c>driven.integrator</c>, which needs the Issues permission (read and write) besides the ones ADR 0046 lists.</summary>
-/// <param name="Repositories">The repositories watched, <c>owner/repo</c> to the server's checkout of it (under <c>repository_roots</c>). Opt-in: a repository not listed is never read.</param>
+/// <param name="Repositories">The repositories watched, <c>owner/repo</c> to the server's checkout of it (under <c>repository_roots</c>). Opt-in: a repository not listed is never read, unless
+/// <paramref name="Discover"/> is on.</param>
 /// <param name="AllowedAuthors">Logins whose label or comment starts a batch. Required; an empty list means nothing triggers, and a comment or label from anyone else is ignored.</param>
 /// <param name="Label">The label that triggers (default <c>chargehand</c>); the person who applied it must be an allowed author.</param>
 /// <param name="Mention">The mention that triggers in a comment (default <c>@chargehand</c>).</param>
@@ -36,10 +37,15 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
 /// against the same cap of 3 per pull request, so rounds and fix attempts together never pass it (ADR 0051).</param>
 /// <param name="ReviewPulls">Review every open, non-draft pull request of the watched repositories once per head commit and comment the findings (default false).</param>
 /// <param name="MaxReviewsPerDay">Reviews started in any 24 hours (default 20); a pull request over it waits until the window has room.</param>
+/// <param name="Discover">Also watch every repository the App's installations can see, each cloned into <c>&lt;worker_root&gt;/repos/&lt;owner&gt;/&lt;repo&gt;</c> and fetched with the App's token (default false).
+/// A repository in <paramref name="Repositories"/> keeps its own checkout.</param>
 public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, AutomationRepository>? Repositories = null, IReadOnlyList<string>? AllowedAuthors = null, string Label = "chargehand",
     string Mention = "@chargehand", int PollSeconds = 120, string BudgetClass = "M", long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int MaxStartsPerDay = 10, int MaxReviewRounds = 3,
-    bool ReviewPulls = false, int MaxReviewsPerDay = 20)
+    bool ReviewPulls = false, int MaxReviewsPerDay = 20, bool Discover = false)
 {
+    /// <summary>Where discovered repositories are cloned, under <c>worker_root</c>.</summary>
+    public const string ClonesDirectory = "repos";
+
     public const int MinPollSeconds = 30;
 
     internal void Validate(bool drivenEnabled, DrivenIntegrator? integrator)
@@ -53,8 +59,8 @@ public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, Automa
     {
         if (!drivenEnabled || integrator is not { AppId: not null, PrivateKeySecret: not null })
             yield return "needs driven.enabled and the GitHub App of driven.integrator (app_id, private_key_secret), which reads and comments";
-        if (Repositories is not { Count: > 0 })
-            yield return "repositories must list at least one owner/repo";
+        if (Repositories is not { Count: > 0 } && !Discover)
+            yield return "repositories must list at least one owner/repo, or discover must be true";
         foreach (var (name, repository) in Repositories ?? new Dictionary<string, AutomationRepository>())
         {
             if (!RepositoryName().IsMatch(name)) yield return $"repositories key '{name}' must be owner/repo";

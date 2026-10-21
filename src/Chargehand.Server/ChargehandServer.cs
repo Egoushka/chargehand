@@ -231,6 +231,7 @@ public static partial class ChargehandServer
         }
 
         ConsoleRoutes.Map(app, settings, log, driven);
+        ConsoleSources.Map(app, intake);
 
         foreach (var path in new[] { "/v1/accounts/me", IdentityPath })
             app.MapGet(path, async (HttpContext ctx, RunService runs) =>

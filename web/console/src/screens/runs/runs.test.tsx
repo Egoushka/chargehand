@@ -357,17 +357,13 @@ describe('Runs', () => {
   });
 
   it('lays out long content without widening the page', async () => {
-    const long = run(
-      'run-20261013-999999-abcdef',
-      {
-        status: 'failed',
-        error_code: 'checkout_has_secrets_in_a_very_long_error_code_name',
-        repository: '/srv/work/a-repository-with-a-very-long-name-that-does-not-fit-in-a-cell',
-        actor: 'a-service-account-with-a-very-long-name',
-        branch: 'chargehand/20261013-a-very-long-branch-name-that-goes-on-and-on',
-      },
-      NOW,
-    );
+    const long = run('run-20261013-999999-abcdef', {
+      status: 'failed',
+      error_code: 'checkout_has_secrets_in_a_very_long_error_code_name',
+      repository: '/srv/work/a-repository-with-a-very-long-name-that-does-not-fit-in-a-cell',
+      actor: 'a-service-account-with-a-very-long-name',
+      branch: 'chargehand/20261013-a-very-long-branch-name-that-goes-on-and-on',
+    });
     serveApi({ runs: [long] });
     renderConsole('/console/runs');
     const row = (await waitFor(() => dataRows()[0])) as HTMLElement;

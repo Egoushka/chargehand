@@ -494,8 +494,12 @@ Chargehand.Automation.GitHubIntake? GitHubIntake()
         return null;
     var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
     var tokens = new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System);
-    var state = Chargehand.Automation.IntakeState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"));
-    return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator));
+    var directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake");
+    var state = Chargehand.Automation.IntakeState.Load(Path.Combine(directory, "github.json"));
+    // discover: the App's repositories are cloned under worker_root and fetched with the App's token, on this host only.
+    var clones = github.Discover ? new Chargehand.Automation.ManagedClones(profile.ClonesRoot, tokens.GetAsync) : null;
+    return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state,
+        integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "sources.json")), clones: clones);
 }
 
 // Scheduled work (ADR 0068): null unless the profile has automation.schedules. Its state sits next to the run log.

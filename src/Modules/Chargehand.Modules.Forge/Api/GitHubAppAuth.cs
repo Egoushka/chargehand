@@ -15,6 +15,10 @@ public interface IInstallationTokens
 {
     /// <exception cref="GitHubAppException">The key could not be read, GitHub refused the exchange, or the App is not installed on <paramref name="owner"/>.</exception>
     Task<string> GetAsync(string owner, string repository, CancellationToken ct);
+
+    /// <summary>The accounts the App is installed on; a later <see cref="GetAsync"/> for one of them needs no lookup. A source that cannot list them answers none.</summary>
+    /// <exception cref="GitHubAppException">GitHub refused the listing.</exception>
+    Task<IReadOnlyList<string>> AccountsAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<string>>([]);
 }
 
 /// <summary>The App's JWT (RS256, GitHub's rules): issued a minute in the past for clock drift, valid for nine minutes (the limit is ten).</summary>
@@ -100,6 +104,34 @@ public sealed class GitHubInstallationTokens(HttpClient http, long appId, long? 
         {
             _gate.Release();
         }
+    }
+
+    public async Task<IReadOnlyList<string>> AccountsAsync(CancellationToken ct)
+    {
+        var (status, text) = await SendAsync(HttpMethod.Get, "app/installations?per_page=100", ct);
+        if (status != HttpStatusCode.OK)
+            throw new GitHubAppException($"GitHub answered {(int)status} to the list of the App's installations: {GitHubApi.Message(text)}");
+        List<(string Account, long Id)> found;
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            found = [.. doc.RootElement.EnumerateArray().Select(i => (i.GetProperty("account").GetProperty("login").GetString() ?? throw new KeyNotFoundException(), i.GetProperty("id").GetInt64()))];
+        }
+        catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+        {
+            throw new GitHubAppException("GitHub answered the list of the App's installations with a body that is not one");
+        }
+        await _gate.WaitAsync(ct);
+        try
+        {
+            foreach (var (account, id) in found)
+                _installations[account] = id;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+        return [.. found.Select(f => f.Account)];
     }
 
     private async Task<long> FindInstallationAsync(string owner, string repository, CancellationToken ct)

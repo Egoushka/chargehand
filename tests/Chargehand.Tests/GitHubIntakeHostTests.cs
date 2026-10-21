@@ -12,6 +12,8 @@ public class GitHubIntakeHostTests
     private sealed class FixedToken : IInstallationTokens
     {
         public Task<string> GetAsync(string owner, string repository, CancellationToken ct) => Task.FromResult("ghs_secrettoken");
+
+        public Task<IReadOnlyList<string>> AccountsAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<string>>(["octo", "acme"]);
     }
 
     private sealed class Canned(Func<HttpRequestMessage, string?, HttpResponseMessage> answer) : HttpMessageHandler
@@ -157,5 +159,31 @@ public class GitHubIntakeHostTests
         await Assert.ThrowsAsync<IntakeException>(() => Host(handler).LabeledAsync("octo/repo", "chargehand", default));
         var bad = new Canned((_, _) => Json("""[{"number":"seven"}]"""));
         await Assert.ThrowsAsync<IntakeException>(() => Host(bad).LabeledAsync("octo/repo", "chargehand", default));
+    }
+
+    [Fact]
+    public async Task The_installed_repositories_are_read_for_every_account_the_App_is_installed_on()
+    {
+        var handler = new Canned((request, _) => Json(request.RequestUri!.Query.Contains("page=1", StringComparison.Ordinal)
+            ? """{"total_count":2,"repositories":[{"full_name":"octo/repo","clone_url":"https://github.example.test/octo/repo.git","archived":false},{"full_name":"octo/old","clone_url":"https://github.example.test/octo/old.git","archived":true}]}"""
+            : """{"repositories":[]}"""));
+        var repositories = await Host(handler).InstalledRepositoriesAsync(default);
+
+        Assert.Equal(["octo/repo:False", "octo/old:True", "octo/repo:False", "octo/old:True"], repositories.Select(r => $"{r.FullName}:{r.Archived}"));
+        Assert.All(handler.Requests, r => Assert.Equal("https://api.example.test/installation/repositories?per_page=100&page=1", r.Url));
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task A_missing_label_is_created_and_one_that_is_there_is_left_alone()
+    {
+        var missing = new Canned((request, _) => request.Method == HttpMethod.Get ? Json("""{"message":"Not Found"}""", HttpStatusCode.NotFound) : Json("{}", HttpStatusCode.Created));
+        Assert.True(await Host(missing).EnsureLabelAsync("octo/repo", "chargehand", default));
+        Assert.Equal(["GET https://api.example.test/repos/octo/repo/labels/chargehand", "POST https://api.example.test/repos/octo/repo/labels"], missing.Requests.Select(r => $"{r.Method} {r.Url}"));
+        Assert.Equal("chargehand", JsonDocument.Parse(missing.Requests[1].Body!).RootElement.GetProperty("name").GetString());
+
+        var there = new Canned((_, _) => Json("""{"name":"chargehand"}"""));
+        Assert.False(await Host(there).EnsureLabelAsync("octo/repo", "chargehand", default));
+        Assert.Single(there.Requests);
     }
 }

@@ -26,8 +26,11 @@ public static partial class IntakeGoal
             .Append(issue.Body.Trim().Length == 0 ? "(empty)" : Fenced(Cut(issue.Body.Trim(), MaxBody))).Append($"\n</{Fence}>");
         if (comment is not null)
             text.Append(CultureInfo.InvariantCulture, $"\n\nThe comment that asked for this work, by {commentAuthor}:\n<{Fence}>\n").Append(Fenced(Cut(comment.Trim(), MaxComment))).Append($"\n</{Fence}>");
-        return text.ToString();
+        return text.Append("\n\n").Append(Closes(issue.Number)).ToString();
     }
+
+    /// <summary>The line that makes GitHub close the issue when the pull request merges: the pull request's body holds the goal, and a squash merge's message is built from the body.</summary>
+    public static string Closes(int issue) => $"Closes #{issue.ToString(CultureInfo.InvariantCulture)}";
 
     public const int MaxPullGoal = 8000;
 
