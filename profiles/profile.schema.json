@@ -357,7 +357,7 @@
             }
           }
         },
-        "push_secret": { "type": "string", "minLength": 1, "description": "Secret item for the credential that pushes non-default branches and opens draft pull requests (on GitLab also merge requests, unless forge.token_secret names another)." },
+        "push_secret": { "type": "string", "minLength": 1, "description": "Secret item for the credential that pushes non-default branches and opens draft pull requests (on GitLab also merge requests, unless forge.token_secret names another). Optional on GitHub when integrator names the App: its installation token, minted at each push, does both. When set, it wins over the App." },
         "task_source": {
           "type": "object",
           "additionalProperties": false,

@@ -38,6 +38,25 @@ public class GitHubPullRequestsTests
         Assert.DoesNotContain("the-token", body);
     }
 
+    [Fact]
+    public async Task A_token_source_is_asked_at_each_call_and_one_that_fails_is_a_pull_request_failure_without_a_token()
+    {
+        // CHARGEHAND-247: the App's installation token lapses after an hour, so a long batch asks for it at each call.
+        var handler = new Recorder();
+        var asked = 0;
+        var client = new GitHubPullRequests(new HttpClient(handler) { BaseAddress = new Uri("https://api.example.test/") }, _ => Task.FromResult($"ghs_{++asked}"));
+        await client.CreateDraftAsync(new RemoteRepository("o", "r"), "chargehand/run1", "main", "Add a retry", "Body", default);
+        await client.EditAsync(new RemoteRepository("o", "r"), 7, "Add a retry", "Body", default);
+        Assert.Equal(["Bearer ghs_1", "Bearer ghs_2"], handler.Requests.Select(r => r.Auth));
+
+        var failing = new GitHubPullRequests(new HttpClient(handler) { BaseAddress = new Uri("https://api.example.test/") }, _ => throw new GitHubAppException("the GitHub App is not installed on o"));
+        var e = await Assert.ThrowsAsync<PullRequestException>(() => failing.CreateDraftAsync(new RemoteRepository("o", "r"), "chargehand/run1", "main", "t", "b", default));
+        Assert.Equal("no credential for the pull request: the GitHub App is not installed on o", e.Message);
+        Assert.Null(await failing.FindByHeadAsync(new RemoteRepository("o", "r"), "chargehand/run1", default));
+        Assert.Equal(ChecksGate.Unknown, await failing.ChecksGateAsync(new RemoteRepository("o", "r"), "main", default));
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
     private sealed class Sequence : HttpMessageHandler
     {
         public List<(HttpMethod Method, string Url)> Requests { get; } = [];

@@ -31,12 +31,15 @@ namespace Chargehand.Driven;
 /// <param name="RetroSink">Gets each written retro besides the batch result (ADR 0045); null: nowhere. No tracker write path exists yet, so none ships.</param>
 /// <param name="Brancher">Fetches the pushed branch a review round continues (ADR 0051); null: <see cref="GitBranchSeeder"/>, with git on this host.</param>
 /// <param name="Runners">The runners of a profile that names them (ADR 0058); each task is placed on one by <see cref="RunnerPool"/>. Null: <see cref="Engine"/>, <see cref="Workspace"/>, <see cref="Volumes"/> and <see cref="Host"/> are the one runner.</param>
+/// <param name="AppToken">A GitHub App installation token for a GitHub repository (the integrator's App, ADR 0046), asked for at each push and pull request call; null: no App, so a batch needs
+/// <c>driven.push_secret</c>. <c>driven.push_secret</c> wins when it is set.</param>
 /// <param name="OutageGrace">How long a task waits for a runner that stops answering during its session; <see cref="TaskRunner.DefaultOutageGrace"/> when null.</param>
 public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Workspace, ISessionVolumes Volumes, Func<PushCredential, IPullRequests> PullRequestsFor, ITaskSource? TaskSource,
     Func<RepositoryRef, string, CancellationToken, Task<DrivenCheckout>> Checkout, IEvidenceResolver Resolver, Func<string, string> Secret,
     Func<string?, Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>?>? SupportCheckFor = null, Func<ContainerVerifierSettings, PushCredential, IBranchHandover>? HandoverFor = null,
     TimeSpan? Poll = null, IHostSource? Host = null, IIntegrationHost? Integration = null, Func<RemoteRepository, string, IForge>? ForgeFor = null, IBatchPlanner? Planner = null, IStackSeeder? Stacker = null,
-    IBatchRetro? Retro = null, IRetroSink? RetroSink = null, IBranchSeeder? Brancher = null, IReadOnlyList<RunnerSite>? Runners = null, TimeSpan? OutageGrace = null);
+    IBatchRetro? Retro = null, IRetroSink? RetroSink = null, IBranchSeeder? Brancher = null, IReadOnlyList<RunnerSite>? Runners = null, TimeSpan? OutageGrace = null,
+    Func<RemoteRepository, CancellationToken, Task<string>>? AppToken = null);
 
 /// <summary>A request with a <c>driven</c> block, from start to the batch's result (ADR 0039): tasks resolved, the batch network up, tasks run under the batch's limits by
 /// <see cref="TaskRunner"/>, the network down, and one <c>result/v1</c> that lists the tasks. Every refusal (driven sessions off, no push credential, no image) is a failed
@@ -360,8 +363,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var priced = own is not null || claude.ApiKeySecret is not null;
         var perTaskUsd = Math.Min(kind.Budget.MaxUsd, c.Request.Driven!.MaxUsdTotal ?? decimal.MaxValue);
         var limits = DrivenBatch.Limits(c.Request, options, drivenPreset, perTaskUsd, priced, _global);
-        var push = settings.PushSecret is { } pushSecret ? new PushCredential(Resolve(s, pushSecret)) : throw new ChargehandException(ErrorCode.CredentialUnavailable,
-            "driven.push_secret is not set, so nothing could be pushed", "Name the secret item that holds the credential which pushes non-default branches.");
+        // No push_secret: the GitHub App pushes, once the checkout says the remote is on GitHub (PushOf).
+        var push = settings.PushSecret is { } pushSecret ? new PushCredential(Resolve(s, pushSecret)) : s.AppToken is not null ? null : throw new ChargehandException(ErrorCode.CredentialUnavailable,
+            "driven.push_secret is not set and there is no GitHub App (driven.integrator), so nothing could be pushed",
+            "Set driven.integrator's app_id and private_key_secret to push as the App, or name the secret item that holds a push credential in driven.push_secret.");
         var credential = own?.ApiKeySecret ?? (priced ? claude.ApiKeySecret : claude.OauthTokenSecret)
             ?? throw new ChargehandException(ErrorCode.CredentialUnavailable, "claude_code names no credential", "Set api_key_secret or oauth_token_secret.");
         var modelEnvironment = new Dictionary<string, string> { [priced ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN"] = Resolve(s, credential) };
@@ -384,23 +389,46 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     {
         var (s, settings) = (setup.Services, setup.Settings);
         var checkout = await s.Checkout(c.Request.Context.Repository!, c.Request.Context.Preset, c.Ct);
-        var forge = ForgeOf(setup, checkout);
+        var push = await PushOfAsync(setup, checkout, c.Ct);
+        var forge = ForgeOf(setup, checkout, push);
         var integrator = settings.Integrator is { } integration && (forge ?? s.Integration) is { } integrationHost
             ? new Integrator(new IntegratorPolicy(integration), integrationHost, integration.CiFix, forge: settings.Forge) : null;
         c.Span?.SetTag("chargehand.base_commit", checkout.Commit);
         if (ready.FirstOrDefault(t => (t.From?.Kept?.Base ?? t.From?.Pushed?.Base) is { } startedAt && startedAt != checkout.Commit) is { } moved)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"task '{moved.Id}' continues work that started at commit {moved.From!.Kept?.Base ?? moved.From.Pushed!.Base}, but this request's repository is at {checkout.Commit}",
                 "Send the request with context.repository.commit set to the commit the earlier task started at.");
-        return new BatchCheckout(checkout, forge, integrator);
+        return new BatchCheckout(checkout, forge, integrator, push);
+    }
+
+    /// <summary>The batch's push credential: <c>driven.push_secret</c> when it is set, else the GitHub App's installation token for the remote, minted at each use. One token is asked for now,
+    /// so a repository the App is not installed on fails the batch before any session runs.</summary>
+    private static async Task<PushCredential> PushOfAsync(BatchSetup setup, DrivenCheckout checkout, CancellationToken ct)
+    {
+        if (setup.Push is { } stored)
+            return stored;
+        var mint = setup.Services.AppToken!;
+        if (RemoteRepository.Parse(checkout.RemoteUrl, setup.Settings.Forge) is not { Forge: ForgeKind.GitHub } remote)
+            throw new ChargehandException(ErrorCode.CredentialUnavailable, "driven.push_secret is not set and the GitHub App pushes only to a GitHub remote",
+                "Name the secret item that holds a push credential for this remote in driven.push_secret.");
+        try
+        {
+            await mint(remote, ct);
+        }
+        catch (GitHubAppException e)
+        {
+            throw new ChargehandException(ErrorCode.CredentialUnavailable, $"driven.push_secret is not set and the GitHub App cannot push to {remote.Owner}/{remote.Name}: {e.Message}",
+                "Install the App on the repository with contents and pull requests write access, or name a push credential in driven.push_secret.");
+        }
+        return PushCredential.Minted(token => mint(remote, token));
     }
 
     /// <summary>A forge other than GitHub acts with one token, both to open the pull request and to integrate it; null on GitHub.</summary>
-    private static IForge? ForgeOf(BatchSetup setup, DrivenCheckout checkout)
+    private static IForge? ForgeOf(BatchSetup setup, DrivenCheckout checkout, PushCredential push)
     {
         var (s, settings) = (setup.Services, setup.Settings);
         if (RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge) is not { Forge: not ForgeKind.GitHub } remote)
             return null;
-        return s.ForgeFor?.Invoke(remote, settings.Forge?.TokenSecret is { } tokenSecret ? Resolve(s, tokenSecret) : setup.Push.Value)
+        return s.ForgeFor?.Invoke(remote, settings.Forge?.TokenSecret is { } tokenSecret ? Resolve(s, tokenSecret) : push.Value)
             ?? throw new ChargehandException(ErrorCode.InvalidRequest, $"the remote is a {remote.Forge} project, but this server has no support for it set up", "Check driven.forge in the profile.");
     }
 

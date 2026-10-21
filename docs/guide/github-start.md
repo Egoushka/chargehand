@@ -5,7 +5,7 @@ order: 14
 section: "Guides"
 ---
 
-You label an issue `chargehand`; chargehand works on it in a container and opens a draft pull request whose body closes the issue when it merges. This page is the short version of [Start work from GitHub](intake.md). It assumes a server that already runs [driven sessions](driven.md) (`driven.enabled`, the session images, a runner and `driven.push_secret`). Not yet run against GitHub end to end: the calls are tested against a fake host ([ADR 0051](../adr/0051-intake-from-github.md) lists what is UNKNOWN).
+You label an issue `chargehand`; chargehand works on it in a container and opens a draft pull request whose body closes the issue when it merges. This page is the short version of [Start work from GitHub](intake.md). It assumes a server that already runs [driven sessions](driven.md) (`driven.enabled`, the session images and a runner). No push credential is needed: the App you create below also pushes the branch and opens the pull request. Not yet run against GitHub end to end: the calls are tested against a fake host ([ADR 0051](../adr/0051-intake-from-github.md) lists what is UNKNOWN).
 
 ## 1. Create the GitHub App
 
@@ -37,7 +37,7 @@ Add to the profile the server runs with:
 }
 ```
 
-`discover: true` watches every repository the App is installed on, so there is no list of checkouts to keep: chargehand clones each one into `<worker_root>/repos/<owner>/<repo>` the first time it sees it and fetches it before each task, with the App's token, on the server's host. `allowed_authors` is who may start work; nobody else's label counts. Restart the server. Within one poll (2 minutes) chargehand creates the `chargehand` label in each repository that lacks it.
+`discover: true` watches every repository the App is installed on, so there is no list of checkouts to keep: chargehand clones each one into `<worker_root>/repos/<owner>/<repo>` the first time it sees it and fetches it before each task, with the App's token, on the server's host. `allowed_authors` is who may start work; nobody else's label counts. The App pushes `chargehand/<run>` and opens the draft pull request with an installation token minted at each push, so `driven.push_secret` is optional; when it is set it wins and the App only reads, comments and integrates. Restart the server. Within one poll (2 minutes) chargehand creates the `chargehand` label in each repository that lacks it.
 
 ## 4. Label an issue
 

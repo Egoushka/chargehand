@@ -85,3 +85,7 @@ A new user should need a GitHub App installed on a repository and one label, not
 ## Reopen if
 
 A reachable endpoint becomes available (then a webhook replaces the poll, and the state file, the goal and the limits stay); polling costs more than the delay is worth; or the label's actor cannot be read reliably (then the issue's author and a mention become the only triggers).
+
+## Amendment, 2026-10-22: the App pushes when there is no push credential
+
+An outside user should need only the App. When `driven.push_secret` is not set, a batch on a GitHub repository pushes `chargehand/<run>` and opens its draft pull request with the installation token of the App `driven.integrator` names, through the same `http.extraHeader` as the clone and fetch above. The token is minted at each push attempt and each pull request call, not once per batch, because it lasts an hour and a batch can run longer. One token is asked for when the batch starts, so a repository the App is not installed on is refused with `credential_unavailable` before any session runs. `driven.push_secret` wins when it is set: a profile that has one keeps pushing as before. UNKNOWN until a run against GitHub: that a ruleset on the repository leaves the App free to push `chargehand/*`.

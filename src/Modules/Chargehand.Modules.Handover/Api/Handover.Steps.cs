@@ -22,13 +22,17 @@ public sealed partial class Handover
     }
 
     /// <summary>The push as step <c>handover/&lt;run&gt;/push</c>. Run again, it asks the remote first: a branch that already holds the commit is taken as pushed, so it is not pushed twice.</summary>
-    private async Task<PushedBranch> PushAsync(HandoverInput input, string scratch, string commit, IReadOnlyDictionary<string, string> env, CancellationToken ct)
+    private async Task<PushedBranch> PushAsync(HandoverInput input, string scratch, string commit, IReadOnlyDictionary<string, string> env, List<string> secrets, CancellationToken ct)
     {
         async Task<PushedBranch> Push(StepAttempt attempt, CancellationToken token)
         {
-            var pushEnv = PushEnvironment(input.Credential, input.RemoteUrl, input.ScratchRoot, env);
             for (var tried = 1; ; tried++)
             {
+                // A minted token is asked for at each attempt, so a long session or a retry never pushes with one that has lapsed.
+                var credential = input.Credential is { } stored ? await stored.CurrentAsync(token) : null;
+                if (credential is { Value.Length: > 0 } && !secrets.Contains(credential.Value))
+                    secrets.Add(credential.Value);
+                var pushEnv = PushEnvironment(credential, input.RemoteUrl, input.ScratchRoot, env);
                 // A push that did not get an answer may still have landed.
                 if (attempt.Repeated || tried > 1)
                 {

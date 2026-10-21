@@ -1,3 +1,4 @@
+using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Runners.Api;
 namespace Chargehand.Modules.Handover.Api;
 
@@ -33,7 +34,16 @@ public sealed class GitBranchSeeder : IBranchSeeder
         if (!Handover.RemoteAllowed(request.RemoteUrl, request.AllowLocalRemote))
             return new(false, "the remote is not an https or ssh remote", 0);
         var env = GitProcess.Environment(request.ScratchRoot);
-        var remoteEnv = Handover.PushEnvironment(request.Credential, request.RemoteUrl, request.ScratchRoot, env);
+        PushCredential? credential;
+        try
+        {
+            credential = request.Credential is { } stored ? await stored.CurrentAsync(ct) : null;
+        }
+        catch (GitHubAppException e)
+        {
+            return new(false, $"no credential for the remote: {e.Message}", 0);
+        }
+        var remoteEnv = Handover.PushEnvironment(credential, request.RemoteUrl, request.ScratchRoot, env);
         BranchSeedResult Failed(string what, GitResult r) => new(false, $"{what}: {r.Tail}", 0);
 
         Directory.CreateDirectory(request.ScratchRoot);

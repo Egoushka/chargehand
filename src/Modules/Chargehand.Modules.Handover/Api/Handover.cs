@@ -11,12 +11,6 @@ using Chargehand.Modules.Sessions.Api;
 
 namespace Chargehand.Modules.Handover.Api;
 
-public enum PushCredentialKind { HttpsToken, SshKey }
-
-/// <summary>What pushes a branch: a fine-grained token or a deploy key that cannot push the default branch. It is read from a secret source at push
-/// time and is never inside a container.</summary>
-public sealed record PushCredential(string Value, PushCredentialKind Kind = PushCredentialKind.HttpsToken);
-
 /// <param name="OutDirectory">The session's output directory: <c>chargehand.bundle</c> is in it.</param>
 /// <param name="SourceRepository">chargehand's own checkout of the pinned commit (ADR 0023): where the scratch clone comes from.</param>
 /// <param name="BaseCommit">The commit the session started from.</param>
@@ -247,11 +241,15 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         PushedBranch pushed;
         try
         {
-            pushed = await PushAsync(input, run.Scratch, run.Commit, run.Env, ct);
+            pushed = await PushAsync(input, run.Scratch, run.Commit, run.Env, run.Secrets, ct);
         }
         catch (PushRejectedException e)
         {
             return run.Refuse($"the push was rejected: {e.Message}", ErrorCode.PushRejected, run.Verification, run.Changed, verificationPaths: run.VerificationPaths, commit: run.Commit);
+        }
+        catch (GitHubAppException e)
+        {
+            return run.Refuse($"no push credential: {e.Message}", ErrorCode.CredentialUnavailable, run.Verification, run.Changed, verificationPaths: run.VerificationPaths, commit: run.Commit);
         }
         input.Report?.Invoke(new HandoverEvent(RunEventKind.Pushed, pushed.Adopted ? $"{input.Branch} was already on the remote" : $"pushed {input.Branch}"));
         return null;

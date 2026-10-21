@@ -24,12 +24,14 @@ namespace Chargehand.Driven;
 /// <param name="Model">The model the preset's answer kind runs.</param>
 /// <param name="Own">The account's own model credential (ADR 0053); null: the server's.</param>
 /// <param name="Priced">The credential has a dollar price (an API key), so the dollar cap binds.</param>
+/// <param name="Push">The credential <c>driven.push_secret</c> names; null: the GitHub App pushes (<see cref="BatchCheckout.Push"/>).</param>
 /// <param name="ModelEnvironment">The one model credential variable a session gets.</param>
 internal sealed record BatchSetup(DrivenServices Services, DrivenSettings Settings, ClaudeCodeSettings Claude, string Image, DrivenPreset Preset, string Model, AccountModel? Own, bool Priced,
-    BatchLimits Limits, PushCredential Push, IReadOnlyDictionary<string, string> ModelEnvironment, IReadOnlyList<RunnerSite> Sites);
+    BatchLimits Limits, PushCredential? Push, IReadOnlyDictionary<string, string> ModelEnvironment, IReadOnlyList<RunnerSite> Sites);
 
 /// <summary>The batch's checkout, and what acts on its remote: a forge other than GitHub (one token both opens the pull request and integrates it), and the integrator (ADR 0046).</summary>
-internal sealed record BatchCheckout(DrivenCheckout Checkout, IForge? Forge, Integrator? Integrator);
+/// <param name="Push">What pushes the branches: <c>driven.push_secret</c>, or the GitHub App's token for the remote.</param>
+internal sealed record BatchCheckout(DrivenCheckout Checkout, IForge? Forge, Integrator? Integrator, PushCredential Push);
 
 /// <summary>What one runner needs of the batch's settings (ADR 0058): where its sessions reach the server, the model gateway and the collector (the profile's <c>network</c>, with the runner's
 /// <c>forwards</c> over it), the forwards its egress container carries, the hosts it allows, and the run-token exchange.</summary>
@@ -204,16 +206,16 @@ internal sealed class SiteBatches
     {
         var (s, preset, checkout, steps) = (_setup.Services, _setup.Preset, _checkout.Checkout, _parts.Steps);
         var verifier = new ContainerVerifierSettings(siteImage, checkout.Directory, checkout.Commit, net.Network, net.ProxyUrl(_c.RunId), preset.MemoryMb, preset.Cpus, preset.Pids, _shared);
-        return s.HandoverFor?.Invoke(verifier, _setup.Push)
+        return s.HandoverFor?.Invoke(verifier, _checkout.Push)
             ?? new Handover(new ContainerVerifier(site.Engine, steps is null ? site.Workspace : new JournaledVerifierWorkspace(site.Workspace, steps, _c.RunId), verifier),
-                _checkout.Forge ?? s.PullRequestsFor(_setup.Push), _setup.Settings.Forge, steps, _c.RunId);
+                _checkout.Forge ?? s.PullRequestsFor(_checkout.Push), _setup.Settings.Forge, steps, _c.RunId);
     }
 
     private TaskRunnerSettings SettingsOf(SiteRoute route, BatchNetworkInfo net, string siteImage)
     {
         var (settings, checkout, profile) = (_setup.Settings, _checkout.Checkout, _parts.Profile);
         return new TaskRunnerSettings(_c.RunId, _c.Request, siteImage, checkout.Directory, checkout.Commit, checkout.RemoteUrl, checkout.BaseBranch, net,
-            route.Forward is null ? null : $"{BatchNetworkInfo.ServiceUrl(route.Port)}/v1/mcp", _setup.Preset, _setup.Limits.PerTask, _setup.Priced, _setup.ModelEnvironment, _setup.Push,
+            route.Forward is null ? null : $"{BatchNetworkInfo.ServiceUrl(route.Port)}/v1/mcp", _setup.Preset, _setup.Limits.PerTask, _setup.Priced, _setup.ModelEnvironment, _checkout.Push,
             Path.Combine(profile.WorkerRoot, ".driven"), _setup.Model, _setup.Claude.Version,
             Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", route.Model?.BaseUrl, route.Forward is not null || route.Model?.Forwarded == true || route.Otlp is not null, route.Otlp,
             profile.Prices, profile.Telemetry?.UsageOnSpans == true, route.Exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), _checkout.Integrator, _shared, _c.Actor,

@@ -526,6 +526,40 @@ public class HandoverTests
         Assert.Empty(pauses);
     }
 
+    [Fact]
+    public async Task An_app_token_is_minted_for_each_push_attempt_and_never_shown()
+    {
+        // CHARGEHAND-247: without driven.push_secret the GitHub App's installation token pushes; it lasts an hour, so it is asked for at the push, not when the batch starts.
+        using var f = new Fixture();
+        var minted = 0;
+        var app = PushCredential.Minted(_ => Task.FromResult($"ghs_minted_token_{++minted}"));
+        var unreachable = await new Handover(new FakeVerifier(), new FakePullRequests(), pause: (_, _) => Task.CompletedTask)
+            .RunAsync(f.Input(with: i => i with { Credential = app, RemoteUrl = "https://127.0.0.1:9/octo/repo.git" }), default);
+        Assert.Equal((HandoverStatus.NotPushed, ErrorCode.PushRejected), (unreachable.Status, unreachable.Error));
+        Assert.Equal(3, minted);
+        Assert.DoesNotContain("ghs_minted_token", JsonSerializer.Serialize(unreachable));
+
+        using var g = new Fixture();
+        minted = 0;
+        var pushed = await new Handover(new FakeVerifier(), new FakePullRequests()).RunAsync(g.Input(with: i => i with { Credential = app }), default);
+        Assert.Equal(HandoverStatus.Pushed, pushed.Status);
+        Assert.Equal(1, minted);
+        Assert.NotEqual("", g.RemoteRef("refs/heads/chargehand/run1"));
+    }
+
+    [Fact]
+    public async Task An_app_token_that_cannot_be_minted_pushes_nothing_and_says_why()
+    {
+        using var f = new Fixture();
+        var prs = new FakePullRequests();
+        var app = PushCredential.Minted(_ => throw new GitHubAppException("the GitHub App is not installed on octo"));
+        var outcome = await new Handover(new FakeVerifier(), prs).RunAsync(f.Input(with: i => i with { Credential = app }), default);
+        Assert.Equal((HandoverStatus.NotPushed, ErrorCode.CredentialUnavailable), (outcome.Status, outcome.Error));
+        Assert.Contains("no push credential: the GitHub App is not installed on octo", outcome.Reason);
+        Assert.Equal("", f.RemoteRef("refs/heads/chargehand/run1"));
+        Assert.Empty(prs.Created);
+    }
+
     [Theory]
     [InlineData("fatal: unable to access 'https://github.com/o/r.git/': Failed to connect to github.com port 443 after 135393 ms: Couldn't connect to server", true)]
     [InlineData("fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com", true)]
