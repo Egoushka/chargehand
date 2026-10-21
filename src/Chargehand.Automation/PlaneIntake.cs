@@ -35,7 +35,8 @@ public sealed class PlaneIntake(AutomationPlane settings, IPlaneHost host, IRunL
             {
                 await PollAsync(starter, ct);
             }
-            catch (Exception e) when (e is not OperationCanceledException)
+            // An HttpClient timeout is a cancellation too: only the caller's own ends the loop.
+            catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 _warn($"plane intake: poll failed: {e.Message}");
             }

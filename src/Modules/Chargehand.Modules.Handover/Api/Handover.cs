@@ -78,8 +78,12 @@ public sealed record ChangeSummary(IReadOnlyList<FileChange> Files, string? Diff
 /// its tests pass is not believed: the verification here is chargehand's own. With <paramref name="steps"/>, the verification, the push and the pull request are recorded steps of batch <paramref name="batchId"/>
 /// (ADR 0061), keyed by the handed-over run: a finished one is not done again, and one a restart cut short first looks for what it may have left (the branch at the commit, an open pull request
 /// for the branch).</summary>
-public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pullRequests, DrivenForge? forge = null, DrivenJournal? steps = null, string? batchId = null) : IBranchHandover
+/// <param name="pause">Waits between push attempts (<see cref="PushPauses"/>); tests pass one that does not.</param>
+public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pullRequests, DrivenForge? forge = null, DrivenJournal? steps = null, string? batchId = null,
+    Func<TimeSpan, CancellationToken, Task>? pause = null) : IBranchHandover
 {
+    private readonly Func<TimeSpan, CancellationToken, Task> _pause = pause ?? ((by, ct) => Task.Delay(by, ct));
+
     private const int MaxDiffBytes = 8 * 1024 * 1024;
 
     /// <summary>The most of the unified diff a <see cref="ChangeSummary"/> keeps, so it fits an inline artifact (64 KiB) beside the paths.</summary>

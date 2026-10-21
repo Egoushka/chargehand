@@ -59,11 +59,11 @@ public sealed record Profile(
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
 
-    /// <summary>Where a request's repository may live (ADR 0023); worker_root alone when the profile names none. GitHub intake's managed clones (<c>discover</c>, ADR 0051) are always among them.</summary>
+    /// <summary>Where a request's repository may live (ADR 0023); worker_root alone when the profile names none. GitHub intake's managed clones (ADR 0051) are always among them.</summary>
     public IReadOnlyList<string> Roots => RepositoryRoots is null ? [WorkerRoot]
-        : Automation?.Github is { Discover: true } ? [.. RepositoryRoots, ClonesRoot] : RepositoryRoots;
+        : Automation?.Github is not null ? [.. RepositoryRoots, ClonesRoot] : RepositoryRoots;
 
-    /// <summary>Where GitHub intake clones the repositories it discovers.</summary>
+    /// <summary>Where GitHub intake clones the repositories it discovers and those whose checkout it cannot write.</summary>
     [JsonIgnore]
     public string ClonesRoot => Path.Combine(WorkerRoot, AutomationGitHub.ClonesDirectory);
 

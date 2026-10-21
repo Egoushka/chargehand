@@ -31,10 +31,15 @@ internal sealed class FakeGitHub : IIntakeHost
 
     public string? FailFor { get; set; }
 
+    /// <summary>How many of the next reads time out the way an <see cref="HttpClient"/> does: a cancellation the caller did not ask for.</summary>
+    public int TimeOuts { get; set; }
+
     public Func<DateTimeOffset> Now { get; set; } = () => DateTimeOffset.UtcNow;
 
     private void Check(string repository)
     {
+        if (TimeOuts > 0 && TimeOuts-- > 0)
+            throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.", new TimeoutException());
         if (repository == FailFor)
             throw new IntakeException("GitHub answered 500 to the request", 500);
     }
@@ -161,7 +166,17 @@ internal sealed class FakeHeads : IRepositoryHeads
 {
     public string Commit { get; set; } = "abc1234def5678abc1234def5678abc1234def56";
 
-    public Task<string> CurrentCommitAsync(string path, CancellationToken ct) => Task.FromResult(Commit);
+    /// <summary>The paths asked for a commit, in order.</summary>
+    public List<string> Asked { get; } = [];
+
+    /// <summary>Checkouts that cannot be written, and what fetching into them says.</summary>
+    public Dictionary<string, ReadOnlyCheckoutException> ReadOnly { get; } = [];
+
+    public Task<string> CurrentCommitAsync(string path, CancellationToken ct)
+    {
+        Asked.Add(path);
+        return ReadOnly.TryGetValue(path, out var e) ? throw e : Task.FromResult(Commit);
+    }
 
     /// <summary>The commit a pull request's head fetches to; unset, the one the listing named.</summary>
     public Dictionary<int, string> PullHeads { get; } = [];
@@ -278,6 +293,8 @@ internal sealed class IntakeRig : IDisposable
 
     public List<string> Warnings { get; } = [];
 
+    public List<string> Infos { get; } = [];
+
     public GitHubIntake Intake { get; private set; }
 
     public DateTimeOffset Now => Time.GetUtcNow();
@@ -299,7 +316,7 @@ internal sealed class IntakeRig : IDisposable
 
     public IntakeState State => IntakeState.Load(StatePath);
 
-    private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy, IntakeSources.Load(SourcesPath), _clones);
+    private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy, IntakeSources.Load(SourcesPath), _clones, Infos.Add);
 
     private string SourcesPath => Path.Combine(_dir.Path, "intake", "sources.json");
 

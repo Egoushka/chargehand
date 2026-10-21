@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Runners.Api;
@@ -26,14 +27,22 @@ public sealed partial class Handover
         async Task<PushedBranch> Push(StepAttempt attempt, CancellationToken token)
         {
             var pushEnv = PushEnvironment(input.Credential, input.RemoteUrl, input.ScratchRoot, env);
-            if (attempt.Repeated)
+            for (var tried = 1; ; tried++)
             {
-                var remote = await GitProcess.RunAsync(scratch, pushEnv, ["ls-remote", "--", input.RemoteUrl, $"refs/heads/{input.Branch}"], GitTimeout, token);
-                if (remote.ExitCode == 0 && remote.Stdout.Split('\t', 2)[0].Trim() == commit)
-                    return new PushedBranch(input.Branch, commit, Adopted: true);
+                // A push that did not get an answer may still have landed.
+                if (attempt.Repeated || tried > 1)
+                {
+                    var remote = await GitProcess.RunAsync(scratch, pushEnv, ["ls-remote", "--", input.RemoteUrl, $"refs/heads/{input.Branch}"], GitTimeout, token);
+                    if (remote.ExitCode == 0 && remote.Stdout.Split('\t', 2)[0].Trim() == commit)
+                        return new PushedBranch(input.Branch, commit, Adopted: true);
+                }
+                var push = await GitProcess.RunAsync(scratch, pushEnv, PushArgs(input.RemoteUrl, input.Branch), GitTimeout, token);
+                if (push.ExitCode == 0)
+                    return new PushedBranch(input.Branch, commit);
+                if (tried > PushPauses.Count || !Unreachable(push.Tail))
+                    throw new PushRejectedException(tried == 1 ? push.Tail : $"{push.Tail} (after {tried} attempts)");
+                await _pause(PushPauses[tried - 1], token);
             }
-            var push = await GitProcess.RunAsync(scratch, pushEnv, PushArgs(input.RemoteUrl, input.Branch), GitTimeout, token);
-            return push.ExitCode == 0 ? new PushedBranch(input.Branch, commit) : throw new PushRejectedException(push.Tail);
         }
         return steps is null ? await Push(new StepAttempt(1, false), ct) : await steps.RunAsync(StepKey.Push(batchId!, input.RunId), Push, HandoverSteps.Default.PushedBranch, ct);
     }
@@ -63,6 +72,15 @@ public sealed partial class Handover
         var opened = steps is null ? await Open(new StepAttempt(1, false), ct) : await steps.RunAsync(StepKey.PullRequest(batchId!, input.RunId), Open, HandoverSteps.Default.OpenedPullRequest, ct);
         return (opened.PullRequest, opened.OnFallback ? fallbackBody : body);
     }
+
+    /// <summary>The pauses before a push that did not reach the remote is tried again: a session's finished work is not dropped for a network fault of a minute or two.</summary>
+    public static readonly IReadOnlyList<TimeSpan> PushPauses = [TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(90)];
+
+    /// <summary>The push never got an answer from the remote: it could not connect or resolve it, or the remote answered with a server error. A refusal (4xx, a hook, a rule) is final.</summary>
+    public static bool Unreachable(string tail) => UnreachableRemote().IsMatch(tail);
+
+    [GeneratedRegex(@"unable to access '[^']*': (?!The requested URL returned error: 4)|ssh: connect to host |ssh: Could not resolve hostname ")]
+    private static partial Regex UnreachableRemote();
 
     private sealed class PushRejectedException(string tail) : Exception(tail);
 }

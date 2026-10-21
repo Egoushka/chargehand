@@ -211,6 +211,10 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
         {
             throw new IntakeException(Redact($"{what} could not be reached: {e.Message}", token));
         }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new IntakeException($"{what} could not be reached: GitHub did not answer within {http.Timeout.TotalSeconds.ToString(CultureInfo.InvariantCulture)} s");
+        }
     }
 
     private static string Message(string body)
