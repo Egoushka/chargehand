@@ -79,6 +79,9 @@ public sealed class IntakeState
     /// <summary>Head commits already given a review, as <c>owner/repo#12@sha</c>; it only grows, so a commit is reviewed once.</summary>
     public HashSet<string> Reviewed { get; init; } = [];
 
+    /// <summary>Repositories whose trigger label intake has made sure of (created when it was missing), so each is checked once.</summary>
+    public HashSet<string> Labeled { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Reviews that run or wait for their comment.</summary>
     public List<PullReview> Reviews { get; init; } = [];
 
@@ -104,6 +107,7 @@ public sealed class IntakeState
             Reviewed = state.Reviewed ?? [],
             Reviews = state.Reviews ?? [],
             ReviewStarts = state.ReviewStarts ?? [],
+            Labeled = new HashSet<string>(state.Labeled ?? [], StringComparer.OrdinalIgnoreCase),
         };
     }
 

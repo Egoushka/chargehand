@@ -50,6 +50,8 @@ public class ReviewRoundTests
         var task = Assert.Single(request.Driven!.Tasks);
         Assert.Equal(("pr-9", new ContinueFrom("run-1", "issue-7"), null), (task.Id, task.ContinueFrom, task.Goal));
         Assert.Equal(["review comment by alice on src/Retry.cs line 12: Use a constant here.\n  Not a literal."], task.Answers);
+        // A round's number is the pull request's: it closes nothing, and the pull request keeps the body that closes the issue.
+        Assert.DoesNotContain("Closes", request.Text);
         // It starts at the commit the first batch started at, whatever the default branch is now.
         Assert.Equal(rig.Starter.Started[0].Context.Repository, request.Context.Repository);
         var announced = Round(rig);
@@ -342,6 +344,7 @@ public class ReviewRoundTests
         var task = rig.Starter.Started[2].Driven!.Tasks.Single();
         Assert.Equal((new ContinueFrom("run-2", "pr-9"), "In appsettings."), (task.ContinueFrom, Assert.Single(task.Answers!)));
         Assert.Equal(1, rig.State.Tasks[^1].Round);
+        Assert.DoesNotContain("Closes", rig.Starter.Started[2].Text);
     }
 
     [Fact]

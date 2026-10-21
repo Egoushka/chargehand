@@ -381,7 +381,8 @@
         "github": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["repositories", "allowed_authors"],
+          "required": ["allowed_authors"],
+          "anyOf": [{ "required": ["repositories"] }, { "required": ["discover"], "properties": { "discover": { "const": true } } }],
           "description": "A label on an issue, or a mention of the bot in a comment, by an allowed author starts a driven batch of one task; a reply to its questions continues it. chargehand polls GitHub as the GitHub App of driven.integrator, which also needs the Issues permission (read and write). Needs driven.enabled and driven.integrator.",
           "properties": {
             "repositories": {
@@ -396,7 +397,7 @@
                   "path": { "type": "string", "minLength": 1, "description": "The server's checkout of the repository (under repository_roots). A triggered batch starts from the commit its origin's default branch points at, after a fetch." }
                 }
               },
-              "description": "Per owner/repo: the repositories watched. Opt-in: a repository not listed is never read."
+              "description": "Per owner/repo: the repositories watched. Opt-in: a repository not listed is never read, unless discover is true."
             },
             "allowed_authors": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\\[bot\\])?$" }, "description": "GitHub logins whose label or comment starts a batch. Required, no default: an empty list means nothing triggers. For a label, the person who applied it must be on the list." },
             "label": { "type": "string", "minLength": 1, "maxLength": 50, "pattern": "^[^,\\s][^,]*$", "description": "The label that triggers. Default chargehand." },
@@ -409,7 +410,8 @@
             "max_starts_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Triggered batches started in any 24 hours, answers included. A trigger over it is refused, with one comment. Default 10." },
             "max_review_rounds": { "type": "integer", "minimum": 0, "maximum": 3, "description": "Review rounds per chargehand pull request: inline review comments of allowed authors, and comments that mention the bot, start a session on the pull request's branch. The CI fixer's attempts count against the same cap of 3 per pull request. Default 3; 0: the loop is off." },
             "review_pulls": { "type": "boolean", "description": "Review every open, non-draft pull request of the watched repositories, once per head commit, and comment the findings. Default false." },
-            "max_reviews_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Reviews started in any 24 hours. A pull request over it waits until the window has room. Default 20." }
+            "max_reviews_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Reviews started in any 24 hours. A pull request over it waits until the window has room. Default 20." },
+            "discover": { "type": "boolean", "description": "Also watch every repository the App's installations can see, each cloned into <worker_root>/repos/<owner>/<repo> and fetched with the App's token; repositories is then optional. Default false." }
           }
         },
         "plane": {

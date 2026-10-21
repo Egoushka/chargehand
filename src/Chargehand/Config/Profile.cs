@@ -59,8 +59,13 @@ public sealed record Profile(
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
 
-    /// <summary>Where a request's repository may live (ADR 0023); worker_root alone when the profile names none.</summary>
-    public IReadOnlyList<string> Roots => RepositoryRoots ?? [WorkerRoot];
+    /// <summary>Where a request's repository may live (ADR 0023); worker_root alone when the profile names none. GitHub intake's managed clones (<c>discover</c>, ADR 0051) are always among them.</summary>
+    public IReadOnlyList<string> Roots => RepositoryRoots is null ? [WorkerRoot]
+        : Automation?.Github is { Discover: true } ? [.. RepositoryRoots, ClonesRoot] : RepositoryRoots;
+
+    /// <summary>Where GitHub intake clones the repositories it discovers.</summary>
+    [JsonIgnore]
+    public string ClonesRoot => Path.Combine(WorkerRoot, AutomationGitHub.ClonesDirectory);
 
     /// <summary>The services a preset's node may use: the profile's list for the preset (<c>preset_services</c>), else the preset's own (ADR 0034).
     /// A shipped preset names no server of anyone's profile, so the profile maps its own.</summary>

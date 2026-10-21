@@ -34,7 +34,12 @@ public sealed record ReviewComment(long Id, int PullNumber, string Author, strin
 /// <param name="Actor">The login of the person who applied the label.</param>
 public sealed record LabelEvent(long Id, string Actor);
 
-/// <summary>What intake does on GitHub (ADR 0051), each call as the GitHub App. It reads issues and comments and writes comments, nothing else.</summary>
+/// <summary>A repository one of the App's installations can see (ADR 0051, <c>discover</c>).</summary>
+/// <param name="FullName"><c>owner/repo</c>.</param>
+/// <param name="CloneUrl">The https URL to clone it from; it holds no credential.</param>
+public sealed record InstalledRepository(string FullName, string CloneUrl, bool Archived);
+
+/// <summary>What intake does on GitHub (ADR 0051), each call as the GitHub App. It reads issues and comments, writes comments and creates the trigger label, nothing else.</summary>
 public interface IIntakeHost
 {
     /// <summary>The open issues and pull requests that carry <paramref name="label"/>.</summary>
@@ -65,6 +70,13 @@ public interface IIntakeHost
 
     /// <returns>The new comment's id.</returns>
     Task<long> CommentAsync(string repository, int number, string body, CancellationToken ct);
+
+    /// <summary>Every repository the App's installations can see, archived ones included.</summary>
+    Task<IReadOnlyList<InstalledRepository>> InstalledRepositoriesAsync(CancellationToken ct);
+
+    /// <summary>Creates the label in the repository when it has none of that name.</summary>
+    /// <returns>Whether it was created.</returns>
+    Task<bool> EnsureLabelAsync(string repository, string label, CancellationToken ct);
 }
 
 /// <summary>The id of a batch that started, or why it did not.</summary>
@@ -87,3 +99,6 @@ public interface IRepositoryHeads
     /// <exception cref="IntakeException">The head could not be fetched.</exception>
     Task<string> FetchPullHeadAsync(string path, int number, CancellationToken ct);
 }
+
+/// <summary>A repository intake watches: <paramref name="Discovered"/> when it came from the App's installations and its checkout is a managed clone, else from the profile.</summary>
+public sealed record WatchedRepository(string Path, bool Discovered);

@@ -18,7 +18,7 @@ public class ProfileMessageTests
         """driven.admission: reserve_mb must be at least 0; max_load_per_cpu must be above 0; default_request_mb must be at least 512; max_memory_pressure must be above 0 and at most 100""",
         """Fix driven.admission in the profile; docs/guide/driven.md lists the keys.""")]
     [InlineData("automation", """{"schema":"profile/v1","automation":{"github":{}}}""",
-        """automation.github: needs driven.enabled and the GitHub App of driven.integrator (app_id, private_key_secret), which reads and comments; repositories must list at least one owner/repo; allowed_authors is required (an empty list means nothing triggers)""",
+        """automation.github: needs driven.enabled and the GitHub App of driven.integrator (app_id, private_key_secret), which reads and comments; repositories must list at least one owner/repo, or discover must be true; allowed_authors is required (an empty list means nothing triggers)""",
         """Fix automation.github in the profile; docs/guide/intake.md lists the keys.""")]
     [InlineData("enhancer", """{"schema":"profile/v1","prompt_enhancer":{"server":"nope"}}""",
         """prompt_enhancer.server 'nope' is not defined in mcp_servers""",

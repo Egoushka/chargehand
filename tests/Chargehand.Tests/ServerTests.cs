@@ -47,13 +47,14 @@ internal sealed class TestServer : IAsyncDisposable
     public AccountKeyStore Keys => new(System.IO.Path.Combine(_root.Path, "accounts.json"));
 
     public static async Task<TestServer> StartAsync(ScriptedRuntime runtime, IReadOnlyList<string>? allowedHosts = null, Func<string, JsonlRunLog, Chargehand.Driven.DrivenRun>? driven = null,
-        IReadOnlyList<AccountSettings>? accounts = null, TimeProvider? clock = null, bool ui = false, Func<string?, IWorkerRuntime>? runtimeFor = null, Func<string, ServerSettings, ServerSettings>? tweak = null)
+        IReadOnlyList<AccountSettings>? accounts = null, TimeProvider? clock = null, bool ui = false, Func<string?, IWorkerRuntime>? runtimeFor = null, Func<string, ServerSettings, ServerSettings>? tweak = null,
+        Chargehand.Automation.GitHubIntake? intake = null)
     {
         var root = new TempDir();
         var log = new JsonlRunLog(System.IO.Path.Combine(root.Path, "log.jsonl"));
         var settings = new ServerSettings(0, Key, Repo.Path("presets"), AllowedHosts: allowedHosts, Accounts: accounts,
             AccountKeysFile: System.IO.Path.Combine(root.Path, "accounts.json"), Clock: clock, Ui: ui);
-        var app = ChargehandServer.Create(tweak is null ? settings : tweak(root.Path, settings), Runs.Orchestrator(runtime, root.Path, log, runtimeFor), log, driven?.Invoke(root.Path, log));
+        var app = ChargehandServer.Create(tweak is null ? settings : tweak(root.Path, settings), Runs.Orchestrator(runtime, root.Path, log, runtimeFor), log, driven?.Invoke(root.Path, log), intake);
         await app.StartAsync();
         return new TestServer(root, runtime, log, app, new Uri(app.Urls.First()));
     }

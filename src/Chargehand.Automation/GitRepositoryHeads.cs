@@ -3,14 +3,15 @@ using System.Diagnostics;
 namespace Chargehand.Automation;
 
 /// <summary>The commit a triggered batch starts from: the default branch of the checkout's <c>origin</c>, after a fetch with the server's own git credentials. A fetch that fails is not fatal, since a
-/// batch on a slightly old base still ends in a pull request the integrator can bring up to date; the caller is told through <paramref name="warn"/>.</summary>
-public sealed class GitRepositoryHeads(Action<string>? warn = null) : IRepositoryHeads
+/// batch on a slightly old base still ends in a pull request the integrator can bring up to date; the caller is told through <paramref name="warn"/>. A checkout of <paramref name="clones"/> is fetched with
+/// the App's token instead (ADR 0051, <c>discover</c>).</summary>
+public sealed class GitRepositoryHeads(Action<string>? warn = null, ManagedClones? clones = null) : IRepositoryHeads
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(2);
 
     public async Task<string> CurrentCommitAsync(string path, CancellationToken ct)
     {
-        var fetch = await GitAsync(path, ["fetch", "--quiet", "origin"], ct);
+        var fetch = await GitAsync(path, ["fetch", "--quiet", "origin"], ct, await AuthAsync(path, ct));
         if (fetch.ExitCode != 0)
             warn?.Invoke($"intake: could not fetch {Path.GetFileName(Path.GetFullPath(path))}: {fetch.Output}");
         var head = await GitAsync(path, ["rev-parse", "--verify", "--end-of-options", "origin/HEAD^{commit}"], ct);
@@ -21,7 +22,7 @@ public sealed class GitRepositoryHeads(Action<string>? warn = null) : IRepositor
     {
         var id = number.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var local = $"refs/chargehand/pull/{id}";
-        var fetch = await GitAsync(path, ["fetch", "--quiet", "origin", $"+refs/pull/{id}/head:{local}"], ct);
+        var fetch = await GitAsync(path, ["fetch", "--quiet", "origin", $"+refs/pull/{id}/head:{local}"], ct, await AuthAsync(path, ct));
         if (fetch.ExitCode != 0)
         {
             // A read-only checkout cannot fetch; a host job that keeps it current may have fetched refs/pull/* already. The caller
@@ -34,12 +35,16 @@ public sealed class GitRepositoryHeads(Action<string>? warn = null) : IRepositor
         return head.ExitCode == 0 && head.Output.Length >= 7 ? head.Output : throw new IntakeException($"pull request {id} has no head commit in {Path.GetFileName(Path.GetFullPath(path))}");
     }
 
-    private static async Task<(int ExitCode, string Output)> GitAsync(string directory, string[] args, CancellationToken ct)
+    private async Task<IReadOnlyDictionary<string, string>?> AuthAsync(string path, CancellationToken ct) => clones is not null && clones.Owns(path) ? await clones.AuthAsync(path, ct) : null;
+
+    internal static async Task<(int ExitCode, string Output)> GitAsync(string directory, string[] args, CancellationToken ct, IReadOnlyDictionary<string, string>? env = null)
     {
         var psi = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
         foreach (var arg in args)
             psi.ArgumentList.Add(arg);
         psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
+        foreach (var (key, value) in env ?? new Dictionary<string, string>())
+            psi.Environment[key] = value;
         using var process = Process.Start(psi) ?? throw new IntakeException("git could not be started");
         process.StandardInput.Close();
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);

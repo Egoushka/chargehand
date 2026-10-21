@@ -111,6 +111,27 @@ internal sealed class FakeGitHub : IIntakeHost
         return Task.FromResult(id);
     }
 
+    public List<InstalledRepository> Installed { get; } = [];
+
+    public bool InstalledFails { get; set; }
+
+    /// <summary>Repositories that have the trigger label; <see cref="EnsureLabelAsync"/> adds to it.</summary>
+    public HashSet<string> LabelledRepositories { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public List<string> LabelsCreated { get; } = [];
+
+    public Task<IReadOnlyList<InstalledRepository>> InstalledRepositoriesAsync(CancellationToken ct) =>
+        InstalledFails ? throw new IntakeException("GitHub answered 500 to the installation's repositories", 500) : Task.FromResult<IReadOnlyList<InstalledRepository>>([.. Installed]);
+
+    public Task<bool> EnsureLabelAsync(string repository, string label, CancellationToken ct)
+    {
+        Check(repository);
+        if (!LabelledRepositories.Add(repository))
+            return Task.FromResult(false);
+        LabelsCreated.Add($"{repository}:{label}");
+        return Task.FromResult(true);
+    }
+
     public long Add(int issue, string author, string body, DateTimeOffset at)
     {
         var id = _next++;
@@ -231,10 +252,12 @@ internal sealed class IntakeRig : IDisposable
 
     private readonly TempDir _dir = new();
     private readonly IntegratorPolicy? _policy;
+    private readonly ManagedClones? _clones;
 
-    public IntakeRig(AutomationGitHub? settings = null, IntegratorPolicy? policy = null)
+    public IntakeRig(AutomationGitHub? settings = null, IntegratorPolicy? policy = null, ManagedClones? clones = null)
     {
         _policy = policy;
+        _clones = clones;
         Settings = settings ?? new AutomationGitHub(new Dictionary<string, AutomationRepository> { [Repo] = new("/srv/repos/repo") }, [Author]);
         Starter = new FakeStarter(Log);
         GitHub.Now = () => Time.GetUtcNow();
@@ -276,7 +299,12 @@ internal sealed class IntakeRig : IDisposable
 
     public IntakeState State => IntakeState.Load(StatePath);
 
-    private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy);
+    private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy, IntakeSources.Load(SourcesPath), _clones);
+
+    private string SourcesPath => Path.Combine(_dir.Path, "intake", "sources.json");
+
+    /// <summary>The switches as a new process would read them.</summary>
+    public IntakeSources Sources => IntakeSources.Load(SourcesPath);
 
     /// <summary>A new process on the same state file.</summary>
     public void Restart() => Intake = Build();
