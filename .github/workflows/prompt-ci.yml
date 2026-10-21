@@ -99,30 +99,23 @@ jobs:
         run: |
           runtime=$(echo "$LABELS" | jq -r '[.[] | select(startswith("prompt-ci:")) | ltrimstr("prompt-ci:")][0] // empty')
           case $runtime in *[!a-z0-9-]*) echo "prompt-ci: bad runtime label '$runtime'" >&2; exit 2 ;; esac
-          # A label that changes what the gate spends or lets through counts only when someone with write access added it.
-          require_writer() {
+          # A runtime label picks what the gate spends, so it counts only when someone with write access added it.
+          if [ -n "$runtime" ]; then
             actor=$(gh api --paginate "repos/$REPO/issues/$PR/events" \
-              -q ".[] | select(.event == \"labeled\" and .label.name == \"$1\") | .actor.login" | tail -1)
+              -q ".[] | select(.event == \"labeled\" and .label.name == \"prompt-ci:$runtime\") | .actor.login" | tail -1)
             permission=$(gh api "repos/$REPO/collaborators/$actor/permission" -q .permission 2>/dev/null || echo none)
             case $permission in
               admin | write) ;;
               *)
                 gh api -X POST "repos/$REPO/statuses/$HEAD" -f state=failure -f context=prompt-ci \
-                  -f description="$1 added without write access" >/dev/null
-                echo "prompt-ci: $1 was added by '$actor' ($permission), not someone with write access" >&2
+                  -f description="runtime label added without write access" >/dev/null
+                echo "prompt-ci: prompt-ci:$runtime was added by '$actor' ($permission), not someone with write access" >&2
                 exit 1 ;;
             esac
-          }
-          [ -n "$runtime" ] && require_writer "prompt-ci:$runtime"
-          # The owner's call that a change to a file no eval cell covers (a permission line, say) needs no eval.
-          uncovered=''
-          if echo "$LABELS" | jq -e 'index("prompt-ci-allow-uncovered")' >/dev/null; then
-            require_writer prompt-ci-allow-uncovered
-            uncovered=--allow-uncovered
           fi
           runtime=${runtime:-${PROMPT_CI_RUNTIME:?the runner sets no default runtime}}
           var=PROMPT_CI_PROFILE_$(echo "$runtime" | tr 'a-z-' 'A-Z_')
           CHARGEHAND_PROFILE=$(printenv "$var") || { echo "prompt-ci: this runner has no $var" >&2; exit 2; }
           export CHARGEHAND_PROFILE
           echo "prompt-ci: runtime $runtime"
-          scripts/prompt-ci.sh "$PR" $REVIEWED $uncovered
+          scripts/prompt-ci.sh "$PR" $REVIEWED
