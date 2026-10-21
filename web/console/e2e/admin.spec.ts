@@ -94,8 +94,14 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         await expect(page.getByText('78% of 18 tasks')).toBeVisible();
         await expect(page.getByText('main @ a91c0ff')).toBeVisible();
         await expect(page.getByText('git could not read HEAD').first()).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Conflict radar' })).toBeVisible();
+        await expect(page.getByText('7 shared files')).toBeVisible();
+        await expect(page.getByText('src/Payments/Retry.cs')).toBeVisible();
         await page.getByRole('button', { name: '2 open PRs' }).click();
-        await expect(page.getByRole('link', { name: '#412' })).toBeVisible();
+        const payments = page.locator('section', {
+          has: page.getByRole('heading', { name: 'payments-api' }),
+        });
+        await expect(payments.getByRole('link', { name: '#412' })).toBeVisible();
         await settle(page);
 
         expect(await sidewaysScroll(page)).toBeLessThanOrEqual(0);

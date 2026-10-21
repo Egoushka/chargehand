@@ -110,6 +110,7 @@ describe('Repositories with data', () => {
     expect(shop.getByText('watched by intake')).toBeTruthy();
     expect(card('infra').queryByText('watched by intake')).toBeNull();
     expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual([
+      'Conflict radar',
       'payments-api',
       'web-shop',
       'infra',
@@ -285,5 +286,67 @@ describe('Repositories for an account', () => {
     expect(calls.some((c) => c.path === '/v1/repositories')).toBe(true);
     const nav = screen.getByRole('navigation', { name: 'Main' });
     expect(within(nav).getByRole('link', { name: 'Repositories' })).toBeTruthy();
+  });
+});
+
+describe('Conflict radar', () => {
+  const radar = async () => {
+    const heading = await screen.findByRole('heading', { name: 'Conflict radar' });
+    const section = heading.closest('section') as HTMLElement;
+    await within(section)
+      .findByRole('list', {
+        name: 'Files both change in example/payments-api',
+      })
+      .catch(() => undefined);
+    return within(section);
+  };
+
+  it('pairs open pull requests that change the same files, most shared first, with links to both', async () => {
+    await open();
+    const panel = await radar();
+    const items = await panel.findAllByRole('list', { name: /Files both change in/ });
+    expect(items).toHaveLength(2);
+    expect(within(items[0] as HTMLElement).getAllByRole('listitem')).toHaveLength(5);
+    expect(panel.getByText('and 2 more')).toBeTruthy();
+    expect(panel.getByText('7 shared files')).toBeTruthy();
+    expect(panel.getByText('1 shared file')).toBeTruthy();
+    expect(panel.getAllByRole('link', { name: '#412' })[0]?.getAttribute('href')).toBe(
+      'https://github.com/example/payments-api/pull/412',
+    );
+    expect(panel.getByRole('link', { name: '#412 issue-412' }).getAttribute('href')).toBe(
+      '/console/runs/run-20261013-124239-1fdf01',
+    );
+    expect(panel.getByText(/#415 changed 900 files and its result kept fewer/)).toBeTruthy();
+    expect(panel.getByText('Not compared, no changed paths recorded: #401.')).toBeTruthy();
+  });
+
+  it('says when no open pull requests share a file, and how many it compared', async () => {
+    await open({ conflicts: adm.conflicts({ conflicts: [], open_pulls: 3, unread: [] }) });
+    const panel = await radar();
+    expect(await panel.findByText('No open pull requests share a file')).toBeTruthy();
+    expect(panel.getByText('Compared 3 of 3 open pull requests chargehand opened.')).toBeTruthy();
+  });
+
+  it('never links a pull request whose address is not http or https', async () => {
+    const body = adm.conflicts();
+    const [first] = body.conflicts;
+    if (first?.pulls[0]) first.pulls[0].url = 'javascript:alert(1)';
+    await open({ conflicts: body });
+    const panel = await radar();
+    await panel.findByText('7 shared files');
+    expect(panel.queryAllByRole('link', { name: '#412' })).toHaveLength(0);
+  });
+
+  it('names the failing call and keeps the checkouts', async () => {
+    await open({
+      replies: {
+        ...history(),
+        '/v1/pulls/conflicts': [503, { errors: ['the run log is locked'] }],
+      },
+    });
+    const panel = await radar();
+    expect(await panel.findByText('Cannot read the conflict radar')).toBeTruthy();
+    expect(panel.getByText('GET /v1/pulls/conflicts')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'payments-api' })).toBeTruthy();
   });
 });

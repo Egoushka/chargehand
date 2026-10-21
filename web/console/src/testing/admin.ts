@@ -9,6 +9,7 @@ import type {
   IntakeSourcesBody,
   IntakeTaskBody,
 } from '../api/intake';
+import type { ConflictsBody } from '../api/pulls';
 import type { RepositoriesBody, RepositoryBody } from '../api/repositories';
 import type { ContainerBody, SystemBody } from '../api/system';
 import { BATCH_A, BATCH_B, me, REPO, system } from './fixtures';
@@ -732,5 +733,56 @@ export function switched(list: IntakeSourcesBody, body: unknown): IntakeSourcesB
         enabled: set.get(`plane:${p.project}`) ?? p.enabled,
       })),
     },
+  };
+}
+
+/** `conflicts/v1`: two pairs in payments-api, one of them with a result that kept fewer paths than it changed, and one pull request with no recorded changes. */
+export function conflicts(over: Partial<ConflictsBody> = {}, now = Date.now()): ConflictsBody {
+  const pull = (
+    number: number,
+    batch: string,
+    over: Partial<ConflictsBody['unread'][number]> = {},
+  ) => ({
+    url: `https://github.com/example/payments-api/pull/${number}`,
+    number,
+    batch_run_id: batch,
+    task_id: `issue-${number}`,
+    actor: null,
+    opened_at: iso(now, 60 * (number - 400)),
+    files_total: 4,
+    files_listed: true,
+    ...over,
+  });
+  return {
+    contract_version: 'conflicts/v1',
+    generated_at: iso(now, 0),
+    open_pulls: 5,
+    conflicts: [
+      {
+        repository: 'example/payments-api',
+        pulls: [pull(412, BATCH_A), pull(415, BATCH_B)],
+        files_shared: 7,
+        files: [
+          'src/Payments/Retry.cs',
+          'src/Payments/RetryPolicy.cs',
+          'src/Payments/Client.cs',
+          'tests/Payments.Tests/RetryTests.cs',
+          'tests/Payments.Tests/ClientTests.cs',
+          'docs/retries.md',
+          'CHANGELOG.md',
+        ],
+      },
+      {
+        repository: 'example/payments-api',
+        pulls: [pull(409, BATCH_A), pull(415, BATCH_B, { files_total: 900, files_listed: false })],
+        files_shared: 1,
+        files: ['CHANGELOG.md'],
+      },
+    ],
+    unread: [pull(401, BATCH_B, { files_total: 0, files_listed: false })],
+    not_recorded: [
+      "The paths are those the pull request's latest task run changed, as its result recorded them; a commit pushed to the branch by a person is not seen.",
+    ],
+    ...over,
   };
 }
