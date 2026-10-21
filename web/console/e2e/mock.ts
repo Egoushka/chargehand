@@ -67,6 +67,8 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
         return route.fulfill({
           json: fx.inbox(options.empty || options.account ? [] : fx.inboxItems(now), now),
         });
+      case '/v1/pulls/conflicts':
+        return route.fulfill({ json: adm.conflicts({}, now) });
       case '/v1/pulls':
         return route.fulfill({
           json: options.empty ? { ...fx.pulls(now), pulls: [] } : fx.pulls(now),

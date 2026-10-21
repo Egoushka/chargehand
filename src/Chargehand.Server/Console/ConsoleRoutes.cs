@@ -81,6 +81,12 @@ internal static class ConsoleRoutes
                 q.TryGetValue("awaiting", out var awaiting) && bool.Parse(awaiting.ToString()), since, limit, ctx.RequestAborted));
         });
 
+        // A block body: an expression-bodied lambda on HttpContext binds as a RequestDelegate and drops the result.
+        app.MapGet("/v1/pulls/conflicts", async (HttpContext ctx) =>
+        {
+            return Json(await ConsoleConflicts.BuildAsync(Context(ctx), PrincipalHttp.Of(ctx), ctx.RequestAborted));
+        });
+
         app.MapGet("/v1/analytics", async (HttpContext ctx) =>
         {
             var c = Context(ctx);

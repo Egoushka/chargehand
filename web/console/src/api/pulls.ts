@@ -41,3 +41,38 @@ export const usePulls = (params: PullsParams = {}) => useQuery(pullsQuery(params
 
 /** A pull request that was merged, by any of the outcomes the server reads back. */
 export const isMerged = (pr: PullRequestBody): boolean => pr.state.startsWith('merged');
+
+/** An open pull request of the conflict radar. `files_listed` is false when its result kept fewer paths than the task changed, so an overlap may be missed. */
+export interface ConflictPullBody {
+  url: string;
+  number?: number | null;
+  batch_run_id: string;
+  task_id: string;
+  actor?: string | null;
+  opened_at?: string | null;
+  files_total: number;
+  files_listed: boolean;
+}
+
+/** Two open pull requests of one repository whose tasks changed some of the same paths; `files` holds up to 50 of them. */
+export interface ConflictBody {
+  repository: string;
+  pulls: ConflictPullBody[];
+  files_shared: number;
+  files: string[];
+}
+
+/** `conflicts/v1` (CHARGEHAND-216): open pull requests likely to conflict, most shared paths first. `unread` have no recorded changes and are not compared. */
+export interface ConflictsBody extends ContractMeta {
+  contract_version: 'conflicts/v1';
+  open_pulls: number;
+  conflicts: ConflictBody[];
+  unread: ConflictPullBody[];
+}
+
+export const conflictsQuery = () =>
+  queryOptions({
+    queryKey: ['pulls', 'conflicts'],
+    queryFn: ({ signal }) => getJson<ConflictsBody>('/v1/pulls/conflicts', signal),
+    refetchInterval: 60_000,
+  });

@@ -47,3 +47,9 @@
   cursor: default;
   text-decoration: none;
 }
+
+.conflict-files {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}

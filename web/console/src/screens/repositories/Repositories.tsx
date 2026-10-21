@@ -20,6 +20,7 @@ import {
   StatusPill,
 } from '../../ui';
 import { lastSeen, NotRecorded, Planned } from '../admin/parts';
+import { ConflictRadar } from './ConflictRadar';
 import {
   CHECK_LABEL,
   CHECK_STATUS,
@@ -121,6 +122,7 @@ export function Repositories() {
               onRetry={() => void analytics.refetch()}
             />
           ) : null}
+          <ConflictRadar />
           <div className="g3">
             {data.repositories.map((repo) => (
               <RepositoryCard
