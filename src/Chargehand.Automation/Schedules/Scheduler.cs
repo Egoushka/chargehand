@@ -7,9 +7,10 @@ namespace Chargehand.Automation;
 
 /// <summary>Starts recurring work on a clock, within a monthly cap (ADR 0068). It wakes every minute. An entry is due when its next occurrence after the time it was last dealt with has passed; a slot missed while
 /// the server was down is therefore one run at the first wake, not one per slot. An occurrence is dealt with when it starts, when the month's cap is used, or when the entry's last run is still going;
-/// a start that fails (the server halted, the checkout will not fetch, the notification service is down) is tried again after <see cref="RetryAfter"/>. Everything it did is in <see cref="ScheduleState"/> before the next step.</summary>
+/// a start that fails (the server halted, the checkout will not fetch, the notification service is down) is tried again after <see cref="RetryAfter"/>. Everything it did is in <see cref="ScheduleState"/> before the next step.
+/// <paramref name="flakes"/> is the CI history the <c>flaky-tests</c> template is given; without it the template reads the test code only.</summary>
 public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IRepositoryHeads heads, ScheduleState state, IScheduleNotifier notifier, IMorningSource morning, TimeProvider? clock = null,
-    Action<string>? warn = null)
+    Action<string>? warn = null, IFlakeHistory? flakes = null)
 {
     public const string ReadOnlyPreset = "default";
     public const string DrivenPreset = "driven";
@@ -108,7 +109,7 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
             return true;
         }
         var commit = await heads.CurrentCommitAsync(entry.Repository!.Path, ct);
-        var started = await starter.StartAsync(Request(entry, new RepositoryRef(entry.Repository.Path, commit)), ct);
+        var started = await starter.StartAsync(Request(entry, new RepositoryRef(entry.Repository.Path, commit), await GoalAsync(entry, ct)), ct);
         if (started.RunId is not { } run)
         {
             _warn($"schedules: {entry.Id}: the server did not start the run: {started.Refusal}");
@@ -119,10 +120,16 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
         return true;
     }
 
-    private static RunRequest Request(ScheduleEntry entry, RepositoryRef repository) => entry.Kind() == ScheduleKind.Driven
+    private static RunRequest Request(ScheduleEntry entry, RepositoryRef repository, string goal) => entry.Kind() == ScheduleKind.Driven
         ? new RunRequest("request/v1", $"Scheduled: {entry.Id}.", new RequestContext(false, DrivenPreset, Repository: repository),
-            Driven: new RequestDriven([new DrivenTask($"schedule-{entry.Id}", Goal: entry.Text(), Size: entry.Size())], MaxParallel: 1))
-        : new RunRequest("request/v1", entry.Text()!, new RequestContext(false, ReadOnlyPreset, Repository: repository));
+            Driven: new RequestDriven([new DrivenTask($"schedule-{entry.Id}", Goal: goal, Size: entry.Size())], MaxParallel: 1))
+        : new RunRequest("request/v1", goal, new RequestContext(false, ReadOnlyPreset, Repository: repository));
+
+    /// <summary>The entry's text; for <c>flaky-tests</c> with the CI history, when it can be read.</summary>
+    private async Task<string> GoalAsync(ScheduleEntry entry, CancellationToken ct) =>
+        entry.Template == ScheduleTemplates.FlakyTests && flakes is not null && await flakes.ReadAsync(entry.Repository!.Path, ct) is { } history
+            ? FlakyTestsGoal.Compose(history)
+            : entry.Text()!;
 
     private async Task PostAsync(string title, string body, CancellationToken ct)
     {

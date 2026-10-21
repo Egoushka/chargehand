@@ -85,6 +85,8 @@ internal sealed class ScheduleRig : IDisposable
 
     public FakeMorning Morning { get; } = new();
 
+    public FakeFlakes Flakes { get; } = new();
+
     public ManualTimeProvider Time { get; } = new();
 
     public List<string> Warnings { get; } = [];
@@ -95,7 +97,7 @@ internal sealed class ScheduleRig : IDisposable
 
     public ScheduleState State => ScheduleState.Load(StateFile);
 
-    private Scheduler Build() => new(_settings, Log, Heads, ScheduleState.Load(StateFile), Notifier, Morning, Time, Warnings.Add);
+    private Scheduler Build() => new(_settings, Log, Heads, ScheduleState.Load(StateFile), Notifier, Morning, Time, Warnings.Add, Flakes);
 
     /// <summary>A new process on the same state file.</summary>
     public void Restart() => Scheduler = Build();
@@ -127,6 +129,19 @@ internal sealed class ScheduleRig : IDisposable
         new("result/v1", "run", "worker", new string('0', 32), new PromptChain([], new AsSent("1", "build", "p/m", "2026-01-01")), status, summary, claims ?? [], evidence ?? [], [], [], 0.8, new Usage(0, 0, 0, 0, 0));
 
     public void Dispose() => _dir.Dispose();
+}
+
+internal sealed class FakeFlakes : IFlakeHistory
+{
+    public FlakeHistory? History { get; set; }
+
+    public List<string> Read { get; } = [];
+
+    public Task<FlakeHistory?> ReadAsync(string checkoutPath, CancellationToken ct)
+    {
+        Read.Add(checkoutPath);
+        return Task.FromResult(History);
+    }
 }
 
 internal sealed class ScheduleHeads : IRepositoryHeads

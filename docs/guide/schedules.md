@@ -33,8 +33,18 @@ Scheduled work ([ADR 0068](../adr/0068-scheduled-work-within-a-monthly-cap.md)) 
 |---|---|---|
 | `dependency-upgrades` | driven | Updates dependencies to the latest compatible minor and patch versions, runs the tests, opens one pull request listing what changed and what was skipped. Needs `driven.enabled`. |
 | `doc-drift` | read-only | Finds statements in README and docs/ that the code contradicts; each finding cites the doc line and the code line. |
-| `flaky-tests` | read-only | Reads the test code for flake patterns (timing, ordering, shared state). chargehand has no tool for CI history, so it cannot see runs that passed and failed on the same commit; the template tells the worker to say so. |
+| `flaky-tests` | read-only | Reads the last 14 days of CI history through the forge and gives the worker the jobs that failed and then passed on the same commit, with the failed test names from each failed log; the worker explains each from the test code, then reads the rest of the tests for flake patterns (timing, ordering, shared state). Without history it reads the test code only and says so. See [CI history](#ci-history). |
 | `morning-report` | none | No model call. Last 24 hours of top-level runs and batches (finished, failed, need you, denied, still going), spend, and the open inbox items, POSTed to `notify_url`. |
+
+## CI history
+
+`flaky-tests` reads CI history from the forge of the checkout's `origin`, read-only, with the credential the driven run reads pull requests with: on GitHub the integrator's App (`driven.integrator`), which needs the **Actions read** permission it already has for CI-fix logs ([GitHub setup](github-start.md)); on GitLab `driven.forge.token_secret`, else the push credential.
+
+- GitHub: one page of workflow runs created in the last 14 days (100), then the jobs of each attempt of the runs that can hold a flake: a run that was re-run, or a commit whose runs of one workflow did not all end the same. At most 40 job lists.
+- GitLab: the 30 newest pipelines updated in the last 14 days, each with its retried jobs (a retry is a new job of the same name).
+- A flake is a job (workflow or stage, and name) with a failed attempt and a later passed one on the same commit, on any branch or pull request. At most 10, newest first. Each failed attempt's log is read for test names in the forms of `dotnet test`, `go test`, pytest, jest, Maven Surefire and `cargo test`; when none is found the worker gets the last 600 characters of the log. A log that expired still counts the flake.
+
+No integrator App, an `origin` that is no forge's, or a refusal (a missing permission) means no history: the server logs `schedules: flaky-tests: ...` and the template reads the test code only. A failed read never stops the run.
 
 ## Behaviour
 

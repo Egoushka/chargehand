@@ -169,6 +169,9 @@ public sealed partial class GitLabForge(HttpClient http, string token) : IForge
         return GitHubIntegrationHost.TailOf(Section().Replace(text, ""), maxChars);
     }
 
+    public Task<IReadOnlyList<CiJob>> RecentJobsAsync(RemoteRepository repository, DateTimeOffset since, CancellationToken ct) =>
+        GitLabCiHistory.ReadAsync(path => RestAsync(HttpMethod.Get, path, null, "the CI history", ct), ProjectPath(repository), since, ct);
+
     /// <summary>The jobs of the pipeline, each required unless GitLab lets it fail. A pipeline with no job (a configuration error ends it so) stands for itself.</summary>
     private async Task<IEnumerable<CheckStatus>> PipelineChecksAsync(RemoteRepository repository, long pipelineId, string? pipelineStatus, CancellationToken ct)
     {
