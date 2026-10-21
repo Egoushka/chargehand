@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.15.0](https://github.com/Egoushka/chargehand/compare/v0.14.1...v0.15.0) (2026-10-21)
+
+
+### Features
+
+* **intake:** discover the App's repositories, close the issue on merge, switch repositories off (CHARGEHAND-241) ([#387](https://github.com/Egoushka/chargehand/issues/387)) ([96a4fa2](https://github.com/Egoushka/chargehand/commit/96a4fa2ba24fc0b3a6981585a0cb9aad6e5dae2a))
+* **integrator:** no merge without a required check; push docs-only or CI-gated untested changes (CHARGEHAND-244) ([#389](https://github.com/Egoushka/chargehand/issues/389)) ([1884b7e](https://github.com/Egoushka/chargehand/commit/1884b7eec3c8e59bb9c7865ebd55cd4e7c186cef))
+
 ## [0.14.1](https://github.com/Egoushka/chargehand/compare/v0.14.0...v0.14.1) (2026-10-20)
 
 
