@@ -23,7 +23,7 @@ Changed files map to the eval cells in [evals/cells.json](../../evals/cells.json
 | `draft/draft` | `draft` | `prompts/core/draft.md`, `prompts/preset/draft.md`, `presets/draft.yaml` | 0.10 | +15% |
 | `intake` | none | `prompts/intake/task-spec.md` | 0.10 | +15% |
 
-Every cell needs at least 8 items; a cell whose dataset is empty is skipped with a warning in the job summary, not blocked. A changed prompt or preset file that no cell gates fails the gate unless the owner passes `--allow-uncovered`; the prompt blocks and preset files of `default`, `thorough` and `strict` have no cell. The items are real tasks in the orchestrator's Langfuse datasets. [evals/example.jsonl](../../evals/example.jsonl) shows their format with questions about this repository. The `review/worker` cell shipped in 0.4.0, and [docs/benchmarks.md](../benchmarks.md) records no calibration for it.
+Every cell needs at least 8 items; a cell whose dataset is empty is skipped with a warning in the job summary, not blocked. A changed prompt or preset file that no cell gates fails the gate unless the owner passes `--allow-uncovered` (in CI: the `prompt-ci-allow-uncovered` label, counted only when someone with write access added it); the prompt blocks and preset files of `default`, `thorough` and `strict` have no cell. The items are real tasks in the orchestrator's Langfuse datasets. [evals/example.jsonl](../../evals/example.jsonl) shows their format with questions about this repository. The `review/worker` cell shipped in 0.4.0, and [docs/benchmarks.md](../benchmarks.md) records no calibration for it.
 
 ## Where it runs
 
@@ -96,7 +96,7 @@ Both passed the first gate. The first score measured grounding, which the worker
 ## When you change a prompt or preset
 
 - Expect a paired eval for every cell your change touches. If you trade quality for cost on purpose, declare the trade in the pull request body.
-- A change to the prompt block or preset file of `default`, `thorough` or `strict` has no cell; the gate fails unless the owner passes `--allow-uncovered`.
+- A change to the prompt block or preset file of `default`, `thorough` or `strict` has no cell; the gate fails unless the owner passes `--allow-uncovered` or adds the `prompt-ci-allow-uncovered` label.
 - A change under `presets/`, or a pull request from a fork, waits for the owner's approval before any eval runs.
 - A prompt that merges facts into fewer claims on purpose reads as a thinner answer; declare it as a trade.
 - A pass means the gate saw no drop beyond its tolerances on its items. It did not see #6.
