@@ -30,8 +30,9 @@ public static partial class SessionDriver
 
     private static readonly SessionsJsonContext OutcomeJson = new(new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower, WriteIndented = true });
 
-    /// <summary>No shell tool is withheld: the container is the boundary (ADR 0039), and the model needs one to run the repository's tests.</summary>
-    private const string AllowedTools = "Bash,Read,Edit,Write,Glob,Grep,mcp__chargehand__orchestrate";
+    /// <summary>No shell tool is withheld: the container is the boundary (ADR 0039), and the model needs one to run the repository's tests. <c>result</c> reads a
+    /// research or review run that outlasted its orchestrate call; without it the session can only ask for the permission and stop.</summary>
+    private const string AllowedTools = "Bash,Read,Edit,Write,Glob,Grep,mcp__chargehand__orchestrate,mcp__chargehand__result";
 
     /// <param name="settingsFile">Claude Code settings with the goal reminder's hook; null: none.</param>
     /// <param name="resume">The session to resume and its next turn (the check gate's feedback); null: a new session on the goal.</param>

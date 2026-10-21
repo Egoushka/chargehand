@@ -83,6 +83,21 @@ public class ChangeSkillTests
     }
 
     [Fact]
+    public void A_driven_session_reads_a_running_call_with_result_and_goes_on_without_research_that_fails()
+    {
+        // Seen in production: research returned only a run id, result was denied, and the session stopped to ask the owner for the permission (CHARGEHAND-246).
+        static string Flat(string text) => System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ");
+        var section = Flat(Skill[Skill.IndexOf("## Driven mode", StringComparison.Ordinal)..Skill.IndexOf(SkillSteps[0], StringComparison.Ordinal)]);
+        var prompt = Flat(Chargehand.Modules.Sessions.Api.SessionCli.DefaultPrompt);
+        foreach (var text in new[] { "call the `result` tool", "continue without research", "never ask for a tool permission" })
+        {
+            Assert.Contains(text, section, StringComparison.Ordinal);
+            Assert.Contains(text, prompt, StringComparison.Ordinal);
+        }
+        Assert.DoesNotContain("stays unreachable, `NEEDS_INPUT:`", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_drivers_prompt_and_the_skill_agree_on_the_words_they_share()
     {
         var prompt = Chargehand.Modules.Sessions.Api.SessionCli.DefaultPrompt;

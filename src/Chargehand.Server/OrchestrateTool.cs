@@ -116,7 +116,7 @@ public static class OrchestrateTool
         var who = PrincipalHttp.Of(http);
         if (http?.Items[RunScope.ItemKey] is RunTokenClaims scope)
         {
-            var applied = RunScope.Apply(scope, request, runs.Ledger);
+            var applied = await RunScope.ApplyAsync(scope, request, runs.Ledger, ct);
             if (applied.Refusal is { } refusal)
                 throw new McpException(refusal);
             (request, parentRunId, chargeTo) = (applied.Request!, scope.RunId, scope.RunId);

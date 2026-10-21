@@ -74,6 +74,39 @@ public class RunTokenTests
     }
 
     [Fact]
+    public void A_descendant_commit_is_kept_an_unknown_one_runs_on_the_task_commit_and_an_unrelated_one_is_refused()
+    {
+        var ledger = new RunTokenLedger();
+        var later = Request(repo: new RepositoryRef("/srv/repo", "def5678"));
+        Assert.Equal("def5678", RunScope.Apply(Claims(), later, ledger, CommitRelation.Descendant).Request!.Context.Repository!.Commit);
+        // The session's own commit never left its container: the call runs on the task's commit.
+        Assert.Equal("abc1234", RunScope.Apply(Claims(), later, ledger, CommitRelation.Unknown).Request!.Context.Repository!.Commit);
+        Assert.Contains("commit", RunScope.Apply(Claims(), later, ledger, CommitRelation.Unrelated).Refusal);
+    }
+
+    [Fact]
+    public async Task Git_tells_a_descendant_from_an_unknown_and_an_unrelated_commit()
+    {
+        var root = Directory.CreateTempSubdirectory("chargehand-relate-");
+        try
+        {
+            var base_ = Runs.GitRepo(root.FullName);
+            File.WriteAllText(Path.Combine(base_.Path, "a.txt"), "a\n");
+            var next = Runs.Commit(base_, "a.txt");
+            var claims = new RunTokenClaims("run-parent", base_.Path, base_.Commit, null, null, Now.AddHours(1));
+            Assert.Equal(CommitRelation.Descendant, await RunScope.RelateAsync(claims, base_.Commit, CancellationToken.None));
+            Assert.Equal(CommitRelation.Descendant, await RunScope.RelateAsync(claims, next.Commit, CancellationToken.None));
+            Assert.Equal(CommitRelation.Unknown, await RunScope.RelateAsync(claims, new string('1', 40), CancellationToken.None));
+            Assert.Equal(CommitRelation.Unrelated, await RunScope.RelateAsync(claims with { Commit = next.Commit }, base_.Commit, CancellationToken.None));
+            Assert.Equal(CommitRelation.Unrelated, await RunScope.RelateAsync(claims, "HEAD", CancellationToken.None));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void The_budget_of_a_call_is_capped_at_what_the_token_has_left()
     {
         var ledger = new RunTokenLedger();
@@ -136,7 +169,13 @@ public class RunTokenTests
         Assert.True(allowed.StatusCode is HttpStatusCode.OK or HttpStatusCode.Accepted, $"{allowed.StatusCode}");
 
         Assert.Equal(HttpStatusCode.Forbidden, (await child.PostAsync("/v1/runs", Post(Request("code", repo)))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await child.PostAsync("/v1/runs", Post(Request("default", repo with { Commit = "0000000" })))).StatusCode);
+        // A commit the server's checkout lacks is the session's own: allowed, on the task's commit. One it has outside the task's line is refused.
+        var own = await child.PostAsync("/v1/runs", Post(Request("default", repo with { Commit = "0000000" })));
+        Assert.True(own.StatusCode is HttpStatusCode.OK or HttpStatusCode.Accepted, $"{own.StatusCode}");
+        File.WriteAllText(Path.Combine(repo.Path, "b.txt"), "b\n");
+        var later = Runs.Commit(repo, "b.txt");
+        using var behind = As(s, s.Tokens.Issue(new RunTokenClaims("run-parent", repo.Path, later.Commit, null, null, DateTimeOffset.UtcNow.AddHours(1)), DateTimeOffset.UtcNow));
+        Assert.Equal(HttpStatusCode.Forbidden, (await behind.PostAsync("/v1/runs", Post(Request("default", repo)))).StatusCode);
         foreach (var route in new[] { "/v1/halt", "/v1/resume", "/v1/runs/run-x/cancel" })
             Assert.Equal(HttpStatusCode.Forbidden, (await child.PostAsync(route, null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await child.GetAsync("/v1/runs")).StatusCode);

@@ -14,10 +14,13 @@ branch itself, push it and open a draft pull request. Follow the steps below wit
 - Step 1: the working tree is already clean, on a branch chargehand made; do not stop for it.
 - Steps 2 and 7: call `orchestrate` with `context.repository` = { path: the environment variable `CHARGEHAND_REPOSITORY_PATH`, commit: the environment variable
   `CHARGEHAND_BASE_COMMIT` } in both, never `/work`, `.` or `HEAD`: your token admits that path and commit only. The review still gets the diff
-  (`git diff $CHARGEHAND_BASE_COMMIT..HEAD`) as its `diff` input. Do not skip research or review: if a call is refused, read the error and fix the call;
-  if chargehand stays unreachable, stop with `NEEDS_INPUT:` and the error instead of going on without the step.
-- Steps 2 and 8: where a step would ask the user questions, stop working, print a line `NEEDS_INPUT:` followed by the questions, one per line, and
-  finish. Do not guess the answers.
+  (`git diff $CHARGEHAND_BASE_COMMIT..HEAD`) as its `diff` input. A call that returns a run id instead of result/v1 is still running: call the `result`
+  tool with that `run_id` until it returns result/v1. If a call is refused, read the error and fix the call once.
+- Step 2: research is help, not a gate. If it still fails, is refused, comes back `needs_input` or `denied`, or chargehand is unreachable, continue
+  without research: read the code yourself and say in the final summary that research was not available and why. Never stop with `NEEDS_INPUT:` for a
+  chargehand call and never ask for a tool permission.
+- Steps 2 and 8: where a step would ask the user questions about the goal, stop working, print a line `NEEDS_INPUT:` followed by the questions, one
+  per line, and finish. Do not guess the answers.
 - Step 7: a review that returns `needs_input`, `failed` or `denied` does not stop the session: put its questions or error in the final summary as
   what was not reviewed, and finish as step 10 says.
 - Step 3: the branch named in the environment variable `CHARGEHAND_BRANCH` already exists and is checked out; use it instead of creating `change/<slug>`.
