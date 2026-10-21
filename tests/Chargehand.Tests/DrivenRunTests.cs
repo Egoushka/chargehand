@@ -65,13 +65,14 @@ public class DrivenRunTests
             DrivenForge? forge = null, Func<RemoteRepository, string, IForge>? forgeFor = null, string remote = "https://github.com/o/r.git",
             IBatchPlanner? planner = null, IStackSeeder? stacker = null, DrivenPlanning? planning = null, ILearningStore? learning = null, DrivenLearning? learningSettings = null,
             IBatchRetro? retro = null, IRetroSink? retroSink = null, DrivenGovernor? governor = null, IBranchSeeder? brancher = null, IReadOnlyList<AccountSettings>? accounts = null,
-            IHostSource? host = null, DrivenAdmission? admission = null, int maxParallel = 2, bool records = false)
+            IHostSource? host = null, DrivenAdmission? admission = null, int maxParallel = 2, bool records = false, string? pushSecret = PushSecret,
+            Func<RemoteRepository, CancellationToken, Task<string>>? appToken = null)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
             {
                 ClaudeCode = apiKey ? new ClaudeCodeSettings("2.1.283", ApiKeySecret: "gateway-key") : new ClaudeCodeSettings("2.1.283", OauthTokenSecret: "claude-code-oauth-token"),
-                Driven = new DrivenSettings(enabled, MaxParallel: maxParallel, Admission: admission, Images: [Image], PushSecret: PushSecret,
+                Driven = new DrivenSettings(enabled, MaxParallel: maxParallel, Admission: admission, Images: [Image], PushSecret: pushSecret,
                     Network: new DrivenNetwork(McpForward: mcpForward, ModelUrl: modelUrl, OtlpUrl: otlpUrl), Limits: limits, Integrator: integrator, Forge: forge, Planning: planning, Learning: learningSettings, Governor: governor),
                 Telemetry = telemetry,
                 Http = accounts is null ? null : new HttpSettings("api-key", Accounts: accounts),
@@ -81,7 +82,7 @@ public class DrivenRunTests
             var services = enabled
                 ? new DrivenServices(Engine, Engine, Volumes, _ => throw new NotSupportedException("the handover is faked"), null,
                     (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", CheckoutCommit, remote, "main")), resolver ?? new NoEvidenceProblems(),
-                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1), Host: host, Integration: integration, ForgeFor: forgeFor, Planner: planner, Stacker: stacker, Retro: retro, RetroSink: retroSink, Brancher: brancher)
+                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1), Host: host, Integration: integration, ForgeFor: forgeFor, Planner: planner, Stacker: stacker, Retro: retro, RetroSink: retroSink, Brancher: brancher, AppToken: appToken)
                 : null;
             _services = services;
             _state = durable ? Path.Combine(Dir.Path, "batches") : null;

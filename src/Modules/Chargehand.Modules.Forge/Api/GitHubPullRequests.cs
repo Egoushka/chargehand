@@ -48,13 +48,30 @@ public interface IPullRequests
 
 /// <summary>What chargehand does on GitHub with the push credential: <c>POST /repos/{owner}/{repo}/pulls</c> with <c>draft: true</c>, and <c>PATCH</c> of the title and body of that pull request, and a <c>GET</c> of the open one for a branch
 /// and of the base branch's rules. This class has no
-/// method that merges, enables auto-merge, approves or closes; <c>GitHubPullRequestsTests</c> fails if one appears.</summary>
-public sealed class GitHubPullRequests(HttpClient http, string token) : IPullRequests, IBranchRules
+/// method that merges, enables auto-merge, approves or closes; <c>GitHubPullRequestsTests</c> fails if one appears. The token is asked of <paramref name="tokenSource"/> at each call, so a GitHub App
+/// installation token is minted fresh when the one before has lapsed.</summary>
+public sealed class GitHubPullRequests(HttpClient http, Func<CancellationToken, Task<string>> tokenSource) : IPullRequests, IBranchRules
 {
-    public Task<ChecksGate> ChecksGateAsync(RemoteRepository repository, string branch, CancellationToken ct) => GitHubBranchRules.ReadAsync(http, token, repository, branch, ct);
+    public GitHubPullRequests(HttpClient http, string token)
+        : this(http, _ => Task.FromResult(token))
+    {
+    }
+
+    public async Task<ChecksGate> ChecksGateAsync(RemoteRepository repository, string branch, CancellationToken ct)
+    {
+        try
+        {
+            return await GitHubBranchRules.ReadAsync(http, await tokenSource(ct), repository, branch, ct);
+        }
+        catch (GitHubAppException)
+        {
+            return ChecksGate.Unknown;
+        }
+    }
 
     public async Task<PullRequestRef> CreateDraftAsync(RemoteRepository repo, string head, string @base, string title, string body, CancellationToken ct)
     {
+        var token = await TokenAsync(ct);
         using var request = new HttpRequestMessage(HttpMethod.Post, $"repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Name)}/pulls")
         {
             Content = new StringContent(JsonSerializer.Serialize(new DraftPullRequest(title, head, @base, body, Draft: true, MaintainerCanModify: false), ForgeJsonContext.Default.DraftPullRequest), Encoding.UTF8, "application/json"),
@@ -70,7 +87,7 @@ public sealed class GitHubPullRequests(HttpClient http, string token) : IPullReq
         }
         catch (HttpRequestException e)
         {
-            throw new PullRequestException(Redact($"the pull request could not be opened: {e.Message}"));
+            throw new PullRequestException(Redact($"the pull request could not be opened: {e.Message}", token));
         }
         using (response)
         {
@@ -80,7 +97,7 @@ public sealed class GitHubPullRequests(HttpClient http, string token) : IPullReq
                 && await FindByHeadAsync(repo, head, ct) is { } existing)
                 return existing with { Reused = true };
             if (!response.IsSuccessStatusCode)
-                throw new PullRequestException(Redact($"GitHub answered {(int)response.StatusCode}: {Message(text)}"));
+                throw new PullRequestException(Redact($"GitHub answered {(int)response.StatusCode}: {Message(text)}", token));
             try
             {
                 using var doc = JsonDocument.Parse(text);
@@ -95,6 +112,7 @@ public sealed class GitHubPullRequests(HttpClient http, string token) : IPullReq
 
     public async Task EditAsync(RemoteRepository repo, int number, string title, string body, CancellationToken ct)
     {
+        var token = await TokenAsync(ct);
         using var request = new HttpRequestMessage(HttpMethod.Patch, $"repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Name)}/pulls/{number.ToString(System.Globalization.CultureInfo.InvariantCulture)}")
         {
             Content = new StringContent(JsonSerializer.Serialize(new TitleAndBody(title, body), ForgeJsonContext.Default.TitleAndBody), Encoding.UTF8, "application/json"),
@@ -107,16 +125,25 @@ public sealed class GitHubPullRequests(HttpClient http, string token) : IPullReq
         {
             using var response = await http.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode)
-                throw new PullRequestException(Redact($"GitHub answered {(int)response.StatusCode}: {Message(await response.Content.ReadAsStringAsync(ct))}"));
+                throw new PullRequestException(Redact($"GitHub answered {(int)response.StatusCode}: {Message(await response.Content.ReadAsStringAsync(ct))}", token));
         }
         catch (HttpRequestException e)
         {
-            throw new PullRequestException(Redact($"the pull request could not be edited: {e.Message}"));
+            throw new PullRequestException(Redact($"the pull request could not be edited: {e.Message}", token));
         }
     }
 
     public async Task<PullRequestRef?> FindByHeadAsync(RemoteRepository repo, string head, CancellationToken ct)
     {
+        string token;
+        try
+        {
+            token = await tokenSource(ct);
+        }
+        catch (GitHubAppException)
+        {
+            return null;
+        }
         using var request = new HttpRequestMessage(HttpMethod.Get,
             $"repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Name)}/pulls?head={Uri.EscapeDataString($"{repo.Owner}:{head}")}&state=open");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -138,7 +165,20 @@ public sealed class GitHubPullRequests(HttpClient http, string token) : IPullReq
         }
     }
 
-    private string Redact(string text) => token.Length >= 4 ? text.Replace(token, "[redacted]", StringComparison.Ordinal) : text;
+    /// <exception cref="PullRequestException">The App's token could not be had; the message carries no token.</exception>
+    private async Task<string> TokenAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await tokenSource(ct);
+        }
+        catch (GitHubAppException e)
+        {
+            throw new PullRequestException($"no credential for the pull request: {e.Message}");
+        }
+    }
+
+    private static string Redact(string text, string token) => token.Length >= 4 ? text.Replace(token, "[redacted]", StringComparison.Ordinal) : text;
 
     private static string Message(string body)
     {

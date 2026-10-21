@@ -463,19 +463,26 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     Chargehand.Modules.Batches.Api.PlanRunner childRun = async (request, runId, parentRunId, token) =>
         await orchestrator.RunAsync(request, token, runId, parentRunId: parentRunId, actor: (await runLog.ReadAsync(parentRunId, token)).Start?.Actor);
     return new Chargehand.Driven.DrivenRun(profile, runLog, root, new Chargehand.Driven.DrivenServices(engine, workspace, volumes,
-        push => new Chargehand.Modules.Forge.Api.GitHubPullRequests(new HttpClient { BaseAddress = GitHubApiRoot(driven) }, push.Value),
+        push => new Chargehand.Modules.Forge.Api.GitHubPullRequests(new HttpClient { BaseAddress = GitHubApiRoot(driven) }, push.TokenAsync),
         driven.TaskSource is { } source ? new Chargehand.Mcp.McpTaskSource(source, mcpPool) : null,
         orchestrator.CheckoutForDrivenAsync, new Chargehand.Verification.GitEvidenceResolver(), profile.Secret, orchestrator.DrivenSupportCheck, Host: hostSource,
         Integration: IntegrationHost(driven), ForgeFor: (remote, token) => new Chargehand.Modules.Forge.Api.GitLabForge(
             new HttpClient { BaseAddress = Chargehand.Modules.Forge.Api.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token),
         Planner: new Chargehand.Modules.Batches.Api.ModelPlanner(childRun, driven.Planning?.Preset ?? "cheap"),
-        Retro: new Chargehand.Modules.Batches.Api.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap"), Runners: sites),
+        Retro: new Chargehand.Modules.Batches.Api.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap"), Runners: sites,
+        AppToken: AppTokens(driven) is { } appTokens ? (remote, token) => appTokens.GetAsync(remote.Owner, remote.Name, token) : null),
         stateDirectory, learning, records);
 }
 
 // GitHub's API root: api.github.com, or the Enterprise host the profile's driven.forge names. The E2E switch exists for scripts/driven-e2e.sh only.
 Uri GitHubApiRoot(Chargehand.Config.DrivenSettings driven) =>
     new(Environment.GetEnvironmentVariable("CHARGEHAND_E2E_GITHUB_API") ?? (driven.Forge is { Kind: "github", BaseUrl: { } baseUrl } ? baseUrl.TrimEnd('/') + "/" : "https://api.github.com/"));
+
+// The App's installation tokens for pushing (CHARGEHAND-247), when driven.integrator names the App; the source lives as long as the process, so a token is kept until shortly before it expires.
+Chargehand.Modules.Forge.Api.GitHubInstallationTokens? AppTokens(Chargehand.Config.DrivenSettings driven) =>
+    driven.Integrator is { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId }
+        ? new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(new HttpClient { BaseAddress = GitHubApiRoot(driven) }, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System)
+        : null;
 
 // The App's token source lives as long as the process, so a token is fetched once an hour at most (ADR 0046). The key is read from the secret store only when a token is needed.
 Chargehand.Modules.Forge.Api.IIntegrationHost? IntegrationHost(Chargehand.Config.DrivenSettings driven)
