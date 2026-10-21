@@ -502,6 +502,8 @@ public class SessionDriverTests
         Assert.Equal("claude-sonnet-5-5", After("--model"));
         Assert.Equal("2.5", After("--max-budget-usd"));
         Assert.Contains("mcp__chargehand__orchestrate", After("--allowedTools"));
+        // A research run that outlasts its call is read with result; denied, the session stopped to ask for the permission (CHARGEHAND-246).
+        Assert.Contains("mcp__chargehand__result", After("--allowedTools").Split(','));
         Assert.DoesNotContain("--bare", args);
         Assert.DoesNotContain("--dangerously-skip-permissions", args);
         Assert.DoesNotContain(args, a => a.Contains("Bearer"));

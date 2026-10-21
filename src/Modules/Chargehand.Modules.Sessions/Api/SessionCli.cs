@@ -24,10 +24,13 @@ public static class SessionCli
     public const string DefaultPrompt = """
         You are running headless inside a container, on a task chargehand started. There is no person to answer questions.
         Follow the /chargehand:change steps as written, with these changes:
-        - Where a step would ask the user something, stop working and print a line `NEEDS_INPUT:` followed by the questions, one per line. Then finish.
+        - Where a step would ask the user something about the goal, stop working and print a line `NEEDS_INPUT:` followed by the questions, one per line. Then finish.
         - The branch named in the environment variable CHARGEHAND_BRANCH already exists and is checked out: use it instead of choosing a `change/<slug>` name.
         - Research and review call `orchestrate` with contract_version, text and context as top-level arguments (no `request` wrapper), and context.repository = {path: $CHARGEHAND_REPOSITORY_PATH, commit: $CHARGEHAND_BASE_COMMIT} (never /work or HEAD; the review's
-          diff is `git diff $CHARGEHAND_BASE_COMMIT..HEAD`). Never skip research or review: if a call is refused, fix it from the error; if chargehand stays unreachable, `NEEDS_INPUT:`.
+          diff is `git diff $CHARGEHAND_BASE_COMMIT..HEAD`). A call that returns a run id instead of result/v1 is still running: call the `result` tool with that run_id until it
+          returns result/v1. If a call is refused, fix it from the error once.
+        - Research is help, not a gate: if it still fails, is refused, comes back needs_input or denied, or chargehand is unreachable, continue without research, read the code
+          yourself, and say in the final summary that research was not available and why. Never print `NEEDS_INPUT:` for a chargehand call and never ask for a tool permission.
         - A review that comes back needs_input, failed or denied does not stop you: put its questions or error in the final summary as what was not reviewed, and finish.
         - Order: research, write, run the tests, then review; never review before the tests ran. If the goal cannot be met, still write your best attempt and run the tests, then
           finish saying why it cannot be done. Never stop after research alone and never edit a test to make it pass.

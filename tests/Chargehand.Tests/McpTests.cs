@@ -208,6 +208,27 @@ public class McpTests
     }
 
     [Fact]
+    public async Task A_session_reads_its_research_with_the_result_tool_when_it_names_its_own_commit()
+    {
+        // CHARGEHAND-246: the session sent its new HEAD, which the server's checkout lacks, and the call outlived the MCP wait.
+        var runtime = new ScriptedRuntime(Runs.WorkerReply) { Hold = new() };
+        await using var s = await TestServer.StartAsync(runtime, tweak: (_, settings) => settings with { McpWait = TimeSpan.FromMilliseconds(300) });
+        var repo = Runs.GitRepo(s.WorkerRoot);
+        var token = s.Tokens.Issue(new RunTokenClaims("run-parent", repo.Path, repo.Commit, null, null, DateTimeOffset.UtcNow.AddHours(1)), DateTimeOffset.UtcNow);
+        await using var client = await Connect(s, bearer: token);
+        var request = new RunRequest("request/v1", "What does the README say?", new RequestContext(false, "default", Repository: repo with { Commit = new string('e', 40) }));
+        var call = await client.CallToolAsync(OrchestrateTool.Name, Args(request).ToDictionary(a => a.Key, a => (object?)a.Value)).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        var status = JsonSerializer.Deserialize<RunStatus>(((TextContentBlock)call.Content[^1]).Text, ContractJson.Options)!;
+
+        runtime.Hold.SetResult();
+        await ServerTests.WaitUntil(async () => (await s.Http.GetAsync($"/v1/runs/{status.RunId}")).StatusCode == System.Net.HttpStatusCode.OK);
+        var done = await client.CallToolAsync(ResultTool.Name, new Dictionary<string, object?> { ["run_id"] = status.RunId }).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(ResultStatus.Completed, Result(done).Status);
+        var list = JsonDocument.Parse(await (await s.Http.GetAsync($"/v1/runs?run_id={status.RunId}")).Content.ReadAsStringAsync());
+        Assert.Equal(repo.Commit, list.RootElement.GetProperty("runs")[0].GetProperty("commit").GetString());
+    }
+
+    [Fact]
     public async Task The_result_tool_names_an_unknown_run()
     {
         await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));

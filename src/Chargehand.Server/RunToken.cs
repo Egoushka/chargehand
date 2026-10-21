@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Modules.Runners.Api;
 
 namespace Chargehand.Server;
 
@@ -105,8 +106,21 @@ public sealed class RunTokenLedger
     public (decimal Usd, long Tokens) Spent(string runId) => _spent.GetValueOrDefault(runId);
 }
 
+/// <summary>How a call's commit relates to its task's commit in the server's checkout of the repository.</summary>
+public enum CommitRelation
+{
+    /// <summary>The task's commit, or a descendant of it.</summary>
+    Descendant,
+
+    /// <summary>A commit the server's checkout does not have: the session's own commit, which never left its container.</summary>
+    Unknown,
+
+    /// <summary>A commit the checkout has that does not descend from the task's commit.</summary>
+    Unrelated,
+}
+
 /// <summary>The rules a token's calls must meet (ADR 0039). The presets are read-only ones: a session may research and review through chargehand,
-/// never write, never start a batch, never reach another repository or commit, and never spend past its task's cap.</summary>
+/// never write, never start a batch, never reach another repository or a commit outside its task's line, and never spend past its task's cap.</summary>
 public static class RunScope
 {
     /// <summary>Where the middleware leaves a request's token claims.</summary>
@@ -114,7 +128,14 @@ public static class RunScope
 
     private static readonly string[] AllowedPresets = ["default", "review"];
 
-    public static (RunRequest? Request, string? Refusal) Apply(RunTokenClaims claims, RunRequest request, RunTokenLedger ledger)
+    private static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary><see cref="Apply"/> with the call's commit related to the task's through git in the task's repository.</summary>
+    public static async Task<(RunRequest? Request, string? Refusal)> ApplyAsync(RunTokenClaims claims, RunRequest request, RunTokenLedger ledger, CancellationToken ct) =>
+        Apply(claims, request, ledger, request.Context.Repository is { } repository ? await RelateAsync(claims, repository.Commit, ct) : CommitRelation.Unrelated);
+
+    /// <param name="relation">How the call's commit relates to the task's; unused when they are the same commit.</param>
+    public static (RunRequest? Request, string? Refusal) Apply(RunTokenClaims claims, RunRequest request, RunTokenLedger ledger, CommitRelation relation = CommitRelation.Unrelated)
     {
         if (request.Driven is not null)
             return (null, "a session cannot start a batch");
@@ -125,7 +146,13 @@ public static class RunScope
         if (Path.TrimEndingDirectorySeparator(repository.Path) != Path.TrimEndingDirectorySeparator(claims.RepositoryPath))
             return (null, "a session's calls are limited to the repository of its task");
         if (!string.Equals(repository.Commit, claims.Commit, StringComparison.OrdinalIgnoreCase))
-            return (null, "a session's calls are limited to the commit of its task");
+        {
+            if (relation == CommitRelation.Unrelated)
+                return (null, "a session's calls are limited to the commit of its task and its descendants");
+            // The session's own commits stay in its container: research and review run on the task's commit, and a review takes the diff as input.
+            if (relation == CommitRelation.Unknown)
+                request = request with { Context = request.Context with { Repository = repository with { Commit = claims.Commit } } };
+        }
         var (usd, tokens) = ledger.Spent(claims.RunId);
         if (claims.MaxUsd is { } maxUsd && usd >= maxUsd)
             return (null, "the task's spend cap is used up");
@@ -137,5 +164,27 @@ public static class RunScope
             request = request with { Context = request.Context with { BudgetUsd = Math.Min(request.Context.BudgetUsd ?? remaining, remaining) } };
         }
         return (request, null);
+    }
+
+    /// <summary>How <paramref name="commit"/> relates to the token's commit in the token's repository; a failed git call counts as unrelated.</summary>
+    public static async Task<CommitRelation> RelateAsync(RunTokenClaims claims, string commit, CancellationToken ct)
+    {
+        if (string.Equals(commit, claims.Commit, StringComparison.OrdinalIgnoreCase))
+            return CommitRelation.Descendant;
+        if (!Directory.Exists(claims.RepositoryPath) || commit.Length is < 4 or > 64 || !commit.All(char.IsAsciiHexDigit))
+            return CommitRelation.Unrelated;
+        try
+        {
+            var env = GitProcess.Environment(Path.GetTempPath());
+            var known = await GitProcess.RunAsync(claims.RepositoryPath, env, ["cat-file", "-e", $"{commit}^{{commit}}"], GitTimeout, ct);
+            if (known.ExitCode != 0)
+                return CommitRelation.Unknown;
+            var ancestor = await GitProcess.RunAsync(claims.RepositoryPath, env, ["merge-base", "--is-ancestor", claims.Commit, commit], GitTimeout, ct);
+            return ancestor.ExitCode == 0 ? CommitRelation.Descendant : CommitRelation.Unrelated;
+        }
+        catch (Exception e) when (e is TimeoutException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return CommitRelation.Unrelated;
+        }
     }
 }
