@@ -203,7 +203,8 @@ public class ConsoleViewsTests
         var body = JsonSerializer.Deserialize<JsonElement>(text);
 
         Assert.Equal("repositories/v1", body.GetProperty("contract_version").GetString());
-        Assert.Equal([a, b], body.GetProperty("roots").EnumerateArray().Select(r => r.GetProperty("path").GetString()));
+        // GitHub intake's managed clones are a root too (ADR 0051); none is made yet.
+        Assert.Equal([a, b, rig.Profile.ClonesRoot], body.GetProperty("roots").EnumerateArray().Select(r => r.GetProperty("path").GetString()));
         var repositories = body.GetProperty("repositories").EnumerateArray().ToDictionary(r => r.GetProperty("path").GetString()!);
         Assert.Equal(2, repositories.Count);
         var first = repositories[Path.GetFullPath(one.Path)];

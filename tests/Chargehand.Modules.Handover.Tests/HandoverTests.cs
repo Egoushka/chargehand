@@ -508,6 +508,34 @@ public class HandoverTests
     }
 
     [Fact]
+    public async Task A_push_that_cannot_reach_the_remote_is_tried_again_after_a_pause_and_one_the_remote_refused_is_not()
+    {
+        // 2026-10-21: github.com did not answer for about two minutes and a finished session's branch was dropped on the first try.
+        using var f = new Fixture();
+        List<TimeSpan> pauses = [];
+        var unreachable = await new Handover(new FakeVerifier(), new FakePullRequests(), pause: (by, _) => { pauses.Add(by); return Task.CompletedTask; })
+            .RunAsync(f.Input(with: i => i with { RemoteUrl = "https://127.0.0.1:9/octo/repo.git" }), default);
+        Assert.Equal((HandoverStatus.NotPushed, ErrorCode.PushRejected), (unreachable.Status, unreachable.Error));
+        Assert.Contains("after 3 attempts", unreachable.Reason);
+        Assert.Equal(Handover.PushPauses, pauses);
+
+        using var refusing = new Fixture(rejectAll: true);
+        pauses.Clear();
+        var refused = await new Handover(new FakeVerifier(), new FakePullRequests(), pause: (by, _) => { pauses.Add(by); return Task.CompletedTask; }).RunAsync(refusing.Input(), default);
+        Assert.Contains("denied by test", refused.Reason);
+        Assert.Empty(pauses);
+    }
+
+    [Theory]
+    [InlineData("fatal: unable to access 'https://github.com/o/r.git/': Failed to connect to github.com port 443 after 135393 ms: Couldn't connect to server", true)]
+    [InlineData("fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com", true)]
+    [InlineData("fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 502", true)]
+    [InlineData("ssh: connect to host github.com port 22: Connection timed out\nfatal: Could not read from remote repository.", true)]
+    [InlineData("fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 403", false)]
+    [InlineData("remote: denied by test\n ! [remote rejected] chargehand/run1 -> chargehand/run1 (pre-receive hook declined)", false)]
+    public void Only_a_push_that_did_not_reach_the_remote_is_tried_again(string tail, bool again) => Assert.Equal(again, Handover.Unreachable(tail));
+
+    [Fact]
     public async Task A_pull_request_that_cannot_be_opened_still_names_the_pushed_branch()
     {
         using var f = new Fixture();

@@ -18,7 +18,7 @@ namespace Chargehand.Automation;
 /// <see cref="IntakeState"/> before the comment about it, so a restart cannot start a trigger twice. The watched repositories are the profile's, and with <c>discover</c> every one the App can see, each
 /// cloned into <paramref name="clones"/>; one switched off in <paramref name="sources"/> is not read.</summary>
 public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost host, IRunLog log, IRepositoryHeads heads, IntakeState state, TimeProvider? clock = null, Action<string>? warn = null,
-    IntegratorPolicy? integrator = null, IntakeSources? sources = null, ManagedClones? clones = null)
+    IntegratorPolicy? integrator = null, IntakeSources? sources = null, ManagedClones? clones = null, Action<string>? info = null)
 {
     public const string Preset = "driven";
 
@@ -37,9 +37,11 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
 
     private readonly TimeProvider _time = clock ?? TimeProvider.System;
     private readonly Action<string> _warn = warn ?? (message => Console.Error.WriteLine($"chargehand: {message}"));
+    private readonly Action<string> _info = info ?? (message => Console.Out.WriteLine($"chargehand: {message}"));
     private readonly Regex _mention = new($@"(?<!\w){Regex.Escape(settings.Mention)}(?![\w-])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private readonly HashSet<string> _allowed = new(settings.AllowedAuthors ?? [], StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<(string Repository, int Number), IntakePull> _pulls = [];
+    private readonly HashSet<string> _cloned = new(StringComparer.OrdinalIgnoreCase);
     private readonly PullReviews _reviews = new(settings, host, log, heads, state, clock ?? TimeProvider.System, warn ?? (message => Console.Error.WriteLine($"chargehand: {message}")));
 
     private enum Outcome { Started, Settled, Deferred, Skipped }
@@ -64,7 +66,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             {
                 await PollAsync(starter, ct);
             }
-            catch (Exception e) when (e is not OperationCanceledException)
+            // An HttpClient timeout is a cancellation too: only the caller's own ends the loop.
+            catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 _warn($"intake: poll failed: {e.Message}");
             }
@@ -86,6 +89,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         await ReportEndedAsync(ct);
         await _reviews.ReportEndedAsync(ct);
         _watched = await WatchAsync(ct);
+        _info($"intake: poll: {_watched.Keys.Count(Sources.IsOn).ToString(CultureInfo.InvariantCulture)} repositories, {state.Tasks.Count(t => t.Phase == IntakePhase.Running).ToString(CultureInfo.InvariantCulture)} running");
         foreach (var (name, watched) in _watched)
         {
             if (!Sources.IsOn(name))
@@ -255,10 +259,10 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         }
         if (await CapsAsync(key, name, issue.Number, $"Comment {settings.Mention} again later.", ct) is { } held)
             return held;
-        string commit;
+        RepositoryRef source;
         try
         {
-            commit = await heads.CurrentCommitAsync(repository.Path, ct);
+            source = await SourceAsync(name, repository.Path, ct);
         }
         catch (IntakeException e)
         {
@@ -268,8 +272,40 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var size = IntakeGoal.SizeOf(issue.Labels) ?? settings.BudgetClass;
         var taskId = TaskId(issue.Number);
         var goal = IntakeGoal.Issue(name, issue, comment, commentAuthor);
-        return await LaunchAsync(key, name, issue.Number, new RepositoryRef(repository.Path, commit), new DrivenTask(taskId, Goal: goal, Size: size), run => new IntakeTask(name, issue.Number, run, taskId, _time.GetUtcNow(), size),
+        return await LaunchAsync(key, name, issue.Number, source, new DrivenTask(taskId, Goal: goal, Size: size), run => new IntakeTask(name, issue.Number, run, taskId, _time.GetUtcNow(), size),
             starter, run => $"chargehand started run `{run}` (task `{taskId}`). It works on its own branch and opens a draft pull request when it is done, or asks here if it needs an answer.", null, null, ct);
+    }
+
+    /// <summary>The checkout and commit a batch starts from, fetched now. A profile checkout git cannot write (a read-only mount) is not fetched into: the repository's managed clone is, cloned the first
+    /// time, and later starts go to it directly. Without a clone, the batch starts from the commit the checkout has.</summary>
+    private async Task<RepositoryRef> SourceAsync(string name, string path, CancellationToken ct)
+    {
+        if (clones is not null && _cloned.Contains(name))
+            path = clones.PathOf(name);
+        try
+        {
+            return new RepositoryRef(path, await heads.CurrentCommitAsync(path, ct));
+        }
+        catch (ReadOnlyCheckoutException e)
+        {
+            string? why = null;
+            if (clones is not null)
+                try
+                {
+                    var clone = await clones.EnsureAsync(name, e.OriginUrl, ct);
+                    _cloned.Add(name);
+                    _info($"intake: {name}: {path} cannot be written, so intake fetches its own clone {clone} instead");
+                    return new RepositoryRef(clone, await heads.CurrentCommitAsync(clone, ct));
+                }
+                catch (IntakeException failed) when (e.Stale is not null)
+                {
+                    why = failed.Message;
+                }
+            if (e.Stale is not { } stale)
+                throw new IntakeException($"{path} cannot be fetched and has no origin/HEAD: {e.Message}");
+            _warn($"intake: {name}: {path} cannot be written and {why ?? "intake has no clones"}: the batch starts from the commit the checkout has, {stale}");
+            return new RepositoryRef(path, stale);
+        }
     }
 
     private async Task<Outcome> ContinueAsync(string key, string name, IntakeTask earlier, IntakeComment reply, IBatchStarter starter, CancellationToken ct)
@@ -296,6 +332,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     {
         if (state.Tasks.Count(t => t.Phase == IntakePhase.Running) >= settings.MaxConcurrent)
         {
+            _info($"intake: {key}: waiting: max_concurrent");
             await NotifyOnceAsync($"wait:{key}", name, issue, $"chargehand is waiting for a free slot: {settings.MaxConcurrent.ToString(CultureInfo.InvariantCulture)} triggered batches are running. This starts when one ends.", ct);
             return Outcome.Deferred;
         }
@@ -374,8 +411,12 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         state.Save(_time.GetUtcNow());
     }
 
-    private void Log(string key, string outcome, string? reason = null, string? author = null) =>
+    /// <summary>Keeps what came of a trigger for the console and says it in the server log.</summary>
+    private void Log(string key, string outcome, string? reason = null, string? author = null)
+    {
         state.Triggers.Add(new IntakeTrigger(_time.GetUtcNow(), key, outcome, reason, author));
+        _info($"intake: {key}: {outcome}{(reason is null ? "" : $": {reason}")}{(author is null ? "" : $" ({author})")}");
+    }
 
     private async Task<IntakePull> PullAsync(string repository, int number, CancellationToken ct)
     {
@@ -569,6 +610,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             // The issue is gone: there is nobody to ask, and nothing more to say.
             phase = IntakePhase.Done;
         }
+        _info($"intake: {task.Repository}#{task.Issue.ToString(CultureInfo.InvariantCulture)}: run {task.BatchRunId} ended: {row?.Status ?? (result is null ? "lost" : "task_not_started")}");
         state.Replace(task, task with { Phase = phase, AskedCommentId = phase == IntakePhase.Asked ? commentId : null, PrUrl = row?.PrUrl, Branch = row?.Branch });
         state.Save(_time.GetUtcNow());
     }

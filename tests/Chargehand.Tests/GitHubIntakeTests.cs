@@ -461,4 +461,26 @@ public class GitHubIntakeTests
         Assert.Single(rig.Starter.Started);
         Assert.Contains(rig.Warnings, w => w.Contains("octo/broken", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public async Task A_GitHub_call_that_times_out_is_reported_and_the_loop_polls_again()
+    {
+        // 2026-10-21: one timed-out read ended the loop for good, so a run that ended was never reported and a new label was never read.
+        using var rig = new IntakeRig();
+        rig.Labeled(7, "alice", 41);
+        rig.GitHub.TimeOuts = 1;
+        using var stop = new CancellationTokenSource();
+        var loop = rig.Intake.RunAsync(rig.Starter, stop.Token);
+        for (var i = 0; i < 200 && rig.Time.Waiting == 0 && !loop.IsCompleted; i++)
+            await Task.Delay(10);
+
+        Assert.False(loop.IsCompleted, "the loop ended after a timed-out call");
+        Assert.Contains(rig.Warnings, w => w.Contains("intake: poll failed", StringComparison.Ordinal) || w.Contains("octo/repo", StringComparison.Ordinal));
+        rig.Time.Advance(TimeSpan.FromSeconds(rig.Settings.PollSeconds));
+        for (var i = 0; i < 200 && rig.Starter.Started.Count == 0; i++)
+            await Task.Delay(10);
+        Assert.Single(rig.Starter.Started);
+        await stop.CancelAsync();
+        await loop;
+    }
 }

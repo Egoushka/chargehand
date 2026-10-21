@@ -34,7 +34,8 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
             {
                 await TickAsync(starter, ct);
             }
-            catch (Exception e) when (e is not OperationCanceledException)
+            // An HttpClient timeout is a cancellation too: only the caller's own ends the loop.
+            catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 _warn($"schedules: wake failed: {e.Message}");
             }

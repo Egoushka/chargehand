@@ -1,5 +1,6 @@
 using Chargehand.Automation;
 using Chargehand.Config;
+using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Tasks.Api;
@@ -141,5 +142,32 @@ public class IntakeTriggerLogTests
         Assert.Equal("ignored", triggers[^1].Outcome);
         Assert.True(triggers.Zip(triggers.Skip(1)).All(p => p.First.At <= p.Second.At));
         Assert.DoesNotContain("secret-looking", File.ReadAllText(rig.StateFile), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Each_poll_and_each_trigger_it_starts_skips_or_holds_is_one_line_in_the_server_log()
+    {
+        // 2026-10-21: the server log said nothing after the first start, so a loop that had stopped looked the same as one that found nothing.
+        using var rig = new IntakeRig(Settings(concurrent: 1));
+        rig.Labeled(7, "alice", 41);
+        rig.Labeled(8, "mallory", 42);
+        rig.Labeled(9, "alice", 43);
+        await rig.Poll();
+        rig.Time.Advance(TimeSpan.FromSeconds(1));
+        rig.Labeled(7, "alice", 44);
+        rig.Log.End("run-1", new TaskOutcome("issue-7", TaskState.Failed, "task-run", "the push was rejected", ErrorCode.PushRejected));
+        await rig.Poll();
+
+        Assert.Equal(
+        [
+            "intake: poll: 1 repositories, 0 running",
+            "intake: label:octo/repo#7:41: started",
+            "intake: label:octo/repo#8:42: ignored: author_not_allowed (mallory)",
+            "intake: label:octo/repo#9:43: waiting: max_concurrent",
+            "intake: octo/repo#7: run run-1 ended: failed",
+            "intake: poll: 1 repositories, 0 running",
+            "intake: label:octo/repo#9:43: started",
+            "intake: label:octo/repo#7:44: waiting: max_concurrent",
+        ], rig.Infos);
     }
 }

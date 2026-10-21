@@ -186,4 +186,17 @@ public class GitHubIntakeHostTests
         Assert.False(await Host(there).EnsureLabelAsync("octo/repo", "chargehand", default));
         Assert.Single(there.Requests);
     }
+
+    [Fact]
+    public async Task A_call_that_times_out_is_an_intake_error_and_a_cancelled_one_is_not()
+    {
+        var slow = new Canned((_, _) => throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.", new TimeoutException()));
+        var e = await Assert.ThrowsAsync<IntakeException>(() => Host(slow).LabeledAsync("octo/repo", "chargehand", default));
+        Assert.Contains("the labelled issues could not be reached", e.Message);
+
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        var stopped = new Canned((_, _) => throw new TaskCanceledException("A task was canceled.", null, cancelled.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Host(stopped).LabeledAsync("octo/repo", "chargehand", cancelled.Token));
+    }
 }
