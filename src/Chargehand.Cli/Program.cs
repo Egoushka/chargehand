@@ -502,13 +502,15 @@ Chargehand.Automation.GitHubIntake? GitHubIntake()
         integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "sources.json")), clones: clones);
 }
 
-// Scheduled work (ADR 0068): null unless the profile has automation.schedules. Its state sits next to the run log.
-Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? Schedules()
+// Scheduled work (ADR 0068): null unless the profile has automation.schedules. Its state sits next to the run log. flaky-tests reads CI history with the forge credential the driven run reads pull requests with.
+Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? Schedules(Chargehand.Driven.DrivenRun? driven)
 {
     if (profile.Automation?.Schedules is not { } schedules)
         return null;
     var state = Chargehand.Automation.ScheduleState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "schedules", "state.json"));
-    return morning => new Chargehand.Automation.Scheduler(schedules, runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, new Chargehand.Automation.HttpScheduleNotifier(), morning);
+    var flakes = driven is null ? null : new Chargehand.Automation.ForgeFlakeHistory(driven.ReadHost, profile.Driven?.Forge, warn: Console.Error.WriteLine);
+    return morning => new Chargehand.Automation.Scheduler(schedules, runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, new Chargehand.Automation.HttpScheduleNotifier(), morning,
+        flakes: flakes);
 }
 
 // Plane intake (ADR 0067): null unless the profile has automation.plane. The key is read from the secret store at each call; its state sits next to the run log.
@@ -554,12 +556,13 @@ async Task<int> Serve()
     Func<string?, IWorkerRuntime>? runtimeFor = http.Accounts is { Count: > 0 } accounts
         ? new Chargehand.ClaudeCode.AccountRuntimes(runtime, new AccountCredentials(accounts), profile.Secret).For : null;
     var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer(), runtimeFor: runtimeFor);
+    var drivenRun = DrivenRunFor(orchestrator);
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn),
-        orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake(), Schedules(), PlaneIntake());
+        orchestrator, runLog, drivenRun, GitHubIntake(), Schedules(drivenRun), PlaneIntake());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);

@@ -19,8 +19,8 @@ Option 2. `automation.schedules` lists entries with `daily HH:MM`, `weekly <day>
 
 ## Consequences
 
-State lives in `schedules/state.json` beside the run log. The notification URL may carry a secret topic and is never logged. `flaky-tests` reads test code only: chargehand has no CI-history tool. Scheduled starts bypass account admission and run as the owner, like intake. A driven run's result is not posted; its pull request is in the inbox.
+State lives in `schedules/state.json` beside the run log. The notification URL may carry a secret topic and is never logged. `flaky-tests` reads CI history through the forge (CHARGEHAND-197): the jobs that failed and then passed on the same commit in the last 14 days, as input to the goal; without history it reads test code only. Scheduled starts bypass account admission and run as the owner, like intake. A driven run's result is not posted; its pull request is in the inbox.
 
 ## Reopen if
 
-A worker gains a way to read CI history (then `flaky-tests` can measure), an entry needs a time zone, or the cap needs to be spend-based rather than count-based.
+Flakes need test-level history the job logs do not give (a test-report artifact), an entry needs a time zone, or the cap needs to be spend-based rather than count-based.
