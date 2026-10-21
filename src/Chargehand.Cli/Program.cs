@@ -194,7 +194,7 @@ if (argv is ["incident", .. var incidentArgs])
 // Profile-free: it reads a repository's git log and prints a request for `run` (CHARGEHAND-191).
 if (argv is ["release-notes", .. var releaseNotesArgs])
     return await Chargehand.ReleaseNotes.ReleaseNotesCli.RunAsync(releaseNotesArgs, Directory.GetCurrentDirectory(), Console.Out, Console.Error, CancellationToken.None);
-// Reads git blame and, where it can, the run log (ADR 0070): with no profile or no log it still answers from the commit's trailers.
+// Reads git blame and, where it can, the run log (ADR 0074): with no profile or no log it still answers from the commit's trailers.
 if (argv is ["why", .. var whyArgs])
 {
     var whySetting = Profile.Load(profilePath).RunLog;

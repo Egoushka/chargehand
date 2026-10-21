@@ -7,7 +7,7 @@ using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Modules.Tasks.Tests;
 
-/// <summary>ADR 0070: <c>chargehand why path:line</c> traces a line to the run that wrote it, or says that a person did.</summary>
+/// <summary>ADR 0074: <c>chargehand why path:line</c> traces a line to the run that wrote it, or says that a person did.</summary>
 public sealed class WhyCliTests : IDisposable
 {
     private static readonly DateTimeOffset At = new(2026, 10, 18, 9, 0, 0, TimeSpan.Zero);

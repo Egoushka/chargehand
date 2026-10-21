@@ -31,7 +31,7 @@ internal sealed record TitleAndBody(string Title, string Body);
 
 internal sealed record BranchUpdate(string ExpectedHeadSha);
 
-/// <param name="CommitMessage">The body of the squash commit; left out, GitHub builds its own (ADR 0070 puts the run trailers in it).</param>
+/// <param name="CommitMessage">The body of the squash commit; left out, GitHub builds its own (ADR 0074 puts the run trailers in it).</param>
 internal sealed record SquashMerge(string MergeMethod, string Sha, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CommitMessage = null);
 
 internal sealed record CommentBody(string Body);

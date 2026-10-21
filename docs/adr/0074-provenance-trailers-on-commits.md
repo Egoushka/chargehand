@@ -1,4 +1,4 @@
-# 0070. Commits say which run wrote them
+# 0074. Commits say which run wrote them
 
 - Status: accepted. Extends 0039 (handover), 0046 (integrator) and 0035 (the `code` preset).
 - Date: 2026-10-18

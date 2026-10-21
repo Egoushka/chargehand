@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace Chargehand.Kernel;
 
-/// <summary>Which chargehand run wrote a commit (ADR 0070), as git trailers: <c>git log --format='%(trailers:key=Chargehand-Run)'</c> reads them back.</summary>
+/// <summary>Which chargehand run wrote a commit (ADR 0074), as git trailers: <c>git log --format='%(trailers:key=Chargehand-Run)'</c> reads them back.</summary>
 /// <param name="RunId">The run that wrote the commit; for a driven session, the session's run id.</param>
 /// <param name="Task">The task id or tracker reference, when there is one.</param>
 /// <param name="Runtime">The runtime and its version, for example <c>opencode 1.4.2</c> or <c>claude-code 2.1.0</c>.</param>

@@ -6,7 +6,7 @@ namespace Chargehand.Modules.Handover.Tests;
 
 using Handover = Chargehand.Modules.Handover.Api.Handover;
 
-/// <summary>ADR 0070: the pushed commits say which run wrote them, and so does the pull request body, which is what a squash merge keeps.</summary>
+/// <summary>ADR 0074: the pushed commits say which run wrote them, and so does the pull request body, which is what a squash merge keeps.</summary>
 public class HandoverProvenanceTests
 {
     private static readonly Provenance Run = new("run1", "t-1 (CH-9)", "claude-code 2.1.0", "sonnet", 0.5m, 1200, 40, "2 of 2 checks passed");

@@ -13,7 +13,7 @@ From a checkout, every command runs as `dotnet run --project src/Chargehand.Cli 
 |---|---|---|
 | `run < request.json` | reads `request/v1` on stdin, writes `result/v1` on stdout | 0 completed, 1 failed or denied, 2 usage error, 3 needs input |
 | `show <run-id>` | prints a run and its calls from the run log: tokens, cache rate, cost, latency | 1 when the log has no such run |
-| `why <path>:<line>` | the run that wrote a line: its commit's `Chargehand-*` trailers, goal, session ([ADR 0070](../adr/0070-provenance-trailers-on-commits.md)) | |
+| `why <path>:<line>` | the run that wrote a line: its commit's `Chargehand-*` trailers, goal, session ([ADR 0074](../adr/0074-provenance-trailers-on-commits.md)) | |
 | `cache <run-id>` | cache reads, writes and hit rate per call, and the first block that broke a prefix the nodes should have shared | 1 when the run has no calls |
 | `reconcile <run-id> < spend-rows.jsonl` | joins the run's calls to exported gateway spend rows by model, token counts and time, and prints own against gateway cost | 1 when a call stays unmatched |
 | `serve` | HTTP and MCP, on `127.0.0.1` unless the profile's `http` block opens it | 2 without an `http` block |
