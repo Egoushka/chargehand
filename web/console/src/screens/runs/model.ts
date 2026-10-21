@@ -14,6 +14,8 @@ export interface RunFilters {
   account: string;
   preset: string;
   range: RangeFilter;
+  /** A batch's research and review calls are runs of their own; they hide unless asked for. */
+  calls: boolean;
 }
 
 export const ANY = 'all';
@@ -26,6 +28,7 @@ export const DEFAULT_FILTERS: RunFilters = {
   account: ANY,
   preset: ANY,
   range: '7d',
+  calls: false,
 };
 
 export const STATE_OPTIONS: Array<{ id: StateFilter; label: string }> = [
@@ -118,6 +121,7 @@ const haystack = (run: RunSummary) =>
 export function matchesFilters(run: RunSummary, filters: RunFilters, now: number): boolean {
   const q = filters.q.trim().toLowerCase();
   if (q && !haystack(run).includes(q)) return false;
+  if (!filters.calls && run.parent_run_id) return false;
   if (!matchesState(run, filters.state)) return false;
   if (filters.kind !== 'all' && run.kind !== filters.kind) return false;
   if (filters.repository !== ANY && run.repository !== filters.repository) return false;
@@ -147,7 +151,8 @@ export function activeCount(filters: RunFilters): number {
     (filters.repository !== ANY ? 1 : 0) +
     (filters.account !== ANY ? 1 : 0) +
     (filters.preset !== ANY ? 1 : 0) +
-    (filters.range !== DEFAULT_FILTERS.range ? 1 : 0)
+    (filters.range !== DEFAULT_FILTERS.range ? 1 : 0) +
+    (filters.calls ? 1 : 0)
   );
 }
 
@@ -225,6 +230,7 @@ export function cleanFilters(raw: unknown): RunFilters {
     )
       ? f.range
       : DEFAULT_FILTERS.range,
+    calls: f.calls === true,
   };
 }
 

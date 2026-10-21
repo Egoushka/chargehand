@@ -15,5 +15,5 @@ public static class MemoryStacks
         profile.Memory is not { Count: > 0 } memory
             ? null
             : new MemoryStack([.. memory.Select(p =>
-                new MemorySource(p.Name, new McpMemoryProvider(p, pool), new MemoryScope(p.Name, p.EffectiveNamespace), p.Limits, p.Retain, p.EffectiveRetainTags))]);
+                new MemorySource(p.Name, new McpMemoryProvider(p, pool), new MemoryScope(p.Name, p.EffectiveNamespace), p.Limits, p.Retain, p.EffectiveRetainTags, p.LocalOk))]);
 }

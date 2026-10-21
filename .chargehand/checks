@@ -1,0 +1,3 @@
+# Checks a driven session's branch must pass before chargehand hands it over (docs/guide/driven.md, "Check gate").
+# One shell command per line, run in the working tree; a failure goes back to the session as its next turn.
+scripts/check-file-lines.sh 400

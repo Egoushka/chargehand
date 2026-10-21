@@ -36,6 +36,25 @@
   padding-top: var(--space-5);
 }
 
+/* Where a phone scrolls to when a tab changes: just under the sticky top bar. */
+.tabs-top {
+  min-width: 0;
+  scroll-margin-top: calc(var(--size-topbar) + env(safe-area-inset-top, 0px));
+}
+
+@media (max-width: 767px) {
+  /* At least one screen tall, so the page can always scroll the tab bar to the top, even while a short tab is loading. */
+  .tabs-top {
+    min-height: calc(
+      100dvh -
+      var(--size-topbar) -
+      var(--size-tabbar) -
+      env(safe-area-inset-top, 0px) -
+      env(safe-area-inset-bottom, 0px)
+    );
+  }
+}
+
 .small {
   font-size: 12px;
   line-height: 16px;

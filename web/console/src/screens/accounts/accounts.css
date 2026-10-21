@@ -8,6 +8,11 @@
   overflow: visible;
 }
 
+/* A long list of repositories ends in an ellipsis instead of running under the spend column; the title has it whole. */
+.account-row .account-repos {
+  overflow: hidden;
+}
+
 .account-row .ch-meter__head {
   min-width: 0;
 }

@@ -7,7 +7,8 @@ namespace Chargehand.Modules.Handover.Api;
 /// <param name="Partial">The pull request holds unfinished work (ADR 0044): it stays a draft and is never merged.</param>
 /// <param name="TaskGoal">The task's goal, for the goal of a fix session.</param>
 /// <param name="TestIntegrity">Why the change only edits tests or build files for a goal that did not ask for that (<see cref="TestIntegrityFlag.Reason"/>); the pull request is then never merged, whatever the policy.</param>
-public sealed record IntegrationTarget(RemoteRepository Repository, int Number, string Branch, bool Partial, string TaskGoal, string? TestIntegrity = null);
+/// <param name="LocalOnly">The repository is local-only (ADR 0069): the integrator and the CI fixer do nothing and call no forge.</param>
+public sealed record IntegrationTarget(RemoteRepository Repository, int Number, string Branch, bool Partial, string TaskGoal, string? TestIntegrity = null, bool LocalOnly = false);
 
 public enum IntegrationAction { None, Asked, AutoMergeEnabled, Merged, NeedsAttention, Failed }
 
@@ -50,6 +51,8 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
 
     private const string TestIntegrityMarker = "<!-- chargehand-integration test-integrity -->";
 
+    private const string NoChecksMarker = "<!-- chargehand-integration no-required-checks -->";
+
     private readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? ((span, ct) => Task.Delay(span, ct));
 
     public DrivenCiFix CiFix { get; } = ciFix ?? new DrivenCiFix();
@@ -76,6 +79,8 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
     /// <paramref name="headMoved"/> gets the new head when chargehand's own branch update moved it, so the learning record knows the commits on the branch are still chargehand's (ADR 0045).</summary>
     public async Task<IntegrationResult> IntegrateAsync(IntegrationTarget target, Action<string> report, CancellationToken ct, Action<string>? headMoved = null)
     {
+        if (target.LocalOnly)
+            return new(IntegrationAction.None, "the repository is local-only: the forge is not called");
         var mode = ModeFor(target);
         if (mode == IntegrationMode.Off)
             return new(IntegrationAction.None, "this repository is not opted in to integration");
@@ -86,6 +91,10 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
             var pr = await host.GetAsync(target.Repository, target.Number, ct);
             if (pr.Merged || pr.Closed)
                 return Say(report, IntegrationAction.None, pr.Merged ? "the pull request is already merged" : "the pull request is closed");
+            // Auto-merge waits only for required checks: without one, a merge would land before CI runs (CHARGEHAND-244).
+            var gate = mode == IntegrationMode.Merge ? await host.ChecksGateAsync(target.Repository, pr.BaseBranch, ct) : ChecksGate.Required;
+            if (gate != ChecksGate.Required)
+                mode = IntegrationMode.Ask;
             if (mode == IntegrationMode.Merge && await host.BehindByAsync(target.Repository, pr.BaseBranch, target.Branch, ct) > 0)
             {
                 var (stopped, moved) = await UpdateBranchAsync(target, pr, report, headMoved, ct);
@@ -99,7 +108,7 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                 report("marked ready for review");
                 pr = await host.GetAsync(target.Repository, target.Number, ct);
             }
-            return mode == IntegrationMode.Ask ? await AskAsync(target, pr, report, ct) : await MergeAsync(target, pr, report, ct);
+            return mode == IntegrationMode.Ask ? await AskAsync(target, pr, gate, report, ct) : await MergeAsync(target, pr, report, ct);
         }
         catch (IntegrationException e)
         {
@@ -127,8 +136,17 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
         return (null, moved);
     }
 
-    private async Task<IntegrationResult> AskAsync(IntegrationTarget target, PrSnapshot pr, Action<string> report, CancellationToken ct)
+    private async Task<IntegrationResult> AskAsync(IntegrationTarget target, PrSnapshot pr, ChecksGate gate, Action<string> report, CancellationToken ct)
     {
+        if (gate != ChecksGate.Required)
+        {
+            var reason = gate == ChecksGate.None
+                ? $"its base branch {pr.BaseBranch} has no rule that requires a status check, so {host.Name} would merge it before CI runs"
+                : $"chargehand could not read the rules of its base branch {pr.BaseBranch}, so it cannot tell whether {host.Name} would wait for CI";
+            await CommentOnceAsync(target, pr, NoChecksMarker, $"chargehand marked this pull request ready but does not merge it: {reason}. Add a rule that requires your CI checks on {pr.BaseBranch} and chargehand will merge the next one; a person decides about this one.", ct);
+            Console.Error.WriteLine($"chargehand: warning: {target.Repository.Owner}/{target.Repository.Name} is set to merge, but {reason}; treated as ask");
+            return Say(report, IntegrationAction.Asked, $"marked ready; not merged because {reason} (treated as ask)");
+        }
         if (target.TestIntegrity is { } why)
         {
             await CommentOnceAsync(target, pr, TestIntegrityMarker, $"chargehand marked this pull request ready but does not merge it: {why}. A person decides.", ct);
@@ -168,12 +186,15 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
     /// at most <see cref="DrivenCiFix.Attempts"/> times per pull request and never twice for the same failing jobs (<see cref="CiFixPolicy"/>); the count is read from the pull request's own comments.</summary>
     public async Task<IntegrationResult> FollowAsync(IntegrationTarget target, CiFixSession fix, Action<string> report, CancellationToken ct, Action<string>? headMoved = null, IntegrationWatch? watch = null)
     {
+        if (target.LocalOnly)
+            return new(IntegrationAction.None, "the repository is local-only: the forge is not called");
         var mode = ModeFor(target);
         if (mode == IntegrationMode.Off || target.Partial)
             return new(IntegrationAction.None, "not watched");
         var maxPolls = Math.Max(1, (int)(TimeSpan.FromMinutes(CiFix.Wait) / PollEvery));
         var polls = 0;
         string? fixedHead = null;
+        var gateRead = mode != IntegrationMode.Merge;
         try
         {
             while (true)
@@ -181,6 +202,13 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
                 var pr = await host.GetAsync(target.Repository, target.Number, ct);
                 if (Ended(pr, report, watch) is { } ended)
                     return ended;
+                // No required check will ever report on a branch without the rule, so there is nothing to wait for.
+                if (!gateRead)
+                {
+                    gateRead = true;
+                    if (await host.ChecksGateAsync(target.Repository, pr.BaseBranch, ct) != ChecksGate.Required)
+                        return new(IntegrationAction.None, "not watched: the base branch requires no checks");
+                }
                 var check = Check(pr, fixedHead, watch);
                 var step = await ActAsync(target, pr, check, mode, fix, report, headMoved, watch, ct);
                 if (step.Stop is { } stop)

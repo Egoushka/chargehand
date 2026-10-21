@@ -43,14 +43,14 @@ openssl rand -hex 32     # one per key below
 |---|---|
 | `CHARGEHAND_API_KEY` | bearer key for every route. Required; compose refuses to start without it |
 | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` | the worker's credential. Exactly one. An API key bills per token; the token uses your subscription |
-| `CHARGEHAND_IMAGE` | server and runner image, a release tag. Defaults to 0.9.5 |
+| `CHARGEHAND_IMAGE` | server and runner image, a release tag. Defaults to the release in `.env.example` |
 
 Driven mode adds `CHARGEHAND_RUNNER_KEY`, `CHARGEHAND_PUSH_TOKEN`, `CHARGEHAND_SESSION_IMAGE` and `CHARGEHAND_WORK_DIR` (see step 3). Each variable is documented in `.env.example`. The compose file hands each service only what it reads: the runner never gets the model credential.
 
 **Pin by digest.** A tag can move; a digest cannot. After choosing a [release](https://github.com/Egoushka/chargehand/releases):
 
 ```bash
-./pin-digests.sh 0.9.5
+./pin-digests.sh <version>
 ```
 
 It rewrites `CHARGEHAND_IMAGE` to `tag@sha256:...`, sets `CHARGEHAND_SESSION_IMAGE`, and replaces the session image in `profile.json`. The runner starts only images given by digest, so in driven mode the session image must be pinned and the value in `.env` and in `driven.images` must be the same; the script keeps them so. Run it again for each upgrade.
@@ -157,7 +157,7 @@ The runner reaches the engine through `tecnativa/docker-socket-proxy`, pinned by
 | `dubious ownership` or `permission denied` on a checkout | the checkout is not owned by uid 1654: clone it as in step 3, or `chown -R 1654:1654` it |
 | the server restarts in a loop | read `docker compose logs chargehand`: no model credential in `.env`, or an invalid profile |
 | the runner exits at start with a usage line | a missing `CHARGEHAND_RUNNER_KEY`, or a session image given as a tag |
-| `runtime_version_mismatch` | the profile's `claude_code.version` differs from the image's pinned one (2.1.283 in 0.9.5); leave the block out |
+| `runtime_version_mismatch` | the profile's `claude_code.version` differs from the image's CLI: leave the block out (then 2.1.283 or newer of major 2 is taken), or write the version as `>=2.1.283` |
 | a batch ends `container_unavailable` | the engine is unreachable from the runner: `docker compose logs docker-proxy`; check `DOCKER_SOCKET` |
 
 ## What has been checked

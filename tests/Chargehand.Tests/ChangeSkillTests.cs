@@ -64,10 +64,22 @@ public class ChangeSkillTests
     public void The_driven_section_changes_only_steps_that_need_a_person_and_says_which()
     {
         var section = Skill[Skill.IndexOf("## Driven mode", StringComparison.Ordinal)..Skill.IndexOf(SkillSteps[0], StringComparison.Ordinal)];
-        foreach (var step in new[] { "Step 1:", "Steps 2 and 7:", "Steps 2, 7 and 8:", "Step 3:", "Step 9:", "Step 10:" })
+        foreach (var step in new[] { "Step 1:", "Steps 2 and 7:", "Steps 2 and 8:", "Step 7:", "Step 3:", "Step 9:", "Step 10:" })
             Assert.Contains(step, section, StringComparison.Ordinal);
         foreach (var untouched in new[] { "Step 4", "Step 5", "Step 6", "Steps 4", "Steps 5", "Steps 6" })
             Assert.DoesNotContain(untouched, section, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_driven_review_reads_the_change_from_the_diff_and_its_questions_do_not_stop_the_session()
+    {
+        // Seen twice: the review checkout is the base commit, the worker could not see the new code, asked, and the session stopped for the owner.
+        var review = File.ReadAllText(Repo.Path("prompts", "preset", "review.md"));
+        Assert.Contains("may be the base commit", review, StringComparison.Ordinal);
+        Assert.Contains("Never return needs_input because", review, StringComparison.Ordinal);
+        var section = Skill[Skill.IndexOf("## Driven mode", StringComparison.Ordinal)..Skill.IndexOf(SkillSteps[0], StringComparison.Ordinal)];
+        Assert.Contains("does not stop the session", section, StringComparison.Ordinal);
+        Assert.Contains("does not stop you", Chargehand.Modules.Sessions.Api.SessionCli.DefaultPrompt, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -87,5 +99,15 @@ public class ChangeSkillTests
         // The whole flow for a person still says what it said: the driven section only adds a mode.
         foreach (var text in new[] { "Commit or stash your changes first", "ask the user all of them in one message", "Tell the user: the branch name" })
             Assert.Contains(text, Skill.Replace("\r\n", "\n").Replace("\n", " "), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_local_flag_names_the_local_server_and_the_request_field_on_both_calls()
+    {
+        var text = Skill.Replace("\r\n", "\n").Replace("\n", " ");
+
+        Assert.Contains("[--local]", text, StringComparison.Ordinal);
+        Assert.Contains("MCP server named `chargehand-local`", text, StringComparison.Ordinal);
+        Assert.Contains("`context.delivery` = \"local\" on every call in steps 2 and 7", text, StringComparison.Ordinal);
     }
 }

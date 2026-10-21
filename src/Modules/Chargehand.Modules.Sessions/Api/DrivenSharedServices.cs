@@ -9,8 +9,10 @@ namespace Chargehand.Modules.Sessions.Api;
 /// <param name="Caches">Ecosystems whose package cache is a named volume mounted into the sessions and the verifier of one repository: <c>nuget</c>, <c>npm</c>, <c>pip</c>, <c>gradle</c>, <c>maven</c>.</param>
 /// <param name="Images">A session image by ecosystem (<c>gradle</c>, <c>maven</c>, ...): used when the repository has that ecosystem. Every value must also be listed in <c>driven.images</c>, which is what the runner allows.</param>
 /// <param name="Repositories">Per <c>owner/repo</c>: the test services started on the batch network for the batch's lifetime.</param>
+/// <param name="Verify">Per <c>owner/repo</c>: the command that verifies a branch when the request names none, as an argument vector. For a suite the verifier
+/// cannot run as is: tests that start their own containers (Testcontainers) find no engine there, and a command can skip them or point them at a service above.</param>
 public sealed partial record DrivenSharedServices(IReadOnlyList<string>? Caches = null, IReadOnlyDictionary<string, string>? Images = null,
-    IReadOnlyDictionary<string, IReadOnlyList<DrivenTestService>>? Repositories = null)
+    IReadOnlyDictionary<string, IReadOnlyList<DrivenTestService>>? Repositories = null, IReadOnlyDictionary<string, IReadOnlyList<string>>? Verify = null)
 {
     /// <summary>The ecosystems a cache volume exists for; a cache is keyed by ecosystem and repository.</summary>
     public static readonly IReadOnlyList<string> CacheEcosystems = ["nuget", "npm", "pip", "gradle", "maven"];
@@ -19,12 +21,27 @@ public sealed partial record DrivenSharedServices(IReadOnlyList<string>? Caches 
     public IReadOnlyList<DrivenTestService> ServicesOf(string repository) =>
         Repositories?.FirstOrDefault(r => string.Equals(r.Key, repository, StringComparison.OrdinalIgnoreCase)).Value ?? [];
 
+    /// <summary>The request's command when it names one, else <paramref name="repository"/>'s from <see cref="Verify"/> (compared without regard to case); null for neither.</summary>
+    public IReadOnlyList<string>? VerifyFor(IReadOnlyList<string>? requested, string repository) =>
+        requested is { Count: > 0 } ? requested : Verify?.FirstOrDefault(v => string.Equals(v.Key, repository, StringComparison.OrdinalIgnoreCase)).Value;
+
     /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
     /// <param name="sessionImages"><c>driven.images</c>.</param>
     public void Validate(IReadOnlyList<string>? sessionImages) => SettingsValidation.ThrowIfFailed(new DrivenSharedServicesValidator().Validate(null, new DrivenSharedServicesCheck(this, sessionImages)),
         "driven.services", "Fix driven.services in the profile; docs/guide/driven.md lists the keys.");
 
-    internal List<string> Problems(IReadOnlyList<string>? sessionImages) => [.. CacheProblems(), .. ImageProblems(sessionImages), .. RepositoryProblems()];
+    internal List<string> Problems(IReadOnlyList<string>? sessionImages) => [.. CacheProblems(), .. ImageProblems(sessionImages), .. RepositoryProblems(), .. VerifyProblems()];
+
+    private IEnumerable<string> VerifyProblems()
+    {
+        foreach (var (repository, argv) in Verify ?? new Dictionary<string, IReadOnlyList<string>>())
+        {
+            if (!RepositoryName().IsMatch(repository))
+                yield return $"verify key '{repository}' must be owner/repo";
+            if (argv.Count == 0 || string.IsNullOrWhiteSpace(argv[0]))
+                yield return $"verify.{repository} must name a command";
+        }
+    }
 
     private IEnumerable<string> CacheProblems()
     {

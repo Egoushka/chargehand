@@ -35,14 +35,21 @@ namespace Chargehand.Server;
 /// <param name="Accounts">The accounts besides the owner that the profile declares (ADR 0050).</param>
 /// <param name="AccountKeysFile">The file that holds their keys, as salted hashes; null: no account key opens anything.</param>
 /// <param name="Clock">The time the accounts' day and month windows are cut by; null: the system's.</param>
-/// <param name="Ui">Serve the web UI at /ui/ (ADR 0054) and the operator console at /console/ (ADR 0056).</param>
+/// <param name="Ui">Serve the operator console at /console/ (ADR 0056); /ui/ redirects to it (ADR 0072).</param>
 /// <param name="Profile">The profile, for the console's read routes (CHARGEHAND-209): the owner's <c>system</c> and <c>repositories</c> views and intake's settings. Null: those views are empty.</param>
 /// <param name="SecretPresent">Whether a secret item resolves, for an account's credential state; null: it is not known.</param>
 /// <param name="IntakeStatePath">Intake's state file (<c>intake/github.json</c>) for <c>GET /v1/intake</c>; null: none.</param>
+/// <param name="Access">Sign-in by Cloudflare Access identity (ADR 0071); null: keys only.</param>
+/// <param name="AccessCerts">Reads the team's signing keys; null: an HTTPS GET of <see cref="CloudflareAccessSettings.CertsUrl"/>.</param>
+/// <param name="ProxySignIn">Sign-in by the email a trusted single-sign-on proxy forwards (ADR 0071); null: keys only.</param>
+/// <param name="ProxyResolver">Resolves the proxies' names; null: DNS.</param>
+/// <param name="InboxDismissalsPath">The file of the inbox's dismissals (<c>inbox/dismissed.json</c>, ADR 0064); null: nothing can be dismissed.</param>
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
     IReadOnlyList<string>? AllowedHosts = null, int MaxConcurrentRuns = 1, int MaxSessionCalls = 2, string? StateDirectory = null,
     IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null, bool Ui = false,
-    Profile? Profile = null, Func<string, bool>? SecretPresent = null, string? IntakeStatePath = null);
+    Profile? Profile = null, Func<string, bool>? SecretPresent = null, string? IntakeStatePath = null, string? InboxDismissalsPath = null, TimeSpan? McpWait = null,
+    CloudflareAccessSettings? Access = null, Func<CancellationToken, Task<string>>? AccessCerts = null,
+    ProxySignInSettings? ProxySignIn = null, Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? ProxyResolver = null);
 
 /// <summary>
 /// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
@@ -54,6 +61,9 @@ public static partial class ChargehandServer
 
     public static readonly TimeSpan DefaultWait = TimeSpan.FromSeconds(10);
 
+    /// <summary>How long an MCP call over HTTP waits before it answers with the run id (ADR 0065): under the 60 s after which Claude Code's client gives up.</summary>
+    public static readonly TimeSpan DefaultMcpWait = TimeSpan.FromSeconds(50);
+
     public const int MaxWaitSeconds = 60;
 
     /// <summary>Sent to MCP clients on initialize so they know when to call chargehand without loading the tool first.</summary>
@@ -61,9 +71,12 @@ public static partial class ChargehandServer
         "chargehand answers codebase questions with read-only coding-agent workers and returns result/v1: claims with "
         + "evidence, a confidence, and open questions. Call the orchestrate tool when a question needs several files read or "
         + "a second agent's independent answer. Pin the checkout with context.repository (path, commit); bound cost with "
-        + "context.preset (default, cheap, thorough, strict, draft) or context.budget_usd. Runs can take minutes.";
+        + "context.preset (default, cheap, thorough, strict, draft) or context.budget_usd. Runs can take minutes: a call that "
+        + "returns a run id instead of result/v1 is still running, and the result tool with that run_id reads it.";
 
-    public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log, Chargehand.Driven.DrivenRun? driven = null, Chargehand.Automation.GitHubIntake? intake = null)
+    public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log, Chargehand.Driven.DrivenRun? driven = null, Chargehand.Automation.GitHubIntake? intake = null,
+        Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? scheduler = null,
+        Chargehand.Automation.PlaneIntake? plane = null)
     {
         var address = IPAddress.Parse(settings.Listen);
         IReadOnlyList<string> hosts = settings.AllowedHosts ?? [];
@@ -81,6 +94,7 @@ public static partial class ChargehandServer
         builder.Services.AddHostFiltering(o => o.AllowedHosts = ["localhost", "127.0.0.1", .. hosts]);
         // OrchestrateTool reads the MCP call's Prefer header.
         builder.Services.AddHttpContextAccessor();
+        builder.Services.AddSingleton(new McpHttp(settings.McpWait ?? DefaultMcpWait, log));
         AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory, driven, settings.MaxConcurrentRuns, settings.MaxSessionCalls, settings.StateDirectory, log, settings.Clock)
             // Hybrid: 2026-07-28 clients run stateless (tasks, input_required results); initialize clients get a session.
             .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients);
@@ -90,6 +104,18 @@ public static partial class ChargehandServer
         // ADR 0051: only when the profile has automation.github. After the resumer, so a restart's own batches are counted before intake starts new ones.
         if (intake is not null)
             builder.Services.AddHostedService(sp => new IntakeService(intake, sp.GetRequiredService<RunService>()));
+        // ADR 0068: only when the profile has automation.schedules. The morning report reads the same run log and inbox the console does.
+        if (scheduler is not null)
+            builder.Services.AddHostedService(sp =>
+            {
+                var runs = sp.GetRequiredService<RunService>();
+                var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
+                var source = new ServerMorningSource(() => new ConsoleContext(settings, runs, log, driven, new SecretPresence(settings.SecretPresent), dismissals));
+                return new ScheduleService(scheduler(source), runs);
+            });
+        // ADR 0067: only when the profile has automation.plane.
+        if (plane is not null)
+            builder.Services.AddHostedService(sp => new PlaneIntakeService(plane, sp.GetRequiredService<RunService>()));
         // ADR 0045: reads back what became of the pull requests, only where there are learning records.
         if (driven?.Learning is not null)
             builder.Services.AddHostedService(_ => new PrOutcomeRefresher(driven));
@@ -98,10 +124,14 @@ public static partial class ChargehandServer
         app.UseHostFiltering();
         var expected = Encoding.UTF8.GetBytes($"Bearer {settings.ApiKey}");
         var accounts = settings.Accounts is { Count: > 0 } declared && settings.AccountKeysFile is { } keysFile ? new AccountDirectory(declared, new AccountKeyStore(keysFile), new AccountKeyUse(AccountKeyUse.FileFor(keysFile), settings.Clock)) : null;
+        var access = settings.Access is { } accessSettings ? new CloudflareAccessVerifier(accessSettings, settings.AccessCerts ?? Certs(accessSettings), settings.Clock) : null;
+        var proxies = settings.ProxySignIn is { } proxy ? new TrustedProxies(proxy.Proxies, settings.ProxyResolver, settings.Clock) : null;
+        if (access is not null)
+            app.Lifetime.ApplicationStopped.Register(access.Dispose);
         app.Use(async (ctx, next) =>
         {
-            // The UI's and the console's files are public and carry no data; the page calls the routes below with a key (ADR 0054, 0056).
-            if (settings.Ui && (WebUi.Serves(ctx.Request.Path) || WebConsole.Serves(ctx.Request.Path)))
+            // The console's files (and the redirect from /ui/) are public and carry no data; the page calls the routes below with a key (ADR 0056).
+            if (settings.Ui && WebConsole.Serves(ctx.Request.Path))
             {
                 await next(ctx);
                 return;
@@ -138,7 +168,21 @@ public static partial class ChargehandServer
                 await next(ctx);
                 return;
             }
-            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            // No key at all: the identity Cloudflare Access checked (ADR 0071), for the console's own calls only.
+            if (header.Length == 0 && access is not null && await AccessPrincipal(ctx, access, settings) is { } identity)
+            {
+                Identify(ctx, identity);
+                await next(ctx);
+                return;
+            }
+            if (header.Length == 0 && proxies is not null && await ProxyPrincipal(ctx, proxies, settings) is { } forwarded)
+            {
+                Identify(ctx, forwarded);
+                await next(ctx);
+                return;
+            }
+            // The console's first call, with no key: "no identity" is an answer, not an error, so the browser logs nothing.
+            ctx.Response.StatusCode = ctx.Request.Path == IdentityPath ? StatusCodes.Status204NoContent : StatusCodes.Status401Unauthorized;
         });
 
         app.MapPost("/v1/runs", async (HttpContext ctx, RunService runs) =>
@@ -183,14 +227,15 @@ public static partial class ChargehandServer
 
         if (settings.Ui)
         {
-            WebUi.Map(app);
             WebConsole.Map(app);
         }
 
         ConsoleRoutes.Map(app, settings, log, driven);
+        ConsoleSources.Map(app, intake);
 
-        app.MapGet("/v1/accounts/me", async (HttpContext ctx, RunService runs) =>
-            Json(await AccountStanding.ReadAsync(PrincipalHttp.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
+        foreach (var path in new[] { "/v1/accounts/me", IdentityPath })
+            app.MapGet(path, async (HttpContext ctx, RunService runs) =>
+                Json(await AccountStanding.ReadAsync(PrincipalHttp.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
 
         app.MapGet("/v1/runs", async (HttpContext ctx) =>
         {
@@ -257,6 +302,18 @@ public static partial class ChargehandServer
             return Json(new { halted = false }, StatusCodes.Status200OK);
         });
 
+        // Liveness for any key; ?deep=1 (owner) also calls the intake model, which is what a canary needs: the process can be up while every run fails.
+        app.MapGet("/v1/health", async (HttpContext ctx, RunService runs) =>
+        {
+            var version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0";
+            if (ctx.Request.Query["deep"] != "1")
+                return Json(new HealthReport("ok", version, runs.Halted, null), StatusCodes.Status200OK);
+            if (OwnerOnly(ctx) is { } refused)
+                return refused;
+            var probe = await orchestrator.ProbeAsync(TimeSpan.FromSeconds(60), ctx.RequestAborted);
+            return Json(new HealthReport(probe.Ok ? "ok" : "failing", version, runs.Halted, probe), probe.Ok ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
+        });
+
         app.MapGet("/v1/runs/{id}", async (string id, HttpContext ctx, RunService runs) =>
         {
             var who = PrincipalHttp.Of(ctx);
@@ -315,7 +372,7 @@ public static partial class ChargehandServer
                 o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" };
                 o.ServerInstructions = Instructions;
             })
-            .WithTools([OrchestrateTool.Create()])
+            .WithTools([OrchestrateTool.Create(), ResultTool.Create()])
             .WithTasks(new InMemoryMcpTaskStore());
     }
 
@@ -326,7 +383,7 @@ public static partial class ChargehandServer
         : Json(run.Latest, StatusCodes.Status202Accepted);
 
     /// <summary>A run this process does not hold, from the run log: finished (with result), running elsewhere, or lost.</summary>
-    private static async Task<RunStatus?> Stored(IRunLog log, string id, CancellationToken ct)
+    internal static async Task<RunStatus?> Stored(IRunLog log, string id, CancellationToken ct)
     {
         var entry = await log.ReadAsync(id, ct);
         if (entry.Run is { } done)
@@ -379,3 +436,9 @@ public static partial class ChargehandServer
     [GeneratedRegex(@"\bwait=(\d{1,4})\b")]
     private static partial Regex PreferWait();
 }
+
+/// <summary>What the HTTP host adds for its MCP tools; absent over stdio. <paramref name="Wait"/>: how long a call without <c>Prefer: wait</c> waits for a run.</summary>
+public sealed record McpHttp(TimeSpan Wait, IRunLog Log);
+
+/// <summary><c>GET /v1/health</c>: <paramref name="Probe"/> only with <c>?deep=1</c>.</summary>
+public sealed record HealthReport(string Status, string Version, bool Halted, ModelProbe? Probe);

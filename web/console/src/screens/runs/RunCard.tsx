@@ -6,7 +6,10 @@ import { safeHttpUrl } from '../../lib/url';
 import { Badge, StatusPill } from '../../ui';
 import { pullNumber } from './model';
 
-/** A run on a phone: state, id and kind on the first line, repository and preset on the second, spend and time on the third. */
+/**
+ * A run on a phone: state, id and kind on the first line, repository and preset on the second, spend and time on the third.
+ * The whole card opens the run; the pull request link stays its own target.
+ */
 export function RunCard({ run }: { run: RunSummary }) {
   const pr = safeHttpUrl(run.pr_url);
   return (
@@ -16,7 +19,7 @@ export function RunCard({ run }: { run: RunSummary }) {
         <Link
           to="/runs/$runId"
           params={{ runId: run.run_id }}
-          className="mono-b"
+          className="mono-b run-card__open"
           title={run.run_id}
           aria-label={run.run_id}
         >
@@ -24,13 +27,14 @@ export function RunCard({ run }: { run: RunSummary }) {
         </Link>
         {run.kind ? <Badge size="s" label={run.kind} /> : null}
         <span className="spacer" />
-        <span className="b">{formatUsd(run.usd)}</span>
+        {run.usd == null ? null : <span className="b">{formatUsd(run.usd)}</span>}
       </div>
       <div className="li__title run-card__repo">
         {baseName(run.repository)} · {run.preset}
       </div>
       <div className="li__meta run-card__meta">
-        {formatTokens(run.tokens)} tokens · {formatTime(run.started_at)}
+        {run.tokens == null ? 'tokens not counted yet' : `${formatTokens(run.tokens)} tokens`} ·{' '}
+        {formatTime(run.started_at)}
         {run.error_code ? ` · ${run.error_code}` : ''}
         {pr ? (
           <>

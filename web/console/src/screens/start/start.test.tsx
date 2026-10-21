@@ -1029,3 +1029,27 @@ describe('Start a batch: every state', () => {
     ).toBeTruthy();
   });
 });
+
+describe('Start a single run', () => {
+  it('sends one goal, a preset and a repository at its head, and opens the run', async () => {
+    const { api, router } = await open({
+      replies: { 'POST /v1/runs': [202, {}, { Location: `/v1/runs/${NEW_RUN}` }] },
+    });
+    click('Single run');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Start a run' })).toBeTruthy();
+    expect(within(field('Preset')).queryByRole('option', { name: 'driven' })).toBeNull();
+    click('Start run');
+    expect(screen.getByText('Write what the run should find out or change.')).toBeTruthy();
+    expect(post(api)).toBeUndefined();
+    type('Goal', 'Where is the retry delay set?');
+    type('Repository', REPO);
+    click('Start run');
+    await waitFor(() => expect(post(api)).toBeDefined());
+    expect(post(api)?.body).toEqual({
+      contract_version: 'request/v1',
+      text: 'Where is the retry delay set?',
+      context: { interactive: false, preset: 'default', repository: { path: REPO, commit: HEAD } },
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/runs/${NEW_RUN}`));
+  });
+});

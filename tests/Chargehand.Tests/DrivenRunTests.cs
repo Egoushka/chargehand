@@ -185,6 +185,31 @@ public class DrivenRunTests
     }
 
     [Fact]
+    public async Task A_tasks_acceptance_criteria_and_the_check_and_reminder_limits_reach_the_session()
+    {
+        var volumes = new FakeVolumes(_ => SessionStatus.Completed);
+        using var rig = new Rig(volumes: volumes, limits: new DrivenLimits(CheckRetries: 1, GoalReminderTurns: 30));
+        var request = Request("Add a retry");
+        AcceptanceCheck[] acceptance = [new("./smoke.sh", Output: "retry ok")];
+        request = request with { Driven = request.Driven! with { Tasks = [request.Driven.Tasks[0] with { Acceptance = acceptance }] } };
+        await rig.Run.RunAsync(request, "run-batch-accept", Token, default);
+
+        var task = volumes.Tasks.Single();
+        Assert.Equal(acceptance, task.Acceptance);
+        Assert.Equal((1, 60, 30), (task.CheckRetries, task.ReminderMinutes, task.ReminderTurns));
+    }
+
+    [Fact]
+    public async Task A_reminder_interval_of_zero_minutes_sends_no_reminder()
+    {
+        var volumes = new FakeVolumes(_ => SessionStatus.Completed);
+        using var rig = new Rig(volumes: volumes, limits: new DrivenLimits(GoalReminderMinutes: 0));
+        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-noremind", Token, default);
+        Assert.Null(volumes.Tasks.Single().ReminderMinutes);
+        Assert.Null(volumes.Tasks.Single().Acceptance);
+    }
+
+    [Fact]
     public async Task Without_profile_limits_the_presets_apply()
     {
         var preset = Preset.Load(Path.Combine(Repo.Root, "presets"), "driven").Driven!;
@@ -430,6 +455,31 @@ public class DrivenRunTests
                 (_, _, _) => throw new NotSupportedException(), new NoEvidenceProblems(), n => n));
         var result = await withoutPush.RunAsync(Request("Add a retry"), "run-batch-5", Token, default);
         Assert.Equal(ErrorCode.CredentialUnavailable, result.Error!.Code);
+        Assert.Empty(rig.Engine.Calls);
+    }
+
+    [Theory]
+    [InlineData(null, "/srv")]
+    [InlineData("local", null)]
+    public async Task A_batch_for_a_local_repository_is_refused_before_the_push_credential_is_read_or_a_container_exists(string? delivery, string? localOnlyRoot)
+    {
+        using var rig = new Rig();
+        var profile = rig.Profile with { Delivery = localOnlyRoot is null ? null : new DeliverySettings([localOnlyRoot]) };
+        var credentialsRead = 0;
+        var run = new DrivenRun(profile, rig.Log, Repo.Root,
+            new DrivenServices(rig.Engine, rig.Engine, new FakeVolumes(_ => SessionStatus.Completed), _ => throw new NotSupportedException(), null,
+                (_, _, _) => throw new NotSupportedException(), new NoEvidenceProblems(), n =>
+                {
+                    credentialsRead++;
+                    return n;
+                }));
+        var request = Request("Add a retry");
+        request = request with { Context = request.Context with { Delivery = delivery } };
+
+        var result = await run.RunAsync(request, "run-batch-local", Token, default);
+
+        Assert.Equal(ErrorCode.LocalOnly, result.Error!.Code);
+        Assert.Equal(0, credentialsRead);
         Assert.Empty(rig.Engine.Calls);
     }
 

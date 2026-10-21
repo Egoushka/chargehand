@@ -32,10 +32,12 @@ public sealed record PushCredential(string Value, PushCredentialKind Kind = Push
 /// <param name="PolicyNote">What the pull request body says chargehand does next (ADR 0046), for a repository that opted in to integration; null: the draft is not merged and chargehand will not merge it.</param>
 /// <param name="UpdateReused">The title and body replace those of a pull request the host already had for the branch (a task continued on it), as a finished task's replace the <c>[partial]</c> ones. Off, a reused pull request is left as it is.</param>
 /// <param name="Goal">The task's goal; with it, a passing branch that changes only tests and build files is flagged unless the goal asks for that work (<see cref="TestIntegrity"/>). Null: not assessed.</param>
+/// <param name="LocalOnly">The repository is local-only (ADR 0069): the hand-over refuses before any git or forge call.</param>
+/// <param name="Provenance">The run that wrote the branch (ADR 0070): its trailers go on every commit past the base that has none, and at the end of the pull request body, so a squash merge keeps them. Null: no trailers.</param>
 /// <param name="FallbackBaseBranch">For a pull request stacked on another task's branch (ADR 0049), <paramref name="BaseBranch"/> is that branch: if the host refuses it, the pull request is opened against this one instead and says so.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
-    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false, string? FallbackBaseBranch = null);
+    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false, string? FallbackBaseBranch = null, bool LocalOnly = false, Provenance? Provenance = null);
 
 /// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
 public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
@@ -76,8 +78,12 @@ public sealed record ChangeSummary(IReadOnlyList<FileChange> Files, string? Diff
 /// its tests pass is not believed: the verification here is chargehand's own. With <paramref name="steps"/>, the verification, the push and the pull request are recorded steps of batch <paramref name="batchId"/>
 /// (ADR 0061), keyed by the handed-over run: a finished one is not done again, and one a restart cut short first looks for what it may have left (the branch at the commit, an open pull request
 /// for the branch).</summary>
-public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pullRequests, DrivenForge? forge = null, DrivenJournal? steps = null, string? batchId = null) : IBranchHandover
+/// <param name="pause">Waits between push attempts (<see cref="PushPauses"/>); tests pass one that does not.</param>
+public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pullRequests, DrivenForge? forge = null, DrivenJournal? steps = null, string? batchId = null,
+    Func<TimeSpan, CancellationToken, Task>? pause = null) : IBranchHandover
 {
+    private readonly Func<TimeSpan, CancellationToken, Task> _pause = pause ?? ((by, ct) => Task.Delay(by, ct));
+
     private const int MaxDiffBytes = 8 * 1024 * 1024;
 
     /// <summary>The most of the unified diff a <see cref="ChangeSummary"/> keeps, so it fits an inline artifact (64 KiB) beside the paths.</summary>
@@ -92,6 +98,8 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         if (input.Credential is { } credential)
             secrets.Add(credential.Value);
         var run = new HandoverRun(input, secrets);
+        if (input.LocalOnly)
+            return run.Refuse("the repository is local-only: nothing is pushed and no pull request is opened", ErrorCode.LocalOnly);
         if (await FetchAsync(run, ct) is { } notFetched)
             return notFetched;
         if (await ScanDiffAsync(run, ct) is { } diffRefused)
@@ -102,6 +110,8 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             return ciRefused;
         if (await VerifyBranchAsync(run, ct) is { } notVerified)
             return notVerified;
+        if (await StampAsync(run, ct) is { } notStamped)
+            return notStamped;
         if (await PushBranchAsync(run, ct) is { } notPushed)
             return notPushed;
         return await OpenAsync(run, ct);
@@ -196,7 +206,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         run.VerificationPaths = VerifyCommand.VerificationPaths(changed, plan);
         if (plan is null)
         {
-            if (!input.AllowNoTests && !input.Partial)
+            if (!input.AllowNoTests && !input.Partial && (run.NoTestsRule = await NoTestsRuleAsync(run, ct)) is null)
                 return run.Refuse("no test command found for this repository; chargehand does not push a change it cannot test (name one in the request's context.verify)", ErrorCode.VerificationFailed, changed: changed, commit: commit);
             return null;
         }
@@ -257,7 +267,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             return new(HandoverStatus.PrFailed, "the remote's owner and repository could not be read from its URL", ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity);
         try
         {
-            var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity);
+            var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity, run.NoTestsRule);
             var (pr, bodyUsed) = await OpenPullRequestAsync(input, repository, prBody, ct);
             var detail = pr.Reused && input.UpdateReused ? await UpdateReusedAsync(run, repository, pr, bodyUsed, ct) : "draft pull request opened";
             input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, detail, pr.Url));
@@ -307,12 +317,16 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
 
         public IReadOnlyList<string> VerificationPaths { get; set; } = [];
 
+        /// <summary>Why a branch with no test command was pushed all the same (<see cref="NoTestsRuleAsync"/>); null otherwise.</summary>
+        public string? NoTestsRule { get; set; }
+
         public HandoverOutcome Refuse(string reason, ErrorCode error, VerificationRecord? verification = null, IReadOnlyList<string>? changed = null, IReadOnlyList<ScanFinding>? findings = null,
             IReadOnlyList<string>? verificationPaths = null, string? commit = null) =>
             new(HandoverStatus.NotPushed, Redact(reason, Secrets), error, Input.Branch, commit, null, verification, changed ?? [], verificationPaths ?? [], findings ?? [], Changes);
     }
 
-    private static string DescribeBody(string body, List<string> changed, VerificationRecord? verification, IReadOnlyList<string> verificationPaths, string? policyNote, TestIntegrityFlag? integrity)
+    private static string DescribeBody(string body, List<string> changed, VerificationRecord? verification, IReadOnlyList<string> verificationPaths, string? policyNote, TestIntegrityFlag? integrity,
+        string? noTestsRule)
     {
         var text = new StringBuilder();
         if (integrity is not null)
@@ -321,7 +335,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         // A flagged pull request is never merged, so the opted-in text about auto-merge would be untrue.
         text.Append(integrity is not null && policyNote is not null ? "Opened by chargehand as a draft. Because of the warning above, chargehand marks it ready for review and does not merge it." : policyNote ?? "Opened by chargehand as a draft; it is not merged and chargehand will not merge it.").Append("\n\n");
         text.Append(verification is null
-            ? "Verification: no test command was found, so nothing was run.\n"
+            ? $"Verification: no test command was found, so nothing was run.{(noTestsRule is null ? "" : $" It was pushed because {noTestsRule}.")}\n"
             : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Verification (chargehand's own run in a fresh container): `{string.Join(' ', verification.Argv)}` exited {verification.ExitCode} in {verification.Duration.TotalSeconds:0}s.\n"));
         text.Append(System.Globalization.CultureInfo.InvariantCulture, $"Changed files: {changed.Count}.\n");
         if (verificationPaths.Count > 0)

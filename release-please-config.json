@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "include-component-in-tag": false,
+  "bump-minor-pre-major": true,
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "chargehand",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        { "type": "xml", "path": "Directory.Build.props", "xpath": "//Project/PropertyGroup/Version" },
+        { "type": "json", "path": "plugins/chargehand/.claude-plugin/plugin.json", "jsonpath": "$.version" },
+        { "type": "generic", "path": "deploy/compose/compose.yaml" },
+        { "type": "generic", "path": "deploy/compose/.env.example" }
+      ]
+    }
+  }
+}

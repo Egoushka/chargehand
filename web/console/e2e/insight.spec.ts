@@ -57,7 +57,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
 
         await expect(page.getByRole('heading', { level: 1, name: 'Analytics' })).toBeVisible();
         await expect(page.getByText('Governor false stops')).toBeVisible();
-        await expect(page.getByText('tasks.total.usd_estimate')).toBeVisible();
+        await expect(page.getByTitle('GET /v1/analytics · tasks.total.usd_estimate')).toBeVisible();
         const spend = 'Spend per day, stacked by repository';
         await expect(page.getByRole('img', { name: spend })).toBeVisible();
         await expect(
@@ -93,17 +93,38 @@ for (const [device, viewport] of Object.entries(SIZES)) {
           await expect(tip).toBeHidden();
         }
 
+        // At either end of the plot the hover moves inside the chart instead of narrowing to a letter per line.
+        for (const at of [0.01, 0.99]) {
+          const over = page.locator('.timechart .u-over').first();
+          await over.scrollIntoViewIfNeeded();
+          const box = await over.boundingBox();
+          const chart = await page.locator('.timechart').first().boundingBox();
+          if (!box || !chart) throw new Error('the plot has no box');
+          await page.mouse.move(box.x + box.width * at, box.y + box.height * 0.5);
+          const tip = await page.locator('.chart-tip').boundingBox();
+          if (!tip) throw new Error('no hover at the edge');
+          expect(tip.width).toBeGreaterThan(200);
+          expect(tip.height).toBeLessThan(box.height);
+          expect(tip.x).toBeGreaterThanOrEqual(chart.x);
+          expect(tip.x + tip.width).toBeLessThanOrEqual(chart.x + chart.width + 0.5);
+          await page.mouse.move(0, 0);
+        }
+
         // A mark of an SVG chart is reached with the keyboard, and shows the same facts.
         const mark = page.getByRole('img', { name: /^acme\/ledger · size S: pass rate/ });
         // Scrolled into view first: Radix closes a tooltip when its trigger's scroller moves, and focus scrolls an offscreen mark.
         await mark.scrollIntoViewIfNeeded();
         await stillScrolling(page);
         await mark.focus();
-        await expect(
-          page
-            .locator('.ch-tooltip', { hasText: 'GET /v1/learn · groups[acme/ledger, S]' })
-            .first(),
-        ).toBeVisible();
+        const markTip = page
+          .locator('.ch-tooltip', { hasText: 'GET /v1/learn · groups[acme/ledger, S]' })
+          .first();
+        await expect(markTip).toBeVisible();
+        // A long tooltip wraps inside the window rather than running off a phone.
+        const markBox = await markTip.boundingBox();
+        if (!markBox) throw new Error('the tooltip has no box');
+        expect(markBox.x).toBeGreaterThanOrEqual(0);
+        expect(markBox.x + markBox.width).toBeLessThanOrEqual(viewport.width);
         await page.keyboard.press('Escape');
 
         await shot(page, `analytics-${device}-${scheme}`);

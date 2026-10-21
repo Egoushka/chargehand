@@ -53,6 +53,9 @@ public static partial class Gate
         var tc = T([.. pairs.Where(p => p.BaseUsd > 0 && p.ChangeUsd > 0).Select(p => Math.Log((double)(p.ChangeUsd!.Value / p.BaseUsd!.Value)))]);
         Verdict V(bool blocked, FormattableString reason) => new(cell.Name, pairs.Count, dq, tq, cost, tc, blocked, FormattableString.Invariant(reason));
 
+        // An unseeded dataset has nothing to gate on (CHARGEHAND-57): skip it loudly. A dataset with items keeps the minimum.
+        if (pairs.Count == 0)
+            return V(false, $"0 items, gate skipped — seed CHARGEHAND-57");
         if (pairs.Count < cell.MinItems)
             return V(true, $"{pairs.Count} items; the gate needs at least {cell.MinItems}");
         var critical = Critical(pairs.Count - 1);

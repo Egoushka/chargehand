@@ -2,7 +2,10 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Sessions.Api;
+using Chargehand.Runtime;
 using Chargehand.Verification;
 using Chargehand.Workspace;
 
@@ -29,8 +32,19 @@ internal static class ChangeRun
         return message.Length <= 72 ? message : message[..71] + "…";
     }
 
+    /// <summary>The trailers of the branch's commit (ADR 0070): the run, what its calls cost so far, and how the last check ended. The result is not named: it cites this commit, so its hash cannot be in it.</summary>
+    internal static Provenance ProvenanceOf(string runId, string runtime, string model, IReadOnlyList<WorkerMessage> calls, IPriceTable prices, VerifyOutcome? check, int attempts)
+    {
+        var counts = calls.Select(c => c.Tokens).OfType<TokenCounts>().ToList();
+        var input = counts.Sum(t => t.Input) + counts.Sum(t => t.CacheRead) + counts.Sum(t => t.CacheWrite);
+        decimal? usd = calls.Select(c => c.Tokens is { } t ? prices.PriceUsd(c.Model ?? model, t) : null).OfType<decimal>().ToList() is { Count: > 0 } priced ? priced.Sum() : null;
+        var checks = check is null ? "no verification command" : $"{(check.Passed ? "verification passed" : "verification failed")} after {attempts} attempt{(attempts == 1 ? "" : "s")}: {string.Join(' ', check.Plan.Argv)}";
+        return new Provenance(runId, Runtime: runtime, Model: calls.Select(c => c.Model).FirstOrDefault(m => m is not null) ?? model, Usd: usd,
+            Tokens: counts.Count == 0 ? null : counts.Sum(t => t.Input + t.Output), CachePercent: input == 0 ? null : (int)(counts.Sum(t => t.CacheRead) * 100 / input), Checks: checks);
+    }
+
     internal static ResultContract Finish(ResultContract contract, BranchInfo? branch, string diff, VerifyOutcome? verification, int attempts, string sandboxKind,
-        bool network, IReadOnlyList<string> changedPaths, VerifyPlan? plan)
+        bool network, IReadOnlyList<string> changedPaths, VerifyPlan? plan, string delivery = DeliveryMode.Push, string? landFailure = null)
     {
         if (branch is null)
             return contract with
@@ -42,11 +56,19 @@ internal static class ChangeRun
             };
         var artifacts = new List<Artifact>
         {
-            Json("branch", "application/vnd.chargehand.branch+json", new { repository = branch.Repository, branch = branch.Branch, commit = branch.Commit, @base = branch.Base }),
+            Json("branch", "application/vnd.chargehand.branch+json", new { repository = branch.Repository, branch = branch.Branch, commit = branch.Commit, @base = branch.Base, delivery }),
             Inline("diff", "text/x-diff", diff),
             Json("verification", "application/json", VerificationRecord(verification, attempts, sandboxKind, network, VerifyCommand.VerificationPaths(changedPaths, plan))),
         };
         var merged = contract with { Artifacts = [.. contract.Artifacts, .. artifacts] };
+        if (landFailure is not null)
+            return merged with
+            {
+                Status = ResultStatus.Failed,
+                OpenQuestions = [.. merged.OpenQuestions, $"The branch could not be fetched into the repository: {landFailure}"],
+                Error = new ResultError(ErrorCode.DeliveryFailed, $"the branch could not be fetched into the repository: {landFailure}", false,
+                    $"The branch {branch.Branch} is still in {branch.Repository}; fetch it by hand: git fetch {branch.Repository} {branch.Branch}:{branch.Branch}"),
+            };
         if (verification is null)
             return merged with
             {

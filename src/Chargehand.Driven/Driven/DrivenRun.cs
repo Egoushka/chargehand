@@ -324,6 +324,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     {
         var settings = profile.Driven ?? new DrivenSettings();
         var options = new BatchOptions(settings.Enabled, settings.MaxParallel);
+        // Driven sessions exist to push and open pull requests (ADR 0069): a local run, or a repository the profile keeps local, is refused before the task source or the push credential is touched.
+        if (c.Request.Context.Repository is { } repository && profile.DeliveryPolicy.IsLocal(c.Request.Context.Delivery, repository.Path))
+            throw DeliveryPolicy.Refused(repository.Path, "a driven batch");
         // Throws when the profile has driven sessions off, so a refused request touches nothing else.
         var (resolved, unresolved) = c.Resume is null
             ? await _lifecycle.ResolveAsync(c, options, services?.TaskSource is { } source ? source.ResolveAsync : null)

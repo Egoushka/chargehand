@@ -19,7 +19,7 @@ import {
   Sparkline,
   StatusPill,
 } from '../../ui';
-import { Later, lastSeen, NotRecorded } from '../admin/parts';
+import { lastSeen, NotRecorded, Planned } from '../admin/parts';
 import {
   CHECK_LABEL,
   CHECK_STATUS,
@@ -52,8 +52,9 @@ export function Repositories() {
           </p>
         </div>
         <div className="screen__actions">
-          <Button label="Run doctor on all" icon="shield-check" disabled />
-          <Later />
+          <Planned>
+            <Button label="Run doctor on all" icon="shield-check" disabled />
+          </Planned>
         </div>
       </div>
 

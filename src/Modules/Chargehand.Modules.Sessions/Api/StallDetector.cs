@@ -46,6 +46,9 @@ public sealed class StallDetector
         _ => "wall_clock",
     };
 
+    /// <summary>Counts as an event for the no-progress rule only: the driver's own work (the check gate) is not the session's silence.</summary>
+    public void Touch(DateTimeOffset now) => _lastEvent = now;
+
     public void OnEvent(JsonElement e, DateTimeOffset now)
     {
         _lastEvent = now;

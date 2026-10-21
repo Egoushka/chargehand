@@ -48,7 +48,9 @@ The goal's first line is the issue's title (the pull request's title is cut from
 - **Who may start** is the list, and for a label it is the labeller. Writing an issue needs no rights; applying a label needs triage rights.
 - **The issue's text is untrusted** even when an allowed author applies the label to someone else's issue. The fence helps the model; the real boundary is the session's container (no credential, no route out beyond the allowlist) and the handover's checks.
 - **A repository the integrator merges into** (`merge` in `driven.integrator.repositories`, not in `always_ask`) takes work only from an issue **written** by an allowed author. For another author's issue chargehand comments once and starts nothing, because a merge there ends at a check and not at a review. A repository that is `ask` or not listed has no such rule.
-- The App needs the Issues permission (read and write) besides [the integrator's](driven.md#merging-by-policy). It needs no administration and no workflow permission, takes no webhook, and is installed only on the repositories listed.
+- **A `merge` repository needs a rule that requires its CI checks** on the base branch (a ruleset's "Require status checks to pass", or classic branch protection). Auto-merge waits only for required checks, so without one chargehand treats the repository as `ask`: it marks the pull request ready, comments once why, and does not merge ([ADR 0046](../adr/0046-integrator-and-ci-fixer.md)).
+- **A repository with no test command** gets its change pushed only when every changed file is documentation (`*.md`, `docs/`) or when that same rule makes its CI the gate; otherwise the task ends `verification_failed`. Name one in `context.verify` or `driven.services.verify` to test the change yourself ([ADR 0039](../adr/0039-driven-writing-sessions.md)).
+- The App needs the Issues permission (read and write) besides [the integrator's](driven.md#merging-by-policy). It needs no administration and no workflow permission and takes no webhook. Install it only on the repositories listed, or, with `discover`, only on those chargehand may work in: then every repository it can see is watched.
 - The token and the key are never in a comment, a log line or an error message. A polling failure is one line on stderr and the next poll tries again.
 
 ## Profile
@@ -67,15 +69,25 @@ The goal's first line is the issue's title (the pull request's title is cut from
     "max_usd_total": 5,
     "max_concurrent": 2,
     "max_starts_per_day": 10,
-    "max_review_rounds": 3 } }
+    "max_review_rounds": 3,
+    "review_pulls": false,
+    "max_reviews_per_day": 20 } }
 }
 ```
 
 `path` is the server's checkout of the repository (under `repository_roots`, with an `origin` remote). Each trigger fetches it with the server's own git credentials and starts from the commit `origin/HEAD` points at; a fetch that fails is a line on stderr and the batch starts from what the checkout has. `poll_seconds` is 30 to 3600. A profile that sets `automation.github` without `driven.enabled` and the integrator's App keys is refused when it loads.
 
+**`discover: true`** makes `repositories` optional: every repository the App's installations can see, archived ones aside, is watched too. chargehand clones each into `<worker_root>/repos/<owner>/<repo>` the first time it sees it and fetches it before each start, both with the App's installation token (sent as a header in git's environment, never written to the clone's config); that directory is always among the repository roots. A repository in `repositories` keeps its own checkout. [Start from a GitHub issue](github-start.md) is the short version for a new user.
+
+**The issue closes on merge.** The goal of an issue's task ends with `Closes #<n>`, and the pull request's body carries the goal, so GitHub closes the issue when the pull request merges. A continuation keeps the line; a review round does not touch the body.
+
+**The trigger label.** The first time intake watches a repository it creates the label (`label`, default `chargehand`) if the repository has none.
+
+**Switching a repository off.** `GET /v1/intake/sources` lists the watched repositories with their switch; `PUT /v1/intake/sources` with `{"sources": [{"repository": "octo/repo", "enabled": false}]}` sets it (owner's key only; a repository intake does not watch is a 404). Off, intake reads nothing of it: labels and comments wait and are read when it is on again. Batches already running still report.
+
 ## State
 
-`intake/github.json` next to the run log: the comment cursor per repository, every trigger acted on or ignored, the tasks with their phase, the review comments waiting for a round, and when batches started. It is written whole through a temporary file. Deleting it makes the server forget what it started: labelled issues start again, and comments from before the next poll are not read.
+`intake/github.json` next to the run log: the comment cursor per repository, every trigger acted on or ignored, the tasks with their phase, the review comments waiting for a round, the repositories whose label was checked, and when batches started. `intake/sources.json` beside it holds the repositories switched off. It is written whole through a temporary file. Deleting it makes the server forget what it started: labelled issues start again, and comments from before the next poll are not read.
 
 ## Review comments on a chargehand pull request
 
@@ -94,6 +106,58 @@ When the round ends chargehand comments on the pull request: the changes are on 
 
 A pull request from a fork, a branch that is not `chargehand/<name>`, a closed pull request, and comments of anyone not on `allowed_authors` are ignored. A branch that was deleted or rewritten fails the round with the reason, before a container starts.
 
+## Reviewing every pull request
+
+Off unless `review_pulls` is `true`. Each poll then lists the open pull requests of every watched repository, whoever wrote them. Drafts and pull requests whose author's login ends in `[bot]` are skipped. For a head commit with no review yet (kept in `intake/github.json` as `owner/repo#12@<sha>`), chargehand:
+
+1. fetches `refs/pull/<n>/head` into the repository's `path` checkout with the server's git credentials (kept as `refs/chargehand/pull/<n>`; works for a fork too);
+2. reads the diff from GitHub (cut at 60000 characters, with a marker line saying so);
+3. starts a **read-only run** (not driven) of the `review` preset at that commit, with three inputs: `goal` (the title and description, fenced as text the author wrote), `diff`, and `tests` (`not run by chargehand; see the pull request's checks`).
+
+When the run ends chargehand writes **one comment** on the pull request. It starts with the hidden marker `<!-- chargehand-review <sha> -->`, then the summary, then each claim as a finding with its confidence and evidence locators, or `No findings.`; a failed or stopped run says so with the reason. Model text is neutralised (`@` gets a zero-width space so nobody is pinged, `<` is escaped). A new push is a new commit and gets its own review and comment.
+
+Never twice for one commit: the commit is recorded before the comment, and the marker is looked up on the pull request itself before a run starts and before the comment is posted, so a restart or a lost state file does not repeat either.
+
+| Key | Default | When over it |
+|---|---|---|
+| `review_pulls` | false | off: nothing is reviewed (a review already running still gets its comment) |
+| `max_reviews_per_day` | 20 (1 to 1000) | the pull request waits, uncommented, until a review leaves the 24-hour window |
+
+Reviews share `max_concurrent` with the batches: a review waits while that many batches and reviews run. They do not count toward `max_starts_per_day`. A diff GitHub will not render (too large) is skipped with a line on stderr. The run reads the head commit and nothing else; the pull request's text is untrusted, and the preset has no edit, shell or web tools. To turn it on add `"review_pulls": true` to `automation.github`. A server whose checkouts are mounted read-only cannot fetch the head itself: keep `refs/pull/*/head` fetched from outside (`git fetch origin '+refs/pull/*/head:refs/pull/*/head'` in the job that updates the checkouts) and chargehand uses that ref.
+
 ## Not covered
 
 Review summaries (the body of a submitted review) are not read, only its inline comments. A webhook instead of the poll. Issues in a repository nobody listed. Labels from a bot account. Not run against GitHub: see the ADR's UNKNOWN lists.
+
+Work that starts on a clock instead of from an issue is in [Scheduled work](schedules.md).
+## Plane work items
+
+Intake from Plane ([ADR 0067](../adr/0067-intake-from-plane.md)) starts the same batch of one task from a work item that is in a chosen state. chargehand **polls** Plane's REST API with an API key; the server is on a private network and Plane cannot call it. Off unless the profile has `automation.plane`. Not run against a real Plane, only against a fake host and a stub HTTP handler.
+
+```json
+{
+  "driven": { "enabled": true },
+  "automation": { "plane": {
+    "url": "https://plane.example.test",
+    "api_key_secret": "chargehand-plane-key",
+    "workspace": "my-workspace",
+    "projects": { "<plane-project-id>": { "path": "/srv/chargehand/repos/repo", "remote": "octo/repo" } },
+    "trigger_state": "Agent",
+    "started_state": "In Progress",
+    "review_state": "In Review",
+    "failed_state": "Backlog",
+    "poll_seconds": 120,
+    "budget_class": "M",
+    "max_tokens_total": 2000000,
+    "max_usd_total": 5,
+    "max_concurrent": 2,
+    "max_starts_per_day": 10 } }
+}
+```
+
+- States are named, not numbered; the match ignores case. A project that has no state with one of the three required names is skipped with a line on stderr. `failed_state` is optional: without it a failed item stays in `started_state` and a comment says why.
+- Each poll reads the items of every listed project and keeps those in `trigger_state`. The goal is the item's name, its description as plain text and `Tracker item: <PROJECT>-<number>`; the item's name is the pull request's title.
+- On start the item moves to `started_state` and gets a comment with the run id. When the batch ends it gets the pull request link and moves to `review_state`; a failure, a lost run or questions get a comment with the reason and move it to `failed_state`.
+- Replies are not read. To answer a question, put the answer in the description and move the item to `trigger_state` again: a changed update time is a new trigger. An item whose batch still runs is not started again.
+- Caps, `poll_seconds` and `budget_class` work as for GitHub. There is no author list: use an API key of a member who can reach only the listed projects.
+- State is `intake/plane.json` next to the run log. Deleting it makes the server forget what it started.

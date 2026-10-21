@@ -2,7 +2,8 @@
   "mcpServers": {
     "chargehand": {
       "command": "dotnet",
-      "args": ["dnx", "Chargehand@0.9.5", "--yes", "--source", "https://api.nuget.org/v3/index.json", "--", "mcp"]
+      "args": ["dnx", "Chargehand@0.15.1", "--yes", "--source", "https://api.nuget.org/v3/index.json", "--", "mcp"],
+      "env": { "CHARGEHAND_RUNTIME": "claude_code" }
     }
   }
 }

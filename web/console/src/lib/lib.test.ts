@@ -12,6 +12,7 @@ import {
   formatUsd,
   middleTruncate,
   shortId,
+  shortRepo,
 } from './format';
 import { inboxStatus, runStatus, STATUS, taskStatus } from './status';
 import { safeHttpUrl } from './url';
@@ -135,6 +136,10 @@ describe('names', () => {
     expect(baseName('/srv/app')).toBe('app');
     expect(baseName('example/payments-api')).toBe('payments-api');
     expect(baseName(null)).toBe(DASH);
+    expect(shortRepo('/srv/work/bench/worktree-a')).toBe('bench/worktree-a');
+    expect(shortRepo('example/payments-api')).toBe('example/payments-api');
+    expect(shortRepo('app')).toBe('app');
+    expect(shortRepo(null)).toBe(DASH);
   });
 
   it('truncates the middle, keeping both ends', () => {

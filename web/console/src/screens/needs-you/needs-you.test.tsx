@@ -1,10 +1,19 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { answerRequest } from '../../api/answer';
-import { BATCH_A, COMMIT, inbox, inboxItems, longQuestion, REPO } from '../../testing/fixtures';
+import {
+  BATCH_A,
+  BATCH_B,
+  COMMIT,
+  groupedInbox,
+  inbox,
+  inboxItems,
+  longQuestion,
+  REPO,
+} from '../../testing/fixtures';
 import { renderConsole } from '../../testing/render';
 import { serveApi } from '../../testing/server';
-import { ordered, summary, waitingFor } from './model';
+import { ordered, resolvedNote, rowIds, rows, summary, waitingFor } from './model';
 
 const cards = () => screen.getAllByRole('article');
 const findCard = async (name: RegExp | string) =>
@@ -113,6 +122,164 @@ describe('Needs you', () => {
     expect(screen.getByText('Scrub personal data from the export job')).toBeTruthy();
     fireEvent.click(within(filter).getByRole('button', { name: /All/ }));
     expect(cards()).toHaveLength(3);
+  });
+});
+
+describe('dismissing', () => {
+  it('dismisses one item by its id, says so with an Undo that restores it, and refreshes the inbox', async () => {
+    const api = serveApi();
+    renderConsole('/console/needs-you');
+    const failure = await findCard('Scrub personal data from the export job');
+    const before = api.calls.filter((c) => c.path.startsWith('/v1/inbox?')).length;
+
+    fireEvent.click(failure.getByRole('button', { name: 'Dismiss t1-pii-scrub' }));
+
+    await waitFor(() => expect(api.last('/v1/inbox/dismiss')).toBeTruthy());
+    expect(api.last('/v1/inbox/dismiss')?.body).toEqual({
+      ids: [`failure:${BATCH_B}:t1-pii-scrub`],
+    });
+    expect(api.last('/v1/inbox/dismiss')?.method).toBe('POST');
+    expect(await screen.findByText('Dismissed t1-pii-scrub')).toBeTruthy();
+    await waitFor(() =>
+      expect(api.calls.filter((c) => c.path.startsWith('/v1/inbox?')).length).toBeGreaterThan(
+        before,
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() =>
+      expect(api.last('/v1/inbox/restore')?.body).toEqual({
+        ids: [`failure:${BATCH_B}:t1-pii-scrub`],
+      }),
+    );
+  });
+
+  it('dismisses all the items the filter shows and no others', async () => {
+    const api = serveApi();
+    renderConsole('/console/needs-you');
+    await screen.findAllByRole('article');
+    const filter = screen.getByRole('group', { name: 'Filter' });
+    fireEvent.click(within(filter).getByRole('button', { name: /PRs/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss all 1 shown' }));
+
+    await waitFor(() =>
+      expect(api.last('/v1/inbox/dismiss')?.body).toEqual({
+        ids: ['pull_request:https://github.com/example/payments-api/pull/412'],
+      }),
+    );
+    expect(await screen.findByText('Dismissed 1 item')).toBeTruthy();
+  });
+
+  it('marks a failure that stands for several and says what left the inbox on its own', async () => {
+    const body = inbox();
+    const failure = body.items.find((i) => i.kind === 'failure');
+    if (failure) failure.count = 17;
+    body.resolved = {
+      superseded: 4,
+      infrastructure: 25,
+      continued: 2,
+      dismissed: 1,
+      duplicates: 16,
+    };
+    serveApi({ inbox: body });
+    renderConsole('/console/needs-you');
+    const card = await findCard('Scrub personal data from the export job');
+
+    expect(card.getByText('×17')).toBeTruthy();
+    expect(
+      screen.getByText(/31 resolved on their own, 1 dismissed, 16 duplicates folded/),
+    ).toBeTruthy();
+    expect((await findCard('example/payments-api #412')).queryByText(/^×/)).toBeNull();
+  });
+
+  it('puts the resolved counts in words, and nothing for a server that sends none', () => {
+    expect(resolvedNote(undefined)).toBe('');
+    expect(
+      resolvedNote({ superseded: 0, infrastructure: 0, continued: 0, dismissed: 0, duplicates: 0 }),
+    ).toBe('');
+    expect(
+      resolvedNote({ superseded: 1, infrastructure: 0, continued: 0, dismissed: 0, duplicates: 1 }),
+    ).toBe('1 resolved on their own, 1 duplicate folded');
+  });
+});
+
+describe('grouped failures', () => {
+  const groupCard = () => findCard(/6 failures: checkout_has_secrets on infra-config/);
+
+  it('shows failures with one repository and code as one card with the count, the newest and the rest behind Show all', async () => {
+    serveApi({ inbox: groupedInbox() });
+    renderConsole('/console/needs-you');
+    const card = await groupCard();
+
+    expect(cards()).toHaveLength(4);
+    expect(card.getByText('×6')).toBeTruthy();
+    expect(card.getByText('Newest: Review pull request example/infra-config#43.')).toBeTruthy();
+    expect(card.getByText(/grep would still reach\. Use a preset that allows them/)).toBeTruthy();
+    expect(card.queryByRole('list')).toBeNull();
+    const toggle = card.getByRole('button', { name: 'Show 3 runs' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(toggle);
+
+    const list = card.getByRole('list', { name: 'The checkout_has_secrets failures' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(list).getByText('×4')).toBeTruthy();
+    expect(
+      within(list)
+        .getByRole('link', { name: /Open run run-review-1/ })
+        .getAttribute('href'),
+    ).toBe('/console/runs/run-review-1');
+    expect(card.getByRole('button', { name: 'Hide runs' }).getAttribute('aria-expanded')).toBe(
+      'true',
+    );
+  });
+
+  it('dismisses the whole group by its id in one call, with an Undo that restores it', async () => {
+    const api = serveApi({ inbox: groupedInbox() });
+    renderConsole('/console/needs-you');
+    const card = await groupCard();
+
+    fireEvent.click(
+      card.getByRole('button', { name: 'Dismiss all 6 checkout_has_secrets failures' }),
+    );
+
+    await waitFor(() =>
+      expect(api.last('/v1/inbox/dismiss')?.body).toEqual({
+        ids: ['group:checkout_has_secrets:failure:run-review-3'],
+      }),
+    );
+    expect(await screen.findByText('Dismissed 6 checkout_has_secrets failures')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() =>
+      expect(api.last('/v1/inbox/restore')?.body).toEqual({
+        ids: ['group:checkout_has_secrets:failure:run-review-3'],
+      }),
+    );
+  });
+
+  it('folds a group only where two or more of its items are in the list, and Dismiss all shown sends the group id', () => {
+    const body = groupedInbox();
+    const all = rows(ordered(body.items, 'all'), body.groups);
+    expect(all.map((r) => r.type)).toEqual(['item', 'item', 'item', 'group']);
+    expect(rowIds(all)).toContain('group:checkout_has_secrets:failure:run-review-3');
+    const one = body.items.filter(
+      (i) => i.id !== 'failure:run-review-1' && i.id !== 'failure:run-review-2',
+    );
+    expect(rows(one, body.groups).every((r) => r.type === 'item')).toBe(true);
+    expect(rows(body.items).every((r) => r.type === 'item')).toBe(true);
+  });
+
+  it('counts failures about a closed pull request as resolved on their own', () => {
+    expect(
+      resolvedNote({
+        superseded: 1,
+        infrastructure: 0,
+        continued: 0,
+        dismissed: 0,
+        duplicates: 0,
+        pr_closed: 2,
+      }),
+    ).toBe('3 resolved on their own');
   });
 });
 

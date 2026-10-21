@@ -21,6 +21,36 @@
       "min_items": 8
     },
     {
+      "name": "design/worker",
+      "dataset": "chargehand-design-worker",
+      "kind": "worker",
+      "preset": "design",
+      "files": ["prompts/preset/design.md", "presets/design.yaml"],
+      "quality_tolerance": 0.10,
+      "cost_tolerance": 0.30,
+      "min_items": 8
+    },
+    {
+      "name": "incident/worker",
+      "dataset": "chargehand-incident-worker",
+      "kind": "worker",
+      "preset": "incident",
+      "files": ["prompts/preset/incident.md", "presets/incident.yaml"],
+      "quality_tolerance": 0.10,
+      "cost_tolerance": 0.30,
+      "min_items": 8
+    },
+    {
+      "name": "release-notes/worker",
+      "dataset": "chargehand-release-notes-worker",
+      "kind": "worker",
+      "preset": "release-notes",
+      "files": ["prompts/preset/release-notes.md", "presets/release-notes.yaml"],
+      "quality_tolerance": 0.10,
+      "cost_tolerance": 0.30,
+      "min_items": 8
+    },
+    {
       "name": "code/writer",
       "dataset": "chargehand-code-writer",
       "kind": "worker",

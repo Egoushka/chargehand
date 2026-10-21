@@ -14,6 +14,7 @@
   "mcp_servers": {
     "notes": { "command": ["npx", "-y", "example-notes-mcp"] }
   },
+  "preset_services": { "incident": [{ "server": "notes", "tools": ["search_*"] }] },
   "memory": [
     {
       "name": "notes",

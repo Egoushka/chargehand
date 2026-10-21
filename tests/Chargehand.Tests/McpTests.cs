@@ -49,8 +49,9 @@ public class McpTests
     {
         await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
         await using var client = await Connect(s);
-        var tool = Assert.Single(await client.ListToolsAsync());
-        Assert.Equal(OrchestrateTool.Name, tool.Name);
+        var tools = await client.ListToolsAsync();
+        Assert.Equal([OrchestrateTool.Name, ResultTool.Name], tools.Select(t => t.Name).Order(StringComparer.Ordinal));
+        var tool = tools.Single(t => t.Name == OrchestrateTool.Name);
         Assert.Equal(ChargehandServer.Instructions, client.ServerInstructions);
         Assert.True(JsonNode.DeepEquals(JsonNode.Parse(ContractSchemas.Text(ContractSchemas.Request)), JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText())));
         Assert.True(JsonNode.DeepEquals(JsonNode.Parse(ContractSchemas.Text(ContractSchemas.Result)), JsonNode.Parse(tool.ProtocolTool.OutputSchema!.Value.GetRawText())));
@@ -68,7 +69,7 @@ public class McpTests
         var repo = Runs.GitRepo(s.WorkerRoot);
         var token = s.Tokens.Issue(new RunTokenClaims("run-parent", repo.Path, repo.Commit, null, null, DateTimeOffset.UtcNow.AddHours(1)), DateTimeOffset.UtcNow);
         await using var client = await Connect(s, bearer: token);
-        Assert.Equal(OrchestrateTool.Name, Assert.Single(await client.ListToolsAsync()).Name);
+        Assert.Contains(OrchestrateTool.Name, (await client.ListToolsAsync()).Select(t => t.Name));
 
         var refused = await client.CallToolAsync(OrchestrateTool.Name, Args(new RunRequest("request/v1", "Write it.", new RequestContext(false, "code", Repository: repo))).ToDictionary(a => a.Key, a => (object?)a.Value));
         Assert.True(refused.IsError);
@@ -112,7 +113,7 @@ public class McpTests
     {
         await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
         await using var client = await Connect(s);
-        var tool = Assert.Single(await client.ListToolsAsync());
+        var tool = (await client.ListToolsAsync()).Single(t => t.Name == OrchestrateTool.Name);
         Assert.Contains("not wrapped in a \"request\" object", tool.Description, StringComparison.Ordinal);
         Assert.Contains("no `request` wrapper", SessionCli.DefaultPrompt, StringComparison.Ordinal);
         var wrapped = await client.CallToolAsync(OrchestrateTool.Name, new Dictionary<string, object?> { ["request"] = Args(Runs.DraftRequest()) });
@@ -181,6 +182,40 @@ public class McpTests
         Assert.Contains($"/v1/runs/{status.RunId}", ((TextContentBlock)call.Content[0]).Text, StringComparison.Ordinal);
         runtime.Hold.SetResult();
         await ServerTests.WaitUntil(async () => (await s.Http.GetAsync($"/v1/runs/{status.RunId}")).StatusCode == System.Net.HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Without_prefer_an_HTTP_call_returns_the_run_id_and_the_result_tool_reads_the_result()
+    {
+        var runtime = new ScriptedRuntime(Runs.DraftReply) { Hold = new() };
+        await using var s = await TestServer.StartAsync(runtime, tweak: (_, settings) => settings with { McpWait = TimeSpan.FromMilliseconds(300) });
+        await using var client = await Connect(s);
+        var call = await client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value))
+            .AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.True(call.IsError);
+        var status = JsonSerializer.Deserialize<RunStatus>(((TextContentBlock)call.Content[^1]).Text, ContractJson.Options)!;
+        Assert.Contains(ResultTool.Name, ((TextContentBlock)call.Content[0]).Text, StringComparison.Ordinal);
+
+        var running = await client.CallToolAsync(ResultTool.Name, new Dictionary<string, object?> { ["run_id"] = status.RunId }).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.True(running.IsError);
+        Assert.Equal(status.RunId, JsonSerializer.Deserialize<RunStatus>(((TextContentBlock)running.Content[^1]).Text, ContractJson.Options)!.RunId);
+
+        runtime.Hold.SetResult();
+        await ServerTests.WaitUntil(async () => (await s.Http.GetAsync($"/v1/runs/{status.RunId}")).StatusCode == System.Net.HttpStatusCode.OK);
+        var done = await client.CallToolAsync(ResultTool.Name, new Dictionary<string, object?> { ["run_id"] = status.RunId }).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(ResultStatus.Completed, Result(done).Status);
+    }
+
+    [Fact]
+    public async Task The_result_tool_names_an_unknown_run()
+    {
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
+        await using var client = await Connect(s);
+        var call = await client.CallToolAsync(ResultTool.Name, new Dictionary<string, object?> { ["run_id"] = "run-00000000-000000-000000" });
+
+        Assert.True(call.IsError);
+        Assert.Contains("no run run-00000000-000000-000000", ((TextContentBlock)call.Content[0]).Text, StringComparison.Ordinal);
     }
 
     [Fact]

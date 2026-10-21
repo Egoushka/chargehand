@@ -62,7 +62,8 @@ public class DrivenSharedServicesTests
         const string json = """
             {"caches":["nuget"],"images":{"gradle":"jdk"},"unknown":1,
              // a comment
-             "repositories":{"o/r":[{"name":"postgres","image":"pg","port":5432,"env":{"A":"b"},"tmpfs":["/d"],"note":"n","memory_mb":256}]}}
+             "repositories":{"o/r":[{"name":"postgres","image":"pg","port":5432,"env":{"A":"b"},"tmpfs":["/d"],"note":"n","memory_mb":256}]},
+             "verify":{"o/r":["dotnet","test","--filter","Category!=Docker"]}}
             """;
         var options = new JsonSerializerOptions
         {
@@ -74,5 +75,29 @@ public class DrivenSharedServicesTests
         var reflection = JsonSerializer.Deserialize<DrivenSharedServices>(json, options);
         var generated = JsonSerializer.Deserialize(json, SessionsSettingsJsonContext.Default.DrivenSharedServices);
         Assert.Equal(JsonSerializer.Serialize(reflection, options), JsonSerializer.Serialize(generated, options));
+        Assert.Equal(["dotnet", "test", "--filter", "Category!=Docker"], generated!.VerifyFor(null, "o/r"));
+    }
+
+    [Fact]
+    public void A_request_without_verify_takes_the_repositorys_command_from_the_profile()
+    {
+        // Testcontainers suites fail in the verifier, which has no engine; the owner names a command that skips them, per repository.
+        var services = new DrivenSharedServices(Verify: new Dictionary<string, IReadOnlyList<string>> { ["Owner/Repo"] = ["dotnet", "test", "--filter", "Category!=Docker"] });
+
+        Assert.Equal(["dotnet", "test", "--filter", "Category!=Docker"], services.VerifyFor(null, "owner/repo"));
+        Assert.Equal(["make", "check"], services.VerifyFor(["make", "check"], "owner/repo"));
+        Assert.Null(services.VerifyFor(null, "other/repo"));
+        Assert.Null(services.VerifyFor([], "other/repo"));
+    }
+
+    [Fact]
+    public void A_verify_entry_needs_an_owner_repo_key_and_a_command()
+    {
+        var services = new DrivenSharedServices(Verify: new Dictionary<string, IReadOnlyList<string>> { ["not a repo"] = ["x"], ["o/r"] = [] });
+
+        var e = Assert.Throws<ChargehandException>(() => services.Validate([]));
+
+        Assert.Contains("verify key 'not a repo' must be owner/repo", e.Message, StringComparison.Ordinal);
+        Assert.Contains("verify.o/r must name a command", e.Message, StringComparison.Ordinal);
     }
 }

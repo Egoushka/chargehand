@@ -5,7 +5,151 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.15.1](https://github.com/Egoushka/chargehand/compare/v0.15.0...v0.15.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **intake:** keep polling after a GitHub timeout, clone a read-only checkout, retry an unreachable push ([#390](https://github.com/Egoushka/chargehand/issues/390)) ([902e45a](https://github.com/Egoushka/chargehand/commit/902e45aa7efbca66e039828c5385f2a13d2b2abd))
+
+## [0.15.0](https://github.com/Egoushka/chargehand/compare/v0.14.1...v0.15.0) (2026-10-21)
+
+
+### Features
+
+* **intake:** discover the App's repositories, close the issue on merge, switch repositories off (CHARGEHAND-241) ([#387](https://github.com/Egoushka/chargehand/issues/387)) ([96a4fa2](https://github.com/Egoushka/chargehand/commit/96a4fa2ba24fc0b3a6981585a0cb9aad6e5dae2a))
+* **integrator:** no merge without a required check; push docs-only or CI-gated untested changes (CHARGEHAND-244) ([#389](https://github.com/Egoushka/chargehand/issues/389)) ([1884b7e](https://github.com/Egoushka/chargehand/commit/1884b7eec3c8e59bb9c7865ebd55cd4e7c186cef))
+
+## [0.14.1](https://github.com/Egoushka/chargehand/compare/v0.14.0...v0.14.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* **console:** fix the design audit findings (CHARGEHAND-240) ([#385](https://github.com/Egoushka/chargehand/issues/385)) ([1f120b6](https://github.com/Egoushka/chargehand/commit/1f120b61183c8437272f1368bf52e8c1614779b4))
+
+## [0.14.0](https://github.com/Egoushka/chargehand/compare/v0.13.2...v0.14.0) (2026-10-20)
+
+
+### Features
+
+* **console:** group repeated inbox failures and resolve them on the pull request's state (CHARGEHAND-237) ([#383](https://github.com/Egoushka/chargehand/issues/383)) ([770eff9](https://github.com/Egoushka/chargehand/commit/770eff9313caf441de13a8cbb820a6a1f7557823))
+
+
+### Bug Fixes
+
+* **console:** keep chart tooltips whole near a screen edge (CHARGEHAND-235) ([#380](https://github.com/Egoushka/chargehand/issues/380)) ([70fa617](https://github.com/Egoushka/chargehand/commit/70fa617a640dafd23d31960294d1a8ded5e9ff51))
+
+## [0.13.2](https://github.com/Egoushka/chargehand/compare/v0.13.1...v0.13.2) (2026-10-19)
+
+
+### Bug Fixes
+
+* **driven:** the review reads the change from the diff and does not stop the session (CHARGEHAND-229) ([#356](https://github.com/Egoushka/chargehand/issues/356)) ([0c56114](https://github.com/Egoushka/chargehand/commit/0c561147e354497df6b7da4fd30933ed01a1ce65))
+
+## [0.13.1](https://github.com/Egoushka/chargehand/compare/v0.13.0...v0.13.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **prompt-ci:** skip the gate for an empty eval dataset with a warning (CHARGEHAND-229) ([#377](https://github.com/Egoushka/chargehand/issues/377)) ([a3dac88](https://github.com/Egoushka/chargehand/commit/a3dac88899c5ba264a632a3c5bd138685fbccbfe))
+
+## [0.13.0](https://github.com/Egoushka/chargehand/compare/v0.12.0...v0.13.0) (2026-10-19)
+
+
+### Features
+
+* **provenance:** commits name the run that wrote them; chargehand why traces a line ([#368](https://github.com/Egoushka/chargehand/issues/368)) ([22c645a](https://github.com/Egoushka/chargehand/commit/22c645a2218ecef93fc115ab56755727c4b595ad))
+* **ui:** retire /ui/, serve one UI: the console (ADR 0072) ([#375](https://github.com/Egoushka/chargehand/issues/375)) ([8dbb29e](https://github.com/Egoushka/chargehand/commit/8dbb29edbaa14a81c1add8ad9e8e5093836d08d5))
+
 ## [Unreleased]
+
+One web UI (ADR 0072): the page at `/ui/` is gone and `/ui/` redirects to the operator console at `/console/`. The console gained what `/ui/` had and it lacked: **Start a run** takes a single run (goal, preset, repository at its head) beside the batch composer, Runs has a **Session calls** filter (hidden by default), and a run that is not a batch shows its artifacts and can be cancelled from its page. `http.ui` now serves only the console, and the start line of `chargehand serve` ends `console /console/`.
+
+## [0.12.0](https://github.com/Egoushka/chargehand/compare/v0.11.0...v0.12.0) (2026-10-19)
+
+
+### Features
+
+* **enhancer:** per-request enhance switch, parent_request_id and review_findings (ADR 0070) ([#372](https://github.com/Egoushka/chargehand/issues/372)) ([13dddd6](https://github.com/Egoushka/chargehand/commit/13dddd6fa459da3d4958d86bd6d070a3b63cfacc))
+* **server:** sign in to the console by proxy-checked identity (ADR 0071) ([#374](https://github.com/Egoushka/chargehand/issues/374)) ([149f762](https://github.com/Egoushka/chargehand/commit/149f762326a425bb94ab716b307354ae0e26fc3a))
+
+## [0.11.0](https://github.com/Egoushka/chargehand/compare/v0.10.1...v0.11.0) (2026-10-19)
+
+Local delivery (ADR 0069): `context.delivery: "local"` (additive to `request/v1`) and the profile's `delivery.local_only` keep a run on the machine. A local `code` run fetches its branch into the caller's repository as a new local branch and nothing is pushed, opened or sent to a forge; the profile wins over the request, and a `push` request for a local-only repository fails `local_only`. Driven batches, the hand-over, the integrator, the CI fixer and intake each refuse a local-only repository. A local run recalls from and retains into only `memory` entries marked `local_ok`, and skips the prompt enhancer. New error codes `local_only` and `delivery_failed`. `/chargehand:change --local` uses the `chargehand-local` server.
+
+
+### Features
+
+* **delivery:** local delivery for writing runs (ADR 0069) ([#369](https://github.com/Egoushka/chargehand/issues/369)) ([b8a1631](https://github.com/Egoushka/chargehand/commit/b8a163185ffc62ee5e5b86f352c8bc5b0e6d2b11))
+
+## [0.10.1] - 2026-10-18
+
+Pull request review works on a server whose checkouts are mounted read-only.
+
+### Fixed
+
+- Pull request review starts on a server whose checkouts are mounted read-only: when the fetch of `refs/pull/N/head` fails, it uses that ref if a job outside the server already fetched it (a host job that runs `git fetch origin '+refs/pull/*/head:refs/pull/*/head'`). 0.10.0 refused every review there with `cannot open '.git/FETCH_HEAD': Read-only file system`.
+
+## [0.10.0] - 2026-10-18
+
+Work starts on its own: from Plane work items, on a schedule, and as a review of every pull request; the plugin and the local server work again.
+
+### Upgrade
+
+- Over HTTP an MCP call without `Prefer: wait` now returns the run id after 50 s; collect the result with the new `result` tool. Over stdio nothing changes.
+- Nothing else to set: every new automation (`automation.github.review_pulls`, `automation.plane`, `automation.schedules`) is off until the profile names it.
+
+### Added
+
+- The MCP tool `result` takes a run id and returns that run's `result/v1`, or its `run-status/v1` while it runs (ADR 0065).
+- Intake reviews every open pull request of the watched repositories: `automation.github.review_pulls` (default off) starts a read-only `review` run per head commit and posts one comment with the findings and their evidence; `max_reviews_per_day` (default 20) caps it. See `docs/guide/intake.md`.
+- Recurring work on a schedule within a monthly cap (ADR 0068): `automation.schedules` lists entries with `at` (`daily HH:MM`, `weekly <day> HH:MM`, `monthly <1-28> HH:MM`, UTC), a built-in `template` (`dependency-upgrades`, `doc-drift`, `flaky-tests`, `morning-report`) or a free `goal`, a `repository` and `max_per_month`. Read-only results and the morning report are POSTed to `notify_url`. A slot missed while the server was down runs once at startup. See `docs/guide/schedules.md`.
+- A read-only `design` preset drafts an ADR from the current code (CHARGEHAND-189). The request text is the goal; the result's summary is the draft in the shape of `docs/adr/template.md` (context, options with trade-offs, decision, consequences, reopen if) and its claims carry the file citations the draft stands on, checked at the pinned commit and then by the support check. It writes no file. Prompt CI cell `design/worker` (new preset: it gates the preset from the next change on).
+- A read-only `incident` preset diagnoses an alert from logs, metrics and traces (CHARGEHAND-192). The alert is the input `alert`; the worker queries the MCP services the profile maps to the preset and reads the code at the pinned commit, and returns `Alert:`, `Likely cause:`, `Confidence:` and `Next checks:` in the summary, with the next checks and what it could not verify in `open_questions`. Each statement of the cause is a claim citing a service reply (`session_message`), a code location (`file`) or the alert (`input`); confidence is capped at 0.4 when no service result was seen. The profile gains `preset_services` (additive; `profile/v1` schema): services by preset name, replacing that preset's own `services`, so a shipped preset needs no private copy to reach your servers. Every server must be an `mcp_servers` key and a bare `*` is refused; `extensions check` reads it. `chargehand incident <repo path> [--commit <ref>] < alert` builds the `incident` request from an Alertmanager or Grafana webhook payload, or text, on stdin (no profile, no network). There is no webhook route: a payload carries no repository or commit, and a trigger that starts runs belongs to the automation project, so the run API is called with that request (see the reference guide). Prompt CI cell `incident/worker` (new preset: it gates the preset from the next change on).
+- A read-only `release-notes` preset drafts Keep a Changelog notes from the commits between two refs (CHARGEHAND-191), and `chargehand release-notes <repo path> --from <ref> [--to <ref>]` builds its request from local git: the range's first-parent log (at most 200 commits) becomes one input per commit, its id the first 12 hex characters of the hash, and `context.repository` pins the target commit. No forge API, no profile, no network call; no schema change. Every line of the notes is a claim citing its commit (kind `commit`, checked in the checkout) and the commit's input (compared with the line by the support check). The version-bump pull request is not opened here: a driven task can do it with the notes as its goal. Prompt CI cell `release-notes/worker` (new preset: it gates the preset from the next change on).
+- `driven.services.verify` names the command that verifies a repository's branches when the request names none, per `owner/repo`. The verifier has no container engine, so a suite whose tests start their own containers (Testcontainers) failed verification whatever the change; a command can now skip those tests or point them at a test service.
+- `GET /v1/health` answers for any key; `GET /v1/health?deep=1` (owner) also calls the intake model once and answers 503 with the reason when it fails. `scripts/canary.sh` calls it and posts a failure to an ntfy topic: a server whose gateway was retired stayed up for days while every run failed. The compose healthcheck uses the liveness route.
+- `request/v1`'s `contract_version` has a description, so a client that shows only types and descriptions no longer sends a guessed value first.
+- A check gate for driven sessions (ADR 0066): when a session finishes, the driver runs the repository's rules (`.chargehand/checks`, read at the base commit) and the task's acceptance criteria (`driven.tasks[].acceptance`: `command`, `exit_code`, `output`) in the session's container. A failure resumes the session with the command and its output as the next turn, up to `driven.limits.check_retries` (default 2); still failing, the task ends `verification_failed` with its work on a partial draft pull request. The result's `checks` artifact lists each check with passed or not.
+- A goal reminder: a long driven session is re-sent its goal and checks every `driven.limits.goal_reminder_minutes` (default 60, 0 off) or `goal_reminder_turns`, through a `PostToolUse` hook.
+- This repository's own rule: `scripts/check-file-lines.sh` checks the ADR 0060 line budget without a build, and `.chargehand/checks` runs it.
+- Plane intake (ADR 0067, `automation.plane`): a work item moved into a chosen state starts a driven batch of one task. chargehand polls Plane's REST API with an API key, moves the item to a started state, comments the pull request link and moves it to a review (or failed) state when the batch ends. State names, not ids; caps as GitHub intake; state in `intake/plane.json`.
+
+### Changed
+
+- Over HTTP an MCP `orchestrate` call without `Prefer: wait=N` returns the run id after 50 s instead of waiting for the result: Claude Code ends a call after about 60 s, and the caller got neither the result nor the id. Collect the result with the `result` tool. Over stdio a call still waits for its result.
+
+### Fixed
+
+- The plugin's MCP server starts on a machine that has both `claude` and `opencode` on `PATH`: its entry names the `claude_code` runtime instead of failing with `runtime_ambiguous`.
+- With no `claude_code` profile block, a Claude Code CLI newer than the adapter's pin (same major) is taken instead of refused with `runtime_version_mismatch`; Claude Code updates itself, so the exact pin broke the zero-config path within days of each CLI release. A profile's `claude_code.version` may now be written `>=2.1.283` for the same rule, and an exact version stays an exact pin.
+- A Claude Code call that exits non-zero names its reason (the CLI's error result, such as a gateway refusing the model id) instead of `claude -p exited 1: ` with nothing after it.
+- Intake is told the request's repository and commit (intake prompt 0.4.0): on Claude Code it runs in the temp directory, and a question that named no path came back `needs_input` asking which repository it meant.
+
+## [0.9.6] - 2026-10-14
+
+Inbox items resolve on their own, and a person can dismiss the rest.
+
+### Upgrade
+
+- Dismissals are kept in `inbox/dismissed.json` beside the run log, so that directory must stay writable (it already is for the run log). Nothing else to set.
+- A profile's governor probe and wait patterns now match with the linear-time regex engine: a pattern that uses a lookaround, a backreference or an atomic group is refused by the profile check. Rewrite such a pattern, or leave the setting out for the built-in ones.
+- Batches that were running before the upgrade resume as before.
+
+### Added
+
+- The needs-you inbox drops what a later run made moot (ADR 0064): a question or failure superseded by a later task of the same account that asked the same, an infrastructure failure (`checkout_invalid`, `internal`, `lost`, ...) once a later run on the repository finished ok, and a question a batch continued or retried. Identical failures fold into the newest with a count.
+- `POST /v1/inbox/dismiss` and `POST /v1/inbox/restore` store a person's dismissals in `inbox/dismissed.json`. `inbox/v1` stays: `counts` is what is open, items gain `count`, and the body gains `resolved`. The console gets **Dismiss** per card, **Dismiss all shown**, **Undo**, a count badge and the resolved line.
+- A server restart keeps the batch scheduler's rate-limit pause, the placements a task used up and an operator's cancel of a task that had not started (ADR 0063).
+
+### Fixed
+
+- A server stop waits for its runs to write their end before it disposes, so a run no longer writes into a directory that is already gone.
+- The governor no longer throws on a plain command when the host is loaded: its patterns had a 50 ms wall-clock match timeout, and now match in linear time with none.
+
+### Changed
+
+- Internal: task and batch state are journal events in `<batch>/tasks`, and the batch lifecycle, planner and task result builder moved into their own projects. No behaviour change beyond the above.
 
 ## [0.9.5] - 2026-10-14
 
@@ -111,6 +255,7 @@ Driven sessions are governed: a governor watches spend and stuck signals (observ
 
 - A web UI at `/ui/` (ADR 0054, CHARGEHAND-203), off unless `http.ui` is `true`. Plain HTML, CSS and ES modules embedded in the server, no build step, no third-party code. Sign in by pasting an API key (the owner's or an account's); it is kept in `sessionStorage` and sent as the bearer header, with no cookie and no server-side session. Every `/ui/` response carries a Content-Security-Policy that allows no inline script or style and no other origin, and run data is only ever rendered as text. Screens: the runs list (filters by state, kind, repository and, for the owner, actor; cost, tokens, branch, pull request link; refreshed every 5 seconds), a run's page (live events over `fetch`, the result with claims and citations linked to `path:line` at the commit when the repository has a web address, artifacts including the `changes` diff, a batch's task table, cancel), starting a run (goal, preset, repository, and for accounts allowed `driven`, a list of tasks), spend against the account's caps, the learning report (`GET /v1/learn`), and halt and resume for the owner. New, additive: `GET /v1/accounts/me` (name, rights, caps, spend in the UTC day and month, unfinished runs, halted, presets); `GET /v1/runs` filters `kind`, `repository`, `run_id` and, for the owner, `actor`; `run-summary/v1` gains optional `kind`, `repository`, `commit` and `tokens`; the profile gains `http.ui`. The static files are the one thing served without a key. The JavaScript is exercised by hand in a browser, not in CI.
 - Budgets come from past spend (ADR 0045, CHARGEHAND-198). When a size class has at least `driven.governor.history.min_tasks` (20) finished tasks in the last `window_days` (60) days for the task's repository, or for all repositories when the repository has too few, the task's budget is the `percentile`th (80) percentile of their spend (the learning records' `usd_estimate`, nearest rank); below that the flat budget of the size class applies, and a task's own `budget_usd` always wins. A finished task is one that completed or was stopped at its budget; failed, partial-for-another-reason, question-asking and unpriced tasks are left out. The budget is chosen once when the task starts and held by all its sessions. Where it came from (`task`, `flat`, or `history` with the task count, percentile and scope) is on the learning record (`budget.source`), in `task.json`'s `governor.budget_source` and on every governor decision (`budget_source`, additive); the `governor` run event adds `(p80 of 23 past tasks)` for a history budget. Profile: `driven.governor.history` (`min_tasks`, `window_days`, `percentile`), additive. With the default `observe` mode a changed budget only changes what the log says; in `enforce` a budget from history stops tasks at it. A session image from this release is needed for the source to reach `governor.jsonl`.
+- A read-only `design` preset drafts an ADR from the current code (CHARGEHAND-189). The request text is the goal; the result's summary is the draft in the shape of `docs/adr/template.md` (context, options with trade-offs, decision, consequences, reopen if) and its claims carry the file citations the draft stands on, checked at the pinned commit and then by the support check. It writes no file. Prompt CI cell `design/worker` (new preset: it gates the preset from the next change on).
 - Accounts and named API keys for a self-hosted server, with caps and an actor on every run (ADR 0050, CHARGEHAND-200). `http.accounts` in the profile declares callers besides the owner: `name`, `max_usd_per_day`, `max_usd_per_month`, `max_tokens_per_day`, `max_tokens_per_month`, `max_concurrent_runs`, `driven` (default false) and `repositories`. Their keys are made with `chargehand accounts add <account> [--label]`, which prints `chk1.<id>.<secret>` once; `accounts list` and `accounts revoke <key-id>` manage them. Only a salted SHA-256 of the secret is kept, in `accounts.json` beside the run log (owner-readable only); the server finds a key by id, compares in constant time and sees a revoked key at once, with no restart. The `http.api_key_secret` key keeps working unchanged as the implicit `owner` account. Every start record, run record, `result/v1`, run event and `run-summary/v1` gains an optional `actor` (the account name; `owner` for the single key; absent for a CLI run), set before a result is signed. An account lists, reads, streams and cancels only its own runs (another's is `404`), and halt and resume are the owner's. A request that would pass a cap is refused with `429`, `Retry-After` and `error.code` `budget_exceeded` carrying `window`, `unit`, `limit`, `spent`, `remaining` and `resets_at` (UTC day and month); an admitted request has its budgets cut to what is left. `concurrency_exceeded` is `429`, `driven_not_allowed`, `repository_not_allowed` and `continue_not_allowed` are `403`. A run token carries the account of its batch. An MCP session is now tied to the account that opened it. Schemas: `actor` added to `result/v1`, `run-status/v1` and `run-summary/v1` (additive). Accounts do not isolate runners or networks; that is CHARGEHAND-202.
 - A review comment on a chargehand pull request continues the same branch (ADR 0051, CHARGEHAND-184). The intake poller also reads inline review comments and conversation comments of the watched repositories: on an open pull request whose head branch is `chargehand/<name>` in the repository itself, an inline review comment of an allowed author (a reply in a thread needs the mention) or a conversation comment that mentions the bot is queued, and all the comments waiting for a pull request start one round: a batch of one task, `pr-<n>`, with `continue_from` the task that opened the pull request (found in the run log by its branch) and one answer per comment (author, file and line, text). `continue_from` now also takes a task that completed with its branch pushed: the session starts from the branch as the remote has it (fetched on the host with the push credential, checked to descend from the task's base commit), `answers` are required, the push is a fast-forward of the same branch and the pull request keeps its title and body. One cap of 3 per pull request is shared by CI fix attempts and review rounds: a round leaves the hidden marker `chargehand-review-round attempt=N comments=r<id>,c<id>` that `FixMarker.Parse` counts with the fixer's, so a comment is never taken twice and neither loop passes the cap; the CI fixer gives up when rounds used it. Profile: `automation.github.max_review_rounds` (default 3, 0 turns the loop off). The `continue_from` description in `request/v1` says so (text only). Rounds count toward `max_concurrent` and `max_starts_per_day`. A pull request from a fork, with another branch name or closed is ignored. Tested against a fake GitHub host, a fake batch starter, a fake branch seeder and real git for the seed.
 - Each account brings its own model key (ADR 0053, CHARGEHAND-201). `http.accounts[].model` names the account's own credential by secret item: `api_key_secret` (an Anthropic API key, or the key a gateway issued with `base_url`). Its read-only runs (intake, workers, the support check) run on a Claude Code runtime of its own and its batches take the key as `ANTHROPIC_API_KEY` (`credential_delivery: environment`) or, with `base_url`, as a gateway key (`gateway_key`); the key is priced, so a batch needs a dollar cap and the account's dollar caps bind. A session's research and review calls use the key of the account that started the batch. No account's run sees another account's key, and the server's `driven.network.model_url` is never used for it. `oauth_token_secret` is rejected in `model`: a subscription token is the owner's. **Behaviour change:** an account with no `model` and no `allow_server_credential: true` (new, default false) is now refused with `403` `model_credential_missing`; set `allow_server_credential: true` on an account that should keep spending the server's credential. The server refuses to start with an account `model` on the OpenCode runtime. `chargehand doctor` checks each account's key item. `Orchestrator` gains an optional `runtimeFor`, and `DrivenServices.SupportCheck` becomes `SupportCheckFor`.
@@ -134,9 +279,6 @@ Driven sessions are governed: a governor watches spend and stuck signals (observ
 - An integrator and a CI fixer act through a GitHub App (ADR 0046), for the repositories the profile lists; off unless `driven.integrator` is set, and with none nothing changes. After a task's handover opened a pull request, chargehand updates the branch if it is behind (`merge` repositories), marks the draft ready, and either enables auto-merge with squash pinned to the head commit (`merge`: GitHub merges once the required checks and rules pass; a pull request GitHub already calls mergeable gets a pinned squash merge) or leaves a comment (`ask`). A repository on `always_ask` is `ask` whatever else says, one not listed is off, and a `[partial]` pull request is never touched. When a required check fails, a short session on the same branch (seeded from the last bundle, with the failing jobs and the end of their logs in its goal) fixes it: at most 3 attempts per pull request, never twice for the same failing jobs, counted in hidden markers on the pull request, pushed through the ordinary handover. The App's private key is a secret item; the JWT is RS256 and the installation token is cached until near its expiry. Profile: `driven.integrator` with `app_id`, `installation_id`, `private_key_secret`, `repositories`, `always_ask`, `ci_fix` (additive). run-status/v1 gains the event `integrated` (additive); the task outcome's `detail` carries the integration line; the pull request body says what happens next. The calls are tested against a fake GitHub host only.
 - A task that asked a question gets an answer (ADR 0045). `request/v1` gains `driven.tasks[].continue_from` (`run_id` of an earlier batch and its `task_id`) and `answers` (a list of strings); a task with `continue_from` needs no `goal` or `ref`. It starts from that task's kept bundle on the same branch, and its prompt is the earlier goal, the questions the session asked, the answers verbatim and the earlier `progress.md` when there is one. The earlier task must have ended `needs_input` (then `answers` are required) or stopped with its work kept (a `[partial]` pull request); `context.repository.commit` must be the commit it started at; anything else is refused as `invalid_request` before a container starts. Two tasks cannot continue the same one. A task that stops with a bundle now has a `kept-work` artifact (`branch`, `bundle_run`, `commits`, `base`) on its result. run-status/v1 gains the event `question`, published when a session ends `needs_input`, with the questions in `detail` (additive). A task's output volume is kept for 7 days when the task ended with kept work: the sweep at a server start no longer removes it before then. The pull request opened for the question is reused by the answering task, so its `[partial]` title stays until edited. No new session image is needed.
 - Driven sessions know their environment and can share services (ADR 0048). **The environment note** needs no setting: before its first turn a session reads a short block appended to its prompt (the static prompt text is unchanged) with the image's tools and their versions, the tools it lacks, the network limit, the repository's detected ecosystems, the command chargehand will run on the branch, and the caches and services. The image build writes `/opt/chargehand/environment.json` with `chargehand session --probe <file>`, from each tool's own `--version`; an image without the file is probed once by the driver. `task.json` gains an optional `environment` member (older session images skip it). **Package caches**, **test services** and **a session image by ecosystem** are off unless the profile's new `driven.services` is set: `caches` (`nuget`, `npm`, `pip`, `gradle`, `maven`) mounts one volume per ecosystem and repository, `chargehand-cache-<ecosystem>-<12 hex>`, read-write at `/cache/<ecosystem>` in that repository's sessions and verifier, with the package manager's variable pointed at it (per repository, not shared, so one repository's session cannot choose what another builds; the volumes are not swept or size-limited); `repositories` declares up to four services per `owner/repo`, pinned images started on the batch's internal network before the first session and removed before the network, reachable as `name:port` (`CHARGEHAND_SERVICES`, `NO_PROXY`), with the data directory in memory; `images` maps an ecosystem name to a session image digest, which must also be in `driven.images`. `images/session-jdk/Dockerfile` builds the JDK, Gradle and Maven variant from the session image, and the release workflow now pushes it as `chargehand-session-jdk`; it has no Android SDK. The runner gains `POST /service` and `--service-images` (a service starts only from a listed image, on a batch network, under its ceilings), accepts `caches` in a session start (only cache-shaped volume names), and the sweep after a restart keeps the services of a resumed batch. A code index mounted read-only at the base commit is decided in the ADR and not built. Additive; the cache mounts and the runner's service route are tested with fakes, and a Postgres service, a cache volume and the JDK image were run on a local engine.
-- Tasks can depend on each other, and a batch can be planned first (ADR 0049, CHARGEHAND-174). `request/v1` gains `driven.tasks[].depends_on` (ids of tasks of the same batch) and `driven.plan` (additive). The scheduler starts a task only when all its dependencies ended `completed`, whatever the list order, and a task whose dependency failed, asked a question, was cancelled or was not started is `not_started` with the reason. A dependent starts from its dependencies' work: one dependency stacks it on that branch (its own branch name, its draft pull request based on the dependency's branch, falling back to the default branch with a note if the host refuses), several are merged into one branch on the host before the session starts, and a conflict fails the task as `merge_conflict` (new error code, additive) naming the paths. The seed is the continuation's `seed.bundle`, so the session image is unchanged. Unknown ids, cycles, a self-dependency and `depends_on` with `continue_from` are refused as `invalid_request`. A task with dependencies is not touched by the integrator. The journal keeps the dependencies, so a restart in the middle of a chain carries on.
-- A planning step, off by default (`driven.planning.enabled` and `preset` in the profile, or `driven.plan` on a request). Before the batch, one read-only run on the `cheap` preset through the orchestrator sizes tasks that have no `size`, splits an L task into an ordered chain (`t-1 → … → t`, the last link keeps the id) and assigns the shared numbers tasks would otherwise both take (migrations, ADR files) by reading the repository at the base commit. The caller's `size`, `budget_usd`, limits and `depends_on` always win. The plan is the batch result's `plan` artifact (what it checked, each task's size and source, chains, numbers, dropped proposals, and `not_checked`) and a `plan` run event (run-status/v1 gains it; additive); a planner that fails leaves the batch as sent. The prompt is in code, not under `prompts/`, so Prompt CI has nothing new to gate.
-- A quality benchmark on public repositories (ADR 0052, CHARGEHAND-206). `chargehand bench run <taskset.json>` runs a set of tasks over pinned public repositories as driven batches, one per repository, through the server's ordinary API (preset `driven`, planning off, a cap per batch required), answers the tasks that asked a question in a second batch with `continue_from`, fetches each task's branch and runs its acceptance check in a fresh container made like a task's verification, and writes `results.json` (`bench-results/v1`, facts only) and `report.md`: pass rate overall, by size and by ecosystem with Wilson 95% intervals, honest stops of the tasks that cannot be done, spend per task (input plus output tokens, cache, the dollar equivalent), turns, continuations, the governor's decisions with the false-stop rate [ADR 0045](docs/adr/0045-governed-sessions.md) needs, test-integrity flags and wall time. `--dry-run` validates the set, the pins (`--check-pins` asks each upstream) and that every acceptance command exists; `--baseline` runs the test commands and the checks on the pinned commits in containers, with no model; `--only <ids>` selects tasks. `chargehand bench report <results.json> [<other.json>]` renders a run again or compares two. `benchmarks/core.json` is the first set: 13 tasks (8 changes, 3 impossible, 2 that need a question answered) over four repositories in .NET, Node, Python and Maven, each acceptance check kept out of the session; `scripts/bench-forge-stub.py` answers the pull request calls of a local run. No real run has been made yet. [Guide](docs/guide/benchmark.md).
 
 ### Changed
 
@@ -832,7 +974,10 @@ covers roadmap phases 3 to 5 (v0, v1, v2). Benchmark and exit-check numbers live
 - Solution skeleton: CLI entry point, intake, `IWorkerRuntime` port, OpenCode adapter interface,
   contract validator, evidence resolver, prompt registry, telemetry and run log interfaces.
 
-[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.9.5...HEAD
+[Unreleased]: https://github.com/Egoushka/chargehand/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/Egoushka/chargehand/compare/v0.10.0...v0.10.1
+[0.10.0]: https://github.com/Egoushka/chargehand/compare/v0.9.6...v0.10.0
+[0.9.6]: https://github.com/Egoushka/chargehand/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/Egoushka/chargehand/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/Egoushka/chargehand/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/Egoushka/chargehand/compare/v0.9.2...v0.9.3

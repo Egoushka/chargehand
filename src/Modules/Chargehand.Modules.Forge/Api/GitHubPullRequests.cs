@@ -46,10 +46,13 @@ public interface IPullRequests
     Task<PullRequestRef?> FindByHeadAsync(RemoteRepository repo, string head, CancellationToken ct);
 }
 
-/// <summary>What chargehand does on GitHub with the push credential: <c>POST /repos/{owner}/{repo}/pulls</c> with <c>draft: true</c>, and <c>PATCH</c> of the title and body of that pull request, and a <c>GET</c> of the open one for a branch. This class has no
+/// <summary>What chargehand does on GitHub with the push credential: <c>POST /repos/{owner}/{repo}/pulls</c> with <c>draft: true</c>, and <c>PATCH</c> of the title and body of that pull request, and a <c>GET</c> of the open one for a branch
+/// and of the base branch's rules. This class has no
 /// method that merges, enables auto-merge, approves or closes; <c>GitHubPullRequestsTests</c> fails if one appears.</summary>
-public sealed class GitHubPullRequests(HttpClient http, string token) : IPullRequests
+public sealed class GitHubPullRequests(HttpClient http, string token) : IPullRequests, IBranchRules
 {
+    public Task<ChecksGate> ChecksGateAsync(RemoteRepository repository, string branch, CancellationToken ct) => GitHubBranchRules.ReadAsync(http, token, repository, branch, ct);
+
     public async Task<PullRequestRef> CreateDraftAsync(RemoteRepository repo, string head, string @base, string title, string body, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Name)}/pulls")

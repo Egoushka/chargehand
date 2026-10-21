@@ -31,6 +31,7 @@ public sealed class McpPromptEnhancer(PromptEnhancerSettings settings, McpConnec
                 ["commit"] = context.Commit,
                 ["task_kind"] = context.TaskKind,
                 ["client"] = context.Client,
+                ["parent_request_id"] = context.ParentRequestId,
             }.Where(p => p.Value is not null).ToDictionary(),
             ["deadline_ms"] = settings.EffectiveDeadlineMs,
         }, ct);
@@ -53,6 +54,7 @@ public sealed class McpPromptEnhancer(PromptEnhancerSettings settings, McpConnec
                 ["score"] = outcome.Score,
                 ["cost_usd"] = outcome.CostUsd,
                 ["model"] = outcome.Model,
+                ["review_findings"] = outcome.ReviewFindings,
             }.Where(p => p.Value is not null).ToDictionary(),
         }, ct));
 

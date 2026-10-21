@@ -36,11 +36,12 @@ public class GitLabForgeTests
 
     private static string Path(Seen seen) => seen.Url[Api.Length..];
 
-    // The merge request, its pipeline's jobs and its notes (newest first, as GitLab sorts them for sort=desc).
+    // The project (pipelines must succeed), the merge request, its pipeline's jobs and its notes (newest first, as GitLab sorts them for sort=desc).
     private static HttpResponseMessage StateAnswer(HttpRequestMessage request, string? mergeRequest = null, string? jobs = null, string? notes = null)
     {
         var path = request.RequestUri!.PathAndQuery;
-        return path.Contains("/jobs", StringComparison.Ordinal) ? Json(jobs ?? Jobs)
+        return path.EndsWith(Project, StringComparison.Ordinal) ? Json("""{"only_allow_merge_if_pipeline_succeeds":true}""")
+            : path.Contains("/jobs", StringComparison.Ordinal) ? Json(jobs ?? Jobs)
             : path.Contains("/notes", StringComparison.Ordinal) ? Json(notes ?? """[{"body":"<!-- chargehand-ci-fix attempt=1 jobs=0123456789ab -->"},{"body":"hello"}]""")
             : Json(mergeRequest ?? MergeRequest());
     }
@@ -449,5 +450,17 @@ public class GitLabForgeTests
         var comment = Assert.Single(handler.Requests, r => r.Method == HttpMethod.Post);
         Assert.Equal($"{Project}/merge_requests/7/notes", Path(comment));
         Assert.Contains("chargehand-ci-fix attempt=1", comment.Body);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.OK, """{"only_allow_merge_if_pipeline_succeeds":true}""", ChecksGate.Required)]
+    [InlineData(HttpStatusCode.OK, """{"only_allow_merge_if_pipeline_succeeds":false}""", ChecksGate.None)]
+    [InlineData(HttpStatusCode.Forbidden, """{"message":"403 Forbidden"}""", ChecksGate.Unknown)]
+    public async Task The_gate_is_the_projects_pipelines_must_succeed_setting(HttpStatusCode status, string project, ChecksGate expected)
+    {
+        var handler = new Canned((_, _) => Json(project, status));
+
+        Assert.Equal(expected, await Forge(handler).ChecksGateAsync(Repo, "main", default));
+        Assert.Equal(Project, Path(Assert.Single(handler.Requests)));
     }
 }

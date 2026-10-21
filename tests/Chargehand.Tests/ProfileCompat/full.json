@@ -73,6 +73,7 @@
         "chargehand",
         "example"
       ],
+      "local_ok": false,
       "effective_namespace": "notes",
       "limits": {
         "max_facts": 5,
@@ -124,7 +125,9 @@
         "allow_server_credential": true
       }
     ],
-    "ui": true
+    "ui": true,
+    "cloudflare_access": null,
+    "proxy_sign_in": null
   },
   "claude_code": null,
   "repository_roots": null,
@@ -174,7 +177,10 @@
       "memory_mb": 8192,
       "cpus": null,
       "pids": null,
-      "max_continuations": 2
+      "max_continuations": 2,
+      "check_retries": null,
+      "goal_reminder_minutes": null,
+      "goal_reminder_turns": null
     },
     "governor": {
       "mode": "enforce",
@@ -223,6 +229,17 @@
   "prompt_enhancer": null,
   "max_parallel_nodes": 2,
   "automation": null,
+  "preset_services": {
+    "incident": [
+      {
+        "server": "notes",
+        "tools": [
+          "search_*"
+        ]
+      }
+    ]
+  },
+  "delivery": null,
   "roots": [
     "/srv/chargehand/work"
   ],

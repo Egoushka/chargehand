@@ -139,6 +139,14 @@
         "env": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Names of environment variables passed to the command besides PATH, LANG, LC_ALL and TERM." }
       }
     },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where a run's output may go (ADR 0069).",
+      "properties": {
+        "local_only": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Directories, absolute or starting with ~/. A repository under one is always delivered locally: a writing run leaves a local branch in the repository, nothing is pushed, no pull request is opened, no forge is called, and a request that says push is refused with local_only. \"/\" makes the whole server local-only. Intake may not watch a repository under one." }
+      }
+    },
     "driven": {
       "type": "object",
       "additionalProperties": false,
@@ -373,7 +381,8 @@
         "github": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["repositories", "allowed_authors"],
+          "required": ["allowed_authors"],
+          "anyOf": [{ "required": ["repositories"] }, { "required": ["discover"], "properties": { "discover": { "const": true } } }],
           "description": "A label on an issue, or a mention of the bot in a comment, by an allowed author starts a driven batch of one task; a reply to its questions continues it. chargehand polls GitHub as the GitHub App of driven.integrator, which also needs the Issues permission (read and write). Needs driven.enabled and driven.integrator.",
           "properties": {
             "repositories": {
@@ -388,7 +397,7 @@
                   "path": { "type": "string", "minLength": 1, "description": "The server's checkout of the repository (under repository_roots). A triggered batch starts from the commit its origin's default branch points at, after a fetch." }
                 }
               },
-              "description": "Per owner/repo: the repositories watched. Opt-in: a repository not listed is never read."
+              "description": "Per owner/repo: the repositories watched. Opt-in: a repository not listed is never read, unless discover is true."
             },
             "allowed_authors": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\\[bot\\])?$" }, "description": "GitHub logins whose label or comment starts a batch. Required, no default: an empty list means nothing triggers. For a label, the person who applied it must be on the list." },
             "label": { "type": "string", "minLength": 1, "maxLength": 50, "pattern": "^[^,\\s][^,]*$", "description": "The label that triggers. Default chargehand." },
@@ -399,7 +408,45 @@
             "max_usd_total": { "type": "number", "exclusiveMinimum": 0, "description": "The dollar cap of one triggered batch, where the credential is priced. Default 5." },
             "max_concurrent": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Triggered batches running at once. A trigger over it waits for a slot, with one comment. Default 2." },
             "max_starts_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Triggered batches started in any 24 hours, answers included. A trigger over it is refused, with one comment. Default 10." },
-            "max_review_rounds": { "type": "integer", "minimum": 0, "maximum": 3, "description": "Review rounds per chargehand pull request: inline review comments of allowed authors, and comments that mention the bot, start a session on the pull request's branch. The CI fixer's attempts count against the same cap of 3 per pull request. Default 3; 0: the loop is off." }
+            "max_review_rounds": { "type": "integer", "minimum": 0, "maximum": 3, "description": "Review rounds per chargehand pull request: inline review comments of allowed authors, and comments that mention the bot, start a session on the pull request's branch. The CI fixer's attempts count against the same cap of 3 per pull request. Default 3; 0: the loop is off." },
+            "review_pulls": { "type": "boolean", "description": "Review every open, non-draft pull request of the watched repositories, once per head commit, and comment the findings. Default false." },
+            "max_reviews_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Reviews started in any 24 hours. A pull request over it waits until the window has room. Default 20." },
+            "discover": { "type": "boolean", "description": "Also watch every repository the App's installations can see, each cloned into <worker_root>/repos/<owner>/<repo> and fetched with the App's token; repositories is then optional. Default false." }
+          }
+        },
+        "plane": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "api_key_secret", "workspace", "projects", "trigger_state", "started_state", "review_state"],
+          "description": "A Plane work item in trigger_state starts a driven batch of one task (ADR 0067). chargehand polls Plane's REST API with an API key. Needs driven.enabled.",
+          "properties": {
+            "url": { "type": "string", "pattern": "^https?://", "description": "The base URL of the Plane instance." },
+            "api_key_secret": { "type": "string", "minLength": 1, "description": "The secret item that holds the Plane API key; sent as X-API-Key." },
+            "workspace": { "type": "string", "minLength": 1, "description": "The workspace slug." },
+            "projects": {
+              "type": "object",
+              "minProperties": 1,
+              "description": "Plane project id to its checkout. A project not listed is never read.",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path"],
+                "properties": {
+                  "path": { "type": "string", "minLength": 1, "description": "The server's checkout of the repository (under repository_roots)." },
+                  "remote": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", "description": "owner/repo, named in comments." }
+                }
+              }
+            },
+            "trigger_state": { "type": "string", "minLength": 1, "description": "The state name that starts a batch." },
+            "started_state": { "type": "string", "minLength": 1, "description": "The state name an item moves to when its batch starts." },
+            "review_state": { "type": "string", "minLength": 1, "description": "The state name an item moves to when its batch ends with a pull request." },
+            "failed_state": { "type": "string", "minLength": 1, "description": "The state name an item moves to when its batch ends without one; left out: it stays in started_state." },
+            "poll_seconds": { "type": "integer", "minimum": 30, "maximum": 3600, "description": "How often the projects are read. Default 120." },
+            "budget_class": { "enum": ["S", "M", "L"], "description": "The size class of a triggered task. Default M." },
+            "max_tokens_total": { "type": "integer", "minimum": 1, "description": "The token cap of one triggered batch. Default 2000000." },
+            "max_usd_total": { "type": "number", "exclusiveMinimum": 0, "description": "The dollar cap of one triggered batch. Default 5." },
+            "max_concurrent": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Triggered batches running at once. Default 2." },
+            "max_starts_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Triggered batches started in any 24 hours. Default 10." }
           }
         }
       }
@@ -533,7 +580,7 @@
         "ui": {
           "type": "boolean",
           "default": false,
-          "description": "Serve the web UI at /ui/ (ADR 0054) and the operator console at /console/ (ADR 0056): static files, no key needed to load them; the page signs in with an API key and calls the same routes. Off by default."
+          "description": "Serve the operator console at /console/ (ADR 0056; /ui/ redirects to it, ADR 0072): static files, no key needed to load them; the page signs in with an API key and calls the same routes. Off by default."
         },
         "accounts": {
           "type": "array",
@@ -616,6 +663,23 @@
         }
       }
     },
+    "preset_services": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+      "description": "Services by preset name (ADR 0034): the MCP servers of mcp_servers whose tools that preset's workers may call. A list here replaces the preset's own services, so a shipped read-only preset such as incident gets this profile's logs, metrics and traces servers without a private copy of the preset file. Explicit tool names only: a glob is allowed, a bare * is not. Workers stay read-only whatever a server offers.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["server", "tools"],
+          "properties": {
+            "server": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "A key of mcp_servers." },
+            "tools": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^(?!\\*+$).+$" } }
+          }
+        }
+      }
+    },
     "prompt_enhancer": {
       "description": "A prompt enhancer (ADR 0040), unset by default: an entry of mcp_servers that lists the tools enhance and feedback (whetstone's contract). A client sends it the prompt and the repository, commit, task kind and client name, shows the rewrite beside the original and sends the original unless the user accepts it; the outcome goes back through feedback. A slow, failing or unreachable enhancer means the original is sent.",
       "type": "object",
@@ -694,7 +758,8 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "description": "Tags of a retained item (default [\"chargehand\"])."
-        }
+        },
+        "local_ok": { "type": "boolean", "default": false, "description": "A run with local delivery (ADR 0069) may recall from and retain into this provider; false: it is skipped for such a run. Mark only a store that may hold the repository's content." }
       },
       "if": {
         "required": ["retain"],

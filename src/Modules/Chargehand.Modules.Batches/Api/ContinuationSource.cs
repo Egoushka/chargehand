@@ -33,7 +33,7 @@ public sealed class ContinuationSource(IRunLog log)
         var earlier = Check(task, status, entry);
         var runner = row.TryGetProperty("runner", out var ranOn) && ranOn.ValueKind == JsonValueKind.String ? ranOn.GetString() : null;
         return new ResolvedTask(task.Id, null, Goal(task, earlier), task.MaxTurns, task.MaxMinutes, task.Size, task.BudgetUsd, new ContinuedFrom(lastRun!, earlier.Kept, earlier.Pushed, runner),
-            Title: task.Title);
+            Title: task.Title, Acceptance: task.Acceptance);
     }
 
     /// <summary>The earlier task's records and the work it left, as far as they let it continue.</summary>

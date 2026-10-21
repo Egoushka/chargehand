@@ -53,11 +53,11 @@ public sealed partial class TaskRunner
         var handoverRun = partial ? (best!.RunId, best.OutDirectory) : (run.RunId, run.OutDirectory);
         HandoverOutcome? handed = null;
         if (finished)
-            handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"{DrivenReport.Parse(run.ReportJson!)!.Summary}\n\nTask: {task.Id}{ContinuationNote(run.Continuation)}{GoalSection(task.Goal)}", partial: false, run.Stack, ct);
+            handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"{DrivenReport.Parse(run.ReportJson!)!.Summary}\n\nTask: {task.Id}{ContinuationNote(run.Continuation)}{GoalSection(task.Goal)}", partial: false, run.Stack, session, ct);
         else if (partial)
         {
             await RestoreBundleAsync(handoverRun.Item1, ct);
-            handed = await HandOverAsync(task, handoverRun, run.Branch, $"[partial] {PullRequestTitle.Of(task.Title, task.Goal)}", PartialBody(task, session, run.Total, run.Continuation, run.StartFailure, ReadProgress(run.OutDirectory)), partial: true, run.Stack, ct);
+            handed = await HandOverAsync(task, handoverRun, run.Branch, $"[partial] {PullRequestTitle.Of(task.Title, task.Goal)}", PartialBody(task, session, run.Total, run.Continuation, run.StartFailure, ReadProgress(run.OutDirectory)), partial: true, run.Stack, run.Total, ct);
         }
         return (partial, handoverRun, handed);
     }
@@ -93,7 +93,7 @@ public sealed partial class TaskRunner
     {
         var integrator = settings.Integration!;
         var pr = handed.PullRequest!;
-        var target = new IntegrationTarget(integrator.Remote(settings.RemoteUrl)!, pr.Number, branch, partial, task.Goal, handed.TestIntegrity?.Reason);
+        var target = new IntegrationTarget(integrator.Remote(settings.RemoteUrl)!, pr.Number, branch, partial, task.Goal, handed.TestIntegrity?.Reason, settings.LocalOnly);
         void Report(string detail) => Publish(task.Id, RunEventKind.Integrated, detail, s => s with { PrUrl = pr.Url, Branch = branch });
         var fixes = new CiFixes
         {
@@ -175,7 +175,7 @@ public sealed partial class TaskRunner
         f.Progress.Report(Capped(f.Sum.InputTokens + f.Sum.OutputTokens + f.Total.InputTokens + f.Total.OutputTokens, settings.Priced ? (f.Sum.CostUsd ?? 0) + (f.Total.CostUsd ?? 0) : 0, ended: true));
         if (session is not { Status: SessionStatus.Completed, BundleWritten: true } || session.Commits <= f.SeededCommits)
             return new CiFixResult(false, session.Status == SessionStatus.Completed ? "the session made no new commit" : $"the session ended {StopReason(session)}");
-        var fixHandover = await FixHandOverAsync(task, f, request, fixRun, outDirectory, token);
+        var fixHandover = await FixHandOverAsync(task, f, request, fixRun, outDirectory, session, token);
         if (fixHandover.Status == HandoverStatus.NotPushed)
             return new CiFixResult(false, $"not pushed: {fixHandover.Reason}");
         (f.Seed, f.SeededCommits) = (Path.Combine(outDirectory, "chargehand.bundle"), session.Commits);
@@ -211,10 +211,11 @@ public sealed partial class TaskRunner
         return session;
     }
 
-    private Task<HandoverOutcome> FixHandOverAsync(ResolvedTask task, CiFixes f, CiFixRequest request, string fixRun, string outDirectory, CancellationToken token) =>
+    private Task<HandoverOutcome> FixHandOverAsync(ResolvedTask task, CiFixes f, CiFixRequest request, string fixRun, string outDirectory, SessionOutcome spent, CancellationToken token) =>
         handover.RunAsync(new HandoverInput(fixRun, outDirectory, settings.SourcePath, settings.BaseCommit, f.Branch, settings.RemoteUrl, settings.BaseBranch, PullRequestTitle.Of(task.Title, task.Goal),
-            $"CI fix attempt {request.Attempt}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
-            Report: e => { if (e.Kind != RunEventKind.PrOpened) Publish(task.Id, e.Kind, e.Detail, s => s with { Branch = e.Kind == RunEventKind.Pushed ? f.Branch : null }); }), token);
+            $"CI fix attempt {request.Attempt}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote, LocalOnly: settings.LocalOnly,
+            Report: e => { if (e.Kind != RunEventKind.PrOpened) Publish(task.Id, e.Kind, e.Detail, s => s with { Branch = e.Kind == RunEventKind.Pushed ? f.Branch : null }); },
+            Provenance: TaskProvenance.Of(task, fixRun, spent, settings.Model, settings.ClaudeVersion)), token);
 
     /// <summary>The pull request's checks and the CI fix attempts, kept for the console (CHARGEHAND-214).</summary>
     private IntegrationWatch WatchOf(ResolvedTask task, PullRequestRef pr)
@@ -239,12 +240,13 @@ public sealed partial class TaskRunner
     private static bool IsStartFailure(Exception e, CancellationToken ct) =>
         e is ChargehandException or HttpRequestException or IOException || (e is TaskCanceledException && !ct.IsCancellationRequested);
 
-    private Task<HandoverOutcome> HandOverAsync(ResolvedTask task, (string RunId, string OutDirectory) run, string branch, string title, string body, bool partial, StackBase? stack, CancellationToken ct) =>
+    private Task<HandoverOutcome> HandOverAsync(ResolvedTask task, (string RunId, string OutDirectory) run, string branch, string title, string body, bool partial, StackBase? stack, SessionOutcome spent, CancellationToken ct) =>
         handover.RunAsync(new HandoverInput(run.RunId, run.OutDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, stack?.PullRequestBase ?? settings.BaseBranch,
-            title, stack is null ? body : $"{body}\n\n{stack.Note}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote,
+            title, stack is null ? body : $"{body}\n\n{stack.Note}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote, LocalOnly: settings.LocalOnly,
             Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
             Goal: task.Goal, UpdateReused: !partial && task.From?.Pushed is null, PolicyNote: stack is null && settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null,
-            FallbackBaseBranch: stack?.PullRequestBase is null ? null : settings.BaseBranch), ct);
+            FallbackBaseBranch: stack?.PullRequestBase is null ? null : settings.BaseBranch,
+            Provenance: TaskProvenance.Of(task, run.RunId, spent, settings.Model, settings.ClaudeVersion)), ct);
 
     /// <summary>How much of a handoff goes into a continuation's prompt, and how much into a partial pull request's body.</summary>
     private const int ProgressInGoal = 8000;

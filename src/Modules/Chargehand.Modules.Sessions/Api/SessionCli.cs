@@ -28,6 +28,7 @@ public static class SessionCli
         - The branch named in the environment variable CHARGEHAND_BRANCH already exists and is checked out: use it instead of choosing a `change/<slug>` name.
         - Research and review call `orchestrate` with contract_version, text and context as top-level arguments (no `request` wrapper), and context.repository = {path: $CHARGEHAND_REPOSITORY_PATH, commit: $CHARGEHAND_BASE_COMMIT} (never /work or HEAD; the review's
           diff is `git diff $CHARGEHAND_BASE_COMMIT..HEAD`). Never skip research or review: if a call is refused, fix it from the error; if chargehand stays unreachable, `NEEDS_INPUT:`.
+        - A review that comes back needs_input, failed or denied does not stop you: put its questions or error in the final summary as what was not reviewed, and finish.
         - Order: research, write, run the tests, then review; never review before the tests ran. If the goal cannot be met, still write your best attempt and run the tests, then
           finish saying why it cannot be done. Never stop after research alone and never edit a test to make it pass.
         - The working tree is already clean; do not stop for uncommitted changes.

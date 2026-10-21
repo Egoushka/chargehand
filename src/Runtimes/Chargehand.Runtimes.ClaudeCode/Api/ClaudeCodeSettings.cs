@@ -15,6 +15,10 @@ public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = n
     /// <summary>The CLI version the adapter's event mapping was verified against (ADR 0020).</summary>
     public const string PinnedVersion = "2.1.283";
 
+    /// <summary>The pin with no profile block: <see cref="PinnedVersion"/> or newer of its major, since the CLI updates itself. A profile's
+    /// <c>version</c> may be exact or take the same <c>&gt;=</c> form.</summary>
+    public const string MinimumVersion = ">=" + PinnedVersion;
+
     /// <summary>The header lines to hand the CLI as <c>ANTHROPIC_CUSTOM_HEADERS</c>, from the secret's value. Throws <see cref="ChargehandException"/> without a <see cref="BaseUrl"/>
     /// (the headers would go to Anthropic itself) or for a line that is not <c>Name: value</c>.</summary>
     public string CustomHeaders(string secretValue)
@@ -33,17 +37,17 @@ public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = n
         secretValue.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(l => l[(l.IndexOf(':') + 1)..].Trim()).Where(v => v.Length > 0);
 
     /// <summary>
-    /// No claude_code block (ADR 0026): claude from PATH at <see cref="PinnedVersion"/>, and the one credential the
+    /// No claude_code block (ADR 0026): claude from PATH at <see cref="MinimumVersion"/>, and the one credential the
     /// secrets chain resolves under the names the CLI itself reads (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN with the
     /// default env source). Both is an error; neither leaves the CLI on its own signed-in login (ADR 0020).
     /// </summary>
     public static ClaudeCodeSettings Detect(Func<string, bool> resolves) =>
         (resolves("anthropic-api-key"), resolves("claude-code-oauth-token")) switch
         {
-            (true, false) => new(PinnedVersion, ApiKeySecret: "anthropic-api-key"),
-            (false, true) => new(PinnedVersion, OauthTokenSecret: "claude-code-oauth-token"),
+            (true, false) => new(MinimumVersion, ApiKeySecret: "anthropic-api-key"),
+            (false, true) => new(MinimumVersion, OauthTokenSecret: "claude-code-oauth-token"),
             (true, true) => throw new ChargehandException(ErrorCode.InvalidRequest, "both ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN are set",
                 "Unset one, or add claude_code to the profile naming one of api_key_secret and oauth_token_secret."),
-            _ => new(PinnedVersion),
+            _ => new(MinimumVersion),
         };
 }

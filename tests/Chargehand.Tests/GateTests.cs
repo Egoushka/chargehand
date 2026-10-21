@@ -24,6 +24,22 @@ public class GateTests
     }
 
     [Fact]
+    public void An_empty_dataset_skips_the_gate_with_a_warning()
+    {
+        var v = Gate.Decide(Cell, [], null);
+        Assert.False(v.Blocked, v.Reason);
+        Assert.Equal("0 items, gate skipped — seed CHARGEHAND-57", v.Reason);
+    }
+
+    [Fact]
+    public void Too_few_items_still_block()
+    {
+        var v = Gate.Decide(Cell, Pairs([0, 0, 0]), null);
+        Assert.True(v.Blocked);
+        Assert.Equal("3 items; the gate needs at least 8", v.Reason);
+    }
+
+    [Fact]
     public void A_clear_quality_drop_blocks()
     {
         var v = Gate.Decide(Cell, Pairs([-0.3, -0.25, -0.35, -0.3, -0.2, -0.4, -0.3, -0.25]), null);
@@ -136,7 +152,7 @@ public class GateTests
     public void Shipped_cells_and_example_items_load()
     {
         var cells = EvalCell.Load(Repo.Path("evals", "cells.json"));
-        Assert.Equal(["cheap/worker", "review/worker", "code/writer", "driven/session", "draft/draft", "intake"], cells.Select(c => c.Name));
+        Assert.Equal(["cheap/worker", "review/worker", "design/worker", "incident/worker", "release-notes/worker", "code/writer", "driven/session", "draft/draft", "intake"], cells.Select(c => c.Name));
         foreach (var file in cells.SelectMany(c => c.Files))
             Assert.True(File.Exists(Repo.Path(file)), file);
         foreach (var line in File.ReadAllLines(Repo.Path("evals", "example.jsonl")))

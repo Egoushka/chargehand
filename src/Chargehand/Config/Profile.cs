@@ -52,13 +52,25 @@ public sealed record Profile(
     DrivenSettings? Driven = null,
     PromptEnhancerSettings? PromptEnhancer = null,
     int MaxParallelNodes = 2,
-    AutomationSettings? Automation = null)
+    AutomationSettings? Automation = null,
+    IReadOnlyDictionary<string, IReadOnlyList<ServiceUse>>? PresetServices = null,
+    DeliverySettings? Delivery = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
 
-    /// <summary>Where a request's repository may live (ADR 0023); worker_root alone when the profile names none.</summary>
-    public IReadOnlyList<string> Roots => RepositoryRoots ?? [WorkerRoot];
+    /// <summary>Where a request's repository may live (ADR 0023); worker_root alone when the profile names none. GitHub intake's managed clones (ADR 0051) are always among them.</summary>
+    public IReadOnlyList<string> Roots => RepositoryRoots is null ? [WorkerRoot]
+        : Automation?.Github is not null ? [.. RepositoryRoots, ClonesRoot] : RepositoryRoots;
+
+    /// <summary>Where GitHub intake clones the repositories it discovers and those whose checkout it cannot write.</summary>
+    [JsonIgnore]
+    public string ClonesRoot => Path.Combine(WorkerRoot, AutomationGitHub.ClonesDirectory);
+
+    /// <summary>The services a preset's node may use: the profile's list for the preset (<c>preset_services</c>), else the preset's own (ADR 0034).
+    /// A shipped preset names no server of anyone's profile, so the profile maps its own.</summary>
+    public IReadOnlyList<ServiceUse>? ServicesFor(string preset, IReadOnlyList<ServiceUse>? presetServices) =>
+        PresetServices is not null && PresetServices.TryGetValue(preset, out var mapped) ? mapped : presetServices;
 
     /// <summary>How long one command secret source may run before it is killed and the next source is tried (ADR 0034).</summary>
     internal TimeSpan CommandTimeout { get; init; } = TimeSpan.FromSeconds(15);
@@ -106,6 +118,12 @@ public sealed record Profile(
         if (profile.PromptEnhancer is { } enhancer)
             enhancer.Validate(servers);
         profile.Http?.Validate();
+        foreach (var (preset, uses) in profile.PresetServices ?? new Dictionary<string, IReadOnlyList<ServiceUse>>())
+            foreach (var use in uses)
+                if (!servers.ContainsKey(use.Server) || use.Tools.Count == 0 || use.Tools.Any(t => t.Length == 0 || t.All(c => c == '*')))
+                    throw new ChargehandException(ErrorCode.InvalidRequest,
+                        $"preset_services.{preset}: '{use.Server}' " + (servers.ContainsKey(use.Server) ? "needs explicit tool names (a glob is fine, a bare * is not)" : "is not an entry of mcp_servers"),
+                        "Fix preset_services in the profile; docs/guide/memory-and-services.md has an example.");
         profile.Driven?.Limits?.Validate();
         profile.Driven?.Governor?.Validate();
         profile.Driven?.Admission?.Validate();
@@ -116,8 +134,13 @@ public sealed record Profile(
         profile.Driven?.Forge?.Validate();
         profile.Driven?.ValidateRunners();
         profile.Automation?.Validate(profile.Driven?.Enabled == true, profile.Driven?.Integrator);
+        profile.Delivery?.Validate(profile.Automation);
         return profile;
     }
+
+    /// <summary>Which repositories are local-only (ADR 0069); none when the profile has no <c>delivery</c> block.</summary>
+    [JsonIgnore]
+    public DeliveryPolicy DeliveryPolicy => new(Delivery?.LocalOnly);
 
     /// <summary>The provider segment of the placeholder models presets name (e.g. provider/worker-model).</summary>
     public const string PlaceholderProvider = "provider/";
@@ -274,15 +297,22 @@ public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecr
 /// <param name="MaxConcurrentRuns">Runs executing at once; 1 (the default) runs them one at a time, as ADR 0011's per-model limit assumes.
 /// Raise it only when the model's rate limit allows: every run's workers draw on it.</param>
 /// <param name="Accounts">Accounts besides the implicit <c>owner</c> that <c>ApiKeySecret</c> opens (ADR 0050); their keys come from <c>chargehand accounts add</c>.</param>
-/// <param name="Ui">Serve the web UI at <c>/ui/</c> (ADR 0054) and the operator console at <c>/console/</c> (ADR 0056). Off by default.</param>
+/// <param name="Ui">Serve the operator console at <c>/console/</c> (ADR 0056); <c>/ui/</c> redirects to it (ADR 0072). Off by default.</param>
+/// <param name="CloudflareAccess">Sign in by the email Cloudflare Access checked, with no key (ADR 0071); null: keys only.</param>
+/// <param name="ProxySignIn">Sign in by the email a trusted single-sign-on proxy forwards, with no key (ADR 0071); null: keys only.</param>
 public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null,
-    int MaxConcurrentRuns = 1, IReadOnlyList<AccountSettings>? Accounts = null, bool Ui = false)
+    int MaxConcurrentRuns = 1, IReadOnlyList<AccountSettings>? Accounts = null, bool Ui = false, CloudflareAccessSettings? CloudflareAccess = null,
+    ProxySignInSettings? ProxySignIn = null)
 {
     /// <summary>Throws an invalid_request error naming the key when an account cannot work.</summary>
     internal void Validate()
     {
         if (AccountSettings.Problems(Accounts ?? []) is { Count: > 0 } problems)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"http: {string.Join("; ", problems)}", "Fix http.accounts in the profile; docs/guide/server.md lists the keys.");
+        if (CloudflareAccess?.Problems(Accounts ?? []).ToList() is { Count: > 0 } access)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"http.cloudflare_access: {string.Join("; ", access)}", "Fix http.cloudflare_access in the profile; docs/guide/server.md lists the keys.");
+        if (ProxySignIn?.Problems(Accounts ?? []).ToList() is { Count: > 0 } proxy)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"http.proxy_sign_in: {string.Join("; ", proxy)}", "Fix http.proxy_sign_in in the profile; docs/guide/server.md lists the keys.");
     }
 }
 
@@ -352,5 +382,26 @@ public sealed record PromptEnhancerSettings(string Server, int? DeadlineMs = nul
         if (EffectiveDeadlineMs is < MinDeadlineMs or > MaxDeadlineMs)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"prompt_enhancer.deadline_ms must be {MinDeadlineMs} to {MaxDeadlineMs}",
                 "Fix deadline_ms in the profile.");
+    }
+}
+
+/// <summary>ADR 0069. Repositories under these directories are always delivered locally: nothing is pushed, no pull request is opened, no forge is called, and a request that asks to push is refused.</summary>
+/// <param name="LocalOnly">Directories, absolute or starting with <c>~/</c>; <c>/</c> makes every repository on the server local-only.</param>
+public sealed record DeliverySettings(IReadOnlyList<string>? LocalOnly = null)
+{
+    /// <summary>A root must be absolute or start with <c>~/</c>, and no watched repository of the intake may sit under one: intake reads the forge and starts pushing batches.</summary>
+    internal void Validate(AutomationSettings? automation)
+    {
+        var roots = LocalOnly ?? [];
+        if (roots.FirstOrDefault(r => string.IsNullOrWhiteSpace(r) || !(Path.IsPathRooted(r) || r.StartsWith("~/", StringComparison.Ordinal))) is { } bad)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"delivery.local_only: '{bad}' must be an absolute directory or start with ~/",
+                "Fix delivery.local_only in the profile; docs/guide/reference.md lists the fields.");
+        var policy = new DeliveryPolicy(roots);
+        var watched = (automation?.Github?.Repositories?.Select(r => ("automation.github.repositories", r.Key, r.Value.Path)) ?? [])
+            .Concat(automation?.Plane?.Projects?.Select(r => ("automation.plane.projects", r.Key, r.Value.Path)) ?? []);
+        foreach (var (section, name, path) in watched)
+            if (policy.Forced(path))
+                throw new ChargehandException(ErrorCode.InvalidRequest, $"{section}.{name}.path is under delivery.local_only: intake reads a forge and starts batches that push",
+                    $"Remove {name} from {section}, or take its checkout out of delivery.local_only.");
     }
 }

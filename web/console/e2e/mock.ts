@@ -36,6 +36,8 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
     const { pathname } = new URL(request.url());
     const body = request.postData() ? JSON.parse(request.postData() as string) : undefined;
     mock.calls.push({ method: request.method(), path: pathname, body, headers: request.headers() });
+    if (pathname === '/v1/accounts/identity' && request.headers().authorization === undefined)
+      return route.fulfill({ status: 204, body: '' });
     if (request.headers().authorization !== `Bearer ${LOGIN}`)
       return route.fulfill({ status: 401, body: '' });
     const replace =

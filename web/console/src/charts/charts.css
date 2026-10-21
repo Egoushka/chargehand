@@ -129,18 +129,15 @@
   top: var(--y);
   left: var(--x);
   z-index: var(--z-popover);
-  max-width: 280px;
+  /* Sized by its text, not by the room left of --x: anchored near the right edge it would shrink to a letter. */
+  width: max-content;
+  max-width: min(280px, 100%);
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border-hover);
   border-radius: var(--radius-2);
   background: var(--surface-raised);
   box-shadow: var(--shadow-popover);
   pointer-events: none;
-  transform: translateX(12px);
-}
-
-.chart-tip[data-side="left"] {
-  transform: translateX(calc(-100% - 12px));
 }
 
 .tip {

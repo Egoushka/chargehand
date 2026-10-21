@@ -31,10 +31,15 @@ internal sealed class FakeGitHub : IIntakeHost
 
     public string? FailFor { get; set; }
 
+    /// <summary>How many of the next reads time out the way an <see cref="HttpClient"/> does: a cancellation the caller did not ask for.</summary>
+    public int TimeOuts { get; set; }
+
     public Func<DateTimeOffset> Now { get; set; } = () => DateTimeOffset.UtcNow;
 
     private void Check(string repository)
     {
+        if (TimeOuts > 0 && TimeOuts-- > 0)
+            throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.", new TimeoutException());
         if (repository == FailFor)
             throw new IntakeException("GitHub answered 500 to the request", 500);
     }
@@ -90,6 +95,17 @@ internal sealed class FakeGitHub : IIntakeHost
         return id;
     }
 
+    public List<ReviewablePull> OpenPulls { get; } = [];
+
+    public Dictionary<int, string> Diffs { get; } = [];
+
+    public int? DiffFailsWith { get; set; }
+
+    public Task<IReadOnlyList<ReviewablePull>> OpenPullsAsync(string repository, CancellationToken ct) => Task.FromResult<IReadOnlyList<ReviewablePull>>([.. OpenPulls]);
+
+    public Task<string> PullDiffAsync(string repository, int number, CancellationToken ct) =>
+        DiffFailsWith is { } status ? throw new IntakeException($"GitHub answered {status} to the diff", status) : Task.FromResult(Diffs.GetValueOrDefault(number, "diff --git a/x b/x"));
+
     public Task<long> CommentAsync(string repository, int number, string body, CancellationToken ct)
     {
         if (CommentsFail)
@@ -98,6 +114,27 @@ internal sealed class FakeGitHub : IIntakeHost
         Posted.Add((number, body));
         Comments.Add(new IntakeComment(id, number, "chargehand[bot]", body, Now()));
         return Task.FromResult(id);
+    }
+
+    public List<InstalledRepository> Installed { get; } = [];
+
+    public bool InstalledFails { get; set; }
+
+    /// <summary>Repositories that have the trigger label; <see cref="EnsureLabelAsync"/> adds to it.</summary>
+    public HashSet<string> LabelledRepositories { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public List<string> LabelsCreated { get; } = [];
+
+    public Task<IReadOnlyList<InstalledRepository>> InstalledRepositoriesAsync(CancellationToken ct) =>
+        InstalledFails ? throw new IntakeException("GitHub answered 500 to the installation's repositories", 500) : Task.FromResult<IReadOnlyList<InstalledRepository>>([.. Installed]);
+
+    public Task<bool> EnsureLabelAsync(string repository, string label, CancellationToken ct)
+    {
+        Check(repository);
+        if (!LabelledRepositories.Add(repository))
+            return Task.FromResult(false);
+        LabelsCreated.Add($"{repository}:{label}");
+        return Task.FromResult(true);
     }
 
     public long Add(int issue, string author, string body, DateTimeOffset at)
@@ -129,7 +166,30 @@ internal sealed class FakeHeads : IRepositoryHeads
 {
     public string Commit { get; set; } = "abc1234def5678abc1234def5678abc1234def56";
 
-    public Task<string> CurrentCommitAsync(string path, CancellationToken ct) => Task.FromResult(Commit);
+    /// <summary>The paths asked for a commit, in order.</summary>
+    public List<string> Asked { get; } = [];
+
+    /// <summary>Checkouts that cannot be written, and what fetching into them says.</summary>
+    public Dictionary<string, ReadOnlyCheckoutException> ReadOnly { get; } = [];
+
+    public Task<string> CurrentCommitAsync(string path, CancellationToken ct)
+    {
+        Asked.Add(path);
+        return ReadOnly.TryGetValue(path, out var e) ? throw e : Task.FromResult(Commit);
+    }
+
+    /// <summary>The commit a pull request's head fetches to; unset, the one the listing named.</summary>
+    public Dictionary<int, string> PullHeads { get; } = [];
+
+    public List<int> Fetched { get; } = [];
+
+    public Func<int, string> Listed { get; set; } = _ => "";
+
+    public Task<string> FetchPullHeadAsync(string path, int number, CancellationToken ct)
+    {
+        Fetched.Add(number);
+        return Task.FromResult(PullHeads.GetValueOrDefault(number) ?? Listed(number));
+    }
 }
 
 internal sealed class FakeRunLog : IRunLog
@@ -168,6 +228,11 @@ internal sealed class FakeRunLog : IRunLog
         return new Artifact(kind, "application/json", Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(content))), Content: content);
     }
 
+    /// <summary>Ends a plain (not driven) run with a result, as the run service writes it.</summary>
+    public void Finish(string run, ResultStatus status, string summary, IReadOnlyList<Claim>? claims = null, IReadOnlyList<Evidence>? evidence = null, ResultError? error = null) =>
+        _runs[run] = new RunRecord(run, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "review", null, null,
+            new ResultContract("result/v1", run, "worker", new string('0', 32), new PromptChain([], new AsSent("v", "build", "m", "2026-10-18")), status, summary, claims ?? [], evidence ?? [], [], [], 0.8, new Usage(0, 0, 0, 0, null), error));
+
     public void Forget(string run) => _starts.Remove(run);
 
     public Task AppendAsync(StartRecord record, CancellationToken ct) => Task.CompletedTask;
@@ -202,10 +267,12 @@ internal sealed class IntakeRig : IDisposable
 
     private readonly TempDir _dir = new();
     private readonly IntegratorPolicy? _policy;
+    private readonly ManagedClones? _clones;
 
-    public IntakeRig(AutomationGitHub? settings = null, IntegratorPolicy? policy = null)
+    public IntakeRig(AutomationGitHub? settings = null, IntegratorPolicy? policy = null, ManagedClones? clones = null)
     {
         _policy = policy;
+        _clones = clones;
         Settings = settings ?? new AutomationGitHub(new Dictionary<string, AutomationRepository> { [Repo] = new("/srv/repos/repo") }, [Author]);
         Starter = new FakeStarter(Log);
         GitHub.Now = () => Time.GetUtcNow();
@@ -226,9 +293,21 @@ internal sealed class IntakeRig : IDisposable
 
     public List<string> Warnings { get; } = [];
 
+    public List<string> Infos { get; } = [];
+
     public GitHubIntake Intake { get; private set; }
 
     public DateTimeOffset Now => Time.GetUtcNow();
+
+    /// <summary>An open pull request GitHub lists, whose head fetches to its listed sha.</summary>
+    public ReviewablePull OpenPull(int number, string sha, string author = "carol", bool draft = false, string title = "Retry the call", string body = "Gives up less often.")
+    {
+        var pull = new ReviewablePull(number, title, body, author, sha, draft);
+        GitHub.OpenPulls.RemoveAll(p => p.Number == number);
+        GitHub.OpenPulls.Add(pull);
+        Heads.Listed = n => GitHub.OpenPulls.Single(p => p.Number == n).HeadSha;
+        return pull;
+    }
 
     private string StatePath => Path.Combine(_dir.Path, "intake", "github.json");
 
@@ -237,7 +316,12 @@ internal sealed class IntakeRig : IDisposable
 
     public IntakeState State => IntakeState.Load(StatePath);
 
-    private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy);
+    private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy, IntakeSources.Load(SourcesPath), _clones, Infos.Add);
+
+    private string SourcesPath => Path.Combine(_dir.Path, "intake", "sources.json");
+
+    /// <summary>The switches as a new process would read them.</summary>
+    public IntakeSources Sources => IntakeSources.Load(SourcesPath);
 
     /// <summary>A new process on the same state file.</summary>
     public void Restart() => Intake = Build();

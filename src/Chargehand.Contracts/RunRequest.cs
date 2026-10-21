@@ -9,8 +9,12 @@ public sealed record RunRequest(
     IReadOnlyList<PromptBlock>? CallerBlocks = null,
     RequestDriven? Driven = null);
 
+/// <param name="Enhance"><c>false</c>: the run skips the prompt enhancer, with no <c>enhance</c> call and no <c>feedback</c> report, so a replay cannot train the enhancer on itself (ADR 0070); null or <c>true</c>: as before.</param>
+/// <param name="ParentRequestId">The enhancer's request id of the prompt whose run wrote this request's text; sent to the enhancer as <c>context.parent_request_id</c> (ADR 0070).</param>
 /// <param name="Approved">Runs a request the preset would otherwise stop for approval (preset approval thresholds).</param>
-public sealed record RequestContext(bool Interactive, string Preset, decimal? BudgetUsd = null, RepositoryRef? Repository = null, bool? Approved = null, IReadOnlyList<string>? Verify = null);
+/// <param name="Delivery"><c>local</c>: the run's output stays on the machine (ADR 0069); <c>push</c>: as before; null: the profile decides, else <c>push</c>.</param>
+public sealed record RequestContext(bool Interactive, string Preset, decimal? BudgetUsd = null, RepositoryRef? Repository = null, bool? Approved = null, IReadOnlyList<string>? Verify = null,
+    string? Delivery = null, bool? Enhance = null, string? ParentRequestId = null);
 
 public sealed record RepositoryRef(string Path, string Commit);
 
@@ -54,8 +58,13 @@ public sealed record RequestDriven(
 /// <param name="ContinueFrom">An earlier batch's task that ended <c>needs_input</c> or stopped with work kept: this task starts from that task's branch and takes its goal, so it needs neither <c>goal</c> nor <c>ref</c>.</param>
 /// <param name="DependsOn">Ids of tasks of this batch that must end <c>completed</c> first; the task starts from their branches (ADR 0049). Null or empty: independent.</param>
 /// <param name="Title">The title of the task's pull request, one line; null: the goal's first sentence, cut to 72 characters. The pull request body holds the whole goal either way.</param>
+/// <param name="Acceptance">Commands the session's branch must pass before the task counts as done; each is run in the session's working tree and its failure is sent back to the session.</param>
 public sealed record DrivenTask(string Id, string? Ref = null, string? Goal = null, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null,
-    IReadOnlyList<string>? Answers = null, ContinueFrom? ContinueFrom = null, IReadOnlyList<string>? DependsOn = null, string? Title = null);
+    IReadOnlyList<string>? Answers = null, ContinueFrom? ContinueFrom = null, IReadOnlyList<string>? DependsOn = null, string? Title = null,
+    IReadOnlyList<AcceptanceCheck>? Acceptance = null);
+
+/// <summary>A machine-checkable acceptance criterion: a shell command, the exit code it must end with and, when set, text its output must contain.</summary>
+public sealed record AcceptanceCheck(string Command, int ExitCode = 0, string? Output = null);
 
 /// <param name="RunId">The earlier batch's run id.</param>
 /// <param name="TaskId">The task's id in that batch.</param>
@@ -72,6 +81,8 @@ public static class DrivenRules
             .Concat(driven.Tasks.Where(t => t.BudgetUsd is <= 0).Select(t => $"task '{t.Id}': budget_usd must be above 0"))
             .Concat(driven.Tasks.Where(t => t.Title is not null && (string.IsNullOrWhiteSpace(t.Title) || t.Title.Length > MaxTitleLength || t.Title.AsSpan().ContainsAny('\r', '\n')))
                 .Select(t => $"task '{t.Id}': title must be one line of 1 to {MaxTitleLength} characters"))
+            .Concat(driven.Tasks.Where(t => t.Acceptance is { Count: > MaxAcceptance }).Select(t => $"task '{t.Id}': at most {MaxAcceptance} acceptance checks"))
+            .Concat(driven.Tasks.Where(t => t.Acceptance?.Any(a => string.IsNullOrWhiteSpace(a.Command)) == true).Select(t => $"task '{t.Id}': an acceptance check needs a command"))
             .Concat(driven.Tasks.Where(t => t.Answers is not null && t.ContinueFrom is null).Select(t => $"task '{t.Id}': answers need continue_from"))
             .Concat(driven.Tasks.Where(t => t.ContinueFrom is not null && (t.Goal is not null || t.Ref is not null)).Select(t => $"task '{t.Id}': continue_from takes the earlier task's goal; leave out goal and ref"))
             .Concat(driven.Tasks.Where(t => t.Answers?.Any(string.IsNullOrWhiteSpace) == true).Select(t => $"task '{t.Id}': answers must not be empty"))
@@ -139,6 +150,8 @@ public static class DrivenRules
     public const int MaxMinutesCeiling = 480;
 
     public const int MaxTitleLength = 200;
+
+    public const int MaxAcceptance = 20;
 
     /// <summary>All problems of a request that carries <c>driven</c>: duplicate task ids and a missing <c>context.repository</c>.</summary>
     public static IReadOnlyList<string> Problems(RunRequest request)

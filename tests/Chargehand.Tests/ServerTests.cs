@@ -47,13 +47,14 @@ internal sealed class TestServer : IAsyncDisposable
     public AccountKeyStore Keys => new(System.IO.Path.Combine(_root.Path, "accounts.json"));
 
     public static async Task<TestServer> StartAsync(ScriptedRuntime runtime, IReadOnlyList<string>? allowedHosts = null, Func<string, JsonlRunLog, Chargehand.Driven.DrivenRun>? driven = null,
-        IReadOnlyList<AccountSettings>? accounts = null, TimeProvider? clock = null, bool ui = false, Func<string?, IWorkerRuntime>? runtimeFor = null, Func<string, ServerSettings, ServerSettings>? tweak = null)
+        IReadOnlyList<AccountSettings>? accounts = null, TimeProvider? clock = null, bool ui = false, Func<string?, IWorkerRuntime>? runtimeFor = null, Func<string, ServerSettings, ServerSettings>? tweak = null,
+        Chargehand.Automation.GitHubIntake? intake = null)
     {
         var root = new TempDir();
         var log = new JsonlRunLog(System.IO.Path.Combine(root.Path, "log.jsonl"));
         var settings = new ServerSettings(0, Key, Repo.Path("presets"), AllowedHosts: allowedHosts, Accounts: accounts,
             AccountKeysFile: System.IO.Path.Combine(root.Path, "accounts.json"), Clock: clock, Ui: ui);
-        var app = ChargehandServer.Create(tweak is null ? settings : tweak(root.Path, settings), Runs.Orchestrator(runtime, root.Path, log, runtimeFor), log, driven?.Invoke(root.Path, log));
+        var app = ChargehandServer.Create(tweak is null ? settings : tweak(root.Path, settings), Runs.Orchestrator(runtime, root.Path, log, runtimeFor), log, driven?.Invoke(root.Path, log), intake);
         await app.StartAsync();
         return new TestServer(root, runtime, log, app, new Uri(app.Urls.First()));
     }
@@ -245,14 +246,40 @@ public class ServerTests
     public void Prefer_wait_is_read_and_capped(string? prefer, int seconds) => Assert.Equal(TimeSpan.FromSeconds(seconds), ChargehandServer.Wait(prefer));
 
     [Theory]
-    [InlineData(false, "", -1)]        // a research or review call waits for its result
-    [InlineData(true, "", 10)]         // a batch runs for minutes or hours, and an MCP client cannot set Prefer per call: it gets the run id after the default wait
-    [InlineData(true, "wait=3", 3)]
-    [InlineData(false, "wait=3", 3)]
-    public void An_MCP_call_waits_for_the_result_unless_it_starts_a_batch(bool driven, string prefer, int seconds)
+    [InlineData(false, "", 50, 50)]    // over HTTP a research or review call answers before a client's 60 s timeout, with the run id if unfinished
+    [InlineData(false, "", null, -1)]  // over stdio (no HTTP wait registered) it waits for its result
+    [InlineData(true, "", 50, 10)]     // a batch runs for minutes or hours, and an MCP client cannot set Prefer per call: it gets the run id after the default wait
+    [InlineData(true, "", null, 10)]
+    [InlineData(true, "wait=3", 50, 3)]
+    [InlineData(false, "wait=3", 50, 3)]
+    public void An_MCP_call_over_HTTP_answers_within_the_client_timeout(bool driven, string prefer, int? httpWait, int seconds)
     {
         var request = driven ? new RunRequest("request/v1", "x", new RequestContext(false, "driven"), Driven: new RequestDriven([new DrivenTask("t1", Goal: "g")])) : Runs.DraftRequest();
-        Assert.Equal(seconds < 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(seconds), OrchestrateTool.WaitFor(request, prefer));
+        var wait = httpWait is { } w ? TimeSpan.FromSeconds(w) : (TimeSpan?)null;
+        Assert.Equal(seconds < 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(seconds), OrchestrateTool.WaitFor(request, prefer, wait));
+    }
+
+    [Fact]
+    public async Task Health_is_liveness_and_deep_calls_the_intake_model()
+    {
+        var runtime = new ScriptedRuntime(Runs.DraftReply);
+        await using var s = await TestServer.StartAsync(runtime);
+
+        var live = await s.Http.GetAsync("/v1/health");
+        Assert.Equal(HttpStatusCode.OK, live.StatusCode);
+        Assert.Empty(runtime.IntakePrompts);
+
+        var deep = await s.Http.GetAsync("/v1/health?deep=1");
+        Assert.Equal(HttpStatusCode.OK, deep.StatusCode);
+        Assert.True(JsonDocument.Parse(await deep.Content.ReadAsStringAsync()).RootElement.GetProperty("probe").GetProperty("ok").GetBoolean());
+
+        // The process up, every run failing: what the canary is for (seen when a gateway was retired under a running server).
+        runtime.GenerateFailures.Enqueue(new InvalidOperationException("claude -p exited 1: API Error: 400"));
+        var failing = await s.Http.GetAsync("/v1/health?deep=1");
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, failing.StatusCode);
+        var body = JsonDocument.Parse(await failing.Content.ReadAsStringAsync()).RootElement;
+        Assert.Equal("failing", body.GetProperty("status").GetString());
+        Assert.Contains("API Error: 400", body.GetProperty("probe").GetProperty("error").GetString(), StringComparison.Ordinal);
     }
 
     internal static async Task WaitUntil(Func<Task<bool>> condition)

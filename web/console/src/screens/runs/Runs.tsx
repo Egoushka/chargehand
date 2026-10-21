@@ -239,6 +239,15 @@ export function Runs() {
           </option>
         ))}
       </Select>
+      <Select
+        aria-label="Session calls"
+        value={filters.calls ? 'show' : 'hide'}
+        touch={phone}
+        onChange={(e) => update({ calls: e.target.value === 'show' })}
+      >
+        <option value="hide">Session calls: hidden</option>
+        <option value="show">Session calls: shown</option>
+      </Select>
       {count > 0 ? (
         <Button
           label="Clear filters"
@@ -361,6 +370,9 @@ export function Runs() {
           ) : null}
           {filters.preset !== ANY ? (
             <Chip label="Preset" value={filters.preset} onRemove={() => update({ preset: ANY })} />
+          ) : null}
+          {filters.calls ? (
+            <Chip label="Session calls" value="shown" onRemove={() => update({ calls: false })} />
           ) : null}
           {filters.range !== DEFAULT_FILTERS.range ? (
             <Chip

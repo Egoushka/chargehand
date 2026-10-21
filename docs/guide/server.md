@@ -100,6 +100,40 @@ In a batch the key reaches the session container as `ANTHROPIC_API_KEY` (`creden
 
 **Not isolated.** Accounts share the worker root and the checkouts, the server's model credential and rate limit (those without a `model` of their own), the memory providers (a fact one account's run retained can be recalled by another), and for batches the runner, the container engine, the push credential and the package caches. Separate runners and networks per account are CHARGEHAND-202.
 
+### Sign-in by Cloudflare Access identity
+
+When the server is reached through Cloudflare Access, the console can sign in by the email Access already checked, with no key to paste ([ADR 0071](../adr/0071-sign-in-by-cloudflare-access-identity.md)):
+
+```json
+{
+  "http": {
+    "cloudflare_access": {
+      "team_domain": "myteam.cloudflareaccess.com",
+      "audience": "<the Access application's AUD tag>",
+      "identities": { "me@example.com": "owner", "alice@example.com": "alice" }
+    }
+  }
+}
+```
+
+The server takes the identity only from a request with no `Authorization` header, a valid `Cf-Access-Jwt-Assertion` token (RS256 under the team's published keys, this audience, the team as issuer, not expired) and the console's `X-Chargehand-Console: 1` header, which a page on another origin cannot send. The email must be in `identities`, mapped to `owner` or an account of `http.accounts`; any other request gets `401`. A key, when one is sent, decides alone. MCP clients and API callers keep using keys.
+
+A single-sign-on proxy such as Pangolin forwards the email in a header it does not sign, so it is trusted only on a signed-on host and from the proxy's own address:
+
+```json
+{
+  "http": {
+    "proxy_sign_in": {
+      "hosts": ["console.example.com"],
+      "proxies": ["traefik"],
+      "identities": { "me@example.com": "owner" }
+    }
+  }
+}
+```
+
+`proxies` takes addresses or host names (resolved every 30 seconds); `header` defaults to `Remote-Email`. The email is taken only from a console call with no `Authorization` header, for one of `hosts`, from one of `proxies` ([ADR 0071](../adr/0071-sign-in-by-cloudflare-access-identity.md)).
+
 ## Binding and allowed hosts
 
 | field | default | meaning |
@@ -109,7 +143,7 @@ In a batch the key reaches the session container as `ANTHROPIC_API_KEY` (`creden
 | `http.allowed_hosts` | none | host names accepted besides `localhost` and `127.0.0.1` |
 | `http.api_key_secret` | required | the secret item that holds the bearer key (the `owner`) |
 | `http.accounts` | none | named accounts with their own keys and caps, see above |
-| `http.ui` | `false` | serve the [web UI](web-ui.md) at `/ui/` and the [operator console](web-ui.md#the-operator-console-console) at `/console/` |
+| `http.ui` | `false` | serve the [operator console](web-ui.md) at `/console/` (`/ui/` redirects to it) |
 
 The server compares each request's `Host` header with `localhost`, `127.0.0.1` and `allowed_hosts`, and answers any other host with `400`. That check guards against DNS rebinding. When `listen` is not loopback, the server refuses to start unless `allowed_hosts` names at least one host, because beyond loopback the check must name the server. Bind a private network only ([ADR 0024](../adr/0024-server-on-a-private-network-and-release-images.md)). The server sends no CORS headers and caps request bodies at 1 MB.
 
@@ -120,7 +154,7 @@ With no `repository_roots`, `serve` allows repositories under `worker_root` only
 | route | answers |
 |---|---|
 | `POST /v1/runs` | `200` with `result/v1` when the run finishes within the wait; `202` with `run-status/v1` when it does not; `400` with `errors` for a bad request; `429` when 10 runs are unfinished |
-| `GET /v1/accounts/me` | `200` with the caller's account: `name`, `owner`, `driven`, `repositories`, `limits`, `spend.day` and `spend.month` (`usd`, `tokens`, `resets_at`, the figures its caps are checked against), `unfinished_runs`, `halted` and `presets`; for the [web UI](web-ui.md) |
+| `GET /v1/accounts/me` | `200` with the caller's account: `name`, `owner`, `driven`, `repositories`, `limits`, `spend.day` and `spend.month` (`usd`, `tokens`, `resets_at`, the figures its caps are checked against), `unfinished_runs`, `halted` and `presets`; for the [operator console](web-ui.md) |
 | `GET /v1/runs?status=&since=&limit=` | `200` with `{"runs": [run-summary/v1, ...]}`, newest first: state, preset, cost, branch and pull request link when the result has them, and the error code of a failed run. `status` is a run state (`queued`, `running`, `lost`, `completed`, `needs_input`, `failed`, `denied`), `since` an ISO 8601 time, `limit` 1 to 500 (default 50); `400` for a bad value. Also `kind=single|batch`, `repository=<exact path>`, `run_id=` and, for the owner only, `actor=`; each row also says `kind`, `repository`, `commit` and `tokens` |
 | `GET /v1/learn?since=` | `200` with what finished driven tasks taught, the table of `chargehand learn report` as JSON: `{"since", "tasks", "groups": [{"repository", "size_class", "tasks", "spend_median_usd", "spend_p80_usd", "completion_rate", "partial_rate", "checkpoint_rate", "checkpointed_completed_rate", "prs", "merged_unchanged_rate", ...}]}`; `since` is `30d` or an ISO 8601 time, `400` for another value; an empty report when driven sessions are off. Needs the API key; a run token is refused, and an account sees only the tasks of its own batches ([the learning loop](driven.md#the-learning-loop)) |
 | `POST /v1/runs/{id}/cancel` | `202` when this server holds the run and starts cancelling it; the run ends `failed` with error code `cancelled`. `404` for an unknown id, `409` when the run has finished or another process runs it |
@@ -130,10 +164,11 @@ With no `repository_roots`, `serve` allows repositories under `worker_root` only
 | `GET /v1/runs/{id}/events` | server-sent events for the run; `404` for an unknown id |
 | `GET /v1/overview`, `/v1/inbox`, `/v1/batches/{id}`, `/v1/batches/{id}/tasks/{task}`, `/v1/pulls`, `/v1/analytics`, `/v1/repositories` | the [console's read routes](#console-routes): for the owner and for an account, each limited to the account's own runs and spend |
 | `GET /v1/intake`, `/v1/accounts`, `GET /v1/system` | the console's read routes about the server itself: the owner's alone (`403` for an account) |
+| `POST /v1/inbox/dismiss`, `POST /v1/inbox/restore` | [dismiss inbox items](#dismissing-inbox-items) or undo it, for the owner and for an account on its own items |
 | `/v1/mcp` | MCP over Streamable HTTP, see [the MCP page](mcp.md) |
-| `/ui/`, `/console/` | the [web UI](web-ui.md) and the [operator console](web-ui.md#the-operator-console-console): static files, served only when `http.ui` is `true`, without a key (the page calls the routes above with one) |
+| `/console/` | the [operator console](web-ui.md): static files, served only when `http.ui` is `true`, without a key (the page calls the routes above with one); `/ui/` redirects to it |
 
-Every route answers `401` without a valid key (the static files of the [web UI](web-ui.md) under `/ui/` and the console under `/console/`, when `http.ui` is on, are the one exception) and `400` for a host it does not accept. With accounts, the run routes answer for the caller's own runs (see [accounts](#accounts-and-named-keys)). [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs) covers `200`, `202`, `400`, `401`, `404`, `410` and `429` on these routes.
+Every route answers `401` without a valid key (the static files of the [operator console](web-ui.md) under `/console/`, and the redirect from `/ui/`, when `http.ui` is on, are the one exception) and `400` for a host it does not accept. With accounts, the run routes answer for the caller's own runs (see [accounts](#accounts-and-named-keys)). [ServerTests](../../tests/Chargehand.Tests/ServerTests.cs) covers `200`, `202`, `400`, `401`, `404`, `410` and `429` on these routes.
 
 ### POST /v1/runs
 
@@ -158,12 +193,12 @@ A `text/event-stream` with the events `accepted`, `started`, `intake`, `node_sta
 
 ## Console routes
 
-An operator console needs to read what the server and the driven runner already know. These routes show it and change nothing: they are all `GET` (any other verb is `405`), they read the run log, `learning.jsonl`, the saved state of unfinished batches under `batches/`, `intake/github.json` and the [batch records](#batch-records) the server keeps for them. The owner's key sees everything. An account's key sees its own runs, batches, tasks, pull requests and spend and nothing system-wide that would show another account's work; `intake`, `accounts` and `system` describe the server and are the owner's alone. A run token reaches none of them (`403`). A body never holds a key, a token or a secret value: the profile is shown as settings, with secret items as set or not set, and a URL as its scheme, host and port. Each body carries a `contract_version` (`<name>/v1`) and takes additive changes only; there is no JSON Schema file for these yet. Each also carries `not_recorded`, the things the console might expect and the server does not keep, as plain sentences.
+An operator console needs to read what the server and the driven runner already know. These routes show it and change nothing: they are all `GET` (any other verb is `405`), they read the run log, `learning.jsonl`, the saved state of unfinished batches under `batches/`, `intake/github.json`, `inbox/dismissed.json` and the [batch records](#batch-records) the server keeps for them. The owner's key sees everything. An account's key sees its own runs, batches, tasks, pull requests and spend and nothing system-wide that would show another account's work; `intake`, `accounts` and `system` describe the server and are the owner's alone. A run token reaches none of them (`403`). A body never holds a key, a token or a secret value: the profile is shown as settings, with secret items as set or not set, and a URL as its scheme, host and port. Each body carries a `contract_version` (`<name>/v1`) and takes additive changes only; there is no JSON Schema file for these yet. Each also carries `not_recorded`, the things the console might expect and the server does not keep, as plain sentences.
 
 | route | contract | who | query | answers |
 |---|---|---|---|---|
 | `GET /v1/overview` | `overview/v1` | owner, account | | `server` (version, `halted`, runs held and queued or running, `max_unfinished`); `driven` (`enabled`; for the owner `runner.reachable`, `host` with `available_mb`, `total_mb`, `load1`, `cpus`, `free_after_reserve_mb`, `reserve_mb`; `sessions.running` against `max_parallel_total`; `rate_limit.paused` and `resets_at`); `standing` (the caller's caps and spend, as `GET /v1/accounts/me`); the owner's `accounts`; `inbox` counts. An account's body holds its own runs, sessions, spend and inbox: no host, runner or other account |
-| `GET /v1/inbox` | `inbox/v1` | owner, account | `since` (`14d` or ISO 8601, default 14 days), `limit` (1 to 500, default 100) | `counts` and `items`, newest first, of three kinds. `question`: a task that ended `needs_input` and no batch has continued; it carries the `questions` and `answer`, the request to send (`POST /v1/runs`, a driven task with `continue_from` and `answers`, [ADR 0045](../adr/0045-governed-sessions.md)) with the batch's `repository`. `pull_request`: open and waiting for a person, with `reason` `policy_ask` (the repository's integrator policy is `ask`), `test_integrity` or `partial_draft`. `failure`: a failed task, a run that failed or was denied, a run whose process ended (`lost`); a cancelled run and a batch that failed only because tasks did not finish are left out |
+| `GET /v1/inbox` | `inbox/v1` | owner, account | `since` (`14d` or ISO 8601, default 14 days), `limit` (1 to 500, default 100) | `counts` and `items`, newest first, of three kinds. `question`: a task that ended `needs_input` and no batch has continued; it carries the `questions` and `answer`, the request to send (`POST /v1/runs`, a driven task with `continue_from` and `answers`, [ADR 0045](../adr/0045-governed-sessions.md)) with the batch's `repository`. `pull_request`: open and waiting for a person, with `reason` `policy_ask` (the repository's integrator policy is `ask`), `test_integrity` or `partial_draft`. `failure`: a failed task, a run that failed or was denied, a run whose process ended (`lost`); a cancelled run and a batch that failed only because tasks did not finish are left out. Identical failures (subject, code, repository, text) are one item, the newest, with `count`. An item a rule resolved or a person dismissed is not listed ([ADR 0064](../adr/0064-inbox-items-resolve-on-their-own-or-are-dismissed.md)): `counts` is what is still open, and `resolved` counts the rest in the window: `superseded` (a later task of the same account asked the same, or a later run of its own with the same text completed), `infrastructure` (a failure of chargehand's own, such as `checkout_invalid`, `internal` or `lost`, and a later run on the repository finished ok), `continued` (a question a batch answered or retried), `dismissed`, `duplicates` and `pr_closed` (a failure about a pull request chargehand opened that was merged or closed since). A failed task or review is also superseded by a later review or task of any account that got through the same pull request at the same head, and a failed task by a batch of any account that continued or retried it and in which it did its work ([ADR 0073](../adr/0073-inbox-groups-failures-and-resolves-on-pull-request-state.md)). `groups`: open failures with the same `repository` and code, two or more, each `{id, kind, repository, reason, count, at, items}` with the item ids newest first; every item stays in `items` |
 | `GET /v1/batches/{id}` | `batch/v1` | owner, account (own batch; `404` otherwise) | `events` (0 to 2000, default 500) | `run` (`run-summary/v1`), `repository`, `limits`, `credential_delivery`, `result`, the `plan` and `retro` artifacts, `tasks`, `timeline`, `pull_requests`, `artifacts` and `rate_limits`. A task has `state` (`pending`, `running`, `completed`, `failed`, `needs_input`, `not_started`, `cancelled`), `depends_on`, `size` and `size_from`, `budget` with its `source` (`task`, `flat`, `history` or `none`), `spend` (priced `usd`, `usd_estimate`, input, output, cache read and cache write tokens, turns, continuations), `governor` (mode, stop reason, decisions as counts per signal and rung, and `log`: every decision with its turn, rule, values, spend and budget, and `log_total`), `test_integrity_flagged`, `sessions` (every session, with `role` `first`, `continuation` or `ci_fix`, `runner`, `started`, `ended`, `status`, `reason`, turns, tokens, `usd_estimate`, `usd`, `exit_code`, `commits`), `live` (stage, turns, tokens of a running session), `questions` with `answered_by` and `answer`, `error`, its `pull_request`, and `ci` (the latest look at the pull request's checks, how many looks differed, and every CI fix attempt). `timeline.source` says where the events came from: `records` (kept on disk) or `memory` |
 | `GET /v1/batches/{id}/tasks/{task}` | `batch-task/v1` | owner, account | `events` | the task as above with its whole `goal`, the result's `summary` and `result_error`, and the artifacts of its result as they are: `verification` (chargehand's own run and its `test_integrity`), `session_tests` (what the session said it ran), `changes` (files with line counts and the diff), `review` and `kept_work`; `timeline` holds this task's events, and `ci.history` the looks at the checks |
 | `GET /v1/batches/{id}/tasks/{task}/sessions/{session}/transcript` | `transcript/v1` | owner, account (own batch; `404` otherwise) | `bytes` (1024 to 262144, default 65536) | the end of one session's transcript, for a session the task view lists: `lines` (whole lines, oldest first, each one `stream-json` event with secrets redacted, or a `chargehand_cut` stub for one over 32 KiB), `truncated` (earlier lines exist), `bytes`, `redacted` (the kinds of secret replaced, never a value), `cut`, and `available` with a `reason` when there is none (`session_gone`, `runner_unreachable`, `runner_too_old`, `runner_error`, `runner_unknown`, `driven_off`). Not stored, `Cache-Control: no-store`; see [the transcript](#the-transcript) |
@@ -194,7 +229,7 @@ A driven batch leaves a directory `records/<run id>/` beside the run log (the se
 - Intake triggers before the log existed, review comments that were not requests, and the text of any comment.
 - A key's use other than the time of its last request.
 
-**Actions** the console takes are the existing ones, `POST /v1/runs` (an answer is a driven task with `continue_from`), `POST /v1/runs/{id}/cancel`, `POST /v1/halt` and `POST /v1/resume`, and four on one task or pull request (below).
+**Actions** the console takes are the existing ones, `POST /v1/runs` (an answer is a driven task with `continue_from`), `POST /v1/runs/{id}/cancel`, `POST /v1/halt` and `POST /v1/resume`, four on one task or pull request, and dismissing inbox items (below).
 
 ### Actions on pull requests and tasks
 
@@ -206,6 +241,10 @@ For the owner and the account that started the batch; another account gets `404`
 | `POST /v1/batches/{id}/tasks/{task}/session/stop` | kills the task's running session container. The session leaves no outcome, so the task ends as after a session that failed; nothing is snapshotted | `202`; `409` when the task has no session running |
 | `POST /v1/batches/{id}/tasks/{task}/retry` | starts a **new batch** of that one task, owned by the caller, with the batch's limits and the task as it was asked (its `depends_on` dropped, because what it depended on is in the old batch). If the failed task kept work (a `kept-work` artifact) the new task continues it with `continue_from` (ADR 0045). The batch it came from stays as it was: this is not a second attempt inside it | `202` `{run_id, continue_from}` with `Location`; a second retry of the same task returns the first with `200` and `changed: false`; `409` for a batch still running, or a task that is not failed, cancelled or unstarted (one waiting for an answer is answered instead); `503` when halted; the account's caps apply as for `POST /v1/runs` |
 | `POST /v1/pulls/{owner}/{repo}/{number}/checks/rerun` | for a pull request chargehand opened: re-runs the failed jobs of its failed required checks through the GitHub App (`rerun-failed-jobs` for each workflow run, so the App needs the Actions permission to write) | `202` `{checks, rerun_runs}`; `409` when the pull request is merged or closed, no required check has failed (so a second call right after is a `409`), or the server has no credential for the forge; `502` with the forge's message when it refuses |
+
+### Dismissing inbox items
+
+`POST /v1/inbox/dismiss` takes items out of the inbox and `POST /v1/inbox/restore` puts them back; the body of both is `{"ids": [...]}`, 1 to 500 ids as `GET /v1/inbox` gives them (a pull request's id holds its URL, so ids are not in the path). The owner may dismiss any item; an account the items its own inbox shows, and an id it cannot see is `unknown`. Dismissing an item that stands for several identical failures dismisses them all, and restoring it restores them all. A group's `id` (from `groups`) dismisses every failure in the group, and restoring it restores them. The answer is `200` `{action, changed, ids, unchanged, unknown}`: `ids` changed now, `unchanged` were so already (safe to send twice); `404` when every id is unknown, `400` for another body, `409` when the server keeps no dismissals, `403` for a run token. Dismissals are kept by item id in `inbox/dismissed.json` beside the run log, with the time and the account; a dismissal hides the item from everyone who sees it ([ADR 0064](../adr/0064-inbox-items-resolve-on-their-own-or-are-dismissed.md)).
 
 ## Run tokens (driven sessions)
 

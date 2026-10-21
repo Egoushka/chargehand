@@ -20,6 +20,7 @@ namespace Chargehand.Modules.Memory.Api;
 /// <param name="TimeoutSeconds">How long one recall or retain call may take; null is the default of <see cref="MemoryLimits"/>.</param>
 /// <param name="Retain">A completed run writes to this provider. Needs <c>Tools.Retain</c>; false (the default) for a recall-only source.</param>
 /// <param name="RetainTags">Tags of a retained item; null is <see cref="DefaultRetainTags"/>.</param>
+/// <param name="LocalOk">A run with local delivery (ADR 0069) may recall from and retain into this source. False (the default): it is skipped for such a run.</param>
 public sealed record MemoryProviderSettings(
     string Name,
     string Server,
@@ -30,7 +31,8 @@ public sealed record MemoryProviderSettings(
     int? MaxFactChars = null,
     int? TimeoutSeconds = null,
     bool Retain = false,
-    IReadOnlyList<string>? RetainTags = null)
+    IReadOnlyList<string>? RetainTags = null,
+    bool LocalOk = false)
 {
     /// <summary>The tags of a retained item when the entry names none.</summary>
     public static readonly IReadOnlyList<string> DefaultRetainTags = ["chargehand"];

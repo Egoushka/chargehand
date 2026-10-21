@@ -16,7 +16,9 @@ services:
   # Runs once before the server: makes the two state directories writable by the image's user (uid 1654), which a fresh named volume or a
   # bind directory that Docker created is not. Only CHOWN, no network, then it exits.
   prepare:
-    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.9.5}
+    # x-release-please-start-version
+    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.15.1}
+    # x-release-please-end
     user: "0"
     entrypoint: ["chown", "1654:1654", "/srv/chargehand/repos", "${CHARGEHAND_WORK_DIR:-/srv/chargehand/work}"]
     restart: "no"
@@ -31,7 +33,9 @@ services:
   # The server (`chargehand serve`): HTTP and MCP on port 4300. It never holds the engine socket (ADR 0039).
   chargehand:
     <<: *hardening
-    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.9.5}
+    # x-release-please-start-version
+    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.15.1}
+    # x-release-please-end
     ports:
       # Loopback only. Put a reverse proxy or a VPN in front to reach it from elsewhere (ADR 0024); never publish it to the internet.
       - "127.0.0.1:${CHARGEHAND_PORT:-4300}:4300"
@@ -57,12 +61,12 @@ services:
       prepare: { condition: service_completed_successfully }
       runner: { condition: service_healthy, required: false }
     healthcheck:
-      # Every route needs the key, so the check sends it (there is no separate health route). The image has bash and no curl.
+      # Every route needs the key, so the check sends it. Liveness only: ?deep=1 would call the model every 30 s. The image has bash and no curl.
       test:
         - CMD
         - bash
         - -c
-        - "exec 3<>/dev/tcp/127.0.0.1/4300 && printf 'GET /v1/runs?limit=1 HTTP/1.0\\r\\nHost: localhost\\r\\nAuthorization: Bearer %s\\r\\n\\r\\n' \"$$CHARGEHAND_API_KEY\" >&3 && head -n1 <&3 | grep -q ' 200 '"
+        - "exec 3<>/dev/tcp/127.0.0.1/4300 && printf 'GET /v1/health HTTP/1.0\\r\\nHost: localhost\\r\\nAuthorization: Bearer %s\\r\\n\\r\\n' \"$$CHARGEHAND_API_KEY\" >&3 && head -n1 <&3 | grep -q ' 200 '"
       interval: 30s
       timeout: 5s
       retries: 3
@@ -72,7 +76,9 @@ services:
   runner:
     <<: *hardening
     profiles: [driven]
-    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.9.5}
+    # x-release-please-start-version
+    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.15.1}
+    # x-release-please-end
     command:
       - runner
       - --listen

@@ -36,7 +36,7 @@ public static class OrchestrateTool
             Name = Name,
             Description = "Run a request through chargehand: intake turns it into a Task Spec, coding-agent workers (OpenCode or Claude Code) answer it, and the result "
                         + "comes back as result/v1 with evidence for every claim. The arguments are the request/v1 fields themselves: contract_version, text and context at the top level, "
-                        + "not wrapped in a \"request\" object.",
+                        + "not wrapped in a \"request\" object. context.delivery \"local\" keeps a run on this machine: a writing run leaves a local branch in the repository and nothing is pushed, opened or sent to a forge; the server's profile can force it. context.enhance false keeps the run from the server's prompt enhancer (nothing sent before, nothing reported after); use it for replays of stored prompts.",
             UseStructuredContent = true,
             OutputSchema = Schema(ContractSchemas.Result),
         });
@@ -137,12 +137,11 @@ public static class OrchestrateTool
         }
         if (context.Params?.ProgressToken is { } token)
             await context.Server.NotifyProgressAsync(token, new ProgressNotificationValue { Progress = 0, Message = Where(run, "started") }, cancellationToken: ct);
-        // Unlike POST /v1/runs, no wait=N means waiting for the result: a client with a long timeout keeps getting it.
-        // Over stdio there is no HTTP request and no accessor, so no header.
+        // Over stdio there is no HTTP request and no accessor, so no header, and no wait bound: the call waits for the result.
         var prefer = context.Services!.GetService<IHttpContextAccessor>()?.HttpContext?.Request.Headers["Prefer"].ToString() ?? "";
         try
         {
-            await WaitWithProgress(context, run, WaitFor(request, prefer), ct);
+            await WaitWithProgress(context, run, WaitFor(request, prefer, context.Services!.GetService<McpHttp>()?.Wait), ct);
         }
         catch (TimeoutException)
         {
@@ -152,7 +151,7 @@ public static class OrchestrateTool
     }
 
     /// <summary>Waits for the run, telling a client that sent a progress token every <see cref="ProgressInterval"/> whether it is queued or running. Throws <see cref="TimeoutException"/> after <paramref name="wait"/>.</summary>
-    private static async Task WaitWithProgress(RequestContext<CallToolRequestParams> context, RunHandle run, TimeSpan wait, CancellationToken ct)
+    internal static async Task WaitWithProgress(RequestContext<CallToolRequestParams> context, RunHandle run, TimeSpan wait, CancellationToken ct)
     {
         if (context.Params?.ProgressToken is not { } token)
         {
@@ -177,22 +176,31 @@ public static class OrchestrateTool
         }
     }
 
-    /// <summary>Without <c>Prefer: wait</c> the call waits for the result, except a batch (a <c>driven</c> block): it runs for minutes or hours and a client cannot set the header
-    /// per call, so it gets the run id after the default wait, like <c>POST /v1/runs</c>.</summary>
-    internal static TimeSpan WaitFor(RunRequest request, string prefer) =>
-        prefer.Contains("wait=", StringComparison.Ordinal) ? ChargehandServer.Wait(prefer) : request.Driven is not null ? ChargehandServer.DefaultWait : Timeout.InfiniteTimeSpan;
+    /// <summary>
+    /// <c>Prefer: wait</c> wins. Without it a batch (a <c>driven</c> block) gets the run id after the default wait, like <c>POST /v1/runs</c>: it runs for minutes or hours and
+    /// a client cannot set the header per call. Any other call waits <paramref name="httpWait"/> over HTTP, under a client's own timeout (ADR 0065), and for the result over stdio.
+    /// </summary>
+    internal static TimeSpan WaitFor(RunRequest request, string prefer, TimeSpan? httpWait) =>
+        prefer.Contains("wait=", StringComparison.Ordinal) ? ChargehandServer.Wait(prefer)
+        : request.Driven is not null ? ChargehandServer.DefaultWait
+        : httpWait ?? Timeout.InfiniteTimeSpan;
 
-    private static string Where(RunHandle run, string state) =>
-        $"chargehand run {run.Id} {state}; GET /v1/runs/{run.Id} or `chargehand show {run.Id}` reads its result";
+    internal static string Where(string runId, string state) =>
+        $"chargehand run {runId} {state}; the {ResultTool.Name} tool with run_id \"{runId}\", GET /v1/runs/{runId} or `chargehand show {runId}` reads its result";
+
+    private static string Where(RunHandle run, string state) => Where(run.Id, state);
 
     /// <summary>An unfinished run: not result/v1, so no structuredContent, and a tool error for a client that validates it.</summary>
-    private static CallToolResult Running(RunHandle run) => new()
+    internal static CallToolResult Running(RunHandle run) => Unfinished(run.Latest);
+
+    /// <summary>run-status/v1 of a run that has no result yet, after the text naming how to read it.</summary>
+    internal static CallToolResult Unfinished(RunStatus status) => new()
     {
         IsError = true,
         Content =
         [
-            new TextContentBlock { Text = Where(run, "is still running after Prefer: wait") },
-            new TextContentBlock { Text = JsonSerializer.Serialize(run.Latest, ContractJson.Options) },
+            new TextContentBlock { Text = Where(status.RunId, status.Status == RunState.Queued ? "is queued" : "is still running") },
+            new TextContentBlock { Text = JsonSerializer.Serialize(status, ContractJson.Options) },
         ],
     };
 
@@ -205,7 +213,7 @@ public static class OrchestrateTool
         return request with { Text = sb.ToString().TrimEnd() };
     }
 
-    private static CallToolResult Output(ResultContract result)
+    internal static CallToolResult Output(ResultContract result)
     {
         var json = JsonSerializer.SerializeToElement(result, ContractJson.Options);
         return new CallToolResult { StructuredContent = json, Content = [new TextContentBlock { Text = json.GetRawText() }] };

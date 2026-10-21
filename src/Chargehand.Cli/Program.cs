@@ -54,6 +54,9 @@ const string Usage = """
       accounts add <account> [--label <text>] | list | revoke <key-id>
                                    keys of the accounts in the profile's http.accounts; a new key is printed once (ADR 0050)
       show <run-id>                prints a run and its calls from the run log
+      why <path>:<line> [--repo <dir>] [--stream <stream.jsonl>]
+                                   which run wrote that line (git blame, the commit's Chargehand-* trailers, then the run log's goal and the
+                                   batch records' session); with --stream, the session messages that edited the file. Works without a profile
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
       cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
       routes [run-log.jsonl ...]   routing report per preset, node kind and model; suggestions only
@@ -78,6 +81,10 @@ const string Usage = """
                                    reads a repository's marker files, prints its ecosystems, the proposed context.verify and the
                                    package hosts the driven egress allowlist lacks, and writes a starter profile (never over a file without --force)
       doctor [--profile <path>]    checks a setup, one ok/warn/fail line per check with the fix; exit 1 when a check fails
+      incident <repo path> [--commit <ref>]
+                                   reads an alert on stdin (Alertmanager or Grafana webhook JSON, or text) and prints a request/v1 for the incident preset; pipe it to run
+      release-notes <repo path> --from <tag or commit> [--to <ref>]
+                                   prints a request/v1 for the release-notes preset, the range's commits as inputs (git only); pipe it to run
     prompts/ and presets/ come from the current directory when it has both (a checkout), else from the install; the
     run log is the profile's run_log, else runs/run-log.jsonl in a checkout, else a per-user file (README).
     """;
@@ -181,6 +188,23 @@ if (argv is ["bench", ..])
 // Profile-free: init writes the profile, and doctor reports one that does not load.
 if (argv is ["init", .. var initArgs])
     return Chargehand.Onboarding.InitCli.Run(initArgs, Directory.GetCurrentDirectory(), profilePath, DrivenPresetAllow(), Console.Out, Console.Error);
+// Profile-free: it maps an alert to a request for `run` (CHARGEHAND-192).
+if (argv is ["incident", .. var incidentArgs])
+    return await Chargehand.Incident.IncidentCli.RunAsync(incidentArgs, Directory.GetCurrentDirectory(), Console.In, Console.Out, Console.Error, DateTimeOffset.UtcNow, CancellationToken.None);
+// Profile-free: it reads a repository's git log and prints a request for `run` (CHARGEHAND-191).
+if (argv is ["release-notes", .. var releaseNotesArgs])
+    return await Chargehand.ReleaseNotes.ReleaseNotesCli.RunAsync(releaseNotesArgs, Directory.GetCurrentDirectory(), Console.Out, Console.Error, CancellationToken.None);
+// Reads git blame and, where it can, the run log (ADR 0070): with no profile or no log it still answers from the commit's trailers.
+if (argv is ["why", .. var whyArgs])
+{
+    var whySetting = Profile.Load(profilePath).RunLog;
+    var (_, whyLogPath) = InstallPaths.Resolve(whySetting, Directory.GetCurrentDirectory(), AppContext.BaseDirectory,
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify));
+    using var stop = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Modules.Tasks.Api.WhyCli.RunAsync(whyArgs, new JsonlRunLog(whyLogPath), Path.Combine(Path.GetDirectoryName(Path.GetFullPath(whyLogPath))!, "records"),
+        Directory.GetCurrentDirectory(), Console.Out, Console.Error, stop.Token);
+}
 if (argv is ["doctor", .. var doctorArgs])
 {
     using var stop = new CancellationTokenSource();
@@ -470,8 +494,32 @@ Chargehand.Automation.GitHubIntake? GitHubIntake()
         return null;
     var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
     var tokens = new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System);
-    var state = Chargehand.Automation.IntakeState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"));
-    return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator));
+    var directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake");
+    var state = Chargehand.Automation.IntakeState.Load(Path.Combine(directory, "github.json"));
+    // The App's repositories (discover) and those whose checkout cannot be written are cloned under worker_root and fetched with the App's token, on this host only.
+    var clones = new Chargehand.Automation.ManagedClones(profile.ClonesRoot, tokens.GetAsync);
+    return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state,
+        integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "sources.json")), clones: clones);
+}
+
+// Scheduled work (ADR 0068): null unless the profile has automation.schedules. Its state sits next to the run log.
+Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? Schedules()
+{
+    if (profile.Automation?.Schedules is not { } schedules)
+        return null;
+    var state = Chargehand.Automation.ScheduleState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "schedules", "state.json"));
+    return morning => new Chargehand.Automation.Scheduler(schedules, runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, new Chargehand.Automation.HttpScheduleNotifier(), morning);
+}
+
+// Plane intake (ADR 0067): null unless the profile has automation.plane. The key is read from the secret store at each call; its state sits next to the run log.
+Chargehand.Automation.PlaneIntake? PlaneIntake()
+{
+    if (profile.Automation?.Plane is not { Url: { } url, ApiKeySecret: { } apiKeySecret, Workspace: { } workspace } plane)
+        return null;
+    var api = new HttpClient { BaseAddress = new Uri(url.TrimEnd('/') + "/") };
+    var state = Chargehand.Automation.PlaneState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "plane.json"));
+    return new Chargehand.Automation.PlaneIntake(plane, new Chargehand.Automation.PlaneHost(api, workspace, () => profile.Secret(apiKeySecret)), runLog,
+        new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state);
 }
 
 // The console's account view says whether a credential's secret item resolves, never its value.
@@ -509,10 +557,11 @@ async Task<int> Serve()
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
-        Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json")),
-        orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake());
+        Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
+        InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn),
+        orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake(), Schedules(), PlaneIntake());
     await app.StartAsync(ct);
-    Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", UI /ui/, console /console/" : "")})");
+    Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);
     return 0;
 }
@@ -565,6 +614,8 @@ async Task<int> EvalGate(string baseRoot, string changeRoot, IReadOnlyList<strin
         Console.WriteLine($"| {v.Cell} | {v.Items} | {v.QualityDelta:+0.000;-0.000} | {v.QualityT:0.00} | {v.CostChange:+0%;-0%} | {v.CostT:0.00} | {(v.Blocked ? "BLOCK" : "pass")}: {v.Reason} |");
     var allowUncovered = options.Contains("--allow-uncovered");
     var blockedByUncovered = uncovered.Count > 0 && !allowUncovered;
+    foreach (var v in verdicts.Where(v => v is { Items: 0, Blocked: false }))
+        Console.WriteLine($"::warning title=prompt-ci::{v.Cell}: {v.Reason}");
     foreach (var f in uncovered)
         Console.WriteLine($"uncovered: {f} (no eval cell gates it{(blockedByUncovered ? "" : "; allowed")})");
     foreach (var f in fresh)

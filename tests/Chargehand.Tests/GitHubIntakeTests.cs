@@ -35,6 +35,9 @@ public class GitHubIntakeTests
         Assert.StartsWith("Add a retry\n\nResolve GitHub issue octo/repo#7.", task.Goal);
         Assert.Contains("<untrusted-github-text>\nIssue title: Add a retry", task.Goal);
         Assert.Contains("The client gives up on the first error.", task.Goal);
+        // The pull request's body holds the goal, so GitHub closes the issue when it merges.
+        Assert.EndsWith("\n\nCloses #7", task.Goal);
+        Assert.Equal("Triggered from GitHub: octo/repo#7.\n\nCloses #7", request.Text);
         var (number, comment) = Assert.Single(rig.GitHub.Posted);
         Assert.Equal(7, number);
         Assert.StartsWith(GitHubIntake.Marker, comment);
@@ -251,6 +254,8 @@ public class GitHubIntakeTests
         Assert.Equal(new ContinueFrom("run-1", "issue-7"), task.ContinueFrom);
         Assert.Equal(["Use exponential backoff, not configurable."], task.Answers);
         Assert.Null(task.Goal);
+        // The continuation's goal starts with this text, and its pull request body replaces the first one's.
+        Assert.EndsWith("\n\nCloses #7", request.Text);
         // Its kept work is a branch from the commit the first run started at, whatever the default branch is now.
         Assert.Equal(rig.Starter.Started[0].Context.Repository, request.Context.Repository);
         Assert.Contains("continues with your answer: run `run-2`", rig.GitHub.Posted.Last().Body);
@@ -455,5 +460,27 @@ public class GitHubIntakeTests
 
         Assert.Single(rig.Starter.Started);
         Assert.Contains(rig.Warnings, w => w.Contains("octo/broken", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_GitHub_call_that_times_out_is_reported_and_the_loop_polls_again()
+    {
+        // 2026-10-21: one timed-out read ended the loop for good, so a run that ended was never reported and a new label was never read.
+        using var rig = new IntakeRig();
+        rig.Labeled(7, "alice", 41);
+        rig.GitHub.TimeOuts = 1;
+        using var stop = new CancellationTokenSource();
+        var loop = rig.Intake.RunAsync(rig.Starter, stop.Token);
+        for (var i = 0; i < 200 && rig.Time.Waiting == 0 && !loop.IsCompleted; i++)
+            await Task.Delay(10);
+
+        Assert.False(loop.IsCompleted, "the loop ended after a timed-out call");
+        Assert.Contains(rig.Warnings, w => w.Contains("intake: poll failed", StringComparison.Ordinal) || w.Contains("octo/repo", StringComparison.Ordinal));
+        rig.Time.Advance(TimeSpan.FromSeconds(rig.Settings.PollSeconds));
+        for (var i = 0; i < 200 && rig.Starter.Started.Count == 0; i++)
+            await Task.Delay(10);
+        Assert.Single(rig.Starter.Started);
+        await stop.CancelAsync();
+        await loop;
     }
 }

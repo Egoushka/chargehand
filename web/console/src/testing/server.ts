@@ -40,6 +40,8 @@ export interface Scenario {
   replies?: Record<string, [number, unknown, Record<string, string>?]>;
   /** A route that never answers: for a loading state. */
   hang?: string[];
+  /** Cloudflare Access signs the browser in: a call with no key but the console's header is accepted (ADR 0071). */
+  identity?: boolean;
 }
 
 export interface Call {
@@ -65,17 +67,35 @@ export function serveApi(scenario: Scenario = {}) {
     const method = init?.method ?? 'GET';
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
     calls.push({ path: input, method, body, headers });
-    if (headers.Authorization !== `Bearer ${key}`)
+    const byIdentity =
+      scenario.identity &&
+      headers.Authorization === undefined &&
+      headers['X-Chargehand-Console'] === '1';
+    if (path === '/v1/accounts/identity' && !byIdentity) {
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }
+    if (!byIdentity && headers.Authorization !== `Bearer ${key}`)
       return Promise.resolve(new Response('', { status: 401 }));
     if (scenario.hang?.includes(path)) return new Promise<Response>(() => {});
     const replace = scenario.replies?.[`${method} ${path}`] ?? scenario.replies?.[path];
     if (replace) return Promise.resolve(json(replace[1], replace[0], replace[2]));
     const now = Date.now();
-    if (path === '/v1/accounts/me') return Promise.resolve(json(scenario.me ?? fx.me({}, now)));
+    if (path === '/v1/accounts/me' || path === '/v1/accounts/identity')
+      return Promise.resolve(json(scenario.me ?? fx.me({}, now)));
     if (path === '/v1/overview')
       return Promise.resolve(json(scenario.overview ?? fx.overview({}, now)));
     if (path === '/v1/inbox')
       return Promise.resolve(json(scenario.inbox ?? fx.inbox(undefined, now)));
+    if ((path === '/v1/inbox/dismiss' || path === '/v1/inbox/restore') && method === 'POST')
+      return Promise.resolve(
+        json({
+          action: path.endsWith('dismiss') ? 'dismiss' : 'restore',
+          changed: true,
+          ids: (body as { ids: string[] }).ids,
+          unchanged: [],
+          unknown: [],
+        }),
+      );
     if (path === '/v1/analytics') {
       const q = new URLSearchParams(input.split('?')[1] ?? '');
       return Promise.resolve(

@@ -150,7 +150,8 @@ public static partial class PlanApplier
             var goal = AppendNumbers(PartGoal(task.Goal, part.Goal!.Trim(), j + 1, k), numbers.GetValueOrDefault(j + 1));
             IReadOnlyList<string> dependsOn = j == 0 ? task.DependsOn ?? [] : [$"{task.Id}-{j}"];
             var partSize = SizeOf(part.Size) ?? "M";
-            batch.Result.Add(new ResolvedTask(id, j == k - 1 ? task.Ref : null, goal, Size: partSize, DependsOn: dependsOn.Count > 0 ? dependsOn : null, SplitFrom: task.Id, SizeFrom: "plan"));
+            batch.Result.Add(new ResolvedTask(id, j == k - 1 ? task.Ref : null, goal, Size: partSize, DependsOn: dependsOn.Count > 0 ? dependsOn : null, SplitFrom: task.Id, SizeFrom: "plan",
+                Acceptance: j == k - 1 ? task.Acceptance : null));
             batch.Entries.Add(new PlanEntry(id, partSize, "plan", dependsOn, task.Id, numbers.GetValueOrDefault(j + 1)));
         }
     }

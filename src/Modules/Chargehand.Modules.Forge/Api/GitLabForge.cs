@@ -103,6 +103,20 @@ public sealed partial class GitLabForge(HttpClient http, string token) : IForge
         }
     }
 
+    /// <summary>GitLab has no per-check rule: its gate is the project's "pipelines must succeed" (<c>only_allow_merge_if_pipeline_succeeds</c>).</summary>
+    public async Task<ChecksGate> ChecksGateAsync(RemoteRepository repository, string branch, CancellationToken ct)
+    {
+        try
+        {
+            using var project = JsonDocument.Parse(await RestAsync(HttpMethod.Get, ProjectPath(repository), null, "the project's settings", ct));
+            return project.RootElement.TryGetProperty("only_allow_merge_if_pipeline_succeeds", out var gate) && gate.ValueKind == JsonValueKind.True ? ChecksGate.Required : ChecksGate.None;
+        }
+        catch (Exception e) when (e is IntegrationException or JsonException or InvalidOperationException)
+        {
+            return ChecksGate.Unknown;
+        }
+    }
+
     public async Task<int> BehindByAsync(RemoteRepository repository, string baseBranch, string branch, CancellationToken ct)
     {
         // The commits of the base that the branch does not have.

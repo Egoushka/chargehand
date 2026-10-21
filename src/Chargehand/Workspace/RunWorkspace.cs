@@ -88,6 +88,30 @@ public sealed class RunWorkspace
         return new BranchInfo(Directory, Branch, commit!, Base);
     }
 
+    /// <summary>
+    /// Fetches the branch into <paramref name="source"/> (the caller's repository) as a new local branch of the same name (ADR 0069): objects and one new ref.
+    /// No <c>+</c>, so an existing ref is never moved; the working tree, the index and <c>HEAD</c> are not touched, and a branch name carrying the run id is new.
+    /// </summary>
+    /// <returns>Null when the branch landed, else what git said.</returns>
+    public async Task<string?> LandAsync(string source, CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo("git", ["-C", source, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", "--", Directory, $"refs/heads/{Branch}:refs/heads/{Branch}"])
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
+        using var p = Process.Start(psi)!;
+        p.StandardInput.Close();
+        var output = p.StandardOutput.ReadToEndAsync(ct);
+        var error = p.StandardError.ReadToEndAsync(ct);
+        await p.WaitForExitAsync(ct);
+        await output;
+        var text = (await error).Trim();
+        return p.ExitCode == 0 ? null : text.Length == 0 ? $"git fetch exited {p.ExitCode}" : text;
+    }
+
     /// <summary><c>git diff base..HEAD</c>, cut to <see cref="MaxDiffBytes"/> with a marker (an inline artifact holds at most 64 KiB).</summary>
     public async Task<string> DiffAsync(CancellationToken ct)
     {

@@ -214,7 +214,7 @@ export function Analytics() {
                     <>
                       {f.sub}
                       <span className="kpi-src" title={`GET /v1/analytics · ${f.source}`}>
-                        {f.source}
+                        from the server's task totals
                       </span>
                     </>
                   }

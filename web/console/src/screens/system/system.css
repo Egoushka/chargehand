@@ -3,3 +3,12 @@
   max-height: 320px;
   overflow: auto;
 }
+
+/* The status dot sits on the first line when a long runner address wraps. */
+.system-runner {
+  align-items: flex-start;
+}
+
+.system-runner .dot {
+  margin-top: calc((1lh - 8px) / 2);
+}

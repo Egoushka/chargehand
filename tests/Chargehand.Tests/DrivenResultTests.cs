@@ -357,6 +357,39 @@ public class DrivenResultTests
     }
 
     [Fact]
+    public async Task The_checks_artifact_lists_each_rule_and_criterion_with_passed_or_not()
+    {
+        using var repo = new Repo();
+        CheckResult[] checks = [new("rule", "dotnet test", true, 0, "ok", 2), new("acceptance", "curl -s localhost/health", true, 0, "ok", 2, ExpectedOutput: "ok")];
+        var result = await Build(Input(repo, Session() with { Checks = checks }), AllSupported);
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        using var doc = JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "checks").Content!);
+        Assert.True(doc.RootElement.GetProperty("passed").GetBoolean());
+        Assert.Equal(2, doc.RootElement.GetProperty("attempts").GetInt32());
+        var listed = doc.RootElement.GetProperty("checks");
+        Assert.Equal(["rule", "acceptance"], listed.EnumerateArray().Select(c => c.GetProperty("kind").GetString()));
+        Assert.Equal("ok", listed[1].GetProperty("expected_output").GetString());
+        AssertValid(result);
+    }
+
+    [Fact]
+    public async Task A_branch_that_failed_its_checks_is_failed_verification_naming_them_with_its_work_on_a_partial_pull_request()
+    {
+        using var repo = new Repo();
+        CheckResult[] checks = [new("rule", "dotnet test", true, 0, "ok", 3), new("acceptance", "./smoke.sh", false, 1, "boom", 3)];
+        var result = await Build(Input(repo, Session(SessionStatus.Failed, SessionDriver.ChecksFailed) with { Checks = checks }, handover: Pushed(repo)));
+        Assert.Equal(ResultStatus.Failed, result.Status);
+        Assert.Equal(ErrorCode.VerificationFailed, result.Error!.Code);
+        Assert.Contains("1 of 2 checks", result.Error.Message);
+        Assert.Contains("`./smoke.sh`", result.Error.Message);
+        Assert.Contains("partial draft pull request", result.Error.Message);
+        using var doc = JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "checks").Content!);
+        Assert.False(doc.RootElement.GetProperty("passed").GetBoolean());
+        Assert.Equal("boom", doc.RootElement.GetProperty("checks")[1].GetProperty("output_tail").GetString());
+        AssertValid(result);
+    }
+
+    [Fact]
     public async Task A_governed_session_points_at_its_governor_log_in_the_output_volume()
     {
         using var repo = new Repo();

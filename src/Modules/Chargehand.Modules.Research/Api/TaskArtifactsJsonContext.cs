@@ -12,6 +12,7 @@ namespace Chargehand.Modules.Research.Api;
 [JsonSerializable(typeof(PullRequestArtifact))]
 [JsonSerializable(typeof(VerificationArtifact))]
 [JsonSerializable(typeof(SessionTestsArtifact))]
+[JsonSerializable(typeof(ChecksArtifact))]
 [JsonSerializable(typeof(ChangesArtifact))]
 internal sealed partial class TaskArtifactsJsonContext : JsonSerializerContext;
 
@@ -29,6 +30,11 @@ internal sealed record VerificationArtifact(IReadOnlyList<string> Argv, string S
 internal sealed record TestIntegrityArtifact(bool Flagged, string Reason, IReadOnlyList<string> TestPaths, IReadOnlyList<string> BuildPaths);
 
 internal sealed record SessionTestsArtifact(string ClaimedBy, string Command, int? ExitCode);
+
+/// <summary>The <c>checks</c> artifact: the last gate round of each repository rule and acceptance criterion, run by the session driver in the session's working tree.</summary>
+internal sealed record ChecksArtifact(bool Passed, int Attempts, IReadOnlyList<CheckArtifact> Checks, bool OutputTruncated);
+
+internal sealed record CheckArtifact(string Kind, string Command, bool Passed, int? ExitCode, int ExpectedExitCode, string? ExpectedOutput, string? OutputTail);
 
 internal sealed record ChangesArtifact(string Base, string? Commit, int FilesTotal, IEnumerable<ChangedFile> Files, string? Diff, bool DiffTruncated);
 

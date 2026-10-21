@@ -79,7 +79,14 @@ internal sealed class ConsoleRig : IAsyncDisposable
             {
                 (root, batches, intake) = (dir, Path.Combine(dir, "batches"), Path.Combine(dir, "intake", "github.json"));
                 built = profile?.Invoke(dir) ?? Runs.Profile(dir);
-                return settings with { Profile = built, SecretPresent = secretPresent, IntakeStatePath = intake, Accounts = accountsFor?.Invoke(dir) ?? settings.Accounts };
+                return settings with
+                {
+                    Profile = built,
+                    SecretPresent = secretPresent,
+                    IntakeStatePath = intake,
+                    Accounts = accountsFor?.Invoke(dir) ?? settings.Accounts,
+                    InboxDismissalsPath = Path.Combine(dir, "inbox", "dismissed.json"),
+                };
             });
         return new ConsoleRig(server, learning!, batches, intake, driven!, built!, root, records!);
     }

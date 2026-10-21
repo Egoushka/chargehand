@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { cssVars, cx } from '../ui';
@@ -46,6 +46,19 @@ interface Hover {
 }
 
 const BAR_MAX = 24;
+const TIP_GAP = 12;
+
+/**
+ * Where the hover's left edge goes, in px from the left of the chart: beside the bucket on the right, else on the left, else
+ * pushed in from whichever edge it crosses. It never leaves the chart, so near an edge it moves instead of narrowing.
+ */
+export function tipLeft(anchor: number, tipWidth: number, boxWidth: number): number {
+  const right = anchor + TIP_GAP;
+  if (right + tipWidth <= boxWidth) return right;
+  const left = anchor - TIP_GAP - tipWidth;
+  if (left >= 0) return left;
+  return Math.max(0, boxWidth - tipWidth);
+}
 
 /** Running sums down the stack: the value of series i is the sum of series 0 to i. */
 export function cumulative(series: readonly TimeSeries[], n: number): number[][] {
@@ -169,6 +182,8 @@ export function TimeChart(props: TimeChartProps) {
   const width = useWidth(box);
   const colors = useChartColors();
   const [hover, setHover] = useState<Hover | null>(null);
+  const tipBox = useRef<HTMLDivElement>(null);
+  const [tipWidth, setTipWidth] = useState(0);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: the plot is rebuilt when its data, colours or size change; `format` is a pure function of the same inputs
   useEffect(() => {
@@ -202,7 +217,10 @@ export function TimeChart(props: TimeChartProps) {
   }, [labels, series, mode, max, colors, width, height]);
 
   const tipData = hover ? tip(hover.index) : null;
-  const flip = hover ? hover.left + hover.x > width / 2 : false;
+  // Measured before paint: the tip's width depends only on its text, so the second layout is the last.
+  useLayoutEffect(() => {
+    if (tipBox.current) setTipWidth(tipBox.current.offsetWidth);
+  });
   return (
     <div
       ref={box}
@@ -224,9 +242,12 @@ export function TimeChart(props: TimeChartProps) {
             })}
           />
           <div
+            ref={tipBox}
             className="chart-tip"
-            data-side={flip ? 'left' : 'right'}
-            style={cssVars({ '--x': `${hover.left + hover.x}px`, '--y': `${hover.top}px` })}
+            style={cssVars({
+              '--x': `${tipLeft(hover.left + hover.x, tipWidth, width)}px`,
+              '--y': `${hover.top}px`,
+            })}
           >
             <TipBody {...tipData} />
           </div>

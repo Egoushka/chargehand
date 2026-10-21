@@ -30,6 +30,15 @@ const dataRows = () =>
 beforeEach(() => layout());
 afterEach(() => vi.useRealTimers());
 
+describe('the runs model: session calls', () => {
+  it('hides a batch’s research and review calls unless asked for', () => {
+    const call = run('c', { parent_run_id: 'run-parent' }, NOW);
+    expect(matchesFilters(call, DEFAULT_FILTERS, NOW)).toBe(false);
+    expect(matchesFilters(call, { ...DEFAULT_FILTERS, calls: true }, NOW)).toBe(true);
+    expect(matchesFilters(run('b', {}, NOW), DEFAULT_FILTERS, NOW)).toBe(true);
+  });
+});
+
 describe('the runs model', () => {
   const runs = runList(40, NOW);
   const failed = runs.find((r) => r.status === 'failed' && r.error_code === 'verification_failed');
@@ -348,17 +357,13 @@ describe('Runs', () => {
   });
 
   it('lays out long content without widening the page', async () => {
-    const long = run(
-      'run-20261013-999999-abcdef',
-      {
-        status: 'failed',
-        error_code: 'checkout_has_secrets_in_a_very_long_error_code_name',
-        repository: '/srv/work/a-repository-with-a-very-long-name-that-does-not-fit-in-a-cell',
-        actor: 'a-service-account-with-a-very-long-name',
-        branch: 'chargehand/20261013-a-very-long-branch-name-that-goes-on-and-on',
-      },
-      NOW,
-    );
+    const long = run('run-20261013-999999-abcdef', {
+      status: 'failed',
+      error_code: 'checkout_has_secrets_in_a_very_long_error_code_name',
+      repository: '/srv/work/a-repository-with-a-very-long-name-that-does-not-fit-in-a-cell',
+      actor: 'a-service-account-with-a-very-long-name',
+      branch: 'chargehand/20261013-a-very-long-branch-name-that-goes-on-and-on',
+    });
     serveApi({ runs: [long] });
     renderConsole('/console/runs');
     const row = (await waitFor(() => dataRows()[0])) as HTMLElement;
@@ -404,6 +409,19 @@ describe('Runs', () => {
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
     fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'single' } });
     expect(toggle.textContent).toContain('1');
+  });
+
+  it('on a phone, says a running run has no count yet instead of a bare dash', async () => {
+    viewport(true);
+    serveApi({
+      runs: [run('run-20261013-000001-aaaaaa', { status: 'running', tokens: null, usd: null })],
+    });
+    renderConsole('/console/runs');
+    const card = (await screen.findByRole('link', { name: 'run-20261013-000001-aaaaaa' })).closest(
+      'li',
+    ) as HTMLElement;
+    expect(within(card).getByText(/tokens not counted yet/)).toBeTruthy();
+    expect(within(card).queryByText('—')).toBeNull();
   });
 
   it('refreshes quickly while a run is active and slowly when nothing is', async () => {

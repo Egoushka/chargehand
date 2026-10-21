@@ -50,10 +50,65 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
     public async Task<IReadOnlyList<string>> CommentBodiesAsync(string repository, int number, CancellationToken ct) =>
         [.. (await PagesAsync(repository, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", "the conversation", ct)).Select(c => Text(c, "body") ?? "")];
 
+    public async Task<IReadOnlyList<ReviewablePull>> OpenPullsAsync(string repository, CancellationToken ct) =>
+        [.. (await PagesAsync(repository, $"{RepoPath(repository)}/pulls?state=open", "the open pull requests", ct)).Select(p => Parse(() => new ReviewablePull(p.GetProperty("number").GetInt32(), Text(p, "title") ?? "",
+            Text(p, "body") ?? "", Login(p, "user"), Text(p.GetProperty("head"), "sha") ?? "", p.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True)))];
+
+    public Task<string> PullDiffAsync(string repository, int number, CancellationToken ct) =>
+        SendAsync(repository, HttpMethod.Get, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}", null, "the pull request's diff", DiffMedia, ct);
+
     public async Task<long> CommentAsync(string repository, int number, string body, CancellationToken ct)
     {
         using var doc = JsonDocument.Parse(await SendAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", new { body }, "the comment", ct));
         return Parse(() => Long(doc.RootElement, "id"));
+    }
+
+    public async Task<IReadOnlyList<InstalledRepository>> InstalledRepositoriesAsync(CancellationToken ct)
+    {
+        IReadOnlyList<string> accounts;
+        try
+        {
+            accounts = await tokens.AccountsAsync(ct);
+        }
+        catch (GitHubAppException e)
+        {
+            throw new IntakeException(e.Message);
+        }
+        List<InstalledRepository> all = [];
+        foreach (var account in accounts)
+            for (var page = 1; page <= MaxPages; page++)
+            {
+                // The token is the installation's: the repository part only names the account it is for.
+                using var doc = JsonDocument.Parse(await SendAsync($"{account}/-", HttpMethod.Get, $"installation/repositories?per_page=100&page={page.ToString(CultureInfo.InvariantCulture)}", null, "the installation's repositories", ct));
+                var items = Parse(() => doc.RootElement.GetProperty("repositories").EnumerateArray().Select(r => new InstalledRepository(Text(r, "full_name") ?? throw new KeyNotFoundException(),
+                    Text(r, "clone_url") ?? throw new KeyNotFoundException(), r.TryGetProperty("archived", out var a) && a.ValueKind == JsonValueKind.True)).ToList());
+                all.AddRange(items);
+                if (items.Count < 100)
+                    break;
+            }
+        return all;
+    }
+
+    public async Task<bool> EnsureLabelAsync(string repository, string label, CancellationToken ct)
+    {
+        try
+        {
+            await SendAsync(repository, HttpMethod.Get, $"{RepoPath(repository)}/labels/{Uri.EscapeDataString(label)}", null, "the label", ct);
+            return false;
+        }
+        catch (IntakeException e) when (e.Status == 404)
+        {
+        }
+        try
+        {
+            await SendAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/labels", new { name = label, color = "5319e7", description = "chargehand works on this issue" }, "the new label", ct);
+            return true;
+        }
+        catch (IntakeException e) when (e.Status == 422)
+        {
+            // Someone created it in between.
+            return false;
+        }
     }
 
     private async Task<IReadOnlyList<JsonElement>> PagesAsync(string repository, string path, string what, CancellationToken ct)
@@ -119,7 +174,13 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
         return $"repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(name)}";
     }
 
-    private async Task<string> SendAsync(string repository, HttpMethod method, string path, object? body, string what, CancellationToken ct)
+    private const string JsonMedia = "application/vnd.github+json";
+    private const string DiffMedia = "application/vnd.github.diff";
+
+    private Task<string> SendAsync(string repository, HttpMethod method, string path, object? body, string what, CancellationToken ct) =>
+        SendAsync(repository, method, path, body, what, JsonMedia, ct);
+
+    private async Task<string> SendAsync(string repository, HttpMethod method, string path, object? body, string what, string accept, CancellationToken ct)
     {
         string token;
         try
@@ -135,7 +196,7 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
         if (body is not null)
             request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("chargehand", "1"));
         request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
         try
@@ -149,6 +210,10 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
         catch (HttpRequestException e)
         {
             throw new IntakeException(Redact($"{what} could not be reached: {e.Message}", token));
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new IntakeException($"{what} could not be reached: GitHub did not answer within {http.Timeout.TotalSeconds.ToString(CultureInfo.InvariantCulture)} s");
         }
     }
 

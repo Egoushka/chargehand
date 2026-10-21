@@ -1,10 +1,16 @@
 {
   "name": "chargehand",
   "displayName": "chargehand",
-  "version": "0.9.5",
+  "version": "0.15.1",
   "description": "Two commands: change (one prompt to a reviewed change on a local branch) and run (hand a prompt to a driven session and watch it).",
-  "author": { "name": "Egoushka" },
+  "author": {
+    "name": "Egoushka"
+  },
   "repository": "https://github.com/Egoushka/chargehand",
   "license": "Apache-2.0",
-  "keywords": ["review", "citations", "mcp"]
+  "keywords": [
+    "review",
+    "citations",
+    "mcp"
+  ]
 }

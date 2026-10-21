@@ -103,7 +103,10 @@ public sealed class Orchestrator(
             // Unset when the profile maps no real model to the preset's placeholder: the runtime uses its own default.
             var workerModel = profile.ResolveModel(kind.Model);
             var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
-            enhanced = await Enhance(request, run, ct);
+            var local = await IsLocalAsync(request, ct);
+            run?.SetTag("chargehand.delivery", local ? DeliveryMode.Local : DeliveryMode.Push);
+            // The enhancer sends the request text to an MCP server; a local run keeps it on the machine (ADR 0069).
+            enhanced = local ? null : await Enhance(request, run, ct);
 
             // Intake.
             using (var span = Telemetry.Source.StartActivity("chargehand.intake"))
@@ -158,7 +161,7 @@ public sealed class Orchestrator(
                         [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
                     _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
                         $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
-                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, ct),
+                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, local, ct),
                 };
             }
         }
@@ -193,20 +196,21 @@ public sealed class Orchestrator(
     /// </summary>
     private async Task<Enhanced?> Enhance(RunRequest request, Activity? run, CancellationToken ct)
     {
-        if (enhancer is null || string.IsNullOrWhiteSpace(request.Text))
+        if (enhancer is null || request.Context.Enhance == false || string.IsNullOrWhiteSpace(request.Text))
             return null;
         var answer = await enhancer.EnhanceAsync(request.Text, EnhanceContextOf(request), ct);
         run?.SetTag("chargehand.enhancer.rewrite_offered", answer.Changed);
         return answer;
     }
 
-    /// <summary>Exactly the four fields ADR 0040 allows. The repository is the checkout's folder name, never its path; a commit that is not a hex id is left out.</summary>
+    /// <summary>Exactly the five fields ADR 0040 and 0070 allow. The repository is the checkout's folder name, never its path; a commit that is not a hex id is left out, and so is a parent request id outside 1 to 128 characters.</summary>
     internal static EnhanceContext EnhanceContextOf(RunRequest request)
     {
         var repo = request.Context.Repository;
         var name = repo is null ? null : Path.GetFileName(repo.Path.TrimEnd('/', '\\'));
         return new EnhanceContext(string.IsNullOrEmpty(name) ? null : name,
-            repo is not null && Regex.IsMatch(repo.Commit, "^[0-9a-f]{7,40}$") ? repo.Commit : null, request.Context.Preset);
+            repo is not null && Regex.IsMatch(repo.Commit, "^[0-9a-f]{7,40}$") ? repo.Commit : null, request.Context.Preset,
+            ParentRequestId: request.Context.ParentRequestId is { Length: >= 1 and <= 128 } parent ? parent : null);
     }
 
     /// <summary>
@@ -222,6 +226,23 @@ public sealed class Orchestrator(
         var ran = executed is TaskAction.Answer or TaskAction.Split;
         await enhancer.FeedbackAsync(requestId, new EnhanceOutcome(
             RewriteAccepted: enhanced.Changed ? false : null, CostUsd: ran ? result.Usage.Usd : null, Model: model == "auto" ? null : model), CancellationToken.None);
+    }
+
+    /// <summary>One call to the intake model, the cheapest a run makes: whether the runtime, its credential and any gateway answer at all.</summary>
+    public async Task<ModelProbe> ProbeAsync(TimeSpan timeout, CancellationToken ct)
+    {
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        bounded.CancelAfter(timeout);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            await runtime.GenerateAsync(ParseModel(profile.IntakeModel), "Reply with the single word ok.", bounded.Token);
+            return new ModelProbe(true, profile.IntakeModel ?? "auto", sw.ElapsedMilliseconds, null);
+        }
+        catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            return new ModelProbe(false, profile.IntakeModel ?? "auto", sw.ElapsedMilliseconds, e is OperationCanceledException ? $"no answer within {timeout.TotalSeconds:0} s" : e.Message);
+        }
     }
 
     /// <summary>The support check a driven task's claims go through, or null when the profile has it off.</summary>
@@ -265,7 +286,7 @@ public sealed class Orchestrator(
     /// <summary>Runs the plan's nodes (one for answer) and returns the node's contract, or the merged one for a split.</summary>
     private async Task<ResultContract> Execute(RunRequest request, TaskSpec spec, IReadOnlyList<PlanNode> plan, string kindName, NodeKind kind, string? workerModel,
         IReadOnlyList<(string Key, string Value)> instructions, PromptChain chain, IReadOnlyList<PromptBlock> callerBlocks, string runId, string traceId,
-        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, IWorkerRuntime worker, CancellationToken ct)
+        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, IWorkerRuntime worker, bool local, CancellationToken ct)
     {
         var (directory, commit, repository) = kind.Checkout
             ? await Checkout(request.Context.Repository!, kind, ct)
@@ -288,11 +309,12 @@ public sealed class Orchestrator(
         var modelLabel = workerModel ?? "auto";
         // Recalled facts go in the prompt text, after the task (ADR 0007 order; ADR 0010 keeps instructions fixed, so
         // siblings still fork). The chain records them as one runtime block per source that contributed.
-        var recall = await Recall(request.Text, run, extensions, ct);
+        var stack = local ? memory?.LocalOnly() : memory;
+        var recall = await Recall(stack, request.Text, run, extensions, ct);
         var facts = recall.Prompt;
         chain = chain with { Blocks = [.. chain.Blocks, .. recall.Blocks] };
         // Granted once per run and shared by every node; the tools hash covers the grant, and is today's when there is none.
-        var granted = await Grant(kind.Services, run, extensions, ct);
+        var granted = await Grant(profile.ServicesFor(request.Context.Preset, kind.Services), run, extensions, ct);
         if (granted.Count > 0)
             chain = chain with { AsSent = chain.AsSent with { ToolsSha256 = PromptChains.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules, granted) } };
 
@@ -326,12 +348,16 @@ public sealed class Orchestrator(
                 supportCheck: profile.SupportCheck ? (contract, scope, ct2) => SupportCheck.RunAsync(worker, ParseModel(profile.IntakeModel), contract, scope, ct2) : null).RunAsync(nodeRequest, token, primed);
             if (workspace is not null && nodeResult.Contract.Status == ResultStatus.Completed)
             {
-                var branch = await workspace.CommitAsync(ChangeRun.CommitMessage(nodeResult.Contract.Summary), token);
+                var provenance = ChangeRun.ProvenanceOf(runId, $"opencode {opencodeVersion}", modelLabel, nodeResult.Calls, prices, lastCheck, attempts);
+                var branch = await workspace.CommitAsync(Provenance.Apply(ChangeRun.CommitMessage(nodeResult.Contract.Summary), provenance), token);
+                string? landFailure = null;
+                if (local && branch is not null)
+                    (branch, landFailure) = await LandAsync(workspace, branch, request.Context.Repository!.Path, token);
                 var changed = branch is null ? [] : await workspace.ChangedPathsAsync(token);
                 var diff = branch is null ? "" : await workspace.DiffAsync(token);
                 nodeResult = nodeResult with
                 {
-                    Contract = ChangeRun.Finish(nodeResult.Contract, branch, diff, lastCheck, attempts, verifier!.SandboxKind, verifier.Network, changed, verifyPlan),
+                    Contract = ChangeRun.Finish(nodeResult.Contract, branch, diff, lastCheck, attempts, verifier!.SandboxKind, verifier.Network, changed, verifyPlan, local ? DeliveryMode.Local : DeliveryMode.Push, landFailure),
                 };
             }
             span?.SetTag("langfuse.session.id", nodeResult.SessionId);
@@ -396,7 +422,7 @@ public sealed class Orchestrator(
             await EndRun(worker, runId, granted.Count > 0, run);
         }
         var result = plan.Count == 1 ? outcomes[0].Contract : ResultMerger.Merge(runId, traceId, chain, outcomes);
-        await Retain(result, repository, commit, runId, run, extensions, ct);
+        await Retain(stack, result, repository, commit, runId, run, extensions, ct);
         return result;
     }
 
@@ -405,7 +431,7 @@ public sealed class Orchestrator(
     /// checked, and a claim resting on the request or on the session anchors nothing in the repository; neither is retained.
     /// Memory fails open (ADR 0008): the stack reports a failed retain instead of throwing it, so a completed run stays completed.
     /// </summary>
-    private async Task Retain(ResultContract result, string repository, string commit, string runId, Activity? run, ExtensionsCollector extensions, CancellationToken ct)
+    private static async Task Retain(MemoryStack? memory, ResultContract result, string repository, string commit, string runId, Activity? run, ExtensionsCollector extensions, CancellationToken ct)
     {
         if (memory is null || result.Status != ResultStatus.Completed)
             return;
@@ -425,7 +451,7 @@ public sealed class Orchestrator(
     }
 
     /// <summary>Memory is optional context: a source that fails leaves the run without its facts rather than failing it.</summary>
-    private async Task<RecallOutcome> Recall(string query, Activity? run, ExtensionsCollector extensions, CancellationToken ct)
+    private static async Task<RecallOutcome> Recall(MemoryStack? memory, string query, Activity? run, ExtensionsCollector extensions, CancellationToken ct)
     {
         if (memory is null)
             return new RecallOutcome([], "", []);
@@ -501,7 +527,7 @@ public sealed class Orchestrator(
         var source = await Git(Path.GetFullPath(repo.Path), ct, "rev-parse", "--show-toplevel")
             ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{repo.Path} is not a git checkout",
                 "Point context.repository.path at a git working tree.");
-        if (!profile.Roots.Any(root => Under(source, RealPath(root))))
+        if (!profile.Roots.Any(root => PathScope.Under(source, PathScope.RealPath(root))))
             throw new ChargehandException(ErrorCode.RepositoryNotAllowed,
                 $"repository {source} is outside the profile's repository_roots ({string.Join(", ", profile.Roots)}); workers read only repositories under them",
                 $"Clone the repository under one of those roots, or add a directory that contains {source} to repository_roots (\"/\" allows any).");
@@ -544,17 +570,19 @@ public sealed class Orchestrator(
                 "Pin a commit that does not track them, or remove them from the repository.");
     }
 
-    private static bool Under(string path, string root) =>
-        path == root || path.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.Ordinal);
-
-    /// <summary>The path with every symbolic link in it resolved, as git prints a top level (macOS: /var is /private/var).</summary>
-    private static string RealPath(string path)
+    /// <summary>Whether the run's output stays on the machine (ADR 0069): the request says so, or the profile forces the repository. A run with no repository is forced only by the root <c>/</c>.</summary>
+    private async Task<bool> IsLocalAsync(RunRequest request, CancellationToken ct)
     {
-        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
-        if (Path.GetDirectoryName(full) is not { } parent)
-            return full;
-        var here = Path.Combine(RealPath(parent), Path.GetFileName(full));
-        return Path.Exists(here) && File.ResolveLinkTarget(here, returnFinalTarget: true) is { } target ? RealPath(target.FullName) : here;
+        var path = request.Context.Repository?.Path;
+        var topLevel = path is null ? "/" : await Git(Path.GetFullPath(path), ct, "rev-parse", "--show-toplevel") ?? Path.GetFullPath(path);
+        return profile.DeliveryPolicy.IsLocal(request.Context.Delivery, topLevel);
+    }
+
+    /// <summary>Fetches the run's branch into the caller's repository as a new local branch; it is then there, and only there (ADR 0069). The failure text, or null.</summary>
+    private static async Task<(BranchInfo Branch, string? Failure)> LandAsync(RunWorkspace workspace, BranchInfo branch, string path, CancellationToken ct)
+    {
+        var source = await Git(Path.GetFullPath(path), ct, "rev-parse", "--show-toplevel") ?? Path.GetFullPath(path);
+        return await workspace.LandAsync(source, ct) is { } failure ? (branch, failure) : (branch with { Repository = source }, null);
     }
 
     /// <summary>git's trimmed output, or null when it fails.</summary>
@@ -673,3 +701,6 @@ public sealed class Orchestrator(
         return new ModelRef(model[..slash], hash < 0 ? model[(slash + 1)..] : model[(slash + 1)..hash], hash < 0 ? null : model[(hash + 1)..]);
     }
 }
+
+/// <summary>What <see cref="Orchestrator.ProbeAsync"/> found: the model answered or why not, and how long it took.</summary>
+public sealed record ModelProbe(bool Ok, string Model, long Milliseconds, string? Error);
