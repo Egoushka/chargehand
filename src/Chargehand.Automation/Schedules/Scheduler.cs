@@ -8,10 +8,14 @@ namespace Chargehand.Automation;
 /// <summary>Starts recurring work on a clock, within a monthly cap (ADR 0068). It wakes every minute. An entry is due when its next occurrence after the time it was last dealt with has passed; a slot missed while
 /// the server was down is therefore one run at the first wake, not one per slot. An occurrence is dealt with when it starts, when the month's cap is used, or when the entry's last run is still going;
 /// a start that fails (the server halted, the checkout will not fetch, the notification service is down) is tried again after <see cref="RetryAfter"/>. Everything it did is in <see cref="ScheduleState"/> before the next step.
-/// <paramref name="flakes"/> is the CI history the <c>flaky-tests</c> template is given; without it the template reads the test code only.</summary>
+/// <paramref name="flakes"/> is the CI history the <c>flaky-tests</c> template is given; without it the template reads the test code only. <paramref name="alerts"/> reads the open alerts of
+/// <c>security-alerts</c> as the GitHub App; without it that template starts nothing.</summary>
 public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IRepositoryHeads heads, ScheduleState state, IScheduleNotifier notifier, IMorningSource morning, TimeProvider? clock = null,
-    Action<string>? warn = null, IFlakeHistory? flakes = null)
+    Action<string>? warn = null, IFlakeHistory? flakes = null, ISecurityAlerts? alerts = null)
 {
+    /// <summary>What a start did: a run (or the report) started and counts against the cap; nothing was due to start, yet the occurrence is dealt with; or it is tried again later.</summary>
+    private enum Start { Started, Nothing, Later }
+
     public const string ReadOnlyPreset = "default";
     public const string DrivenPreset = "driven";
     public const int MaxPostAttempts = 30;
@@ -85,10 +89,11 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
             Consume(entry, now, $"the cap of {entry.Cap().ToString(CultureInfo.InvariantCulture)} starts in {ScheduleState.MonthOf(now)} is used");
         else if (state.Running.Any(r => r.Entry == entry.Id))
             Consume(entry, now, "its last run is still going");
-        else if (await StartAsync(entry, starter, now, ct))
+        else if (await StartAsync(entry, starter, now, ct) is var start and not Start.Later)
         {
             state.Handled[entry.Id] = now;
-            state.CountStart(entry.Id, now);
+            if (start == Start.Started)
+                state.CountStart(entry.Id, now);
             state.Save(now);
         }
     }
@@ -100,30 +105,64 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
         state.Save(now);
     }
 
-    /// <returns>Whether the occurrence was dealt with; false: it is tried again later.</returns>
-    private async Task<bool> StartAsync(ScheduleEntry entry, IBatchStarter starter, DateTimeOffset now, CancellationToken ct)
+    private async Task<Start> StartAsync(ScheduleEntry entry, IBatchStarter starter, DateTimeOffset now, CancellationToken ct)
     {
         if (entry.Kind() == ScheduleKind.Report)
         {
             await PostAsync(MorningReport.Title(now), MorningReport.Format(await morning.ReadAsync(now - MorningReport.Window, ct)), ct);
-            return true;
+            return Start.Started;
         }
+        IReadOnlyList<SecurityAlert> taking = [];
+        if (entry.Template == ScheduleTemplates.SecurityAlerts && (taking = await AlertsToTakeAsync(entry, now, ct)).Count == 0)
+            return Start.Nothing;
         var commit = await heads.CurrentCommitAsync(entry.Repository!.Path, ct);
-        var started = await starter.StartAsync(Request(entry, new RepositoryRef(entry.Repository.Path, commit), await GoalAsync(entry, ct)), ct);
+        var tasks = taking.Count > 0
+            ? [.. taking.Select(a => SecurityAlerts.TaskFor(a, entry.Text()!, entry.Size()))]
+            : new List<DrivenTask> { new($"schedule-{entry.Id}", Goal: await GoalAsync(entry, ct), Size: entry.Size()) };
+        var started = await starter.StartAsync(Request(entry, new RepositoryRef(entry.Repository.Path, commit), tasks), ct);
         if (started.RunId is not { } run)
         {
             _warn($"schedules: {entry.Id}: the server did not start the run: {started.Refusal}");
             _retryAt[entry.Id] = now + RetryAfter;
-            return false;
+            return Start.Later;
         }
         state.Running.Add(new ScheduledRun(entry.Id, run, now, entry.Kind()));
-        return true;
+        if (taking.Count > 0)
+            state.Taken[entry.Id] = [.. state.Taken.GetValueOrDefault(entry.Id) ?? [], .. taking.Select(a => a.Key)];
+        return Start.Started;
     }
 
-    private static RunRequest Request(ScheduleEntry entry, RepositoryRef repository, string goal) => entry.Kind() == ScheduleKind.Driven
-        ? new RunRequest("request/v1", $"Scheduled: {entry.Id}.", new RequestContext(false, DrivenPreset, Repository: repository),
-            Driven: new RequestDriven([new DrivenTask($"schedule-{entry.Id}", Goal: goal, Size: entry.Size())], MaxParallel: 1))
-        : new RunRequest("request/v1", goal, new RequestContext(false, ReadOnlyPreset, Repository: repository));
+    /// <summary>The open alerts not taken before, at most the entry's <c>max_tasks</c>. Forgets the taken alerts GitHub no longer lists open. An alert list GitHub could not be reached for is an
+    /// <see cref="IntakeException"/>: the occurrence is tried again later.</summary>
+    private async Task<IReadOnlyList<SecurityAlert>> AlertsToTakeAsync(ScheduleEntry entry, DateTimeOffset now, CancellationToken ct)
+    {
+        if (alerts is null)
+        {
+            _warn($"schedules: {entry.Id}: security-alerts reads the alerts as the GitHub App, and driven.integrator has none; skipped");
+            return [];
+        }
+        if (await SecurityAlerts.RepositoryOfAsync(entry.Repository!.Path, ct) is not { } repository)
+        {
+            _warn($"schedules: {entry.Id}: the checkout's origin is not a GitHub repository; skipped");
+            return [];
+        }
+        var read = await alerts.OpenAlertsAsync(repository, ct);
+        foreach (var skipped in read.Skipped)
+            _warn($"schedules: {entry.Id}: {skipped}");
+        var open = read.Alerts.Select(a => a.Key).ToHashSet(StringComparer.Ordinal);
+        // A kind that could not be read keeps what was taken of it: its alerts are unknown, not closed.
+        var unread = read.Skipped.Select(s => s.Split(':')[0]).ToHashSet(StringComparer.Ordinal);
+        state.Taken[entry.Id] = [.. (state.Taken.GetValueOrDefault(entry.Id) ?? []).Where(k => open.Contains(k) || unread.Any(kind => k.StartsWith($"{kind}-", StringComparison.Ordinal)))];
+        state.Save(now);
+        var fresh = SecurityAlerts.Fresh(read.Alerts, state.Taken[entry.Id].ToHashSet(StringComparer.Ordinal), entry.Tasks());
+        if (fresh.Count == 0)
+            _warn($"schedules: {entry.Id}: no open alert that is not already a task ({read.Alerts.Count.ToString(CultureInfo.InvariantCulture)} open)");
+        return fresh;
+    }
+
+    private static RunRequest Request(ScheduleEntry entry, RepositoryRef repository, List<DrivenTask> tasks) => entry.Kind() == ScheduleKind.Driven
+        ? new RunRequest("request/v1", $"Scheduled: {entry.Id}.", new RequestContext(false, DrivenPreset, Repository: repository), Driven: new RequestDriven(tasks, MaxParallel: 1))
+        : new RunRequest("request/v1", tasks[0].Goal!, new RequestContext(false, ReadOnlyPreset, Repository: repository));
 
     /// <summary>The entry's text; for <c>flaky-tests</c> with the CI history, when it can be read.</summary>
     private async Task<string> GoalAsync(ScheduleEntry entry, CancellationToken ct) =>

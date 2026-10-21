@@ -19,7 +19,7 @@ Option 2. `automation.schedules` lists entries with `daily HH:MM`, `weekly <day>
 
 ## Consequences
 
-State lives in `schedules/state.json` beside the run log. The notification URL may carry a secret topic and is never logged. `flaky-tests` reads CI history through the forge (CHARGEHAND-197): the jobs that failed and then passed on the same commit in the last 14 days, as input to the goal; without history it reads test code only. Scheduled starts bypass account admission and run as the owner, like intake. A driven run's result is not posted; its pull request is in the inbox.
+State lives in `schedules/state.json` beside the run log. The notification URL may carry a secret topic and is never logged. `flaky-tests` reads CI history through the forge (CHARGEHAND-197): the jobs that failed and then passed on the same commit in the last 14 days, as input to the goal; without history it reads test code only. `security-alerts` (CHARGEHAND-190) turns open code-scanning and Dependabot alerts, read as the App, into one batch per run with a task per alert not taken before, at most `max_tasks`; the taken alerts are in the state file, and a run with no new alert starts nothing and does not count against the cap. Scheduled starts bypass account admission and run as the owner, like intake. A driven run's result is not posted; its pull request is in the inbox.
 
 ## Reopen if
 

@@ -509,8 +509,15 @@ Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? Sch
         return null;
     var state = Chargehand.Automation.ScheduleState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "schedules", "state.json"));
     var flakes = driven is null ? null : new Chargehand.Automation.ForgeFlakeHistory(driven.ReadHost, profile.Driven?.Forge, warn: Console.Error.WriteLine);
+    // security-alerts reads the open alerts as the integrator's App (CHARGEHAND-190).
+    Chargehand.Automation.ISecurityAlerts? alerts = null;
+    if (profile.Driven is { Integrator: { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId } } drivenSettings)
+    {
+        var api = new HttpClient { BaseAddress = GitHubApiRoot(drivenSettings) };
+        alerts = new Chargehand.Automation.GitHubIntakeHost(api, new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System));
+    }
     return morning => new Chargehand.Automation.Scheduler(schedules, runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, new Chargehand.Automation.HttpScheduleNotifier(), morning,
-        flakes: flakes);
+        flakes: flakes, alerts: alerts);
 }
 
 // Plane intake (ADR 0067): null unless the profile has automation.plane. The key is read from the secret store at each call; its state sits next to the run log.

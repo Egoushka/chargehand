@@ -12,7 +12,7 @@ You label an issue `chargehand`; chargehand works on it in a container and opens
 On GitHub: Settings, Developer settings, GitHub Apps, New GitHub App.
 
 - **Webhook:** off. chargehand polls; the server does not need to be reachable from GitHub.
-- **Repository permissions:** Contents read and write, Pull requests read and write, Issues read and write, Checks read, Actions read, Commit statuses read. Nothing else: no administration, no workflows.
+- **Repository permissions:** Contents read and write, Pull requests read and write, Issues read and write, Checks read, Actions read, Commit statuses read. Nothing else: no administration, no workflows. Only for the [`security-alerts` schedule](schedules.md#security-alerts): Code scanning alerts read and Dependabot alerts read.
 - **Where can it be installed:** only on this account, unless others will install it.
 
 Create it, note the **App ID**, and generate a **private key**. Put the key's PEM in your secret store under a name such as `chargehand-app-key` (the profile names the item, never the key).

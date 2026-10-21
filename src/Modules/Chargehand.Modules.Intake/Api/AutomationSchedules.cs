@@ -46,11 +46,14 @@ public sealed partial record AutomationSchedules(IReadOnlyList<ScheduleEntry>? E
 /// <param name="Repository">The checkout (under <c>repository_roots</c>) the work reads or changes; not used by <c>morning-report</c>.</param>
 /// <param name="MaxPerMonth">Starts per calendar month (UTC), 1 to 100. Default 4; 31 for <c>morning-report</c>. An occurrence over it is skipped and logged.</param>
 /// <param name="BudgetClass">S, M or L for a driven entry (default S): the governor's budget (ADR 0045).</param>
+/// <param name="MaxTasks">With <c>security-alerts</c> only: new alerts taken per run, 1 to 10 (default 3). Each is one task of the run's batch.</param>
 public sealed record ScheduleEntry(string Id, string At, string? Template = null, string? Goal = null, bool Driven = false, AutomationRepository? Repository = null, int? MaxPerMonth = null,
-    string? BudgetClass = null)
+    string? BudgetClass = null, int? MaxTasks = null)
 {
     public const int DefaultMaxPerMonth = 4;
     public const int ReportMaxPerMonth = 31;
+    public const int DefaultMaxTasks = 3;
+    public const int MostTasks = 10;
 
     /// <summary>How the entry runs; read-only for an entry that validation would refuse.</summary>
     public ScheduleKind Kind() => ScheduleTemplates.Find(Template)?.Kind ?? (Driven ? ScheduleKind.Driven : ScheduleKind.ReadOnly);
@@ -61,6 +64,8 @@ public sealed record ScheduleEntry(string Id, string At, string? Template = null
     public int Cap() => MaxPerMonth ?? (Template == ScheduleTemplates.MorningReport ? ReportMaxPerMonth : DefaultMaxPerMonth);
 
     public string Size() => BudgetClass ?? "S";
+
+    public int Tasks() => MaxTasks ?? DefaultMaxTasks;
 
     public ScheduleAt Schedule() => ScheduleAt.TryParse(At, out var at, out _) ? at : default;
 
@@ -82,6 +87,8 @@ public sealed record ScheduleEntry(string Id, string At, string? Template = null
     {
         if (MaxPerMonth is < 1 or > 100) yield return $"{Name}: max_per_month must be 1 to 100";
         if (BudgetClass is not (null or "S" or "M" or "L")) yield return $"{Name}: budget_class must be S, M or L";
+        if (MaxTasks is not null && Template != ScheduleTemplates.SecurityAlerts) yield return $"{Name}: max_tasks applies to the security-alerts template";
+        if (MaxTasks is < 1 or > MostTasks) yield return $"{Name}: max_tasks must be 1 to {MostTasks}";
     }
 
     private IEnumerable<string> KindProblems(bool drivenEnabled, bool hasNotifyUrl)
