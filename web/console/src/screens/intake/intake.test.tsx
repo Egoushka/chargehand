@@ -11,8 +11,10 @@ import {
   filterRows,
   parseTrigger,
   policyRows,
+  queueText,
   recentActions,
   reviewRounds,
+  sourceRows,
   startsPerDay,
   triggerRows,
 } from './model';
@@ -22,6 +24,12 @@ const panel = (title: string) => {
   const section = screen.getByRole('heading', { name: title }).closest('section');
   if (!section) throw new Error(`no panel ${title}`);
   return within(section as HTMLElement);
+};
+
+/** The Sources panel, once its answer is in. */
+const sourcesPanel = async () => {
+  await screen.findByRole('heading', { name: 'Sources' });
+  return panel('Sources');
 };
 
 const open = async () => {
@@ -424,7 +432,7 @@ describe('Intake states', () => {
   it('says intake is off when the profile has no automation.github', async () => {
     serveApi({ intake: adm.intakeOff() });
     renderConsole('/console/intake');
-    expect(await screen.findByText('Intake is off')).toBeTruthy();
+    expect(await screen.findByText('GitHub intake is off')).toBeTruthy();
     expect(screen.getByText('automation.github', { exact: false })).toBeTruthy();
     expect(screen.queryByRole('table', { name: 'Trigger log' })).toBeNull();
     expect(screen.getByText('Off')).toBeTruthy();
@@ -487,6 +495,7 @@ describe('Intake for an account', () => {
     expect(screen.queryByRole('table', { name: 'Trigger log' })).toBeNull();
     expect(calls.some((c) => c.path === '/v1/intake')).toBe(false);
     expect(calls.some((c) => c.path === '/v1/system')).toBe(false);
+    expect(calls.some((c) => c.path === '/v1/intake/sources')).toBe(false);
   });
 
   it('shows the same state when the server answers 403 to a key it took for the owner’s', async () => {
@@ -505,5 +514,112 @@ describe('Intake for an account', () => {
     expect(within(nav).queryByRole('link', { name: 'Accounts and keys' })).toBeNull();
     expect(within(nav).queryByRole('link', { name: 'System' })).toBeNull();
     expect(within(nav).getByRole('link', { name: 'Repositories' })).toBeTruthy();
+  });
+});
+
+describe('Intake sources', () => {
+  it('lists GitHub repositories, then Plane projects, each with its queue', () => {
+    const rows = sourceRows(adm.intakeSources());
+    expect(rows.map((r) => [r.kind, r.name, r.enabled])).toEqual([
+      ['github', 'example/payments-api', true],
+      ['github', 'example/web-shop', true],
+      ['github', 'example/notes', false],
+      ['plane', 'example/infra', true],
+      ['plane', 'proj-docs', false],
+    ]);
+    expect(rows.map(queueText)).toEqual([
+      '1 running, 2 queued',
+      '0 running, 0 queued',
+      '0 running, 0 queued',
+      '1 running, queue with Plane',
+      '0 running, queue with Plane',
+    ]);
+    expect(rows[2]?.detail).toContain('discovered');
+  });
+
+  it('reads a server from before Plane projects: GitHub only, a missing queue is 0', () => {
+    const rows = sourceRows({
+      contract_version: 'intake-sources/v1',
+      configured: true,
+      discover: false,
+      sources: [{ repository: 'example/a', enabled: true, origin: 'listed', path: '/srv/a' }],
+    });
+    expect(rows.map(queueText)).toEqual(['0 running, 0 queued']);
+  });
+
+  it('shows each source with a switch, its queue and links to its recent runs', async () => {
+    await open();
+    const sources = await sourcesPanel();
+    const table = await sources.findByRole('table', { name: 'Sources' });
+    expect(within(table).getByText('1 running, 2 queued')).toBeTruthy();
+    expect(within(table).getByText('1 running, queue with Plane')).toBeTruthy();
+    expect(
+      (within(table).getByRole('switch', { name: 'Watch example/notes' }) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
+    expect(
+      (within(table).getByRole('switch', { name: 'Watch example/infra' }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    const run = within(table).getByRole('link', { name: /#231 running/ });
+    expect(run.getAttribute('href')).toBe('/console/runs/run-20261013-124239-1fdf01');
+    expect(sources.getByText(/Plane: 1 item waits for a free slot/)).toBeTruthy();
+  });
+
+  it('switches a repository off and a Plane project on with one PUT each', async () => {
+    const api = await open();
+    const sources = await sourcesPanel();
+    const repo = (await sources.findByRole('switch', {
+      name: 'Watch example/web-shop',
+    })) as HTMLInputElement;
+    fireEvent.click(repo);
+    await waitFor(() => expect(repo.checked).toBe(false));
+    fireEvent.click(sources.getByRole('switch', { name: 'Watch proj-docs' }));
+    await waitFor(() =>
+      expect(
+        (sources.getByRole('switch', { name: 'Watch proj-docs' }) as HTMLInputElement).checked,
+      ).toBe(true),
+    );
+    expect(api.calls.filter((c) => c.method === 'PUT').map((c) => [c.path, c.body])).toEqual([
+      ['/v1/intake/sources', { sources: [{ repository: 'example/web-shop', enabled: false }] }],
+      ['/v1/intake/sources', { plane_projects: [{ project: 'proj-docs', enabled: true }] }],
+    ]);
+  });
+
+  it('says when a switch was not set and leaves it as it was', async () => {
+    serveApi({
+      replies: {
+        'PUT /v1/intake/sources': [503, { errors: ['the switches could not be written'] }],
+      },
+    });
+    renderConsole('/console/intake');
+    const sources = await sourcesPanel();
+    const repo = (await sources.findByRole('switch', {
+      name: 'Watch example/web-shop',
+    })) as HTMLInputElement;
+    fireEvent.click(repo);
+    const alert = await sources.findByRole('alert');
+    expect(alert.textContent).toContain('the switches could not be written');
+    expect(repo.checked).toBe(true);
+  });
+
+  it('puts each source on its own card on a phone, with no table', async () => {
+    viewport(true);
+    serveApi();
+    renderConsole('/console/intake');
+    const sources = await sourcesPanel();
+    expect(await sources.findByRole('switch', { name: 'Watch example/payments-api' })).toBeTruthy();
+    expect(sources.queryByRole('table')).toBeNull();
+    expect(sources.getAllByRole('listitem')).toHaveLength(5);
+  });
+
+  it('leaves the panel out when neither GitHub nor Plane intake is configured', async () => {
+    serveApi({
+      intake: adm.intakeOff(),
+      intakeSources: adm.intakeSources({ configured: false, sources: [], plane: null }),
+    });
+    renderConsole('/console/intake');
+    await screen.findByText('GitHub intake is off');
+    expect(screen.queryByRole('heading', { name: 'Sources' })).toBeNull();
   });
 });

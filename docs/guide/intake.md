@@ -83,7 +83,7 @@ The goal's first line is the issue's title (the pull request's title is cut from
 
 **The trigger label.** The first time intake watches a repository it creates the label (`label`, default `chargehand`) if the repository has none.
 
-**Switching a repository off.** `GET /v1/intake/sources` lists the watched repositories with their switch; `PUT /v1/intake/sources` with `{"sources": [{"repository": "octo/repo", "enabled": false}]}` sets it (owner's key only; a repository intake does not watch is a 404). Off, intake reads nothing of it: labels and comments wait and are read when it is on again. Batches already running still report.
+**Switching a repository off.** `GET /v1/intake/sources` lists the watched repositories with their switch; `PUT /v1/intake/sources` with `{"sources": [{"repository": "octo/repo", "enabled": false}]}` sets it (owner's key only; a repository intake does not watch is a 404). Off, intake reads nothing of it: labels and comments wait and are read when it is on again. Batches already running still report. The same routes list each Plane project of `automation.plane.projects` under `plane` and switch one with `{"plane_projects": [{"project": "<id>", "enabled": false}]}`; `intake/plane-sources.json` holds the projects switched off. Each source also carries its queue: `running`, `queued` (review comments waiting for a round and triggers told to wait for a free slot; Plane's waiting items are counted for all projects together, as `plane.queued`) and its five latest batches. The console's Intake page shows them with a switch each.
 
 ## State
 

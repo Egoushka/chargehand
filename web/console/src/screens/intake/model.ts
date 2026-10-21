@@ -3,6 +3,8 @@ import type {
   IntakeBody,
   IntakeNoticeBody,
   IntakePendingBody,
+  IntakeSourceRunBody,
+  IntakeSourcesBody,
   IntakeTaskBody,
 } from '../../api/intake';
 import { isMerged } from '../../api/pulls';
@@ -266,4 +268,54 @@ export function policyRows(
         recent: recentActions(pulls.filter((pr) => sameRepo(pr.repository, repo))),
       };
     });
+}
+
+/** A row of the Sources panel: a GitHub repository or a Plane project, with its switch and its queue. */
+export interface SourceRow {
+  kind: 'github' | 'plane';
+  /** What the switch is set by: `owner/repo`, or the Plane project id. */
+  id: string;
+  name: string;
+  /** The checkout, and for a repository whether the profile lists it or the App's installation shows it. */
+  detail: string;
+  enabled: boolean;
+  running: number;
+  /** Null for a Plane project: its waiting items are counted for Plane as a whole. */
+  queued: number | null;
+  recent: IntakeSourceRunBody[];
+}
+
+/** GitHub's repositories, then Plane's projects, each in the order the server gives. */
+export function sourceRows(body: IntakeSourcesBody): SourceRow[] {
+  const github = body.sources.map(
+    (s): SourceRow => ({
+      kind: 'github',
+      id: s.repository,
+      name: s.repository,
+      detail: `${s.origin === 'discovered' ? 'discovered, managed clone' : 'listed'} · ${s.path}`,
+      enabled: s.enabled,
+      running: s.running ?? 0,
+      queued: s.queued ?? 0,
+      recent: s.recent ?? [],
+    }),
+  );
+  const plane = (body.plane?.projects ?? []).map(
+    (p): SourceRow => ({
+      kind: 'plane',
+      id: p.project,
+      name: p.remote ?? p.project,
+      detail: p.remote ? `project ${p.project} · ${p.path}` : p.path,
+      enabled: p.enabled,
+      running: p.running,
+      queued: null,
+      recent: p.recent,
+    }),
+  );
+  return [...github, ...plane];
+}
+
+/** "2 running, 1 queued"; a Plane project's queue is not known on its own. */
+export function queueText(row: SourceRow): string {
+  const queued = row.queued == null ? 'queue with Plane' : `${row.queued} queued`;
+  return `${row.running} running, ${queued}`;
 }

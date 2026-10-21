@@ -517,9 +517,10 @@ Chargehand.Automation.PlaneIntake? PlaneIntake()
     if (profile.Automation?.Plane is not { Url: { } url, ApiKeySecret: { } apiKeySecret, Workspace: { } workspace } plane)
         return null;
     var api = new HttpClient { BaseAddress = new Uri(url.TrimEnd('/') + "/") };
-    var state = Chargehand.Automation.PlaneState.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "plane.json"));
+    var directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake");
+    var state = Chargehand.Automation.PlaneState.Load(Path.Combine(directory, "plane.json"));
     return new Chargehand.Automation.PlaneIntake(plane, new Chargehand.Automation.PlaneHost(api, workspace, () => profile.Secret(apiKeySecret)), runLog,
-        new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state);
+        new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "plane-sources.json")));
 }
 
 // The console's account view says whether a credential's secret item resolves, never its value.
@@ -558,6 +559,7 @@ async Task<int> Serve()
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
+        PlaneStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "plane.json"),
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn),
         orchestrator, runLog, DrivenRunFor(orchestrator), GitHubIntake(), Schedules(), PlaneIntake());
     await app.StartAsync(ct);

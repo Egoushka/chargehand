@@ -3,7 +3,12 @@
 import type { AccountsBody } from '../api/accounts';
 import type { AnalyticsBody, SeriesPoint } from '../api/analytics';
 import type { AccountBody } from '../api/common';
-import type { IntakeBody, IntakeTaskBody } from '../api/intake';
+import type {
+  IntakeBody,
+  IntakeSourceBody,
+  IntakeSourcesBody,
+  IntakeTaskBody,
+} from '../api/intake';
 import type { RepositoriesBody, RepositoryBody } from '../api/repositories';
 import type { ContainerBody, SystemBody } from '../api/system';
 import { BATCH_A, BATCH_B, me, REPO, system } from './fixtures';
@@ -626,5 +631,106 @@ export function systemFull(now = Date.now()): SystemBody {
       'A container is tied to a batch and task by the saved state of unfinished batches; one the server no longer holds state for shows without them.',
       'Presets list what the file says; whether a change to one passed Prompt CI is not recorded here.',
     ],
+  };
+}
+
+/** `intake-sources/v1`: three GitHub repositories (one discovered and switched off) and two Plane projects. */
+export function intakeSources(
+  over: Partial<IntakeSourcesBody> = {},
+  now = Date.now(),
+): IntakeSourcesBody {
+  const run = (
+    item: string,
+    phase: 'running' | 'asked' | 'done',
+    minutesAgo: number,
+    id = BATCH_A,
+  ) => ({
+    batch_run_id: id,
+    task_id: `task-${item.replace(/[^A-Za-z0-9]/g, '')}`,
+    item,
+    started: iso(now, minutesAgo),
+    phase,
+  });
+  const repo = (over: Partial<IntakeSourceBody> & { repository: string }): IntakeSourceBody => ({
+    enabled: true,
+    origin: 'listed',
+    path: `/srv/work/${over.repository.split('/')[1]}`,
+    running: 0,
+    queued: 0,
+    recent: [],
+    ...over,
+  });
+  return {
+    contract_version: 'intake-sources/v1',
+    configured: true,
+    discover: true,
+    sources: [
+      repo({
+        repository: 'example/payments-api',
+        path: REPO,
+        running: 1,
+        queued: 2,
+        recent: [
+          run('#231', 'running', 15),
+          run('#230', 'asked', 90, BATCH_B),
+          run('#229', 'done', DAY),
+        ],
+      }),
+      repo({ repository: 'example/web-shop', recent: [run('#232', 'done', 300, BATCH_B)] }),
+      repo({
+        repository: 'example/notes',
+        origin: 'discovered',
+        enabled: false,
+        path: '/var/tmp/ch/repos/example/notes',
+      }),
+    ],
+    plane: {
+      configured: true,
+      queued: 1,
+      projects: [
+        {
+          project: 'proj-ops',
+          enabled: true,
+          path: '/srv/work/infra',
+          remote: 'example/infra',
+          running: 1,
+          recent: [run('OPS-12', 'running', 40, BATCH_B)],
+        },
+        { project: 'proj-docs', enabled: false, path: '/srv/work/docs', running: 0, recent: [] },
+      ],
+    },
+    not_recorded: [
+      'Queued counts a trigger told to wait for a free slot until it starts: one withdrawn while it waited is still counted.',
+    ],
+    ...over,
+  };
+}
+
+/** What `PUT /v1/intake/sources` answers: the list with the switches in `body` set. */
+export function switched(list: IntakeSourcesBody, body: unknown): IntakeSourcesBody {
+  const change = body as {
+    sources?: { repository: string; enabled: boolean }[];
+    plane_projects?: { project: string; enabled: boolean }[];
+  };
+  const set = new Map<string, boolean>([
+    ...(change.sources ?? []).map((e): [string, boolean] => [`github:${e.repository}`, e.enabled]),
+    ...(change.plane_projects ?? []).map((e): [string, boolean] => [
+      `plane:${e.project}`,
+      e.enabled,
+    ]),
+  ]);
+  return {
+    ...list,
+    sources: list.sources.map((s) => ({
+      ...s,
+      enabled: set.get(`github:${s.repository}`) ?? s.enabled,
+    })),
+    plane: list.plane && {
+      ...list.plane,
+      projects: list.plane.projects.map((p) => ({
+        ...p,
+        enabled: set.get(`plane:${p.project}`) ?? p.enabled,
+      })),
+    },
   };
 }

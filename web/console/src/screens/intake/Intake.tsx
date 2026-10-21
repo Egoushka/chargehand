@@ -1,7 +1,7 @@
 import { type UseQueryResult, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { IntakeBody } from '../../api/intake';
-import { intakeQuery } from '../../api/intake';
+import { intakeQuery, intakeSourcesQuery } from '../../api/intake';
 import { type PullsBody, pullsQuery } from '../../api/pulls';
 import { type ProfileIntegrator, type SystemBody, systemQuery } from '../../api/system';
 import { DASH, formatDateTime, formatTime, formatTokens, formatUsd } from '../../lib/format';
@@ -38,6 +38,7 @@ import {
   type TriggerRow,
   triggerRows,
 } from './model';
+import { SourcesPanel } from './Sources';
 import './intake.css';
 
 const RESULT: Record<TriggerResult, { status: 'done' | 'waiting' | 'cancelled'; label: string }> = {
@@ -53,6 +54,8 @@ const POLICY_COLS = 'minmax(0,1.2fr) 88px 84px minmax(0,1.7fr) 56px';
 export function Intake() {
   const gate = useOwnerGate();
   const intake = useQuery({ ...intakeQuery(), enabled: gate.allowed });
+  const sources = useQuery({ ...intakeSourcesQuery(), enabled: gate.allowed });
+  const watching = sources.data && (sources.data.configured || sources.data.plane?.configured);
   const system = useQuery({ ...systemQuery(), enabled: gate.allowed });
   const pulls = useQuery({
     ...pullsQuery({ since: '14d', limit: 200 }),
@@ -69,8 +72,9 @@ export function Intake() {
         <div>
           <h1 className="screen__title">Intake and automation</h1>
           <p className="screen__sub">
-            GitHub issues and review comments that start work, and the integrator policy for each
-            repository. chargehand polls GitHub as its App; there is no webhook.
+            GitHub issues, review comments and Plane work items that start work, and the integrator
+            policy for each repository. chargehand polls GitHub as its App and Plane with its key;
+            there is no webhook.
           </p>
         </div>
         <div className="screen__actions">
@@ -115,11 +119,22 @@ export function Intake() {
         </div>
       ) : null}
 
+      {sources.isError && !isForbidden(sources.error) ? (
+        <ErrorState
+          title="Cannot read the sources"
+          call="GET /v1/intake/sources"
+          detail={sources.error.message}
+          onRetry={() => void sources.refetch()}
+        />
+      ) : null}
+
+      {watching ? <SourcesPanel data={sources.data} /> : null}
+
       {data && !data.enabled ? (
-        <Panel title="Intake">
+        <Panel title="GitHub intake">
           <EmptyState
             icon="bolt"
-            title="Intake is off"
+            title="GitHub intake is off"
             text={
               <>
                 The profile has no <span className="mono">automation.github</span> block. Add the

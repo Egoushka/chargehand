@@ -80,7 +80,15 @@ internal sealed class PlaneRig : IDisposable
 
     public PlaneState State => PlaneState.Load(StatePath);
 
-    private PlaneIntake Build() => new(Settings, Plane, Log, Heads, PlaneState.Load(StatePath), Time, Warnings.Add);
+    /// <summary>The state file itself, for the console's queues.</summary>
+    public string StateFile => StatePath;
+
+    private string SourcesPath => Path.Combine(_dir.Path, "intake", "plane-sources.json");
+
+    /// <summary>The switches as a new process would read them.</summary>
+    public IntakeSources Sources => IntakeSources.Load(SourcesPath);
+
+    private PlaneIntake Build() => new(Settings, Plane, Log, Heads, PlaneState.Load(StatePath), Time, Warnings.Add, IntakeSources.Load(SourcesPath));
 
     /// <summary>A new process on the same state file.</summary>
     public void Restart() => Intake = Build();

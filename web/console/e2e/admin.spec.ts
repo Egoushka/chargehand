@@ -32,7 +32,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
       test('Intake: the trigger log, the cap on starts, the rules and the integrator policy', async ({
         page,
       }) => {
-        await mockApi(page);
+        const mock = await mockApi(page);
         const seen = watch(page);
         await signIn(page, '/console/intake');
 
@@ -60,6 +60,20 @@ for (const [device, viewport] of Object.entries(SIZES)) {
 
         await shot(page, `intake-${device}-${scheme}`);
         expect(await violations(page)).toEqual([]);
+
+        // Every source with its switch: a click sets it with one PUT and the switch follows the answer.
+        await expect(page.getByText('1 running, queue with Plane')).toBeVisible();
+        const shop = page.getByRole('switch', { name: 'Watch example/web-shop' });
+        await expect(shop).toBeChecked();
+        await shop.click();
+        await expect(shop).not.toBeChecked();
+        expect(mock.calls.filter((c) => c.method === 'PUT').map((c) => c.body)).toEqual([
+          { sources: [{ repository: 'example/web-shop', enabled: false }] },
+        ]);
+        if (device === 'phone') {
+          const box = await page.locator('.intake-switch').first().boundingBox();
+          expect(Math.min(box?.width ?? 0, box?.height ?? 0)).toBeGreaterThanOrEqual(44);
+        }
 
         await page.getByRole('button', { name: 'Acted', exact: true }).click();
         await expect(page.getByText(/The cap of starts in 24 hours was used/)).toHaveCount(0);
@@ -244,7 +258,7 @@ test.describe('desktop only', () => {
     });
     const seen = watch(page);
     await signIn(page, '/console/intake');
-    await expect(page.getByText('Intake is off')).toBeVisible();
+    await expect(page.getByText('GitHub intake is off')).toBeVisible();
     await settle(page);
     await shot(page, 'intake-off');
     expect(await violations(page)).toEqual([]);

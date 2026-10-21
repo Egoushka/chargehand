@@ -39,6 +39,7 @@ namespace Chargehand.Server;
 /// <param name="Profile">The profile, for the console's read routes (CHARGEHAND-209): the owner's <c>system</c> and <c>repositories</c> views and intake's settings. Null: those views are empty.</param>
 /// <param name="SecretPresent">Whether a secret item resolves, for an account's credential state; null: it is not known.</param>
 /// <param name="IntakeStatePath">Intake's state file (<c>intake/github.json</c>) for <c>GET /v1/intake</c>; null: none.</param>
+/// <param name="PlaneStatePath">Plane intake's state file (<c>intake/plane.json</c>) for the queues of <c>GET /v1/intake/sources</c>; null: none.</param>
 /// <param name="Access">Sign-in by Cloudflare Access identity (ADR 0071); null: keys only.</param>
 /// <param name="AccessCerts">Reads the team's signing keys; null: an HTTPS GET of <see cref="CloudflareAccessSettings.CertsUrl"/>.</param>
 /// <param name="ProxySignIn">Sign-in by the email a trusted single-sign-on proxy forwards (ADR 0071); null: keys only.</param>
@@ -49,7 +50,7 @@ public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirec
     IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null, bool Ui = false,
     Profile? Profile = null, Func<string, bool>? SecretPresent = null, string? IntakeStatePath = null, string? InboxDismissalsPath = null, TimeSpan? McpWait = null,
     CloudflareAccessSettings? Access = null, Func<CancellationToken, Task<string>>? AccessCerts = null,
-    ProxySignInSettings? ProxySignIn = null, Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? ProxyResolver = null);
+    ProxySignInSettings? ProxySignIn = null, Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? ProxyResolver = null, string? PlaneStatePath = null);
 
 /// <summary>
 /// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
@@ -231,7 +232,7 @@ public static partial class ChargehandServer
         }
 
         ConsoleRoutes.Map(app, settings, log, driven);
-        ConsoleSources.Map(app, intake);
+        ConsoleSources.Map(app, settings, intake, plane);
 
         foreach (var path in new[] { "/v1/accounts/me", IdentityPath })
             app.MapGet(path, async (HttpContext ctx, RunService runs) =>
