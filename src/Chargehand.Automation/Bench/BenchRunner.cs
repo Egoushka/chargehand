@@ -26,8 +26,12 @@ public sealed record BenchOptions(
 /// <param name="ImageFor">The session image for a repository, by digest; null when the profile has none for it.</param>
 /// <param name="Allow">The hosts a session's container may reach: the driven preset's and the profile's.</param>
 /// <param name="GovernorMode"><c>observe</c>, <c>enforce</c> or <c>off</c>; null when the profile names none (the server's default is observe).</param>
-public sealed record BenchEnvironment(Func<BenchRepository, string?> ImageFor, IReadOnlyList<string> Allow, string? GovernorMode, TimeSpan AcceptanceTimeout)
+/// <param name="HasOwnImage">Whether the profile maps the repository's ecosystem to an image of its own (<c>driven.services.images</c>); null: not known, no warning.</param>
+public sealed record BenchEnvironment(Func<BenchRepository, string?> ImageFor, IReadOnlyList<string> Allow, string? GovernorMode, TimeSpan AcceptanceTimeout, Func<BenchRepository, bool>? HasOwnImage = null)
 {
+    /// <summary>Ecosystems whose toolchain the base session image does not carry.</summary>
+    public static readonly IReadOnlySet<string> NeedsOwnImage = new HashSet<string>(StringComparer.Ordinal) { "maven", "gradle", "go", "rust" };
+
     public static BenchEnvironment Empty { get; } = new(_ => null, [], null, TimeSpan.FromMinutes(15));
 }
 
@@ -136,6 +140,8 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
             var image = options.Environment.ImageFor(repo);
             if (image is null)
                 await Note($"{repo.Name}: the profile names no session image for {repo.Ecosystem} (driven.images, driven.services.images)");
+            else if (BenchEnvironment.NeedsOwnImage.Contains(repo.Ecosystem) && options.Environment.HasOwnImage is { } own && !own(repo))
+                await Note($"{repo.Name}: driven.services.images has no {repo.Ecosystem} image, so its tests run in the base image, which has no {repo.Ecosystem} toolchain; the baseline and the run would fail on a missing tool");
             var uncovered = RepositoryDetector.Uncovered(RepositoryDetector.HostsFor(repo.Ecosystem), options.Environment.Allow);
             if (uncovered.Count > 0)
                 await Note($"{repo.Name}: add {string.Join(", ", uncovered)} to driven.network.allow, or its restore and tests cannot reach them");
@@ -183,13 +189,14 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
                     await acceptance.RunAsync(new AcceptanceRequest(label, directory, branch, repo.Commit, argv, options.Environment.AcceptanceTimeout, image, options.Environment.Allow), ct);
 
                 var test = await Check($"{repo.Name}-test", repo.Test);
-                failed += await Report($"{repo.Name}: the test command passes on the pin", test.Passed, test) ? 0 : 1;
+                failed += await Report($"{repo.Name}: the test command passes on the pin", test.Passed, test, repo.Test) ? 0 : 1;
                 foreach (var task in tasks.Where(t => t.Repository == repo.Name))
                 {
-                    var result = await Check(task.Id, TaskSetLoader.AcceptanceArgv(set, task, repo));
+                    var argv = TaskSetLoader.AcceptanceArgv(set, task, repo);
+                    var result = await Check(task.Id, argv);
                     // A change that is not made yet fails its check; the guard of an impossible task holds on untouched code.
                     var expectPass = task.Kind == BenchTask.Impossible;
-                    failed += await Report($"{task.Id}: the {(expectPass ? "guard passes" : "acceptance fails")} on the pin", result.Passed == expectPass, result) ? 0 : 1;
+                    failed += await Report($"{task.Id}: the {(expectPass ? "guard passes" : "acceptance fails")} on the pin", result.Passed == expectPass, result, argv) ? 0 : 1;
                 }
             }
             catch (Exception e) when (e is BenchException or ChargehandException)
@@ -202,8 +209,13 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
         return failed == 0 ? 0 : 1;
     }
 
-    private async Task<bool> Report(string check, bool ok, AcceptanceResult result)
+    private async Task<bool> Report(string check, bool ok, AcceptanceResult result, IReadOnlyList<string> argv)
     {
+        if (result.SetupFailure)
+        {
+            await output.WriteLineAsync($"FAIL {check}: setup failure, `{result.MissingTool(argv)}` is missing from the session image (exit {result.ExitCode}); this says nothing about the check");
+            return false;
+        }
         await output.WriteLineAsync($"{(ok ? "ok  " : "FAIL")} {check} (exit {result.ExitCode}{(result.TimedOut ? ", timed out" : "")}, {result.DurationSeconds:0}s)");
         if (!ok)
             foreach (var line in result.OutputTail.TrimEnd().Split('\n').TakeLast(12))
@@ -303,7 +315,7 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
                 checkedBranch = await CheckAsync(set, repo, task, branch, image, options, ct);
             var asking = tally.AskedQuestion || row.Status == "needs_input";
             results.Add(Result(repo, task, row.Status, row.ErrorCode, row.Detail, branch, row.PrUrl ?? tally.PrUrl, tally, checkedBranch, asking, answered.ContainsKey(task.Id), integrity.Flagged, integrity.Reason));
-            await output.WriteLineAsync($"{task.Id}: {results[^1].Outcome} ({row.Status}{(checkedBranch is null ? ", no branch to check" : checkedBranch.Passed ? ", acceptance passed" : ", acceptance failed")})");
+            await output.WriteLineAsync($"{task.Id}: {results[^1].Outcome} ({row.Status}{(checkedBranch is null ? ", no branch to check" : checkedBranch.SetupFailure ? ", acceptance could not run" : checkedBranch.Passed ? ", acceptance passed" : ", acceptance failed")})");
         }
         return results;
     }
@@ -374,7 +386,11 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
                 return null;
             }
             var timeout = task.Acceptance.TimeoutMinutes is { } m ? TimeSpan.FromMinutes(m) : options.Environment.AcceptanceTimeout;
-            return await acceptance!.RunAsync(new AcceptanceRequest(task.Id, directory, branch, repo.Commit, TaskSetLoader.AcceptanceArgv(set, task, repo), timeout, image, options.Environment.Allow), ct);
+            var argv = TaskSetLoader.AcceptanceArgv(set, task, repo);
+            var result = await acceptance!.RunAsync(new AcceptanceRequest(task.Id, directory, branch, repo.Commit, argv, timeout, image, options.Environment.Allow), ct);
+            if (result.SetupFailure)
+                await output.WriteLineAsync($"{task.Id}: setup failure, `{result.MissingTool(argv)}` is missing from the session image (exit {result.ExitCode}); the check measured nothing and the task is not scored");
+            return result;
         }
         catch (Exception e) when (e is BenchException or ChargehandException)
         {

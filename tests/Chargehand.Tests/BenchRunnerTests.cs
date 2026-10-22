@@ -194,6 +194,24 @@ public sealed class BenchRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_dry_run_warns_when_a_maven_repository_would_fall_back_to_the_base_image()
+    {
+        var set = Set([Repo(ecosystem: "maven")], Job("a"));
+        var without = new BenchEnvironment(_ => Image, [], "observe", TimeSpan.FromMinutes(5), _ => false);
+        await Runner(new FakeWorkspace(), null, null).RunAsync(set, new BenchOptions(_dir.Path, without, DryRun: true), default);
+        Assert.Contains("note lib: driven.services.images has no maven image", Out.ToString());
+
+        var quiet = new StringWriter();
+        var with = new BenchEnvironment(_ => Image, [], "observe", TimeSpan.FromMinutes(5), _ => true);
+        await new BenchRunner(new FakeWorkspace(), null, null, quiet).RunAsync(set, new BenchOptions(_dir.Path, with, DryRun: true), default);
+        Assert.DoesNotContain("driven.services.images has no", quiet.ToString());
+
+        var python = new StringWriter();
+        await new BenchRunner(new FakeWorkspace(), null, null, python).RunAsync(Set([Repo()], Job("a")), new BenchOptions(_dir.Path, without, DryRun: true), default);
+        Assert.DoesNotContain("driven.services.images has no", python.ToString());
+    }
+
+    [Fact]
     public async Task A_dry_run_fails_on_a_pin_the_upstream_does_not_serve_and_on_a_clone_at_another_commit()
     {
         var workspace = new FakeWorkspace { PinProblem = "fatal: couldn't find remote ref", Existing = "fedcba9876543210fedcba9876543210fedcba98" };
@@ -466,6 +484,53 @@ public sealed class BenchRunnerTests : IDisposable
         Assert.Contains("FAIL a: the acceptance fails on the pin", text);
         Assert.Contains("FAIL imp: the guard passes on the pin", text);
         Assert.Contains("3 checks did not behave", text);
+    }
+
+    [Fact]
+    public async Task The_baseline_reports_a_missing_tool_as_a_setup_failure_never_as_the_expected_failure()
+    {
+        var set = Set([Repo()], Job("a"), Job("imp", "impossible"));
+        var acceptance = new FakeAcceptance(r => r.Label == "lib-test"
+            ? new AcceptanceResult(false, 127, false, 1, "sh: 1: mvn: not found")
+            : new AcceptanceResult(false, 127, false, 1, "sh: 1: mvn: not found"));
+        var exit = await Runner(new FakeWorkspace(), null, acceptance).RunAsync(set, Options(o => o with { Baseline = true }), default);
+        var text = Out.ToString();
+        Assert.Equal(1, exit);
+        Assert.Contains("FAIL lib: the test command passes on the pin: setup failure, `mvn` is missing", text);
+        Assert.Contains("FAIL a: the acceptance fails on the pin: setup failure, `mvn` is missing", text);
+        Assert.Contains("FAIL imp: the guard passes on the pin: setup failure", text);
+        Assert.DoesNotContain("ok   a:", text);
+    }
+
+    [Fact]
+    public async Task A_run_does_not_score_a_task_whose_acceptance_could_not_start()
+    {
+        var server = new FakeServer((_, id) => ([], Batch(id, Row("a", "completed", "chargehand/run-a", "https://example.test/pull/1"))));
+        var workspace = new FakeWorkspace { RemoteBranches = { "chargehand/run-a" } };
+        var acceptance = new FakeAcceptance(_ => new AcceptanceResult(false, 127, false, 1, "chargehand-x: command not found (No such file)"));
+        await Runner(workspace, server, acceptance).RunAsync(Set([Repo()], Job("a")), Options(), default);
+        var task = BenchResults.Parse(File.ReadAllText(Path.Combine(_dir.Path, "out", BenchRunner.ResultsFile)))!.Tasks.Single();
+        Assert.Equal(Outcomes.NotRun, task.Outcome);
+        Assert.Contains("setup failure, `chargehand-x` is missing", Out.ToString());
+        Assert.Contains("acceptance could not run", Out.ToString());
+    }
+
+    [Theory]
+    [InlineData("change")]
+    [InlineData("impossible")]
+    public void A_setup_failure_is_not_run_for_every_kind_of_task(string kind) =>
+        Assert.Equal(Outcomes.NotRun, Outcomes.Classify(kind, "completed", null, new AcceptanceResult(false, 126, false, 0, "")));
+
+    [Fact]
+    public void The_missing_tool_is_read_from_the_shell_or_verifier_message_else_the_first_word()
+    {
+        string[] argv = ["sh", "-c", "mvn test"];
+        Assert.Equal("mvn", new AcceptanceResult(false, 127, false, 0, "sh: 1: mvn: not found").MissingTool(argv));
+        Assert.Equal("mvn", new AcceptanceResult(false, 127, false, 0, "bash: mvn: command not found").MissingTool(argv));
+        Assert.Equal("mvn", new AcceptanceResult(false, 127, false, 0, "mvn: command not found (No such file)").MissingTool(argv));
+        Assert.Equal("sh", new AcceptanceResult(false, 127, false, 0, "").MissingTool(argv));
+        Assert.False(new AcceptanceResult(false, 127, true, 0, "").SetupFailure);
+        Assert.False(new AcceptanceResult(false, 1, false, 0, "").SetupFailure);
     }
 
     [Fact]
