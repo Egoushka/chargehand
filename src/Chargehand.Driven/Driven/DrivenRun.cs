@@ -345,9 +345,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         c.Span?.SetTag("chargehand.credential_delivery", routes[0].Delivery);
         var steps = _lifecycle.JournalAsync() is { } journal ? await journal : null;
         var sites = new SiteBatches(setup, routes, checkout, c, new SiteBatches.SiteParts(log, mint, tasks, learning, records?.Tasks, steps, ControlOf(c.RunId)?.Sessions, profile));
-        var ran = await ScheduleAsync(c, setup, ready, tasks, sites, checkout.Checkout);
+        var (replanned, ran) = await ScheduleAsync(c, setup, ready, tasks, sites, checkout.Checkout);
         var retro = await BatchLifecycle.RetroAsync(c, settings.Learning is { Retro: true }, learning, setup.Services.Retro, setup.Services.RetroSink);
-        return BatchLifecycle.Result(c, unresolved, ready, ran, routes[0].Delivery, setup.Priced, setup.Claude.Version, plan, retro);
+        return BatchLifecycle.Result(c, unresolved, replanned, ran, routes[0].Delivery, setup.Priced, setup.Claude.Version, plan, retro);
     }
 
     /// <summary>What the profile and the services give the batch; throws for a refusal: driven sessions not set up, no <c>claude_code</c> block, no image, a preset with no driven block, no push
@@ -433,8 +433,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     }
 
     /// <summary>The batch's tasks run (<see cref="BatchLifecycle.ScheduleAsync"/>), with a runner's part made when its first task is placed there; with one runner, now, so a refusal ends the
-    /// batch at its start. Each runner's part is torn down unless the server is stopping.</summary>
-    private async Task<BatchOutcome> ScheduleAsync(BatchRunContext c, BatchSetup setup, IReadOnlyList<ResolvedTask> ready, TaskJournal? tasks, SiteBatches sites, DrivenCheckout checkout)
+    /// batch at its start. A task that stalled with no commits is then re-planned into a chain and run too (<see cref="BatchLifecycle.ReplanAsync"/>), on the same router, before the runner's
+    /// part is torn down (unless the server is stopping).</summary>
+    private async Task<(IReadOnlyList<ResolvedTask> Ready, BatchOutcome Outcome)> ScheduleAsync(BatchRunContext c, BatchSetup setup, IReadOnlyList<ResolvedTask> ready, TaskJournal? tasks,
+        SiteBatches sites, DrivenCheckout checkout)
     {
         if (sites.Count == 1)
             await sites.RunnerOn(sites.First);
@@ -443,7 +445,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             var router = new SiteRouter(sites.RunnerOn, sites.First, setup.Settings.NamesRunners, tasks, sites.SessionsStarted, Pool is { } pool ? pool.Failed : null);
             var repository = TaskRunner.RepositoryKey(RemoteRepository.Parse(checkout.RemoteUrl, setup.Settings.Forge), c.Request.Context.Repository?.Path);
             var requestMb = await AdmissionRequestAsync(repository, setup.Preset.MemoryMb, c.Ct);
-            return await _lifecycle.ScheduleAsync(c, ready, setup.Limits, tasks, router, _admission, requestMb);
+            var ran = await _lifecycle.ScheduleAsync(c, ready, setup.Limits, tasks, router, _admission, requestMb);
+            return await _lifecycle.ReplanAsync(c, ready, ran, setup.Limits, tasks, router, _admission, requestMb, setup.Services.Planner);
         }
         finally
         {
