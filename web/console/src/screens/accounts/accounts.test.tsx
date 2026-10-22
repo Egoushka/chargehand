@@ -9,6 +9,7 @@ import {
   capsRows,
   credentialView,
   firstSelection,
+  forecastView,
   keyViews,
   presenceText,
   repositoriesText,
@@ -385,5 +386,38 @@ describe('Accounts for an account', () => {
     renderConsole('/console/accounts');
     expect(await screen.findByText('This screen needs the owner key')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('Month forecast', () => {
+  it('says the projection against the cap, the rate and what is spent so far', () => {
+    expect(forecastView(byName('ci-bot'))).toMatchObject({
+      over: true,
+      text: '≈ $125.70 of $100.00',
+      rate: '$6.50 a day over the last 7 days; $61.20 so far this month.',
+    });
+    expect(forecastView(byName('gateway-user'))?.over).toBe(false);
+    expect(forecastView({ ...byName('ci-bot'), forecast: undefined })).toBeNull();
+  });
+
+  it('warns on the selected account when the forecast passes its cap, and not under it', async () => {
+    await open();
+    const forecast = panel('Month forecast');
+    expect(forecast.getByRole('meter').getAttribute('aria-valuetext')).toBe('≈ $125.70 of $100.00');
+    expect(forecast.getByText('The forecast passes the monthly cap')).toBeTruthy();
+
+    fireEvent.click(within(rowOf('gateway-user')).getByRole('button', { name: 'gateway-user' }));
+    await waitFor(() =>
+      expect(panel('Month forecast').queryByText('The forecast passes the monthly cap')).toBeNull(),
+    );
+    expect(panel('Month forecast').getByText(/\$0\.20 a day/)).toBeTruthy();
+  });
+
+  it('leaves the panel out for a server that sends no forecast', async () => {
+    const plain = adm.accounts();
+    await open({
+      accounts: { ...plain, accounts: plain.accounts.map((a) => ({ ...a, forecast: undefined })) },
+    });
+    expect(screen.queryByRole('heading', { name: 'Month forecast' })).toBeNull();
   });
 });

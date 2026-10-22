@@ -12,8 +12,9 @@ public sealed record KeyBody(string Id, string? Label, DateTimeOffset Created, D
 public sealed record CredentialBody(string Mode, bool? Present);
 
 /// <param name="Repositories">Directories the account may name; null: any the server allows.</param>
+/// <param name="Forecast">The month's spend at the trailing 7-day rate against <c>max_usd_per_month</c> (CHARGEHAND-216).</param>
 public sealed record AccountBody(string Name, bool Owner, bool Driven, IReadOnlyList<string>? Repositories, AccountLimits Limits, StandingSpend Spend, int UnfinishedRuns, CredentialBody Credential,
-    IReadOnlyList<KeyBody> Keys);
+    IReadOnlyList<KeyBody> Keys, SpendForecast? Forecast = null);
 
 /// <summary><c>accounts/v1</c>: the owner and every account the profile declares, with caps, spend against them, and the state of their keys and credentials. Owner only.</summary>
 public sealed record AccountsBody(string ContractVersion, DateTimeOffset GeneratedAt, IReadOnlyList<AccountBody> Accounts, IReadOnlyList<string> NotRecorded);
@@ -26,6 +27,7 @@ internal static class ConsoleAccounts
     [
         "A key's use is recorded as the time of its last request alone, written at most once a minute: no count, address or route, and no time for a key not used since the server began to record it.",
         "'present' says the secret item resolves, not that the credential works; chargehand doctor and a run find that out.",
+        "The forecast is the month so far plus the last 7 days' spend rate until the month ends: priced usage only, so a subscription run adds nothing to it.",
     ];
 
     public static async Task<AccountsBody> BuildAsync(ConsoleContext c, AccountKeyStore? keys, AccountKeyUse? use, CancellationToken ct)
@@ -40,11 +42,13 @@ internal static class ConsoleAccounts
             var account = declared.FirstOrDefault(a => a.Name == name);
             var day = await c.Log.SpendAsync(name, AccountPolicy.DayStart(now), ct);
             var month = await c.Log.SpendAsync(name, AccountPolicy.MonthStart(now), ct);
+            var trailing = await c.Log.SpendAsync(name, SpendForecasts.TrailingStart(now), ct);
             accounts.Add(new AccountBody(name, account is null, account?.Driven ?? true, account?.Repositories,
                 new AccountLimits(account?.MaxUsdPerDay, account?.MaxUsdPerMonth, account?.MaxTokensPerDay, account?.MaxTokensPerMonth, account?.MaxConcurrentRuns),
                 new StandingSpend(new WindowSpend(day.Usd, day.Tokens, AccountPolicy.NextDay(now)), new WindowSpend(month.Usd, month.Tokens, AccountPolicy.NextMonth(now))),
                 c.Runs.Unfinished(name), Credential(c, account),
-                [.. stored.Where(k => k.Account == name).OrderBy(k => k.Created).Select(k => new KeyBody(k.Id, k.Label, k.Created, k.Revoked, used.TryGetValue(k.Id, out var at) ? at : null))]));
+                [.. stored.Where(k => k.Account == name).OrderBy(k => k.Created).Select(k => new KeyBody(k.Id, k.Label, k.Created, k.Revoked, used.TryGetValue(k.Id, out var at) ? at : null))],
+                SpendForecasts.Of(month.Usd, trailing.Usd, account?.MaxUsdPerMonth, now)));
         }
         return new AccountsBody(Contract, now, accounts, NotRecorded);
     }

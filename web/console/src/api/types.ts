@@ -164,6 +164,19 @@ export interface Me {
   unfinished_runs: number;
   halted: boolean;
   presets: string[];
+  /** The month's spend at the trailing 7-day rate (CHARGEHAND-216); absent from an older server. */
+  forecast?: SpendForecast | null;
+}
+
+/** Where the UTC month's spend is heading: the month so far plus the last 7 days' rate until it ends. */
+export interface SpendForecast {
+  rate_per_day: number;
+  projected_usd: number;
+  /** `max_usd_per_month`; absent: no cap. */
+  cap_usd?: number | null;
+  over_cap: boolean;
+  /** When the cap is reached at that rate, within the month; now when it is reached already. */
+  cap_reached_at?: string | null;
 }
 
 /** Pull requests of a group by what became of them; `open` includes those whose outcome was never read. */
