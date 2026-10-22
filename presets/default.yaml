@@ -17,6 +17,9 @@ node_kinds:
       - { action: read, resource: "*.env.*", effect: deny }
       - { action: read, resource: "*.env.example", effect: allow }
       - { action: read, resource: "*.env.enc", effect: allow }   # SOPS ciphertext: GitOps repos track it
+      - { action: read, resource: "*.env.test.*", effect: allow }   # test sources named after what they test (options.env.test.js) are code
+      - { action: read, resource: "*.env.spec.*", effect: allow }
+      - { action: read, resource: "*.env.*.local", effect: deny }   # .env.test.local and the like hold real values
       # No shell (ADR 0006): OpenCode matches each sub-command's source text, which shell quoting changes without
       # changing the command, so no allowlist of flexible commands holds. Search with read, grep and glob instead.
       - { action: shell, resource: "*", effect: deny }
