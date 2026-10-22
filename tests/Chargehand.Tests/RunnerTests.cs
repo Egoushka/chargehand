@@ -486,7 +486,9 @@ public class RunnerTests
         using var anonymous = new HttpClient { BaseAddress = address };
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/host")).StatusCode);
         Assert.Contains("\"available_mb\":2300", await http.GetStringAsync("/host"));
-        Assert.Equal(snapshot, await new RunnerClient(http).ReadAsync(default));
+        var read = await new RunnerClient(http).ReadAsync(default);
+        Assert.Equal(snapshot, read! with { Images = null });
+        Assert.Equal([Image], read.Images);
         await app.DisposeAsync();
     }
 
@@ -498,7 +500,9 @@ public class RunnerTests
         await app.StartAsync();
         using var http = Runner.Authorized(new Uri(app.Urls.First()), Key);
         Assert.Contains("\"memory_pressure_avg10\":3.25", await http.GetStringAsync("/host"));
-        Assert.Equal(withPsi, await new RunnerClient(http).ReadAsync(default));
+        var read = await new RunnerClient(http).ReadAsync(default);
+        Assert.Equal(withPsi, read! with { Images = null });
+        Assert.Equal([Image], read.Images);
         await app.DisposeAsync();
 
         var withoutPsi = new HostSnapshot(2300, 16000, 2048, 1500, 0.75, 8);
