@@ -33,6 +33,7 @@ import {
   shortHead,
   testCommands,
 } from './model';
+import { Readiness } from './Readiness';
 import './repositories.css';
 
 /** The checkouts the server may work in: what is detected in each, how it reads, the pull requests chargehand has open, and how its tasks ended. */
@@ -262,6 +263,8 @@ function RepositoryCard({
             not run or keep it.
           </p>
         </div>
+
+        {repo.readiness ? <Readiness readiness={repo.readiness} name={repo.name} /> : null}
 
         <div className="row row--between">
           <div className="stack stack--tight repo-history">

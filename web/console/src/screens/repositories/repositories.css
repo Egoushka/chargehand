@@ -53,3 +53,17 @@
   gap: 2px;
   min-width: 0;
 }
+
+.repo-readiness {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+}
+
+.repo-readiness > .row {
+  width: 100%;
+}
+
+.repo-readiness__note {
+  color: var(--warn-text);
+}

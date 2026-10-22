@@ -210,13 +210,72 @@ const repo = (over: Partial<RepositoryBody>, now: number): RepositoryBody => ({
   ...over,
 });
 
+const WEB_SHOP_GAPS = [
+  '5 of 7 driven tasks did not complete: document how to build, test and run the project, and anything a fresh checkout needs first.',
+  'No CI configuration: add a workflow that builds and tests every pull request.',
+];
+
+/** A repository's readiness: payments-api is ready, web-shop is under the threshold with a proposed task, infra has none. */
+export const readiness = {
+  ready: {
+    score: 92,
+    threshold: 60,
+    below: false,
+    signals: [
+      { name: 'completion', value: 0.78, weight: 35, detail: '14 of 18 driven tasks completed' },
+      {
+        name: 'verify',
+        value: 1,
+        weight: 20,
+        detail: 'driven tasks are verified with `dotnet test`',
+      },
+      {
+        name: 'first_ci',
+        value: 1,
+        weight: 15,
+        detail: '4 of 4 pull requests passed CI first time',
+      },
+      { name: 'human_fix', weight: 15, detail: 'no merged pull request to compare' },
+      { name: 'ci', value: 1, weight: 15, detail: 'CI is configured' },
+    ],
+    gaps: [],
+  },
+  below: {
+    score: 34,
+    threshold: 60,
+    below: true,
+    signals: [
+      { name: 'completion', value: 0.29, weight: 35, detail: '2 of 7 driven tasks completed' },
+      { name: 'verify', value: 0.5, weight: 20, detail: 'none set; `npm test` is proposed' },
+      { name: 'first_ci', weight: 15, detail: 'no pull request’s checks were read' },
+      { name: 'human_fix', weight: 15, detail: 'no merged pull request to compare' },
+      { name: 'ci', value: 0, weight: 15, detail: 'no CI configuration' },
+    ],
+    gaps: WEB_SHOP_GAPS,
+    proposal: {
+      contract_version: 'request/v1',
+      text: 'Make example/web-shop agent-ready',
+      context: { repository: { path: '/srv/work/web-shop' } },
+      driven: {
+        tasks: [
+          {
+            id: 'agent-ready',
+            goal: `Make example/web-shop ready for coding agents.\n${WEB_SHOP_GAPS.map((g) => `- ${g}`).join('\n')}`,
+            size: 'M',
+          },
+        ],
+      },
+    },
+  },
+} satisfies Record<string, RepositoryBody['readiness']>;
+
 export function repositories(now = Date.now()): RepositoriesBody {
   return {
     contract_version: 'repositories/v1',
     generated_at: iso(now, 0),
     roots: [{ path: '/srv/work', exists: true }],
     repositories: [
-      repo({}, now),
+      repo({ readiness: readiness.ready }, now),
       repo(
         {
           name: 'web-shop',
@@ -235,6 +294,7 @@ export function repositories(now = Date.now()): RepositoriesBody {
           ],
           integrator_mode: 'ask',
           open_pull_requests: [],
+          readiness: readiness.below,
         },
         now,
       ),

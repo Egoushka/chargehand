@@ -119,3 +119,18 @@ export function testCommands(repo: RepositoryBody): { best: string | null; other
 }
 
 export const rootLabel = (path: string) => middleTruncate(path, 48);
+
+/** The readiness signals by their wire names. */
+export const SIGNAL_LABEL: Record<string, string> = {
+  completion: 'Completion',
+  verify: 'Verification',
+  first_ci: 'CI first time',
+  human_fix: 'Merged as left',
+  ci: 'CI',
+};
+
+/** A readiness signal's 0 to 1 value as a check level; null for no data. */
+export function signalLevel(value: number | null | undefined): CheckLevel | null {
+  if (value == null) return null;
+  return value >= 0.7 ? 'ok' : value >= 0.4 ? 'warn' : 'fail';
+}

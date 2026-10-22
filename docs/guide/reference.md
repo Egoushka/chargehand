@@ -64,7 +64,7 @@ Any other command prints the usage and exits 2. `eval` and `prompts sync` need t
 | `GET /v1/pulls/conflicts` | `conflicts/v1`: open pull requests of one repository whose tasks changed the same paths (the console's conflict radar) |
 | `GET /v1/pulls/train` | `train/v1`: the order to merge open pull requests in, per repository, oldest first (the console's merge train) |
 | `GET /v1/analytics` | `analytics/v1`: tasks and runs over time by repository, account or size; pass rate, spend, tokens, continuations, the governor's false-stop proxy |
-| `GET /v1/repositories` | `repositories/v1`: checkouts under `repository_roots` with head, default branch, detected ecosystem and test command, open pull requests |
+| `GET /v1/repositories` | `repositories/v1`: checkouts under `repository_roots` with head, default branch, detected ecosystem and test command, open pull requests, agent-readiness score with its gaps and a proposed task |
 | `GET /v1/intake`, `GET /v1/accounts`, `GET /v1/system` | `intake/v1`, `accounts/v1`, `system/v1`; the owner's alone: GitHub intake's settings and state; accounts with caps, spend and key state (never a key); version, redacted profile, presets, the first runner with its live containers, every listed runner's state (`runners`: reachable, draining, sessions against `max_sessions`) and pinned images |
 | `/v1/mcp` | MCP over Streamable HTTP: tool `orchestrate`, `inputSchema` `request/v1`, `outputSchema` `result/v1` |
 

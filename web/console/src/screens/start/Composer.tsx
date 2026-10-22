@@ -31,6 +31,7 @@ import {
   emptyTask,
   errorsOf,
   estimateBatch,
+  fromRequest,
   type Issue,
   issuesAt,
   layoutGraph,
@@ -43,6 +44,7 @@ import {
   toRequest,
 } from './model';
 import { AccountPanel, EstimatePanel } from './Panels';
+import { ReadinessWarning } from './ReadinessWarning';
 import { TaskEditor } from './TaskEditor';
 import { applyTemplate } from './templates';
 
@@ -206,7 +208,11 @@ export function Composer({
   }
 
   function load(template: Parameters<typeof applyTemplate>[0]) {
-    const next = applyTemplate(template);
+    replace(applyTemplate(template), `Template ${template.name} loaded`);
+  }
+
+  /** The form filled from another request: a template, or the agent-ready task the server proposes. */
+  function replace(next: Draft, title: string) {
     const head = repos?.find((r) => r.path === next.repository)?.head;
     setDraft(head && next.commit === '' ? { ...next, commit: head } : next);
     setNotes([]);
@@ -217,7 +223,7 @@ export function Composer({
     toast.push({
       tone: 'info',
       icon: 'layers',
-      title: `Template ${template.name} loaded`,
+      title,
       body: 'Check the commit and the caps, then start.',
     });
   }
@@ -364,6 +370,13 @@ export function Composer({
           {notes.map((note) => note.message).join(' ')}
         </Banner>
       ) : null}
+      <ReadinessWarning
+        repo={repo}
+        taskIds={draft.tasks.map((t) => t.id)}
+        onUseProposal={(request) =>
+          replace(fromRequest(request).draft, 'Agent-ready task filled in')
+        }
+      />
       {accountIssues.map((issue) => (
         <Banner
           key={issue.message}
