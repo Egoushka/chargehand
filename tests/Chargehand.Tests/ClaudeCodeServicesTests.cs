@@ -180,6 +180,18 @@ public sealed class ClaudeCodeServicesTests : IDisposable
     }
 
     [Fact]
+    public async Task A_cli_killed_without_an_interrupt_is_reported_as_killed_not_as_its_exit_status()
+    {
+        var rt = await ConnectAsync(FakeClaude(after: "kill -9 $$"));
+        var session = await rt.CreateAsync(Spec(Docs), CancellationToken.None);
+        await rt.SubmitAsync(session.Id, "hi", CancellationToken.None);
+
+        Assert.Equal(IdleOutcome.Failed, await rt.AwaitIdleAsync(session.Id, CancellationToken.None));
+        var idle = (await rt.ReadMessagesAsync(session.Id, CancellationToken.None)).First(m => m.Kind == WorkerMessageKind.Idle);
+        Assert.True(WorkerKill.Is(idle.Error), idle.Error);
+    }
+
+    [Fact]
     public async Task The_file_is_removed_when_the_cli_cannot_be_started()
     {
         var claude = FakeClaude();

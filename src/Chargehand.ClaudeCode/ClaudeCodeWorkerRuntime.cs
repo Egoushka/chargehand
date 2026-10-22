@@ -353,7 +353,9 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
                 lock (s)
                     if (!sawResult && !compact)
                         s.Messages.Add(Idle(s.Interrupted ? IdleOutcome.Interrupted : IdleOutcome.Failed,
-                            Redact($"claude exited {p.ExitCode}: {stderr.Result.Trim()}", s.Spec.Services)));
+                            !s.Interrupted && p.ExitCode == WorkerKill.ExitCode
+                                ? WorkerKill.Describe(WorkerKill.Memory())
+                                : Redact($"claude exited {p.ExitCode}: {stderr.Result.Trim()}", s.Spec.Services)));
                 s.Process = null;
                 p.Dispose();
             }
