@@ -59,6 +59,9 @@ plus the permission ruleset passed at session creation, with budgets enforced by
   an `include` glob reaches files `.gitignore` excludes (checked with rg 15.2), so no rule keeps it out of a secret
   file. The orchestrator therefore refuses a checkout holding any file, tracked or untracked, whose last matching
   `read` rule denies it, before a worker session starts. Workers run on checkouts without local secrets.
+  Amended 2026-10-22: a tracked file the preset denies reading is left out of the worker's working tree (a sparse
+  checkout; it stays in the index, so a writing node's commits keep it) and the task text names it, instead of refusing
+  the run. A driven session's checkout is still refused: it has a shell, and `git show` reads any tracked file.
 - Workers get no MCP tool. On OpenCode a leading `* * allow` reached the tools of any server registered at the location
   (ADR 0034, follow-up), so every session's rules end with `*_* * deny`, and the server chargehand starts ignores a
   checkout's own OpenCode configuration.

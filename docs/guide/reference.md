@@ -161,7 +161,7 @@ A failed `result/v1` carries `error`: a fixed `code`, the `message`, `retryable`
 | `rate_limited` | OpenCode answers 429, or an error's text is a rate limit | yes |
 | `repository_not_allowed` | the repository is outside `repository_roots`, or a worker checkout would sit under the home directory | no |
 | `checkout_invalid` | the path is not a git checkout, the commit is not in it, the clone fails, or `git ls-files` fails | no |
-| `checkout_has_secrets` | the clone tracks files the preset denies reading | no |
+| `checkout_has_secrets` | a driven session's clone tracks files the preset denies reading (a worker's clone leaves them out) | no |
 | `cost_cap_reached` | the watcher interrupted a node above its USD cap or its input-token budget | no |
 | `deadline_exceeded` | a node's turn was interrupted for any other reason; the deadline is the only other interrupt | yes |
 | `invalid_result` | a node's turns succeeded but left no valid result contract after the repair turn, or a writing node changed no files | no |

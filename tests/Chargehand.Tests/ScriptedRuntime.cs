@@ -191,7 +191,7 @@ internal static class Runs
         return repo with { Commit = Git(repo.Path, "rev-parse", "HEAD").Trim() };
     }
 
-    private static string Git(string dir, params string[] args)
+    public static string Git(string dir, params string[] args)
     {
         var psi = new ProcessStartInfo("git") { WorkingDirectory = dir, RedirectStandardOutput = true };
         foreach (var a in args)

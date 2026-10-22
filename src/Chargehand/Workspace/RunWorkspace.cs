@@ -50,6 +50,15 @@ public sealed class RunWorkspace
         if (await Git(Path.GetDirectoryName(directory)!, ct, "clone", "-q", "--local", "--no-checkout", "--", checkout, directory) is null
             && await Git(Path.GetDirectoryName(directory)!, ct, "clone", "-q", "--no-hardlinks", "--no-checkout", "--", checkout, directory) is null)
             throw new InvalidOperationException($"could not clone {checkout} for the run workspace");
+        // The files the checkout leaves out (Orchestrator.Exclude) stay out of this clone too.
+        var sparse = Path.Combine(checkout, ".git", "info", "sparse-checkout");
+        if (File.Exists(sparse))
+        {
+            System.IO.Directory.CreateDirectory(Path.Combine(directory, ".git", "info"));
+            File.Copy(sparse, Path.Combine(directory, ".git", "info", "sparse-checkout"), overwrite: true);
+            if (await Git(directory, ct, "config", "core.sparseCheckout", "true") is null)
+                throw new InvalidOperationException("could not set a sparse checkout in the run workspace");
+        }
         if (await Git(directory, ct, "checkout", "-q", "-b", branch, commit) is null)
             throw new InvalidOperationException($"could not check out {commit} on {branch}");
         return new RunWorkspace(directory, branch, commit);
