@@ -11,6 +11,7 @@ import {
   imageRows,
   presetRows,
   profileText,
+  runnerStatusView,
   runnerView,
   uptime,
 } from './model';
@@ -68,6 +69,25 @@ describe('system model', () => {
       short: 'not configured',
       tone: 'off',
     });
+  });
+
+  it('flags a runner whose allowlist is missing a configured session image', () => {
+    const status = {
+      name: 'laptop',
+      host: 'http://laptop.example.test:4301',
+      reachable: true,
+      elapsed_ms: 12,
+      draining: false,
+      image_mismatch: 'image session@sha256:new is not on its allowlist',
+    };
+    expect(runnerStatusView(status)).toEqual({
+      status: 'failed',
+      text: 'image session@sha256:new is not on its allowlist',
+      short: 'image mismatch',
+      tone: 'danger',
+    });
+    // Draining is reported first: it is why the runner is unusable right now, same as the mismatch would be.
+    expect(runnerStatusView({ ...status, draining: true }).short).toBe('draining');
   });
 
   it('ties a container to its task or batch, and only a session can be stopped', () => {
@@ -205,6 +225,34 @@ describe('System with data', () => {
       'draining',
     ]);
     expect(within(rows[1] as HTMLElement).getByTitle('draining: host update')).toBeTruthy();
+  });
+
+  it("shows a runner's allowlist mismatch and the reason", async () => {
+    await open({
+      system: {
+        ...full,
+        runners: [
+          {
+            name: 'local',
+            host: 'http://runner-a.example.test:4301',
+            reachable: true,
+            elapsed_ms: 38,
+            draining: false,
+            running: 3,
+            max_sessions: 4,
+            container_count: 11,
+            image_mismatch: 'image session@sha256:new is not on its allowlist',
+          },
+        ],
+      },
+    });
+    const rows = within(screen.getByRole('table', { name: 'Runners' }))
+      .getAllByRole('row')
+      .slice(1);
+    expect(within(rows[0] as HTMLElement).getByText('image mismatch')).toBeTruthy();
+    expect(
+      within(rows[0] as HTMLElement).getByTitle('image session@sha256:new is not on its allowlist'),
+    ).toBeTruthy();
   });
 
   it("falls back to the first runner's probe when the server does not serve runners", async () => {

@@ -25,8 +25,9 @@ public class RunnerPoolTests
 
     private static HostSnapshot Free(long availableMb, double? load = null, int cpus = 4) => new(availableMb, 16000, 0, 0, load, cpus);
 
-    private static PoolSite Site(string name, FakeHost host, int? maxSessions = null, double weight = 1, int? reserveMb = null, string platform = "linux/amd64") =>
-        new(new DrivenRunnerEntry(name, $"http://{name}:4310", "key", maxSessions, platform, weight, reserveMb), host);
+    private static PoolSite Site(string name, FakeHost host, int? maxSessions = null, double weight = 1, int? reserveMb = null, string platform = "linux/amd64",
+        IReadOnlyList<string>? images = null) =>
+        new(new DrivenRunnerEntry(name, $"http://{name}:4310", "key", maxSessions, platform, weight, reserveMb), host, images);
 
     private static RunnerPool Pool(IReadOnlyList<PoolSite> sites, ManualTimeProvider? time = null, List<string>? log = null, int reserveMb = 0, TimeSpan? probeTimeout = null) =>
         new(sites, new DrivenAdmission(reserveMb), TimeSpan.FromMilliseconds(20), time ?? new ManualTimeProvider(), log is null ? null : log.Add, probeTimeout);
@@ -184,6 +185,48 @@ public class RunnerPoolTests
         host.Snapshot = Free(40000);
         time.Advance(RunnerPool.HealthTtl + TimeSpan.FromSeconds(1));
         Assert.Equal("laptop", (await pool.TryAdmitAsync(4096, null, default)).Runner);
+    }
+
+    [Fact]
+    public async Task A_runner_whose_allowlist_lacks_a_configured_image_is_not_used_and_after_fifteen_minutes_is_refused()
+    {
+        var time = new ManualTimeProvider();
+        var host = new FakeHost(Free(40000) with { Images = ["session@sha256:old"] });
+        using var pool = Pool([Site("laptop", host, images: ["session@sha256:new"])], time);
+
+        var wait = await pool.TryAdmitAsync(4096, null, default);
+        Assert.False(wait.Admit);
+        Assert.False(wait.Refuse);
+        Assert.Contains("laptop: image session@sha256:new is not on its allowlist", wait.Detail);
+
+        time.Advance(RunnerPool.Patience + TimeSpan.FromSeconds(1));
+        var refused = await pool.TryAdmitAsync(4096, null, default);
+
+        Assert.False(refused.Admit);
+        Assert.True(refused.Refuse);
+        Assert.Contains("laptop: image session@sha256:new is not on its allowlist", refused.Detail);
+    }
+
+    [Fact]
+    public async Task StatusAsync_reports_an_image_the_runners_allowlist_is_missing()
+    {
+        var host = new FakeHost(Free(40000) with { Images = ["session@sha256:old"] });
+        using var pool = Pool([Site("laptop", host, images: ["session@sha256:new"])]);
+
+        var statuses = await pool.StatusAsync(default);
+
+        Assert.Equal("session@sha256:new is not on its allowlist", Assert.Single(statuses).ImageMismatch?.Replace("image ", ""));
+    }
+
+    [Fact]
+    public async Task A_runner_with_no_reported_allowlist_has_nothing_to_check_and_a_matching_allowlist_has_no_mismatch()
+    {
+        using var pool = Pool([Site("laptop", new FakeHost(Free(40000)), images: ["session@sha256:new"]),
+            Site("box", new FakeHost(Free(40000) with { Images = ["session@sha256:new"] }))]);
+
+        var statuses = await pool.StatusAsync(default);
+
+        Assert.All(statuses, s => Assert.Null(s.ImageMismatch));
     }
 
     [Fact]
