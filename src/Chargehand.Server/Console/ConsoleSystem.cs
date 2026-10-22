@@ -54,7 +54,9 @@ public sealed record HostBody(long? AvailableMb, long? TotalMb, long? SwapTotalM
 /// <param name="Reachable">The runner answered <c>GET /host</c>; null when driven sessions are off.</param>
 /// <param name="Draining">The runner said it takes no new session; null when it did not answer or does not report a state.</param>
 /// <param name="Running">Sessions of this server admitted there; null with one runner, which does not count them.</param>
-public sealed record RunnerStatusBody(string Name, string? Host, bool? Reachable, string? Error, long? ElapsedMs, bool? Draining, string? DrainingReason, int? Running, int? MaxSessions, int? ContainerCount);
+/// <param name="ImageMismatch">A configured session image the runner's reported allowlist is missing (<see cref="RunnerPool"/> preflight, ADR 0058 drift); null when there is nothing missing, or nothing to check.</param>
+public sealed record RunnerStatusBody(string Name, string? Host, bool? Reachable, string? Error, long? ElapsedMs, bool? Draining, string? DrainingReason, int? Running, int? MaxSessions, int? ContainerCount,
+    string? ImageMismatch = null);
 
 public sealed record ImageBody(string Reference, string Name, string? Digest, bool Pinned);
 
@@ -156,7 +158,8 @@ internal static class ConsoleSystem
             var statuses = await pool.StatusAsync(ct);
             var sites = c.Driven.Sites;
             return await Task.WhenAll(statuses.Select(async s => new RunnerStatusBody(s.Site.Name, HostOf(s.Site.Config.Url), s.Reachable, s.Why, s.ElapsedMs, s.Reachable ? s.Snapshot?.State is null ? null : s.Snapshot.IsDraining : null,
-                s.Reachable && s.Snapshot?.IsDraining == true ? s.Snapshot.StateReason : null, s.Running, s.Site.Config.MaxSessions, s.Reachable ? await CountAsync(sites.First(r => r.Name == s.Site.Name).Engine, ct) : null)));
+                s.Reachable && s.Snapshot?.IsDraining == true ? s.Snapshot.StateReason : null, s.Running, s.Site.Config.MaxSessions, s.Reachable ? await CountAsync(sites.First(r => r.Name == s.Site.Name).Engine, ct) : null,
+                s.ImageMismatch)));
         }
         return [.. configured.Select((r, i) => i == 0 && c.Driven?.Engine is not null
             ? new RunnerStatusBody(r.Name, HostOf(r.Url), first.Reachable, first.Error, first.ElapsedMs, snapshot?.State is null ? null : snapshot.IsDraining, snapshot?.IsDraining == true ? snapshot.StateReason : null, null,

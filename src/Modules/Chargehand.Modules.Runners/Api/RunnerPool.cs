@@ -6,13 +6,15 @@ namespace Chargehand.Modules.Runners.Api;
 /// <summary>One runner as <see cref="RunnerPool"/> places tasks on it: its settings from the profile and its <c>GET /host</c>.</summary>
 /// <param name="Config">What the profile says about it.</param>
 /// <param name="Host">Its <c>GET /host</c>; null: tasks are placed on it by count only.</param>
-public sealed record PoolSite(DrivenRunnerEntry Config, IHostSource? Host = null)
+/// <param name="Images"><c>driven.images</c>, mapped to this runner's platform (<c>driven.image_variants</c>): what its allowlist (<see cref="HostSnapshot.Images"/>) must carry. Null: not checked.</param>
+public sealed record PoolSite(DrivenRunnerEntry Config, IHostSource? Host = null, IReadOnlyList<string>? Images = null)
 {
     public string Name => Config.Name;
 }
 
-/// <summary>A runner as <see cref="RunnerPool.StatusAsync"/> reports it: whether it answered, why not, its last host figures and the sessions this server runs there.</summary>
-public sealed record RunnerStatus(PoolSite Site, bool Reachable, string? Why, HostSnapshot? Snapshot, int Running, long ElapsedMs);
+/// <summary>A runner as <see cref="RunnerPool.StatusAsync"/> reports it: whether it answered, why not, its last host figures, the sessions this server runs there, and whether its allowlist is
+/// missing a configured session image (ADR 0058's drift: the server and the runner's <c>--images</c> fall out of step).</summary>
+public sealed record RunnerStatus(PoolSite Site, bool Reachable, string? Why, HostSnapshot? Snapshot, int Running, long ElapsedMs, string? ImageMismatch = null);
 
 /// <summary>Picks a runner for each task (ADR 0058). A runner is eligible when it answered <c>GET /host</c> within <see cref="ProbeTimeout"/> (an answer is reused for <see cref="HealthTtl"/>; a
 /// runner that did not answer is skipped for 15 seconds, then 30, doubling to 2 minutes), is not draining, has a session slot under its <c>max_sessions</c>, and passes the memory and load rule of
@@ -98,7 +100,8 @@ public sealed class RunnerPool : IAdmission, IDisposable
             {
                 var clock = System.Diagnostics.Stopwatch.StartNew();
                 var probe = await ProbeAsync(state, ct, sweep: false);
-                statuses.Add(new RunnerStatus(state.Site, probe.Healthy, probe.Why, probe.Snapshot, state.Admission.Running, clock.ElapsedMilliseconds));
+                statuses.Add(new RunnerStatus(state.Site, probe.Healthy, probe.Why, probe.Snapshot, state.Admission.Running, clock.ElapsedMilliseconds,
+                    probe.Healthy ? ImageProblem(state.Site, probe.Snapshot) : null));
             }
             return statuses;
         }
@@ -183,6 +186,11 @@ public sealed class RunnerPool : IAdmission, IDisposable
                 reasons.Add($"{state.Site.Name}: draining{(draining.StateReason is null ? "" : $" ({draining.StateReason})")}");
                 continue;
             }
+            if (ImageProblem(state.Site, probe.Snapshot) is { } mismatch)
+            {
+                reasons.Add($"{state.Site.Name}: {mismatch}");
+                continue;
+            }
             usable++;
             if (state.Site.Config.MaxSessions is { } max && state.Admission.Running >= max)
             {
@@ -206,6 +214,20 @@ public sealed class RunnerPool : IAdmission, IDisposable
     {
         state.Admission.Commit(requestMb);
         return new AdmissionDecision(true, detail, state.Site.Name);
+    }
+
+    /// <summary>The configured images this runner's reported allowlist is missing, or null when there is nothing to check (no configured images, or an allowlist the runner did not report).</summary>
+    private static string? ImageProblem(PoolSite site, HostSnapshot? snapshot)
+    {
+        if (site.Images is not { Count: > 0 } images || snapshot?.Images is not { } allow)
+            return null;
+        var missing = images.Where(i => !allow.Contains(i, StringComparer.Ordinal)).ToList();
+        return missing.Count switch
+        {
+            0 => null,
+            1 => $"image {missing[0]} is not on its allowlist",
+            _ => $"images {string.Join(", ", missing)} are not on its allowlist",
+        };
     }
 
     private State? Find(string name) => _states.FirstOrDefault(s => s.Site.Name == name);

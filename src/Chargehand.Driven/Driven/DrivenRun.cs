@@ -88,10 +88,15 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     // With several runners (ADR 0058) the pool places each task; with one host, the memory rule of ADR 0045 alone.
     private readonly IAdmission? _admission = services?.Runners is { Count: > 0 } runners
-        ? new RunnerPool([.. runners.Select(r => new PoolSite(r.Config, r.Host))], profile.Driven?.Admission ?? new DrivenAdmission(), services.Poll, log: message => Console.Error.WriteLine($"chargehand: {message}"))
+        ? new RunnerPool([.. runners.Select(r => new PoolSite(r.Config, r.Host, SessionImagesFor(profile.Driven, r.Config.Platform)))], profile.Driven?.Admission ?? new DrivenAdmission(), services.Poll,
+            log: message => Console.Error.WriteLine($"chargehand: {message}"))
         : services?.Host is { } host
             ? new HostAdmission(host, profile.Driven?.Admission ?? new DrivenAdmission(), services.Poll, log: message => Console.Error.WriteLine($"chargehand: {message}"))
             : null;
+
+    /// <summary><c>driven.images</c> mapped to this runner's platform (<c>driven.image_variants</c>, ADR 0058): what its allowlist must carry (<see cref="RunnerPool"/> preflight).</summary>
+    private static IReadOnlyList<string>? SessionImagesFor(DrivenSettings? driven, string platform) =>
+        driven?.Images is { Count: > 0 } images ? [.. images.Select(i => driven.ImageFor(i, platform)).Distinct(StringComparer.Ordinal)] : null;
 
     public void Dispose()
     {

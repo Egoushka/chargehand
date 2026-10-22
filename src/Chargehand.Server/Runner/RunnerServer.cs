@@ -230,7 +230,8 @@ public static class RunnerServer
             return Ok(new { });
         }));
 
-        app.MapGet("/host", (CancellationToken ct) => Guard(async () => Ok(await (host ?? new HostProbe()).ReadAsync(ct) ?? new HostSnapshot(null, null, null, null, null, null))));
+        app.MapGet("/host", (CancellationToken ct) => Guard(async () =>
+            Ok((await (host ?? new HostProbe()).ReadAsync(ct) ?? new HostSnapshot(null, null, null, null, null, null)) with { Images = policy.Images })));
 
         app.MapGet("/count", (HttpContext ctx, CancellationToken ct) => Guard(async () => Ok(new { count = await engine.CountAsync(ct) })));
 

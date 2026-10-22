@@ -214,6 +214,8 @@ export interface RunnerStatusBody {
   running?: number | null;
   max_sessions?: number | null;
   container_count?: number | null;
+  /** A configured session image the runner's reported allowlist is missing; null when nothing is missing, or nothing to check. Absent from a server older than this field. */
+  image_mismatch?: string | null;
 }
 
 export interface ImageBody {
