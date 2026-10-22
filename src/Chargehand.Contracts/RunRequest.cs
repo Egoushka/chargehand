@@ -42,13 +42,15 @@ public sealed record PromptBlock(string Name, string Version, string Sha256, str
 /// <param name="MaxTokensTotal">Input plus output tokens over the whole batch, counted from each session's stream; binds in both credential modes.</param>
 /// <param name="MaxUsdTotal">Dollars over the batch; enforced only where the credential is priced (an API key).</param>
 /// <param name="Plan">Run the planning step before the batch (ADR 0049); null: the profile's <c>driven.planning.enabled</c> decides.</param>
+/// <param name="Bench">The batch is a benchmark run (ADR 0052): its learning records are tagged, and budgets, <c>learn report</c>, the console and the pull request read-back leave them out. Null or false: an ordinary batch.</param>
 public sealed record RequestDriven(
     IReadOnlyList<DrivenTask> Tasks,
     int? MaxParallel = null,
     long? MaxTokensTotal = null,
     decimal? MaxUsdTotal = null,
     bool DraftPr = true,
-    bool? Plan = null);
+    bool? Plan = null,
+    bool? Bench = null);
 
 /// <param name="MaxTurns">Replaces the preset's <c>max_turns</c> for this task's sessions; null: the preset's.</param>
 /// <param name="MaxMinutes">Replaces the preset's <c>max_minutes</c> for this task's sessions; null: the preset's.</param>

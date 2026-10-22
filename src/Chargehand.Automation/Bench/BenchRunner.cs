@@ -327,7 +327,7 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
         // Plan false: the planner would size and split the tasks, and the set's sizes and goals are what is measured.
         var request = new RunRequest("request/v1", $"chargehand benchmark: {repo.Name}",
             new RequestContext(false, "driven", Repository: new RepositoryRef(path, repo.Commit), Verify: repo.Test),
-            Driven: new RequestDriven(driven, options.MaxParallel, options.MaxTokens, options.MaxUsd, true, Plan: false));
+            Driven: new RequestDriven(driven, options.MaxParallel, options.MaxTokens, options.MaxUsd, true, Plan: false, Bench: true));
         var runId = await server!.SubmitAsync(request, ct);
         await output.WriteLineAsync($"{repo.Name}: batch {runId} started ({driven.Count} tasks); `chargehand watch {runId}` shows it");
         var (events, result) = await server.FollowAsync(runId, e =>

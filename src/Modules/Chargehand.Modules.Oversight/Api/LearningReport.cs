@@ -85,22 +85,27 @@ public static partial class LearningReport
     private static partial Regex Days();
 }
 
-/// <summary><c>chargehand learn report [--since 30d|&lt;time&gt;]</c> (ADR 0045): reads the learning records and prints the table. Exit 0, 2 on a usage error.</summary>
+/// <summary><c>chargehand learn report [--since 30d|&lt;time&gt;] [--include-bench]</c> (ADR 0045): reads the learning records and prints the table. Benchmark tasks are counted only with <c>--include-bench</c>.
+/// Exit 0, 2 on a usage error.</summary>
 public static class LearningCli
 {
     public static async Task<int> RunAsync(IReadOnlyList<string> args, ILearningStore store, TextWriter output, TextWriter error, DateTimeOffset now, CancellationToken ct)
     {
         DateTimeOffset? since = null;
-        for (var i = 0; i < args.Count; i += 2)
+        var includeBench = false;
+        for (var i = 0; i < args.Count; i++)
         {
-            if (args[i] != "--since" || i + 1 >= args.Count || LearningReport.ParseSince(args[i + 1], now) is not { } parsed)
+            if (args[i] == "--include-bench")
+                includeBench = true;
+            else if (args[i] == "--since" && i + 1 < args.Count && LearningReport.ParseSince(args[++i], now) is { } parsed)
+                since = parsed;
+            else
             {
-                error.WriteLine("usage: chargehand learn report [--since <days>d|<ISO 8601 time>]");
+                error.WriteLine("usage: chargehand learn report [--since <days>d|<ISO 8601 time>] [--include-bench]");
                 return 2;
             }
-            since = parsed;
         }
-        output.Write(LearningReport.Render(LearningReport.Build(await store.ReadAsync(ct), since)));
+        output.Write(LearningReport.Render(LearningReport.Build(await store.ReadAsync(ct, includeBench), since)));
         return 0;
     }
 }

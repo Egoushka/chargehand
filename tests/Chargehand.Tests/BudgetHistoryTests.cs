@@ -252,7 +252,7 @@ public class BudgetHistoryTests
 
         public Task AppendAsync(PrOutcomeRecord record, CancellationToken ct) => Task.CompletedTask;
 
-        public Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct) => throw new IOException("unreadable");
+        public Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct, bool includeBench = false) => throw new IOException("unreadable");
     }
 
     [Fact]

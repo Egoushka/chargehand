@@ -56,8 +56,9 @@ internal sealed class ConsoleContext(ServerSettings settings, RunService runs, I
     /// <summary>The sessions, governor logs, checks and CI fix attempts kept for a batch's tasks (CHARGEHAND-214); empty when none are.</summary>
     public BatchTaskRecords TaskRecordsOf(string runId) => driven?.Records?.ReadTasks(runId) ?? BatchTaskRecords.Empty;
 
-    public async Task<IReadOnlyList<LearningEntry>> LearningAsync(CancellationToken ct) =>
-        driven?.Learning is { } store ? await store.ReadAsync(ct) : [];
+    /// <summary>The learning entries the console shows; a benchmark's tasks only where a batch's own view asks for them.</summary>
+    public async Task<IReadOnlyList<LearningEntry>> LearningAsync(CancellationToken ct, bool includeBench = false) =>
+        driven?.Learning is { } store ? await store.ReadAsync(ct, includeBench) : [];
 
     /// <summary>The integrator's policy for a remote repository; off when the profile has none.</summary>
     public IntegrationMode IntegrationOf(RemoteRepository? remote) =>
