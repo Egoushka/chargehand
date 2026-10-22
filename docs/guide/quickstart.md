@@ -74,7 +74,8 @@ A request names a repository and a commit. chargehand clones the repository at t
 - `repository_roots` lists the directories a repository may sit under; `"/"` allows any.
 - Without `repository_roots`, `run` and `mcp` allow `worker_root` and the directory they were launched in. `serve` allows `worker_root` only.
 - `worker_root` must sit outside your home directory. It defaults to `/var/tmp/chargehand/work`, created on first use.
-- chargehand refuses a clone that tracks a file the preset denies reading (`*.env`, `*.env.*`) with `checkout_has_secrets`.
+- A tracked file the preset denies reading (`*.env`, `*.env.*`) is left out of the worker's clone, and the worker is told which.
+  A driven session refuses such a clone with `checkout_has_secrets`: its shell would reach the file through git.
 
 The shortest path is a question about chargehand itself. Run from `<checkout>` and the checkout is the launch directory, so you need no roots.
 

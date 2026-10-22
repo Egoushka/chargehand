@@ -1,4 +1,5 @@
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
 
@@ -12,28 +13,52 @@ namespace Chargehand.Tests;
 public class CheckoutTests
 {
     [Fact]
-    public async Task A_tracked_denied_file_fails_before_any_worker_session()
+    public async Task A_tracked_denied_file_is_left_out_of_the_worker_checkout()
     {
         using var root = new TempDir();
-        var repo = Runs.GitRepo(root.Path);
-        Directory.CreateDirectory(Path.Combine(repo.Path, "sub"));
-        Directory.CreateDirectory(Path.Combine(repo.Path, "stack"));
-        foreach (var name in new[] { "sub/.env", "x.env.local", ".env.example", "stack/.env.enc" })
-            File.WriteAllText(Path.Combine(repo.Path, name), "TOKEN=placeholder\n");
-        repo = Runs.Commit(repo, "sub/.env", "x.env.local", ".env.example", "stack/.env.enc");
+        var repo = TrackingDeniedFiles(root.Path);
         var runtime = new ScriptedRuntime(Runs.WorkerReply);
 
         var r = await Runs.Orchestrator(runtime, root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
             .RunAsync(Runs.CheapRequest(repo), CancellationToken.None);
 
-        Assert.Equal(ResultStatus.Failed, r.Status);
-        Assert.Equal(ErrorCode.CheckoutHasSecrets, r.Error?.Code);
-        Assert.NotNull(r.Error!.Action);
-        Assert.Contains("sub/.env", r.Summary, StringComparison.Ordinal);
-        Assert.Contains("x.env.local", r.Summary, StringComparison.Ordinal);
-        Assert.DoesNotContain(".env.example", r.Summary, StringComparison.Ordinal);
-        Assert.DoesNotContain(".env.enc", r.Summary, StringComparison.Ordinal);   // SOPS ciphertext, as GitOps repos track it
-        Assert.Empty(runtime.Created);
+        Assert.NotEqual(ResultStatus.Failed, r.Status);
+        var directory = Assert.Single(runtime.Created).Directory;
+        Assert.False(File.Exists(Path.Combine(directory, "sub", ".env")));
+        Assert.False(File.Exists(Path.Combine(directory, "x.env.local")));
+        Assert.True(File.Exists(Path.Combine(directory, ".env.example")));
+        Assert.True(File.Exists(Path.Combine(directory, "stack", ".env.enc")));   // SOPS ciphertext, as GitOps repos track it
+        Assert.Equal("", Runs.Git(directory, "status", "--porcelain"));         // still tracked: a commit never deletes them
+        var prompt = Assert.Single(runtime.Prompts);
+        Assert.Contains("sub/.env", prompt, StringComparison.Ordinal);
+        Assert.Contains("x.env.local", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_driven_checkout_still_refuses_a_tracked_denied_file()
+    {
+        // A driven session has a shell, and git reads any tracked file whether or not it is in the working tree.
+        using var root = new TempDir();
+        var repo = TrackingDeniedFiles(root.Path);
+
+        var e = await Assert.ThrowsAsync<ChargehandException>(() =>
+            Runs.Orchestrator(new ScriptedRuntime(Runs.WorkerReply), root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
+                .CheckoutForDrivenAsync(repo, "driven", CancellationToken.None));
+
+        Assert.Equal(ErrorCode.CheckoutHasSecrets, e.Code);
+        Assert.Contains("sub/.env", e.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(".env.example", e.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(".env.enc", e.Message, StringComparison.Ordinal);
+    }
+
+    private static RepositoryRef TrackingDeniedFiles(string workerRoot)
+    {
+        var repo = Runs.GitRepo(workerRoot);
+        Directory.CreateDirectory(Path.Combine(repo.Path, "sub"));
+        Directory.CreateDirectory(Path.Combine(repo.Path, "stack"));
+        foreach (var name in new[] { "sub/.env", "x.env.local", ".env.example", "stack/.env.enc" })
+            File.WriteAllText(Path.Combine(repo.Path, name), "TOKEN=[masked:assignment]");
+        return Runs.Commit(repo, "sub/.env", "x.env.local", ".env.example", "stack/.env.enc");
     }
 
     [Fact]
