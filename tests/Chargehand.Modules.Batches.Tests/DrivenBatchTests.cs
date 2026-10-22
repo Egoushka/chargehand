@@ -87,11 +87,9 @@ public class DrivenBatchTests
     }
 
     [Fact]
-    public void A_subscription_batch_needs_a_token_cap_and_a_priced_one_a_dollar_cap()
+    public void A_priced_batch_needs_a_dollar_cap()
     {
         var noCap = Request(new RequestDriven([new DrivenTask("a", null, "g")]));
-        var tokens = Assert.Throws<ChargehandException>(() => DrivenBatch.Limits(noCap, On, Preset, 2m, priced: false, null));
-        Assert.Contains("max_tokens_total", tokens.Message);
         var usd = Assert.Throws<ChargehandException>(() => DrivenBatch.Limits(noCap, On, Preset, 2m, priced: true, null));
         Assert.Contains("max_usd_total", usd.Message);
 
@@ -104,5 +102,18 @@ public class DrivenBatchTests
         Assert.Equal(6m, withUsd.MaxUsdTotal);
         Assert.Equal(9_000_000, withUsd.MaxTokensTotal);                             // the token cap still applies when given
         Assert.Equal(new TaskLimits(1_500_000, 2m), withUsd.PerTask);
+    }
+
+    /// <summary>A scheduled batch names no token cap; on a subscription it gets the per-task cap once per task, which is what the
+    /// scheduler reserves for each task before it starts one anyway.</summary>
+    [Fact]
+    public void A_subscription_batch_without_a_token_cap_gets_the_per_task_cap_for_each_task()
+    {
+        var two = Request(new RequestDriven([new DrivenTask("a", null, "g"), new DrivenTask("b", null, "h")]));
+        var limits = DrivenBatch.Limits(two, On, Preset, 2m, priced: false, null);
+        Assert.Equal(3_000_000, limits.MaxTokensTotal);
+        Assert.Null(limits.MaxUsdTotal);
+        Assert.Equal(new TaskLimits(1_500_000, null), limits.PerTask);
+        Assert.Equal(2 * DrivenBatch.DefaultTaskTokens, DrivenBatch.Limits(two, On, new DrivenPreset(), 2m, priced: false, null).MaxTokensTotal);
     }
 }

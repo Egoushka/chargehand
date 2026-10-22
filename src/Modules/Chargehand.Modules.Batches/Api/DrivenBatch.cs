@@ -76,17 +76,20 @@ public static class DrivenBatch
         return (ready, failed);
     }
 
-    /// <param name="priced">The credential has a dollar price (an API key): the dollar cap is required and enforced. A subscription has none, so the token cap is required.</param>
+    /// <summary>A task's token cap when the preset sets no <c>driven.max_tokens</c>.</summary>
+    public const long DefaultTaskTokens = 2_000_000;
+
+    /// <param name="priced">The credential has a dollar price (an API key): the dollar cap is required and enforced. A subscription has none: a batch that
+    /// names no token cap gets the per-task cap once per task, which is what the scheduler reserves for a task before starting it.</param>
     /// <param name="perTaskUsd">A task's dollar cap where the credential is priced.</param>
     public static BatchLimits Limits(RunRequest request, BatchOptions profile, DrivenPreset preset, decimal perTaskUsd, bool priced, SemaphoreSlim? global)
     {
         var driven = request.Driven!;
         if (priced && driven.MaxUsdTotal is null)
             throw new ChargehandException(ErrorCode.InvalidRequest, "driven.max_usd_total is required with an API key: the batch needs a dollar cap", "Add max_usd_total to the driven block.");
-        if (!priced && driven.MaxTokensTotal is null)
-            throw new ChargehandException(ErrorCode.InvalidRequest, "driven.max_tokens_total is required with a subscription: it has no dollar price to cap", "Add max_tokens_total to the driven block.");
+        var perTask = preset.MaxTokens ?? DefaultTaskTokens;
         var parallel = Math.Clamp(Math.Min(driven.MaxParallel ?? profile.MaxParallel, profile.MaxParallel), 1, ParallelCeiling);
-        return new BatchLimits(parallel, driven.MaxTokensTotal, priced ? driven.MaxUsdTotal : null,
-            new TaskLimits(preset.MaxTokens ?? 2_000_000, priced ? perTaskUsd : null), global);
+        return new BatchLimits(parallel, driven.MaxTokensTotal ?? (priced ? null : perTask * driven.Tasks.Count), priced ? driven.MaxUsdTotal : null,
+            new TaskLimits(perTask, priced ? perTaskUsd : null), global);
     }
 }
