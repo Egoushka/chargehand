@@ -16,6 +16,11 @@ public sealed record Preset(
     ApprovalSettings? Approval = null,
     DrivenPreset? Driven = null)
 {
+    /// <summary>The action a run executes for the one intake chose: that action when <see cref="AllowedActions"/> lists it, otherwise answer. So ask, deny,
+    /// improve and split run only in a preset that allows them (cheap, thorough and strict allow all five; default and review only answer), and the run log
+    /// keeps both, as intake_action and executed_action.</summary>
+    public TaskAction Executes(TaskAction chosen) => AllowedActions.Contains(chosen.ToString().ToLowerInvariant()) ? chosen : TaskAction.Answer;
+
     public static Preset Load(string directory, string name)
     {
         var path = Path.Combine(directory, name + ".yaml");

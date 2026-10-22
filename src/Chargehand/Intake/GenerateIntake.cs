@@ -43,6 +43,9 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, Prom
             return new(null, "The request text is empty.", []);
         if (needsRepository && request.Context.Repository is null)
             return new(null, "The request names no repository checkout and commit (context.repository).", []);
+        if (request.Inputs?.FirstOrDefault(i => IsDiff(i) && !IsUnifiedPatch(i.Text)) is { } notPatch)
+            return new(null, $"Input \"{notPatch.Id}\" is kind {notPatch.Kind} but its text is not a unified patch ({notPatch.Text.Length} characters, no diff --git line and no ---/+++/@@ hunk). " +
+                "Send the patch itself, as git diff prints it; a placeholder, a file path or \"see attached\" never reaches the worker.", []);
 
         var calls = new List<IntakeCall>();
         var prompt = $"{block.Text}\nJSON Schema:\n{ContractSchemas.Text(ContractSchemas.TaskSpec)}\n\nUse id \"{runId}\".\n{RepositoryText(request.Context.Repository)}Request:\n{request.Text}\n{InputsText(request.Inputs)}";
@@ -91,6 +94,22 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, Prom
             budget -= shown;
         }
         return $"\nThe caller supplies these inputs to use:\n{string.Join("\n", lines)}\n";
+    }
+
+    /// <summary>An input the caller labels a diff or patch; its text must then be one (<see cref="IsUnifiedPatch"/>).</summary>
+    private static bool IsDiff(CallerInput input) => input.Kind.Equals("diff", StringComparison.OrdinalIgnoreCase) || input.Kind.Equals("patch", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A unified patch: a <c>diff --git</c> header (renames, mode changes and binary files have no hunk), or a <c>---</c> line, the <c>+++</c>
+    /// line right after it, and an <c>@@</c> hunk header. A cut tail does not matter: the head decides.</summary>
+    internal static bool IsUnifiedPatch(string text)
+    {
+        var lines = text.Split('\n');
+        if (lines.Any(l => l.StartsWith("diff --git ", StringComparison.Ordinal)))
+            return true;
+        for (var i = 0; i + 1 < lines.Length; i++)
+            if (lines[i].StartsWith("--- ", StringComparison.Ordinal) && lines[i + 1].StartsWith("+++ ", StringComparison.Ordinal))
+                return lines.Skip(i + 2).Any(l => l.StartsWith("@@ ", StringComparison.Ordinal));
+        return false;
     }
 
     internal static (TaskSpec? Spec, IReadOnlyList<string> Errors) Parse(string text)
