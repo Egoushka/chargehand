@@ -96,6 +96,8 @@ export interface CredentialBody {
   mode: string;
   /** Whether the secret item resolves; never the value. */
   present?: boolean | null;
+  /** Set while the provider rejects the credential: the account's runs are refused until a probe succeeds. */
+  paused?: { since: string; reason: string } | null;
 }
 
 export interface KeyBody {
