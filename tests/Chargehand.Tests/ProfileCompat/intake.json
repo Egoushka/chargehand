@@ -117,7 +117,8 @@
     },
     "schedules": null,
     "plane": null,
-    "account": null
+    "account": null,
+    "notify": null
   },
   "preset_services": null,
   "delivery": null,

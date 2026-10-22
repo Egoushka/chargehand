@@ -166,6 +166,7 @@ With no `repository_roots`, `serve` allows repositories under `worker_root` only
 | `GET /v1/overview`, `/v1/inbox`, `/v1/batches/{id}`, `/v1/batches/{id}/tasks/{task}`, `/v1/pulls`, `/v1/pulls/conflicts`, `/v1/pulls/train`, `/v1/analytics`, `/v1/repositories` | the [console's read routes](#console-routes): for the owner and for an account, each limited to the account's own runs and spend |
 | `GET /v1/intake`, `/v1/accounts`, `GET /v1/system` | the console's read routes about the server itself: the owner's alone (`403` for an account) |
 | `POST /v1/inbox/dismiss`, `POST /v1/inbox/restore` | [dismiss inbox items](#dismissing-inbox-items) or undo it, for the owner and for an account on its own items |
+| `POST /v1/answers/approvals` | an approvals server's signed answer to a question or partial stop ([Answers from the phone](phone-answers.md)); no key, the HMAC signature is the credential; mapped only with `automation.notify.approvals` |
 | `/v1/mcp` | MCP over Streamable HTTP, see [the MCP page](mcp.md) |
 | `/console/` | the [operator console](web-ui.md): static files, served only when `http.ui` is `true`, without a key (the page calls the routes above with one); `/ui/` redirects to it |
 
