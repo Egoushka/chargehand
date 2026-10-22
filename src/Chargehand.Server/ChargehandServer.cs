@@ -78,7 +78,7 @@ public static partial class ChargehandServer
 
     public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log, Chargehand.Driven.DrivenRun? driven = null, Chargehand.Automation.GitHubIntake? intake = null,
         Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? scheduler = null,
-        Chargehand.Automation.PlaneIntake? plane = null)
+        Chargehand.Automation.PlaneIntake? plane = null, Chargehand.Automation.PhoneAnswers? phone = null)
     {
         var address = IPAddress.Parse(settings.Listen);
         IReadOnlyList<string> hosts = settings.AllowedHosts ?? [];
@@ -120,6 +120,14 @@ public static partial class ChargehandServer
         // ADR 0067: only when the profile has automation.plane.
         if (plane is not null)
             builder.Services.AddHostedService(sp => new PlaneIntakeService(plane, sp.GetRequiredService<RunService>(), automationAccount));
+        // ADR 0077: only when the profile has automation.notify. It reads the same inbox the console does.
+        if (phone is not null)
+            builder.Services.AddHostedService(sp =>
+            {
+                var runs = sp.GetRequiredService<RunService>();
+                var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
+                return new AnswerService(phone.Notifier(new ServerQuestionSource(() => new ConsoleContext(settings, runs, log, driven, new SecretPresence(settings.SecretPresent), dismissals)), settings.Clock));
+            });
         // ADR 0045: reads back what became of the pull requests, only where there are learning records.
         if (driven?.Learning is not null)
             builder.Services.AddHostedService(_ => new PrOutcomeRefresher(driven));
@@ -136,6 +144,12 @@ public static partial class ChargehandServer
         {
             // The console's files (and the redirect from /ui/) are public and carry no data; the page calls the routes below with a key (ADR 0056).
             if (settings.Ui && WebConsole.Serves(ctx.Request.Path))
+            {
+                await next(ctx);
+                return;
+            }
+            // An approvals server's answer carries no key: its signature is checked by the route (ADR 0077).
+            if (phone?.Settings.Approvals is not null && HttpMethods.IsPost(ctx.Request.Method) && ctx.Request.Path == ConsoleAnswers.Path)
             {
                 await next(ctx);
                 return;
@@ -235,6 +249,11 @@ public static partial class ChargehandServer
         }
 
         ConsoleRoutes.Map(app, settings, log, driven);
+        if (phone?.Settings.Approvals is not null)
+        {
+            var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
+            ConsoleAnswers.Map(app, ctx => new ConsoleContext(settings, ctx.RequestServices.GetRequiredService<RunService>(), log, driven, new SecretPresence(settings.SecretPresent), dismissals), phone);
+        }
         ConsoleSources.Map(app, settings, intake, plane);
 
         foreach (var path in new[] { "/v1/accounts/me", IdentityPath })

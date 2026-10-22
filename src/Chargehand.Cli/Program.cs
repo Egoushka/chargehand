@@ -549,6 +549,11 @@ Chargehand.Automation.PlaneIntake? PlaneIntake()
         new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "plane-sources.json")));
 }
 
+// Questions and partial stops sent to a phone (ADR 0077): null unless the profile has automation.notify. Its state sits next to the run log; secrets are read at each call.
+Chargehand.Automation.PhoneAnswers? PhoneAnswers() => profile.Automation?.Notify is { } notify
+    ? Chargehand.Automation.PhoneAnswers.Create(notify, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "notify", "state.json"), profile.Secret, new Chargehand.Automation.HttpScheduleNotifier())
+    : null;
+
 // The console's account view says whether a credential's secret item resolves, never its value.
 bool SecretResolves(string item)
 {
@@ -588,7 +593,7 @@ async Task<int> Serve()
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
         PlaneStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "plane.json"),
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn),
-        orchestrator, runLog, drivenRun, GitHubIntake(), Schedules(drivenRun), PlaneIntake());
+        orchestrator, runLog, drivenRun, GitHubIntake(), Schedules(drivenRun), PlaneIntake(), PhoneAnswers());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);
