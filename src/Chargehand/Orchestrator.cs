@@ -229,14 +229,15 @@ public sealed class Orchestrator(
     }
 
     /// <summary>One call to the intake model, the cheapest a run makes: whether the runtime, its credential and any gateway answer at all.</summary>
-    public async Task<ModelProbe> ProbeAsync(TimeSpan timeout, CancellationToken ct)
+    /// <param name="actor">The account whose credential to try (ADR 0053); null: the server's.</param>
+    public async Task<ModelProbe> ProbeAsync(TimeSpan timeout, CancellationToken ct, string? actor = null)
     {
         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct);
         bounded.CancelAfter(timeout);
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            await runtime.GenerateAsync(ParseModel(profile.IntakeModel), "Reply with the single word ok.", bounded.Token);
+            await (actor is null ? runtime : runtimeFor?.Invoke(actor) ?? runtime).GenerateAsync(ParseModel(profile.IntakeModel), "Reply with the single word ok.", bounded.Token);
             return new ModelProbe(true, profile.IntakeModel ?? "auto", sw.ElapsedMilliseconds, null);
         }
         catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)

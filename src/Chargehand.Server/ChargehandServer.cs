@@ -97,12 +97,19 @@ public static partial class ChargehandServer
         // OrchestrateTool reads the MCP call's Prefer header.
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddSingleton(new McpHttp(settings.McpWait ?? DefaultMcpWait, log));
-        AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory, driven, settings.MaxConcurrentRuns, settings.MaxSessionCalls, settings.StateDirectory, log, settings.Clock)
+        // The owner hears of a paused or resumed model credential where scheduled results go (automation.schedules.notify_url).
+        Func<string, string, CancellationToken, Task>? notify = settings.Profile?.Automation?.Schedules?.NotifyUrl is { } notifyUrl
+            ? (title, body, ct) => new Chargehand.Automation.HttpScheduleNotifier().PostAsync(notifyUrl, title, body, ct)
+            : null;
+        AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory, driven, settings.MaxConcurrentRuns, settings.MaxSessionCalls, settings.StateDirectory, log, settings.Clock,
+                settings.Accounts, notify)
             // Hybrid: 2026-07-28 clients run stateless (tasks, input_required results); initialize clients get a session.
             .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients);
 
         // Before the listener opens: interrupted batches are taken up and leftovers swept, so no new batch can be mistaken for one.
         builder.Services.AddHostedService(sp => new BatchResumer(sp.GetRequiredService<RunService>(), log));
+        builder.Services.AddHostedService(sp => new CredentialProbe(sp.GetRequiredService<RunService>(),
+            (actor, ct) => orchestrator.ProbeAsync(CredentialProbe.Timeout, ct, actor), settings.Clock));
         // ADR 0076: automated starts are charged to and admitted as automation.account when the profile names one.
         var automationAccount = settings.Profile?.Automation?.Account is { } charged ? settings.Accounts?.FirstOrDefault(a => a.Name == charged) : null;
         // ADR 0051: only when the profile has automation.github. After the resumer, so a restart's own batches are counted before intake starts new ones.
@@ -387,10 +394,11 @@ public static partial class ChargehandServer
 
     /// <summary>What both hosts share: the run service, the tool, the tasks store and the instructions.</summary>
     private static IMcpServerBuilder AddOrchestrate(IServiceCollection services, Orchestrator orchestrator, string presetsDirectory, Chargehand.Driven.DrivenRun? driven = null,
-        int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null, IRunLog? log = null, TimeProvider? clock = null)
+        int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null, IRunLog? log = null, TimeProvider? clock = null,
+        IReadOnlyList<AccountSettings>? accounts = null, Func<string, string, CancellationToken, Task>? notify = null)
     {
         services.AddSingleton(sp => new RunService(orchestrator, presetsDirectory,
-            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping, driven, maxConcurrentRuns, maxSessionCalls, stateDirectory, log, clock));
+            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping, driven, maxConcurrentRuns, maxSessionCalls, stateDirectory, log, clock, accounts, notify));
         return services.AddMcpServer(o =>
             {
                 o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" };

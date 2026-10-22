@@ -19,8 +19,11 @@ namespace Chargehand.Server;
 /// allows 2 concurrent nodes per model, and a split already uses both. A run outlives the HTTP or MCP call that started it. Start and run records live in the run log, which
 /// the CLI shares (ADR 0018); events live here only while the run is unfinished.
 /// </summary>
+/// <param name="accounts">The profile's accounts: which model credential each one's runs use (<see cref="CredentialHealth.KeyOf"/>).</param>
+/// <param name="notify">Posts a title and a text to the owner (the schedules' <c>notify_url</c>); null: nowhere.</param>
 public sealed class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping, DrivenRun? driven = null,
-    int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null, IRunLog? log = null, TimeProvider? clock = null) : IDisposable, IAsyncDisposable
+    int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null, IRunLog? log = null, TimeProvider? clock = null,
+    IReadOnlyList<AccountSettings>? accounts = null, Func<string, string, CancellationToken, Task>? notify = null) : IDisposable, IAsyncDisposable
 {
     /// <summary>Unfinished top-level runs held at most; beyond it a new run is refused (HTTP 429). A session's research and review runs do not count: the child gate and the session count bound them.</summary>
     public const int MaxUnfinished = 10;
@@ -84,6 +87,9 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
     /// has left, or refused: a run underway can still overshoot a cap by its own budget.</summary>
     public async Task<(RunRequest Request, AccountRefusal? Refusal)> AdmitAsync(Principal? who, RunRequest request, CancellationToken ct)
     {
+        if (Credentials.Paused(CredentialOf(who?.Account?.Name)) is { } paused)
+            return (request, new("credential_paused", $"the model credential these runs use was rejected at {paused.Since:u} ({paused.Reason}); runs are admitted again once a probe succeeds",
+                StatusCodes.Status503ServiceUnavailable));
         if (who?.Account is not { } account)
             return (request, null);
         var now = Now;
@@ -103,6 +109,38 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
 
     /// <summary>The checkouts this server reads with the commit each has checked out (the repositories tool).</summary>
     public Task<IReadOnlyList<RepositoryHead>> RepositoriesAsync(CancellationToken ct) => orchestrator.RepositoriesAsync(ct);
+
+    /// <summary>Which model credentials are paused because the provider rejected them.</summary>
+    public CredentialHealth Credentials { get; } = new();
+
+    /// <summary>The credential a run of <paramref name="actor"/> uses: <see cref="CredentialHealth.Server"/> or the account's own.</summary>
+    public string CredentialOf(string? actor) => CredentialHealth.KeyOf(actor, accounts);
+
+    /// <summary>Every credential runs can use: the server's and each account's own.</summary>
+    public IReadOnlyList<string> CredentialKeys => [CredentialHealth.Server, .. (accounts ?? []).Where(a => a.Model?.ApiKeySecret is not null).Select(a => a.Name)];
+
+    /// <summary>Pauses or resumes <paramref name="key"/> on what a run or a probe saw, and tells the owner once per change.</summary>
+    /// <param name="error">Null: the credential answered.</param>
+    public async Task ReportCredentialAsync(string key, string? error, CancellationToken ct)
+    {
+        if (error is null ? Credentials.Succeed(key) : Credentials.Fail(key, error, Now))
+            await NotifyAsync(error is null ? $"chargehand: credential '{key}' works again" : $"chargehand: credential '{key}' rejected, runs paused",
+                error is null ? "A probe succeeded; runs on it are admitted again." : $"The provider rejected it: {Credentials.Paused(key)?.Reason}. New runs on it are refused until a probe succeeds.", ct);
+    }
+
+    private async Task NotifyAsync(string title, string body, CancellationToken ct)
+    {
+        if (notify is null)
+            return;
+        try
+        {
+            await notify(title, body, ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            Console.Error.WriteLine($"chargehand serve: could not send the notification '{title}': {e.Message}");
+        }
+    }
 
     /// <summary>The account's month spend forecast (ADR 0076); null without a run log.</summary>
     public async Task<SpendForecast?> ForecastAsync(AccountSettings account, CancellationToken ct)
@@ -235,6 +273,8 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
                     : await orchestrator.RunAsync(request, run.Token, run.Id, run.Publish, parentRunId, () => run.CancelledByCaller, run.Actor);
                 if (chargeTo is not null)
                     Ledger.Charge(chargeTo, result.Usage.Usd ?? 0, result.Usage.Input + result.Usage.Output);
+                if (CredentialHealth.Rejected(result.Error?.Message))
+                    await ReportCredentialAsync(CredentialOf(run.Actor), result.Error!.Message, CancellationToken.None);
                 run.Complete(result);
             }
             finally
