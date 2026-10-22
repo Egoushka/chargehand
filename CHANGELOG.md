@@ -5,6 +5,32 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.18.0](https://github.com/Egoushka/chargehand/compare/v0.17.0...v0.18.0) (2026-10-22)
+
+
+### Features
+
+* **automation:** answer a task's question from the phone through signed decisions (CHARGEHAND-273) ([#422](https://github.com/Egoushka/chargehand/issues/422)) ([a9b84a7](https://github.com/Egoushka/chargehand/commit/a9b84a73a7055fdd85a64ea1a1a3cc745574550d))
+* **cli:** chargehand adopt probes a repository in the session image and lists what is missing (CHARGEHAND-282) ([#421](https://github.com/Egoushka/chargehand/issues/421)) ([c659f05](https://github.com/Egoushka/chargehand/commit/c659f05d1adad18bb9055c80f32cdbaf6ce32cad))
+* **console:** agent-readiness score per repository, with a proposed task to fix its gaps (CHARGEHAND-281) ([#418](https://github.com/Egoushka/chargehand/issues/418)) ([7d8f6c3](https://github.com/Egoushka/chargehand/commit/7d8f6c3c019ad87550286201d3766faf1fffc88e))
+* **driven:** a cost receipt on each task's pull request and its console row (CHARGEHAND-288) ([#413](https://github.com/Egoushka/chargehand/issues/413)) ([1de06e6](https://github.com/Egoushka/chargehand/commit/1de06e6b364b180e43b44720d9eab2a850ab5761))
+* **mcp:** owner/name and GitHub URLs as the repository; a repositories tool (CHARGEHAND-264) ([#411](https://github.com/Egoushka/chargehand/issues/411)) ([e8e9427](https://github.com/Egoushka/chargehand/commit/e8e94270ba6cbec34fa6ef61e7ad0847dcdff039))
+* **server:** pause runs on a model credential the provider rejected, resume on a probe (CHARGEHAND-255) ([#423](https://github.com/Egoushka/chargehand/issues/423)) ([975c3f8](https://github.com/Egoushka/chargehand/commit/975c3f8555bf65d52c9213f36986ad59a7356210))
+
+
+### Bug Fixes
+
+* **batches:** a subscription batch without max_tokens_total gets each task's cap (CHARGEHAND-257) ([#420](https://github.com/Egoushka/chargehand/issues/420)) ([f27abd6](https://github.com/Egoushka/chargehand/commit/f27abd666fc2fd3ee146e2ca7407d0f44e2806f1))
+* **bench:** a missing tool is a setup failure, not the expected check result (CHARGEHAND-248) ([#408](https://github.com/Egoushka/chargehand/issues/408)) ([167daad](https://github.com/Egoushka/chargehand/commit/167daadecb37fe363575b9943eb1312dbe52431d))
+* **checkout:** leave files the preset denies reading out of a worker's checkout instead of refusing the run ([#414](https://github.com/Egoushka/chargehand/issues/414)) ([84ed343](https://github.com/Egoushka/chargehand/commit/84ed343d58af211b1a2477589042c3704d500d8c))
+* **intake:** refuse a diff input that is not a unified patch; one tested action rule ([#417](https://github.com/Egoushka/chargehand/issues/417)) ([27ad07d](https://github.com/Egoushka/chargehand/commit/27ad07d312c1cb54b3af72bc2ba841dfd376a6fc))
+* **learning:** write each task attempt once and keep benchmark runs out of budgets (CHARGEHAND-250) ([#410](https://github.com/Egoushka/chargehand/issues/410)) ([9ba9fd0](https://github.com/Egoushka/chargehand/commit/9ba9fd00970bed1a4de2639cf83e0388ab40ae5b))
+* **presets:** test sources named *.env.test.* or *.env.spec.* are not secrets (CHARGEHAND-254) ([#419](https://github.com/Egoushka/chargehand/issues/419)) ([849d85e](https://github.com/Egoushka/chargehand/commit/849d85e20b85eec1f8b643d4e7a67f006cd08c60))
+* **review:** apply the diff onto the pinned checkout so changed code is citable (CHARGEHAND-249) ([#415](https://github.com/Egoushka/chargehand/issues/415)) ([f7562bc](https://github.com/Egoushka/chargehand/commit/f7562bc125d16d5a26d3097201ca835b44f3d26b))
+* **runlog:** close runs a restart left open (CHARGEHAND-260) ([#412](https://github.com/Egoushka/chargehand/issues/412)) ([bdaa02c](https://github.com/Egoushka/chargehand/commit/bdaa02c389ba150201dceed1d5df93b02560bdb6))
+* **sessions:** verify a driven task with scripts/check.sh, the repository's own check ([#458](https://github.com/Egoushka/chargehand/issues/458)) ([cfa8c8d](https://github.com/Egoushka/chargehand/commit/cfa8c8d245e39ace31465d2bae4f40b32a39be81))
+* **worker:** name the budget that stopped a node, and an outside SIGKILL as killed (CHARGEHAND-253) ([#416](https://github.com/Egoushka/chargehand/issues/416)) ([cb6f2a5](https://github.com/Egoushka/chargehand/commit/cb6f2a55207a7bc2f587b6e782a37a1b92fabfb1))
+
 ## [0.17.0](https://github.com/Egoushka/chargehand/compare/v0.16.0...v0.17.0) (2026-10-22)
 
 
