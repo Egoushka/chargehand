@@ -291,6 +291,9 @@ public sealed class Orchestrator(
         var (directory, commit, repository) = kind.Checkout
             ? await Checkout(request.Context.Repository!, kind, ct)
             : (EmptyDirectory(), "", "");
+        string? changeNote = null;
+        if (kind.Checkout && !kind.Writes && (request.Inputs ?? []).FirstOrDefault(i => i.Kind == "diff") is { } change)
+            (directory, commit, changeNote) = await WithChange(directory, commit, change.Text, kind, ct);
         // A writing node works in its own clone on its own branch; the shared checkout stays clean for other runs (ADR 0035).
         var workspace = kind.Writes ? await RunWorkspace.CreateAsync(directory, commit, profile.WorkerRoot, runId, plan[0].Id, ct) : null;
         if (workspace is not null)
@@ -322,7 +325,7 @@ public sealed class Orchestrator(
         {
             var nodeRequest = new NodeRequest(runId, node.Id, traceId,
                 new NodeSpec(directory, kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { [IRunCleanup.RunMetadataKey] = runId, ["chargehand.node"] = node.Id }, granted),
-                instructions, TaskText(request, spec, commit, inputText, callerBlocks, node, plan.Count, upstream) + facts + ServiceCitationNote(granted), chain, directory, commit,
+                instructions, TaskText(request, spec, commit, changeNote, inputText, callerBlocks, node, plan.Count, upstream) + facts + ServiceCitationNote(granted), chain, directory, commit,
                 (request.Inputs ?? []).Select(i => i.Id).ToHashSet(), inputText, cap, TimeSpan.FromMinutes(15),
                 kind.Budget.MaxInputTokens, kind.Compaction?.TriggerTokens, fork,
                 workspace is null ? null : async (_, token) =>
@@ -570,6 +573,15 @@ public sealed class Orchestrator(
                 "Pin a commit that does not track them, or remove them from the repository.");
     }
 
+    /// <summary>A review gets the change it reviews on disk (<see cref="ReviewedChange"/>). A change that adds a file the preset denies reading is not applied: grep would reach it.</summary>
+    private static async Task<(string Directory, string Commit, string? Note)> WithChange(string directory, string commit, string diff, NodeKind kind, CancellationToken ct)
+    {
+        var change = await ReviewedChange.ApplyAsync(directory, commit, diff, ct);
+        return change.Directory != directory && (await DeniedFiles(change.Directory, kind.Permissions, ct)).Count > 0
+            ? (directory, commit, null)
+            : (change.Directory, change.Commit, change.Note);
+    }
+
     /// <summary>Whether the run's output stays on the machine (ADR 0069): the request says so, or the profile forces the repository. A run with no repository is forced only by the root <c>/</c>.</summary>
     private async Task<bool> IsLocalAsync(RunRequest request, CancellationToken ct)
     {
@@ -655,11 +667,13 @@ public sealed class Orchestrator(
         ? ""
         : $"\n\nTo cite what a service tool returned, add evidence of kind session_message whose locator quotes at least {GitEvidenceResolver.MinQuoteLength} characters of the tool's reply exactly as returned (copy it, do not paraphrase or summarize). Never use the reply text as a file or url locator.";
 
-    private static string TaskText(RunRequest request, TaskSpec spec, string commit, string inputText, IReadOnlyList<PromptBlock> callerBlocks,
+    private static string TaskText(RunRequest request, TaskSpec spec, string commit, string? changeNote, string inputText, IReadOnlyList<PromptBlock> callerBlocks,
         PlanNode node, int nodes, IReadOnlyList<ResultContract> upstream)
     {
         var sb = new StringBuilder();
         sb.AppendLine(commit.Length > 0 ? $"Task (repository commit {commit}):" : "Task:").AppendLine(request.Text).AppendLine();
+        if (changeNote is not null)
+            sb.AppendLine(changeNote).AppendLine();
         if (node.Goal is not null)
             sb.AppendLine(CultureInfo.InvariantCulture, $"Your part ({node.Id}, one of {nodes} parts, each answered by a separate worker): {node.Goal}")
               .AppendLine("Answer only your part; do not research the other parts.").AppendLine();
