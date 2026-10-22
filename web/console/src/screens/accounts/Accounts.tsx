@@ -6,6 +6,7 @@ import { formatDateTime, formatTime } from '../../lib/format';
 import { useIsPhone } from '../../shell/useIsPhone';
 import {
   Badge,
+  Banner,
   Button,
   CapMeter,
   Cell,
@@ -29,6 +30,7 @@ import {
   capsRows,
   credentialView,
   firstSelection,
+  forecastView,
   keyViews,
   presenceText,
   repositoriesText,
@@ -143,6 +145,7 @@ export function Accounts() {
                 <KeysPanel account={selected} />
               </div>
               <div className="stack">
+                <ForecastPanel account={selected} />
                 <CredentialPanel account={selected} />
                 <LimitsPanel account={selected} />
               </div>
@@ -372,6 +375,38 @@ function LimitsPanel({ account }: { account: AccountBody }) {
   return (
     <Panel title={`Limits of ${account.name}`} aside={<Later>edit later</Later>}>
       <KeyValue stacked items={capsRows(account)} />
+    </Panel>
+  );
+}
+
+/** The month's spend at the trailing 7-day rate against max_usd_per_month (CHARGEHAND-216, ADR 0076). */
+function ForecastPanel({ account }: { account: AccountBody }) {
+  const view = forecastView(account);
+  if (!view) return null;
+  return (
+    <Panel title="Month forecast" aside={<span className="dim">at the last 7 days’ rate</span>}>
+      <div className="stack stack--tight">
+        <CapMeter
+          label={`${account.name}, spend projected by the end of the month`}
+          head="Projected by the end of the month"
+          value={view.projected}
+          cap={view.cap}
+          text={view.text}
+          level={view.over ? 'danger' : undefined}
+        />
+        <p className="dim small">{view.rate}</p>
+        {view.over && view.reached ? (
+          <Banner tone="danger" icon="alert-triangle" title="The forecast passes the monthly cap">
+            At this rate the cap is reached {formatDateTime(view.reached)}; admission refuses the
+            account’s runs from then until the month ends.
+          </Banner>
+        ) : view.cap == null ? (
+          <p className="dim small">No max_usd_per_month: there is no cap to pass.</p>
+        ) : null}
+        <p className="dim small">
+          Priced usage only: a run on a subscription adds nothing to the forecast.
+        </p>
+      </div>
     </Panel>
   );
 }

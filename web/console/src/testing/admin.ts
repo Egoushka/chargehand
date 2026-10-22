@@ -371,6 +371,13 @@ export function accounts(now = Date.now()): AccountsBody {
             max_concurrent_runs: 3,
           },
           credential: { mode: 'own_key', present: true },
+          forecast: {
+            rate_per_day: 6.5,
+            projected_usd: 125.7,
+            cap_usd: 100,
+            over_cap: true,
+            cap_reached_at: iso(now, -6 * DAY),
+          },
           keys: [
             { id: 'k7f3a1', label: 'ci pipeline', created: iso(now, 40 * DAY) },
             {
@@ -402,6 +409,7 @@ export function accounts(now = Date.now()): AccountsBody {
         {
           unfinished_runs: 0,
           limits: { max_usd_per_month: 50 },
+          forecast: { rate_per_day: 0.2, projected_usd: 5.9, cap_usd: 50, over_cap: false },
           credential: { mode: 'own_gateway', present: false },
           keys: [],
         },

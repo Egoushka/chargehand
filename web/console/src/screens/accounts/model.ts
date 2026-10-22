@@ -181,3 +181,21 @@ export const capsRows = (account: AccountBody): Array<[string, string]> => {
     ['Concurrent runs', `${account.unfinished_runs} of ${limits.max_concurrent_runs ?? 'no cap'}`],
   ];
 };
+
+/** What the month forecast says, in words: null when the server sent none. */
+export function forecastView(account: AccountBody) {
+  const f = account.forecast;
+  if (!f) return null;
+  const cap = f.cap_usd ?? undefined;
+  return {
+    projected: f.projected_usd,
+    cap,
+    over: f.over_cap,
+    text:
+      cap == null
+        ? `≈ ${formatUsd(f.projected_usd)}`
+        : `≈ ${formatUsd(f.projected_usd)} of ${formatUsd(cap)}`,
+    rate: `${formatUsd(f.rate_per_day)} a day over the last 7 days; ${formatUsd(account.spend.month.usd)} so far this month.`,
+    reached: f.cap_reached_at ?? null,
+  };
+}

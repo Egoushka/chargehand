@@ -125,6 +125,8 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         await expect(page.getByText('94%').first()).toBeVisible();
         await expect(page.getByRole('button', { name: 'Add account' })).toBeDisabled();
         await expect(page.getByText('The secret item resolves.')).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Month forecast' })).toBeVisible();
+        await expect(page.getByText('The forecast passes the monthly cap')).toBeVisible();
         await settle(page);
 
         expect(await sidewaysScroll(page)).toBeLessThanOrEqual(0);
