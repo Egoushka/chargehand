@@ -101,7 +101,7 @@ public static partial class ChargehandServer
             .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients);
 
         // Before the listener opens: interrupted batches are taken up and leftovers swept, so no new batch can be mistaken for one.
-        builder.Services.AddHostedService(sp => new BatchResumer(sp.GetRequiredService<RunService>()));
+        builder.Services.AddHostedService(sp => new BatchResumer(sp.GetRequiredService<RunService>(), log));
         // ADR 0076: automated starts are charged to and admitted as automation.account when the profile names one.
         var automationAccount = settings.Profile?.Automation?.Account is { } charged ? settings.Accounts?.FirstOrDefault(a => a.Name == charged) : null;
         // ADR 0051: only when the profile has automation.github. After the resumer, so a restart's own batches are counted before intake starts new ones.
