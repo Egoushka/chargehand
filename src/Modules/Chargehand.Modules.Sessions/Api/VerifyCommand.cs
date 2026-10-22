@@ -18,6 +18,10 @@ public static class VerifyCommand
 
     private static string[]? Detect(string dir)
     {
+        // A repository's own check script is its real test command (docs/guide/driven.md, "scripts/check.sh"); prefer it
+        // over a guessed ecosystem command, the way chargehand's own onboarding (RepositoryDetector.AddScripts) already does.
+        if (File.Exists(Path.Combine(dir, "scripts", "check.sh")))
+            return ["sh", "scripts/check.sh"];
         bool Has(string pattern) => Directory.EnumerateFiles(dir, pattern, SearchOption.TopDirectoryOnly).Any();
         if (Has("*.sln") || Has("*.slnx") || Has("*.csproj"))
             return ["dotnet", "test"];
