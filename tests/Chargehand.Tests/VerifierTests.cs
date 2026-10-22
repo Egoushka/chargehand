@@ -67,6 +67,105 @@ public class VerifierTests
         Assert.Equal("request", plan.Source);
     }
 
+    [Theory]
+    [InlineData("true")]
+    [InlineData("/bin/true")]
+    [InlineData(":")]
+    [InlineData("")]
+    public void A_no_op_requested_command_is_refused_and_falls_back_to_detection(string noOp)
+    {
+        using var dir = new TempDir();
+        dir.Write("go.mod", "");
+        var plan = VerifyCommand.Resolve([noOp], dir.Path)!;
+        Assert.Equal(["go", "test", "./..."], plan.Argv);
+        Assert.Equal("detected", plan.Source);
+    }
+
+    [Fact]
+    public void A_no_op_requested_command_with_nothing_to_detect_leaves_no_plan()
+    {
+        using var dir = new TempDir();
+        Assert.Null(VerifyCommand.Resolve(["true"], dir.Path));
+    }
+
+    [Fact]
+    public void A_non_empty_requested_command_still_wins_over_detection()
+    {
+        using var dir = new TempDir();
+        dir.Write("go.mod", "");
+        var plan = VerifyCommand.Resolve(["make", "check"], dir.Path)!;
+        Assert.Equal(["make", "check"], plan.Argv);
+        Assert.Equal("request", plan.Source);
+    }
+
+    [Fact]
+    public void A_ci_workflow_s_test_step_is_picked_up_when_nothing_else_is_detected()
+    {
+        using var dir = new TempDir();
+        dir.Write(".github/workflows/ci.yml", """
+            name: CI
+            on: push
+            jobs:
+              build:
+                steps:
+                  - uses: actions/checkout@v4
+                  - name: Install
+                    run: make build
+                  - name: Test
+                    run: make test
+            """);
+        var plan = VerifyCommand.Resolve(null, dir.Path)!;
+        Assert.Equal(["sh", "-c", "make test"], plan.Argv);
+        Assert.Equal("ci", plan.Source);
+    }
+
+    [Fact]
+    public void A_ci_workflow_s_block_scalar_run_step_is_read_too()
+    {
+        using var dir = new TempDir();
+        dir.Write(".github/workflows/ci.yml", """
+            jobs:
+              build:
+                steps:
+                  - name: Test
+                    run: |
+                      npm ci
+                      npm test
+            """);
+        var plan = VerifyCommand.Resolve(null, dir.Path)!;
+        Assert.Equal(["sh", "-c", "npm ci && npm test"], plan.Argv);
+        Assert.Equal("ci", plan.Source);
+    }
+
+    [Fact]
+    public void A_scripts_check_sh_wins_over_a_ci_workflow()
+    {
+        using var dir = new TempDir();
+        dir.Write("scripts/check.sh", "#!/bin/sh\necho ok\n");
+        dir.Write(".github/workflows/ci.yml", """
+            jobs:
+              build:
+                steps:
+                  - run: make test
+            """);
+        var plan = VerifyCommand.Resolve(null, dir.Path)!;
+        Assert.Equal(["sh", "scripts/check.sh"], plan.Argv);
+        Assert.Equal("detected", plan.Source);
+    }
+
+    [Fact]
+    public void A_ci_workflow_with_no_test_looking_step_is_not_used()
+    {
+        using var dir = new TempDir();
+        dir.Write(".github/workflows/ci.yml", """
+            jobs:
+              build:
+                steps:
+                  - run: make build
+            """);
+        Assert.Null(VerifyCommand.Resolve(null, dir.Path));
+    }
+
     private static Verifier Sh() => new(new NoSandbox(), false, []);
 
     private static VerifyPlan Script(string body) => new(["/bin/sh", "-c", body], "request");
