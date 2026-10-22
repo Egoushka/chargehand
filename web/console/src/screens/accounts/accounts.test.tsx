@@ -420,4 +420,17 @@ describe('Month forecast', () => {
     });
     expect(screen.queryByRole('heading', { name: 'Month forecast' })).toBeNull();
   });
+
+  it('says automated starts are held on the account that carries them, and only warns without the opt-in', async () => {
+    await open();
+    const forecast = panel('Month forecast');
+    expect(forecast.getByText('Automated starts are held')).toBeTruthy();
+    expect(forecast.getByText(/tried again at the next poll/)).toBeTruthy();
+
+    expect(forecastView({ ...byName('ci-bot'), pause_on_forecast: false })?.automation).toMatch(
+      /pause_on_forecast is off: the forecast only warns/,
+    );
+    expect(forecastView({ ...byName('ci-bot'), pause_on_forecast: false })?.held).toBe(false);
+    expect(forecastView(byName('gateway-user'))?.automation).toBeNull();
+  });
 });

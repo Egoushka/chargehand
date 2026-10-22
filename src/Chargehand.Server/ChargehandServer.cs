@@ -102,9 +102,11 @@ public static partial class ChargehandServer
 
         // Before the listener opens: interrupted batches are taken up and leftovers swept, so no new batch can be mistaken for one.
         builder.Services.AddHostedService(sp => new BatchResumer(sp.GetRequiredService<RunService>()));
+        // ADR 0076: automated starts are charged to and admitted as automation.account when the profile names one.
+        var automationAccount = settings.Profile?.Automation?.Account is { } charged ? settings.Accounts?.FirstOrDefault(a => a.Name == charged) : null;
         // ADR 0051: only when the profile has automation.github. After the resumer, so a restart's own batches are counted before intake starts new ones.
         if (intake is not null)
-            builder.Services.AddHostedService(sp => new IntakeService(intake, sp.GetRequiredService<RunService>()));
+            builder.Services.AddHostedService(sp => new IntakeService(intake, sp.GetRequiredService<RunService>(), automationAccount));
         // ADR 0068: only when the profile has automation.schedules. The morning report reads the same run log and inbox the console does.
         if (scheduler is not null)
             builder.Services.AddHostedService(sp =>
@@ -112,11 +114,11 @@ public static partial class ChargehandServer
                 var runs = sp.GetRequiredService<RunService>();
                 var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
                 var source = new ServerMorningSource(() => new ConsoleContext(settings, runs, log, driven, new SecretPresence(settings.SecretPresent), dismissals));
-                return new ScheduleService(scheduler(source), runs);
+                return new ScheduleService(scheduler(source), runs, automationAccount);
             });
         // ADR 0067: only when the profile has automation.plane.
         if (plane is not null)
-            builder.Services.AddHostedService(sp => new PlaneIntakeService(plane, sp.GetRequiredService<RunService>()));
+            builder.Services.AddHostedService(sp => new PlaneIntakeService(plane, sp.GetRequiredService<RunService>(), automationAccount));
         // ADR 0045: reads back what became of the pull requests, only where there are learning records.
         if (driven?.Learning is not null)
             builder.Services.AddHostedService(_ => new PrOutcomeRefresher(driven));

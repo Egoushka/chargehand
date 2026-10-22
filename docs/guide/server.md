@@ -68,6 +68,7 @@ The caller sends the key as `Authorization: Bearer chk1...` on every route, `/v1
 | `repositories` | absolute directories; `context.repository.path` must be one of them or below it, and every request must name a repository. Absent: any the server allows |
 | `model` | the account's own model credential, see [below](#an-accounts-own-model-key): `api_key_secret` and optional `base_url` |
 | `allow_server_credential` | an account with no `model` may spend the server's model credential; default `false`: its runs are refused with `model_credential_missing` |
+| `pause_on_forecast` | default `false`; needs `max_usd_per_month`. Holds the automated starts charged to this account (`automation.account`) while its month forecast, the month so far plus the last 7 days' rate, passes the cap ([ADR 0076](../adr/0076-month-spend-forecast.md)); a person's own run is never held by it |
 
 The single `api_key_secret` keeps working unchanged as the `owner` account, with no migration.
 

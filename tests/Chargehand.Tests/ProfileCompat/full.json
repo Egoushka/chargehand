@@ -110,7 +110,8 @@
           "base_url": "https://gateway.example.com/v1",
           "oauth_token_secret": null
         },
-        "allow_server_credential": false
+        "allow_server_credential": false,
+        "pause_on_forecast": false
       },
       {
         "name": "bob",
@@ -122,7 +123,8 @@
         "driven": false,
         "repositories": null,
         "model": null,
-        "allow_server_credential": true
+        "allow_server_credential": true,
+        "pause_on_forecast": false
       }
     ],
     "ui": true,

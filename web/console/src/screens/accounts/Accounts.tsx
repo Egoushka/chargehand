@@ -398,10 +398,18 @@ function ForecastPanel({ account }: { account: AccountBody }) {
         {view.over && view.reached ? (
           <Banner tone="danger" icon="alert-triangle" title="The forecast passes the monthly cap">
             At this rate the cap is reached {formatDateTime(view.reached)}; admission refuses the
-            account’s runs from then until the month ends.
+            account’s runs from then until the month ends. A person’s own run is never held by the
+            forecast.
           </Banner>
         ) : view.cap == null ? (
           <p className="dim small">No max_usd_per_month: there is no cap to pass.</p>
+        ) : null}
+        {view.held ? (
+          <Banner tone="warn" icon="pause" title="Automated starts are held">
+            {view.automation}
+          </Banner>
+        ) : view.automation ? (
+          <p className="dim small">{view.automation}</p>
         ) : null}
         <p className="dim small">
           Priced usage only: a run on a subscription adds nothing to the forecast.

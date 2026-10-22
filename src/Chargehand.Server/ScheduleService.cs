@@ -1,18 +1,19 @@
 using Chargehand.Automation;
 using Chargehand.Contracts;
+using Chargehand.Modules.Accounts.Api;
 using Microsoft.Extensions.Hosting;
 
 namespace Chargehand.Server;
 
 /// <summary>Runs the scheduler while the server runs (ADR 0068): started with the host after <see cref="BatchResumer"/>, stopped with it. A scheduled run is an ordinary run of this server's <see cref="RunService"/>.</summary>
-internal sealed class ScheduleService(Scheduler scheduler, RunService runs) : IHostedService, IDisposable
+internal sealed class ScheduleService(Scheduler scheduler, RunService runs, AccountSettings? account = null) : IHostedService, IDisposable
 {
     private readonly CancellationTokenSource _stop = new();
     private Task _loop = Task.CompletedTask;
 
     public Task StartAsync(CancellationToken ct)
     {
-        _loop = Task.Run(() => scheduler.RunAsync(new RunServiceStarter(runs), _stop.Token), CancellationToken.None);
+        _loop = Task.Run(() => scheduler.RunAsync(new RunServiceStarter(runs, account), _stop.Token), CancellationToken.None);
         return Task.CompletedTask;
     }
 

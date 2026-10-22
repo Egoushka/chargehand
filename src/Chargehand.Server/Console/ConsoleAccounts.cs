@@ -13,8 +13,10 @@ public sealed record CredentialBody(string Mode, bool? Present);
 
 /// <param name="Repositories">Directories the account may name; null: any the server allows.</param>
 /// <param name="Forecast">The month's spend at the trailing 7-day rate against <c>max_usd_per_month</c> (CHARGEHAND-216).</param>
+/// <param name="Automation">Automated starts are charged to this account (<c>automation.account</c>; the owner when none is named, ADR 0076).</param>
+/// <param name="PauseOnForecast">Its automated starts are held while <see cref="Forecast"/> passes the cap.</param>
 public sealed record AccountBody(string Name, bool Owner, bool Driven, IReadOnlyList<string>? Repositories, AccountLimits Limits, StandingSpend Spend, int UnfinishedRuns, CredentialBody Credential,
-    IReadOnlyList<KeyBody> Keys, SpendForecast? Forecast = null);
+    IReadOnlyList<KeyBody> Keys, SpendForecast? Forecast = null, bool Automation = false, bool PauseOnForecast = false);
 
 /// <summary><c>accounts/v1</c>: the owner and every account the profile declares, with caps, spend against them, and the state of their keys and credentials. Owner only.</summary>
 public sealed record AccountsBody(string ContractVersion, DateTimeOffset GeneratedAt, IReadOnlyList<AccountBody> Accounts, IReadOnlyList<string> NotRecorded);
@@ -48,7 +50,7 @@ internal static class ConsoleAccounts
                 new StandingSpend(new WindowSpend(day.Usd, day.Tokens, AccountPolicy.NextDay(now)), new WindowSpend(month.Usd, month.Tokens, AccountPolicy.NextMonth(now))),
                 c.Runs.Unfinished(name), Credential(c, account),
                 [.. stored.Where(k => k.Account == name).OrderBy(k => k.Created).Select(k => new KeyBody(k.Id, k.Label, k.Created, k.Revoked, used.TryGetValue(k.Id, out var at) ? at : null))],
-                SpendForecasts.Of(month.Usd, trailing.Usd, account?.MaxUsdPerMonth, now)));
+                SpendForecasts.Of(month.Usd, trailing.Usd, account?.MaxUsdPerMonth, now), name == (c.Profile?.Automation?.Account ?? AccountSettings.Owner), account?.PauseOnForecast ?? false));
         }
         return new AccountsBody(Contract, now, accounts, NotRecorded);
     }
