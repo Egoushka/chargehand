@@ -134,8 +134,8 @@ public sealed class Orchestrator(
             }
             else
             {
-                // An action the preset does not allow, or a split that fails validation, runs as one answer node.
-                executed = preset.AllowedActions.Contains(Name(spec.Action)) ? spec.Action : TaskAction.Answer;
+                // An action the preset does not allow (Preset.Executes), or a split that fails validation, runs as one answer node.
+                executed = preset.Executes(spec.Action);
                 IReadOnlyList<PlanNode> plan = [new PlanNode(kindName, null, [])];
                 if (executed == TaskAction.Split)
                 {
