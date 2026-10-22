@@ -42,6 +42,57 @@ public class RunLogTests
     }
 
     [Fact]
+    public async Task A_start_a_restart_left_open_gets_a_failed_run_record_once()
+    {
+        using var dir = new TempDir();
+        var path = System.IO.Path.Combine(dir.Path, "log.jsonl");
+        var log = new JsonlRunLog(path);
+        await log.AppendAsync(Start("run-old", Environment.ProcessId, "earlier-boot") with { Actor = "alice" }, CancellationToken.None);
+        await log.AppendAsync(Start("run-legacy", int.MaxValue), CancellationToken.None);
+        await log.AppendAsync(Start("run-now", Environment.ProcessId, ProcessBoot.Id), CancellationToken.None);
+        await log.AppendAsync(Start("run-kept", int.MaxValue, "earlier-boot"), CancellationToken.None);
+        await log.AppendAsync(Start("run-done", int.MaxValue, "earlier-boot"), CancellationToken.None);
+        await log.AppendAsync(new RunRecord("run-done", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "cheap", null, null, Completed("run-done")), CancellationToken.None);
+        var now = DateTimeOffset.UtcNow;
+
+        var closed = await InterruptedRuns.CloseAsync(log, new HashSet<string> { "run-kept" }, now, CancellationToken.None);
+
+        Assert.Equal(2, closed);
+        var old = (await log.ReadAsync("run-old", CancellationToken.None)).Run!;
+        Assert.Equal(ResultStatus.Failed, old.Result.Status);
+        Assert.Equal("alice", old.Actor);
+        Assert.Equal(now, old.Finished);
+        Assert.Contains("restarted", old.Result.Error!.Message, StringComparison.Ordinal);
+        Assert.NotNull((await log.ReadAsync("run-legacy", CancellationToken.None)).Run);
+        Assert.Null((await log.ReadAsync("run-now", CancellationToken.None)).Run);
+        Assert.Null((await log.ReadAsync("run-kept", CancellationToken.None)).Run);
+        Assert.Equal(ResultStatus.Completed, (await log.ReadAsync("run-done", CancellationToken.None)).Run!.Result.Status);
+
+        var size = new FileInfo(path).Length;
+        Assert.Equal(0, await InterruptedRuns.CloseAsync(log, new HashSet<string> { "run-kept" }, now, CancellationToken.None));
+        Assert.Equal(size, new FileInfo(path).Length);
+        Assert.Equal(RunState.Failed, (await log.ListAsync(new RunListQuery(RunId: "run-old"), CancellationToken.None)).Single().Status);
+    }
+
+    [Fact]
+    public async Task The_server_closes_the_runs_a_restart_left_open_when_it_starts()
+    {
+        using var dir = new TempDir();
+        var log = new JsonlRunLog(System.IO.Path.Combine(dir.Path, "log.jsonl"));
+        await log.AppendAsync(Start("run-old", int.MaxValue, "earlier-boot"), CancellationToken.None);
+        await log.AppendAsync(Start("run-now", Environment.ProcessId, ProcessBoot.Id), CancellationToken.None);
+        using var runs = new Chargehand.Server.RunService(null!, "", CancellationToken.None, log: log);
+
+        await new Chargehand.Server.BatchResumer(runs, log).StartAsync(CancellationToken.None);
+
+        Assert.Equal(RunState.Failed, (await log.ListAsync(new RunListQuery(RunId: "run-old"), CancellationToken.None)).Single().Status);
+        Assert.Null((await log.ReadAsync("run-now", CancellationToken.None)).Run);
+    }
+
+    private static ResultContract Completed(string id) =>
+        new("result/v1", id, "run", new string('0', 32), new PromptChain([], new AsSent("", "", "", "2026-01-01")), ResultStatus.Completed, "done", [], [], [], [], 1, new Usage(0, 0, 0, 0, 0));
+
+    [Fact]
     public async Task A_resumed_start_names_the_new_owner_in_the_list()
     {
         using var dir = new TempDir();
