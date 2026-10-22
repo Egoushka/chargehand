@@ -4,6 +4,12 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+# dotnet and npm write executable scaffolding to $TMPDIR; a driven session's /tmp is a noexec tmpfs (docs/guide/driven.md,
+# "How a task is isolated"), so default it to a writable directory under the checkout instead of inheriting that /tmp.
+: "${TMPDIR:=$(pwd)/.tmp}"
+mkdir -p "$TMPDIR"
+export TMPDIR
+
 # The console goes first: the server embeds its build, so the .NET tests then check what the server serves (ADR 0056).
 # Without Node the web steps are skipped, said out loud, and the server serves a "console not built" page.
 if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then

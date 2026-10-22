@@ -25,6 +25,17 @@ public class VerifierTests
     }
 
     [Fact]
+    public void A_scripts_check_sh_wins_over_a_guessed_ecosystem_command()
+    {
+        using var dir = new TempDir();
+        dir.Write("App.csproj", "");
+        dir.Write("scripts/check.sh", "#!/bin/sh\necho ok\n");
+        var plan = VerifyCommand.Resolve(null, dir.Path);
+        Assert.Equal(["sh", "scripts/check.sh"], plan!.Argv);
+        Assert.Equal("detected", plan.Source);
+    }
+
+    [Fact]
     public void Package_json_needs_a_test_script_and_pyproject_may_name_pytest()
     {
         using var withScript = new TempDir();
