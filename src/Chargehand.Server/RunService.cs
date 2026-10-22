@@ -9,6 +9,7 @@ using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Tasks.Api;
 using Chargehand.RunLog;
+using Chargehand.Workspace;
 using Microsoft.AspNetCore.Http;
 
 namespace Chargehand.Server;
@@ -99,6 +100,9 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
             ? (request, refusal)
             : (AccountPolicy.Clamp(account, request, day, month), null);
     }
+
+    /// <summary>The checkouts this server reads with the commit each has checked out (the repositories tool).</summary>
+    public Task<IReadOnlyList<RepositoryHead>> RepositoriesAsync(CancellationToken ct) => orchestrator.RepositoriesAsync(ct);
 
     /// <summary>The account's month spend forecast (ADR 0076); null without a run log.</summary>
     public async Task<SpendForecast?> ForecastAsync(AccountSettings account, CancellationToken ct)

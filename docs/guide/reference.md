@@ -24,7 +24,7 @@ From a checkout, every command runs as `dotnet run --project src/Chargehand.Cli 
 | `eval push <cell>` | pushes reviewed items (JSONL on stdin) to the cell's Langfuse dataset | |
 | `eval gate <base> <change> [options]` | Prompt CI's paired runs and verdict, see [Prompt CI](prompt-ci.md#the-eval-commands) | 1 when blocked |
 | `prompts sync` | mirrors prompt blocks to Langfuse prompt management | |
-| `learn report [--since <days>d\|<time>]` | what finished driven tasks taught, per repository and size class: spend (median, 80th percentile), completion and partial rates, governor checkpoints and how many of those tasks still completed, how their pull requests ended ([the learning loop](driven.md#the-learning-loop)); reads `learning.jsonl` next to the run log | 2 on a usage error |
+| `learn report [--since <days>d\|<time>] [--include-bench]` | what finished driven tasks taught, per repository and size class: spend (median, 80th percentile), completion and partial rates, governor checkpoints and how many of those tasks still completed, how their pull requests ended ([the learning loop](driven.md#the-learning-loop)); reads `learning.jsonl` next to the run log | 2 on a usage error |
 | `extensions check [--preset <name>] [--probe <query>]` | connects every `mcp_servers` entry, lists its tools, and checks each `memory` mapping, the `prompt_enhancer` and each preset's `services` against them; one line per item, with an action on every problem. It reads every preset in `presets/`, or only `--preset`. `--probe` also runs one recall per memory and prints how many facts came back | 0 nothing wrong, 1 a problem, 2 usage error or a profile that does not load |
 | `init [<repo path>] [--profile <out>] [--force]` | detects the repository's ecosystems from marker files, prints the proposed `context.verify` and the package hosts the driven preset does not allow, and writes a starter profile | 1 when the profile file exists and `--force` is not given, 2 on a usage error |
 | `doctor [--profile <path>]` | checks a setup and prints one `ok`, `warn` or `fail` line per check, with the fix | 1 when a check fails, 2 on a usage error |
@@ -161,7 +161,7 @@ A failed `result/v1` carries `error`: a fixed `code`, the `message`, `retryable`
 | `rate_limited` | OpenCode answers 429, or an error's text is a rate limit | yes |
 | `repository_not_allowed` | the repository is outside `repository_roots`, or a worker checkout would sit under the home directory | no |
 | `checkout_invalid` | the path is not a git checkout, the commit is not in it, the clone fails, or `git ls-files` fails | no |
-| `checkout_has_secrets` | the clone tracks files the preset denies reading | no |
+| `checkout_has_secrets` | a driven session's clone tracks files the preset denies reading (a worker's clone leaves them out) | no |
 | `cost_cap_reached` | the watcher interrupted a node above its USD cap or its input-token budget | no |
 | `deadline_exceeded` | a node's turn was interrupted for any other reason; the deadline is the only other interrupt | yes |
 | `invalid_result` | a node's turns succeeded but left no valid result contract after the repair turn, or a writing node changed no files | no |

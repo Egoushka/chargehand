@@ -116,7 +116,7 @@ internal static class ConsoleBatches
         if (Locate(c, index, who, runId) is not { } located)
             return null;
         var (start, live) = located;
-        var learning = (await c.LearningAsync(ct)).Where(e => e.Record.BatchId == runId).ToList();
+        var learning = (await c.LearningAsync(ct, includeBench: true)).Where(e => e.Record.BatchId == runId).ToList();
         var batch = Assemble(c, index, start, live, learning);
         var kept = c.TaskRecordsOf(runId);
         var tasks = batch.Tasks.Select(t => TaskBody(c, index, who, batch, t, learning, kept, goalFull: false)).ToList();
@@ -134,7 +134,7 @@ internal static class ConsoleBatches
         if (Locate(c, index, who, runId) is not { } located)
             return null;
         var (start, live) = located;
-        var learning = (await c.LearningAsync(ct)).Where(e => e.Record.BatchId == runId).ToList();
+        var learning = (await c.LearningAsync(ct, includeBench: true)).Where(e => e.Record.BatchId == runId).ToList();
         var batch = Assemble(c, index, start, live, learning);
         if (batch.Tasks.FirstOrDefault(t => t.Id == taskId) is not { } seed)
             return null;

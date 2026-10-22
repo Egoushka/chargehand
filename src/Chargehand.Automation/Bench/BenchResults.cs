@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace Chargehand.Bench;
 
@@ -75,7 +76,22 @@ public sealed record TaskResult(
     double WallSeconds,
     string Outcome);
 
-public sealed record AcceptanceResult(bool Passed, int ExitCode, bool TimedOut, double DurationSeconds, string OutputTail);
+public sealed partial record AcceptanceResult(bool Passed, int ExitCode, bool TimedOut, double DurationSeconds, string OutputTail)
+{
+    /// <summary>The command could not run (126 not executable, 127 not found): the image lacks a tool. That says nothing about the change, so no expectation of a pass or a fail applies.</summary>
+    [JsonIgnore]
+    public bool SetupFailure => !TimedOut && ExitCode is 126 or 127;
+
+    /// <summary>The program that was missing: the name a shell or the verifier reported, else the command's own first word.</summary>
+    public string MissingTool(IReadOnlyList<string> argv)
+    {
+        var m = NotFound().Match(OutputTail);
+        return m.Success ? m.Groups["tool"].Value : argv.Count > 0 ? argv[0] : "unknown";
+    }
+
+    [GeneratedRegex(@"(?:(?<tool>[\w./+-]+): (?:command )?not found|command not found: (?<tool>[\w./+-]+))")]
+    private static partial Regex NotFound();
+}
 
 /// <param name="Acted">The governor really stopped the session (enforce mode); false: it only logged what it would do.</param>
 /// <param name="Action"><c>warn</c>, <c>checkpoint</c> or <c>stop</c>.</param>

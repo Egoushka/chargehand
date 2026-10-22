@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Chargehand.Modules.Forge.Api;
 
 namespace Chargehand.Modules.Oversight.Api;
@@ -60,9 +61,10 @@ public sealed record LearningPr(string Url, int Number, RemoteRepository Remote,
 /// <param name="GovernorMode"><c>off</c>, <c>observe</c> or <c>enforce</c>; null: no governor in the sessions.</param>
 /// <param name="Actor">The account that started the batch (ADR 0050); null: the owner, or a batch from before accounts. An account's <c>GET /v1/learn</c> sees only its own.</param>
 /// <param name="MemoryPeakMb">The most memory any of the task's session containers used (MiB), read from its cgroup while it ran (ADR 0045, admission); null: not measured (a record from before it, or an engine that could not).</param>
+/// <param name="Bench">The batch was a benchmark run (<c>driven.bench</c>): its tasks are built to fail or run against stand-in forges, so the store leaves them out of budgets, reports and the console unless asked. Written only when true.</param>
 public sealed record LearningRecord(string BatchId, string TaskId, string RunId, DateTimeOffset At, string Repository, string SizeClass, string SizeFrom, LearningBudget Budget,
     LearningSpend Spend, string Outcome, string? StopReason, string? GovernorMode, IReadOnlyList<GovernorCount> Governor, bool TestIntegrityFlagged, LearningPr? Pr = null, string? Actor = null,
-    int? MemoryPeakMb = null)
+    int? MemoryPeakMb = null, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Bench = false)
 {
     /// <summary>The task had at least one checkpoint decision, acted on or only logged.</summary>
     public bool Checkpointed => Governor.Any(g => g.Action == "checkpoint" && g.Count > 0);
@@ -83,28 +85,71 @@ public interface ILearningStore
 
     Task AppendAsync(PrOutcomeRecord record, CancellationToken ct);
 
-    /// <summary>One entry per task (the latest record of a run id), oldest first.</summary>
-    Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct);
+    /// <summary>One entry per task attempt (the latest record of a batch, task and run id), oldest first. Benchmark tasks are left out unless <paramref name="includeBench"/>.</summary>
+    Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct, bool includeBench = false);
 }
 
 /// <summary>One JSON object per line, tagged <c>task</c> or <c>pr_outcome</c>, append-only. Only the server process appends, so a gate in the process is enough; a reader skips a last line that has no newline
-/// yet, and a line it cannot read.</summary>
+/// yet, and a line it cannot read. A task attempt is one (batch, task, run id): appending a record that says what the file's latest one for it already says writes nothing, a changed one supersedes it,
+/// and a reader takes the latest, so a file that holds the same attempt twice reads as once.</summary>
 public sealed class JsonlLearningStore(string path) : ILearningStore
 {
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
-    public Task AppendAsync(LearningRecord record, CancellationToken ct) => Append("task", JsonSerializer.SerializeToNode(record, LearningJsonContext.Default.LearningRecord)!, ct);
+    public async Task AppendAsync(LearningRecord record, CancellationToken ct)
+    {
+        var node = JsonSerializer.SerializeToNode(record, LearningJsonContext.Default.LearningRecord)!;
+        await Gate.WaitAsync(ct);
+        try
+        {
+            if (Parse(await Text(ct)).Tasks.TryGetValue(KeyOf(record), out var held) && Same(held, record))
+                return;
+            await WriteLine("task", node, ct);
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
 
-    public Task AppendAsync(PrOutcomeRecord record, CancellationToken ct) => Append("pr_outcome", JsonSerializer.SerializeToNode(record, LearningJsonContext.Default.PrOutcomeRecord)!, ct);
+    public async Task AppendAsync(PrOutcomeRecord record, CancellationToken ct)
+    {
+        await Gate.WaitAsync(ct);
+        try
+        {
+            await WriteLine("pr_outcome", JsonSerializer.SerializeToNode(record, LearningJsonContext.Default.PrOutcomeRecord)!, ct);
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
 
-    public async Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct)
+    public async Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct, bool includeBench = false)
+    {
+        var (tasks, outcomes) = Parse(await Text(ct));
+        return [.. tasks.Values.Where(t => includeBench || !t.Bench).OrderBy(t => t.At).Select(t => new LearningEntry(t, outcomes.GetValueOrDefault(t.RunId)))];
+    }
+
+    private static (string Batch, string Task, string Run) KeyOf(LearningRecord record) => (record.BatchId, record.TaskId, record.RunId);
+
+    /// <summary>Whether two records of one attempt say the same: all but when they were written.</summary>
+    private static bool Same(LearningRecord a, LearningRecord b) =>
+        JsonSerializer.Serialize(a with { At = default }, LearningJsonContext.Default.LearningRecord) == JsonSerializer.Serialize(b with { At = default }, LearningJsonContext.Default.LearningRecord);
+
+    private async Task<string> Text(CancellationToken ct)
     {
         if (!File.Exists(path))
-            return [];
-        Dictionary<string, LearningRecord> tasks = [];
-        Dictionary<string, PrOutcomeRecord> outcomes = [];
+            return "";
         var text = await File.ReadAllTextAsync(path, ct);
-        foreach (var line in text[..(text.LastIndexOf('\n') + 1)].Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        return text[..(text.LastIndexOf('\n') + 1)];
+    }
+
+    private static (Dictionary<(string, string, string), LearningRecord> Tasks, Dictionary<string, PrOutcomeRecord> Outcomes) Parse(string text)
+    {
+        Dictionary<(string, string, string), LearningRecord> tasks = [];
+        Dictionary<string, PrOutcomeRecord> outcomes = [];
+        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             try
             {
@@ -112,7 +157,7 @@ public sealed class JsonlLearningStore(string path) : ILearningStore
                 switch (node["type"]?.GetValue<string>())
                 {
                     case "task" when node.Deserialize(LearningJsonContext.Default.LearningRecord) is { } task:
-                        tasks[task.RunId] = task;
+                        tasks[KeyOf(task)] = task;
                         break;
                     case "pr_outcome" when node.Deserialize(LearningJsonContext.Default.PrOutcomeRecord) is { } outcome:
                         outcomes[outcome.RunId] = outcome;
@@ -123,24 +168,16 @@ public sealed class JsonlLearningStore(string path) : ILearningStore
             {
             }
         }
-        return [.. tasks.Values.OrderBy(t => t.At).Select(t => new LearningEntry(t, outcomes.GetValueOrDefault(t.RunId)))];
+        return (tasks, outcomes);
     }
 
-    private async Task Append(string type, JsonNode node, CancellationToken ct)
+    private async Task WriteLine(string type, JsonNode node, CancellationToken ct)
     {
         node["type"] = type;
         var line = Encoding.UTF8.GetBytes(node.ToJsonString() + "\n");
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-        await Gate.WaitAsync(ct);
-        try
-        {
-            await using var file = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
-            await file.WriteAsync(line, ct);
-        }
-        finally
-        {
-            Gate.Release();
-        }
+        await using var file = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
+        await file.WriteAsync(line, ct);
     }
 }
 

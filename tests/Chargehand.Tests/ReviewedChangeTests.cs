@@ -141,18 +141,19 @@ public class ReviewedChangeTests
     }
 
     [Fact]
-    public async Task A_change_that_adds_a_file_the_preset_denies_reading_is_not_applied()
+    public async Task A_file_the_change_adds_and_the_preset_denies_reading_is_left_out_of_the_checkout()
     {
         using var root = new TempDir();
         var repo = Runs.GitRepo(root.Path);
-        const string diff = "diff --git a/.env b/.env\nnew file mode 100644\n--- /dev/null\n+++ b/.env\n@@ -0,0 +1 @@\n+TOKEN=[masked:assignment]\n";
+        const string diff = "diff --git a/.env b/.env\nnew file mode 100644\n--- /dev/null\n+++ b/.env\n@@ -0,0 +1 @@\n+TOKEN=[masked:assignment]\n" + AddsFile;
 
-        var (r, runtime) = await RunAsync(root, repo, diff, "README.md:1");
+        var (r, runtime) = await RunAsync(root, repo, diff, "src/New.cs:1");
 
         Assert.Equal(ResultStatus.Completed, r.Status);
         var directory = Assert.Single(runtime.Created).Directory;
         Assert.False(File.Exists(Path.Combine(directory, ".env")));
-        Assert.EndsWith(repo.Commit[..12], directory, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(directory, "src", "New.cs")));
+        Assert.Contains(".env", Assert.Single(runtime.Prompts)[Assert.Single(runtime.Prompts).IndexOf("left out of your checkout", StringComparison.Ordinal)..], StringComparison.Ordinal);
     }
 
     [Fact]

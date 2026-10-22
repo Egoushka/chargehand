@@ -250,11 +250,12 @@ public sealed class Orchestrator(
     public Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? DrivenSupportCheck(string? actor) =>
         profile.SupportCheck ? (contract, scope, ct) => SupportCheck.RunAsync(runtimeFor?.Invoke(actor) ?? runtime, ParseModel(profile.IntakeModel), contract, scope, ct) : null;
 
-    /// <summary>The clone of the request's commit that driven sessions start from (the same checkout and refusals as a worker's), with the source's remote and default branch.</summary>
+    /// <summary>The clone of the request's commit that driven sessions start from (the same checkout as a worker's), with the source's remote and default branch.
+    /// A tracked file the preset denies reading refuses the session: it has a shell, and git reads a file whether or not it is in the working tree.</summary>
     public async Task<DrivenCheckout> CheckoutForDrivenAsync(RepositoryRef repo, string presetName, CancellationToken ct)
     {
         var (_, kind) = AnswerKind(Preset.Load(Path.Combine(rootDirectory, "presets"), presetName));
-        var (directory, commit, _) = await Checkout(repo, kind, ct);
+        var (directory, commit, _, _) = await Checkout(repo, kind, refuseDenied: true, ct);
         var source = Path.GetFullPath(repo.Path);
         var remote = await Git(source, ct, "config", "--get", "remote.origin.url")
             ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{repo.Path} has no remote.origin.url to push to", "Add an origin remote to the repository.");
@@ -265,6 +266,9 @@ public sealed class Orchestrator(
     private static ResultError Cancelled() => new(ErrorCode.Cancelled, "the run was cancelled", false, "Start the task again if it is still wanted; nothing was pushed.");
 
     /// <summary>Records a run that was cancelled before it started (it was queued): a start record and a failed result with <c>cancelled</c>.</summary>
+    /// <summary>The checkouts this server reads (<see cref="RepositoryNames"/>) with the commit each has checked out, for the repositories tool.</summary>
+    public Task<IReadOnlyList<RepositoryHead>> RepositoriesAsync(CancellationToken ct) => RepositoryNames.HeadsAsync(RepositoryNames.List(profile), ct);
+
     public async Task<ResultContract> RecordCancelledAsync(RunRequest request, string runId, string? parentRunId, Action<RunStatus>? progress = null, string? actor = null)
     {
         var now = DateTimeOffset.UtcNow;
@@ -288,12 +292,12 @@ public sealed class Orchestrator(
         IReadOnlyList<(string Key, string Value)> instructions, PromptChain chain, IReadOnlyList<PromptBlock> callerBlocks, string runId, string traceId,
         Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, IWorkerRuntime worker, bool local, CancellationToken ct)
     {
-        var (directory, commit, repository) = kind.Checkout
-            ? await Checkout(request.Context.Repository!, kind, ct)
-            : (EmptyDirectory(), "", "");
+        var (directory, commit, repository, excluded) = kind.Checkout
+            ? await Checkout(request.Context.Repository!, kind, refuseDenied: false, ct)
+            : (EmptyDirectory(), "", "", []);
         string? changeNote = null;
         if (kind.Checkout && !kind.Writes && (request.Inputs ?? []).FirstOrDefault(i => i.Kind == "diff") is { } change)
-            (directory, commit, changeNote) = await WithChange(directory, commit, change.Text, kind, ct);
+            (directory, commit, changeNote, excluded) = await WithChange(directory, commit, excluded, change.Text, kind, ct);
         // A writing node works in its own clone on its own branch; the shared checkout stays clean for other runs (ADR 0035).
         var workspace = kind.Writes ? await RunWorkspace.CreateAsync(directory, commit, profile.WorkerRoot, runId, plan[0].Id, ct) : null;
         if (workspace is not null)
@@ -325,7 +329,7 @@ public sealed class Orchestrator(
         {
             var nodeRequest = new NodeRequest(runId, node.Id, traceId,
                 new NodeSpec(directory, kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { [IRunCleanup.RunMetadataKey] = runId, ["chargehand.node"] = node.Id }, granted),
-                instructions, TaskText(request, spec, commit, changeNote, inputText, callerBlocks, node, plan.Count, upstream) + facts + ServiceCitationNote(granted), chain, directory, commit,
+                instructions, TaskText(request, spec, commit, changeNote, inputText, callerBlocks, node, plan.Count, upstream) + facts + ServiceCitationNote(granted) + ExcludedNote(excluded), chain, directory, commit,
                 (request.Inputs ?? []).Select(i => i.Id).ToHashSet(), inputText, cap, TimeSpan.FromMinutes(15),
                 kind.Budget.MaxInputTokens, kind.Compaction?.TriggerTokens, fork,
                 workspace is null ? null : async (_, token) =>
@@ -520,16 +524,15 @@ public sealed class Orchestrator(
     /// The worker reads a clone of the caller's repository at the requested commit, made under worker_root (ADR 0023):
     /// the source may sit anywhere under the profile's repository roots, the worker's directory stays outside the
     /// OpenCode user's home (ADR 0003), and the source's uncommitted and ignored files never reach the worker. A clone
-    /// per source and commit is reused and never deleted (ADR 0015). The clone may hold no file the node kind may not
-    /// read (ADR 0006): OpenCode's grep searches any path or include glob it is given, and its permission resource is
-    /// the search pattern, so a read deny cannot keep it out of a file.
+    /// per source and commit is reused and never deleted (ADR 0015). The clone's working tree holds no file the node kind may
+    /// not read (ADR 0006): OpenCode's grep searches any path or include glob it is given, and its permission resource is
+    /// the search pattern, so a read deny cannot keep it out of a file. Such files are left out of the working tree, or,
+    /// with <paramref name="refuseDenied"/>, refuse the run. Returns the files left out.
     /// </summary>
-    private async Task<(string Directory, string Commit, string Repository)> Checkout(RepositoryRef repo, NodeKind kind, CancellationToken ct)
+    private async Task<(string Directory, string Commit, string Repository, IReadOnlyList<string> Excluded)> Checkout(RepositoryRef repo, NodeKind kind, bool refuseDenied, CancellationToken ct)
     {
         // git prints the top level with symbolic links resolved, so a link under a root cannot point the worker elsewhere.
-        var source = await Git(Path.GetFullPath(repo.Path), ct, "rev-parse", "--show-toplevel")
-            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{repo.Path} is not a git checkout",
-                "Point context.repository.path at a git working tree.");
+        var source = await Git(Path.GetFullPath(repo.Path), ct, "rev-parse", "--show-toplevel") ?? await ByName(repo.Path, ct);
         if (!profile.Roots.Any(root => PathScope.Under(source, PathScope.RealPath(root))))
             throw new ChargehandException(ErrorCode.RepositoryNotAllowed,
                 $"repository {source} is outside the profile's repository_roots ({string.Join(", ", profile.Roots)}); workers read only repositories under them",
@@ -566,21 +569,51 @@ public sealed class Orchestrator(
             }
         }
         var denied = await DeniedFiles(dir, kind.Permissions, ct);
-        return denied.Count == 0
-            ? (dir, commit, RepositoryLabel.From(await Git(source, ct, "config", "--get", "remote.origin.url"), Path.GetFileName(source)))
-            : throw new ChargehandException(ErrorCode.CheckoutHasSecrets, $"the repository tracks files the preset denies reading, which grep would still reach: " +
+        if (denied.Count > 0 && refuseDenied)
+            throw new ChargehandException(ErrorCode.CheckoutHasSecrets, $"the repository tracks files the preset denies reading, which a session's shell would still reach: " +
                 $"{string.Join(", ", denied.Take(5))}{(denied.Count > 5 ? ", ..." : "")}",
                 "Pin a commit that does not track them, or remove them from the repository.");
+        if (denied.Count > 0)
+            await Exclude(dir, denied, ct);
+        return (dir, commit, RepositoryLabel.From(await Git(source, ct, "config", "--get", "remote.origin.url"), Path.GetFileName(source)), denied);
     }
 
-    /// <summary>A review gets the change it reviews on disk (<see cref="ReviewedChange"/>). A change that adds a file the preset denies reading is not applied: grep would reach it.</summary>
-    private static async Task<(string Directory, string Commit, string? Note)> WithChange(string directory, string commit, string diff, NodeKind kind, CancellationToken ct)
+    /// <summary>A review gets the change it reviews on disk (<see cref="ReviewedChange"/>). Files the preset denies reading, a change's new ones too, are left out of the clone as in <see cref="Checkout"/>.</summary>
+    private static async Task<(string Directory, string Commit, string? Note, IReadOnlyList<string> Excluded)> WithChange(string directory, string commit, IReadOnlyList<string> excluded, string diff,
+        NodeKind kind, CancellationToken ct)
     {
         var change = await ReviewedChange.ApplyAsync(directory, commit, diff, ct);
-        return change.Directory != directory && (await DeniedFiles(change.Directory, kind.Permissions, ct)).Count > 0
-            ? (directory, commit, null)
-            : (change.Directory, change.Commit, change.Note);
+        if (change.Directory == directory)
+            return (directory, commit, change.Note, excluded);
+        var denied = await DeniedFiles(change.Directory, kind.Permissions, ct);
+        await Exclude(change.Directory, denied, ct);
+        return (change.Directory, change.Commit, change.Note, denied);
     }
+
+    /// <summary>
+    /// Leaves tracked files out of a clone's working tree with a sparse checkout, so grep and read cannot reach them. They stay in
+    /// the index (skip-worktree): a commit in a clone of it never deletes them. A reused clone keeps what earlier runs left out.
+    /// </summary>
+    private static async Task Exclude(string dir, IReadOnlyList<string> files, CancellationToken ct)
+    {
+        if (!files.Any(f => File.Exists(Path.Combine(dir, f))))
+            return;
+        var path = Path.Combine(dir, ".git", "info", "sparse-checkout");
+        List<string> lines = File.Exists(path) ? [.. await File.ReadAllLinesAsync(path, ct)] : ["/*"];
+        lines.AddRange(files.Select(f => "!/" + SparseLiteral(f)).Where(l => !lines.Contains(l)).ToList());
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllLinesAsync(path, lines, ct);
+        if (await Git(dir, ct, "config", "core.sparseCheckout", "true") is null || await Git(dir, ct, "read-tree", "-mu", "HEAD") is null
+            || files.Any(f => File.Exists(Path.Combine(dir, f))))
+            throw new ChargehandException(ErrorCode.CheckoutHasSecrets, $"could not leave the files the preset denies reading out of {dir}",
+                "Delete the checkout under worker_root/.checkouts and retry.");
+    }
+
+    /// <summary>A path as a sparse-checkout pattern that matches only itself.</summary>
+    private static string SparseLiteral(string path) =>
+        path.Contains('\n', StringComparison.Ordinal)
+            ? throw new ChargehandException(ErrorCode.CheckoutHasSecrets, "a denied file's name holds a line break", "Rename it, or pin a commit that does not track it.")
+            : string.Concat(path.Select(c => c is '\\' or '*' or '?' or '[' or ' ' ? $"\\{c}" : c.ToString()));
 
     /// <summary>Whether the run's output stays on the machine (ADR 0069): the request says so, or the profile forces the repository. A run with no repository is forced only by the root <c>/</c>.</summary>
     private async Task<bool> IsLocalAsync(RunRequest request, CancellationToken ct)
@@ -595,6 +628,16 @@ public sealed class Orchestrator(
     {
         var source = await Git(Path.GetFullPath(path), ct, "rev-parse", "--show-toplevel") ?? Path.GetFullPath(path);
         return await workspace.LandAsync(source, ct) is { } failure ? (branch, failure) : (branch with { Repository = source }, null);
+    }
+
+    /// <summary>The checkout a path that is not one on this server names: <c>owner/name</c>, a GitHub URL or a folder name (<see cref="RepositoryNames"/>).
+    /// Fails with every name this server knows, so a caller does not guess spellings.</summary>
+    private async Task<string> ByName(string given, CancellationToken ct)
+    {
+        var known = RepositoryNames.List(profile);
+        return (RepositoryNames.Resolve(given, known) is { } path ? await Git(path, ct, "rev-parse", "--show-toplevel") : null)
+            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{given} is not a git checkout on this server, nor the name of one it reads; known: {RepositoryNames.Describe(known)}",
+                "Set context.repository.path to one of those names (owner/name, a GitHub URL or a folder name) or to a checkout's path; the repositories tool lists them with the commit each has checked out.");
     }
 
     /// <summary>git's trimmed output, or null when it fails.</summary>
@@ -666,6 +709,12 @@ public sealed class Orchestrator(
     internal static string ServiceCitationNote(IReadOnlyList<ServiceGrant> granted) => granted.Count == 0
         ? ""
         : $"\n\nTo cite what a service tool returned, add evidence of kind session_message whose locator quotes at least {GitEvidenceResolver.MinQuoteLength} characters of the tool's reply exactly as returned (copy it, do not paraphrase or summarize). Never use the reply text as a file or url locator.";
+
+    /// <summary>Told in the task text, only when the checkout left files out: the shipped prompts stay as they are without them.</summary>
+    internal static string ExcludedNote(IReadOnlyList<string> excluded) => excluded.Count == 0
+        ? ""
+        : $"\n\nThese tracked files are left out of your checkout, because the preset denies reading them: {string.Join(", ", excluded.Take(20))}" +
+          $"{(excluded.Count > 20 ? $" and {excluded.Count - 20} more" : "")}. Do not look for them; if the answer depends on one, say so.";
 
     private static string TaskText(RunRequest request, TaskSpec spec, string commit, string? changeNote, string inputText, IReadOnlyList<PromptBlock> callerBlocks,
         PlanNode node, int nodes, IReadOnlyList<ResultContract> upstream)

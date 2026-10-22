@@ -104,7 +104,12 @@ describe('a task as the design words it', () => {
   it('says in a line where a task is, or why it is not', () => {
     const meta = (id: string) => taskMeta(byId(b, id), b.tasks);
     expect(meta('t1-schema')).toBe('12 turns · 1 session');
-    expect(meta('t2-retry-policy')).toBe('18 turns · 2 sessions');
+    expect(meta('t2-retry-policy')).toBe('18 turns · 2 sessions · 1 continuation');
+    const none = { ...byId(b, 't2-retry-policy') };
+    none.spend = { ...must(none.spend), continuations: 0 };
+    expect(taskMeta(none, b.tasks)).toBe('18 turns · 2 sessions');
+    const many = { ...none, spend: { ...must(none.spend), continuations: 3 } };
+    expect(taskMeta(many, b.tasks)).toBe('18 turns · 2 sessions · 3 continuations');
     expect(meta('t3-memory-ttl')).toBe('asked 2 questions');
     expect(meta('t4-metrics')).toBe('stage test · 22 turns');
     expect(meta('t5-docs')).toBe('waits for t4-metrics');

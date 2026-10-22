@@ -69,7 +69,14 @@ export function taskMeta(task: BatchTaskBody, all: readonly BatchTaskBody[]): st
     case 'done':
     case 'merged': {
       const n = task.sessions.length;
-      return `${task.spend?.turns ?? DASH} turns · ${n} ${n === 1 ? 'session' : 'sessions'}`;
+      const more = task.spend?.continuations ?? 0;
+      return [
+        `${task.spend?.turns ?? DASH} turns`,
+        `${n} ${n === 1 ? 'session' : 'sessions'}`,
+        more > 0 ? `${more} ${more === 1 ? 'continuation' : 'continuations'}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
     }
     case 'partial':
       return 'work kept in a draft';

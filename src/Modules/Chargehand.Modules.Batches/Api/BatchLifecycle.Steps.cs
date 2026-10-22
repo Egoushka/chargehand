@@ -161,7 +161,7 @@ public sealed partial class BatchLifecycle
             return null;
         if (learning is null || writer is null)
             return BatchRetro.Skipped("this server keeps no learning records or has no retro writer");
-        var records = (await learning.ReadAsync(c.Ct)).Where(e => e.Record.BatchId == c.RunId).Select(e => e.Record).ToList();
+        var records = (await learning.ReadAsync(c.Ct, includeBench: true)).Where(e => e.Record.BatchId == c.RunId).Select(e => e.Record).ToList();
         if (records.Count == 0)
             return BatchRetro.Skipped("no task of the batch left a learning record");
         BatchRetro retro;

@@ -71,7 +71,8 @@ public static partial class ChargehandServer
     public const string Instructions =
         "chargehand answers codebase questions with read-only coding-agent workers and returns result/v1: claims with "
         + "evidence, a confidence, and open questions. Call the orchestrate tool when a question needs several files read or "
-        + "a second agent's independent answer. Pin the checkout with context.repository (path, commit); bound cost with "
+        + "a second agent's independent answer. Pin the checkout with context.repository (path, commit): the path "
+        + "may be owner/name or a GitHub URL, and the repositories tool lists what this server reads. Bound cost with "
         + "context.preset (default, cheap, thorough, strict, draft) or context.budget_usd. Runs can take minutes: a call that "
         + "returns a run id instead of result/v1 is still running, and the result tool with that run_id reads it.";
 
@@ -101,7 +102,7 @@ public static partial class ChargehandServer
             .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients);
 
         // Before the listener opens: interrupted batches are taken up and leftovers swept, so no new batch can be mistaken for one.
-        builder.Services.AddHostedService(sp => new BatchResumer(sp.GetRequiredService<RunService>()));
+        builder.Services.AddHostedService(sp => new BatchResumer(sp.GetRequiredService<RunService>(), log));
         // ADR 0076: automated starts are charged to and admitted as automation.account when the profile names one.
         var automationAccount = settings.Profile?.Automation?.Account is { } charged ? settings.Accounts?.FirstOrDefault(a => a.Name == charged) : null;
         // ADR 0051: only when the profile has automation.github. After the resumer, so a restart's own batches are counted before intake starts new ones.
@@ -271,7 +272,7 @@ public static partial class ChargehandServer
             return Json(new { runs = await log.ListAsync(query, ctx.RequestAborted) }, StatusCodes.Status200OK);
         });
 
-        // What finished driven tasks taught (ADR 0045), the table of `chargehand learn report` as JSON.
+        // What finished driven tasks taught (ADR 0045), the table of `chargehand learn report` as JSON; benchmark tasks only with bench=include.
         app.MapGet("/v1/learn", async (HttpContext ctx) =>
         {
             DateTimeOffset? since = null;
@@ -279,7 +280,8 @@ public static partial class ChargehandServer
                 return Json(Problem("since must be a number of days such as 30d, or an ISO 8601 time"), StatusCodes.Status400BadRequest);
             // An account sees the tasks of its own batches (ADR 0050); the owner sees all.
             var who = PrincipalHttp.Of(ctx);
-            var entries = driven?.Learning is { } store ? (await store.ReadAsync(ctx.RequestAborted)).Where(e => Principal.Sees(who, e.Record.Actor)).ToList() : [];
+            var includeBench = ctx.Request.Query.TryGetValue("bench", out var bench) && bench == "include";
+            var entries = driven?.Learning is { } store ? (await store.ReadAsync(ctx.RequestAborted, includeBench)).Where(e => Principal.Sees(who, e.Record.Actor)).ToList() : [];
             return Json(Chargehand.Modules.Oversight.Api.LearningReport.Build(entries, since), StatusCodes.Status200OK);
         });
 
@@ -375,7 +377,7 @@ public static partial class ChargehandServer
                 o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" };
                 o.ServerInstructions = Instructions;
             })
-            .WithTools([OrchestrateTool.Create(), ResultTool.Create()])
+            .WithTools([OrchestrateTool.Create(), ResultTool.Create(), RepositoriesTool.Create()])
             .WithTasks(new InMemoryMcpTaskStore());
     }
 

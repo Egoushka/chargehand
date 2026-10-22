@@ -60,6 +60,26 @@ public class RunWorkspaceTests
     }
 
     [Fact]
+    public async Task A_file_the_checkout_leaves_out_stays_out_of_the_workspace_and_its_commits()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        File.WriteAllText(Path.Combine(repo.Path, ".env"), "TOKEN=x\n");
+        var source = Runs.Commit(repo, ".env");
+        File.WriteAllLines(Path.Combine(source.Path, ".git", "info", "sparse-checkout"), ["/*", "!/.env"]);
+        Git(source.Path, "config", "core.sparseCheckout", "true");
+        Git(source.Path, "read-tree", "-mu", "HEAD");
+
+        var ws = await RunWorkspace.CreateAsync(source.Path, source.Commit, Path.Combine(root.Path, "work"), "run-1", "n1", default);
+        File.WriteAllText(Path.Combine(ws.Directory, "new.txt"), "new\n");
+        var info = await ws.CommitAsync("feat: add a file", default);
+
+        Assert.False(File.Exists(Path.Combine(ws.Directory, ".env")));
+        Assert.NotNull(info);
+        Assert.Equal(["new.txt"], await ws.ChangedPathsAsync(default));
+    }
+
+    [Fact]
     public async Task Commit_of_an_unchanged_tree_is_null()
     {
         var (root, _, ws) = await Make();

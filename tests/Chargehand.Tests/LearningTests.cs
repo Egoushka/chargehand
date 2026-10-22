@@ -279,7 +279,7 @@ public class LearningTests
 
         public Task AppendAsync(PrOutcomeRecord record, CancellationToken ct) => throw new IOException("disk full");
 
-        public Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct) => throw new IOException("disk full");
+        public Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct, bool includeBench = false) => throw new IOException("disk full");
     }
 
     [Fact]

@@ -92,7 +92,7 @@ public static class BenchCli
         var allow = presetAllow.Concat(driven?.Network?.Allow ?? []).Distinct().ToList();
         string? ImageFor(BenchRepository repo) => driven?.Images is { Count: > 0 } images ? SharedServicesPlan.PickImage(driven.Services, [repo.Ecosystem], images[0]) : null;
         var mode = driven?.Governor?.Mode is { } m ? m.ToString().ToLowerInvariant() : null;
-        var environment = new BenchEnvironment(ImageFor, allow, mode, TimeSpan.FromMinutes(15));
+        var environment = new BenchEnvironment(ImageFor, allow, mode, TimeSpan.FromMinutes(15), repo => driven?.Services?.Images?.ContainsKey(repo.Ecosystem) == true);
         var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         var workDirectory = Path.GetFullPath(options.GetValueOrDefault("--workdir") ?? Path.Combine(workingDirectory, "runs", "bench", "work"));
         var outDirectory = Path.GetFullPath(options.GetValueOrDefault("--out") ?? Path.Combine(workingDirectory, "runs", "bench", $"{set.Name}-{stamp}"));
