@@ -17,7 +17,7 @@ services:
   # bind directory that Docker created is not. Only CHOWN, no network, then it exits.
   prepare:
     # x-release-please-start-version
-    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.17.0}
+    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.18.0}
     # x-release-please-end
     user: "0"
     entrypoint: ["chown", "1654:1654", "/srv/chargehand/repos", "${CHARGEHAND_WORK_DIR:-/srv/chargehand/work}"]
@@ -34,7 +34,7 @@ services:
   chargehand:
     <<: *hardening
     # x-release-please-start-version
-    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.17.0}
+    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.18.0}
     # x-release-please-end
     ports:
       # Loopback only. Put a reverse proxy or a VPN in front to reach it from elsewhere (ADR 0024); never publish it to the internet.
@@ -77,7 +77,7 @@ services:
     <<: *hardening
     profiles: [driven]
     # x-release-please-start-version
-    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.17.0}
+    image: ${CHARGEHAND_IMAGE:-ghcr.io/egoushka/chargehand:0.18.0}
     # x-release-please-end
     command:
       - runner
