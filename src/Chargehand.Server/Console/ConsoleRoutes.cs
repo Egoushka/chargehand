@@ -87,6 +87,11 @@ internal static class ConsoleRoutes
             return Json(await ConsoleConflicts.BuildAsync(Context(ctx), PrincipalHttp.Of(ctx), ctx.RequestAborted));
         });
 
+        app.MapGet("/v1/pulls/train", async (HttpContext ctx) =>
+        {
+            return Json(await ConsoleTrain.BuildAsync(Context(ctx), PrincipalHttp.Of(ctx), ctx.RequestAborted));
+        });
+
         app.MapGet("/v1/analytics", async (HttpContext ctx) =>
         {
             var c = Context(ctx);

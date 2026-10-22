@@ -31,23 +31,30 @@ internal static class ConsoleConflicts
         "Open is the last outcome the server read back from the forge (see pulls/v1).",
     ];
 
-    public static async Task<ConflictsBody> BuildAsync(ConsoleContext c, Principal? who, CancellationToken ct)
+    /// <summary>An open pull request with the paths its latest task run changed; <c>Files</c> is null when the run log holds none.</summary>
+    internal sealed record OpenPull(PullRequestBody Pull, ConflictPullBody Body, HashSet<string>? Files);
+
+    /// <summary>The open pull requests the caller may see, each with its changed paths.</summary>
+    internal static async Task<List<OpenPull>> ReadAsync(ConsoleContext c, Principal? who, CancellationToken ct)
     {
         var open = (await ConsolePulls.BuildAsync(c, who, null, PrOutcomes.Open, false, null, MaxPulls, ct)).Pulls
             .Where(p => p.Repository is not null).DistinctBy(p => p.Url).ToList();
-        List<(ConflictPullBody Pull, string Repository, HashSet<string> Files)> read = [];
-        List<ConflictPullBody> unread = [];
+        List<OpenPull> pulls = [];
         foreach (var pull in open)
         {
             var changes = pull.RunId is { } run ? ResultArtifacts.Content((await c.Log.ReadAsync(run, ct)).Run?.Result, "changes") : null;
             var files = Paths(changes);
             var total = ResultArtifacts.Int(changes, "files_total") ?? files?.Count ?? 0;
-            var body = new ConflictPullBody(pull.Url, pull.Number, pull.BatchRunId, pull.TaskId, pull.Actor, pull.OpenedAt, total, files is not null && files.Count >= total);
-            if (files is null)
-                unread.Add(body);
-            else
-                read.Add((body, pull.Repository!, files));
+            pulls.Add(new(pull, new ConflictPullBody(pull.Url, pull.Number, pull.BatchRunId, pull.TaskId, pull.Actor, pull.OpenedAt, total, files is not null && files.Count >= total), files));
         }
+        return pulls;
+    }
+
+    public static async Task<ConflictsBody> BuildAsync(ConsoleContext c, Principal? who, CancellationToken ct)
+    {
+        var all = await ReadAsync(c, who, ct);
+        var read = all.Where(p => p.Files is not null).Select(p => (Pull: p.Body, Repository: p.Pull.Repository!, Files: p.Files!)).ToList();
+        var unread = all.Where(p => p.Files is null).Select(p => p.Body).ToList();
         List<ConflictBody> conflicts = [];
         foreach (var group in read.GroupBy(r => r.Repository, StringComparer.OrdinalIgnoreCase))
         {
@@ -60,7 +67,7 @@ internal static class ConsoleConflicts
                         conflicts.Add(new(group.Key, [pulls[i].Pull, pulls[j].Pull], shared.Count, [.. shared.Take(MaxFiles)]));
                 }
         }
-        return new(Contract, c.Now, open.Count, [.. conflicts.OrderByDescending(x => x.FilesShared).ThenBy(x => x.Repository, StringComparer.Ordinal)], unread, NotRecorded);
+        return new(Contract, c.Now, all.Count, [.. conflicts.OrderByDescending(x => x.FilesShared).ThenBy(x => x.Repository, StringComparer.Ordinal)], unread, NotRecorded);
     }
 
     /// <summary>The paths of a <c>changes</c> artifact; null when there is none.</summary>

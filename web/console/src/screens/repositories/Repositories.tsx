@@ -21,6 +21,7 @@ import {
 } from '../../ui';
 import { lastSeen, NotRecorded, Planned } from '../admin/parts';
 import { ConflictRadar } from './ConflictRadar';
+import { MergeTrain } from './MergeTrain';
 import {
   CHECK_LABEL,
   CHECK_STATUS,
@@ -122,7 +123,10 @@ export function Repositories() {
               onRetry={() => void analytics.refetch()}
             />
           ) : null}
-          <ConflictRadar />
+          <div className="g2e">
+            <ConflictRadar />
+            <MergeTrain />
+          </div>
           <div className="g3">
             {data.repositories.map((repo) => (
               <RepositoryCard
