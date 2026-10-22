@@ -16,6 +16,8 @@ node_kinds:
       - { action: read, resource: "*.env.*", effect: deny }
       - { action: read, resource: "*.env.example", effect: allow }
       - { action: read, resource: "*.env.enc", effect: allow }   # SOPS ciphertext: GitOps repos track it
+      - { action: read, resource: "*.env.test.*", effect: allow }   # test sources named after what they test (options.env.test.js) are code
+      - { action: read, resource: "*.env.spec.*", effect: allow }
       - { action: shell, resource: "*", effect: deny }
       - { action: webfetch, resource: "*", effect: deny }
       - { action: external_directory, resource: "*", effect: deny }

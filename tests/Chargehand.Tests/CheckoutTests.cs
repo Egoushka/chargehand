@@ -157,4 +157,23 @@ public class CheckoutTests
         Assert.Equal(ErrorCode.CheckoutInvalid, r.Error?.Code);
         Assert.NotNull(r.Error!.Action);
     }
+
+    [Theory]
+    [InlineData("tests/options.env.test.js")]
+    [InlineData("src/config.env.spec.ts")]
+    public async Task A_test_source_named_after_an_env_file_is_not_a_secret(string name)
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(repo.Path, name))!);
+        File.WriteAllText(Path.Combine(repo.Path, name), "test('reads the env', () => {});\n");
+        repo = Runs.Commit(repo, name);
+        var runtime = new ScriptedRuntime(Runs.WorkerReply);
+
+        var r = await Runs.Orchestrator(runtime, root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
+            .RunAsync(Runs.CheapRequest(repo), CancellationToken.None);
+
+        Assert.NotEqual(ResultStatus.Failed, r.Status);
+        Assert.True(File.Exists(Path.Combine(Assert.Single(runtime.Created).Directory, name)));
+    }
 }
