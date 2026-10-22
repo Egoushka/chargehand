@@ -61,7 +61,7 @@ public sealed class StdioMcpTests : IAsyncDisposable
     public async Task The_tool_runs_over_stdio_with_the_http_servers_instructions()
     {
         await using var client = await Start(new ScriptedRuntime(Runs.DraftReply));
-        Assert.Equal([OrchestrateTool.Name, ResultTool.Name], (await client.ListToolsAsync()).Select(t => t.Name).Order(StringComparer.Ordinal));
+        Assert.Equal([OrchestrateTool.Name, RepositoriesTool.Name, ResultTool.Name], (await client.ListToolsAsync()).Select(t => t.Name).Order(StringComparer.Ordinal));
         Assert.Equal(ChargehandServer.Instructions, client.ServerInstructions);
 
         var result = Result(await client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value)));

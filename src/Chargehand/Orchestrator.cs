@@ -265,6 +265,9 @@ public sealed class Orchestrator(
     private static ResultError Cancelled() => new(ErrorCode.Cancelled, "the run was cancelled", false, "Start the task again if it is still wanted; nothing was pushed.");
 
     /// <summary>Records a run that was cancelled before it started (it was queued): a start record and a failed result with <c>cancelled</c>.</summary>
+    /// <summary>The checkouts this server reads (<see cref="RepositoryNames"/>) with the commit each has checked out, for the repositories tool.</summary>
+    public Task<IReadOnlyList<RepositoryHead>> RepositoriesAsync(CancellationToken ct) => RepositoryNames.HeadsAsync(RepositoryNames.List(profile), ct);
+
     public async Task<ResultContract> RecordCancelledAsync(RunRequest request, string runId, string? parentRunId, Action<RunStatus>? progress = null, string? actor = null)
     {
         var now = DateTimeOffset.UtcNow;
@@ -524,9 +527,7 @@ public sealed class Orchestrator(
     private async Task<(string Directory, string Commit, string Repository)> Checkout(RepositoryRef repo, NodeKind kind, CancellationToken ct)
     {
         // git prints the top level with symbolic links resolved, so a link under a root cannot point the worker elsewhere.
-        var source = await Git(Path.GetFullPath(repo.Path), ct, "rev-parse", "--show-toplevel")
-            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{repo.Path} is not a git checkout",
-                "Point context.repository.path at a git working tree.");
+        var source = await Git(Path.GetFullPath(repo.Path), ct, "rev-parse", "--show-toplevel") ?? await ByName(repo.Path, ct);
         if (!profile.Roots.Any(root => PathScope.Under(source, PathScope.RealPath(root))))
             throw new ChargehandException(ErrorCode.RepositoryNotAllowed,
                 $"repository {source} is outside the profile's repository_roots ({string.Join(", ", profile.Roots)}); workers read only repositories under them",
@@ -583,6 +584,16 @@ public sealed class Orchestrator(
     {
         var source = await Git(Path.GetFullPath(path), ct, "rev-parse", "--show-toplevel") ?? Path.GetFullPath(path);
         return await workspace.LandAsync(source, ct) is { } failure ? (branch, failure) : (branch with { Repository = source }, null);
+    }
+
+    /// <summary>The checkout a path that is not one on this server names: <c>owner/name</c>, a GitHub URL or a folder name (<see cref="RepositoryNames"/>).
+    /// Fails with every name this server knows, so a caller does not guess spellings.</summary>
+    private async Task<string> ByName(string given, CancellationToken ct)
+    {
+        var known = RepositoryNames.List(profile);
+        return (RepositoryNames.Resolve(given, known) is { } path ? await Git(path, ct, "rev-parse", "--show-toplevel") : null)
+            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{given} is not a git checkout on this server, nor the name of one it reads; known: {RepositoryNames.Describe(known)}",
+                "Set context.repository.path to one of those names (owner/name, a GitHub URL or a folder name) or to a checkout's path; the repositories tool lists them with the commit each has checked out.");
     }
 
     /// <summary>git's trimmed output, or null when it fails.</summary>
