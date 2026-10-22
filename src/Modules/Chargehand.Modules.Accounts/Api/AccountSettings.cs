@@ -13,8 +13,11 @@ namespace Chargehand.Modules.Accounts.Api;
 /// <param name="Repositories">Directories the account's runs may name as <c>context.repository.path</c>, itself or below; null: any the server allows.</param>
 /// <param name="Model">The account's own model credential (ADR 0053); its read-only runs and its batches use it instead of the server's.</param>
 /// <param name="AllowServerCredential">An account with no <paramref name="Model"/> may spend the server's model credential. Default false: it is refused instead.</param>
+/// <param name="PauseOnForecast">Hold the automated starts charged to this account (<c>automation.account</c>) while its month forecast passes <paramref name="MaxUsdPerMonth"/> (ADR 0076). A person's
+/// own run is never held by the forecast. Default false.</param>
 public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, decimal? MaxUsdPerMonth = null, long? MaxTokensPerDay = null, long? MaxTokensPerMonth = null,
-    int? MaxConcurrentRuns = null, bool Driven = false, IReadOnlyList<string>? Repositories = null, AccountModel? Model = null, bool AllowServerCredential = false) : IValidatableObject
+    int? MaxConcurrentRuns = null, bool Driven = false, IReadOnlyList<string>? Repositories = null, AccountModel? Model = null, bool AllowServerCredential = false, bool PauseOnForecast = false)
+    : IValidatableObject
 {
     public const string Owner = "owner";
 
@@ -38,6 +41,7 @@ public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, 
         if (MaxTokensPerDay is <= 0) yield return "max_tokens_per_day must be above 0";
         if (MaxTokensPerMonth is <= 0) yield return "max_tokens_per_month must be above 0";
         if (MaxConcurrentRuns is < 1) yield return "max_concurrent_runs must be at least 1";
+        if (PauseOnForecast && MaxUsdPerMonth is null) yield return "pause_on_forecast needs max_usd_per_month: the forecast has no cap to pass";
         if (Repositories?.Any(r => !Path.IsPathRooted(r)) == true) yield return "repositories must be absolute paths";
         foreach (var problem in Model?.Problems() ?? [])
             yield return $"model: {problem}";

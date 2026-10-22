@@ -100,6 +100,17 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
             : (AccountPolicy.Clamp(account, request, day, month), null);
     }
 
+    /// <summary>The account's month spend forecast (ADR 0076); null without a run log.</summary>
+    public async Task<SpendForecast?> ForecastAsync(AccountSettings account, CancellationToken ct)
+    {
+        if (log is null)
+            return null;
+        var now = Now;
+        var month = await log.SpendAsync(account.Name, AccountPolicy.MonthStart(now), ct);
+        var trailing = await log.SpendAsync(account.Name, SpendForecasts.TrailingStart(now), ct);
+        return SpendForecasts.Of(month.Usd, trailing.Usd, account.MaxUsdPerMonth, now);
+    }
+
     /// <summary>Unfinished top-level runs (queued or running) that <paramref name="actor"/> started and this process holds.</summary>
     public int Unfinished(string actor) => _runs.Values.Count(r => !r.IsChild && r.Actor == actor);
 

@@ -197,5 +197,18 @@ export function forecastView(account: AccountBody) {
         : `≈ ${formatUsd(f.projected_usd)} of ${formatUsd(cap)}`,
     rate: `${formatUsd(f.rate_per_day)} a day over the last 7 days; ${formatUsd(account.spend.month.usd)} so far this month.`,
     reached: f.cap_reached_at ?? null,
+    automation: automationText(account, f.over_cap),
+    held: Boolean(account.automation && account.pause_on_forecast && f.over_cap),
   };
+}
+
+/** What the forecast does to the automated starts charged to the account (ADR 0076); null when none are. */
+function automationText(account: AccountBody, over: boolean): string | null {
+  if (!account.automation) return null;
+  const charged = 'Automated starts (intake, Plane, schedules) are charged to this account.';
+  if (!account.pause_on_forecast)
+    return `${charged} pause_on_forecast is off: the forecast only warns.`;
+  return over
+    ? `${charged} They are held until the forecast falls under the cap or the month ends; each trigger is tried again at the next poll.`
+    : `${charged} They are held if the forecast passes the cap (pause_on_forecast).`;
 }

@@ -371,6 +371,8 @@ export function accounts(now = Date.now()): AccountsBody {
             max_concurrent_runs: 3,
           },
           credential: { mode: 'own_key', present: true },
+          automation: true,
+          pause_on_forecast: true,
           forecast: {
             rate_per_day: 6.5,
             projected_usd: 125.7,

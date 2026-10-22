@@ -56,7 +56,7 @@ public class SpendForecastTests
         Assert.Equal(40m, listed.GetProperty("forecast").GetProperty("cap_usd").GetDecimal());
     }
 
-    private static async Task Seed(JsonlRunLog log, string runId, string actor, DateTimeOffset finished, decimal usd)
+    internal static async Task Seed(JsonlRunLog log, string runId, string actor, DateTimeOffset finished, decimal usd)
     {
         var req = Runs.DraftRequest();
         await log.AppendAsync(new StartRecord(runId, finished.AddMinutes(-1), new string('0', 32), req, 1, null, "earlier-boot", actor), CancellationToken.None);

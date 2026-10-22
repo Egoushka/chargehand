@@ -134,6 +134,9 @@ public sealed record Profile(
         profile.Driven?.Forge?.Validate();
         profile.Driven?.ValidateRunners();
         profile.Automation?.Validate(profile.Driven?.Enabled == true, profile.Driven?.Integrator);
+        if (profile.Automation?.Account is { } charged && profile.Http?.Accounts?.FirstOrDefault(a => a.Name == charged) is not { Driven: true })
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"automation.account: '{charged}' must be an account of http.accounts with driven: true",
+                "Declare the account under http.accounts with driven: true, or leave automation.account out to run automated starts as the owner.");
         profile.Delivery?.Validate(profile.Automation);
         return profile;
     }

@@ -43,6 +43,8 @@ The goal's first line is the issue's title (the pull request's title is cut from
 
 `max_tokens_total` (2,000,000) and `max_usd_total` (5) cap a triggered batch like `driven.max_tokens_total` and `max_usd_total` do for a caller's; both are always sent, and the one that applies is the one the credential's kind needs. A halted server, or one with ten unfinished runs, leaves the trigger for the next poll.
 
+**Charging automated starts to an account.** `automation.account` (beside `automation.github`, `plane` and `schedules`) names an account of `http.accounts` with `driven: true`. Every automated start, from GitHub, Plane or a schedule, is then admitted as that account, the way a person's request is: its credential rule, `repositories`, `max_concurrent_runs` and day and month caps apply, its budgets are clamped to what the windows have left, and the run counts in its spend. With `pause_on_forecast: true` on the account, its automated starts are held while its month forecast passes `max_usd_per_month` ([ADR 0076](../adr/0076-month-spend-forecast.md)). A refused or held start is retried at the next poll, with a line on stderr that says why. Without `automation.account`, automated starts run as the owner, with no account caps, as before.
+
 ## Security
 
 - **Who may start** is the list, and for a label it is the labeller. Writing an issue needs no rights; applying a label needs triage rights.

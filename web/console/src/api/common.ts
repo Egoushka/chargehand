@@ -111,4 +111,8 @@ export interface KeyBody {
 export interface AccountBody extends Omit<AccountStanding, 'halted' | 'presets'> {
   credential: CredentialBody;
   keys: KeyBody[];
+  /** Automated starts (intake, Plane, schedules) are charged to this account (ADR 0076). */
+  automation?: boolean;
+  /** Its automated starts are held while the forecast passes the cap. */
+  pause_on_forecast?: boolean;
 }
