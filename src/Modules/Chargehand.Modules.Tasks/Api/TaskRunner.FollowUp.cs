@@ -53,7 +53,7 @@ public sealed partial class TaskRunner
         var handoverRun = partial ? (best!.RunId, best.OutDirectory) : (run.RunId, run.OutDirectory);
         HandoverOutcome? handed = null;
         if (finished)
-            handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"{DrivenReport.Parse(run.ReportJson!)!.Summary}\n\nTask: {task.Id}{ContinuationNote(run.Continuation)}{GoalSection(task.Goal)}", partial: false, run.Stack, session, ct);
+            handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"{DrivenReport.Parse(run.ReportJson!)!.Summary}\n\nTask: {task.Id}{ContinuationNote(run.Continuation)}{GoalSection(task.Goal)}{CostReceipt.Footer(run.Total, run.Continuation)}", partial: false, run.Stack, session, ct);
         else if (partial)
         {
             await RestoreBundleAsync(handoverRun.Item1, ct);
@@ -287,7 +287,7 @@ public sealed partial class TaskRunner
         body.Append(GoalSection(task.Goal));
         if (progress is not null)
             body.Append("\n\n---\n\n").Append(Truncated(progress, ProgressInBody));
-        return body.ToString();
+        return body.Append(CostReceipt.Footer(total, continuation)).ToString();
     }
 
     private static TaskOutcome Outcome(ResolvedTask task, string runId, ResultContract result, SessionOutcome session, HandoverOutcome? handed, bool priced, bool partial, string? partialNote)

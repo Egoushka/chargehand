@@ -616,7 +616,7 @@ public class DrivenContinuationTests
     {
         using var rig = new DrivenRunTests.Rig(outcomes: (_, _) => Stopped(SessionStatus.Stalled, "no_progress"));
         await rig.Run.RunAsync(One(), BatchId, Token, default);
-        Assert.DoesNotContain("---", Assert.Single(rig.Handover.Inputs).Body);
+        Assert.DoesNotContain("---\n\n", Assert.Single(rig.Handover.Inputs).Body);
     }
 
     [Fact]
