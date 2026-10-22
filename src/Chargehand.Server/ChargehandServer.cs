@@ -271,7 +271,7 @@ public static partial class ChargehandServer
             return Json(new { runs = await log.ListAsync(query, ctx.RequestAborted) }, StatusCodes.Status200OK);
         });
 
-        // What finished driven tasks taught (ADR 0045), the table of `chargehand learn report` as JSON.
+        // What finished driven tasks taught (ADR 0045), the table of `chargehand learn report` as JSON; benchmark tasks only with bench=include.
         app.MapGet("/v1/learn", async (HttpContext ctx) =>
         {
             DateTimeOffset? since = null;
@@ -279,7 +279,8 @@ public static partial class ChargehandServer
                 return Json(Problem("since must be a number of days such as 30d, or an ISO 8601 time"), StatusCodes.Status400BadRequest);
             // An account sees the tasks of its own batches (ADR 0050); the owner sees all.
             var who = PrincipalHttp.Of(ctx);
-            var entries = driven?.Learning is { } store ? (await store.ReadAsync(ctx.RequestAborted)).Where(e => Principal.Sees(who, e.Record.Actor)).ToList() : [];
+            var includeBench = ctx.Request.Query.TryGetValue("bench", out var bench) && bench == "include";
+            var entries = driven?.Learning is { } store ? (await store.ReadAsync(ctx.RequestAborted, includeBench)).Where(e => Principal.Sees(who, e.Record.Actor)).ToList() : [];
             return Json(Chargehand.Modules.Oversight.Api.LearningReport.Build(entries, since), StatusCodes.Status200OK);
         });
 

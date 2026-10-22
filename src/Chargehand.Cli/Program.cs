@@ -43,7 +43,7 @@ const string Usage = """
       runs adherence <stream.jsonl>...
                                    whether driven sessions kept to the change skill's steps, from their stored streams
       runs kill --all              removes every driven-session container and batch network by label (works with the server down)
-      learn report [--since <days>d|<time>]
+      learn report [--since <days>d|<time>] [--include-bench]
                                    what finished driven tasks taught, per repository and size class: spend, completion, governor checkpoints,
                                    how their pull requests ended (reads learning.jsonl next to the run log; the server writes it)
       watch <run-id> [--url <server>]
