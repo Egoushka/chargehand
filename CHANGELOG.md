@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.16.0](https://github.com/Egoushka/chargehand/compare/v0.15.1...v0.16.0) (2026-10-21)
+
+
+### Features
+
+* **console:** conflict radar of open pull requests that change the same files (CHARGEHAND-216) ([#402](https://github.com/Egoushka/chargehand/issues/402)) ([0093305](https://github.com/Egoushka/chargehand/commit/0093305a4cb5c1a4b97feb0899c3e331a59222d0))
+* **console:** Intake lists every source with its switch and queue, Plane projects included (CHARGEHAND-242) ([#398](https://github.com/Egoushka/chargehand/issues/398)) ([7631939](https://github.com/Egoushka/chargehand/commit/7631939ed150d4cdde22f7596a27979cb84f1fa9))
+* **driven:** push with the GitHub App's installation token when push_secret is unset ([#399](https://github.com/Egoushka/chargehand/issues/399)) ([9d5db9c](https://github.com/Egoushka/chargehand/commit/9d5db9c618ce7229b5fc6c2dcf15233f7da6c50a))
+* **schedules:** flaky-tests reads CI history through the forge (CHARGEHAND-197) ([#395](https://github.com/Egoushka/chargehand/issues/395)) ([5b870af](https://github.com/Egoushka/chargehand/commit/5b870afd08f5d2c3e48f412d85243ab58c8ea4f4))
+* **schedules:** security-alerts turns open code-scanning and Dependabot alerts into driven tasks (CHARGEHAND-190) ([#400](https://github.com/Egoushka/chargehand/issues/400)) ([ad48773](https://github.com/Egoushka/chargehand/commit/ad4877352b1f095a35c9b59f8bb1fe40406fe79b))
+
+
+### Bug Fixes
+
+* **driven:** let a session read its research with result, accept its own commit, go on without research ([#396](https://github.com/Egoushka/chargehand/issues/396)) ([8bde500](https://github.com/Egoushka/chargehand/commit/8bde5004bf239485f86fa4c3b786782a3d45d5aa))
+
 ## [0.15.1](https://github.com/Egoushka/chargehand/compare/v0.15.0...v0.15.1) (2026-10-21)
 
 
