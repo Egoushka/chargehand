@@ -9,7 +9,8 @@ public sealed record KeyBody(string Id, string? Label, DateTimeOffset Created, D
 
 /// <param name="Mode"><c>own_key</c> (an API key of its own), <c>own_gateway</c> (a gateway's key and base URL), <c>server</c> (the server's credential, allowed), <c>none</c> (refused at admission), or for the owner <c>server</c>.</param>
 /// <param name="Present">Whether the secret item the profile names resolves right now. Null where no item is named. Never the value.</param>
-public sealed record CredentialBody(string Mode, bool? Present);
+/// <param name="Paused">Set while the provider rejects the credential this account's runs use: its runs are refused until a probe succeeds. Null: admitted.</param>
+public sealed record CredentialBody(string Mode, bool? Present, CredentialPause? Paused = null);
 
 /// <param name="Repositories">Directories the account may name; null: any the server allows.</param>
 /// <param name="Forecast">The month's spend at the trailing 7-day rate against <c>max_usd_per_month</c> (CHARGEHAND-216).</param>
@@ -28,7 +29,7 @@ internal static class ConsoleAccounts
     private static readonly IReadOnlyList<string> NotRecorded =
     [
         "A key's use is recorded as the time of its last request alone, written at most once a minute: no count, address or route, and no time for a key not used since the server began to record it.",
-        "'present' says the secret item resolves, not that the credential works; chargehand doctor and a run find that out.",
+        "'present' says the secret item resolves, not that the credential works; chargehand doctor, a run and the hourly probe find that out. 'paused' is kept in memory only: a restart admits runs again until the next run or probe is rejected.",
         "The forecast is the month so far plus the last 7 days' spend rate until the month ends: priced usage only, so a subscription run adds nothing to it.",
     ];
 
@@ -57,10 +58,11 @@ internal static class ConsoleAccounts
 
     private static CredentialBody Credential(ConsoleContext c, AccountSettings? account)
     {
+        var paused = c.Runs.Credentials.Paused(c.Runs.CredentialOf(account?.Name));
         if (account is null)
-            return new("server", null);
+            return new("server", null, paused);
         if (account.Model is { ApiKeySecret: { } item } model)
-            return new(model.BaseUrl is null ? "own_key" : "own_gateway", c.SecretPresent(item));
-        return new(account.AllowServerCredential ? "server" : "none", null);
+            return new(model.BaseUrl is null ? "own_key" : "own_gateway", c.SecretPresent(item), paused);
+        return new(account.AllowServerCredential ? "server" : "none", null, account.AllowServerCredential ? paused : null);
     }
 }
