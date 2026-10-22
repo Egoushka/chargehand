@@ -8,7 +8,7 @@ namespace Chargehand.Driven;
 /// <summary><c>chargehand verify-branch --bundle &lt;file&gt; --branch chargehand/&lt;run&gt; --timeout-seconds N [--work &lt;dir&gt;] -- &lt;command...&gt;</c>: what a fresh
 /// verification container runs (ADR 0039). The workspace is a clean clone at the base commit; this puts the session's branch on it from the bundle, checks it out detached,
 /// runs the command, and prints one line, <see cref="Marker"/> followed by JSON, which is the only thing the host reads. The tests' own output goes into that JSON as a
-/// tail, never to stdout, so nothing the tests print can forge the record. Exit code 0 when the command ran (its own verdict is in the record), 2 when it could not.</summary>
+/// tail, never to stdout, so nothing the tests print can forge the record. Exit code 0 when the command ran (its own verdict is in the record; 127 when the program is not in the image), 2 when it could not.</summary>
 public static class VerifyBranchCli
 {
     public const string Marker = ContainerVerifier.Marker;
@@ -33,7 +33,16 @@ public static class VerifyBranchCli
             return Record(output, argv, -1, $"the branch could not be checked out: {checkout.Tail}", false, TimeSpan.Zero, "", exitCode: 2);
         var commit = (await Git(work, env, ["-c", "safe.directory=*", "rev-parse", "HEAD"], ct)).Stdout.Trim();
 
-        var result = await ProcessRunner.RunAsync(argv[0], argv.Skip(1), env, work, TimeSpan.FromSeconds(seconds), ct);
+        SandboxResult result;
+        try
+        {
+            result = await ProcessRunner.RunAsync(argv[0], argv.Skip(1), env, work, TimeSpan.FromSeconds(seconds), ct);
+        }
+        catch (System.ComponentModel.Win32Exception e)
+        {
+            // The tool is not in the image: say so as the shell would (127), so the host can tell a setup failure from a failed check.
+            return Record(output, argv, 127, $"{argv[0]}: command not found ({e.Message})", false, TimeSpan.Zero, commit, exitCode: 0);
+        }
         return Record(output, argv, result.TimedOut ? -1 : result.ExitCode, result.OutputTail, result.TimedOut, result.Duration, commit, exitCode: 0);
     }
 

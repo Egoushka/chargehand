@@ -81,6 +81,16 @@ public class VerifyBranchCliTests
     }
 
     [Fact]
+    public async Task A_program_that_is_not_in_the_image_is_exit_code_127_not_a_crash()
+    {
+        using var f = new Fixture();
+        var (exit, record) = await Run(f, "30", "chargehand-no-such-tool-xyz", "test");
+        Assert.Equal(0, exit);
+        Assert.Equal(127, record.GetProperty("exit_code").GetInt32());
+        Assert.Contains("chargehand-no-such-tool-xyz: command not found", record.GetProperty("output_tail").GetString());
+    }
+
+    [Fact]
     public async Task A_command_that_outruns_the_timeout_is_killed_and_marked()
     {
         using var f = new Fixture();

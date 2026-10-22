@@ -80,7 +80,8 @@ public static class Outcomes
     /// <param name="Acceptance">The acceptance check on the task's branch, or the guard of an impossible task; null: none ran.</param>
     public static string Classify(string kind, string state, string? errorCode, AcceptanceResult? acceptance)
     {
-        if (state == "not_run")
+        // A check that could not start (the image lacks its tool) measured nothing, for or against the task.
+        if (state == "not_run" || acceptance is { SetupFailure: true })
             return NotRun;
         if (kind != BenchTask.Impossible)
             return state == "completed" && acceptance is { Passed: true } ? Passed : Failed;
