@@ -42,9 +42,9 @@ public class IntakeInputsTests
     {
         var text = new string('a', GenerateIntake.MaxInputChars);
 
-        var prompt = await IntakePrompt(new CallerInput("diff", "diff", text));
+        var prompt = await IntakePrompt(new CallerInput("diff", "log", text));
 
-        Assert.Contains($"(diff, {text.Length} characters): {text}", prompt, StringComparison.Ordinal);
+        Assert.Contains($"(log, {text.Length} characters): {text}", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("cut to", prompt, StringComparison.Ordinal);
     }
 
@@ -53,9 +53,9 @@ public class IntakeInputsTests
     {
         var text = new string('a', GenerateIntake.MaxInputChars) + "ZZTAILZZ" + new string('b', 60_000);
 
-        var prompt = await IntakePrompt(new CallerInput("diff", "diff", text), new CallerInput("tests", "test-output", "exit 0"));
+        var prompt = await IntakePrompt(new CallerInput("diff", "log", text), new CallerInput("tests", "test-output", "exit 0"));
 
-        Assert.Contains($"(diff, {text.Length} characters, cut to the first {GenerateIntake.MaxInputChars} here; the worker gets all of it): {new string('a', GenerateIntake.MaxInputChars)}\n",
+        Assert.Contains($"(log, {text.Length} characters, cut to the first {GenerateIntake.MaxInputChars} here; the worker gets all of it): {new string('a', GenerateIntake.MaxInputChars)}\n",
             prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("ZZTAILZZ", prompt, StringComparison.Ordinal);
         // The next input still follows in full.
@@ -67,7 +67,7 @@ public class IntakeInputsTests
     {
         var text = new string('a', GenerateIntake.MaxInputChars - 1) + "\U0001F600" + "tail";
 
-        var prompt = await IntakePrompt(new CallerInput("diff", "diff", text));
+        var prompt = await IntakePrompt(new CallerInput("diff", "log", text));
 
         // A lone surrogate makes the JSON body of the generate call throw.
         Assert.Null(Record.Exception(() => new UTF8Encoding(false, throwOnInvalidBytes: true).GetBytes(prompt)));
@@ -79,7 +79,7 @@ public class IntakeInputsTests
     {
         var inputs = new List<CallerInput>();
         for (var left = total; left > 0; left -= GenerateIntake.MaxInputChars)
-            inputs.Add(new CallerInput($"i{inputs.Count}", "diff", new string((char)('a' + inputs.Count), Math.Min(GenerateIntake.MaxInputChars, left))));
+            inputs.Add(new CallerInput($"i{inputs.Count}", "log", new string((char)('a' + inputs.Count), Math.Min(GenerateIntake.MaxInputChars, left))));
         return [.. inputs];
     }
 
@@ -94,14 +94,14 @@ public class IntakeInputsTests
     {
         const int room = 300;
         var early = Filling(GenerateIntake.MaxTotalInputChars - room);
-        var crossing = new CallerInput("crossing", "diff", new string('x', 1000));
+        var crossing = new CallerInput("crossing", "log", new string('x', 1000));
         var late = new CallerInput("late", "test-output", new string('y', 1500));
         var beyond = new CallerInput("beyond", "note", new string('z', 40));
 
         var prompt = await IntakePrompt([.. early, crossing, late, beyond]);
 
         AssertWhole(prompt, early);
-        Assert.Contains($"- id \"crossing\" (diff, 1000 characters, cut to the first {room} here; the worker gets all of it): {new string('x', room)}\n", prompt, StringComparison.Ordinal);
+        Assert.Contains($"- id \"crossing\" (log, 1000 characters, cut to the first {room} here; the worker gets all of it): {new string('x', room)}\n", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain(new string('x', room + 1), prompt, StringComparison.Ordinal);
         Assert.Contains("- id \"late\" (test-output, 1500 characters, text left out here; the worker gets all of it)\n", prompt, StringComparison.Ordinal);
         Assert.Contains("- id \"beyond\" (note, 40 characters, text left out here; the worker gets all of it)", prompt, StringComparison.Ordinal);
@@ -112,11 +112,11 @@ public class IntakeInputsTests
     [Fact]
     public async Task An_input_past_the_budget_is_listed_without_text_and_is_never_shown_as_empty()
     {
-        var prompt = await IntakePrompt([.. Filling(GenerateIntake.MaxTotalInputChars), new CallerInput("late", "diff", "one line"), new CallerInput("blank", "note", "")]);
+        var prompt = await IntakePrompt([.. Filling(GenerateIntake.MaxTotalInputChars), new CallerInput("late", "log", "one line"), new CallerInput("blank", "note", "")]);
 
-        Assert.Contains("- id \"late\" (diff, 8 characters, text left out here; the worker gets all of it)\n", prompt, StringComparison.Ordinal);
+        Assert.Contains("- id \"late\" (log, 8 characters, text left out here; the worker gets all of it)\n", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("one line", prompt, StringComparison.Ordinal);
-        Assert.DoesNotContain("(diff, 0 characters", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("(log, 0 characters", prompt, StringComparison.Ordinal);
         // An input that really is empty is still reported as empty: only text that exists is left out.
         Assert.Contains("- id \"blank\" (note, 0 characters): \n", prompt, StringComparison.Ordinal);
     }
@@ -124,36 +124,36 @@ public class IntakeInputsTests
     [Fact]
     public async Task Inputs_that_exactly_fill_the_budget_are_whole_and_the_next_one_is_left_out()
     {
-        CallerInput[] exact = [.. Filling(GenerateIntake.MaxTotalInputChars - 2), new CallerInput("last", "diff", "zz")];
+        CallerInput[] exact = [.. Filling(GenerateIntake.MaxTotalInputChars - 2), new CallerInput("last", "log", "zz")];
 
-        var prompt = await IntakePrompt([.. exact, new CallerInput("after", "diff", "q")]);
+        var prompt = await IntakePrompt([.. exact, new CallerInput("after", "log", "q")]);
 
         AssertWhole(prompt, exact);
         Assert.DoesNotContain("cut to", prompt, StringComparison.Ordinal);
-        Assert.Contains("- id \"after\" (diff, 1 characters, text left out here; the worker gets all of it)\n", prompt, StringComparison.Ordinal);
+        Assert.Contains("- id \"after\" (log, 1 characters, text left out here; the worker gets all of it)\n", prompt, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task One_character_over_the_budget_cuts_the_last_input_to_what_is_left()
     {
-        var prompt = await IntakePrompt([.. Filling(GenerateIntake.MaxTotalInputChars - 1), new CallerInput("last", "diff", "zz")]);
+        var prompt = await IntakePrompt([.. Filling(GenerateIntake.MaxTotalInputChars - 1), new CallerInput("last", "log", "zz")]);
 
-        Assert.Contains("- id \"last\" (diff, 2 characters, cut to the first 1 here; the worker gets all of it): z\n", prompt, StringComparison.Ordinal);
+        Assert.Contains("- id \"last\" (log, 2 characters, cut to the first 1 here; the worker gets all of it): z\n", prompt, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task A_budget_cut_does_not_split_a_surrogate_pair()
     {
         // Two characters of room: "a" fits, and the high surrogate that follows would be left as half a pair.
-        var cut = await IntakePrompt([.. Filling(GenerateIntake.MaxTotalInputChars - 2), new CallerInput("last", "diff", "a\U0001F600tail")]);
+        var cut = await IntakePrompt([.. Filling(GenerateIntake.MaxTotalInputChars - 2), new CallerInput("last", "log", "a\U0001F600tail")]);
         // One character of room, and the input starts with a pair: nothing of it can be shown.
-        var none = await IntakePrompt([.. Filling(GenerateIntake.MaxTotalInputChars - 1), new CallerInput("last", "diff", "\U0001F600tail")]);
+        var none = await IntakePrompt([.. Filling(GenerateIntake.MaxTotalInputChars - 1), new CallerInput("last", "log", "\U0001F600tail")]);
 
         var strict = new UTF8Encoding(false, throwOnInvalidBytes: true);
         Assert.Null(Record.Exception(() => strict.GetBytes(cut)));
         Assert.Null(Record.Exception(() => strict.GetBytes(none)));
-        Assert.Contains("- id \"last\" (diff, 7 characters, cut to the first 1 here; the worker gets all of it): a\n", cut, StringComparison.Ordinal);
-        Assert.Contains("- id \"last\" (diff, 6 characters, text left out here; the worker gets all of it)\n", none, StringComparison.Ordinal);
+        Assert.Contains("- id \"last\" (log, 7 characters, cut to the first 1 here; the worker gets all of it): a\n", cut, StringComparison.Ordinal);
+        Assert.Contains("- id \"last\" (log, 6 characters, text left out here; the worker gets all of it)\n", none, StringComparison.Ordinal);
         Assert.DoesNotContain("\U0001F600", cut + none, StringComparison.Ordinal);
     }
 

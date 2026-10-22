@@ -35,7 +35,7 @@ internal static class ConsoleActions
 
     private static IResult Conflict(string why) => Json(ChargehandServer.Problem(why), StatusCodes.Status409Conflict);
 
-    private static void Tell(ConsoleContext c, Principal? who, string batch, string? task, string text) =>
+    internal static void Tell(ConsoleContext c, Principal? who, string batch, string? task, string text) =>
         c.Driven?.Announce(batch, RunStatus.Of(batch, RunState.Running, RunEventKind.Operator) with { TaskId = task, Detail = task is null ? text : $"task {task}: {text}", Actor = who?.Name });
 
     private static async Task<IResult> CancelAsync(ConsoleContext c, Principal? who, string batch, string task, CancellationToken ct)

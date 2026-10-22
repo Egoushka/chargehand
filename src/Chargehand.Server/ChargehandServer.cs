@@ -78,7 +78,7 @@ public static partial class ChargehandServer
 
     public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log, Chargehand.Driven.DrivenRun? driven = null, Chargehand.Automation.GitHubIntake? intake = null,
         Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? scheduler = null,
-        Chargehand.Automation.PlaneIntake? plane = null)
+        Chargehand.Automation.PlaneIntake? plane = null, Chargehand.Automation.PhoneAnswers? phone = null)
     {
         var address = IPAddress.Parse(settings.Listen);
         IReadOnlyList<string> hosts = settings.AllowedHosts ?? [];
@@ -97,12 +97,19 @@ public static partial class ChargehandServer
         // OrchestrateTool reads the MCP call's Prefer header.
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddSingleton(new McpHttp(settings.McpWait ?? DefaultMcpWait, log));
-        AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory, driven, settings.MaxConcurrentRuns, settings.MaxSessionCalls, settings.StateDirectory, log, settings.Clock)
+        // The owner hears of a paused or resumed model credential where scheduled results go (automation.schedules.notify_url).
+        Func<string, string, CancellationToken, Task>? notify = settings.Profile?.Automation?.Schedules?.NotifyUrl is { } notifyUrl
+            ? (title, body, ct) => new Chargehand.Automation.HttpScheduleNotifier().PostAsync(notifyUrl, title, body, ct)
+            : null;
+        AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory, driven, settings.MaxConcurrentRuns, settings.MaxSessionCalls, settings.StateDirectory, log, settings.Clock,
+                settings.Accounts, notify)
             // Hybrid: 2026-07-28 clients run stateless (tasks, input_required results); initialize clients get a session.
             .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients);
 
         // Before the listener opens: interrupted batches are taken up and leftovers swept, so no new batch can be mistaken for one.
         builder.Services.AddHostedService(sp => new BatchResumer(sp.GetRequiredService<RunService>(), log));
+        builder.Services.AddHostedService(sp => new CredentialProbe(sp.GetRequiredService<RunService>(),
+            (actor, ct) => orchestrator.ProbeAsync(CredentialProbe.Timeout, ct, actor), settings.Clock));
         // ADR 0076: automated starts are charged to and admitted as automation.account when the profile names one.
         var automationAccount = settings.Profile?.Automation?.Account is { } charged ? settings.Accounts?.FirstOrDefault(a => a.Name == charged) : null;
         // ADR 0051: only when the profile has automation.github. After the resumer, so a restart's own batches are counted before intake starts new ones.
@@ -120,6 +127,14 @@ public static partial class ChargehandServer
         // ADR 0067: only when the profile has automation.plane.
         if (plane is not null)
             builder.Services.AddHostedService(sp => new PlaneIntakeService(plane, sp.GetRequiredService<RunService>(), automationAccount));
+        // ADR 0077: only when the profile has automation.notify. It reads the same inbox the console does.
+        if (phone is not null)
+            builder.Services.AddHostedService(sp =>
+            {
+                var runs = sp.GetRequiredService<RunService>();
+                var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
+                return new AnswerService(phone.Notifier(new ServerQuestionSource(() => new ConsoleContext(settings, runs, log, driven, new SecretPresence(settings.SecretPresent), dismissals)), settings.Clock));
+            });
         // ADR 0045: reads back what became of the pull requests, only where there are learning records.
         if (driven?.Learning is not null)
             builder.Services.AddHostedService(_ => new PrOutcomeRefresher(driven));
@@ -136,6 +151,12 @@ public static partial class ChargehandServer
         {
             // The console's files (and the redirect from /ui/) are public and carry no data; the page calls the routes below with a key (ADR 0056).
             if (settings.Ui && WebConsole.Serves(ctx.Request.Path))
+            {
+                await next(ctx);
+                return;
+            }
+            // An approvals server's answer carries no key: its signature is checked by the route (ADR 0077).
+            if (phone?.Settings.Approvals is not null && HttpMethods.IsPost(ctx.Request.Method) && ctx.Request.Path == ConsoleAnswers.Path)
             {
                 await next(ctx);
                 return;
@@ -235,6 +256,11 @@ public static partial class ChargehandServer
         }
 
         ConsoleRoutes.Map(app, settings, log, driven);
+        if (phone?.Settings.Approvals is not null)
+        {
+            var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
+            ConsoleAnswers.Map(app, ctx => new ConsoleContext(settings, ctx.RequestServices.GetRequiredService<RunService>(), log, driven, new SecretPresence(settings.SecretPresent), dismissals), phone);
+        }
         ConsoleSources.Map(app, settings, intake, plane);
 
         foreach (var path in new[] { "/v1/accounts/me", IdentityPath })
@@ -368,10 +394,11 @@ public static partial class ChargehandServer
 
     /// <summary>What both hosts share: the run service, the tool, the tasks store and the instructions.</summary>
     private static IMcpServerBuilder AddOrchestrate(IServiceCollection services, Orchestrator orchestrator, string presetsDirectory, Chargehand.Driven.DrivenRun? driven = null,
-        int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null, IRunLog? log = null, TimeProvider? clock = null)
+        int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null, IRunLog? log = null, TimeProvider? clock = null,
+        IReadOnlyList<AccountSettings>? accounts = null, Func<string, string, CancellationToken, Task>? notify = null)
     {
         services.AddSingleton(sp => new RunService(orchestrator, presetsDirectory,
-            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping, driven, maxConcurrentRuns, maxSessionCalls, stateDirectory, log, clock));
+            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping, driven, maxConcurrentRuns, maxSessionCalls, stateDirectory, log, clock, accounts, notify));
         return services.AddMcpServer(o =>
             {
                 o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" };

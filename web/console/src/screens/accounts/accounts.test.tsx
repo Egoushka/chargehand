@@ -103,6 +103,20 @@ describe('accounts model', () => {
       allowServer: false,
     });
     expect(credentialView(byName('owner')).label).toBe('Server credential');
+  });
+
+  it('shows a credential the provider rejected as paused, whatever its mode', () => {
+    const owner = byName('owner');
+    const paused = {
+      since: '2026-10-18T19:13:39Z',
+      reason: 'API Error: 401 OAuth access token has been revoked.',
+    };
+    expect(credentialView({ ...owner, credential: { ...owner.credential, paused } })).toMatchObject(
+      {
+        status: 'failed',
+        label: 'Paused: rejected',
+      },
+    );
     expect(credentialView(byName('owner')).allowServer).toBeNull();
     expect(credentialView({ ...byName('ci-bot'), credential: { mode: 'novel' } }).status).toBe(
       'queued',

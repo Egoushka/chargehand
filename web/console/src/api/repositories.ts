@@ -12,6 +12,28 @@ export interface VerifyBody {
   source: string;
 }
 
+/** One input of the readiness score: `completion`, `verify`, `first_ci`, `human_fix` or `ci`. */
+export interface ReadinessSignalBody {
+  name: string;
+  /** 0 to 1, higher is readier; left out when there is no data, so it does not count. */
+  value?: number | null;
+  weight: number;
+  detail: string;
+}
+
+/** How ready a repository is for driven work: a weighted mean of the signals that have data, 0 to 100. */
+export interface ReadinessBody {
+  score?: number | null;
+  threshold: number;
+  /** Under the threshold: feature work there is warned about, not refused. */
+  below: boolean;
+  signals: ReadinessSignalBody[];
+  /** What to fix, one line per weak signal. */
+  gaps: string[];
+  /** A request/v1 for one driven task that fixes the gaps; left out when there is none. */
+  proposal?: Record<string, unknown> | null;
+}
+
 export interface RepositoryBody {
   name: string;
   path: string;
@@ -30,6 +52,7 @@ export interface RepositoryBody {
   integrator_mode: IntegratorMode;
   watched_by_intake: boolean;
   open_pull_requests: PullRequestBody[];
+  readiness?: ReadinessBody | null;
 }
 
 export interface RootBody {

@@ -156,6 +156,53 @@ describe('Start a batch: the form', () => {
   });
 });
 
+describe('Start a batch: repository readiness', () => {
+  const below = (path: string) => ({
+    score: 34,
+    threshold: 60,
+    below: true,
+    signals: [],
+    gaps: ['No CI configuration: add a workflow that builds and tests every pull request.'],
+    proposal: {
+      contract_version: 'request/v1',
+      text: 'Make billing-worker agent-ready',
+      context: { repository: { path } },
+      driven: { tasks: [{ id: 'agent-ready', goal: 'Make it ready.\n- No CI.', size: 'M' }] },
+    },
+  });
+  const withReadiness = () => {
+    const body = repositories();
+    return {
+      ...body,
+      repositories: body.repositories.map((r) =>
+        r.path === OTHER_REPO ? { ...r, readiness: below(OTHER_REPO) } : r,
+      ),
+    };
+  };
+
+  it('warns about a repository under the threshold, lists its gaps, and still lets the batch start', async () => {
+    await open({ replies: { '/v1/repositories': [200, withReadiness()] } });
+    type('Repository', REPO);
+    expect(screen.queryByText(/for agent readiness/)).toBeNull();
+    type('Repository', OTHER_REPO);
+    expect(screen.getByText('billing-worker scores 34 of 100 for agent readiness')).toBeTruthy();
+    expect(screen.getByText(/No CI configuration/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Start batch' })).toHaveProperty('disabled', false);
+  });
+
+  it('swaps in the proposed agent-ready task, and the warning goes', async () => {
+    await open({ replies: { '/v1/repositories': [200, withReadiness()] } });
+    type('Repository', OTHER_REPO);
+    click('Use the agent-ready task instead');
+    expect(field('Label').value).toBe('Make billing-worker agent-ready');
+    expect((screen.getAllByLabelText('Goal')[0] as HTMLTextAreaElement).value).toBe(
+      'Make it ready.\n- No CI.',
+    );
+    expect(field('Commit').value).toBe(OTHER_HEAD);
+    expect(screen.queryByText(/for agent readiness/)).toBeNull();
+  });
+});
+
 describe('Start a batch: dependencies', () => {
   it('chooses a dependency from the other tasks, draws it, and removes it again', async () => {
     await open();

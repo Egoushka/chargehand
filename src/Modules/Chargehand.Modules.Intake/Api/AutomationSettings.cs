@@ -11,7 +11,8 @@ namespace Chargehand.Modules.Intake.Api;
 /// <param name="Plane">Plane work items in a chosen state that start a driven batch; null: not watched.</param>
 /// <param name="Account">An account of <c>http.accounts</c> that every automated start (GitHub, Plane, schedules) is charged to and admitted as (ADR 0076): its caps, budget clamps, concurrency
 /// limit and opt-in forecast pause apply. Null: they run as the owner, with no account caps.</param>
-public sealed record AutomationSettings(AutomationGitHub? Github = null, AutomationSchedules? Schedules = null, AutomationPlane? Plane = null, string? Account = null)
+/// <param name="Notify">Where a driven task's question or partial stop is sent with its answer options (ADR 0077); null: nowhere, it waits in the inbox.</param>
+public sealed record AutomationSettings(AutomationGitHub? Github = null, AutomationSchedules? Schedules = null, AutomationPlane? Plane = null, string? Account = null, AutomationNotify? Notify = null)
 {
     /// <param name="drivenEnabled">Whether <c>driven.enabled</c> is set.</param>
     public void Validate(bool drivenEnabled, DrivenIntegrator? integrator)
@@ -19,6 +20,7 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
         Github?.Validate(drivenEnabled, integrator);
         Schedules?.Validate(drivenEnabled);
         Plane?.Validate(drivenEnabled);
+        Notify?.Validate(drivenEnabled);
     }
 }
 

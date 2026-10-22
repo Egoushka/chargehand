@@ -75,8 +75,16 @@ export interface CredentialView {
 }
 
 export function credentialView(account: AccountBody): CredentialView {
-  const { mode, present } = account.credential;
+  const { mode, present, paused } = account.credential;
   const presence = present === true ? 'present' : present === false ? 'missing' : 'unknown';
+  if (paused)
+    return {
+      status: 'failed',
+      label: 'Paused: rejected',
+      note: `The provider rejected this credential (${paused.reason}), so its runs are refused. They are admitted again once a probe succeeds, within five minutes of it working.`,
+      presence,
+      allowServer: null,
+    };
   const own = (label: string, note: string): CredentialView =>
     present === false
       ? {

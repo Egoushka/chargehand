@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
@@ -271,11 +272,34 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         var code = ErrorOf(outcome, messages, r);
         if (outcome == IdleOutcome.Failed && Cause(messages).Length == 0 && !messages.Any(m => m.Kind == WorkerMessageKind.Assistant))
             return new ChargehandException(code, $"worker ended failed: {NoModelCall}", NoModelCallAction(r)).Error;
+        if (code == ErrorCode.CostCapReached && outcome == IdleOutcome.Interrupted)
+            return Stopped(messages, r);
         var message = outcome == IdleOutcome.Succeeded
             ? $"no valid result contract: {string.Join("; ", errors.Take(3))}"
             : $"worker ended {outcome.ToString().ToLowerInvariant()}{Cause(messages)}";
-        return new ChargehandException(code, message, ActionOf(code, r)).Error;
+        var action = outcome == IdleOutcome.Failed && WorkerKill.Is(messages.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m.Error))?.Error)
+            ? KilledAction
+            : ActionOf(code, r);
+        return new ChargehandException(code, message, action).Error;
     }
+
+    /// <summary>The watcher stopped the node at a budget and killed the runtime's process for it, so the process's exit status
+    /// (Claude Code: 137) says nothing: the error names the budget that was hit and how to raise that one.</summary>
+    private ResultError Stopped(IReadOnlyList<WorkerMessage> messages, NodeRequest r)
+    {
+        var usd = Usage(messages, r.Spec.Model).Usd;
+        if (usd > r.CapUsd)
+            return new ChargehandException(ErrorCode.CostCapReached,
+                string.Create(CultureInfo.InvariantCulture, $"worker stopped at its USD cap: ${usd:0.0000} spent of ${r.CapUsd:0.0000}"),
+                ActionOf(ErrorCode.CostCapReached, r)).Error;
+        var read = Calls(messages).Sum(m => Context(m.Tokens!));
+        return new ChargehandException(ErrorCode.CostCapReached,
+            string.Create(CultureInfo.InvariantCulture, $"worker stopped at its token budget after reading {read} of {r.MaxInputTokens} input tokens"),
+            "Ask a narrower question so the worker reads less, or use a preset with a larger budget.max_input_tokens; context.budget_usd does not raise this budget.").Error;
+    }
+
+    private const string KilledAction = "The worker process was killed from outside chargehand, most often for memory: give the server's container a higher " +
+        "memory limit or run fewer nodes and sessions at once, then retry.";
 
     private const int MaxCause = 300;
 

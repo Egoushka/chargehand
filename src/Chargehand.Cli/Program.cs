@@ -80,6 +80,9 @@ const string Usage = """
       init [<repo path>] [--profile <out path>] [--force]
                                    reads a repository's marker files, prints its ecosystems, the proposed context.verify and the
                                    package hosts the driven egress allowlist lacks, and writes a starter profile (never over a file without --force)
+      adopt <owner/repo> [--path <checkout>] [--image <ref>] [--write] [--canary] [--canary-preset <name>] [--url <server>] [--timeout <seconds>]
+                                   runs the detected setup, build, test and lint commands in the session image on a copy of the checkout, proposes
+                                   driven.services.verify (--write sets it), starts one read-only canary run with --canary, and lists what is missing
       doctor [--profile <path>]    checks a setup, one ok/warn/fail line per check with the fix; exit 1 when a check fails
       incident <repo path> [--commit <ref>]
                                    reads an alert on stdin (Alertmanager or Grafana webhook JSON, or text) and prints a request/v1 for the incident preset; pipe it to run
@@ -204,6 +207,13 @@ if (argv is ["why", .. var whyArgs])
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Modules.Tasks.Api.WhyCli.RunAsync(whyArgs, new JsonlRunLog(whyLogPath), Path.Combine(Path.GetDirectoryName(Path.GetFullPath(whyLogPath))!, "records"),
         Directory.GetCurrentDirectory(), Console.Out, Console.Error, stop.Token);
+}
+if (argv is ["adopt", .. var adoptArgs])
+{
+    using var stop = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Onboarding.AdoptCli.RunAsync(adoptArgs, profilePath, new Chargehand.Onboarding.SystemAdoptHost(),
+        connectArgs => Chargehand.Watch.WatchCli.Connect(connectArgs, Environment.GetEnvironmentVariable, ProfileServer), Console.Out, Console.Error, stop.Token);
 }
 if (argv is ["doctor", .. var doctorArgs])
 {
@@ -539,6 +549,11 @@ Chargehand.Automation.PlaneIntake? PlaneIntake()
         new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "plane-sources.json")));
 }
 
+// Questions and partial stops sent to a phone (ADR 0077): null unless the profile has automation.notify. Its state sits next to the run log; secrets are read at each call.
+Chargehand.Automation.PhoneAnswers? PhoneAnswers() => profile.Automation?.Notify is { } notify
+    ? Chargehand.Automation.PhoneAnswers.Create(notify, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "notify", "state.json"), profile.Secret, new Chargehand.Automation.HttpScheduleNotifier())
+    : null;
+
 // The console's account view says whether a credential's secret item resolves, never its value.
 bool SecretResolves(string item)
 {
@@ -578,7 +593,7 @@ async Task<int> Serve()
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
         PlaneStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "plane.json"),
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn),
-        orchestrator, runLog, drivenRun, GitHubIntake(), Schedules(drivenRun), PlaneIntake());
+        orchestrator, runLog, drivenRun, GitHubIntake(), Schedules(drivenRun), PlaneIntake(), PhoneAnswers());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);

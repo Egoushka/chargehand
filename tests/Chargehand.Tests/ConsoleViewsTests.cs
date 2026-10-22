@@ -198,6 +198,10 @@ public class ConsoleViewsTests
         var merged = ConsoleSeed.Learned("b3", "t1", pr: ConsoleSeed.Pull(9));
         await ConsoleSeed.LearnAsync(rig, merged);
         await ConsoleSeed.OutcomeAsync(rig, merged, PrOutcomes.Merged);
+        Directory.CreateDirectory(Path.Combine(one.Path, ".github", "workflows"));
+        File.WriteAllText(Path.Combine(one.Path, ".github", "workflows", "ci.yml"), "on: push\n");
+        rig.Records.Append("b1", new CiAttemptRecord("t1", 1, 2, ConsoleRig.Now, "build", ["build"], true, "fixed"));
+        rig.Records.Append("b3", new ChecksRecord("t1", ConsoleRig.Now, 9, "aaaa", "clean", false, false, "merged", []));
 
         var text = await ConsoleRig.Text(rig.Owner, "/v1/repositories");
         var body = JsonSerializer.Deserialize<JsonElement>(text);
@@ -216,8 +220,18 @@ public class ConsoleViewsTests
         Assert.Equal(("scripts/check.sh", "merge", true), (first.GetProperty("verify").GetProperty("source").GetString(), first.GetProperty("integrator_mode").GetString(), first.GetProperty("watched_by_intake").GetBoolean()));
         Assert.Equal(["sh", "scripts/check.sh"], first.GetProperty("verify").GetProperty("command").EnumerateArray().Select(c => c.GetString()));
         Assert.Equal([8, 7], first.GetProperty("open_pull_requests").EnumerateArray().Select(p => p.GetProperty("number").GetInt32()).OrderDescending());
+        // Readiness: 3 of 3 tasks completed, a proposed but unset verification command, 1 of 2 pull requests through CI first time, no merge to compare, CI present.
+        var readiness = first.GetProperty("readiness");
+        Assert.Equal((79, false), (readiness.GetProperty("score").GetInt32(), readiness.GetProperty("below").GetBoolean()));
+        Assert.Equal([1.0, 0.5, 0.5, 1.0], readiness.GetProperty("signals").EnumerateArray().Where(g => g.TryGetProperty("value", out _)).Select(g => g.GetProperty("value").GetDouble()));
+        Assert.Equal(2, readiness.GetProperty("gaps").GetArrayLength());
+        var task = readiness.GetProperty("proposal").GetProperty("driven").GetProperty("tasks")[0];
+        Assert.Equal("agent-ready", task.GetProperty("id").GetString());
+        Assert.StartsWith("Make o/r ready for coding agents.", task.GetProperty("goal").GetString(), StringComparison.Ordinal);
+        Assert.Equal(Path.GetFullPath(one.Path), readiness.GetProperty("proposal").GetProperty("context").GetProperty("repository").GetProperty("path").GetString());
         var second = repositories[Path.GetFullPath(two.Path)];
         Assert.Equal(("off", false), (second.GetProperty("integrator_mode").GetString(), second.GetProperty("watched_by_intake").GetBoolean()));
+        Assert.Equal((0, true), (second.GetProperty("readiness").GetProperty("score").GetInt32(), second.GetProperty("readiness").GetProperty("below").GetBoolean()));
         Assert.False(second.TryGetProperty("remote", out _));
         Assert.DoesNotContain("TOKEN-IN-THE-URL", text, StringComparison.Ordinal);
         Assert.DoesNotContain("x-access-token", text, StringComparison.Ordinal);

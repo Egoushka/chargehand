@@ -69,7 +69,7 @@ public class ReviewPresetTests
     {
         using var root = new TempDir();
         var repo = Runs.GitRepo(root.Path);
-        var diff = string.Concat(Enumerable.Repeat("+x\n", 20_000)) + "\n[diff truncated at 60000 characters]\n";
+        var diff = "--- a/x\n+++ b/x\n@@ -0,0 +1,20000 @@\n" + string.Concat(Enumerable.Repeat("+x\n", 20_000)) + "\n[diff truncated at 60000 characters]\n";
         var r = await Runs.Orchestrator(new ScriptedRuntime(FindingReply), root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
             .RunAsync(Review(repo, diff), CancellationToken.None);
 
@@ -85,7 +85,7 @@ public class ReviewPresetTests
         var runtime = new ScriptedRuntime(FindingReply);
         runtime.CreateFailures.Enqueue(new ChargehandException(ErrorCode.RuntimeUnavailable, "down", "Start it."));
         var r = await Runs.Orchestrator(runtime, root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
-            .RunAsync(Review(repo, "+x\n"), CancellationToken.None);
+            .RunAsync(Review(repo, "--- a/x\n+++ b/x\n@@ -0,0 +1 @@\n+x\n"), CancellationToken.None);
 
         Assert.Equal(ResultStatus.Failed, r.Status);
         Assert.Equal(ErrorCode.RuntimeUnavailable, r.Error?.Code);

@@ -21,6 +21,8 @@ public class WorkerNodeTests
         public List<(string Id, PermissionDecision Decision)> Answers { get; } = [];
         public Queue<PermissionRequest> Pending { get; } = new();
         public bool HangOnce { get; set; }
+        /// <summary>The budget answer turn hangs too, once this call has landed, as an answer that reads past its budget again.</summary>
+        public WorkerMessage? HangAnswerAfter { get; set; }
         /// <summary>The turn ends failed with this provider error on its message (null: no error text), as a provider that rejects the call.</summary>
         public string? FailWith { get; set; }
         public bool Fail { get; set; }
@@ -62,6 +64,14 @@ public class WorkerNodeTests
             if (HangOnce)
             {
                 HangOnce = false;
+                await _interrupted.Task.WaitAsync(ct);
+                return IdleOutcome.Interrupted;
+            }
+            if (HangAnswerAfter is { } call && Prompts[^1] == WorkerNode.BudgetAnswer)
+            {
+                HangAnswerAfter = null;
+                _interrupted = new();
+                _messages.Insert(0, call);
                 await _interrupted.Task.WaitAsync(ct);
                 return IdleOutcome.Interrupted;
             }
@@ -336,8 +346,36 @@ public class WorkerNodeTests
         var r = await Node(rt).RunAsync(Request(TimeSpan.FromSeconds(30)) with { CapUsd = 0.0001m }, CancellationToken.None);
         Assert.Equal(ResultStatus.Failed, r.Contract.Status);
         Assert.Equal(ErrorCode.CostCapReached, r.Contract.Error?.Code);
-        Assert.Equal("worker ended interrupted", r.Contract.Error!.Message);
+        Assert.Equal("worker stopped at its USD cap: $0.0016 spent of $0.0001", r.Contract.Error!.Message);
+        Assert.Contains("context.budget_usd", r.Contract.Error.Action, StringComparison.Ordinal);
         Assert.False(r.Contract.Error.Retryable);
+    }
+
+    /// <summary>The watcher kills the runtime's process at the token budget (Claude Code exits 137 then): the error names that
+    /// budget, not the USD cap the run never reached, and not the exit status of a process chargehand killed itself.</summary>
+    [Fact]
+    public async Task A_node_stopped_at_the_token_budget_names_that_budget_not_the_usd_cap()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true, HangAnswerAfter = BigCall() with { Id = "msg_bigger", Tokens = new TokenCounts(3, 10, 0, 50000, 200) } };
+        rt.Log.Add(BigCall() with { Error = "claude exited 137:" });
+        var r = await Node(rt).RunAsync(Request(TimeSpan.FromSeconds(30)) with { MaxInputTokens = 1000 }, CancellationToken.None);
+        Assert.Equal(2, rt.Interrupts);
+        var e = r.Contract.Error!;
+        Assert.Equal(ErrorCode.CostCapReached, e.Code);
+        Assert.Equal("worker stopped at its token budget after reading 55406 of 20812 input tokens", e.Message);
+        Assert.Contains("max_input_tokens", e.Action, StringComparison.Ordinal);
+        Assert.DoesNotContain("Raise context.budget_usd", e.Action, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_worker_killed_from_outside_gets_out_of_memory_advice()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { Fail = true, FailWith = WorkerKill.Describe("container memory peak 2335 MB of 2560 MB") };
+        var e = (await Node(rt).RunAsync(Request(), CancellationToken.None)).Contract.Error!;
+        Assert.StartsWith("worker ended failed: claude was killed (exit 137, SIGKILL)", e.Message, StringComparison.Ordinal);
+        Assert.Contains("2335 MB of 2560 MB", e.Message, StringComparison.Ordinal);
+        Assert.Contains("memory", e.Action, StringComparison.Ordinal);
+        Assert.DoesNotContain("credential", e.Action, StringComparison.Ordinal);
     }
 
     [Fact]

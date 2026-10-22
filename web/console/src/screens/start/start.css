@@ -245,3 +245,8 @@ textarea.start-json {
     height: var(--space-8);
   }
 }
+
+.start-gaps {
+  margin: var(--space-1) 0 var(--space-2);
+  padding-left: var(--space-4);
+}

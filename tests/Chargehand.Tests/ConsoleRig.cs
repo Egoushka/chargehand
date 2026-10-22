@@ -55,7 +55,7 @@ internal sealed class ConsoleRig : IAsyncDisposable
     /// <param name="accountsFor">The accounts from the server's root directory, for an account whose rules name a path under it; wins over <paramref name="accounts"/>.</param>
     /// <param name="hold">The scripted runtime holds every run unfinished.</param>
     public static async Task<ConsoleRig> StartAsync(IReadOnlyList<AccountSettings>? accounts = null, Func<string, Profile>? profile = null, Func<string, bool>? secretPresent = null,
-        Func<string, DrivenServices>? services = null, Func<string, IReadOnlyList<AccountSettings>>? accountsFor = null, bool hold = false)
+        Func<string, DrivenServices>? services = null, Func<string, IReadOnlyList<AccountSettings>>? accountsFor = null, bool hold = false, Chargehand.Automation.PhoneAnswers? phone = null)
     {
         var clock = new ManualTimeProvider();
         clock.Advance(Now - clock.GetUtcNow());
@@ -67,7 +67,7 @@ internal sealed class ConsoleRig : IAsyncDisposable
         var runtime = new ScriptedRuntime(Runs.DraftReply);
         if (hold)
             runtime.Hold = new();
-        var server = await TestServer.StartAsync(runtime, accounts: accounts, clock: clock,
+        var server = await TestServer.StartAsync(runtime, accounts: accounts, clock: clock, phone: phone,
             driven: (dir, log) =>
             {
                 learning = new JsonlLearningStore(Path.Combine(dir, "learning.jsonl"));
