@@ -7,7 +7,7 @@ import type { BatchTaskDetailBody } from '../api/batch-task';
 import type { InboxBody } from '../api/inbox';
 import type { IntakeBody, IntakeSourcesBody } from '../api/intake';
 import type { OverviewBody } from '../api/overview';
-import type { ConflictsBody, PullsBody } from '../api/pulls';
+import type { ConflictsBody, PullsBody, TrainsBody } from '../api/pulls';
 import type { RepositoriesBody } from '../api/repositories';
 import type { SystemBody } from '../api/system';
 import type { LearnReport, Me, RunSummary } from '../api/types';
@@ -32,6 +32,7 @@ export interface Scenario {
   intake?: IntakeBody;
   intakeSources?: IntakeSourcesBody;
   conflicts?: ConflictsBody;
+  train?: TrainsBody;
   repositories?: RepositoriesBody;
   accounts?: AccountsBody;
   /** Replaces the generated `analytics/v1` for every range. */
@@ -125,6 +126,8 @@ export function serveApi(scenario: Scenario = {}) {
             ),
         ),
       );
+    if (path === '/v1/pulls/train')
+      return Promise.resolve(json(scenario.train ?? adm.train({}, now)));
     if (path === '/v1/pulls/conflicts')
       return Promise.resolve(json(scenario.conflicts ?? adm.conflicts({}, now)));
     if (path === '/v1/pulls') return Promise.resolve(json(scenario.pulls ?? fx.pulls(now)));

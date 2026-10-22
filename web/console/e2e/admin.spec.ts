@@ -97,6 +97,8 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         await expect(page.getByRole('heading', { name: 'Conflict radar' })).toBeVisible();
         await expect(page.getByText('7 shared files')).toBeVisible();
         await expect(page.getByText('src/Payments/Retry.cs')).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Merge train' })).toBeVisible();
+        await expect(page.getByText(/After 1 and 2: shares 7 files/)).toBeVisible();
         await page.getByRole('button', { name: '2 open PRs' }).click();
         const payments = page.locator('section', {
           has: page.getByRole('heading', { name: 'payments-api' }),

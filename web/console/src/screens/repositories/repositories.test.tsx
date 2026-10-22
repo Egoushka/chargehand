@@ -111,6 +111,7 @@ describe('Repositories with data', () => {
     expect(card('infra').queryByText('watched by intake')).toBeNull();
     expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual([
       'Conflict radar',
+      'Merge train',
       'payments-api',
       'web-shop',
       'infra',
@@ -348,5 +349,44 @@ describe('Conflict radar', () => {
     expect(await panel.findByText('Cannot read the conflict radar')).toBeTruthy();
     expect(panel.getByText('GET /v1/pulls/conflicts')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'payments-api' })).toBeTruthy();
+  });
+});
+
+describe('Merge train', () => {
+  const train = async () => {
+    const heading = await screen.findByRole('heading', { name: 'Merge train' });
+    return within(heading.closest('section') as HTMLElement);
+  };
+
+  it('orders each repository oldest first and says which earlier cars a pull request must follow', async () => {
+    await open();
+    const panel = await train();
+    const payments = await panel.findByRole('list', {
+      name: 'Merge train of example/payments-api',
+    });
+    expect(
+      within(payments)
+        .getAllByRole('listitem')
+        .map((li) => within(li).getByRole('link').textContent),
+    ).toEqual(['#409', '#412', '#415']);
+    expect(within(payments).getByText(/After 1 and 2: shares 7 files/)).toBeTruthy();
+    const shop = panel.getByRole('list', { name: 'Merge train of example/web-shop' });
+    expect(within(shop).getByText('waits for you to merge')).toBeTruthy();
+    expect(
+      panel.getByText(/Held, never merged: #401 \(unfinished work, stays a draft\)/),
+    ).toBeTruthy();
+  });
+
+  it('says when nothing waits to merge', async () => {
+    await open({ train: adm.train({ trains: [], held: [] }) });
+    const panel = await train();
+    expect(await panel.findByText('Nothing to merge')).toBeTruthy();
+  });
+
+  it('names the failing call', async () => {
+    await open({ replies: { ...history(), '/v1/pulls/train': [503, { errors: ['locked'] }] } });
+    const panel = await train();
+    expect(await panel.findByText('Cannot read the merge train')).toBeTruthy();
+    expect(panel.getByText('GET /v1/pulls/train')).toBeTruthy();
   });
 });

@@ -76,3 +76,29 @@ export const conflictsQuery = () =>
     queryFn: ({ signal }) => getJson<ConflictsBody>('/v1/pulls/conflicts', signal),
     refetchInterval: 60_000,
   });
+
+/** A place in a repository's merge train; `after` holds the positions of earlier cars it shares changed paths with. */
+export interface TrainCarBody {
+  position: number;
+  pull: ConflictPullBody;
+  /** `merge` (the integrator merges it itself), `ask` (a person merges it) or `off`. */
+  integrator_mode: 'merge' | 'ask' | 'off';
+  awaiting_person: boolean;
+  awaiting_reason?: string | null;
+  after: number[];
+  files_shared_with_earlier: number;
+}
+
+/** `train/v1` (CHARGEHAND-216): the order to merge open pull requests in, per repository, oldest first. `held` are never merged. Read only. */
+export interface TrainsBody extends ContractMeta {
+  contract_version: 'train/v1';
+  trains: { repository: string; cars: TrainCarBody[] }[];
+  held: { pull: ConflictPullBody; reason: 'partial_draft' | 'test_integrity' }[];
+}
+
+export const trainQuery = () =>
+  queryOptions({
+    queryKey: ['pulls', 'train'],
+    queryFn: ({ signal }) => getJson<TrainsBody>('/v1/pulls/train', signal),
+    refetchInterval: 60_000,
+  });

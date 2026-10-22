@@ -9,7 +9,7 @@ import type {
   IntakeSourcesBody,
   IntakeTaskBody,
 } from '../api/intake';
-import type { ConflictsBody } from '../api/pulls';
+import type { ConflictsBody, TrainsBody } from '../api/pulls';
 import type { RepositoriesBody, RepositoryBody } from '../api/repositories';
 import type { ContainerBody, SystemBody } from '../api/system';
 import { BATCH_A, BATCH_B, me, REPO, system } from './fixtures';
@@ -790,6 +790,55 @@ export function conflicts(over: Partial<ConflictsBody> = {}, now = Date.now()): 
     unread: [pull(401, BATCH_B, { files_total: 0, files_listed: false })],
     not_recorded: [
       "The paths are those the pull request's latest task run changed, as its result recorded them; a commit pushed to the branch by a person is not seen.",
+    ],
+    ...over,
+  };
+}
+
+/** `train/v1`: payments-api with three cars, the third after the first two, and web-shop with one; one partial draft held. */
+export function train(over: Partial<TrainsBody> = {}, now = Date.now()): TrainsBody {
+  const pull = (repo: string, number: number, batch: string, hoursAgo: number) => ({
+    url: `https://github.com/example/${repo}/pull/${number}`,
+    number,
+    batch_run_id: batch,
+    task_id: `issue-${number}`,
+    actor: null,
+    opened_at: iso(now, hoursAgo * 60),
+    files_total: 3,
+    files_listed: true,
+  });
+  const car = (
+    position: number,
+    p: ReturnType<typeof pull>,
+    mode: 'merge' | 'ask' | 'off',
+    after: number[] = [],
+    shared = 0,
+  ) => ({
+    position,
+    pull: p,
+    integrator_mode: mode,
+    awaiting_person: mode === 'ask',
+    awaiting_reason: mode === 'ask' ? 'policy_ask' : null,
+    after,
+    files_shared_with_earlier: shared,
+  });
+  return {
+    contract_version: 'train/v1',
+    generated_at: iso(now, 0),
+    trains: [
+      {
+        repository: 'example/payments-api',
+        cars: [
+          car(1, pull('payments-api', 409, BATCH_A, 30), 'merge'),
+          car(2, pull('payments-api', 412, BATCH_A, 20), 'merge'),
+          car(3, pull('payments-api', 415, BATCH_B, 4), 'merge', [1, 2], 7),
+        ],
+      },
+      { repository: 'example/web-shop', cars: [car(1, pull('web-shop', 233, BATCH_B, 6), 'ask')] },
+    ],
+    held: [{ pull: pull('payments-api', 401, BATCH_B, 50), reason: 'partial_draft' }],
+    not_recorded: [
+      'The order is a proposal, oldest first: the integrator does not follow it, and merges a pull request of a merge repository as soon as its own checks pass.',
     ],
     ...over,
   };
