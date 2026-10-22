@@ -137,14 +137,7 @@ export function graphEdges(tasks: readonly BatchTaskBody[]): GraphEdge[] {
     task.depends_on.flatMap((id) => {
       const dep = tasks.find((t) => t.id === id);
       return dep
-        ? [
-            {
-              id: `${id}->${task.id}`,
-              source: id,
-              target: task.id,
-              state: edgeState(dep, task),
-            },
-          ]
+        ? [{ id: `${id}->${task.id}`, source: id, target: task.id, state: edgeState(dep, task) }]
         : [];
     }),
   );
@@ -194,10 +187,7 @@ export function layerLayout(tasks: readonly BatchTaskBody[], columns = 3): Posit
     const l = layer.get(task.id) ?? 0;
     const row = rows.get(l) ?? 0;
     rows.set(l, row + 1);
-    positions[task.id] = {
-      x: l * (NODE_WIDTH + GAP_X),
-      y: row * (NODE_HEIGHT + GAP_Y),
-    };
+    positions[task.id] = { x: l * (NODE_WIDTH + GAP_X), y: row * (NODE_HEIGHT + GAP_Y) };
     bottom = Math.max(bottom, (row + 1) * (NODE_HEIGHT + GAP_Y));
   }
   const alone = tasks.filter((t) => !linked.has(t.id));
@@ -211,10 +201,7 @@ export function layerLayout(tasks: readonly BatchTaskBody[], columns = 3): Posit
 }
 
 /** The size of the area the positions fill. */
-export function extent(positions: Positions): {
-  width: number;
-  height: number;
-} {
+export function extent(positions: Positions): { width: number; height: number } {
   const all = Object.values(positions);
   return {
     width: Math.max(0, ...all.map((p) => p.x + NODE_WIDTH)),
@@ -230,10 +217,7 @@ export interface Cap {
 }
 
 /** Tokens and dollars the batch has used, against its caps. A running task counts from its live counters. */
-export function batchTotals(batch: BatchBody): {
-  tokens: Cap;
-  usd: Cap & { estimated: boolean };
-} {
+export function batchTotals(batch: BatchBody): { tokens: Cap; usd: Cap & { estimated: boolean } } {
   const tasks = batch.tasks;
   let tokens = 0;
   let any = false;
@@ -677,22 +661,13 @@ export function batchPulls(batch: BatchBody, pulls: readonly PullRequestBody[]):
     const own = byUrl.get(pr.url);
     byUrl.set(
       pr.url,
-      own
-        ? {
-            ...own,
-            ...pr,
-            integrator_last: pr.integrator_last ?? own.integrator_last,
-          }
-        : pr,
+      own ? { ...own, ...pr, integrator_last: pr.integrator_last ?? own.integrator_last } : pr,
     );
   }
   return [...byUrl.values()].sort((a, b) => (b.number ?? 0) - (a.number ?? 0));
 }
 
-export function prState(pr: PullRequestBody): {
-  status: Status;
-  label: string;
-} {
+export function prState(pr: PullRequestBody): { status: Status; label: string } {
   if (pr.state === 'merged_edited') return { status: 'merged', label: 'Merged, edited' };
   if (pr.state === 'merged' || pr.state === 'merged_unchanged')
     return { status: 'merged', label: 'Merged' };
@@ -716,11 +691,7 @@ export const AWAITING: Record<string, string> = {
 export type RebuiltRequest = {
   contract_version: 'request/v1';
   text: string;
-  context: {
-    interactive: false;
-    preset: string;
-    repository?: { path: string; commit: string };
-  };
+  context: { interactive: false; preset: string; repository?: { path: string; commit: string } };
   driven: {
     plan?: boolean;
     max_parallel?: number;
@@ -745,12 +716,7 @@ export function rebuildRequest(
       interactive: false,
       preset: batch.run.preset,
       ...(batch.repository
-        ? {
-            repository: {
-              path: batch.repository.path,
-              commit: batch.repository.commit,
-            },
-          }
+        ? { repository: { path: batch.repository.path, commit: batch.repository.commit } }
         : {}),
     },
     driven: {
@@ -770,12 +736,7 @@ export function rebuildRequest(
           : {}),
         ...(t.depends_on.length > 0 ? { depends_on: t.depends_on } : {}),
         ...(t.continues
-          ? {
-              continue_from: {
-                run_id: t.continues.run_id,
-                task_id: t.continues.task_id,
-              },
-            }
+          ? { continue_from: { run_id: t.continues.run_id, task_id: t.continues.task_id } }
           : {}),
       })),
     },

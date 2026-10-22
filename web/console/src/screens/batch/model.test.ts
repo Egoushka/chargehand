@@ -84,10 +84,7 @@ describe('a task as the design words it', () => {
 
   it('tells a task that waits for a dependency from one that is only queued', () => {
     expect(word('t5-docs')).toBe('waiting');
-    const open: BatchTaskBody = {
-      ...byId(b, 't5-docs'),
-      depends_on: ['t1-schema'],
-    };
+    const open: BatchTaskBody = { ...byId(b, 't5-docs'), depends_on: ['t1-schema'] };
     expect(taskWord(open, b.tasks)).toBe('queued');
     expect(taskWord({ ...open, depends_on: [] }, b.tasks)).toBe('queued');
     expect(taskWord({ ...open, depends_on: ['gone'] }, b.tasks)).toBe('waiting');
@@ -96,24 +93,11 @@ describe('a task as the design words it', () => {
   it('knows a cancelled task and a kept draft', () => {
     const t = byId(b, 't7-guards');
     expect(
-      taskWord(
-        {
-          ...t,
-          state: 'cancelled',
-          error: { ...must(t.error), code: 'cancelled' },
-        },
-        [t],
-      ),
+      taskWord({ ...t, state: 'cancelled', error: { ...must(t.error), code: 'cancelled' } }, [t]),
     ).toBe('cancelled');
     const done = byId(b, 't2-retry-policy');
     expect(
-      taskWord(
-        {
-          ...done,
-          pull_request: { ...must(done.pull_request), partial: true },
-        },
-        [done],
-      ),
+      taskWord({ ...done, pull_request: { ...must(done.pull_request), partial: true } }, [done]),
     ).toBe('partial');
   });
 
@@ -204,11 +188,7 @@ describe('the task graph', () => {
     expect(p['t8-announce']?.x).toBeGreaterThan(p['t7-guards']?.x ?? 0);
     expect(Object.keys(p)).toHaveLength(b.tasks.length);
     const loose = layerLayout(
-      ['a', 'b', 'c', 'd'].map((id) => ({
-        ...byId(b, 't5-docs'),
-        id,
-        depends_on: [],
-      })),
+      ['a', 'b', 'c', 'd'].map((id) => ({ ...byId(b, 't5-docs'), id, depends_on: [] })),
       3,
     );
     expect(loose.a?.y).toBe(loose.b?.y);
@@ -387,11 +367,7 @@ describe('the governor', () => {
       checkpointedTasks: 2,
       checkpointedCompleted: 1,
     });
-    expect(Object.fromEntries(s.sources)).toEqual({
-      history: 4,
-      task: 1,
-      flat: 2,
-    });
+    expect(Object.fromEntries(s.sources)).toEqual({ history: 4, task: 1, flat: 2 });
   });
 
   it('lists a row per signal and rung, with the stop reason of its task', () => {
@@ -453,11 +429,7 @@ describe('the pull requests', () => {
     const merged = b.pull_requests.find((p) => p.number === 411);
     const rows = batchPulls(b, [
       { ...must(merged), state: 'merged_edited', integrator_last: null },
-      {
-        ...must(merged),
-        url: 'https://example.com/other/pull/1',
-        batch_run_id: 'other',
-      },
+      { ...must(merged), url: 'https://example.com/other/pull/1', batch_run_id: 'other' },
     ]);
     expect(rows.map((r) => r.number)).toEqual([412, 411]);
     expect(rows[1]?.state).toBe('merged_edited');
@@ -487,29 +459,16 @@ describe('the request', () => {
     expect(request).toMatchObject({
       contract_version: 'request/v1',
       text: `Clone of ${BATCH_A}`,
-      context: {
-        interactive: false,
-        preset: 'driven',
-        repository: { path: b.repository?.path },
-      },
-      driven: {
-        plan: true,
-        max_parallel: 4,
-        max_tokens_total: 4_000_000,
-        max_usd_total: 15,
-      },
+      context: { interactive: false, preset: 'driven', repository: { path: b.repository?.path } },
+      driven: { plan: true, max_parallel: 4, max_tokens_total: 4_000_000, max_usd_total: 15 },
     });
     const tasks = request.driven.tasks;
     expect(tasks).toHaveLength(8);
     // t1 was sized by the plan, t2 by default; neither is the caller's, so neither carries a size.
     expect(tasks.find((t) => t.id === 't1-schema')).not.toHaveProperty('size');
-    expect(tasks.find((t) => t.id === 't3-memory-ttl')).toMatchObject({
-      budget_usd: 2.05,
-    });
+    expect(tasks.find((t) => t.id === 't3-memory-ttl')).toMatchObject({ budget_usd: 2.05 });
     expect(tasks.find((t) => t.id === 't2-retry-policy')).not.toHaveProperty('budget_usd');
-    expect(tasks.find((t) => t.id === 't5-docs')).toMatchObject({
-      depends_on: ['t4-metrics'],
-    });
+    expect(tasks.find((t) => t.id === 't5-docs')).toMatchObject({ depends_on: ['t4-metrics'] });
   });
 
   it('carries a continuation and the whole goal of one the view cut', () => {
@@ -525,9 +484,7 @@ describe('the request', () => {
       ],
     };
     expect(cutGoals(cut)).toEqual(['t5-docs']);
-    const { tasks } = rebuildRequest(cut, {
-      't5-docs': 'the whole goal',
-    }).driven;
+    const { tasks } = rebuildRequest(cut, { 't5-docs': 'the whole goal' }).driven;
     expect(tasks[0]).toMatchObject({
       goal: 'the whole goal',
       continue_from: { run_id: 'earlier', task_id: 't5-docs' },
@@ -536,11 +493,7 @@ describe('the request', () => {
   });
 
   it('leaves out limits and a repository the batch did not have', () => {
-    const bare = {
-      ...b,
-      repository: undefined,
-      limits: {},
-    } as unknown as BatchBody;
+    const bare = { ...b, repository: undefined, limits: {} } as unknown as BatchBody;
     const request = rebuildRequest(bare);
     expect(request.context).not.toHaveProperty('repository');
     expect(request.driven).not.toHaveProperty('plan');
@@ -591,11 +544,7 @@ describe('the artifacts', () => {
       exit_code: 1,
       timed_out: false,
       duration_seconds: 4,
-      test_integrity: {
-        flagged: true,
-        reason: 'only tests changed',
-        test_paths: ['t.cs'],
-      },
+      test_integrity: { flagged: true, reason: 'only tests changed', test_paths: ['t.cs'] },
     });
     expect(facts).toMatchObject({
       command: 'dotnet test',
