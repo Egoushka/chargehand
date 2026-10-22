@@ -201,7 +201,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         if (plan is null)
         {
             if (!input.AllowNoTests && !input.Partial && (run.NoTestsRule = await NoTestsRuleAsync(run, ct)) is null)
-                return run.Refuse("no test command found for this repository; chargehand does not push a change it cannot test (name one in the request's context.verify)", ErrorCode.VerificationFailed, changed: changed, commit: commit);
+                return run.Refuse(NoTestCommandMessage(run.Scratch), ErrorCode.VerificationFailed, changed: changed, commit: commit);
             return null;
         }
         return await RunVerificationAsync(run, plan, ct);
@@ -321,24 +321,6 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         public HandoverOutcome Refuse(string reason, ErrorCode error, VerificationRecord? verification = null, IReadOnlyList<string>? changed = null, IReadOnlyList<ScanFinding>? findings = null,
             IReadOnlyList<string>? verificationPaths = null, string? commit = null) =>
             new(HandoverStatus.NotPushed, Redact(reason, Secrets), error, Input.Branch, commit, null, verification, changed ?? [], verificationPaths ?? [], findings ?? [], Changes);
-    }
-
-    private static string DescribeBody(string body, List<string> changed, VerificationRecord? verification, IReadOnlyList<string> verificationPaths, string? policyNote, TestIntegrityFlag? integrity,
-        string? noTestsRule)
-    {
-        var text = new StringBuilder();
-        if (integrity is not null)
-            text.Append(TestIntegrity.Warning(integrity)).Append("\n\n");
-        text.Append(body.TrimEnd()).Append("\n\n---\n\n");
-        // A flagged pull request is never merged, so the opted-in text about auto-merge would be untrue.
-        text.Append(integrity is not null && policyNote is not null ? "Opened by chargehand as a draft. Because of the warning above, chargehand marks it ready for review and does not merge it." : policyNote ?? "Opened by chargehand as a draft; it is not merged and chargehand will not merge it.").Append("\n\n");
-        text.Append(verification is null
-            ? $"Verification: no test command was found, so nothing was run.{(noTestsRule is null ? "" : $" It was pushed because {noTestsRule}.")}\n"
-            : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Verification (chargehand's own run in a fresh container): `{string.Join(' ', verification.Argv)}` exited {verification.ExitCode} in {verification.Duration.TotalSeconds:0}s.\n"));
-        text.Append(System.Globalization.CultureInfo.InvariantCulture, $"Changed files: {changed.Count}.\n");
-        if (verificationPaths.Count > 0)
-            text.Append("\nThe change touches files that decide what the tests mean; read them first: ").Append(string.Join(", ", verificationPaths.Take(20))).Append(".\n");
-        return text.ToString();
     }
 
     /// <summary><c>added\tremoved\tpath\0</c> per path; a binary file has <c>-</c> for both counts.</summary>
