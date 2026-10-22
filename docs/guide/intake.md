@@ -59,7 +59,7 @@ The goal's first line is the issue's title (the pull request's title is cut from
 
 ```json
 {
-  "driven": { "enabled": true, "integrator": { "app_id": 123456, "private_key_secret": "chargehand-app-key" } },
+  "driven": { "enabled": true, "integrator": { "app_id": 123456, "private_key_secret": "chargehand-app-key", "app_slug": "chargehand-app" } },
   "automation": { "github": {
     "repositories": { "octo/repo": { "path": "/srv/chargehand/repos/repo" } },
     "allowed_authors": ["octocat"],

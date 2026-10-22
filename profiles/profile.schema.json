@@ -275,12 +275,13 @@
         "integrator": {
           "type": "object",
           "additionalProperties": false,
-          "dependentRequired": { "app_id": ["private_key_secret"], "installation_id": ["app_id", "private_key_secret"], "private_key_secret": ["app_id"] },
-          "description": "ADR 0046: for the repositories listed, chargehand marks a finished task's pull request ready and merges it through the repository's required checks, and has a short session fix a failing required check, acting as a GitHub App (on GitLab, with the forge token). app_id and private_key_secret are both set or both left out: a profile that integrates GitLab projects only needs none. Unset: draft pull requests only, never touched again.",
+          "dependentRequired": { "app_id": ["private_key_secret", "app_slug"], "installation_id": ["app_id", "private_key_secret", "app_slug"], "private_key_secret": ["app_id", "app_slug"], "app_slug": ["app_id", "private_key_secret"] },
+          "description": "ADR 0046: for the repositories listed, chargehand marks a finished task's pull request ready and merges it through the repository's required checks, and has a short session fix a failing required check, acting as a GitHub App (on GitLab, with the forge token). app_id, private_key_secret and app_slug are all set or all left out: a profile that integrates GitLab projects only needs none. Unset: draft pull requests only, never touched again, and chargehand's own commits stay chargehand@localhost.",
           "properties": {
             "app_id": { "type": "integer", "minimum": 1, "description": "The GitHub App's numeric id." },
             "installation_id": { "type": "integer", "minimum": 1, "description": "Optional. chargehand asks GitHub which installation of the App covers each repository's owner (an App is installed once per account or organisation). This pins one installation, for the account it belongs to, and skips the lookup for that owner's repositories; it reaches no other owner." },
             "private_key_secret": { "type": "string", "minLength": 1, "description": "Secret item holding the App's private key (PEM). Never logged, never inside a container." },
+            "app_slug": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$", "description": "The App's slug, its login without [bot] (GitHub shows it on the App's settings page). chargehand commits as this bot (its noreply address) instead of chargehand@localhost, which some repositories' secrets/noreply CI check rejects." },
             "repositories": {
               "type": "object",
               "propertyNames": { "pattern": "^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$" },

@@ -29,7 +29,7 @@ Add to the profile the server runs with:
 {
   "driven": {
     "enabled": true,
-    "integrator": { "app_id": 123456, "private_key_secret": "chargehand-app-key" }
+    "integrator": { "app_id": 123456, "private_key_secret": "chargehand-app-key", "app_slug": "chargehand-app" }
   },
   "automation": {
     "github": { "discover": true, "allowed_authors": ["your-login"] }

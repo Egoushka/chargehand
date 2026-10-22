@@ -83,14 +83,16 @@ public sealed class RunWorkspace
         return tree;
     }
 
-    /// <summary>Commits everything the worker changed; null when the tree is unchanged.</summary>
-    public async Task<BranchInfo?> CommitAsync(string message, CancellationToken ct)
+    /// <summary>Commits everything the worker changed; null when the tree is unchanged. <paramref name="authorName"/> and <paramref name="authorEmail"/> are the identity chargehand commits as
+    /// (<see cref="Chargehand.Modules.Handover.Api.DrivenIntegrator.CommitIdentity"/>): the default <c>chargehand &lt;chargehand@localhost&gt;</c> unless the caller passes the configured GitHub
+    /// App's bot identity.</summary>
+    public async Task<BranchInfo?> CommitAsync(string message, CancellationToken ct, string authorName = "chargehand", string authorEmail = "chargehand@localhost")
     {
         await Git(Directory, ct, "add", "-A");
         if (await Git(Directory, ct, "status", "--porcelain") is not { Length: > 0 })
             return null;
         // Hooks stay off and signing is not attempted: a repository's own hooks are code the worker may have changed.
-        var commit = await Git(Directory, ct, "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "user.name=chargehand", "-c", "user.email=chargehand@localhost",
+        var commit = await Git(Directory, ct, "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", $"user.name={authorName}", "-c", $"user.email={authorEmail}",
             "commit", "-q", "-m", message) is null
             ? throw new InvalidOperationException("git commit failed in the run workspace")
             : await Git(Directory, ct, "rev-parse", "HEAD");
