@@ -24,6 +24,30 @@ public class VerifierTests
         Assert.Equal("detected", plan.Source);
     }
 
+    [Theory]
+    [InlineData("build.gradle", "gradle check --no-daemon")]
+    [InlineData("build.gradle.kts", "gradle check --no-daemon")]
+    [InlineData("settings.gradle.kts", "gradle check --no-daemon")]
+    [InlineData("pom.xml", "mvn -B test")]
+    public void A_gradle_or_maven_repository_is_detected_and_check_runs_lint_too(string marker, string expected)
+    {
+        using var dir = new TempDir();
+        dir.Write(marker, "");
+        var plan = VerifyCommand.Resolve(null, dir.Path);
+        Assert.Equal(expected, string.Join(' ', plan!.Argv));
+        Assert.Equal("detected", plan.Source);
+    }
+
+    [Fact]
+    public void The_gradle_wrapper_is_preferred_over_a_bare_gradle_call()
+    {
+        using var dir = new TempDir();
+        dir.Write("build.gradle.kts", "");
+        dir.Write("gradlew", "");
+        var plan = VerifyCommand.Resolve(null, dir.Path);
+        Assert.Equal(["./gradlew", "check", "--no-daemon"], plan!.Argv);
+    }
+
     [Fact]
     public void A_scripts_check_sh_wins_over_a_guessed_ecosystem_command()
     {
