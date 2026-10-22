@@ -75,7 +75,7 @@ public class ChangeSkillTests
     {
         // Seen twice: the review checkout is the base commit, the worker could not see the new code, asked, and the session stopped for the owner.
         var review = File.ReadAllText(Repo.Path("prompts", "preset", "review.md"));
-        Assert.Contains("may be the base commit", review, StringComparison.Ordinal);
+        Assert.Contains("your checkout is the base commit", review, StringComparison.Ordinal);
         Assert.Contains("Never return needs_input because", review, StringComparison.Ordinal);
         var section = Skill[Skill.IndexOf("## Driven mode", StringComparison.Ordinal)..Skill.IndexOf(SkillSteps[0], StringComparison.Ordinal)];
         Assert.Contains("does not stop the session", section, StringComparison.Ordinal);

@@ -296,6 +296,9 @@ public sealed class Orchestrator(
         var (directory, commit, repository, excluded) = kind.Checkout
             ? await Checkout(request.Context.Repository!, kind, refuseDenied: false, ct)
             : (EmptyDirectory(), "", "", []);
+        string? changeNote = null;
+        if (kind.Checkout && !kind.Writes && (request.Inputs ?? []).FirstOrDefault(i => i.Kind == "diff") is { } change)
+            (directory, commit, changeNote, excluded) = await WithChange(directory, commit, excluded, change.Text, kind, ct);
         // A writing node works in its own clone on its own branch; the shared checkout stays clean for other runs (ADR 0035).
         var workspace = kind.Writes ? await RunWorkspace.CreateAsync(directory, commit, profile.WorkerRoot, runId, plan[0].Id, ct) : null;
         if (workspace is not null)
@@ -327,7 +330,7 @@ public sealed class Orchestrator(
         {
             var nodeRequest = new NodeRequest(runId, node.Id, traceId,
                 new NodeSpec(directory, kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { [IRunCleanup.RunMetadataKey] = runId, ["chargehand.node"] = node.Id }, granted),
-                instructions, TaskText(request, spec, commit, inputText, callerBlocks, node, plan.Count, upstream) + facts + ServiceCitationNote(granted) + ExcludedNote(excluded), chain, directory, commit,
+                instructions, TaskText(request, spec, commit, changeNote, inputText, callerBlocks, node, plan.Count, upstream) + facts + ServiceCitationNote(granted) + ExcludedNote(excluded), chain, directory, commit,
                 (request.Inputs ?? []).Select(i => i.Id).ToHashSet(), inputText, cap, TimeSpan.FromMinutes(15),
                 kind.Budget.MaxInputTokens, kind.Compaction?.TriggerTokens, fork,
                 workspace is null ? null : async (_, token) =>
@@ -576,6 +579,18 @@ public sealed class Orchestrator(
         return (dir, commit, RepositoryLabel.From(await Git(source, ct, "config", "--get", "remote.origin.url"), Path.GetFileName(source)), denied);
     }
 
+    /// <summary>A review gets the change it reviews on disk (<see cref="ReviewedChange"/>). Files the preset denies reading, a change's new ones too, are left out of the clone as in <see cref="Checkout"/>.</summary>
+    private static async Task<(string Directory, string Commit, string? Note, IReadOnlyList<string> Excluded)> WithChange(string directory, string commit, IReadOnlyList<string> excluded, string diff,
+        NodeKind kind, CancellationToken ct)
+    {
+        var change = await ReviewedChange.ApplyAsync(directory, commit, diff, ct);
+        if (change.Directory == directory)
+            return (directory, commit, change.Note, excluded);
+        var denied = await DeniedFiles(change.Directory, kind.Permissions, ct);
+        await Exclude(change.Directory, denied, ct);
+        return (change.Directory, change.Commit, change.Note, denied);
+    }
+
     /// <summary>
     /// Leaves tracked files out of a clone's working tree with a sparse checkout, so grep and read cannot reach them. They stay in
     /// the index (skip-worktree): a commit in a clone of it never deletes them. A reused clone keeps what earlier runs left out.
@@ -702,11 +717,13 @@ public sealed class Orchestrator(
         : $"\n\nThese tracked files are left out of your checkout, because the preset denies reading them: {string.Join(", ", excluded.Take(20))}" +
           $"{(excluded.Count > 20 ? $" and {excluded.Count - 20} more" : "")}. Do not look for them; if the answer depends on one, say so.";
 
-    private static string TaskText(RunRequest request, TaskSpec spec, string commit, string inputText, IReadOnlyList<PromptBlock> callerBlocks,
+    private static string TaskText(RunRequest request, TaskSpec spec, string commit, string? changeNote, string inputText, IReadOnlyList<PromptBlock> callerBlocks,
         PlanNode node, int nodes, IReadOnlyList<ResultContract> upstream)
     {
         var sb = new StringBuilder();
         sb.AppendLine(commit.Length > 0 ? $"Task (repository commit {commit}):" : "Task:").AppendLine(request.Text).AppendLine();
+        if (changeNote is not null)
+            sb.AppendLine(changeNote).AppendLine();
         if (node.Goal is not null)
             sb.AppendLine(CultureInfo.InvariantCulture, $"Your part ({node.Id}, one of {nodes} parts, each answered by a separate worker): {node.Goal}")
               .AppendLine("Answer only your part; do not research the other parts.").AppendLine();
