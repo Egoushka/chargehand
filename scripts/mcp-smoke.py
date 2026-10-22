@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory() as tmp:
     send({'jsonrpc': '2.0', 'method': 'notifications/initialized'})
     send({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})
     tools = [t['name'] for t in reply(2)['tools']]
-    assert sorted(tools) == ['orchestrate', 'result'], f'tools {tools}'
+    assert sorted(tools) == ['orchestrate', 'repositories', 'result'], f'tools {tools}'
     proc.stdin.close()
     assert proc.wait(timeout=30) == 0, f'chargehand mcp exited {proc.returncode}'
 

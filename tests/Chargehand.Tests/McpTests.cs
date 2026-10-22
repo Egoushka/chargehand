@@ -50,7 +50,7 @@ public class McpTests
         await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
         await using var client = await Connect(s);
         var tools = await client.ListToolsAsync();
-        Assert.Equal([OrchestrateTool.Name, ResultTool.Name], tools.Select(t => t.Name).Order(StringComparer.Ordinal));
+        Assert.Equal([OrchestrateTool.Name, RepositoriesTool.Name, ResultTool.Name], tools.Select(t => t.Name).Order(StringComparer.Ordinal));
         var tool = tools.Single(t => t.Name == OrchestrateTool.Name);
         Assert.Equal(ChargehandServer.Instructions, client.ServerInstructions);
         Assert.True(JsonNode.DeepEquals(JsonNode.Parse(ContractSchemas.Text(ContractSchemas.Request)), JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText())));
@@ -79,6 +79,21 @@ public class McpTests
         var result = Result(await client.CallToolAsync(OrchestrateTool.Name, Args(request).ToDictionary(a => a.Key, a => (object?)a.Value)));
         Assert.Equal(ResultStatus.Completed, result.Status);
         Assert.Equal("run-parent", (await s.Log.ReadAsync(result.TaskId, CancellationToken.None)).Start!.ParentRunId);
+    }
+
+    [Fact]
+    public async Task The_repositories_tool_lists_each_checkout_with_its_commit()
+    {
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
+        var repo = Runs.GitRepo(s.WorkerRoot);
+        await using var client = await Connect(s);
+
+        var call = await client.CallToolAsync(RepositoriesTool.Name, new Dictionary<string, object?>());
+
+        Assert.True(call.IsError != true);
+        var listed = Assert.Single(JsonDocument.Parse(((TextContentBlock)call.Content[0]).Text).RootElement.EnumerateArray());
+        Assert.Equal("repo", listed.GetProperty("name").GetString());
+        Assert.Equal(repo.Commit, listed.GetProperty("commit").GetString());
     }
 
     [Fact]
