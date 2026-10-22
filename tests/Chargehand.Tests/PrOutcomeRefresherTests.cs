@@ -36,6 +36,8 @@ public class PrOutcomeRefresherTests
 
         public Task AppendAsync(PrOutcomeRecord record, CancellationToken ct) => Task.CompletedTask;
 
+        public Task AppendAsync(AutopsyRecord record, CancellationToken ct) => Task.CompletedTask;
+
         public Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct, bool includeBench = false)
         {
             var read = Interlocked.Increment(ref _reads);

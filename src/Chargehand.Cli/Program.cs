@@ -480,7 +480,8 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
             new HttpClient { BaseAddress = Chargehand.Modules.Forge.Api.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token),
         Planner: new Chargehand.Modules.Batches.Api.ModelPlanner(childRun, driven.Planning?.Preset ?? "cheap"),
         Retro: new Chargehand.Modules.Batches.Api.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap"), Runners: sites,
-        AppToken: AppTokens(driven) is { } appTokens ? (remote, token) => appTokens.GetAsync(remote.Owner, remote.Name, token) : null),
+        AppToken: AppTokens(driven) is { } appTokens ? (remote, token) => appTokens.GetAsync(remote.Owner, remote.Name, token) : null,
+        Autopsy: new Chargehand.Modules.Batches.Api.ModelAutopsy(childRun, driven.Learning?.AutopsyPreset ?? "cheap")),
         stateDirectory, learning, records);
 }
 

@@ -10,4 +10,5 @@ namespace Chargehand.Modules.Oversight.Api;
     Converters = [typeof(SnakeCaseEnumConverter<ForgeKind>)])]
 [JsonSerializable(typeof(LearningRecord))]
 [JsonSerializable(typeof(PrOutcomeRecord))]
+[JsonSerializable(typeof(AutopsyRecord))]
 internal sealed partial class LearningJsonContext : JsonSerializerContext;

@@ -191,6 +191,38 @@ public sealed partial class BatchLifecycle
         }
     }
 
+    /// <summary>The failure autopsy of a batch's tasks (ADR 0045, the retro's sibling): one cheap read-only run per task that ended failed or partial and has none yet, writing a root-cause class
+    /// to the learning log. Nothing while the batch detaches, the caller cancels, autopsies are off, or there is no store or writer. A task's autopsy that cannot be written is skipped and the
+    /// next task's is still tried; a cancel is not caught.</summary>
+    /// <param name="on"><c>driven.learning.autopsy</c>.</param>
+    /// <returns>How many autopsies were written.</returns>
+    public static async Task<int> AutopsyAsync(BatchRunContext c, bool on, ILearningStore? learning, IFailureAutopsy? writer, TimeProvider? clock = null)
+    {
+        ArgumentNullException.ThrowIfNull(c);
+        if (c.Detaching() || c.Ct.IsCancellationRequested || !on || learning is null || writer is null)
+            return 0;
+        var records = (await learning.ReadAsync(c.Ct, includeBench: true))
+            .Where(e => e.Record.BatchId == c.RunId && e.Record.Outcome is LearningOutcome.Failed or LearningOutcome.Partial && e.Autopsy is null)
+            .Select(e => e.Record).ToList();
+        var written = 0;
+        foreach (var record in records)
+        {
+            AutopsyAnswer answer;
+            try
+            {
+                answer = await writer.WriteAsync(new AutopsyInput(c.Request, record.RunId, record), c.Ct);
+            }
+            catch (Exception e) when (e is AutopsyException or ChargehandException or HttpRequestException or IOException)
+            {
+                Console.Error.WriteLine($"chargehand: the failure autopsy failed for task {record.RunId}: {e.Message}");
+                continue;
+            }
+            await learning.AppendAsync(new AutopsyRecord(record.RunId, (clock ?? TimeProvider.System).GetUtcNow(), answer.Class, answer.Detail), c.Ct);
+            written++;
+        }
+        return written;
+    }
+
     /// <summary>The batch's result: in request order, a task the plan split in place; tasks that did not resolve were never started.</summary>
     /// <param name="delivery">How the model credential reached the sessions, for the result.</param>
     public static ResultContract Result(BatchRunContext c, IReadOnlyList<TaskOutcome> unresolved, IReadOnlyList<ResolvedTask> ready, BatchOutcome ran, string delivery, bool priced, string claudeVersion,
