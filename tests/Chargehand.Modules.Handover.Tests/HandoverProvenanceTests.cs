@@ -79,4 +79,30 @@ public class HandoverProvenanceTests
 
         Assert.Equal(made, outcome.Commit);
     }
+
+    /// <summary>CHARGEHAND-426: the session commits as chargehand@localhost (the container's fixed identity), but a repository configured with a GitHub App wants its
+    /// pushed commits authored and committed as the App's bot noreply identity instead, since some repositories' secrets/noreply CI check rejects @localhost.</summary>
+    [Fact]
+    public async Task A_configured_app_identity_replaces_chargehand_localhost_on_every_pushed_commit()
+    {
+        using var f = new HandoverTests.Fixture(thenEdit: dir => File.WriteAllText(Path.Combine(dir, "more.txt"), "more\n"));
+        var input = f.Input(with: i => i with { Provenance = Run, CommitAuthorName = "my-app[bot]", CommitAuthorEmail = "my-app[bot]@users.noreply.github.com" });
+
+        var outcome = await new Handover(new HandoverTests.FakeVerifier(), new HandoverTests.FakePullRequests()).RunAsync(input, default);
+
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        var identities = Git(f.Remote, "log", "--format=%an <%ae> %cn <%ce>", $"{f.BaseCommit}..chargehand/run1").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.All(identities, line => Assert.Equal("my-app[bot] <my-app[bot]@users.noreply.github.com> my-app[bot] <my-app[bot]@users.noreply.github.com>", line));
+    }
+
+    [Fact]
+    public async Task With_no_app_configured_pushed_commits_keep_the_chargehand_localhost_default()
+    {
+        using var f = new HandoverTests.Fixture();
+
+        var outcome = await new Handover(new HandoverTests.FakeVerifier(), new HandoverTests.FakePullRequests()).RunAsync(f.Input(with: i => i with { Provenance = Run }), default);
+
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        Assert.Equal("chargehand <chargehand@localhost>", Git(f.Remote, "log", "-1", "--format=%an <%ae>", "chargehand/run1"));
+    }
 }

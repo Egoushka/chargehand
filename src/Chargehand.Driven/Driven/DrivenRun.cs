@@ -397,7 +397,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         if (ready.FirstOrDefault(t => (t.From?.Kept?.Base ?? t.From?.Pushed?.Base) is { } startedAt && startedAt != checkout.Commit) is { } moved)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"task '{moved.Id}' continues work that started at commit {moved.From!.Kept?.Base ?? moved.From.Pushed!.Base}, but this request's repository is at {checkout.Commit}",
                 "Send the request with context.repository.commit set to the commit the earlier task started at.");
-        return new BatchCheckout(checkout, forge, integrator, push);
+        return new BatchCheckout(checkout, forge, integrator, push, DrivenIntegrator.CommitIdentity(settings.Integrator));
     }
 
     /// <summary>The batch's push credential: <c>driven.push_secret</c> when it is set, else the GitHub App's installation token for the remote, minted at each use. One token is asked for now,
