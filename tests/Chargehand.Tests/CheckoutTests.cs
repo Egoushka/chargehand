@@ -176,4 +176,20 @@ public class CheckoutTests
         Assert.NotEqual(ResultStatus.Failed, r.Status);
         Assert.True(File.Exists(Path.Combine(Assert.Single(runtime.Created).Directory, name)));
     }
+
+    [Fact]
+    public async Task A_local_env_file_named_like_a_test_source_stays_out_of_the_checkout()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        File.WriteAllText(Path.Combine(repo.Path, ".env.test.local"), "API_KEY=value\n");
+        repo = Runs.Commit(repo, ".env.test.local");
+        var runtime = new ScriptedRuntime(Runs.WorkerReply);
+
+        var r = await Runs.Orchestrator(runtime, root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
+            .RunAsync(Runs.CheapRequest(repo), CancellationToken.None);
+
+        Assert.NotEqual(ResultStatus.Failed, r.Status);
+        Assert.False(File.Exists(Path.Combine(Assert.Single(runtime.Created).Directory, ".env.test.local")));
+    }
 }

@@ -23,6 +23,7 @@ node_kinds:
       - { action: read, resource: "*.env.enc", effect: allow }   # SOPS ciphertext: GitOps repos track it
       - { action: read, resource: "*.env.test.*", effect: allow }   # test sources named after what they test (options.env.test.js) are code
       - { action: read, resource: "*.env.spec.*", effect: allow }
+      - { action: read, resource: "*.env.*.local", effect: deny }   # .env.test.local and the like hold real values
       - { action: question, resource: "*", effect: deny }
     budget: { max_input_tokens: 2000000, max_usd: 3.00 }
 driven:
