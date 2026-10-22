@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.17.0](https://github.com/Egoushka/chargehand/compare/v0.16.0...v0.17.0) (2026-10-22)
+
+
+### Features
+
+* **automation:** charge automated starts to automation.account and pause them on the month forecast (CHARGEHAND-216) ([#407](https://github.com/Egoushka/chargehand/issues/407)) ([206cf45](https://github.com/Egoushka/chargehand/commit/206cf45fd2d8d880b4c00f4c12e2b00f21766d98))
+* **console:** merge train, the order to merge open pull requests in per repository (CHARGEHAND-216) ([#405](https://github.com/Egoushka/chargehand/issues/405)) ([2dc0c10](https://github.com/Egoushka/chargehand/commit/2dc0c1049d12e506bc157524bbf333404c46a5e7))
+* **console:** month spend forecast per account at the trailing 7-day rate (CHARGEHAND-216) ([#403](https://github.com/Egoushka/chargehand/issues/403)) ([5e92ddc](https://github.com/Egoushka/chargehand/commit/5e92ddca9c9b2ca68fc70ab332b48adf5bf73bc3))
+
+
+### Bug Fixes
+
+* **presets:** workers may read SOPS-encrypted .env.enc files ([#211](https://github.com/Egoushka/chargehand/issues/211)) ([ad3c896](https://github.com/Egoushka/chargehand/commit/ad3c89691e98f13d3917ac98adf870ecdcf98c6d))
+
 ## [0.16.0](https://github.com/Egoushka/chargehand/compare/v0.15.1...v0.16.0) (2026-10-21)
 
 
