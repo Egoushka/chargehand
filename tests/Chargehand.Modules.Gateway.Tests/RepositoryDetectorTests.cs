@@ -115,7 +115,7 @@ public class RepositoryDetectorTests
         Assert.Equal(["build.gradle.kts", "gradlew"], scan.Ecosystems[0].Markers);
         Assert.Contains("services.gradle.org", scan.Hosts);
         Assert.Contains("repo.maven.apache.org", scan.Hosts);
-        Assert.Equal(["./gradlew", "test", "--no-daemon"], scan.BestVerify!.Command);
+        Assert.Equal(["./gradlew", "check", "--no-daemon"], scan.BestVerify!.Command);
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public class RepositoryDetectorTests
     {
         var scan = ScanOf(("build.gradle", ""));
 
-        Assert.Equal(["gradle", "test", "--no-daemon"], scan.BestVerify!.Command);
+        Assert.Equal(["gradle", "check", "--no-daemon"], scan.BestVerify!.Command);
     }
 
     [Fact]

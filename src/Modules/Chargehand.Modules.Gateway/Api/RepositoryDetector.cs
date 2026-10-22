@@ -111,7 +111,7 @@ public static partial class RepositoryDetector
         if (files.Where(f => GradleFile().IsMatch(f) || f == "gradlew").Order(StringComparer.Ordinal).ToList() is { Count: > 0 } gradle)
         {
             ecosystems.Add(new("gradle", gradle, GradleHosts));
-            verify.Add(new(files.Contains("gradlew") ? ["./gradlew", "test", "--no-daemon"] : ["gradle", "test", "--no-daemon"], gradle[0]));
+            verify.Add(new(files.Contains("gradlew") ? ["./gradlew", "check", "--no-daemon"] : ["gradle", "check", "--no-daemon"], gradle[0]));
         }
 
         if (files.Contains("pom.xml"))
