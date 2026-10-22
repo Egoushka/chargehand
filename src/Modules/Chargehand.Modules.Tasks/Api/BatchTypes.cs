@@ -9,8 +9,10 @@ public enum TaskState { Completed, Failed, NeedsInput, NotStarted, Cancelled }
 /// <param name="RetryAfter">For a <see cref="ErrorCode.RateLimited"/> end: when the limit lifts, if known; the scheduler holds new starts until then.</param>
 /// <param name="Runner">The runner the task's sessions ran on, when the profile names its runners (ADR 0058).</param>
 /// <param name="Replace">The task did not start because its runner could not be reached (ADR 0058): the scheduler places it again on another, a limited number of times, and never records this outcome.</param>
+/// <param name="Replan">The task stalled on a reason that would continue it (ADR 0044) but made no commits, so continuing never had a branch to continue from (issue #432): the batch asks the
+/// planner to split it into a chain of smaller tasks instead of ending it failed.</param>
 public sealed record TaskOutcome(string Id, TaskState State, string? RunId = null, string? Detail = null, ErrorCode? Error = null, decimal Usd = 0, long Tokens = 0,
-    string? Branch = null, string? PrUrl = null, DateTimeOffset? RetryAfter = null, string? Runner = null, bool Replace = false);
+    string? Branch = null, string? PrUrl = null, DateTimeOffset? RetryAfter = null, string? Runner = null, bool Replace = false, bool Replan = false);
 
 /// <summary>The most one task may use. Tokens bind in both credential modes; <c>MaxUsd</c> is null where the credential is not priced.</summary>
 public sealed record TaskLimits(long MaxTokens, decimal? MaxUsd);
