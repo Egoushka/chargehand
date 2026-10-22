@@ -23,6 +23,13 @@ const card = (name: string) => {
   return within(section as HTMLElement);
 };
 
+const openWithRouter = async (extra: Parameters<typeof serveApi>[0] = {}) => {
+  const api = serveApi({ replies: history(), ...extra });
+  const view = renderConsole('/console/repositories');
+  await screen.findByRole('heading', { name: 'payments-api' });
+  return { api, ...view };
+};
+
 const open = async (extra: Parameters<typeof serveApi>[0] = {}) => {
   const api = serveApi({ replies: history(), ...extra });
   renderConsole('/console/repositories');
@@ -127,7 +134,8 @@ describe('Repositories with data', () => {
     expect(
       payments.getByText(/result not recorded\. The server does not run or keep it\./),
     ).toBeTruthy();
-    expect(payments.getAllByRole('img', { name: 'OK' })).toHaveLength(5);
+    // Five checks of the read and four readiness signals with data.
+    expect(payments.getAllByRole('img', { name: 'OK' })).toHaveLength(9);
 
     const infra = card('infra');
     expect(infra.getByRole('img', { name: 'Failure' })).toBeTruthy();
@@ -195,6 +203,23 @@ describe('Repositories with data', () => {
     fireEvent.click(card('payments-api').getByRole('button', { name: '2 open PRs' }));
     expect(card('payments-api').queryByRole('link', { name: '#412' })).toBeNull();
     expect(card('payments-api').getByText('#412')).toBeTruthy();
+  });
+
+  it('shows each repository’s readiness, and under the threshold opens the proposed task in Start a batch', async () => {
+    const { router } = await openWithRouter();
+    const payments = card('payments-api');
+    expect(payments.getByText('92 / 100')).toBeTruthy();
+    expect(payments.getByText('Merged as left: no merged pull request to compare')).toBeTruthy();
+    expect(payments.queryByRole('button', { name: /agent-ready/ })).toBeNull();
+    const shop = card('web-shop');
+    expect(shop.getByText('34 / 100')).toBeTruthy();
+    expect(shop.getByText(/Under 60: tasks here complete less often/)).toBeTruthy();
+    expect(card('infra').queryByText('Agent readiness')).toBeNull();
+    fireEvent.click(
+      shop.getByRole('button', { name: 'Propose a task that makes web-shop agent-ready' }),
+    );
+    await waitFor(() => expect(router.state.location.pathname).toBe('/new'));
+    expect(router.state.location.state.startBatch?.request).toEqual(adm.readiness.below.proposal);
   });
 
   it('offers the doctor as a later affordance, disabled and labelled', async () => {
