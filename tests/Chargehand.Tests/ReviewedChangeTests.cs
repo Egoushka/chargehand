@@ -24,7 +24,9 @@ public class ReviewedChangeTests
 
     private static RunRequest Review(RepositoryRef repo, string diff) => new("request/v1",
         "Review the change against its goal.", new RequestContext(false, "review", Repository: repo),
-        [new CallerInput("goal", "goal", "Add a class."), new CallerInput("diff", "diff", diff), new CallerInput("tests", "test-output", "exit 0")], []);
+        diff.Length == 0
+            ? [new CallerInput("goal", "goal", "Add a class."), new CallerInput("tests", "test-output", "exit 0")]
+            : [new CallerInput("goal", "goal", "Add a class."), new CallerInput("diff", "diff", diff), new CallerInput("tests", "test-output", "exit 0")], []);
 
     private static async Task<(ResultContract Result, ScriptedRuntime Runtime)> RunAsync(TempDir root, RepositoryRef repo, string diff, string locator)
     {
@@ -123,7 +125,7 @@ public class ReviewedChangeTests
         using var root = new TempDir();
         var repo = Runs.GitRepo(root.Path);
 
-        var (r, runtime) = await RunAsync(root, repo, string.Concat(Enumerable.Repeat("+x\n", 100)) + "\n[diff truncated at 60000 characters]\n", "README.md:1");
+        var (r, runtime) = await RunAsync(root, repo, "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-goodbye\n+hello world\n", "README.md:1");
 
         Assert.Equal(ResultStatus.Completed, r.Status);
         Assert.EndsWith(repo.Commit[..12], Assert.Single(runtime.Created).Directory, StringComparison.Ordinal);
