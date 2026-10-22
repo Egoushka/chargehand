@@ -44,9 +44,10 @@ public sealed record ReviewedChange(string Directory, string Commit, IReadOnlyLi
             var skipped = new List<string>();
             foreach (var file in files)
             {
-                if (await Git(temp, file.Patch, ct, "apply", "--check", "--reverse", "-") is not null)
+                // A header with no hunk (a caller's stub) has no content to read: applying it would leave an empty file that looks like the change.
+                if (file.Patch.Contains("\n@@ ", StringComparison.Ordinal) && await Git(temp, file.Patch, ct, "apply", "--check", "--reverse", "-") is not null)
                     continue;
-                if (!file.Symlink && await Git(temp, file.Patch, ct, "apply", "--whitespace=nowarn", "-") is not null)
+                if (file.Patch.Contains("\n@@ ", StringComparison.Ordinal) && !file.Symlink && await Git(temp, file.Patch, ct, "apply", "--whitespace=nowarn", "-") is not null)
                     changed++;
                 else
                     skipped.Add(file.Path);

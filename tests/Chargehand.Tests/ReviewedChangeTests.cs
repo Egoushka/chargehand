@@ -130,6 +130,17 @@ public class ReviewedChangeTests
     }
 
     [Fact]
+    public async Task A_file_header_with_no_hunk_is_not_applied()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+
+        var (_, runtime) = await RunAsync(root, repo, "diff --git a/src/Stub.cs b/src/Stub.cs\nnew file mode 100644\n--- /dev/null\n+++ b/src/Stub.cs\n(the full diff is large; see the worktree)\n", "README.md:1");
+
+        Assert.EndsWith(repo.Commit[..12], Assert.Single(runtime.Created).Directory, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_change_that_adds_a_file_the_preset_denies_reading_is_not_applied()
     {
         using var root = new TempDir();
