@@ -221,4 +221,11 @@ public class ChangeRunTests
         var plan = new VerifyPlan(["./check.sh"], "request");
         Assert.Equal(["check.sh", "tests/a.py", "app.csproj"], VerifyCommand.VerificationPaths(["src/x.cs", "check.sh", "tests/a.py", "app.csproj"], plan));
     }
+
+    [Fact]
+    public void A_gradle_or_maven_build_file_counts_as_a_verification_path()
+    {
+        Assert.Equal(["app/build.gradle.kts", "gradlew", "pom.xml"],
+            VerifyCommand.VerificationPaths(["src/x.cs", "app/build.gradle.kts", "gradlew", "pom.xml"], null));
+    }
 }
