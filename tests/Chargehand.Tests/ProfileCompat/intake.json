@@ -87,7 +87,8 @@
     },
     "learning": null,
     "runners": null,
-    "image_variants": null
+    "image_variants": null,
+    "environment": null
   },
   "prompt_enhancer": null,
   "max_parallel_nodes": 2,

@@ -226,7 +226,8 @@
       "pr_check_minutes": 60
     },
     "runners": null,
-    "image_variants": null
+    "image_variants": null,
+    "environment": null
   },
   "prompt_enhancer": null,
   "max_parallel_nodes": 2,

@@ -121,8 +121,9 @@ internal sealed class SiteBatches
         // The profile's command for the repository stands in for a request that names none, for the verifier and every follow-up alike.
         if (setup.Settings.Services?.VerifyFor(c.Request.Context.Verify, identity) is { } verify && verify != c.Request.Context.Verify)
             _c = c = c with { Request = c.Request with { Context = c.Request.Context with { Verify = verify } } };
-        _shared = SharedServicesPlan.For(setup.Settings.Services, checkout.Checkout.Directory, c.Request.Context.Verify, identity, c.RunId, BatchNetwork.NetworkName(c.RunId));
-        _sessionImage = SharedServicesPlan.PickImage(setup.Settings.Services, _shared.Ecosystems, setup.Image);
+        _shared = SharedServicesPlan.For(setup.Settings.Services, checkout.Checkout.Directory, c.Request.Context.Verify, identity, c.RunId, BatchNetwork.NetworkName(c.RunId),
+            setup.Settings.UsesMise);
+        _sessionImage = setup.Settings.UsesMise ? setup.Image : SharedServicesPlan.PickImage(setup.Settings.Services, _shared.Ecosystems, setup.Image);
     }
 
     /// <summary>The tasks whose session container has started, for the router's replace rule.</summary>
@@ -219,7 +220,8 @@ internal sealed class SiteBatches
             Path.Combine(profile.WorkerRoot, ".driven"), _setup.Model, _setup.Claude.Version,
             Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", route.Model?.BaseUrl, route.Forward is not null || route.Model?.Forwarded == true || route.Otlp is not null, route.Otlp,
             profile.Prices, profile.Telemetry?.UsageOnSpans == true, route.Exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), _checkout.Integrator, _shared, _c.Actor,
-            RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge), profile.DeliveryPolicy.Forced(_c.Request.Context.Repository!.Path));
+            RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge), profile.DeliveryPolicy.Forced(_c.Request.Context.Repository!.Path),
+            settings.UsesMise ? new MiseSetup(_setup.Settings.ImageFor(_setup.Image, route.Site.Config.Platform), route.Outside) : null);
     }
 
     /// <summary>A runner's events: a started session is noted for the router, and when the profile names its runners each event says which one.</summary>

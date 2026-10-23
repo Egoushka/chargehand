@@ -133,6 +133,7 @@ public sealed record Profile(
         profile.Driven?.Services?.Validate(profile.Driven.Images);
         profile.Driven?.Forge?.Validate();
         profile.Driven?.ValidateRunners();
+        profile.Driven?.ValidateEnvironment();
         profile.Automation?.Validate(profile.Driven?.Enabled == true, profile.Driven?.Integrator);
         if (profile.Automation?.Account is { } charged && profile.Http?.Accounts?.FirstOrDefault(a => a.Name == charged) is not { Driven: true })
             throw new ChargehandException(ErrorCode.InvalidRequest, $"automation.account: '{charged}' must be an account of http.accounts with driven: true",
@@ -335,6 +336,8 @@ public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string L
 /// <param name="Learning">ADR 0045's learning loop: how long and how often pull request outcomes are read back, and the retro after a batch; null: the defaults of <see cref="DrivenLearning"/> (retro off).</param>
 /// <param name="Runners">ADR 0058: several runner services, each with its own limits, platform and the server's address as its egress reaches it; set instead of <c>Runner</c>, never with it.</param>
 /// <param name="ImageVariants">ADR 0058: for an image of <c>Images</c> (which <c>Services.Images</c> draws from), the image to use on a runner of another platform.</param>
+/// <param name="Environment">ADR 0078: <c>image</c> (the default, also when unset): the toolchains are the session image's. <c>mise</c>: the first of <c>Images</c> is the mise base image; an install helper installs what the repository
+/// pins into a per-repository home volume before each session, and <c>Services.Caches</c> and <c>Services.Images</c> are ignored.</param>
 public sealed partial record DrivenSettings(
     bool Enabled = false,
     int MaxParallel = 2,
@@ -354,7 +357,8 @@ public sealed partial record DrivenSettings(
     DrivenPlanning? Planning = null,
     DrivenLearning? Learning = null,
     IReadOnlyList<DrivenRunnerEntry>? Runners = null,
-    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? ImageVariants = null);
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? ImageVariants = null,
+    string? Environment = null);
 
 /// <param name="Outside">A network besides the default one that the batch's egress container joins: the one the chargehand server sits on.</param>
 /// <param name="McpForward"><c>host:port</c> of the chargehand server as the egress container reaches it. Set, a session can call chargehand for research and review through a forward on its batch network; unset, it cannot.</param>
