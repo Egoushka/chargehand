@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.18.1](https://github.com/Egoushka/chargehand/compare/v0.18.0...v0.18.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **integrator:** keep watching the required checks after a failed poll (CHARGEHAND-296) ([#466](https://github.com/Egoushka/chargehand/issues/466)) ([b3eec86](https://github.com/Egoushka/chargehand/commit/b3eec862c19eba4a548762512f579ef0e8168617))
+* **runners:** send a JVM through the batch proxy so Maven and Gradle restore ([#467](https://github.com/Egoushka/chargehand/issues/467)) ([f6bf568](https://github.com/Egoushka/chargehand/commit/f6bf56851f8a7ba2fca8924d85362b4e2d289be7))
+
 ## [0.18.0](https://github.com/Egoushka/chargehand/compare/v0.17.0...v0.18.0) (2026-10-22)
 
 
