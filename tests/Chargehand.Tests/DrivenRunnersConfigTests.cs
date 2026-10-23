@@ -151,6 +151,38 @@ public class DrivenRunnersConfigTests
         Assert.Contains(problem, e.Message);
     }
 
+    // --- environment (ADR 0078)
+
+    [Fact]
+    public void The_environment_is_the_images_unless_the_profile_says_mise()
+    {
+        Assert.Null(Load("""{"enabled":true}""").Environment);
+        Assert.False(Load("""{"enabled":true}""").UsesMise);
+        Assert.False(Load("""{"environment":"image"}""").UsesMise);
+        Assert.True(Load("""{"environment":"mise"}""").UsesMise);
+    }
+
+    [Theory]
+    [InlineData("nix")]
+    [InlineData("Mise")]
+    [InlineData("")]
+    public void An_environment_that_is_not_one_of_the_two_is_refused(string environment)
+    {
+        var e = Refused($$$"""{"environment":"{{{environment}}}"}""");
+        Assert.Contains("driven.environment", e.Message);
+        Assert.Contains("mise", e.Message);
+    }
+
+    [Theory]
+    [InlineData("""{"schema":"profile/v1","driven":{"environment":"mise"}}""", true)]
+    [InlineData("""{"schema":"profile/v1","driven":{"environment":"image"}}""", true)]
+    [InlineData("""{"schema":"profile/v1","driven":{"environment":"nix"}}""", false)]
+    public void The_schema_checks_the_environment(string profile, bool valid)
+    {
+        using var doc = JsonDocument.Parse(profile);
+        Assert.Equal(valid, ConfigFileTests.ProfileSchema.Evaluate(doc.RootElement).IsValid);
+    }
+
     // --- the schema
 
     [Theory]

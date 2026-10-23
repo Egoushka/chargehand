@@ -10,6 +10,8 @@ namespace Chargehand.Modules.Runners.Api;
 /// <param name="Env">Names from <see cref="ContainerTemplate.AllowedEnv"/> only; values go through an env file, never the command line.</param>
 /// <param name="Command">Arguments after the image; a word that looks like a flag stays the command's, not docker's.</param>
 /// <param name="Caches">Package cache volumes by name (<see cref="CacheVolumes.Name"/>), each mounted read-write at <c>/cache/&lt;ecosystem&gt;</c> (ADR 0048); null: none.</param>
+/// <param name="Home">A repository's home volume (<see cref="HomeVolumes.Name"/>), mounted read-write at <c>/home/session</c> instead of the tmpfs (ADR 0078); null: the tmpfs. Not with <paramref name="Caches"/>.</param>
+/// <param name="Install">The toolchain install helper (ADR 0078): the image's shell runs the template's one fixed script on the home volume, with no model. The run id ends in <see cref="ContainerTemplate.InstallSuffix"/> and the command is <see cref="ContainerTemplate.InstallCommand"/>.</param>
 public sealed record ContainerSpec(
     string RunId,
     string ImageDigest,
@@ -22,7 +24,9 @@ public sealed record ContainerSpec(
     int Pids,
     IReadOnlyList<string> Command,
     string User = "10001:10001",
-    IReadOnlyList<string>? Caches = null);
+    IReadOnlyList<string>? Caches = null,
+    string? Home = null,
+    bool Install = false);
 
 /// <summary>A test service of a batch (ADR 0048): a pinned third-party image on the batch's internal network, with no route out, removed with the batch.</summary>
 /// <param name="Name">The host name on the batch network (an alias), lowercase letters and digits.</param>

