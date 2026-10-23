@@ -68,11 +68,30 @@ public class ContainerTemplateTests
     [Fact]
     public void The_env_file_holds_only_names_of_the_fixed_set()
     {
-        Assert.Equal(["CHARGEHAND_RUN_TOKEN=canary-token-value", "HTTPS_PROXY=http://egress:3128"], ContainerTemplate.EnvFileLines(Spec().Env));
+        Assert.Equal(["CHARGEHAND_RUN_TOKEN=canary-token-value", "HTTPS_PROXY=http://egress:3128",
+            "JAVA_TOOL_OPTIONS=-Dhttp.proxyHost=egress -Dhttp.proxyPort=3128 -Dhttps.proxyHost=egress -Dhttps.proxyPort=3128"], ContainerTemplate.EnvFileLines(Spec().Env));
         Assert.Throws<ArgumentException>(() => ContainerTemplate.EnvFileLines(new Dictionary<string, string> { ["LD_PRELOAD"] = "/x.so" }));
         Assert.Throws<ArgumentException>(() => ContainerTemplate.EnvFileLines(new Dictionary<string, string> { ["HTTPS_PROXY"] = "a\nCHARGEHAND_RUN_TOKEN=b" }));
         Assert.Throws<ArgumentException>(() => ContainerTemplate.EnvFileLines(new Dictionary<string, string> { ["HTTPS_PROXY"] = "a\0b" }));
     }
+
+    [Fact]
+    public void A_JVM_gets_the_batch_proxy_derived_from_HTTPS_PROXY_and_the_services_stay_off_it()
+    {
+        // The JVM ignores HTTPS_PROXY (Maven and Gradle restores failed with "Unknown host"); the line is derived, never taken from the caller.
+        var env = new Dictionary<string, string> { ["HTTPS_PROXY"] = "http://run-1:x@chargehand-egress-b1:3128", ["NO_PROXY"] = "chargehand-egress-b1,chargehand-driven,postgres" };
+        Assert.Contains("JAVA_TOOL_OPTIONS=-Dhttp.proxyHost=chargehand-egress-b1 -Dhttp.proxyPort=3128 -Dhttps.proxyHost=chargehand-egress-b1 -Dhttps.proxyPort=3128 -Dhttp.nonProxyHosts=chargehand-egress-b1|chargehand-driven|postgres",
+            ContainerTemplate.EnvFileLines(env));
+        Assert.DoesNotContain(ContainerTemplate.EnvFileLines(new Dictionary<string, string> { ["CHARGEHAND_BASE_COMMIT"] = "abc" }), l => l.StartsWith("JAVA_TOOL_OPTIONS", StringComparison.Ordinal));
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.EnvFileLines(new Dictionary<string, string> { ["JAVA_TOOL_OPTIONS"] = "-javaagent:/work/x.jar" }));
+    }
+
+    [Theory]
+    [InlineData("http://egress:3128 -javaagent:/x.jar")]
+    [InlineData("http://egress:70000")]
+    [InlineData("not a url")]
+    public void A_proxy_value_that_is_not_a_plain_host_and_port_adds_no_JVM_options(string proxy) =>
+        Assert.DoesNotContain(ContainerTemplate.EnvFileLines(new Dictionary<string, string> { ["HTTPS_PROXY"] = proxy }), l => l.StartsWith("JAVA_TOOL_OPTIONS", StringComparison.Ordinal));
 
     [Theory]
     [InlineData("img --cap-add=ALL")]                                        // flag smuggled into the image

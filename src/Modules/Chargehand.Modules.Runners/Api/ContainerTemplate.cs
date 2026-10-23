@@ -209,8 +209,27 @@ public static partial class ContainerTemplate
             if (name == ServicesVariable && !ServicesValuePattern().IsMatch(value))
                 throw new ArgumentException($"environment value of '{name}' must be name=name:port pairs", nameof(env));
         }
-        return env.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}").ToList();
+        var all = env.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+        if (env.TryGetValue("HTTPS_PROXY", out var proxy) && JvmProxyOptions(proxy, env.GetValueOrDefault("NO_PROXY")) is { } jvm)
+            all[JvmOptionsVariable] = jvm;
+        return all.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}").ToList();
     }
+
+    /// <summary>The variable a JVM reads at start whatever launches it (Maven, Gradle and its daemon, sbt). It is never taken from the caller: <see cref="EnvFileLines"/> derives it from the proxy.</summary>
+    private const string JvmOptionsVariable = "JAVA_TOOL_OPTIONS";
+
+    /// <summary>The system properties that send a JVM through <paramref name="proxyUrl"/>, which it ignores as an environment variable, and keep the hosts of <paramref name="noProxy"/> off it; null when the URL is not a plain host and port.</summary>
+    private static string? JvmProxyOptions(string proxyUrl, string? noProxy)
+    {
+        if (!Uri.TryCreate(proxyUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttp || !JvmHostPattern().IsMatch(uri.IdnHost))
+            return null;
+        var options = $"-Dhttp.proxyHost={uri.IdnHost} -Dhttp.proxyPort={uri.Port.ToString(CultureInfo.InvariantCulture)} -Dhttps.proxyHost={uri.IdnHost} -Dhttps.proxyPort={uri.Port.ToString(CultureInfo.InvariantCulture)}";
+        var hosts = (noProxy ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(h => JvmHostPattern().IsMatch(h)).ToList();
+        return hosts.Count == 0 ? options : $"{options} -Dhttp.nonProxyHosts={string.Join('|', hosts)}";
+    }
+
+    [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$")]
+    private static partial Regex JvmHostPattern();
 
     /// <summary>Whether <paramref name="image"/> is a digest reference (<c>name@sha256:&lt;64 hex&gt;</c>) or a local image id (<c>sha256:&lt;64 hex&gt;</c>).</summary>
     public static bool IsImageReference(string image) => ImagePattern().IsMatch(image);
