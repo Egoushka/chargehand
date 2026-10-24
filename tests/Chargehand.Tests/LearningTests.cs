@@ -279,6 +279,8 @@ public class LearningTests
 
         public Task AppendAsync(PrOutcomeRecord record, CancellationToken ct) => throw new IOException("disk full");
 
+        public Task AppendAsync(AutopsyRecord record, CancellationToken ct) => throw new IOException("disk full");
+
         public Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct, bool includeBench = false) => throw new IOException("disk full");
     }
 
@@ -829,5 +831,121 @@ public class LearningTests
         var written = await rig.Run.RunAsync(One(), BatchId, Token, default);
         Assert.Equal(ResultStatus.Completed, written.Status);
         Assert.Equal("written", RetroArtifact(written)!.Value.GetProperty("status").GetString());
+    }
+
+    // The failure autopsy
+
+    private static SessionOutcome FailedWithoutWork() => new(SessionStatus.Failed, "session_error", 3, 10, 5, 0, null, 1, [], false);
+
+    private sealed class FakeAutopsy(AutopsyAnswer? answer = null, Exception? fail = null) : IFailureAutopsy
+    {
+        public List<AutopsyInput> Inputs { get; } = [];
+
+        public Task<AutopsyAnswer> WriteAsync(AutopsyInput input, CancellationToken ct)
+        {
+            Inputs.Add(input);
+            return fail is null ? Task.FromResult(answer ?? new AutopsyAnswer(AutopsyClass.TurnLimitNoCommits, null)) : throw fail;
+        }
+    }
+
+    private sealed class FakeClusterSink(Exception? fail = null) : IAutopsyClusterSink
+    {
+        public List<AutopsyCluster> Got { get; } = [];
+
+        public Task PublishAsync(AutopsyCluster cluster, CancellationToken ct)
+        {
+            Got.Add(cluster);
+            return fail is null ? Task.CompletedTask : throw fail;
+        }
+    }
+
+    [Fact]
+    public async Task With_the_autopsy_off_nothing_is_asked_and_the_log_holds_no_autopsy()
+    {
+        using var stores = new Stores();
+        var autopsy = new FakeAutopsy();
+        using var rig = new DrivenRunTests.Rig(learning: stores.Store, autopsy: autopsy, outcomes: (_, _) => FailedWithoutWork());
+
+        await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Empty(autopsy.Inputs);
+        Assert.Null(Assert.Single(await stores.Store.ReadAsync(default)).Autopsy);
+    }
+
+    [Fact]
+    public async Task With_the_autopsy_on_a_failed_task_gets_one_written_to_the_log()
+    {
+        using var stores = new Stores();
+        var autopsy = new FakeAutopsy(new AutopsyAnswer(AutopsyClass.TurnLimitNoCommits, "no commits before the limit"));
+        using var rig = new DrivenRunTests.Rig(learning: stores.Store, learningSettings: new DrivenLearning(Autopsy: true), autopsy: autopsy, outcomes: (_, _) => FailedWithoutWork());
+
+        await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        var input = Assert.Single(autopsy.Inputs);
+        Assert.Equal(LearningOutcome.Failed, input.Record.Outcome);
+        var entry = Assert.Single(await stores.Store.ReadAsync(default));
+        Assert.Equal((AutopsyClass.TurnLimitNoCommits, "no commits before the limit"), (entry.Autopsy!.Class, entry.Autopsy.Detail));
+    }
+
+    [Fact]
+    public async Task A_partial_task_gets_an_autopsy_and_a_completed_one_gets_none()
+    {
+        using var stores = new Stores();
+        var autopsy = new FakeAutopsy();
+        using var rig = new DrivenRunTests.Rig(learning: stores.Store, learningSettings: new DrivenLearning(Autopsy: true), autopsy: autopsy,
+            outcomes: (_, _) => Stopped(SessionStatus.TokenCap, "token_cap", 3m));
+
+        await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Equal(LearningOutcome.Partial, Assert.Single(autopsy.Inputs).Record.Outcome);
+
+        using var doneStores = new Stores();
+        var doneAutopsy = new FakeAutopsy();
+        using var doneRig = new DrivenRunTests.Rig(learning: doneStores.Store, learningSettings: new DrivenLearning(Autopsy: true), autopsy: doneAutopsy, outcomes: (_, _) => Done(1m));
+        await doneRig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Empty(doneAutopsy.Inputs);
+        Assert.Null(Assert.Single(await doneStores.Store.ReadAsync(default)).Autopsy);
+    }
+
+    [Fact]
+    public async Task An_autopsy_that_fails_does_not_fail_the_batch_and_leaves_no_record()
+    {
+        using var failingStores = new Stores();
+        using var failing = new DrivenRunTests.Rig(learning: failingStores.Store, learningSettings: new DrivenLearning(Autopsy: true),
+            autopsy: new FakeAutopsy(fail: new AutopsyException("the autopsy run printed nothing")), outcomes: (_, _) => FailedWithoutWork());
+        var failedResult = await failing.Run.RunAsync(One(), BatchId, Token, default);
+
+        using var workingStores = new Stores();
+        using var working = new DrivenRunTests.Rig(learning: workingStores.Store, learningSettings: new DrivenLearning(Autopsy: true),
+            autopsy: new FakeAutopsy(), outcomes: (_, _) => FailedWithoutWork());
+        var workingResult = await working.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Equal(workingResult.Status, failedResult.Status);
+        Assert.Null(Assert.Single(await failingStores.Store.ReadAsync(default)).Autopsy);
+        Assert.NotNull(Assert.Single(await workingStores.Store.ReadAsync(default)).Autopsy);
+    }
+
+    [Fact]
+    public async Task The_weekly_cluster_job_runs_only_with_autopsy_on_and_a_sink_configured()
+    {
+        using var stores = new Stores();
+        var at = DateTimeOffset.UtcNow.AddHours(-1);
+        await stores.Store.AppendAsync(Record("a1"), default);
+        await stores.Store.AppendAsync(new AutopsyRecord("a1", at, AutopsyClass.Auth), default);
+        await stores.Store.AppendAsync(Record("a2"), default);
+        await stores.Store.AppendAsync(new AutopsyRecord("a2", at, AutopsyClass.Auth), default);
+        var sink = new FakeClusterSink();
+
+        using var off = new DrivenRunTests.Rig(learning: stores.Store, learningSettings: new DrivenLearning(AutopsyClusterMin: 2), autopsyClusterSink: sink);
+        Assert.Equal(0, await off.Run.RunAutopsyClustersAsync(default));
+        Assert.Empty(sink.Got);
+
+        using var noSink = new DrivenRunTests.Rig(learning: stores.Store, learningSettings: new DrivenLearning(Autopsy: true, AutopsyClusterMin: 2));
+        Assert.Equal(0, await noSink.Run.RunAutopsyClustersAsync(default));
+
+        using var on = new DrivenRunTests.Rig(learning: stores.Store, learningSettings: new DrivenLearning(Autopsy: true, AutopsyClusterMin: 2), autopsyClusterSink: sink);
+        Assert.Equal(1, await on.Run.RunAutopsyClustersAsync(default));
+        Assert.Equal(AutopsyClass.Auth, Assert.Single(sink.Got).Class);
     }
 }

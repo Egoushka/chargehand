@@ -66,7 +66,7 @@ public class DrivenRunTests
             IBatchPlanner? planner = null, IStackSeeder? stacker = null, DrivenPlanning? planning = null, ILearningStore? learning = null, DrivenLearning? learningSettings = null,
             IBatchRetro? retro = null, IRetroSink? retroSink = null, DrivenGovernor? governor = null, IBranchSeeder? brancher = null, IReadOnlyList<AccountSettings>? accounts = null,
             IHostSource? host = null, DrivenAdmission? admission = null, int maxParallel = 2, bool records = false, string? pushSecret = PushSecret,
-            Func<RemoteRepository, CancellationToken, Task<string>>? appToken = null)
+            Func<RemoteRepository, CancellationToken, Task<string>>? appToken = null, IFailureAutopsy? autopsy = null, IAutopsyClusterSink? autopsyClusterSink = null)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
@@ -82,7 +82,7 @@ public class DrivenRunTests
             var services = enabled
                 ? new DrivenServices(Engine, Engine, Volumes, _ => throw new NotSupportedException("the handover is faked"), null,
                     (repo, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo-abc1234", CheckoutCommit, remote, "main")), resolver ?? new NoEvidenceProblems(),
-                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1), Host: host, Integration: integration, ForgeFor: forgeFor, Planner: planner, Stacker: stacker, Retro: retro, RetroSink: retroSink, Brancher: brancher, AppToken: appToken)
+                    name => $"value-of-{name}", HandoverFor: (_, _) => Handover, Poll: TimeSpan.FromMilliseconds(1), Host: host, Integration: integration, ForgeFor: forgeFor, Planner: planner, Stacker: stacker, Retro: retro, RetroSink: retroSink, Brancher: brancher, AppToken: appToken, Autopsy: autopsy, AutopsyClusterSink: autopsyClusterSink)
                 : null;
             _services = services;
             _state = durable ? Path.Combine(Dir.Path, "batches") : null;

@@ -29,6 +29,8 @@ namespace Chargehand.Driven;
 /// <param name="Stacker">Makes the starting branch of a task that depends on others (ADR 0049); null: <see cref="GitStackSeeder"/>, with git on this host.</param>
 /// <param name="Retro">Writes the retro after a batch when <c>driven.learning.retro</c> is on (ADR 0045); null: such a batch reports the retro skipped.</param>
 /// <param name="RetroSink">Gets each written retro besides the batch result (ADR 0045); null: nowhere. No tracker write path exists yet, so none ships.</param>
+/// <param name="Autopsy">Classifies each task that ends failed or partial when <c>driven.learning.autopsy</c> is on (ADR 0045); null: such a batch writes no autopsy.</param>
+/// <param name="AutopsyClusterSink">Where the weekly failure-autopsy cluster job files a tracker item (ADR 0045); null: the job runs nothing. No tracker write path exists yet, so none ships.</param>
 /// <param name="Brancher">Fetches the pushed branch a review round continues (ADR 0051); null: <see cref="GitBranchSeeder"/>, with git on this host.</param>
 /// <param name="Runners">The runners of a profile that names them (ADR 0058); each task is placed on one by <see cref="RunnerPool"/>. Null: <see cref="Engine"/>, <see cref="Workspace"/>, <see cref="Volumes"/> and <see cref="Host"/> are the one runner.</param>
 /// <param name="AppToken">A GitHub App installation token for a GitHub repository (the integrator's App, ADR 0046), asked for at each push and pull request call; null: no App, so a batch needs
@@ -39,7 +41,7 @@ public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Wo
     Func<string?, Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>?>? SupportCheckFor = null, Func<ContainerVerifierSettings, PushCredential, IBranchHandover>? HandoverFor = null,
     TimeSpan? Poll = null, IHostSource? Host = null, IIntegrationHost? Integration = null, Func<RemoteRepository, string, IForge>? ForgeFor = null, IBatchPlanner? Planner = null, IStackSeeder? Stacker = null,
     IBatchRetro? Retro = null, IRetroSink? RetroSink = null, IBranchSeeder? Brancher = null, IReadOnlyList<RunnerSite>? Runners = null, TimeSpan? OutageGrace = null,
-    Func<RemoteRepository, CancellationToken, Task<string>>? AppToken = null);
+    Func<RemoteRepository, CancellationToken, Task<string>>? AppToken = null, IFailureAutopsy? Autopsy = null, IAutopsyClusterSink? AutopsyClusterSink = null);
 
 /// <summary>A request with a <c>driven</c> block, from start to the batch's result (ADR 0039): tasks resolved, the batch network up, tasks run under the batch's limits by
 /// <see cref="TaskRunner"/>, the network down, and one <c>result/v1</c> that lists the tasks. Every refusal (driven sessions off, no push credential, no image) is a failed
@@ -58,6 +60,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     /// <summary>How often <see cref="RefreshPrOutcomesAsync"/> should run.</summary>
     public TimeSpan PrCheckEvery => TimeSpan.FromMinutes((profile.Driven?.Learning ?? new DrivenLearning()).PrCheckMinutes);
+
+    /// <summary>How often <see cref="RunAutopsyClustersAsync"/> should run: the weekly job's own window (<c>driven.learning.autopsy_cluster_days</c>), so each run looks at a window that follows
+    /// the last one.</summary>
+    public TimeSpan AutopsyClusterEvery => TimeSpan.FromDays((profile.Driven?.Learning ?? new DrivenLearning()).AutopsyClusterDays);
 
     public const string CredentialDelivery = "environment";
 
@@ -347,6 +353,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var sites = new SiteBatches(setup, routes, checkout, c, new SiteBatches.SiteParts(log, mint, tasks, learning, records?.Tasks, steps, ControlOf(c.RunId)?.Sessions, profile));
         var ran = await ScheduleAsync(c, setup, ready, tasks, sites, checkout.Checkout);
         var retro = await BatchLifecycle.RetroAsync(c, settings.Learning is { Retro: true }, learning, setup.Services.Retro, setup.Services.RetroSink);
+        await BatchLifecycle.AutopsyAsync(c, settings.Learning is { Autopsy: true }, learning, setup.Services.Autopsy);
         return BatchLifecycle.Result(c, unresolved, ready, ran, routes[0].Delivery, setup.Priced, setup.Claude.Version, plan, retro);
     }
 
@@ -476,6 +483,16 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     /// <returns>The outcomes written.</returns>
     public Task<int> RefreshPrOutcomesAsync(CancellationToken ct) =>
         learning is null ? Task.FromResult(0) : new PrOutcomeTracker(learning, ReadHost).RefreshAsync((profile.Driven?.Learning ?? new DrivenLearning()).PrDays, ct);
+
+    /// <summary>One run of the weekly failure-autopsy cluster job (ADR 0045). Does nothing without learning records, a sink, or <c>driven.learning.autopsy</c>.</summary>
+    /// <returns>The clusters filed.</returns>
+    public Task<int> RunAutopsyClustersAsync(CancellationToken ct)
+    {
+        var cfg = profile.Driven?.Learning ?? new DrivenLearning();
+        return learning is null || services?.AutopsyClusterSink is not { } sink || !cfg.Autopsy
+            ? Task.FromResult(0)
+            : new AutopsyClusterJob(learning, sink).RunAsync(cfg.AutopsyClusterDays, cfg.AutopsyClusterMin, cfg.AutopsyClusterTop, ct);
+    }
 
     /// <summary>What the host must have free for each task of the batch (ADR 0045, admission): the working set this repository's sessions have measured, else the profile's default, never above the
     /// container's limit. Read once per batch; without a host to ask there is no admission and nothing to read.</summary>

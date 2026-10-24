@@ -138,6 +138,9 @@ public static partial class ChargehandServer
         // ADR 0045: reads back what became of the pull requests, only where there are learning records.
         if (driven?.Learning is not null)
             builder.Services.AddHostedService(_ => new PrOutcomeRefresher(driven));
+        // ADR 0045: the weekly failure-autopsy cluster job; it does nothing without driven.learning.autopsy and a sink.
+        if (driven?.Learning is not null)
+            builder.Services.AddHostedService(_ => new AutopsyClusterRefresher(driven));
 
         var app = builder.Build();
         app.UseHostFiltering();

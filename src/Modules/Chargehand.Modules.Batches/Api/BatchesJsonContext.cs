@@ -8,6 +8,7 @@ namespace Chargehand.Modules.Batches.Api;
 /// every line is written and read as it was.</summary>
 [JsonSerializable(typeof(PlanWire))]
 [JsonSerializable(typeof(RetroLine))]
+[JsonSerializable(typeof(AutopsyLine))]
 [JsonSerializable(typeof(KeptWork))]
 internal sealed partial class BatchesJsonContext : JsonSerializerContext
 {
