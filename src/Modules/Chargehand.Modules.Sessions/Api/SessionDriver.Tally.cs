@@ -34,6 +34,24 @@ public static partial class SessionDriver
         return (report, questions.Where(q => q.Length > 0).ToList());
     }
 
+    /// <summary>What a finished session is told when its last message has no report block.</summary>
+    private const string ReportRequest = "You finished, but your last message has no JSON report, so chargehand cannot read what you did. Do not change any file and do not run anything. "
+        + "Reply with only the final report as one fenced ```json block with \"summary\" and \"claims\", exactly as the task's instructions describe.";
+
+    /// <summary>A report block chargehand can start from: a JSON object with a summary (the host checks the rest).</summary>
+    private static bool HasSummary(string report)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(report);
+            return doc.RootElement is { ValueKind: JsonValueKind.Object } root && root.TryGetProperty("summary", out var s) && s.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(s.GetString());
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     [GeneratedRegex(@"```json\s*(.*?)```", RegexOptions.Singleline)]
     private static partial Regex JsonBlock();
 

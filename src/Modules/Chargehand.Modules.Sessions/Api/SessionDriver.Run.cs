@@ -100,6 +100,17 @@ public static partial class SessionDriver
             return results;
         }
 
+        /// <summary>The one extra turn for a session that finished on its own without a usable report: it asks for the report and nothing else, so the branch is the one the checks passed.</summary>
+        public async Task ReportAsync(string? start, Func<(string SessionId, string Prompt), ProcessStartInfo> resume, CancellationToken ct)
+        {
+            if (_checksFailed || !Finished() || Extract(_tally).Report is { } report && HasSummary(report) || _tally.SessionId is not { } session
+                || detector.Check(DateTimeOffset.UtcNow) is StallReason.WallClock)
+                return;
+            detector.Touch(DateTimeOffset.UtcNow);
+            _tally.NewProcess();
+            await DriveAsync(resume((session, ReportRequest)), start, DateTimeOffset.UtcNow, ct);
+        }
+
         private bool Finished() => _stoppedBy.Cause is null && _tally.HasResult && !_tally.ResultIsError && Extract(_tally).Questions.Count == 0;
 
         private void Remind()

@@ -19,6 +19,36 @@ public class TaskRunnerTests
         Assert.Single(rig.Handover.Inputs);
     }
 
+    private static SessionOutcome Done(int commits) => new(SessionStatus.Completed, "", 30, 1000, 200, 4000, null, 0, [], true, Commits: commits);
+
+    [Fact]
+    public async Task A_completed_session_with_commits_and_no_report_is_kept_as_a_partial_draft_and_says_why()
+    {
+        using var rig = new TaskRunnerRig(new FakeVolumes(_ => SessionStatus.Completed, (_, _) => Done(3)) { NoReport = true });
+
+        var outcome = await rig.RunAsync("Add a retry");
+
+        Assert.Equal((TaskState.Failed, ErrorCode.InvalidResult), (outcome.State, outcome.Error));
+        var handover = Assert.Single(rig.Handover.Inputs);
+        Assert.True(handover.Partial);
+        Assert.StartsWith("[partial] ", handover.Title);
+        Assert.Contains("printed no usable report", handover.Body);
+        Assert.Equal("partial: finished without a usable report; draft PR opened", outcome.Detail);
+        Assert.NotNull(outcome.PrUrl);
+    }
+
+    [Fact]
+    public async Task A_completed_session_with_no_commits_and_no_report_is_still_failed_and_hands_nothing_over()
+    {
+        using var rig = new TaskRunnerRig(new FakeVolumes(_ => SessionStatus.Completed, (_, _) => Done(0)) { NoReport = true });
+
+        var outcome = await rig.RunAsync("Add a retry");
+
+        Assert.Equal((TaskState.Failed, ErrorCode.InvalidResult), (outcome.State, outcome.Error));
+        Assert.Empty(rig.Handover.Inputs);
+        Assert.Null(outcome.PrUrl);
+    }
+
     [Fact]
     public async Task A_session_that_ended_on_a_usage_limit_is_a_rate_limited_task_not_a_session_failure()
     {

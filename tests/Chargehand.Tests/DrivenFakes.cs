@@ -195,6 +195,9 @@ internal static class DrivenFakes
         /// <summary>The session image is newer than the server: its outcome and report carry a member the server does not know.</summary>
         public bool NewerSession { get; set; }
 
+        /// <summary>A completed session printed no report: its output has an outcome and a bundle but no <c>driven-report.json</c>.</summary>
+        public bool NoReport { get; set; }
+
         /// <summary>Runs whose output volume holds nothing.</summary>
         public HashSet<string> NoOutput { get; } = [];
 
@@ -247,7 +250,7 @@ internal static class DrivenFakes
             var newer = NewerSession ? "\"added_later\":1," : "";
             File.WriteAllText(Path.Combine(directory, "session-outcome.json"),
                 "{" + newer + JsonSerializer.Serialize(outcome, Snake)[1..]);
-            if (outcome.Status == SessionStatus.Completed)
+            if (outcome.Status == SessionStatus.Completed && !NoReport)
                 File.WriteAllText(Path.Combine(directory, "driven-report.json"), "{" + newer + Report[1..]);
             if (outcome.BundleWritten)
                 File.WriteAllText(Path.Combine(directory, "chargehand.bundle"), "bundle");

@@ -461,6 +461,18 @@ public class DrivenResultTests
     }
 
     [Fact]
+    public async Task A_finished_session_with_no_usable_report_whose_work_was_kept_points_at_the_partial_draft()
+    {
+        using var repo = new Repo();
+        var result = await Build(Input(repo, report: null, handover: Pushed(repo)));
+        Assert.Equal(ErrorCode.InvalidResult, result.Error!.Code);
+        Assert.Contains("partial draft pull request", result.Error.Message);
+        Assert.Contains("https://example.test/o/r/pull/7", result.Error.Action);
+        Assert.Equal("https://example.test/o/r/pull/7", Artifact(result, "pull-request").GetProperty("url").GetString());
+        AssertValid(result);
+    }
+
+    [Fact]
     public async Task A_branch_that_was_not_pushed_keeps_its_verification_and_says_why()
     {
         using var repo = new Repo();
