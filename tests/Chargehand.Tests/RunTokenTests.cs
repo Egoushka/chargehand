@@ -196,6 +196,37 @@ public class RunTokenTests
     }
 
     [Fact]
+    public async Task A_token_reads_its_own_run_and_the_runs_it_started_and_no_other_run()
+    {
+        // CHARGEHAND-313: the token's principal is the owner, who sees every run; the token must not.
+        var runtime = new ScriptedRuntime(Runs.WorkerReply) { Hold = new() };
+        var (s, repo) = await Start(runtime);
+        await using var _ = s;
+        async Task<string> Owner() => (await (await s.PostAsync(Runs.CheapRequest(repo), waitSeconds: 0)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("run_id").GetString()!;
+        var own = await Owner();
+        var other = await Owner();
+        using var session = As(s, s.Tokens.Issue(new RunTokenClaims(own, repo.Path, repo.Commit, null, null, DateTimeOffset.UtcNow.AddHours(1)), DateTimeOffset.UtcNow));
+        var started = await session.PostAsync("/v1/runs", Post(Request("default", repo)));
+        var child = started.Headers.Location!.ToString().Split('/').Last();
+
+        async Task Check()
+        {
+            foreach (var id in new[] { own, child })
+                Assert.NotEqual(HttpStatusCode.NotFound, (await session.GetAsync($"/v1/runs/{id}")).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await session.GetAsync($"/v1/runs/{other}")).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await session.GetAsync("/v1/runs/run-00000000-000000-000000")).StatusCode);
+        }
+
+        // Held in this process, then finished and read back from the run log.
+        await Check();
+        runtime.Hold.SetResult();
+        foreach (var id in new[] { own, other, child })
+            await ServerTests.WaitUntil(async () => (await s.Http.GetAsync($"/v1/runs/{id}")).StatusCode == HttpStatusCode.OK);
+        await Check();
+        Assert.Equal(HttpStatusCode.OK, (await s.Http.GetAsync($"/v1/runs/{other}")).StatusCode);
+    }
+
+    [Fact]
     public async Task A_child_run_does_not_wait_for_the_gate_its_parent_batch_holds()
     {
         var runtime = new ScriptedRuntime(Runs.WorkerReply) { Hold = new() };

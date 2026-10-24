@@ -175,7 +175,7 @@ public static partial class ChargehandServer
                 await next(ctx);
                 return;
             }
-            // A driven session's run-scoped token opens three things and nothing else: POST /v1/runs, one run's status, and the MCP tool (ADR 0039).
+            // A driven session's run-scoped token opens three things and nothing else: POST /v1/runs, the status of its own run and of the runs it started, and the MCP tool (ADR 0039).
             if (header.StartsWith("Bearer ", StringComparison.Ordinal)
                 && ctx.RequestServices.GetRequiredService<RunService>().Tokens.Validate(header["Bearer ".Length..], DateTimeOffset.UtcNow) is { } claims)
             {
@@ -348,9 +348,10 @@ public static partial class ChargehandServer
         app.MapGet("/v1/runs/{id}", async (string id, HttpContext ctx, RunService runs) =>
         {
             var who = PrincipalHttp.Of(ctx);
+            var scope = ctx.Items[RunScope.ItemKey] as RunTokenClaims;
             if (runs.Find(id) is { } run)
-                return Principal.Sees(who, run.Actor) ? Reply(run) : HttpResults.NotFound();
-            var status = await Stored(log, id, ctx.RequestAborted);
+                return Principal.Sees(who, run.Actor) && RunScope.Reads(scope, id, run.ParentRunId) ? Reply(run) : HttpResults.NotFound();
+            var status = await Stored(log, id, ctx.RequestAborted, scope);
             if (status is not null && !Principal.Sees(who, status.Actor))
                 status = null;
             return (IResult)(status switch
@@ -414,10 +415,12 @@ public static partial class ChargehandServer
         : run.Done.IsFaulted ? Json(run.Latest, StatusCodes.Status410Gone)
         : Json(run.Latest, StatusCodes.Status202Accepted);
 
-    /// <summary>A run this process does not hold, from the run log: finished (with result), running elsewhere, or lost.</summary>
-    internal static async Task<RunStatus?> Stored(IRunLog log, string id, CancellationToken ct)
+    /// <summary>A run this process does not hold, from the run log: finished (with result), running elsewhere, or lost. Null too when a token (<paramref name="scope"/>) may not read it.</summary>
+    internal static async Task<RunStatus?> Stored(IRunLog log, string id, CancellationToken ct, RunTokenClaims? scope = null)
     {
         var entry = await log.ReadAsync(id, ct);
+        if (!RunScope.Reads(scope, id, entry.Start?.ParentRunId))
+            return null;
         if (entry.Run is { } done)
             return RunStatus.Of(id, RunStatus.StateOf(done.Result.Status), RunEventKind.RunFinished) with { Result = done.Result, Actor = done.Actor ?? entry.Start?.Actor };
         if (entry.Start is not { } start)

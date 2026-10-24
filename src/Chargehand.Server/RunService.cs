@@ -194,7 +194,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         // ponytail: count-then-add is not atomic; two racing calls can exceed the bound by one.
         if (chargeTo is null && _runs.Values.Count(r => !r.IsChild) >= MaxUnfinished)
             return null;
-        var run = new RunHandle(RunIds.New(), stopping) { IsChild = chargeTo is not null, Actor = actor, IsBatch = request.Driven is not null };
+        var run = new RunHandle(RunIds.New(), stopping) { IsChild = chargeTo is not null, ParentRunId = parentRunId, Actor = actor, IsBatch = request.Driven is not null };
         _runs[run.Id] = run;
         run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
         Track(() => Execute(run, request, parentRunId, chargeTo));
@@ -318,6 +318,9 @@ public sealed class RunHandle(string id, CancellationToken stopping) : IDisposab
 
     /// <summary>Started through a session's run token: it runs on the child gate.</summary>
     public bool IsChild { get; init; }
+
+    /// <summary>The run it was started under (its start record's parent); null for none.</summary>
+    public string? ParentRunId { get; init; }
 
     /// <summary>A driven batch: its events can replay from the journal (ADR 0061).</summary>
     public bool IsBatch { get; init; }
