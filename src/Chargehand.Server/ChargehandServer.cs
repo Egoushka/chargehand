@@ -44,13 +44,15 @@ namespace Chargehand.Server;
 /// <param name="AccessCerts">Reads the team's signing keys; null: an HTTPS GET of <see cref="CloudflareAccessSettings.CertsUrl"/>.</param>
 /// <param name="ProxySignIn">Sign-in by the email a trusted single-sign-on proxy forwards (ADR 0071); null: keys only.</param>
 /// <param name="ProxyResolver">Resolves the proxies' names; null: DNS.</param>
+/// <param name="Probes">What <c>?deep=1</c> on <c>/v1/health</c> checks besides the intake model (CHARGEHAND-316): the runners, the GitHub App, the push token and the Plane key the profile configures; null: none.</param>
 /// <param name="InboxDismissalsPath">The file of the inbox's dismissals (<c>inbox/dismissed.json</c>, ADR 0064); null: nothing can be dismissed.</param>
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
     IReadOnlyList<string>? AllowedHosts = null, int MaxConcurrentRuns = 1, int MaxSessionCalls = 2, string? StateDirectory = null,
     IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null, bool Ui = false,
     Profile? Profile = null, Func<string, bool>? SecretPresent = null, string? IntakeStatePath = null, string? InboxDismissalsPath = null, TimeSpan? McpWait = null,
     CloudflareAccessSettings? Access = null, Func<CancellationToken, Task<string>>? AccessCerts = null,
-    ProxySignInSettings? ProxySignIn = null, Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? ProxyResolver = null, string? PlaneStatePath = null);
+    ProxySignInSettings? ProxySignIn = null, Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? ProxyResolver = null, string? PlaneStatePath = null,
+    IReadOnlyList<DependencyProbe>? Probes = null);
 
 /// <summary>
 /// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
@@ -331,7 +333,7 @@ public static partial class ChargehandServer
             return Json(new { halted = false }, StatusCodes.Status200OK);
         });
 
-        // Liveness for any key; ?deep=1 (owner) also calls the intake model, which is what a canary needs: the process can be up while every run fails.
+        // Liveness for any key; ?deep=1 (owner) also calls the intake model and probes what the profile configures, which is what a canary needs: the process can be up while every run fails.
         app.MapGet("/v1/health", async (HttpContext ctx, RunService runs) =>
         {
             var version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0";
@@ -339,8 +341,13 @@ public static partial class ChargehandServer
                 return Json(new HealthReport("ok", version, runs.Halted, null), StatusCodes.Status200OK);
             if (OwnerOnly(ctx) is { } refused)
                 return refused;
-            var probe = await orchestrator.ProbeAsync(TimeSpan.FromSeconds(60), ctx.RequestAborted);
-            return Json(new HealthReport(probe.Ok ? "ok" : "failing", version, runs.Halted, probe), probe.Ok ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
+            // The model call takes its 60 s while the configured dependencies are asked at once, each within its own bound.
+            var model = orchestrator.ProbeAsync(TimeSpan.FromSeconds(60), ctx.RequestAborted);
+            var checks = DependencyHealth.RunAsync(settings.Probes ?? [], DependencyHealth.Timeout, ctx.RequestAborted);
+            var probe = await model;
+            var dependencies = await checks;
+            var ok = probe.Ok && dependencies.All(c => c.Ok);
+            return Json(new HealthReport(ok ? "ok" : "failing", version, runs.Halted, probe, dependencies.Count > 0 ? dependencies : null), ok ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
         });
 
         app.MapGet("/v1/runs/{id}", async (string id, HttpContext ctx, RunService runs) =>
@@ -473,5 +480,5 @@ public static partial class ChargehandServer
 /// <summary>What the HTTP host adds for its MCP tools; absent over stdio. <paramref name="Wait"/>: how long a call without <c>Prefer: wait</c> waits for a run.</summary>
 public sealed record McpHttp(TimeSpan Wait, IRunLog Log);
 
-/// <summary><c>GET /v1/health</c>: <paramref name="Probe"/> only with <c>?deep=1</c>.</summary>
-public sealed record HealthReport(string Status, string Version, bool Halted, ModelProbe? Probe);
+/// <summary><c>GET /v1/health</c>: <paramref name="Probe"/> and <paramref name="Checks"/> (what the profile configures besides the model, none when it configures nothing) only with <c>?deep=1</c>.</summary>
+public sealed record HealthReport(string Status, string Version, bool Halted, ModelProbe? Probe, IReadOnlyList<DependencyCheck>? Checks = null);
