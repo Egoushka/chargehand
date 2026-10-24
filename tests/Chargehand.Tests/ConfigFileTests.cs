@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Chargehand.Contracts;
 using Json.Schema;
 using YamlDotNet.Serialization;
@@ -68,6 +69,58 @@ public class ConfigFileTests
 
     // JsonSchema.FromText registers the schema globally by its base URI; loading the same file twice throws.
     internal static readonly JsonSchema ProfileSchema = JsonSchema.FromText(File.ReadAllText(Repo.Path("profiles", "profile.schema.json")));
+
+    /// <summary>The schema is hand-written, so every JSON property the settings records bind must have a place in it. Walks the records the profile
+    /// deserializes into through the source-generated metadata of <c>Profile.LoadJson</c>; only settable properties count, not the computed ones.</summary>
+    [Fact]
+    public void The_schema_describes_every_property_of_the_settings_records()
+    {
+        using var schema = JsonDocument.Parse(File.ReadAllText(Repo.Path("profiles", "profile.schema.json")));
+        var missing = new List<string>();
+        Walk(typeof(Chargehand.Config.Profile), schema.RootElement, schema.RootElement, "", missing, 0);
+        Assert.True(missing.Count == 0, "profile.schema.json lacks: " + string.Join(", ", missing));
+    }
+
+    private static void Walk(Type type, JsonElement node, JsonElement root, string path, List<string> missing, int depth)
+    {
+        var info = Chargehand.Config.Profile.LoadJson.GetTypeInfo(type);
+        if (depth > 12)
+            return;
+        node = Resolve(node, root);
+        switch (info.Kind)
+        {
+            case JsonTypeInfoKind.Object:
+                foreach (var property in info.Properties.Where(p => p.Set is not null))
+                {
+                    if (node.TryGetProperty("properties", out var properties) && properties.TryGetProperty(property.Name, out var next))
+                        Walk(property.PropertyType, next, root, $"{path}/{property.Name}", missing, depth + 1);
+                    else
+                        missing.Add($"{path}/{property.Name}");
+                }
+                break;
+            case JsonTypeInfoKind.Enumerable when node.TryGetProperty("items", out var items):
+                Walk(info.ElementType!, items, root, path + "/[]", missing, depth + 1);
+                break;
+            case JsonTypeInfoKind.Dictionary when node.TryGetProperty("additionalProperties", out var values) && values.ValueKind == JsonValueKind.Object:
+                Walk(info.ElementType!, values, root, path + "/*", missing, depth + 1);
+                break;
+            case JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
+                when Chargehand.Config.Profile.LoadJson.GetTypeInfo(info.ElementType!).Kind == JsonTypeInfoKind.Object:
+                missing.Add(path + (info.Kind == JsonTypeInfoKind.Enumerable ? "/[]" : "/*"));
+                break;
+        }
+    }
+
+    private static JsonElement Resolve(JsonElement node, JsonElement root)
+    {
+        while (node.ValueKind == JsonValueKind.Object && node.TryGetProperty("$ref", out var reference))
+        {
+            node = root;
+            foreach (var segment in reference.GetString()!.TrimStart('#', '/').Split('/'))
+                node = node.GetProperty(segment);
+        }
+        return node;
+    }
 
     [Fact]
     public void Example_profile_validates()

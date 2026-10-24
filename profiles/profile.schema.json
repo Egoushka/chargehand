@@ -169,7 +169,10 @@
             "memory_mb": { "type": "integer", "minimum": 256, "maximum": 65536 },
             "cpus": { "type": "number", "minimum": 0.1, "maximum": 32 },
             "pids": { "type": "integer", "minimum": 16, "maximum": 4096 },
-            "max_continuations": { "type": "integer", "minimum": 0, "maximum": 5, "description": "Further sessions on the same branch after one is stopped by the turn limit or the wall clock with work committed (ADR 0044). Each gets max_turns and max_minutes again; max_tokens is shared. Default 2; 0: none." }
+            "max_continuations": { "type": "integer", "minimum": 0, "maximum": 5, "description": "Further sessions on the same branch after one is stopped by the turn limit or the wall clock with work committed (ADR 0044). Each gets max_turns and max_minutes again; max_tokens is shared. Default 2; 0: none." },
+            "check_retries": { "type": "integer", "minimum": 0, "maximum": 5, "description": "How many times a failed check is sent back to the session as its next turn before the session ends as checks_failed. Default 2; 0: none." },
+            "goal_reminder_minutes": { "type": "integer", "minimum": 0, "description": "The goal and the checks are re-sent to a long session every this many minutes. Default 60; 0: off." },
+            "goal_reminder_turns": { "type": "integer", "minimum": 1, "description": "The goal and the checks are also re-sent every this many assistant messages. Absent: by minutes only." }
           }
         },
         "planning": {
@@ -240,6 +243,12 @@
                   }
                 }
               }
+            },
+            "verify": {
+              "type": "object",
+              "propertyNames": { "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+              "description": "Per owner/repo: the command that verifies a branch when the request has no context.verify, as an argument vector.",
+              "additionalProperties": { "type": "array", "minItems": 1, "items": { "type": "string" } }
             }
           }
         },
@@ -448,6 +457,66 @@
             "max_concurrent": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Triggered batches running at once. Default 2." },
             "max_starts_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Triggered batches started in any 24 hours. Default 10." }
           }
+        },
+        "schedules": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entries"],
+          "description": "Recurring work on a clock, within a monthly cap (ADR 0068, docs/guide/schedules.md). Unset: nothing runs on a clock.",
+          "properties": {
+            "entries": {
+              "type": "array",
+              "minItems": 1,
+              "description": "What runs and when. Ids are unique.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "at"],
+                "properties": {
+                  "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,39}$", "description": "Lowercase letters, digits and hyphens, 1 to 40 characters. Names the entry in the state file, the logs and the notification title." },
+                  "at": { "type": "string", "pattern": "^(daily|weekly (mon|tue|wed|thu|fri|sat|sun)|monthly ([1-9]|1[0-9]|2[0-8])) ([01][0-9]|2[0-3]):[0-5][0-9]$", "description": "daily HH:MM, weekly <mon..sun> HH:MM or monthly <1-28> HH:MM, in UTC. Not cron." },
+                  "template": { "enum": ["dependency-upgrades", "doc-drift", "flaky-tests", "morning-report", "security-alerts"], "description": "A built-in. Exactly one of template and goal." },
+                  "goal": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "Free text, run read-only on the default preset unless driven. Exactly one of template and goal." },
+                  "driven": { "type": "boolean", "default": false, "description": "With goal only: run it as a driven batch of one task that may open a pull request." },
+                  "repository": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["path"],
+                    "description": "The checkout the work reads or changes. Not used by morning-report; required by every other entry.",
+                    "properties": { "path": { "type": "string", "minLength": 1, "description": "The server's checkout of the repository (under repository_roots)." } }
+                  },
+                  "max_per_month": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Starts per calendar month (UTC). Default 4; 31 for morning-report. An occurrence over it is skipped and logged." },
+                  "budget_class": { "enum": ["S", "M", "L"], "description": "The governor's budget of a driven entry (ADR 0045). Default S." },
+                  "max_tasks": { "type": "integer", "minimum": 1, "maximum": 10, "description": "security-alerts only: new alerts taken per run, one task each. Default 3." }
+                }
+              }
+            },
+            "notify_url": { "type": "string", "pattern": "^https?://", "description": "An ntfy-style URL: the result of a read-only entry and the morning report are POSTed to it as plain text. Required by morning-report. The URL can carry a secret topic, so it is never logged." }
+          }
+        },
+        "account": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$", "description": "An account of http.accounts with driven: true that every automated start (GitHub, Plane, schedules) is charged to and admitted as (ADR 0076): its caps, budget clamps and concurrency limit apply. Absent: automated starts run as the owner, with no account caps." },
+        "notify": {
+          "type": "object",
+          "additionalProperties": false,
+          "anyOf": [{ "required": ["approvals"] }, { "required": ["ntfy_url"] }],
+          "description": "Where a driven task's question or partial stop is sent with its answer options (ADR 0077, docs/guide/phone-answers.md). Needs driven.enabled. Unset: the questions wait in the inbox.",
+          "properties": {
+            "approvals": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["url", "token_secret", "key_secret", "callback_url"],
+              "description": "An approvals server: each item carries the answer options, and the decision comes back signed to callback_url.",
+              "properties": {
+                "url": { "type": "string", "pattern": "^https?://", "description": "The approvals server's base URL; items are PUT to {url}/items/{id}." },
+                "token_secret": { "type": "string", "minLength": 1, "description": "Secret-store item holding this source's bearer token on the approvals server." },
+                "key_secret": { "type": "string", "minLength": 1, "description": "Secret-store item holding the key the approvals server signs decisions with (HMAC-SHA256)." },
+                "callback_url": { "type": "string", "pattern": "^https://", "description": "This server's /v1/answers/approvals as the approvals server reaches it. Must be https and on the approvals server's allow list." },
+                "source": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$", "default": "chargehand", "description": "The source name the token belongs to; every item id starts with it and a colon. Default chargehand." }
+              }
+            },
+            "ntfy_url": { "type": "string", "pattern": "^https?://", "description": "An ntfy-style URL: a plain-text note with the questions and a link to the task, no answer buttons. The URL can carry a secret topic, so it is never logged." },
+            "console_url": { "type": "string", "pattern": "^https?://", "description": "The console as the phone reaches it (https://host/console/): the link to the task in every note. Absent: no link." }
+          }
         }
       }
     },
@@ -605,11 +674,37 @@
                 "description": "The account's own model credential (ADR 0053): its read-only runs and its batches use it instead of the server's, and are priced as API usage. Needs the claude_code runtime. A subscription token is the owner's and is not accepted here.",
                 "properties": {
                   "api_key_secret": { "type": "string", "minLength": 1, "description": "Secret-store item holding an Anthropic API key, or the key a gateway issued when base_url names that gateway." },
-                  "base_url": { "type": "string", "pattern": "^https?://[^/?#@]+(/[^?#]*)?$", "description": "An Anthropic-compatible gateway's base URL (http or https, no credentials, query or fragment). Absent: Anthropic's own API." }
+                  "base_url": { "type": "string", "pattern": "^https?://[^/?#@]+(/[^?#]*)?$", "description": "An Anthropic-compatible gateway's base URL (http or https, no credentials, query or fragment). Absent: Anthropic's own API." },
+                  "oauth_token_secret": { "not": {}, "description": "Never allowed: a subscription token is the owner's plan and cannot be priced or capped in dollars. Use api_key_secret." }
                 }
               },
-              "allow_server_credential": { "type": "boolean", "default": false, "description": "An account with no model block may spend the server's model credential. Default false: its runs are refused with model_credential_missing. The owner always uses the server's." }
-            }
+              "allow_server_credential": { "type": "boolean", "default": false, "description": "An account with no model block may spend the server's model credential. Default false: its runs are refused with model_credential_missing. The owner always uses the server's." },
+              "pause_on_forecast": { "type": "boolean", "default": false, "description": "Hold the automated starts charged to this account (automation.account) while its month forecast passes max_usd_per_month (ADR 0076). Needs max_usd_per_month. A person's own run is never held by it." }
+            },
+            "dependentRequired": { "pause_on_forecast": ["max_usd_per_month"] }
+          }
+        },
+        "cloudflare_access": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["team_domain", "audience", "identities"],
+          "description": "Sign in to the console by the email Cloudflare Access checked, with no key (ADR 0071, docs/guide/server.md). Absent: keys only.",
+          "properties": {
+            "team_domain": { "type": "string", "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$", "description": "The Zero Trust team's host name, <team>.cloudflareaccess.com, with no scheme or path: the token's issuer and where its signing keys are." },
+            "audience": { "type": "string", "minLength": 1, "description": "The Access application's audience tag (AUD), which every token for that application carries." },
+            "identities": { "type": "object", "minProperties": 1, "propertyNames": { "pattern": "@" }, "additionalProperties": { "type": "string", "minLength": 1 }, "description": "Email to account: owner or a name in http.accounts. An email not listed opens nothing." }
+          }
+        },
+        "proxy_sign_in": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hosts", "proxies", "identities"],
+          "description": "Sign in to the console by the email a trusted single-sign-on proxy forwards in a header, with no key (ADR 0071, docs/guide/server.md). Absent: keys only.",
+          "properties": {
+            "hosts": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[A-Za-z0-9.-]+$" }, "description": "Host names the proxy serves behind its sign-on, with no scheme, port or path. The header counts only on a request for one of them." },
+            "proxies": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "\\S" }, "description": "The proxy's addresses or host names (resolved every 30 seconds). The header counts only on a request that arrives from one of them." },
+            "identities": { "type": "object", "minProperties": 1, "propertyNames": { "pattern": "@" }, "additionalProperties": { "type": "string", "minLength": 1 }, "description": "Email to account: owner or a name in http.accounts." },
+            "header": { "type": "string", "minLength": 1, "default": "Remote-Email", "description": "The header that carries the email. Default Remote-Email (Pangolin's)." }
           }
         }
       }
