@@ -10,7 +10,7 @@ namespace Chargehand.Server;
 
 /// <summary>
 /// MCP tool "result" (ADR 0065): the result of a run an orchestrate call answered with its id, for a client that has only MCP. It waits as orchestrate does
-/// (over HTTP at most <see cref="McpHttp.Wait"/>), then returns result/v1, or run-status/v1 as a tool error while the run goes on. Who may read a run is the
+/// (over HTTP at most <see cref="McpHttp.Wait"/>), then returns result/v1, or run-status/v1 (not an error) while the run goes on. Who may read a run is the
 /// same as for <c>GET /v1/runs/{id}</c>, a run token's included.
 /// </summary>
 public static class ResultTool
@@ -27,9 +27,9 @@ public static class ResultTool
         {
             Name = Name,
             Description = "Read the result of a chargehand run that an orchestrate call answered with a run id because it was still running. Returns result/v1 once the "
-                        + "run finished; before that, waits a while and returns the run's status as an error, so call it again.",
+                        + "run finished; before that, waits a while and returns the run's run-status/v1, so call it again.",
             UseStructuredContent = true,
-            OutputSchema = JsonDocument.Parse(ContractSchemas.Text(ContractSchemas.Result)).RootElement.Clone(),
+            OutputSchema = JsonDocument.Parse(ContractSchemas.McpOutputText()).RootElement.Clone(),
         });
         tool.ProtocolTool.InputSchema = JsonDocument.Parse(InputSchema).RootElement.Clone();
         return tool;

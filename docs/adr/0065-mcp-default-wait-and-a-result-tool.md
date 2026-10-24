@@ -1,6 +1,6 @@
 # 0065. A default MCP wait over HTTP and a result tool
 
-- Status: accepted
+- Status: accepted; the tool error for an unfinished run changed in ADR 0079
 - Date: 2026-10-18
 
 ## Context
@@ -24,6 +24,8 @@ ADR 0029's "Reopen if" names this case: clients that need the result itself over
 4. `tools/call` resumption or the tasks extension only. Not in the clients this is for.
 
 ## Decision
+
+Superseded in part by ADR 0079: where this says the run id comes back "as a tool error", it is now an ordinary answer with `run-status/v1` as `structuredContent`.
 
 Option 3. Over HTTP a call without `Prefer: wait=N` and without a `driven` block waits 50 s (`ServerSettings.McpWait`),
 then returns the run id and `run-status/v1` as ADR 0029's tool error, whose text now names the `result` tool. `result`
