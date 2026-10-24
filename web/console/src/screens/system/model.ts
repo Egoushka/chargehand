@@ -58,6 +58,13 @@ export function runnerStatusView(
       short: 'draining',
       tone: 'warn',
     };
+  if (status.reachable === true && status.image_mismatch)
+    return {
+      status: 'failed',
+      text: status.image_mismatch,
+      short: 'image mismatch',
+      tone: 'danger',
+    };
   return runnerView({
     configured: true,
     reachable: status.reachable,

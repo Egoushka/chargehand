@@ -10,7 +10,9 @@ namespace Chargehand.Modules.Runners.Api;
 /// <param name="MemoryPressureAvg10">Linux pressure stall information, <c>/proc/pressure/memory</c>: the percentage of the last ten seconds in which some task was stalled waiting for memory. Null where the host has none (macOS, a kernel without PSI).</param>
 /// <param name="State"><c>draining</c> when the host asks for no new session (a laptop on battery or with its lid closed, ADR 0058); null: ready. Left out of the runner's answer while ready, so a server older than this field still reads it.</param>
 /// <param name="StateReason">Why it is draining.</param>
-public sealed record HostSnapshot(long? AvailableMb, long? TotalMb, long? SwapTotalMb, long? SwapFreeMb, double? Load1, int? Cpus, double? MemoryPressureAvg10 = null, string? State = null, string? StateReason = null)
+/// <param name="Images">The session images the runner will start (<c>RunnerPolicy.Images</c>), by digest; null: a runner older than this field, read as "unknown", so a mismatch is not claimed from silence.</param>
+public sealed record HostSnapshot(long? AvailableMb, long? TotalMb, long? SwapTotalMb, long? SwapFreeMb, double? Load1, int? Cpus, double? MemoryPressureAvg10 = null, string? State = null, string? StateReason = null,
+    IReadOnlyList<string>? Images = null)
 {
     public const string Draining = "draining";
 
