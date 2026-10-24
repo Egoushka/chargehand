@@ -36,13 +36,17 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private const int MaxQuestion = 500;
 
     private readonly TimeProvider _time = clock ?? TimeProvider.System;
-    private readonly Action<string> _warn = warn ?? (message => Console.Error.WriteLine($"chargehand: {message}"));
-    private readonly Action<string> _info = info ?? (message => Console.Out.WriteLine($"chargehand: {message}"));
+    private readonly Action<string> _warn = warn ?? Warned;
+    private readonly Action<string> _info = info ?? Informed;
     private readonly Regex _mention = new($@"(?<!\w){Regex.Escape(settings.Mention)}(?![\w-])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private readonly HashSet<string> _allowed = new(settings.AllowedAuthors ?? [], StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<(string Repository, int Number), IntakePull> _pulls = [];
-    private readonly HashSet<string> _cloned = new(StringComparer.OrdinalIgnoreCase);
-    private readonly PullReviews _reviews = new(settings, host, log, heads, state, clock ?? TimeProvider.System, warn ?? (message => Console.Error.WriteLine($"chargehand: {message}")));
+    private readonly CheckoutSources _checkouts = new(heads, clones, "intake", warn ?? Warned, info ?? Informed);
+    private readonly PullReviews _reviews = new(settings, host, log, state, clock ?? TimeProvider.System, warn ?? Warned);
+
+    private static void Warned(string message) => Console.Error.WriteLine($"chargehand: {message}");
+
+    private static void Informed(string message) => Console.Out.WriteLine($"chargehand: {message}");
 
     private enum Outcome { Started, Settled, Deferred, Skipped }
 
@@ -106,7 +110,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                     await RoundsAsync(name, starter, ct);
                 }
                 if (settings.ReviewPulls)
-                    await _reviews.StartAsync(name, repository, starter, ct);
+                    await _reviews.StartAsync(name, repository, _checkouts, starter, ct);
             }
             catch (IntakeException e)
             {
@@ -262,7 +266,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         RepositoryRef source;
         try
         {
-            source = await SourceAsync(name, repository.Path, ct);
+            source = await _checkouts.CurrentAsync(name, repository.Path, ct);
         }
         catch (IntakeException e)
         {
@@ -274,38 +278,6 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var goal = IntakeGoal.Issue(name, issue, comment, commentAuthor);
         return await LaunchAsync(key, name, issue.Number, source, new DrivenTask(taskId, Goal: goal, Size: size), run => new IntakeTask(name, issue.Number, run, taskId, _time.GetUtcNow(), size),
             starter, run => $"chargehand started run `{run}` (task `{taskId}`). It works on its own branch and opens a draft pull request when it is done, or asks here if it needs an answer.", null, null, ct);
-    }
-
-    /// <summary>The checkout and commit a batch starts from, fetched now. A profile checkout git cannot write (a read-only mount) is not fetched into: the repository's managed clone is, cloned the first
-    /// time, and later starts go to it directly. Without a clone, the batch starts from the commit the checkout has.</summary>
-    private async Task<RepositoryRef> SourceAsync(string name, string path, CancellationToken ct)
-    {
-        if (clones is not null && _cloned.Contains(name))
-            path = clones.PathOf(name);
-        try
-        {
-            return new RepositoryRef(path, await heads.CurrentCommitAsync(path, ct));
-        }
-        catch (ReadOnlyCheckoutException e)
-        {
-            string? why = null;
-            if (clones is not null)
-                try
-                {
-                    var clone = await clones.EnsureAsync(name, e.OriginUrl, ct);
-                    _cloned.Add(name);
-                    _info($"intake: {name}: {path} cannot be written, so intake fetches its own clone {clone} instead");
-                    return new RepositoryRef(clone, await heads.CurrentCommitAsync(clone, ct));
-                }
-                catch (IntakeException failed) when (e.Stale is not null)
-                {
-                    why = failed.Message;
-                }
-            if (e.Stale is not { } stale)
-                throw new IntakeException($"{path} cannot be fetched and has no origin/HEAD: {e.Message}");
-            _warn($"intake: {name}: {path} cannot be written and {why ?? "intake has no clones"}: the batch starts from the commit the checkout has, {stale}");
-            return new RepositoryRef(path, stale);
-        }
     }
 
     private async Task<Outcome> ContinueAsync(string key, string name, IntakeTask earlier, IntakeComment reply, IBatchStarter starter, CancellationToken ct)

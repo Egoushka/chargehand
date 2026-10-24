@@ -14,15 +14,18 @@ namespace Chargehand.Automation;
 /// an item twice. The states are found by name at each poll, so renaming one in Plane takes effect, and a project whose states are not all there is skipped with a line on stderr. A project switched off in
 /// <see cref="Sources"/> (CHARGEHAND-242) is not read; its batches still report.</summary>
 public sealed class PlaneIntake(AutomationPlane settings, IPlaneHost host, IRunLog log, IRepositoryHeads heads, PlaneState state, TimeProvider? clock = null, Action<string>? warn = null,
-    IntakeSources? sources = null)
+    IntakeSources? sources = null, ManagedClones? clones = null)
 {
     private const int MaxDetail = 600;
     private const int MaxQuestions = 10;
     private const int MaxQuestion = 500;
 
     private readonly TimeProvider _time = clock ?? TimeProvider.System;
-    private readonly Action<string> _warn = warn ?? (message => Console.Error.WriteLine($"chargehand: {message}"));
+    private readonly Action<string> _warn = warn ?? Warned;
+    private readonly CheckoutSources _checkouts = new(heads, clones, "plane intake", warn ?? Warned, warn ?? Warned);
     private readonly Dictionary<string, string> _identifiers = [];
+
+    private static void Warned(string message) => Console.Error.WriteLine($"chargehand: {message}");
 
     private enum Outcome { Started, Settled, Deferred }
 
@@ -120,10 +123,10 @@ public sealed class PlaneIntake(AutomationPlane settings, IPlaneHost host, IRunL
         var identifier = await IdentifierAsync(project, listed, ct);
         if (await CapsAsync(key, project, listed.Id, ct) is { } held)
             return held;
-        string commit;
+        RepositoryRef source;
         try
         {
-            commit = await heads.CurrentCommitAsync(checkout.Path, ct);
+            source = await _checkouts.CurrentAsync(null, checkout.Path, ct);
         }
         catch (IntakeException e)
         {
@@ -134,7 +137,7 @@ public sealed class PlaneIntake(AutomationPlane settings, IPlaneHost host, IRunL
         var item = await host.GetAsync(project, listed.Id, ct);
         var taskId = PlaneGoal.TaskId(identifier);
         var task = new DrivenTask(taskId, Goal: PlaneGoal.Build(identifier, item.Name, item.Description), Size: settings.BudgetClass);
-        var request = new RunRequest("request/v1", $"Triggered from Plane: {identifier}.", new RequestContext(false, GitHubIntake.Preset, Repository: new RepositoryRef(checkout.Path, commit)),
+        var request = new RunRequest("request/v1", $"Triggered from Plane: {identifier}.", new RequestContext(false, GitHubIntake.Preset, Repository: source),
             Driven: new RequestDriven([task], MaxParallel: 1, MaxTokensTotal: settings.MaxTokensTotal, MaxUsdTotal: settings.MaxUsdTotal));
         var started = await starter.StartAsync(request, ct);
         if (started.RunId is not { } run)

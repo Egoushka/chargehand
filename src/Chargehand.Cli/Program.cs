@@ -519,6 +519,15 @@ Chargehand.Automation.GitHubIntake? GitHubIntake()
         integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "sources.json")), clones: clones);
 }
 
+// The managed clones a read-only checkout falls back to, fetched with the integrator App's token; null without an App, and the checkout's own commit is used.
+Chargehand.Automation.ManagedClones? ManagedClones()
+{
+    if (profile.Driven is not { Integrator: { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId } } driven)
+        return null;
+    var tokens = new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(new HttpClient { BaseAddress = GitHubApiRoot(driven) }, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System);
+    return new Chargehand.Automation.ManagedClones(profile.ClonesRoot, tokens.GetAsync);
+}
+
 // Scheduled work (ADR 0068): null unless the profile has automation.schedules. Its state sits next to the run log. flaky-tests reads CI history with the forge credential the driven run reads pull requests with.
 Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? Schedules(Chargehand.Driven.DrivenRun? driven)
 {
@@ -533,8 +542,9 @@ Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? Sch
         var api = new HttpClient { BaseAddress = GitHubApiRoot(drivenSettings) };
         alerts = new Chargehand.Automation.GitHubIntakeHost(api, new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System));
     }
-    return morning => new Chargehand.Automation.Scheduler(schedules, runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, new Chargehand.Automation.HttpScheduleNotifier(), morning,
-        flakes: flakes, alerts: alerts);
+    var clones = ManagedClones();
+    return morning => new Chargehand.Automation.Scheduler(schedules, runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state, new Chargehand.Automation.HttpScheduleNotifier(), morning,
+        flakes: flakes, alerts: alerts, clones: clones);
 }
 
 // Plane intake (ADR 0067): null unless the profile has automation.plane. The key is read from the secret store at each call; its state sits next to the run log.
@@ -545,8 +555,9 @@ Chargehand.Automation.PlaneIntake? PlaneIntake()
     var api = new HttpClient { BaseAddress = new Uri(url.TrimEnd('/') + "/") };
     var directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake");
     var state = Chargehand.Automation.PlaneState.Load(Path.Combine(directory, "plane.json"));
+    var clones = ManagedClones();
     return new Chargehand.Automation.PlaneIntake(plane, new Chargehand.Automation.PlaneHost(api, workspace, () => profile.Secret(apiKeySecret)), runLog,
-        new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "plane-sources.json")));
+        new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state, sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "plane-sources.json")), clones: clones);
 }
 
 // Questions and partial stops sent to a phone (ADR 0077): null unless the profile has automation.notify. Its state sits next to the run log; secrets are read at each call.
