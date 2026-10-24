@@ -25,15 +25,23 @@ public sealed record Verdict(string Cell, int Items, double QualityDelta, double
 public static partial class Gate
 {
     /// <summary>The commit status text: blocked cells, else files no cell gates, else what ran and what passed without a
-    /// cell (allowed or new), never "no prompt or preset change" when there was one.</summary>
+    /// cell (allowed or new), never "no prompt or preset change" when there was one. Cells skipped for 0 items are always
+    /// named: a green status must not hide that nothing was checked.</summary>
     public static string Describe(IReadOnlyList<Verdict> verdicts, IReadOnlyList<string> uncovered, IReadOnlyList<string> fresh, bool allowUncovered)
     {
+        var skipped = verdicts.Where(v => v is { Items: 0, Blocked: false }).Select(v => v.Cell).ToList();
+        var skip = skipped.Count > 0 ? $"gate skipped, 0 items: {string.Join(", ", skipped)}" : null;
+        string With(string text) => skip is null ? text : $"{text}; {skip}";
         var blocked = verdicts.Where(v => v.Blocked).ToList();
         if (blocked.Count > 0)
-            return string.Join("; ", blocked.Select(v => $"{v.Cell}: {v.Reason}"));
+            return With(string.Join("; ", blocked.Select(v => $"{v.Cell}: {v.Reason}")));
         if (uncovered.Count > 0 && !allowUncovered)
-            return $"no eval cell gates {string.Join(", ", uncovered)}";
-        var parts = verdicts.Select(v => $"{v.Cell}: {v.Reason}").ToList();
+            return With($"no eval cell gates {string.Join(", ", uncovered)}");
+        // The skipped cells come first: the status is cut at 140 characters.
+        var parts = new List<string>();
+        if (skip is not null)
+            parts.Add(skip);
+        parts.AddRange(verdicts.Where(v => v.Items > 0 || v.Blocked).Select(v => $"{v.Cell}: {v.Reason}"));
         if (uncovered.Count > 0)
             parts.Add($"allowed without an eval cell: {string.Join(", ", uncovered)}");
         if (fresh.Count > 0)
@@ -53,7 +61,8 @@ public static partial class Gate
         var tc = T([.. pairs.Where(p => p.BaseUsd > 0 && p.ChangeUsd > 0).Select(p => Math.Log((double)(p.ChangeUsd!.Value / p.BaseUsd!.Value)))]);
         Verdict V(bool blocked, FormattableString reason) => new(cell.Name, pairs.Count, dq, tq, cost, tc, blocked, FormattableString.Invariant(reason));
 
-        // An unseeded dataset has nothing to gate on (CHARGEHAND-57): skip it loudly. A dataset with items keeps the minimum.
+        // An existing but empty dataset has nothing to gate on (CHARGEHAND-57): skip it loudly. A dataset that does not
+        // exist never gets here (LangfuseEvals.ItemsAsync fails). A dataset with items keeps the minimum.
         if (pairs.Count == 0)
             return V(false, $"0 items, gate skipped — seed CHARGEHAND-57");
         if (pairs.Count < cell.MinItems)

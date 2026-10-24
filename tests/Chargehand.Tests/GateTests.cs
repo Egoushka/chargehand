@@ -149,6 +149,30 @@ public class GateTests
         Assert.Equal(expected, Gate.Describe([], uncovered, fresh, allowUncovered));
 
     [Fact]
+    public void The_status_lists_every_cell_skipped_for_no_items()
+    {
+        var skipped = Gate.Decide(Cell, [], null);
+        var passed = Gate.Decide(Cell with { Name = "review/worker" }, Pairs([0, 0, 0, 0, 0, 0, 0, 0]), null);
+        var other = Gate.Decide(Cell with { Name = "intake" }, [], null);
+
+        var text = Gate.Describe([skipped, passed, other], [], [], false);
+
+        Assert.StartsWith("gate skipped, 0 items: cheap/worker, intake; ", text, StringComparison.Ordinal);
+        Assert.Contains("review/worker: quality", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_blocked_status_still_lists_the_skipped_cells()
+    {
+        var blocked = Gate.Decide(Cell with { Name = "review/worker" }, Pairs([0, 0, 0]), null);
+        var skipped = Gate.Decide(Cell, [], null);
+
+        var text = Gate.Describe([blocked, skipped], [], [], false);
+
+        Assert.Equal("review/worker: 3 items; the gate needs at least 8; gate skipped, 0 items: cheap/worker", text);
+    }
+
+    [Fact]
     public void Shipped_cells_and_example_items_load()
     {
         var cells = EvalCell.Load(Repo.Path("evals", "cells.json"));
