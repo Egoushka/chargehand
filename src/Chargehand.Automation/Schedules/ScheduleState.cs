@@ -29,6 +29,9 @@ public sealed class ScheduleState
 
     public List<ScheduledRun> Running { get; init; } = [];
 
+    /// <summary>Occurrences (<c>entry@time</c>) whose run began to start, with the time: saved before the start, so after a crash the run log tells whether the run exists (<see cref="TriggeredStart"/>).</summary>
+    public Dictionary<string, DateTimeOffset> Starting { get; init; } = [];
+
     /// <summary>Per <c>security-alerts</c> entry, the alerts already made into a task (<see cref="SecurityAlert.Key"/>). An alert leaves the list when GitHub no longer lists it open, so one that reopens is taken again.</summary>
     public Dictionary<string, List<string>> Taken { get; init; } = [];
 
@@ -48,7 +51,7 @@ public sealed class ScheduleState
         if (!File.Exists(path))
             return new ScheduleState(path);
         var state = JsonSerializer.Deserialize<ScheduleState>(File.ReadAllText(path), Json) ?? throw new InvalidDataException($"{path}: empty schedule state");
-        return new ScheduleState(path) { Handled = state.Handled ?? [], Starts = state.Starts ?? [], Running = state.Running ?? [], Taken = state.Taken ?? [] };
+        return new ScheduleState(path) { Handled = state.Handled ?? [], Starts = state.Starts ?? [], Running = state.Running ?? [], Starting = state.Starting ?? [], Taken = state.Taken ?? [] };
     }
 
     public void Save(DateTimeOffset now)

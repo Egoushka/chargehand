@@ -139,13 +139,14 @@ public sealed class PlaneIntake(AutomationPlane settings, IPlaneHost host, IRunL
         var task = new DrivenTask(taskId, Goal: PlaneGoal.Build(identifier, item.Name, item.Description), Size: settings.BudgetClass);
         var request = new RunRequest("request/v1", $"Triggered from Plane: {identifier}.", new RequestContext(false, GitHubIntake.Preset, Repository: source),
             Driven: new RequestDriven([task], MaxParallel: 1, MaxTokensTotal: settings.MaxTokensTotal, MaxUsdTotal: settings.MaxUsdTotal));
-        var started = await starter.StartAsync(request, ct);
+        var started = await TriggeredStart.StartAsync(starter, log, state.Starting, state.Save, key, request, _time.GetUtcNow(), ct);
         if (started.RunId is not { } run)
         {
             _warn($"plane intake: {identifier}: the server did not start the batch: {started.Refusal}");
             return Outcome.Deferred;
         }
         var now = _time.GetUtcNow();
+        state.Starting.Remove(key);
         state.Tasks.Add(new PlaneTask(project, listed.Id, identifier, run, taskId, now));
         state.Starts.Add(now);
         state.Handled.Add(key);

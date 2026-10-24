@@ -151,13 +151,20 @@ internal sealed class FakeStarter(FakeRunLog log) : IBatchStarter
 
     public string? Refuse { get; set; }
 
+    /// <summary>The process dies at the next start: before the batch exists (<c>before</c>) or after it, before the caller learns its id (<c>after</c>).</summary>
+    public string? Die { get; set; }
+
     public Task<BatchStart> StartAsync(RunRequest request, CancellationToken ct)
     {
         if (Refuse is not null)
             return Task.FromResult(new BatchStart(null, Refuse));
+        if (Die == "before")
+            throw new InvalidOperationException("the process died");
         Started.Add(request);
         var run = $"run-{Started.Count}";
         log.Start(run, request);
+        if (Die == "after")
+            throw new InvalidOperationException("the process died");
         return Task.FromResult(new BatchStart(run));
     }
 }

@@ -35,6 +35,9 @@ public sealed class PlaneState
 
     public List<PlaneTask> Tasks { get; init; } = [];
 
+    /// <summary>Triggers whose batch began to start, by key, with the time: saved before the start, so after a crash the run log tells whether the batch exists (<see cref="TriggeredStart"/>).</summary>
+    public Dictionary<string, DateTimeOffset> Starting { get; init; } = [];
+
     /// <summary>When triggered batches started, for the daily cap; entries older than a day are dropped when the state is saved.</summary>
     public List<DateTimeOffset> Starts { get; init; } = [];
 
@@ -43,7 +46,7 @@ public sealed class PlaneState
         if (!File.Exists(path))
             return new PlaneState(path);
         var state = JsonSerializer.Deserialize<PlaneState>(File.ReadAllText(path), Json) ?? throw new InvalidDataException($"{path}: empty intake state");
-        return new PlaneState(path) { Handled = state.Handled ?? [], Notified = state.Notified ?? [], Tasks = state.Tasks ?? [], Starts = state.Starts ?? [] };
+        return new PlaneState(path) { Handled = state.Handled ?? [], Notified = state.Notified ?? [], Tasks = state.Tasks ?? [], Starting = state.Starting ?? [], Starts = state.Starts ?? [] };
     }
 
     public void Replace(PlaneTask old, PlaneTask updated) => Tasks[Tasks.IndexOf(old)] = updated;
