@@ -55,9 +55,12 @@ public class McpTests
         var tool = tools.Single(t => t.Name == OrchestrateTool.Name);
         Assert.Equal(ChargehandServer.Instructions, client.ServerInstructions);
         Assert.True(JsonNode.DeepEquals(JsonNode.Parse(ContractSchemas.Text(ContractSchemas.Request)), JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText())));
-        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(ContractSchemas.Text(ContractSchemas.Result)), JsonNode.Parse(tool.ProtocolTool.OutputSchema!.Value.GetRawText())));
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(ContractSchemas.McpOutputText()), JsonNode.Parse(tool.ProtocolTool.OutputSchema!.Value.GetRawText())));
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(ContractSchemas.McpOutputText()), JsonNode.Parse(tools.Single(t => t.Name == ResultTool.Name).ProtocolTool.OutputSchema!.Value.GetRawText())));
 
-        var result = Result(await client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value)));
+        var finished = await client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value));
+        Assert.Empty(ContractSchemas.ValidateMcpOutput(finished.StructuredContent!.Value));
+        var result = Result(finished);
         Assert.Equal(ResultStatus.Completed, result.Status);
         // A run started over MCP is the same run the HTTP interface reads.
         await ServerTests.WaitUntil(async () => (await s.Http.GetAsync($"/v1/runs/{result.TaskId}")).IsSuccessStatusCode);
@@ -190,8 +193,9 @@ public class McpTests
         var call = await client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value))
             .AsTask().WaitAsync(TimeSpan.FromSeconds(30));
 
-        // Not result/v1 yet, so not structuredContent: a tool error whose last block is run-status/v1.
-        Assert.True(call.IsError);
+        // Not result/v1 yet: an ordinary answer whose structuredContent is run-status/v1, valid against the declared outputSchema (ADR 0078).
+        Assert.NotEqual(true, call.IsError);
+        Assert.Empty(ContractSchemas.ValidateMcpOutput(call.StructuredContent!.Value));
         var json = ((TextContentBlock)call.Content[^1]).Text;
         Assert.Empty(ContractSchemas.Validate(ContractSchemas.RunStatus, JsonDocument.Parse(json).RootElement));
         var status = JsonSerializer.Deserialize<RunStatus>(json, ContractJson.Options)!;
@@ -209,12 +213,14 @@ public class McpTests
         var call = await client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value))
             .AsTask().WaitAsync(TimeSpan.FromSeconds(30));
 
-        Assert.True(call.IsError);
+        Assert.NotEqual(true, call.IsError);
+        Assert.Empty(ContractSchemas.ValidateMcpOutput(call.StructuredContent!.Value));
         var status = JsonSerializer.Deserialize<RunStatus>(((TextContentBlock)call.Content[^1]).Text, ContractJson.Options)!;
         Assert.Contains(ResultTool.Name, ((TextContentBlock)call.Content[0]).Text, StringComparison.Ordinal);
 
         var running = await client.CallToolAsync(ResultTool.Name, new Dictionary<string, object?> { ["run_id"] = status.RunId }).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
-        Assert.True(running.IsError);
+        Assert.NotEqual(true, running.IsError);
+        Assert.Empty(ContractSchemas.ValidateMcpOutput(running.StructuredContent!.Value));
         Assert.Equal(status.RunId, JsonSerializer.Deserialize<RunStatus>(((TextContentBlock)running.Content[^1]).Text, ContractJson.Options)!.RunId);
 
         runtime.Hold.SetResult();

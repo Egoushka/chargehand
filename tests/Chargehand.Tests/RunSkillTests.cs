@@ -33,7 +33,7 @@ public class RunSkillTests
     [InlineData("Monitor")]
     [InlineData("chargehand watch")]
     [InlineData("chargehand cancel")]
-    [InlineData("is still running")]                    // the tool error that carries the run id
+    [InlineData("is still running")]                    // the answer that carries the run id
     [InlineData("never merges")]
     [InlineData("Do not do the task yourself")]
     public void Keeps_the_names_and_limits_the_skill_depends_on(string text) => Assert.Contains(text, Skill, StringComparison.Ordinal);

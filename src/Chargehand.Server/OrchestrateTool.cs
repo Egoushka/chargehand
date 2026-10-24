@@ -12,7 +12,7 @@ using ModelContextProtocol.Server;
 namespace Chargehand.Server;
 
 /// <summary>
-/// MCP tool "orchestrate": inputSchema request/v1, outputSchema result/v1, the result in structuredContent (ADR 0014).
+/// MCP tool "orchestrate": inputSchema request/v1, outputSchema result/v1 or run-status/v1, the result in structuredContent (ADR 0014, 0078).
 /// A client that opts in to the tasks extension gets long runs as tasks. When intake answers an interactive request
 /// with questions (ask), the tool asks the client and resends the request with the answers: inside a task through
 /// elicitation, which the task reports as input_required; outside one through an input_required result that the
@@ -38,7 +38,7 @@ public static class OrchestrateTool
                         + "comes back as result/v1 with evidence for every claim. The arguments are the request/v1 fields themselves: contract_version, text and context at the top level, "
                         + "not wrapped in a \"request\" object. context.delivery \"local\" keeps a run on this machine: a writing run leaves a local branch in the repository and nothing is pushed, opened or sent to a forge; the server's profile can force it. context.enhance false keeps the run from the server's prompt enhancer (nothing sent before, nothing reported after); use it for replays of stored prompts.",
             UseStructuredContent = true,
-            OutputSchema = Schema(ContractSchemas.Result),
+            OutputSchema = JsonDocument.Parse(ContractSchemas.McpOutputText()).RootElement.Clone(),
         });
         tool.ProtocolTool.InputSchema = Schema(ContractSchemas.Request);
         return tool;
@@ -190,19 +190,23 @@ public static class OrchestrateTool
 
     private static string Where(RunHandle run, string state) => Where(run.Id, state);
 
-    /// <summary>An unfinished run: not result/v1, so no structuredContent, and a tool error for a client that validates it.</summary>
+    /// <summary>An unfinished run is a normal answer, not an error: run-status/v1 as structuredContent (ADR 0078).</summary>
     internal static CallToolResult Running(RunHandle run) => Unfinished(run.Latest);
 
     /// <summary>run-status/v1 of a run that has no result yet, after the text naming how to read it.</summary>
-    internal static CallToolResult Unfinished(RunStatus status) => new()
+    internal static CallToolResult Unfinished(RunStatus status)
     {
-        IsError = true,
-        Content =
-        [
-            new TextContentBlock { Text = Where(status.RunId, status.Status == RunState.Queued ? "is queued" : "is still running") },
-            new TextContentBlock { Text = JsonSerializer.Serialize(status, ContractJson.Options) },
-        ],
-    };
+        var json = JsonSerializer.SerializeToElement(status, ContractJson.Options);
+        return new CallToolResult
+        {
+            StructuredContent = json,
+            Content =
+            [
+                new TextContentBlock { Text = Where(status.RunId, status.Status == RunState.Queued ? "is queued" : "is still running") },
+                new TextContentBlock { Text = json.GetRawText() },
+            ],
+        };
+    }
 
     /// <summary>The resend: the original request with intake's questions and the client's answers appended.</summary>
     private static RunRequest WithAnswers(RunRequest request, IReadOnlyList<string> questions, ElicitResult answers)

@@ -28,6 +28,21 @@ public static class ContractSchemas
         return new StreamReader(stream).ReadToEnd();
     }
 
+    /// <summary>
+    /// The outputSchema of the MCP tools that start or read a run: result/v1 once it finished, run-status/v1 while it goes on (ADR 0078).
+    /// Each member keeps its own $id, so the result schema's local $ref still resolves.
+    /// </summary>
+    public static string McpOutputText() =>
+        $$"""{"type":"object","oneOf":[{{Text(Result)}},{{Text(RunStatus)}}]}""";
+
+    /// <summary>Validates a tool's structuredContent against <see cref="McpOutputText"/>: exactly one of its two members must accept it. Empty list means valid.</summary>
+    public static IReadOnlyList<string> ValidateMcpOutput(JsonElement document)
+    {
+        // The members are registered under their $id already, so the combined schema cannot be loaded a second time.
+        var matches = new[] { Result, RunStatus }.Count(n => Validate(n, document).Count == 0);
+        return matches == 1 ? [] : ["matches " + matches + " of result/v1, run-status/v1"];
+    }
+
     public static JsonSchema Get(string name) =>
         Schemas.TryGetValue(name, out var schema) ? schema.Value : throw new ArgumentException($"Unknown contract schema '{name}'.", nameof(name));
 

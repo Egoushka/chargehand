@@ -25,8 +25,8 @@ Call `orchestrate` with the request/v1 fields as its top-level arguments (no `re
 max_tokens_total: 3000000, max_usd_total: 5 }. A server on a subscription needs the token cap and one on an API key or gateway key needs the dollar cap, and the
 skill cannot tell which, so it sends both; use the user's numbers instead if they named a cap, and say the caps in the hand-over line.
 
-The call returns after about 10 seconds. Normally it is a tool error whose first block says the run "is still running" and names it, and whose last block is
-`run-status/v1`: its `run_id` is the batch's id, and the run goes on. That error is expected, not a failure. Do not call `orchestrate` again for the same prompt:
+The call returns after about 10 seconds. Normally it is an ordinary answer whose first block says the run "is still running" and names it, and whose
+`structuredContent` is `run-status/v1`: its `run_id` is the batch's id, and the run goes on. Do not call `orchestrate` again for the same prompt:
 it would start a second batch.
 
 If the result is `result/v1` instead, the batch ended or was refused before it started:
