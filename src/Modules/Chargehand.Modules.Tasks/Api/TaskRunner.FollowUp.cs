@@ -275,8 +275,11 @@ public sealed partial class TaskRunner
 
     private static string PartialBody(ResolvedTask task, SessionOutcome last, SessionOutcome total, int continuation, string? startFailure, string? progress)
     {
-        var body = new StringBuilder(string.Create(CultureInfo.InvariantCulture,
-            $"Partial result: the session {(last.Status == SessionStatus.NeedsInput ? "stopped to ask a question" : $"was stopped by {StopReason(last).Replace('_', ' ')}")} after {total.Turns} turns and did not finish. This is unfinished work, kept so it is not lost; read it before anything else.\n\nTask: {task.Id}"))
+        var turns = total.Turns;
+        var lead = last.Status == SessionStatus.Completed
+            ? $"the session ended after {turns} turns but printed no usable report, even when asked for one, so what it did is unchecked."
+            : $"the session {(last.Status == SessionStatus.NeedsInput ? "stopped to ask a question" : $"was stopped by {StopReason(last).Replace('_', ' ')}")} after {turns} turns and did not finish.";
+        var body = new StringBuilder(string.Create(CultureInfo.InvariantCulture, $"Partial result: {lead} This is unfinished work, kept so it is not lost; read it before anything else.\n\nTask: {task.Id}"))
             .Append(ContinuationNote(continuation));
         if (last.Status == SessionStatus.NeedsInput && last.Questions.Count > 0)
             body.Append("\n\nQuestions for you:\n").AppendJoin('\n', last.Questions.Select(q => $"- {q}"));
@@ -309,6 +312,8 @@ public sealed partial class TaskRunner
         state == TaskState.Completed ? handed?.TestIntegrity is { } flag ? $"test integrity: {flag.Reason}" : null
             : !partial || handed is null ? result.Summary
             : session.Status == SessionStatus.NeedsInput ? $"partial: needs input ({string.Join("; ", session.Questions)}); {(pushed ? handed.PullRequest is null ? "branch pushed, pull request failed" : "draft PR opened" : $"not handed over: {handed.Reason}")}{partialNote}"
-            : pushed ? $"partial: stopped by {StopReason(session)}; {(handed.PullRequest is null ? "branch pushed, pull request failed" : "draft PR opened")}{partialNote}"
-            : $"partial: stopped by {StopReason(session)}; not handed over: {handed.Reason}{partialNote}";
+            : pushed ? $"partial: {EndedBy(session)}; {(handed.PullRequest is null ? "branch pushed, pull request failed" : "draft PR opened")}{partialNote}"
+            : $"partial: {EndedBy(session)}; not handed over: {handed.Reason}{partialNote}";
+
+    private static string EndedBy(SessionOutcome session) => session.Status == SessionStatus.Completed ? "finished without a usable report" : $"stopped by {StopReason(session)}";
 }

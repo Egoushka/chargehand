@@ -94,6 +94,7 @@ public static partial class SessionDriver
 
             await run.DriveAsync(StartInfo(options, files, null), start, started, ct);
             var checks = await run.GateAsync(rules, start, resume => StartInfo(options, files, resume), ct);
+            await run.ReportAsync(start, resume => StartInfo(options, files, resume), ct);
             return await run.FinishAsync(start, checks, ct);
         }
         finally

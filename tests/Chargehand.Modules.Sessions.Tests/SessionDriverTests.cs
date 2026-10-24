@@ -62,6 +62,9 @@ public class SessionDriverTests
     internal static SessionOptions Options(Workspace w, string script, SessionTask task, string[]? secrets = null) =>
         new(w.Work, w.Out, task, new SessionCommand("/bin/sh", [w.Dir.Write("claude.sh", script)]), secrets ?? [Canary], PromptText: "system prompt", McpUrl: null, McpToken: null);
 
+    /// <summary>A last message with a usable report, for a session the tests want finished without a request for one.</summary>
+    internal static readonly string Reported = "```json\n" + """{"summary":"s","claims":[]}""" + "\n```";
+
     internal const string Init = """{"type":"system","subtype":"init","session_id":"s"}""";
 
     internal static string Assistant(string id, string text, string usage = """{"input_tokens":100,"output_tokens":20}""") =>
@@ -119,7 +122,7 @@ public class SessionDriverTests
                 ["claude-haiku-5-5"] = new { inputTokens = 30, outputTokens = 10, cacheReadInputTokens = 0, cacheCreationInputTokens = 0, costUSD = 0.01 },
             },
         });
-        var outcome = await SessionDriver.RunAsync(Options(w, Emit("""{"type":"system","subtype":"init","session_id":"cc-1","model":"claude-sonnet-5-5"}""", Assistant("m1", "hi"), result), Task()), default);
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit("""{"type":"system","subtype":"init","session_id":"cc-1","model":"claude-sonnet-5-5"}""", Assistant("m1", "hi\n" + Reported), result), Task()), default);
 
         Assert.Equal(("cc-1", "claude-sonnet-5-5", 70L), (outcome.SessionId, outcome.Model, outcome.CacheWriteTokens));
         Assert.Equal(new TokenCounts(120, 30, 0, 500, 70), outcome.ModelUsage!["claude-sonnet-5-5"]);
@@ -361,7 +364,7 @@ public class SessionDriverTests
     {
         var usage = Path.Combine(w.Out, "session-usage.json");
         var script = Emit([Init, .. messages]) + $"\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do grep -q '{until}' '{usage}' 2>/dev/null && break; sleep 0.2; done\n"
-            + $"cp '{usage}' '{Path.Combine(w.Dir.Path, "seen.json")}'\n" + Emit(Result());
+            + $"cp '{usage}' '{Path.Combine(w.Dir.Path, "seen.json")}'\n" + Emit(Assistant("mr", Reported), Result());
         await SessionDriver.RunAsync(Options(w, script, task), default);
         return JsonDocument.Parse(File.ReadAllText(Path.Combine(w.Dir.Path, "seen.json"))).RootElement.Clone();
     }
@@ -546,7 +549,7 @@ public class SessionDriverTests
     {
         using var w = new Workspace();
         var command = $"make CANARY={Canary}";
-        var script = Emit([Init, .. Enumerable.Range(1, 4).SelectMany(i => new[] { ToolCall($"c{i}", command), ToolResult($"c{i}", "make: *** [all] Error 1") }), Result()]);
+        var script = Emit([Init, .. Enumerable.Range(1, 4).SelectMany(i => new[] { ToolCall($"c{i}", command), ToolResult($"c{i}", "make: *** [all] Error 1") }), Assistant("mr", Reported), Result()]);
         var outcome = await SessionDriver.RunAsync(Options(w, script, Task() with { Governor = new SessionGovernor(SizeClass: "M") }), default);
 
         Assert.Equal(SessionStatus.Completed, outcome.Status);

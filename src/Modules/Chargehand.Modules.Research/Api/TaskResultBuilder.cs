@@ -33,7 +33,7 @@ public static class TaskResultBuilder
 
         var report = input.ReportJson is null ? null : DrivenReport.Parse(input.ReportJson);
         if (report is null)
-            return draft.Failed(ErrorCode.InvalidResult, "the session finished but printed no usable report (a fenced JSON block with a summary and claims)",
+            return draft.Unfinished(ErrorCode.InvalidResult, "the session finished but printed no usable report (a fenced JSON block with a summary and claims)",
                 "Send the task again; the session must end with the JSON report. Nothing was pushed.");
         if (input.Handover is not { } handover)
             return draft.Failed(ErrorCode.SessionFailed, "the session finished but its branch was not handed over", "Send the task again.");

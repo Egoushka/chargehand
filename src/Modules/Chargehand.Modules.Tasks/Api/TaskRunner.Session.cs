@@ -269,9 +269,10 @@ public sealed partial class TaskRunner
     }
 
     /// <summary>A session that did not finish but left commits is handed over as a partial draft pull request, a rate-limited one too (ADR 0045: its work is not lost while the
-    /// limit lasts); a question for a person, or a session that ended without its work, is not.</summary>
+    /// limit lasts); a question for a person, or a session that ended without its work, is not. A completed session reaches this only without a usable report, even after the
+    /// driver asked for one.</summary>
     private static bool Salvageable(SessionOutcome session) =>
-        session.Status is SessionStatus.Stalled or SessionStatus.TokenCap or SessionStatus.RateLimited || (session.Status == SessionStatus.Failed && session.Reason != "out_of_memory");
+        session.Status is SessionStatus.Completed or SessionStatus.Stalled or SessionStatus.TokenCap or SessionStatus.RateLimited || (session.Status == SessionStatus.Failed && session.Reason != "out_of_memory");
 
     /// <summary>With a handoff (ADR 0045) the earlier commits are offered, not required: the handoff may show the approach failed, and then the session starts again from the base commit.</summary>
     private string ContinuationGoal(string goal, int number, SessionOutcome previous, string? progress)
