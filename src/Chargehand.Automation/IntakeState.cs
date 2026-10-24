@@ -68,6 +68,9 @@ public sealed class IntakeState
 
     public List<IntakeTask> Tasks { get; init; } = [];
 
+    /// <summary>Triggers whose batch began to start, by key, with the time: saved before the start, so after a crash the run log tells whether the batch exists (<see cref="TriggeredStart"/>). Removed with the trigger's settling.</summary>
+    public Dictionary<string, DateTimeOffset> Starting { get; init; } = [];
+
     /// <summary>What intake did with the latest <see cref="MaxTriggers"/> triggers, oldest first. <see cref="Handled"/> says a trigger was seen; this says when and what came of it.</summary>
     public List<IntakeTrigger> Triggers { get; init; } = [];
 
@@ -102,6 +105,7 @@ public sealed class IntakeState
             Handled = state.Handled ?? [],
             Notified = state.Notified ?? [],
             Tasks = state.Tasks ?? [],
+            Starting = state.Starting ?? [],
             Starts = state.Starts ?? [],
             Triggers = state.Triggers ?? [],
             Reviewed = state.Reviewed ?? [],

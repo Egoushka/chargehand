@@ -37,7 +37,7 @@ public class GitHubIntakeTests
         Assert.Contains("The client gives up on the first error.", task.Goal);
         // The pull request's body holds the goal, so GitHub closes the issue when it merges.
         Assert.EndsWith("\n\nCloses #7", task.Goal);
-        Assert.Equal("Triggered from GitHub: octo/repo#7.\n\nCloses #7", request.Text);
+        Assert.Equal("Triggered from GitHub: octo/repo#7.\n\nCloses #7\n\n[trigger label:octo/repo#7:41]", request.Text);
         var (number, comment) = Assert.Single(rig.GitHub.Posted);
         Assert.Equal(7, number);
         Assert.StartsWith(GitHubIntake.Marker, comment);
@@ -255,7 +255,7 @@ public class GitHubIntakeTests
         Assert.Equal(["Use exponential backoff, not configurable."], task.Answers);
         Assert.Null(task.Goal);
         // The continuation's goal starts with this text, and its pull request body replaces the first one's.
-        Assert.EndsWith("\n\nCloses #7", request.Text);
+        Assert.Contains("\n\nCloses #7\n\n[trigger ", request.Text);
         // Its kept work is a branch from the commit the first run started at, whatever the default branch is now.
         Assert.Equal(rig.Starter.Started[0].Context.Repository, request.Context.Repository);
         Assert.Contains("continues with your answer: run `run-2`", rig.GitHub.Posted.Last().Body);
@@ -482,5 +482,65 @@ public class GitHubIntakeTests
         Assert.Single(rig.Starter.Started);
         await stop.CancelAsync();
         await loop;
+    }
+
+    [Fact]
+    public async Task A_crash_after_the_batch_started_and_before_the_state_was_saved_starts_nothing_twice()
+    {
+        using var rig = new IntakeRig();
+        rig.Labeled(7, "alice", 41);
+        rig.Starter.Die = "after";
+        await Assert.ThrowsAsync<InvalidOperationException>(rig.Poll);
+        Assert.Single(rig.Starter.Started);
+        Assert.DoesNotContain("label:octo/repo#7:41", rig.State.Handled);
+
+        rig.Starter.Die = null;
+        rig.Restart();
+        await rig.Poll();
+
+        // The batch the dead process started is the issue's task; no second one is started.
+        Assert.Single(rig.Starter.Started);
+        var task = Assert.Single(rig.State.Tasks);
+        Assert.Equal("run-1", task.BatchRunId);
+        Assert.Contains("label:octo/repo#7:41", rig.State.Handled);
+        Assert.Empty(rig.State.Starting);
+        await rig.Poll();
+        Assert.Single(rig.Starter.Started);
+    }
+
+    [Fact]
+    public async Task A_crash_before_the_batch_started_starts_it_at_the_next_poll()
+    {
+        using var rig = new IntakeRig();
+        rig.Labeled(7, "alice", 41);
+        rig.Starter.Die = "before";
+        await Assert.ThrowsAsync<InvalidOperationException>(rig.Poll);
+        Assert.Empty(rig.Starter.Started);
+
+        rig.Starter.Die = null;
+        rig.Restart();
+        await rig.Poll();
+
+        Assert.Single(rig.Starter.Started);
+        Assert.Equal("run-1", Assert.Single(rig.State.Tasks).BatchRunId);
+        Assert.Empty(rig.State.Starting);
+    }
+
+    [Fact]
+    public async Task A_refused_start_is_tried_again_and_a_state_file_from_before_starting_is_read()
+    {
+        using var rig = new IntakeRig();
+        rig.Labeled(7, "alice", 41);
+        rig.Starter.Refuse = "halted";
+        await rig.Poll();
+        Assert.Empty(rig.Starter.Started);
+        Assert.Empty(rig.State.Starting);
+
+        rig.Starter.Refuse = null;
+        File.WriteAllText(rig.StateFile, "{ \"handled\": [] }");
+        rig.Restart();
+        await rig.Poll();
+
+        Assert.Single(rig.Starter.Started);
     }
 }

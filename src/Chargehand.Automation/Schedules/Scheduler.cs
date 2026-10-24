@@ -92,7 +92,7 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
             Consume(entry, now, $"the cap of {entry.Cap().ToString(CultureInfo.InvariantCulture)} starts in {ScheduleState.MonthOf(now)} is used");
         else if (state.Running.Any(r => r.Entry == entry.Id))
             Consume(entry, now, "its last run is still going");
-        else if (await StartAsync(entry, starter, now, ct) is var start and not Start.Later)
+        else if (await StartAsync(entry, last, starter, now, ct) is var start and not Start.Later)
         {
             state.Handled[entry.Id] = now;
             if (start == Start.Started)
@@ -108,7 +108,7 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
         state.Save(now);
     }
 
-    private async Task<Start> StartAsync(ScheduleEntry entry, IBatchStarter starter, DateTimeOffset now, CancellationToken ct)
+    private async Task<Start> StartAsync(ScheduleEntry entry, DateTimeOffset last, IBatchStarter starter, DateTimeOffset now, CancellationToken ct)
     {
         if (entry.Kind() == ScheduleKind.Report)
         {
@@ -122,13 +122,15 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
         var tasks = taking.Count > 0
             ? [.. taking.Select(a => SecurityAlerts.TaskFor(a, entry.Text()!, entry.Size()))]
             : new List<DrivenTask> { new($"schedule-{entry.Id}", Goal: await GoalAsync(entry, ct), Size: entry.Size()) };
-        var started = await starter.StartAsync(Request(entry, source, tasks), ct);
+        var occurrence = $"{entry.Id}@{last.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)}";
+        var started = await TriggeredStart.StartAsync(starter, log, state.Starting, state.Save, occurrence, Request(entry, source, tasks), now, ct);
         if (started.RunId is not { } run)
         {
             _warn($"schedules: {entry.Id}: the server did not start the run: {started.Refusal}");
             _retryAt[entry.Id] = now + RetryAfter;
             return Start.Later;
         }
+        state.Starting.Remove(occurrence);
         state.Running.Add(new ScheduledRun(entry.Id, run, now, entry.Kind()));
         if (taking.Count > 0)
             state.Taken[entry.Id] = [.. state.Taken.GetValueOrDefault(entry.Id) ?? [], .. taking.Select(a => a.Key)];

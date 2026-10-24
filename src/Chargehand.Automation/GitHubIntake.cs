@@ -326,13 +326,14 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var closes = key.StartsWith("round:", StringComparison.Ordinal) || replaces?.Round is not null ? "" : $"\n\n{IntakeGoal.Closes(issue)}";
         var request = new RunRequest("request/v1", $"Triggered from GitHub: {name}#{issue.ToString(CultureInfo.InvariantCulture)}.{closes}", new RequestContext(false, Preset, Repository: repository),
             Driven: new RequestDriven([task], MaxParallel: 1, MaxTokensTotal: settings.MaxTokensTotal, MaxUsdTotal: settings.MaxUsdTotal));
-        var started = await starter.StartAsync(request, ct);
+        var started = await TriggeredStart.StartAsync(starter, log, state.Starting, state.Save, key, request, _time.GetUtcNow(), ct);
         if (started.RunId is not { } run)
         {
             _warn($"intake: {name}#{issue}: the server did not start the batch: {started.Refusal}");
             return Outcome.Deferred;
         }
         var now = _time.GetUtcNow();
+        state.Starting.Remove(key);
         if (replaces is not null)
             state.Replace(replaces, replaces with { Phase = IntakePhase.Done });
         state.Tasks.Add(track(run));
