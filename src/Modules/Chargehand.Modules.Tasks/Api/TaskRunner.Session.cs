@@ -56,6 +56,9 @@ public sealed partial class TaskRunner
 
         await Tolerant(task.Id, () => volumes.FetchOutputAsync(runId, outDirectory, ct), ct);
         run.Session = SessionMachine.OutcomeOf(SessionDriver.ReadOutcome(outDirectory), exited);
+        if (Bare && run.Session is { Bare: false } plain)
+            // An image from before the arm ignores the flag and runs the full session: say so rather than score it as the control.
+            run.Session = plain with { Status = SessionStatus.Failed, Reason = "image_predates_bare_arm" };
         NoteSession(task, run, sessionEnded);
         // Saved after the session's events are published: a task that is Finished has published them, and a restart that reads the outcome again does not.
         await RecordAsync(task.Id, new TaskSessionRead());
@@ -191,9 +194,12 @@ public sealed partial class TaskRunner
         await workspace.PrepareWorkspaceAsync(new WorkspaceSpec(runId, settings.Image, settings.SourcePath, RunnerNames.Work(runId), branch, settings.BaseCommit), ct);
         if (seed is not null)
             await volumes.WriteSeedAsync(runId, seed, ct);
-        await volumes.WriteTaskAsync(runId, new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices,
-            Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd, budget), Environment: settings.Shared?.ForSession(), Acceptance: task.Acceptance,
-            CheckRetries: preset.CheckRetries, ReminderMinutes: preset.GoalReminderMinutes > 0 ? preset.GoalReminderMinutes : null, ReminderTurns: preset.GoalReminderTurns), ct);
+        // The bare arm (ADR 0080) keeps the limits and the caps, which bound its cost as they bound the other arm's, and drops everything that steers or checks the session.
+        await volumes.WriteTaskAsync(runId, Bare
+            ? new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices, CheckRetries: 0, Bare: true)
+            : new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices,
+                Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd, budget), Environment: settings.Shared?.ForSession(), Acceptance: task.Acceptance,
+                CheckRetries: preset.CheckRetries, ReminderMinutes: preset.GoalReminderMinutes > 0 ? preset.GoalReminderMinutes : null, ReminderTurns: preset.GoalReminderTurns), ct);
 
         var env = ModelEnvironment(runId, maxMinutes, left, sessionStarted);
         AddServiceEnvironment(env, task, runId, maxMinutes, left, sessionStarted, span, traceId);
@@ -242,7 +248,7 @@ public sealed partial class TaskRunner
         if (settings.Otlp is { } otlp)
             foreach (var (name, value) in otlp.Environment(settings.BatchId, task.Id, runId, span is null ? null : traceId))
                 env[name] = value;
-        if (settings.McpUrl is { } mcp)
+        if (settings.McpUrl is { } mcp && !Bare)
         {
             env["CHARGEHAND_MCP_URL"] = mcp;
             // The token admits only this path and commit; /work is not it, so the session is told them.
@@ -261,7 +267,7 @@ public sealed partial class TaskRunner
     /// last and the session added a commit past the one it was seeded with. Not a stall for no progress or a repeated call (it would loop again), not the token cap, not a question for a person.</summary>
     private bool Continues(SessionOutcome session, int continuation, SessionOutcome total, BestRun? best, int seeded)
     {
-        if (session is not { Status: SessionStatus.Stalled, BundleWritten: true, Commits: > 0 } || !StallDetector.Continuable(session.Reason) || best is null
+        if (Bare || session is not { Status: SessionStatus.Stalled, BundleWritten: true, Commits: > 0 } || !StallDetector.Continuable(session.Reason) || best is null
             || continuation >= settings.Preset.MaxContinuations || session.Commits <= seeded)
             return false;
         var (tokens, usd) = Remaining(total);

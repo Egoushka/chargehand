@@ -48,6 +48,8 @@ public sealed partial class TaskRunner
     private async Task<(bool Partial, (string RunId, string OutDirectory) Run, HandoverOutcome? Handed)> HandOverTaskAsync(ResolvedTask task, TaskRun run, CancellationToken ct)
     {
         var (session, best) = (run.Session, run.Best);
+        if (Bare)
+            return await HandOverBareAsync(task, run, ct);
         var finished = session.Status == SessionStatus.Completed && run.ReportJson is not null && DrivenReport.Parse(run.ReportJson) is not null;
         var partial = !finished && best is not null && (Salvageable(session) || session.Status == SessionStatus.NeedsInput || best.RunId != run.RunId);
         var handoverRun = partial ? (best!.RunId, best.OutDirectory) : (run.RunId, run.OutDirectory);
@@ -62,6 +64,17 @@ public sealed partial class TaskRunner
         return (partial, handoverRun, handed);
     }
 
+    /// <summary>The bare arm's end (ADR 0080): a session that finished with commits has its branch pushed; any other end leaves nothing, with no partial draft and no second session.</summary>
+    private async Task<(bool Partial, (string RunId, string OutDirectory) Run, HandoverOutcome? Handed)> HandOverBareAsync(ResolvedTask task, TaskRun run, CancellationToken ct)
+    {
+        var session = run.Session;
+        var handoverRun = (run.RunId, run.OutDirectory);
+        if (session is not { Status: SessionStatus.Completed, BundleWritten: true, Commits: > 0 })
+            return (false, handoverRun, null);
+        var handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"Task: {task.Id}", partial: false, run.Stack, session, ct, bare: true);
+        return (false, handoverRun, handed);
+    }
+
     /// <summary>The task's own <c>result/v1</c>, built, checked and signed, and its start and run records in the run log.</summary>
     private async Task<ResultContract> ResultAsync(ResolvedTask task, TaskRun run, bool partial, string handoverRun, HandoverOutcome? handed, CancellationToken ct)
     {
@@ -72,7 +85,7 @@ public sealed partial class TaskRunner
         var children = (await log.ListAsync(new RunListQuery(Since: run.Started, Limit: 200), record)).Where(r => r.ParentRunId is { } parent && run.Runs.Contains(parent)).ToList();
         var result = await results.BuildAsync(new DrivenTaskInput(task.Id, run.RunId, run.TraceId, settings.Model, settings.ClaudeVersion, run.Total, run.ReportJson, handed, children,
             Directory.Exists(scratchClone) ? scratchClone : settings.SourcePath, settings.BaseCommit, settings.Priced,
-            partial ? new KeptWork(run.Branch, run.Best!.RunId, run.Best.Commits, settings.BaseCommit) : null), record);
+            partial ? new KeptWork(run.Branch, run.Best!.RunId, run.Best.Commits, settings.BaseCommit) : null, Bare), record);
         result = result with { Actor = settings.Actor };
         result = results.Sign(result);
         await log.AppendAsync(new StartRecord(run.RunId, run.Started, run.TraceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId, ProcessBoot.Id, settings.Actor), CancellationToken.None);
@@ -240,13 +253,13 @@ public sealed partial class TaskRunner
     private static bool IsStartFailure(Exception e, CancellationToken ct) =>
         e is ChargehandException or HttpRequestException or IOException || (e is TaskCanceledException && !ct.IsCancellationRequested);
 
-    private Task<HandoverOutcome> HandOverAsync(ResolvedTask task, (string RunId, string OutDirectory) run, string branch, string title, string body, bool partial, StackBase? stack, SessionOutcome spent, CancellationToken ct) =>
+    private Task<HandoverOutcome> HandOverAsync(ResolvedTask task, (string RunId, string OutDirectory) run, string branch, string title, string body, bool partial, StackBase? stack, SessionOutcome spent, CancellationToken ct, bool bare = false) =>
         handover.RunAsync(new HandoverInput(run.RunId, run.OutDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, stack?.PullRequestBase ?? settings.BaseBranch,
             title, stack is null ? body : $"{body}\n\n{stack.Note}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote, LocalOnly: settings.LocalOnly,
             Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
             Goal: task.Goal, UpdateReused: !partial && task.From?.Pushed is null, PolicyNote: stack is null && settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null,
             FallbackBaseBranch: stack?.PullRequestBase is null ? null : settings.BaseBranch,
-            Provenance: TaskProvenance.Of(task, run.RunId, spent, settings.Model, settings.ClaudeVersion)), ct);
+            Provenance: TaskProvenance.Of(task, run.RunId, spent, settings.Model, settings.ClaudeVersion), Bare: bare), ct);
 
     /// <summary>How much of a handoff goes into a continuation's prompt, and how much into a partial pull request's body.</summary>
     private const int ProgressInGoal = 8000;

@@ -540,4 +540,69 @@ public sealed class BenchRunnerTests : IDisposable
         Assert.Equal(1, exit);
         Assert.Contains("the profile names no session image for python", Out.ToString());
     }
+
+    // ---- the bare arm (ADR 0080) ----
+
+    [Fact]
+    public async Task The_bare_arm_sends_the_same_goals_as_a_plain_batch_with_no_second_round_and_marks_its_results()
+    {
+        var workspace = new FakeWorkspace();
+        workspace.RemoteBranches.UnionWith(["chargehand/run-a", "chargehand/run-q", "chargehand/run-imp2"]);
+        var set = Set([Repo()], Job("a", size: "M"), Job("q", "question", answers: ["Use Postgres."]), Job("imp", "impossible"), Job("imp2", "impossible"));
+        var server = new FakeServer((_, id) => ([
+            Event(RunEventKind.ContainerStarted, "a", 1),
+            Progress("a", 30, 4000, 11),
+            Event(RunEventKind.TaskFinished, "a", 100) with { Tokens = 4500, Branch = "chargehand/run-a" },
+        ], Batch(id,
+            Row("a", "completed", "chargehand/run-a"),
+            Row("q", "completed", "chargehand/run-q"),
+            Row("imp", "failed", error: "invalid_result", detail: "the agent left no commits"),
+            Row("imp2", "completed", "chargehand/run-imp2"))));
+        var acceptance = new FakeAcceptance(r => Accept(r.Label is "a" or "imp2"));
+
+        var exit = await Runner(workspace, server, acceptance).RunAsync(set, Options(o => o with { Arm = "bare" }), default);
+
+        Assert.Equal(0, exit);
+        var request = Assert.Single(server.Requests);
+        Assert.Equal(("driven", true, "bare", false), (request.Context.Preset, request.Driven!.Bench, request.Driven.Arm, request.Driven.Plan));
+        Assert.Equal(["Goal of a.", "Goal of q.", "Goal of imp.", "Goal of imp2."], request.Driven.Tasks.Select(t => t.Goal));
+        Assert.All(request.Driven.Tasks, t => Assert.Null(t.Answers));
+        Assert.Equal(new RepositoryRef("/bench/repos/lib", Pin), request.Context.Repository);
+
+        var path = Path.Combine(_dir.Path, "out", BenchRunner.ResultsFile);
+        Assert.Contains("\"arm\": \"bare\"", File.ReadAllText(path));
+        var results = BenchResults.Parse(File.ReadAllText(path))!;
+        Assert.Equal("bare", results.Arm);
+        var byId = results.Tasks.ToDictionary(t => t.Id);
+        Assert.Equal((Outcomes.Passed, null as string, false), (byId["a"].Outcome, byId["a"].PrUrl, byId["a"].Answered));
+        Assert.Equal(Outcomes.Failed, byId["q"].Outcome);
+        Assert.Equal(Outcomes.HonestStop, byId["imp"].Outcome);
+        // A commit on an impossible task is read as done, even with the protected files intact.
+        Assert.Equal(Outcomes.FalseDone, byId["imp2"].Outcome);
+        Assert.Contains("bare arm: pass rate 50% (1/2", Out.ToString());
+        Assert.Contains("# Benchmark: set", File.ReadAllText(Path.Combine(_dir.Path, "out", BenchRunner.ReportFile)));
+    }
+
+    [Fact]
+    public async Task The_chargehand_arm_asks_for_no_arm_and_its_results_file_has_no_arm_member()
+    {
+        var workspace = new FakeWorkspace();
+        workspace.RemoteBranches.Add("chargehand/run-a");
+        var server = new FakeServer((_, id) => ([Event(RunEventKind.TaskFinished, "a", 100)], Batch(id, Row("a", "completed", "chargehand/run-a", "https://example.test/pull/1"))));
+
+        await Runner(workspace, server, new FakeAcceptance(_ => Accept(true))).RunAsync(Set([Repo()], Job("a")), Options(), default);
+
+        Assert.Null(Assert.Single(server.Requests).Driven!.Arm);
+        Assert.DoesNotContain("\"arm\"", File.ReadAllText(Path.Combine(_dir.Path, "out", BenchRunner.ResultsFile)));
+    }
+
+    [Fact]
+    public async Task A_bare_dry_run_says_what_the_arm_is()
+    {
+        var exit = await Runner(new FakeWorkspace(), null, null).RunAsync(Set([Repo()], Job("a"), Job("q", "question")), Options(o => o with { Arm = "bare", DryRun = true }), default);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("arm: bare, one plain agent session per task", Out.ToString());
+        Assert.DoesNotContain("plus a second batch for the questions", Out.ToString());
+    }
 }

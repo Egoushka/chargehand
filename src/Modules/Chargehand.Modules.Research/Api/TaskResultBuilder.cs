@@ -31,6 +31,9 @@ public static class TaskResultBuilder
         if (Ended(draft) is { } ended)
             return ended;
 
+        if (input.Bare)
+            return Bare(draft);
+
         var report = input.ReportJson is null ? null : DrivenReport.Parse(input.ReportJson);
         if (report is null)
             return draft.Unfinished(ErrorCode.InvalidResult, "the session finished but printed no usable report (a fenced JSON block with a summary and claims)",
@@ -51,6 +54,17 @@ public static class TaskResultBuilder
         AddHandoverArtifacts(draft.Artifacts, input, handover);
         if (report.TestsCommand is not null)
             draft.Artifacts.Add(Inline("session-tests", "application/json", new SessionTestsArtifact("session", report.TestsCommand, report.TestsExitCode), Json.SessionTestsArtifact));
+        return Handed(contract with { Artifacts = [.. draft.Artifacts] }, handover);
+    }
+
+    /// <summary>The bare arm's result (ADR 0080): the agent prints no report, so there are no claims; the task is done when it left a branch that was pushed. No commits is an
+    /// <see cref="ErrorCode.InvalidResult"/>, the code of a session that finished without the result it owed, which the benchmark reads as a stop on the task's own account.</summary>
+    private static ResultContract Bare(Draft draft)
+    {
+        if (draft.Input.Handover is not { } handover)
+            return draft.Failed(ErrorCode.InvalidResult, "the agent left no commits", "Nothing was pushed.");
+        AddHandoverArtifacts(draft.Artifacts, draft.Input, handover);
+        var contract = draft.Result(ResultStatus.Completed, "The agent left a branch; chargehand ran no tests and opened no pull request.", confidence: CompletedConfidence);
         return Handed(contract with { Artifacts = [.. draft.Artifacts] }, handover);
     }
 

@@ -18,6 +18,7 @@ namespace Chargehand.Modules.Sessions.Api;
 /// <param name="CheckRetries">How many times a failed check is sent back to the session as its next turn before the session ends as <c>checks_failed</c>.</param>
 /// <param name="ReminderMinutes">The goal and criteria are re-sent after this many minutes (<see cref="GoalReminder"/>); null with <paramref name="ReminderTurns"/> null: never.</param>
 /// <param name="ReminderTurns">The goal and criteria are re-sent after this many assistant messages; null: by minutes only.</param>
+/// <param name="Bare">The benchmark's control arm (ADR 0080): the goal goes to Claude Code as it is, with no plugin, skill, system prompt, research or review call, governor, check gate or reminder, and the working tree is committed once when the session ends.</param>
 public sealed record SessionTask(string RunId, string Goal, string Branch, int MaxTurns, int MaxMinutes, int NoProgressSeconds,
     long? MaxTokens = null, string? Model = null, decimal? MaxUsd = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, ModelPrice>? Prices = null,
@@ -26,7 +27,8 @@ public sealed record SessionTask(string RunId, string Goal, string Branch, int M
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<AcceptanceCheck>? Acceptance = null,
     int CheckRetries = SessionChecks.DefaultRetries,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ReminderMinutes = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ReminderTurns = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ReminderTurns = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Bare = false);
 
 /// <summary>How to start Claude Code: the program and arguments that go before its own (a test runs a script as <c>sh script</c>).</summary>
 public sealed record SessionCommand(string File, IReadOnlyList<string> LeadingArgs)
@@ -67,8 +69,10 @@ public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed, Ra
 /// <param name="GovernorLogSha256">The SHA-256 of <c>governor.jsonl</c>; null when no governor ran.</param>
 /// <param name="Checks">The last run of each repository check and acceptance criterion; null when none ran (the session did not finish, or there were none).</param>
 /// <param name="GoalReminders">How many times the goal was queued for the session again (<see cref="GoalReminder"/>).</param>
+/// <param name="Bare">The session ran as the benchmark's bare arm. The host reads it back to refuse an image that predates the arm, which would have run the full session instead.</param>
 public sealed record SessionOutcome(SessionStatus Status, string Reason, int Turns, long InputTokens, long OutputTokens, long CacheReadTokens,
     decimal? CostUsd, int? ExitCode, IReadOnlyList<string> Questions, bool BundleWritten, string? StreamSha256 = null, long CacheWriteTokens = 0, string? SessionId = null,
     string? Model = null, IReadOnlyDictionary<string, TokenCounts>? ModelUsage = null, decimal? UsdEstimate = null, DateTimeOffset? RateLimitResetsAt = null, bool UsdEstimatePartial = false,
     int Commits = 0, string? SnapshotNote = null, IReadOnlyList<GovernorDecision>? Governor = null, string? GovernorLogSha256 = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<CheckResult>? Checks = null, int GoalReminders = 0);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<CheckResult>? Checks = null, int GoalReminders = 0,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Bare = false);

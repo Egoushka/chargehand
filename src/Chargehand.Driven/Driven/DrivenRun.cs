@@ -354,6 +354,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     /// credential, or no model credential.</summary>
     private BatchSetup SetupOf(BatchRunContext c, DrivenSettings settings, BatchOptions options)
     {
+        CheckArm(c.Request.Driven!);
         var s = services ?? throw new ChargehandException(ErrorCode.ContainerUnavailable, "driven sessions are on, but no container engine is set up for them", "Check driven.runner in the profile, or install Docker.");
         var claude = profile.ClaudeCode ?? throw new ChargehandException(ErrorCode.InvalidRequest, "driven sessions need a claude_code block in the profile", "Add claude_code with an api_key_secret or an oauth_token_secret.");
         var image = settings.Images is { Count: > 0 } images ? images[0] : throw new ChargehandException(ErrorCode.InvalidRequest, "driven.images is empty", "List the session image by digest in driven.images.");
@@ -371,6 +372,17 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             ?? throw new ChargehandException(ErrorCode.CredentialUnavailable, "claude_code names no credential", "Set api_key_secret or oauth_token_secret.");
         var modelEnvironment = new Dictionary<string, string> { [priced ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN"] = Resolve(s, credential) };
         return new BatchSetup(s, settings, claude, image, drivenPreset, kind.Model, own, priced, limits, push, modelEnvironment, SitesOf(s));
+    }
+
+    /// <summary>The bare arm pushes a branch nobody has tested, so it is for the benchmark only (ADR 0080).</summary>
+    public static void CheckArm(RequestDriven driven)
+    {
+        if (driven.Arm is null or RequestDriven.ChargehandArm)
+            return;
+        if (driven.Arm != RequestDriven.BareArm)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.arm '{driven.Arm}' is not an arm", "Use chargehand or bare.");
+        if (driven.Bench != true)
+            throw new ChargehandException(ErrorCode.InvalidRequest, "driven.arm bare is a benchmark arm and needs driven.bench", "Set bench to true, or leave arm out.");
     }
 
     /// <summary>The request's preset with the profile's limits over its driven block, and its answer kind.</summary>
