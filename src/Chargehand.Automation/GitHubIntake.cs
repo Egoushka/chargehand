@@ -48,6 +48,11 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
 
     private static void Informed(string message) => Console.Out.WriteLine($"chargehand: {message}");
 
+    private static readonly TimeSpan PollHeartbeat = TimeSpan.FromHours(1);
+
+    private (int Repositories, int Running)? _polled;
+    private DateTimeOffset _polledAt;
+
     private enum Outcome { Started, Settled, Deferred, Skipped }
 
     private IReadOnlyDictionary<string, WatchedRepository> _watched = Listed(settings);
@@ -86,6 +91,16 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         }
     }
 
+    /// <summary>The poll line says something only when a count changed, or as a heartbeat once an hour: every poll's line was 52 of 90 server log lines (CHARGEHAND-316).</summary>
+    private void LogPoll(int repositories, int running)
+    {
+        var now = _time.GetUtcNow();
+        if (_polled == (repositories, running) && now - _polledAt < PollHeartbeat)
+            return;
+        (_polled, _polledAt) = ((repositories, running), now);
+        _info($"intake: poll: {repositories.ToString(CultureInfo.InvariantCulture)} repositories, {running.ToString(CultureInfo.InvariantCulture)} running");
+    }
+
     /// <summary>One pass: report the batches that ended, then read each watched repository. A repository GitHub will not answer for is skipped until the next pass.</summary>
     public async Task PollAsync(IBatchStarter starter, CancellationToken ct)
     {
@@ -93,7 +108,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         await ReportEndedAsync(ct);
         await _reviews.ReportEndedAsync(ct);
         _watched = await WatchAsync(ct);
-        _info($"intake: poll: {_watched.Keys.Count(Sources.IsOn).ToString(CultureInfo.InvariantCulture)} repositories, {state.Tasks.Count(t => t.Phase == IntakePhase.Running).ToString(CultureInfo.InvariantCulture)} running");
+        LogPoll(_watched.Keys.Count(Sources.IsOn), state.Tasks.Count(t => t.Phase == IntakePhase.Running));
         foreach (var (name, watched) in _watched)
         {
             if (!Sources.IsOn(name))

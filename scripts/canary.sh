@@ -1,7 +1,8 @@
 #!/bin/sh
-# Canary: GET /v1/health?deep=1 on a chargehand server, which calls the intake model once. Exits 1 when the server is
-# down or the model does not answer, and posts the reason to an ntfy topic when CHARGEHAND_CANARY_NTFY is set. The
-# process can be up while every run fails (a retired gateway, a refused model id), so liveness alone does not catch it.
+# Canary: GET /v1/health?deep=1 on a chargehand server, which calls the intake model once and reads the runners, GitHub App,
+# push token and Plane key the profile configures. Exits 1 when the server is down or any of them fails, and posts the
+# reason to an ntfy topic when CHARGEHAND_CANARY_NTFY is set. The process can be up while every run fails (a retired
+# gateway, a refused model id, a revoked token), so liveness alone does not catch it.
 #
 # usage: CHARGEHAND_URL=http://127.0.0.1:4300 CHARGEHAND_API_KEY=<owner key> [CHARGEHAND_CANARY_NTFY=<topic url>] scripts/canary.sh [name]
 set -u

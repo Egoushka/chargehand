@@ -560,6 +560,25 @@ Chargehand.Automation.PlaneIntake? PlaneIntake()
         new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state, sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "plane-sources.json")), clones: clones);
 }
 
+// What /v1/health?deep=1 asks besides the model (CHARGEHAND-316): only what the profile configures, each a read. Secrets are read when the probe runs, so an item that is not in the store yet fails that check and not the server's start.
+List<DependencyProbe> HealthProbes()
+{
+    List<DependencyProbe> probes = [];
+    if (profile.Driven is { Enabled: true } driven)
+    {
+        var doctor = new Chargehand.Onboarding.SystemDoctorEnvironment();
+        foreach (var runner in driven.ResolvedRunners())
+            probes.Add(DependencyHealth.Runner(driven.NamesRunners ? $"runner {runner.Name}" : "runner", ct => doctor.ProbeRunnerAsync(profile, new DrivenRunner(runner.Url, runner.ApiKeySecret), ct)));
+        if (driven.Integrator is { AppId: not null, PrivateKeySecret: not null } && AppTokens(driven) is { } tokens)
+            probes.Add(DependencyHealth.GitHubApp(tokens));
+        if (driven.PushSecret is { } push && driven.Forge is not { Kind: "gitlab" })
+            probes.Add(DependencyHealth.PushToken(GitHubApiRoot(driven), () => profile.Secret(push)));
+    }
+    if (profile.Automation?.Plane is { Url: { } url, ApiKeySecret: { } apiKeySecret, Workspace: { } workspace, Projects: { Count: > 0 } projects })
+        probes.Add(DependencyHealth.Plane(new Uri(url.TrimEnd('/') + "/"), workspace, projects.Keys.First(), () => profile.Secret(apiKeySecret)));
+    return probes;
+}
+
 // Questions and partial stops sent to a phone (ADR 0077): null unless the profile has automation.notify. Its state sits next to the run log; secrets are read at each call.
 Chargehand.Automation.PhoneAnswers? PhoneAnswers() => profile.Automation?.Notify is { } notify
     ? Chargehand.Automation.PhoneAnswers.Create(notify, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "notify", "state.json"), profile.Secret, new Chargehand.Automation.HttpScheduleNotifier())
@@ -603,7 +622,7 @@ async Task<int> Serve()
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
         PlaneStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "plane.json"),
-        InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn),
+        InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn, Probes: HealthProbes()),
         orchestrator, runLog, drivenRun, GitHubIntake(), Schedules(drivenRun), PlaneIntake(), PhoneAnswers());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");
