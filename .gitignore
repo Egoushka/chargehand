@@ -30,3 +30,6 @@ profiles/local.*
 
 .claude/worktrees/
 .claude/settings.local.json
+
+# Plugin eval output (claude plugin eval)
+/plugins/chargehand/evals/results/
