@@ -193,7 +193,7 @@ public class McpTests
         var call = await client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value))
             .AsTask().WaitAsync(TimeSpan.FromSeconds(30));
 
-        // Not result/v1 yet: an ordinary answer whose structuredContent is run-status/v1, valid against the declared outputSchema (ADR 0078).
+        // Not result/v1 yet: an ordinary answer whose structuredContent is run-status/v1, valid against the declared outputSchema (ADR 0079).
         Assert.NotEqual(true, call.IsError);
         Assert.Empty(ContractSchemas.ValidateMcpOutput(call.StructuredContent!.Value));
         var json = ((TextContentBlock)call.Content[^1]).Text;

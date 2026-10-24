@@ -12,7 +12,7 @@ using ModelContextProtocol.Server;
 namespace Chargehand.Server;
 
 /// <summary>
-/// MCP tool "orchestrate": inputSchema request/v1, outputSchema result/v1 or run-status/v1, the result in structuredContent (ADR 0014, 0078).
+/// MCP tool "orchestrate": inputSchema request/v1, outputSchema result/v1 or run-status/v1, the result in structuredContent (ADR 0014, 0079).
 /// A client that opts in to the tasks extension gets long runs as tasks. When intake answers an interactive request
 /// with questions (ask), the tool asks the client and resends the request with the answers: inside a task through
 /// elicitation, which the task reports as input_required; outside one through an input_required result that the
@@ -190,7 +190,7 @@ public static class OrchestrateTool
 
     private static string Where(RunHandle run, string state) => Where(run.Id, state);
 
-    /// <summary>An unfinished run is a normal answer, not an error: run-status/v1 as structuredContent (ADR 0078).</summary>
+    /// <summary>An unfinished run is a normal answer, not an error: run-status/v1 as structuredContent (ADR 0079).</summary>
     internal static CallToolResult Running(RunHandle run) => Unfinished(run.Latest);
 
     /// <summary>run-status/v1 of a run that has no result yet, after the text naming how to read it.</summary>

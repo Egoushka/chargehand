@@ -1,4 +1,4 @@
-# 0078. An unfinished run is a normal MCP answer, not a tool error
+# 0079. An unfinished run is a normal MCP answer, not a tool error
 
 - Status: accepted
 - Date: 2026-10-24

@@ -29,7 +29,7 @@ public static class ContractSchemas
     }
 
     /// <summary>
-    /// The outputSchema of the MCP tools that start or read a run: result/v1 once it finished, run-status/v1 while it goes on (ADR 0078).
+    /// The outputSchema of the MCP tools that start or read a run: result/v1 once it finished, run-status/v1 while it goes on (ADR 0079).
     /// Each member keeps its own $id, so the result schema's local $ref still resolves.
     /// </summary>
     public static string McpOutputText() =>

@@ -1,6 +1,6 @@
 # 0029. The MCP run id before a client timeout
 
-- Status: accepted; the wait without the header changed in ADR 0065, and the tool error in ADR 0078
+- Status: accepted; the wait without the header changed in ADR 0065, and the tool error in ADR 0079
 - Date: 2026-09-28
 
 ## Context
