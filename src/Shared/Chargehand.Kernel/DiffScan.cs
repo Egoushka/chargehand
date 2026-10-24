@@ -27,12 +27,29 @@ public static partial class DiffScan
     {
         var findings = new HashSet<ScanFinding>();
         string? current = null;
+        // Only the lines between "diff --git" and the first "@@" are headers; in a hunk "+++ x" is the added line "++ x".
+        bool inHunk = false, afterOldHeader = false;
         foreach (var line in diff.Split('\n'))
         {
-            if (line.StartsWith("+++ ", StringComparison.Ordinal))
+            if (line.StartsWith("diff --git ", StringComparison.Ordinal))
             {
-                current = line.StartsWith("+++ b/", StringComparison.Ordinal) ? line[6..] : null;
+                (current, inHunk, afterOldHeader) = (null, false, false);
                 continue;
+            }
+            if (!inHunk)
+            {
+                if (line.StartsWith("--- ", StringComparison.Ordinal))
+                {
+                    afterOldHeader = true;
+                    continue;
+                }
+                if (afterOldHeader && line.StartsWith("+++ ", StringComparison.Ordinal))
+                {
+                    (current, afterOldHeader) = (line.StartsWith("+++ b/", StringComparison.Ordinal) ? line[6..] : null, false);
+                    continue;
+                }
+                afterOldHeader = false;
+                inHunk = line.StartsWith("@@", StringComparison.Ordinal);
             }
             if (line.Length == 0 || line[0] != '+')
                 continue;
