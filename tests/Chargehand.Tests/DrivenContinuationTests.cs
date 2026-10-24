@@ -126,6 +126,48 @@ public class DrivenContinuationTests
         Assert.Equal(JsonValueKind.Null, row.GetProperty("pr_url").ValueKind);
     }
 
+    private sealed class FakePlanner(PlanProposal proposal) : IBatchPlanner
+    {
+        public PlanInput? Last;
+
+        public Task<PlanProposal> ProposeAsync(PlanInput input, CancellationToken ct)
+        {
+            Last = input;
+            return Task.FromResult(proposal);
+        }
+    }
+
+    private static List<JsonElement> Rows(ResultContract result) =>
+        [.. JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "driven-batch").Content!).RootElement.GetProperty("tasks").EnumerateArray().Select(e => e.Clone())];
+
+    [Fact]
+    public async Task A_stall_with_no_commits_is_replanned_into_a_chain_instead_of_continued()
+    {
+        var planner = new FakePlanner(new PlanProposal(
+            [new ProposedTask("t1", null, [new ProposedPart("first part", "M"), new ProposedPart("second part", "M")], null)], ["read goal of t1"], null));
+        var stacker = new DrivenDependsOnTests.FakeStacker();
+        using var rig = new DrivenRunTests.Rig(
+            outcomes: (_, goal) => goal.Contains("This is part", StringComparison.Ordinal) ? Done() : Stopped(SessionStatus.Stalled, "turn_limit", commits: 0),
+            planner: planner, stacker: stacker);
+        List<RunStatus> events = [];
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default, events.Add);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal(3, rig.Engine.Started.Count);                               // t1 stalls with no commits, then the chain's two links run in order
+        var rows = Rows(result);
+        Assert.Equal(["t1-replan-1", "t1"], rows.Select(r => r.GetProperty("id").GetString()));
+        Assert.All(rows, r => Assert.Equal("completed", r.GetProperty("status").GetString()));
+        Assert.NotEqual(JsonValueKind.Null, rows[1].GetProperty("pr_url").ValueKind);
+        Assert.DoesNotContain(rig.Volumes.Tasks, t => IsContinuation(t.Goal));    // never a plain continuation of the stalled session
+        Assert.Contains(rig.Volumes.Tasks, t => t.Goal.StartsWith("first part", StringComparison.Ordinal) && t.Goal.Contains("part 1 of 2", StringComparison.Ordinal));
+        Assert.Contains(rig.Volumes.Tasks, t => t.Goal.StartsWith("second part", StringComparison.Ordinal) && t.Goal.Contains("part 2 of 2", StringComparison.Ordinal)
+            && t.Goal.Contains("is already on your branch", StringComparison.Ordinal));
+        Assert.Single(stacker.Requests);                                         // the chain's second link started from the first link's branch
+        Assert.True(planner.Last!.Replan);
+        Assert.Equal("t1", Assert.Single(planner.Last.Tasks).Id);
+        Assert.Contains(events, e => e.Event == RunEventKind.TaskFinished && e.TaskId == "t1" && e.Detail!.Contains("stalled with no commits, re-planning into smaller tasks", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData(SessionStatus.Stalled, "no_progress")]
     [InlineData(SessionStatus.Stalled, "repeating")]
