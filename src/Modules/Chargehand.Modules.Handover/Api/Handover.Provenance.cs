@@ -8,8 +8,9 @@ namespace Chargehand.Modules.Handover.Api;
 public sealed partial class Handover
 {
     /// <summary>
-    /// Rewrites the messages of the commits past the base that have no <c>Chargehand-Run</c> trailer yet, with <c>git commit-tree</c>: same tree, same author and committer (name, address, date),
-    /// parents mapped, so the rewrite is the same commits on every call and a repeated push finds its commit on the remote. A commit that has the trailer (an earlier session's, fetched back
+    /// Rewrites the messages of the commits past the base that have no <c>Chargehand-Run</c> trailer yet, with <c>git commit-tree</c>: same tree, parents mapped, author and committer name/email
+    /// set to <see cref="HandoverInput.CommitAuthorName"/>/<see cref="HandoverInput.CommitAuthorEmail"/> (CHARGEHAND-426: the configured GitHub App's bot identity, or the chargehand default), dates
+    /// kept, so the rewrite is the same commits on every call and a repeated push finds its commit on the remote. A commit that has the trailer (an earlier session's, fetched back
     /// from the remote) is kept as it is. The branch moves to the new head; the tests ran on the bundle's trees, which are the same.
     /// </summary>
     private static async Task<HandoverOutcome?> StampAsync(HandoverRun run, CancellationToken ct)
@@ -23,7 +24,7 @@ public sealed partial class Handover
         Dictionary<string, string> moved = [];
         foreach (var commit in list.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            var stamped = await StampOneAsync(scratch, env, commit.Trim(), moved, provenance, ct);
+            var stamped = await StampOneAsync(scratch, env, commit.Trim(), moved, provenance, input, ct);
             if (stamped is null)
                 return run.Refuse("chargehand could not add the run's trailers to a commit; nothing was pushed", ErrorCode.SessionFailed, run.Verification, run.Changed, commit: run.Commit);
             moved[commit.Trim()] = stamped;
@@ -39,8 +40,8 @@ public sealed partial class Handover
         return null;
     }
 
-    /// <summary>The commit with the trailers; <paramref name="commit"/> itself when it needs none and none of its parents moved; null when git failed.</summary>
-    private static async Task<string?> StampOneAsync(string scratch, IReadOnlyDictionary<string, string> env, string commit, Dictionary<string, string> moved, Provenance provenance, CancellationToken ct)
+    /// <summary>The commit with the trailers and the configured author identity; <paramref name="commit"/> itself when it needs none of that and none of its parents moved; null when git failed.</summary>
+    private static async Task<string?> StampOneAsync(string scratch, IReadOnlyDictionary<string, string> env, string commit, Dictionary<string, string> moved, Provenance provenance, HandoverInput input, CancellationToken ct)
     {
         var meta = await GitProcess.RunAsync(scratch, env, ["log", "-1", "--format=%T%x00%P%x00%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI", commit], GitTimeout, ct);
         var body = await GitProcess.RunAsync(scratch, env, ["log", "-1", "--format=%B", commit], GitTimeout, ct);
@@ -48,15 +49,16 @@ public sealed partial class Handover
             return null;
         var parents = parentList.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(p => moved.GetValueOrDefault(p, p)).ToList();
         var message = Provenance.Apply(body.Stdout.TrimEnd('\n'), provenance);
-        if (message == body.Stdout.TrimEnd('\n') + "\n" && parents.SequenceEqual(parentList.Split(' ', StringSplitOptions.RemoveEmptyEntries)))
+        if (message == body.Stdout.TrimEnd('\n') + "\n" && parents.SequenceEqual(parentList.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            && authorName == input.CommitAuthorName && authorEmail == input.CommitAuthorEmail && committerName == input.CommitAuthorName && committerEmail == input.CommitAuthorEmail)
             return commit;
         Dictionary<string, string> identity = new(env, StringComparer.Ordinal)
         {
-            ["GIT_AUTHOR_NAME"] = authorName,
-            ["GIT_AUTHOR_EMAIL"] = authorEmail,
+            ["GIT_AUTHOR_NAME"] = input.CommitAuthorName,
+            ["GIT_AUTHOR_EMAIL"] = input.CommitAuthorEmail,
             ["GIT_AUTHOR_DATE"] = authorDate,
-            ["GIT_COMMITTER_NAME"] = committerName,
-            ["GIT_COMMITTER_EMAIL"] = committerEmail,
+            ["GIT_COMMITTER_NAME"] = input.CommitAuthorName,
+            ["GIT_COMMITTER_EMAIL"] = input.CommitAuthorEmail,
             ["GIT_COMMITTER_DATE"] = committerDate,
         };
         var made = await GitProcess.RunAsync(scratch, identity, ["commit-tree", tree, .. parents.SelectMany(p => (string[])["-p", p]), "-m", message.TrimEnd('\n')], GitTimeout, ct);

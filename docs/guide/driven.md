@@ -77,13 +77,15 @@ The App needs contents and pull requests write, checks, actions and commit statu
 
 ```json
 { "driven": { "integrator": {
-  "app_id": 123456, "private_key_secret": "chargehand-app-key",
+  "app_id": 123456, "private_key_secret": "chargehand-app-key", "app_slug": "chargehand-app",
   "repositories": { "owner/library": "merge", "owner/service": "ask", "some-organisation/app": "merge" },
   "always_ask": ["owner/infrastructure"],
   "ci_fix": { "max_attempts": 3, "max_turns": 20, "max_minutes": 15, "wait_minutes": 20 } } } }
 ```
 
 `installation_id` is optional and the profile usually leaves it out. Set, it pins that installation for the account it belongs to (chargehand reads the account's login once from `GET /app/installations/{id}`), so that owner's repositories skip the lookup; it reaches no other owner, and an id GitHub does not know is ignored. Before this key was optional a profile had one `installation_id` for every repository, which is why a repository on a second account or organisation was refused with `Resource not accessible by integration`.
+
+`app_slug` is the App's slug, its login without `[bot]` (GitHub shows it on the App's settings page): required alongside `app_id`. chargehand commits its driven work as this bot, `<app_slug>[bot] <<app_slug>[bot]@users.noreply.github.com>`, instead of the default `chargehand <chargehand@localhost>` — some repositories' secrets/noreply CI check rejects the `@localhost` address. With no `driven.integrator` block at all, chargehand keeps committing as `chargehand <chargehand@localhost>`.
 
 Not run against GitHub yet: the calls are checked against a fake host and recorded request shapes. The open points (rulesets and `isRequired`, `update-branch` on a draft, the job-log id) are listed in the ADR, and each fails without merging.
 

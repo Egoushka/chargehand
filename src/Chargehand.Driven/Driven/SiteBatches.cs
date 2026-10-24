@@ -31,7 +31,7 @@ internal sealed record BatchSetup(DrivenServices Services, DrivenSettings Settin
 
 /// <summary>The batch's checkout, and what acts on its remote: a forge other than GitHub (one token both opens the pull request and integrates it), and the integrator (ADR 0046).</summary>
 /// <param name="Push">What pushes the branches: <c>driven.push_secret</c>, or the GitHub App's token for the remote.</param>
-internal sealed record BatchCheckout(DrivenCheckout Checkout, IForge? Forge, Integrator? Integrator, PushCredential Push);
+internal sealed record BatchCheckout(DrivenCheckout Checkout, IForge? Forge, Integrator? Integrator, PushCredential Push, (string Name, string Email) CommitIdentity);
 
 /// <summary>What one runner needs of the batch's settings (ADR 0058): where its sessions reach the server, the model gateway and the collector (the profile's <c>network</c>, with the runner's
 /// <c>forwards</c> over it), the forwards its egress container carries, the hosts it allows, and the run-token exchange.</summary>
@@ -219,7 +219,8 @@ internal sealed class SiteBatches
             Path.Combine(profile.WorkerRoot, ".driven"), _setup.Model, _setup.Claude.Version,
             Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", route.Model?.BaseUrl, route.Forward is not null || route.Model?.Forwarded == true || route.Otlp is not null, route.Otlp,
             profile.Prices, profile.Telemetry?.UsageOnSpans == true, route.Exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), _checkout.Integrator, _shared, _c.Actor,
-            RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge), profile.DeliveryPolicy.Forced(_c.Request.Context.Repository!.Path));
+            RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge), profile.DeliveryPolicy.Forced(_c.Request.Context.Repository!.Path),
+            CommitAuthorName: _checkout.CommitIdentity.Name, CommitAuthorEmail: _checkout.CommitIdentity.Email);
     }
 
     /// <summary>A runner's events: a started session is noted for the router, and when the profile names its runners each event says which one.</summary>

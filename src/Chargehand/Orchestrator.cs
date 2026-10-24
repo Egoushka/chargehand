@@ -9,6 +9,7 @@ using Chargehand.Contracts;
 using Chargehand.Enhancement;
 using Chargehand.Intake;
 using Chargehand.Kernel;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.Research.Api;
@@ -357,7 +358,8 @@ public sealed class Orchestrator(
             if (workspace is not null && nodeResult.Contract.Status == ResultStatus.Completed)
             {
                 var provenance = ChangeRun.ProvenanceOf(runId, $"opencode {opencodeVersion}", modelLabel, nodeResult.Calls, prices, lastCheck, attempts);
-                var branch = await workspace.CommitAsync(Provenance.Apply(ChangeRun.CommitMessage(nodeResult.Contract.Summary), provenance), token);
+                var (authorName, authorEmail) = DrivenIntegrator.CommitIdentity(profile.Driven?.Integrator);
+                var branch = await workspace.CommitAsync(Provenance.Apply(ChangeRun.CommitMessage(nodeResult.Contract.Summary), provenance), token, authorName, authorEmail);
                 string? landFailure = null;
                 if (local && branch is not null)
                     (branch, landFailure) = await LandAsync(workspace, branch, request.Context.Repository!.Path, token);

@@ -80,6 +80,27 @@ public class RunWorkspaceTests
     }
 
     [Fact]
+    public async Task Commit_defaults_to_the_chargehand_identity()
+    {
+        var (root, _, ws) = await Make();
+        using var _r = root;
+        File.WriteAllText(Path.Combine(ws.Directory, "a.txt"), "a\n");
+        Assert.NotNull(await ws.CommitAsync("feat: a", default));
+        Assert.Equal("chargehand <chargehand@localhost>", Git(ws.Directory, "log", "-1", "--format=%an <%ae>"));
+    }
+
+    [Fact]
+    public async Task Commit_takes_the_identity_it_is_given()
+    {
+        var (root, _, ws) = await Make();
+        using var _r = root;
+        File.WriteAllText(Path.Combine(ws.Directory, "a.txt"), "a\n");
+        var (name, email) = Chargehand.Modules.Handover.Api.DrivenIntegrator.CommitIdentity(new Chargehand.Modules.Handover.Api.DrivenIntegrator(AppSlug: "egoushka-release"));
+        Assert.NotNull(await ws.CommitAsync("feat: a", default, name, email));
+        Assert.Equal("egoushka-release[bot] <egoushka-release[bot]@users.noreply.github.com>", Git(ws.Directory, "log", "-1", "--format=%an <%ae>"));
+    }
+
+    [Fact]
     public async Task Commit_of_an_unchanged_tree_is_null()
     {
         var (root, _, ws) = await Make();

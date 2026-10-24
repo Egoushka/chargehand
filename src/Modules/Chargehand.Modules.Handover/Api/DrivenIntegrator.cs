@@ -14,9 +14,19 @@ namespace Chargehand.Modules.Handover.Api;
 /// <param name="Repositories">Per <c>owner/repo</c> (<c>group/subgroup/project</c> on GitLab): <c>merge</c> (ready, then merged through the required checks) or <c>ask</c> (ready, a comment, no merge). A repository not listed is off.</param>
 /// <param name="AlwaysAsk">Repositories that are <c>ask</c> whatever else says: this list wins, even over <c>merge</c> and over a repository not listed.</param>
 /// <param name="CiFix">The short session that fixes a failing required check; null: its defaults.</param>
+/// <param name="AppSlug">The App's slug, its login without <c>[bot]</c> (GitHub shows it on the App's settings page). Required alongside <paramref name="AppId"/>: it is what chargehand commits as
+/// (<see cref="CommitIdentity"/>), since GitHub never hands the slug back from <c>app_id</c> alone.</param>
 public sealed partial record DrivenIntegrator(long? AppId = null, long? InstallationId = null, string? PrivateKeySecret = null, IReadOnlyDictionary<string, string>? Repositories = null,
-    IReadOnlyList<string>? AlwaysAsk = null, DrivenCiFix? CiFix = null) : IValidatableObject
+    IReadOnlyList<string>? AlwaysAsk = null, DrivenCiFix? CiFix = null, string? AppSlug = null) : IValidatableObject
 {
+    /// <summary>The default identity, when no GitHub App is configured.</summary>
+    public static readonly (string Name, string Email) DefaultIdentity = ("chargehand", "chargehand@localhost");
+
+    /// <summary>What chargehand commits as (the secrets/noreply CI check some repositories run rejects <see cref="DefaultIdentity"/>'s <c>@localhost</c> address): the App's bot,
+    /// <c>&lt;slug&gt;[bot] &lt;&lt;slug&gt;[bot]@users.noreply.github.com&gt;</c>, once an App is configured (<see cref="AppSlug"/> is then required); <see cref="DefaultIdentity"/> otherwise.</summary>
+    public static (string Name, string Email) CommitIdentity(DrivenIntegrator? integrator) =>
+        integrator?.AppSlug is { } slug ? ($"{slug}[bot]", $"{slug}[bot]@users.noreply.github.com") : DefaultIdentity;
+
     /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
     public void Validate() => SettingsValidation.ThrowIfFailed(new DrivenIntegratorValidator().Validate(null, this), "driven.integrator",
         "Fix driven.integrator in the profile; docs/guide/driven.md lists the keys.");
@@ -26,11 +36,13 @@ public sealed partial record DrivenIntegrator(long? AppId = null, long? Installa
 
     private IEnumerable<string> AppProblems()
     {
-        if (AppId is null && InstallationId is null && PrivateKeySecret is null)
+        if (AppId is null && InstallationId is null && PrivateKeySecret is null && AppSlug is null)
             yield break;
         if (AppId is null or < 1) yield return "app_id must be the App's numeric id";
         if (InstallationId is < 1) yield return "installation_id must be the installation's numeric id";
         if (string.IsNullOrWhiteSpace(PrivateKeySecret)) yield return "private_key_secret must name a secret item";
+        if (string.IsNullOrWhiteSpace(AppSlug)) yield return "app_slug must be the App's slug (its login, without [bot])";
+        else if (!Slug().IsMatch(AppSlug)) yield return "app_slug must be letters, digits and hyphens, as GitHub shows it";
     }
 
     private IEnumerable<string> RepositoryProblems()
@@ -46,6 +58,9 @@ public sealed partial record DrivenIntegrator(long? AppId = null, long? Installa
 
     [GeneratedRegex(@"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$")]
     private static partial Regex RepositoryName();
+
+    [GeneratedRegex(@"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")]
+    private static partial Regex Slug();
 }
 
 /// <summary><c>driven.integrator</c>'s validator, source-generated (ADR 0060).</summary>
