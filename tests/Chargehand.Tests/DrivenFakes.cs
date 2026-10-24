@@ -124,8 +124,11 @@ internal static class DrivenFakes
                 _inspections[id] = _inspections.GetValueOrDefault(id) + 1;
                 running = (HoldRunning || _inspections[id] <= RunFor) && !_stopped.Contains(id);
             }
-            return Task.FromResult(running ? new ContainerState(ContainerStatus.Running, null, false, Peak(id)) : new ContainerState(ContainerStatus.Exited, 0, false, Peak(id)));
+            return Task.FromResult(running ? new ContainerState(ContainerStatus.Running, null, false, Peak(id)) : new ContainerState(ContainerStatus.Exited, ExitCodeOf?.Invoke(id) ?? 0, false, Peak(id)));
         }
+
+        /// <summary>The exit code a container ends with, by its id; null: 0.</summary>
+        public Func<string, int>? ExitCodeOf { get; set; }
 
         public Task RemoveAsync(string id, CancellationToken ct)
         {
@@ -145,7 +148,10 @@ internal static class DrivenFakes
 
         /// <summary>The engine fails when listed.</summary>
         public Exception? OnList { get; set; }
-        public Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct) => Task.FromResult("");
+        /// <summary>The end of a container's log, by its id; null: empty.</summary>
+        public Func<string, string>? LogsOf { get; set; }
+
+        public Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct) => Task.FromResult(LogsOf?.Invoke(id) ?? "");
         public Task CreateVolumeAsync(string name, string runId, CancellationToken ct) { Record($"volume {name}"); return Task.CompletedTask; }
         public Task RemoveVolumeAsync(string name, CancellationToken ct) { Record($"volume-rm {name}"); return Task.CompletedTask; }
         public Task CreateNetworkAsync(string name, string batchId, CancellationToken ct) { Record($"network {name}"); return Task.CompletedTask; }

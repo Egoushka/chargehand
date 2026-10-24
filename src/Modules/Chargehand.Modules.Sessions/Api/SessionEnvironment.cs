@@ -14,8 +14,9 @@ namespace Chargehand.Modules.Sessions.Api;
 /// <param name="VerifySource"><c>request</c> (the caller named it) or <c>detected</c>.</param>
 /// <param name="Caches">Ecosystems whose cache is a shared volume mounted in this container (see <see cref="CacheVolumes"/>).</param>
 /// <param name="Services">Test services of the batch, reachable by name.</param>
+/// <param name="Tools">The lines <c>mise ls --current</c> printed after the install helper (ADR 0078); null: no helper ran, and the image's own tools are the toolchain.</param>
 public sealed record SessionEnvironment(IReadOnlyList<string> Ecosystems, IReadOnlyList<string>? Verify = null, string? VerifySource = null, IReadOnlyList<string>? Caches = null,
-    IReadOnlyList<EnvironmentService>? Services = null);
+    IReadOnlyList<EnvironmentService>? Services = null, IReadOnlyList<string>? Tools = null);
 
 /// <param name="Address"><c>name:port</c> on the batch network.</param>
 /// <param name="Note">The profile's one line on how to connect.</param>
@@ -136,7 +137,14 @@ public static class EnvironmentNote
             note.Append(CultureInfo.InvariantCulture, $"- After you finish, chargehand runs `{string.Join(' ', verify)}` on your branch in a fresh container ({(environment.VerifySource == "request" ? "the command the task named" : "detected from the repository")}). Run the same command yourself.\n");
         else
             note.Append("- chargehand found no test command for this repository, so it will not push the branch unless the tests run; find the command in the repository's own files.\n");
-        if (environment.Caches is { Count: > 0 } caches)
+        if (environment.Tools is { } tools)
+        {
+            note.Append("- Toolchains installed by mise from the versions this repository pins (`mise ls --current`; they are on PATH, and nothing else can be installed):\n");
+            foreach (var tool in tools)
+                note.Append("  ").Append(tool).Append('\n');
+            note.Append("- Package caches (~/.nuget, ~/.npm, ~/.cache/pip, ~/.gradle, ~/.m2, ~/go, ~/.cargo) are kept per repository in /home/session, so a later task of this repository starts warm.\n");
+        }
+        else if (environment.Caches is { Count: > 0 } caches)
             note.Append("- Package caches are warm and shared by this repository's tasks: ")
                 .AppendJoin(", ", caches.Where(CacheVolumes.Ecosystems.ContainsKey).Select(c => $"{c} in {CacheVolumes.MountRoot}/{c}"))
                 .Append(". They are already configured through the package managers' environment variables; leave them set.\n");

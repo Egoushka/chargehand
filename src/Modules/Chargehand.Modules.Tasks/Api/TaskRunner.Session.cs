@@ -191,17 +191,34 @@ public sealed partial class TaskRunner
         await workspace.PrepareWorkspaceAsync(new WorkspaceSpec(runId, settings.Image, settings.SourcePath, RunnerNames.Work(runId), branch, settings.BaseCommit), ct);
         if (seed is not null)
             await volumes.WriteSeedAsync(runId, seed, ct);
+        var tools = settings.Mise is { } mise && settings.Shared?.Home is { } home ? await InstallToolchainAsync(task, runId, home, mise, ct) : null;
         await volumes.WriteTaskAsync(runId, new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices,
-            Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd, budget), Environment: settings.Shared?.ForSession(), Acceptance: task.Acceptance,
+            Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd, budget), Environment: settings.Shared?.ForSession(tools), Acceptance: task.Acceptance,
             CheckRetries: preset.CheckRetries, ReminderMinutes: preset.GoalReminderMinutes > 0 ? preset.GoalReminderMinutes : null, ReminderTurns: preset.GoalReminderTurns), ct);
 
         var env = ModelEnvironment(runId, maxMinutes, left, sessionStarted);
         AddServiceEnvironment(env, task, runId, maxMinutes, left, sessionStarted, span, traceId);
         var container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
-            preset.MemoryMb, preset.Cpus, preset.Pids, ["session"], Caches: settings.Shared?.Caches is { Count: > 0 } caches ? caches : null), ct);
+            preset.MemoryMb, preset.Cpus, preset.Pids, ["session"], Caches: settings.Shared?.Caches is { Count: > 0 } caches ? caches : null, Home: settings.Shared?.Home), ct);
         await RecordAsync(task.Id, new TaskContainerStarted(container));
         Publish(task.Id, RunEventKind.ContainerStarted, detail, s => s with { Branch = branch });
         return container;
+    }
+
+    /// <summary>ADR 0078: installs what the checkout pins into the repository's home volume, in a helper with no model and a network that reaches the toolchain hosts only. A session does not start on a
+    /// toolchain that failed to install: it would spend the task's budget finding out.</summary>
+    /// <returns>The tools in effect, as <c>mise ls --current</c> lists them.</returns>
+    private async Task<IReadOnlyList<string>> InstallToolchainAsync(ResolvedTask task, string runId, string home, MiseSetup mise, CancellationToken ct)
+    {
+        var preset = settings.Preset;
+        var result = await new MiseInstaller(engine).RunAsync(new MiseInstall(runId, settings.Image, mise.EgressImage, RunnerNames.Work(runId), RunnerNames.Out(runId), home,
+            preset.MemoryMb, preset.Cpus, preset.Pids, mise.Outside), ct);
+        if (!result.Succeeded)
+            throw new ChargehandException(ErrorCode.ContainerUnavailable,
+                $"the toolchain install {(result.TimedOut ? "timed out" : $"exited {result.ExitCode.ToString(CultureInfo.InvariantCulture)}")}: {result.LogTail.Trim()}",
+                "Pin the toolchain in the repository (mise.toml, .tool-versions or a version file mise reads) or fix the version it names; the session was not started.");
+        Publish(task.Id, RunEventKind.SessionProgress, MiseInstaller.Describe(result));
+        return result.Tools;
     }
 
     /// <summary>The proxy, the run id and the model credential or run token.</summary>

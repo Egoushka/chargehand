@@ -203,6 +203,10 @@
             "max_memory_pressure": { "type": "number", "exclusiveMinimum": 0, "maximum": 100, "description": "New starts wait while the host's memory pressure (Linux PSI, some avg10 of /proc/pressure/memory, in percent) is above this. A host without PSI skips the rule; 100 turns it off. Default 10." }
           }
         },
+        "environment": {
+          "enum": ["image", "mise"],
+          "description": "ADR 0078. image (the default): the toolchains are the session image's. mise: the first of driven.images is the mise base image; an install helper installs what the repository pins into a per-repository home volume before each session, and driven.services.caches and driven.services.images are ignored."
+        },
         "services": {
           "type": "object",
           "additionalProperties": false,
