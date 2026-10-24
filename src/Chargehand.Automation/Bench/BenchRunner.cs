@@ -11,6 +11,7 @@ namespace Chargehand.Bench;
 /// <param name="CheckPins">In a dry run, ask each upstream whether it serves the pinned commit (needs the network).</param>
 /// <param name="RemoteTemplate">Where the server may push a task's branch, one URL per repository: <c>{name}</c> is the repository's name in the set. A fork you own, or a <c>file://</c> path.</param>
 /// <param name="MaxTokens">Input plus output tokens per batch (one batch per repository, one more for the question tasks); a real run needs this, <paramref name="MaxUsd"/> or both.</param>
+/// <param name="Arm"><c>bare</c>: the control arm (ADR 0079), each task one plain agent session with none of chargehand's features; null or <c>chargehand</c>: the driven session.</param>
 public sealed record BenchOptions(
     string OutDirectory,
     BenchEnvironment Environment,
@@ -21,7 +22,11 @@ public sealed record BenchOptions(
     string? RemoteTemplate = null,
     long? MaxTokens = null,
     decimal? MaxUsd = null,
-    int? MaxParallel = null);
+    int? MaxParallel = null,
+    string? Arm = null)
+{
+    public bool Bare => Arm == BenchResults.BareArm;
+}
 
 /// <param name="ImageFor">The session image for a repository, by digest; null when the profile has none for it.</param>
 /// <param name="Allow">The hosts a session's container may reach: the driven preset's and the profile's.</param>
@@ -97,7 +102,9 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
 
     private async Task PrintPlanAsync(TaskSet set, IReadOnlyList<BenchTask> tasks, List<BenchRepository> repositories, BenchOptions options)
     {
-        await output.WriteLineAsync($"task set {set.Name}: {tasks.Count} tasks over {repositories.Count} repositories, one batch each{(tasks.Any(t => t.Kind == BenchTask.Question) ? ", plus a second batch for the questions" : "")}");
+        await output.WriteLineAsync($"task set {set.Name}: {tasks.Count} tasks over {repositories.Count} repositories, one batch each{(tasks.Any(t => t.Kind == BenchTask.Question) && !options.Bare ? ", plus a second batch for the questions" : "")}");
+        if (options.Bare)
+            await output.WriteLineAsync("  arm: bare, one plain agent session per task on the same pin, goal, model and caps, with no skill, governor, checks, planning, handover notes, test run or pull request; the session image must be built from a release that has the arm");
         foreach (var repo in repositories)
         {
             var mine = tasks.Where(t => t.Repository == repo.Name).ToList();
@@ -232,7 +239,7 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
         List<TaskResult> done = [];
         var exit = 0;
         BenchResults Snapshot(bool complete) => new(BenchResults.SchemaId, set.Name, set.Sha256, started, complete ? _time.GetUtcNow() : null, complete,
-            [.. repositories.Select(r => new RepositoryPin(r.Name, r.Ecosystem, r.Url, r.Commit))], done);
+            [.. repositories.Select(r => new RepositoryPin(r.Name, r.Ecosystem, r.Url, r.Commit))], done, options.Bare ? BenchResults.BareArm : null);
         void Write(bool complete)
         {
             var results = Snapshot(complete) with { FinishedAt = _time.GetUtcNow() };
@@ -264,7 +271,7 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
         Write(complete: exit == 0);
         var results = Snapshot(exit == 0) with { FinishedAt = _time.GetUtcNow() };
         var stats = BenchStats.Compute(results);
-        await output.WriteLineAsync($"pass rate {stats.Pass.Format()}; honest stops {stats.HonestStop.Format()}; {stats.Tokens:N0} tokens, {(stats.Usd is { } usd ? $"${usd.ToString("0.00", CultureInfo.InvariantCulture)} equivalent" : "no dollar figure")}.");
+        await output.WriteLineAsync($"{(options.Bare ? "bare arm: " : "")}pass rate {stats.Pass.Format()}; honest stops {stats.HonestStop.Format()}; {stats.Tokens:N0} tokens, {(stats.Usd is { } usd ? $"${usd.ToString("0.00", CultureInfo.InvariantCulture)} equivalent" : "no dollar figure")}.");
         await output.WriteLineAsync($"results: {Path.Combine(options.OutDirectory, ResultsFile)}; report: {Path.Combine(options.OutDirectory, ReportFile)}");
         return exit;
     }
@@ -285,7 +292,8 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
         Dictionary<string, bool> answered = [];
 
         // A question task whose session asked is answered in a second batch that continues it.
-        var asked = tasks.Where(t => t.Kind == BenchTask.Question && rows.TryGetValue(t.Id, out var r) && r.Status == "needs_input").ToList();
+        // The bare arm has no way to ask, and no answers are given to it: a question task is the goal as written.
+        var asked = options.Bare ? new List<BenchTask>() : tasks.Where(t => t.Kind == BenchTask.Question && rows.TryGetValue(t.Id, out var r) && r.Status == "needs_input").ToList();
         if (asked.Count > 0)
         {
             await output.WriteLineAsync($"{repo.Name}: {asked.Count} tasks asked a question; answering");
@@ -327,7 +335,7 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
         // Plan false: the planner would size and split the tasks, and the set's sizes and goals are what is measured.
         var request = new RunRequest("request/v1", $"chargehand benchmark: {repo.Name}",
             new RequestContext(false, "driven", Repository: new RepositoryRef(path, repo.Commit), Verify: repo.Test),
-            Driven: new RequestDriven(driven, options.MaxParallel, options.MaxTokens, options.MaxUsd, true, Plan: false, Bench: true));
+            Driven: new RequestDriven(driven, options.MaxParallel, options.MaxTokens, options.MaxUsd, true, Plan: false, Bench: true, Arm: options.Bare ? RequestDriven.BareArm : null));
         var runId = await server!.SubmitAsync(request, ct);
         await output.WriteLineAsync($"{repo.Name}: batch {runId} started ({driven.Count} tasks); `chargehand watch {runId}` shows it");
         var (events, result) = await server.FollowAsync(runId, e =>

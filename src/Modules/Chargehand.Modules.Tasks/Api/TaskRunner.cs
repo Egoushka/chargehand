@@ -223,6 +223,9 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
 
     private bool Detaching => detaching?.Invoke() == true;
 
+    /// <summary>The batch is the benchmark's control arm (ADR 0079).</summary>
+    private bool Bare => settings.Request.Driven?.IsBare == true;
+
     /// <summary>A transition of the task's entry (<see cref="TaskMachine"/>), appended to the batch's task flow; nothing without one.</summary>
     private Task RecordAsync(string taskId, TaskEvent e) => tasks?.RecordAsync(taskId, e) ?? Task.CompletedTask;
 

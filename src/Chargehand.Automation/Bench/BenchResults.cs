@@ -7,6 +7,7 @@ namespace Chargehand.Bench;
 /// <summary><c>bench-results/v1</c>: what one run of a task set measured, as facts. The report derives every rate from these, so a result file can be rendered again, and two of them compared,
 /// by a later version of the report.</summary>
 /// <param name="Complete">False while the run is unfinished (the file is rewritten after each repository), or when it stopped early.</param>
+/// <param name="Arm"><c>bare</c> for the control arm (ADR 0079); left out of the file for chargehand's own arm, so those files keep the shape they had.</param>
 public sealed record BenchResults(
     string Schema,
     string Taskset,
@@ -15,9 +16,14 @@ public sealed record BenchResults(
     DateTimeOffset? FinishedAt,
     bool Complete,
     IReadOnlyList<RepositoryPin> Repositories,
-    IReadOnlyList<TaskResult> Tasks)
+    IReadOnlyList<TaskResult> Tasks,
+    string? Arm = null)
 {
     public const string SchemaId = "bench-results/v1";
+    public const string ChargehandArm = "chargehand", BareArm = "bare";
+
+    [JsonIgnore]
+    public string ArmName => Arm ?? ChargehandArm;
 
     private static readonly JsonSerializerOptions Options = new()
     {

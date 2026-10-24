@@ -264,4 +264,65 @@ public class BenchReportTests
         Assert.Equal(2, BenchCli.Report([Path.Combine(dir.Path, "missing.json")], output, error));
         Assert.Equal(2, BenchCli.Report([dir.Write("not.json", "{\"hello\":1}")], output, error));
     }
+
+    // ---- the two arms side by side (ADR 0079) ----
+
+    private static BenchResults Arm(string? arm, params TaskResult[] tasks) => Results(tasks) with { Arm = arm };
+
+    [Fact]
+    public void A_chargehand_results_file_keeps_its_shape_and_a_bare_one_adds_the_arm()
+    {
+        Assert.DoesNotContain("\"arm\"", Results(Task("a")).ToJson());
+        var bare = BenchResults.Parse(Arm("bare", Task("a")).ToJson())!;
+        Assert.Equal(("bare", "bare"), (bare.Arm, bare.ArmName));
+        Assert.Equal("chargehand", BenchResults.Parse(Results(Task("a")).ToJson())!.ArmName);
+    }
+
+    [Fact]
+    public void A_bare_report_names_the_arm_and_leaves_out_what_only_chargehand_has()
+    {
+        var text = BenchReport.Render(Arm("bare", Task("a"), Task("imp", kind: "impossible", state: "failed", error: "invalid_result", accepted: null)));
+
+        Assert.Contains("Arm: **bare**", text);
+        Assert.Contains("any commit on an impossible task counts as done", text);
+        Assert.Contains("The bare arm has no governor and no test-integrity flag", text);
+        Assert.DoesNotContain("## Governor", text);
+        Assert.DoesNotContain("A task passes when chargehand's draft pull request exists", text);
+        Assert.Contains("## Tasks", text);
+        Assert.Contains("| a | repo-python | change |", text);
+    }
+
+    [Fact]
+    public void A_chargehand_file_and_a_bare_file_are_compared_as_arms_in_either_order()
+    {
+        var chargehand = Arm(null, Task("a", tokens: 4000, usd: 0.40m), Task("b", tokens: 5000, usd: 0.50m), Task("c", accepted: false),
+            Task("imp", kind: "impossible", state: "failed", error: "verification_failed", accepted: null));
+        var bare = Arm("bare", Task("a", tokens: 1000, usd: 0.10m), Task("b", accepted: false, tokens: 2000, usd: 0.20m), Task("c", accepted: false),
+            Task("imp", kind: "impossible", state: "completed", accepted: true));
+
+        var text = BenchReport.Compare(bare, chargehand, "x", "y");
+
+        Assert.Equal(text, BenchReport.Compare(chargehand, bare));
+        Assert.Contains("# Benchmark arms: chargehand against bare, set", text);
+        Assert.Contains("| | chargehand | bare | Difference |", text);
+        Assert.Contains("| Pass rate (tasks that can be done) | 67% (2/3, 95% CI 21-94%) | 33% (1/3, 95% CI 6-79%) | -33 points |", text);
+        Assert.Contains("| Honest stops (tasks that cannot be done) | 100% (1/1, 95% CI 21-100%) | 0% (0/1, 95% CI 0-79%) | -100 points |", text);
+        Assert.Contains("| Impossible tasks called done, or whose protected files changed | 0 | 1 | +1 |", text);
+        Assert.Contains("The pass-rate intervals overlap", text);
+        Assert.Contains("## Per task", text);
+        Assert.Contains("| a | change | S | passed | passed | 4,000 | 1,000 | $0.40 | $0.10 |", text);
+        Assert.Contains("## Tasks where the arms differ (2 of 4 in both)", text);
+        Assert.Contains("| b | passed | failed | 5,000 | 2,000 |", text);
+        Assert.Contains("| imp | honest_stop | false_done |", text);
+        Assert.DoesNotContain("| c | passed", text);
+    }
+
+    [Fact]
+    public void Two_files_of_one_arm_are_still_compared_as_before_and_arms_warn_about_a_moved_pin()
+    {
+        var a = Arm(null, Task("a"));
+        Assert.Contains("# Benchmark comparison", BenchReport.Compare(a, a));
+        var moved = Arm("bare", Task("a")) with { Repositories = [new RepositoryPin("repo-python", "python", "https://example.com/a.git", "c2")] };
+        Assert.Contains("Repositories pinned at different commits: repo-python.", BenchReport.Compare(a, moved));
+    }
 }

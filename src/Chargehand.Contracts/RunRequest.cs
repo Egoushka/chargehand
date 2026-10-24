@@ -43,6 +43,7 @@ public sealed record PromptBlock(string Name, string Version, string Sha256, str
 /// <param name="MaxUsdTotal">Dollars over the batch; enforced only where the credential is priced (an API key).</param>
 /// <param name="Plan">Run the planning step before the batch (ADR 0049); null: the profile's <c>driven.planning.enabled</c> decides.</param>
 /// <param name="Bench">The batch is a benchmark run (ADR 0052): its learning records are tagged, and budgets, <c>learn report</c>, the console and the pull request read-back leave them out. Null or false: an ordinary batch.</param>
+/// <param name="Arm">The benchmark's control arm (ADR 0079): <c>bare</c> runs each task as one plain headless agent session, with none of the driver's features. Only with <c>Bench</c>; null or <c>chargehand</c>: the normal driven session.</param>
 public sealed record RequestDriven(
     IReadOnlyList<DrivenTask> Tasks,
     int? MaxParallel = null,
@@ -50,7 +51,15 @@ public sealed record RequestDriven(
     decimal? MaxUsdTotal = null,
     bool DraftPr = true,
     bool? Plan = null,
-    bool? Bench = null);
+    bool? Bench = null,
+    string? Arm = null)
+{
+    public const string BareArm = "bare", ChargehandArm = "chargehand";
+
+    /// <summary>The batch runs the benchmark's control arm: a plain agent session per task.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsBare => Arm == BareArm;
+}
 
 /// <param name="MaxTurns">Replaces the preset's <c>max_turns</c> for this task's sessions; null: the preset's.</param>
 /// <param name="MaxMinutes">Replaces the preset's <c>max_minutes</c> for this task's sessions; null: the preset's.</param>

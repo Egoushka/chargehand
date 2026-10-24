@@ -94,9 +94,11 @@ public static class SessionCli
         var secrets = SecretVariables
             .Select(Environment.GetEnvironmentVariable).Where(v => !string.IsNullOrEmpty(v)).Select(v => v!).ToList();
         // The note is the manifest the image build wrote, else one probe by the driver: the model never has to look. It sits after the static text, which stays as Prompt CI saw it.
-        var toolchains = ToolchainManifest.Load(manifestPath) ?? await ToolchainManifest.ProbeAsync(ct);
-        var options = new SessionOptions(work, output, task, SessionCommand.Claude, secrets, $"{DefaultPrompt}\n\n{EnvironmentNote.Render(toolchains, task.Environment)}",
-            Environment.GetEnvironmentVariable("CHARGEHAND_MCP_URL"), Environment.GetEnvironmentVariable("CHARGEHAND_RUN_TOKEN"));
+        // The bare arm (ADR 0079) gets no driver prompt, no environment note and no way to call the server.
+        var options = task.Bare
+            ? new SessionOptions(work, output, task, SessionCommand.Claude, secrets, "", null, null)
+            : new SessionOptions(work, output, task, SessionCommand.Claude, secrets, $"{DefaultPrompt}\n\n{EnvironmentNote.Render(ToolchainManifest.Load(manifestPath) ?? await ToolchainManifest.ProbeAsync(ct), task.Environment)}",
+                Environment.GetEnvironmentVariable("CHARGEHAND_MCP_URL"), Environment.GetEnvironmentVariable("CHARGEHAND_RUN_TOKEN"));
         var outcome = await SessionDriver.RunAsync(options, ct);
         error.WriteLine($"session {outcome.Status} {outcome.Reason}");
         return outcome.Status is SessionStatus.Completed or SessionStatus.NeedsInput ? 0 : 1;

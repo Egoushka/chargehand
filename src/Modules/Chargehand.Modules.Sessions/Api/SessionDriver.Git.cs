@@ -83,13 +83,16 @@ public static partial class SessionDriver
     /// <summary>A file the stop snapshot leaves out: bigger than this is a build output or a download, not the session's work.</summary>
     public const long SnapshotMaxFileBytes = 5L * 1024 * 1024;
 
+    /// <summary>The subject of the one commit that takes the bare arm's working tree onto its branch.</summary>
+    private const string BareSubject = "Changes left by the agent";
+
     private static readonly TimeSpan SnapshotGitTimeout = TimeSpan.FromMinutes(3);
 
     /// <summary>Commits the working tree to the task branch (made if the session never made it) so a stopped session's files reach the bundle: the files over
     /// <see cref="SnapshotMaxFileBytes"/> stay out and the commit message names them. Nothing to commit leaves the branch as it is. A git that hangs or fails, or an
     /// <c>index.lock</c> a live git holds, skips the snapshot. A lock no git process holds is a killed session's leftover and is removed. The handover scans every commit's patch.</summary>
     /// <returns>What was not done and why, for the handover's text; null when there is nothing to say.</returns>
-    private static async Task<string?> SnapshotAsync(SessionOptions options, string reason, int turns, CancellationToken ct)
+    private static async Task<string?> SnapshotAsync(SessionOptions options, string reason, int turns, CancellationToken ct, string? subject = null)
     {
         var dir = options.WorkDirectory;
         var branch = options.Task.Branch;
@@ -111,7 +114,7 @@ public static partial class SessionDriver
         var added = await G("add", "-A");
         if (added.Exit != 0)
             return Skipped("add", added);
-        return await CommitWorkAsync(dir, reason, turns, G);
+        return await CommitWorkAsync(dir, reason, turns, G, subject);
     }
 
     private static string Skipped(string step, (int Exit, string Stdout, string Stderr) r) =>
@@ -141,7 +144,7 @@ public static partial class SessionDriver
     }
 
     /// <summary>Takes the staged files over <see cref="SnapshotMaxFileBytes"/> out again and commits the rest as the <c>WIP:</c> commit.</summary>
-    private static async Task<string?> CommitWorkAsync(string dir, string reason, int turns, Func<string[], Task<(int Exit, string Stdout, string Stderr)>> g)
+    private static async Task<string?> CommitWorkAsync(string dir, string reason, int turns, Func<string[], Task<(int Exit, string Stdout, string Stderr)>> g, string? subject = null)
     {
         var staged = await g(["diff", "--cached", "--name-only", "-z"]);
         if (staged.Exit != 0)
@@ -154,7 +157,7 @@ public static partial class SessionDriver
         var note = large.Count == 0 ? null : $"not committed (over {SnapshotMaxFileBytes / 1024 / 1024} MiB): {string.Join(", ", large)}";
         if ((await g(["diff", "--cached", "--quiet"])).Exit == 0)
             return note;
-        var message = new List<string> { "-m", $"WIP: session stopped by {reason} after {turns.ToString(CultureInfo.InvariantCulture)} turns" };
+        var message = new List<string> { "-m", subject ?? $"WIP: session stopped by {reason} after {turns.ToString(CultureInfo.InvariantCulture)} turns" };
         if (note is not null)
             message.AddRange(["-m", note]);
         var commit = await g(["-c", "core.hooksPath=/dev/null", "commit", "--quiet", "--no-verify", .. message]);

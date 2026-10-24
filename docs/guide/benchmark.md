@@ -71,7 +71,24 @@ Every rate is a count, a total and a Wilson 95% interval, for example `70% (7/10
 
 **Test integrity.** Tasks flagged by chargehand (every changed file a test or build file, for a goal that did not ask for that) are counted, and the pass rate is also given without them.
 
-**Comparing.** `bench report a.json b.json` puts the rates side by side with the change in points, says whether the pass-rate intervals overlap (they will, for small differences), lists the tasks whose outcome changed, and warns when the task sets, a pin or completeness differ. `results.json` (`bench-results/v1`) holds facts only; the report computes every rate, so an old run can be rendered again by a newer report.
+**Comparing.** (A chargehand file and a bare file are put side by side as arms; see the next section.) `bench report a.json b.json` puts the rates side by side with the change in points, says whether the pass-rate intervals overlap (they will, for small differences), lists the tasks whose outcome changed, and warns when the task sets, a pin or completeness differ. `results.json` (`bench-results/v1`) holds facts only; the report computes every rate, so an old run can be rendered again by a newer report.
+
+## The bare arm: what chargehand adds
+
+A pass rate alone does not say what chargehand adds over the same model run bare ([ADR 0079](../adr/0079-bare-arm-of-the-benchmark.md)). `--baseline` does not either: it only checks that the acceptance scripts work, with no model. `--arm bare` runs each task as **one plain headless Claude Code session** on the same pinned commit, with the same goal text, image, network, model selection, caps and limits, and judges the branch it leaves with the same acceptance script. What is left out: the `change` skill and its system prompt, research and review calls, the governor, the repository's checks and the check retries, the goal reminder, continuation sessions, the handoff and the partial draft, chargehand's own test run before the push, and the pull request. At the end the driver commits whatever is in the working tree in one commit if the agent did not; a branch with at least one commit is pushed (the secret scan and the refusal of CI changes stay), anything else leaves no branch.
+
+```bash
+chargehand --profile profiles/local.json bench run benchmarks/core.json --arm bare --dry-run
+chargehand --profile profiles/local.json bench run benchmarks/core.json --out runs/bench/core-chargehand \
+  --remote 'https://github.com/<you>/{name}.git' --max-tokens 4000000 --max-usd 10
+chargehand --profile profiles/local.json bench run benchmarks/core.json --arm bare --out runs/bench/core-bare \
+  --remote 'https://github.com/<you>/{name}.git' --max-tokens 4000000 --max-usd 10
+chargehand bench report runs/bench/core-chargehand/results.json runs/bench/core-bare/results.json
+```
+
+Run the arms on the same server profile and session image, close together in time. A full two-arm run is 13 tasks per arm. The report puts the arms side by side (pass rate and honest stops with their intervals, impossible tasks called done, tokens, dollars and turns per task), then every task with both outcomes and tokens, and the list of tasks where the arms differ. The bare arm's `results.json` has `"arm": "bare"`; the other arm's file has no such member. The session image must be built from a release that has the arm: an older image runs the full session, and the server then fails the task as `image_predates_bare_arm` after the spend. Try `--only <id> --arm bare` once after a new image.
+
+Two differences from the other arm are in the report. An **honest stop** is an impossible task that left **no commits**; any commit counts as done (`false_done`), even a note that says the task cannot be done, because the bare output has no pull request and no report to read the claim from. And **question tasks get no second round**: the bare agent cannot ask and is not given the answers, so those tasks favour the other arm.
 
 ## Cost
 

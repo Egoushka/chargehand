@@ -34,11 +34,15 @@ public static partial class SessionDriver
     /// research or review run that outlasted its orchestrate call; without it the session can only ask for the permission and stop.</summary>
     private const string AllowedTools = "Bash,Read,Edit,Write,Glob,Grep,mcp__chargehand__orchestrate,mcp__chargehand__result";
 
+    private const string BareTools = "Bash,Read,Edit,Write,Glob,Grep";
+
     /// <param name="settingsFile">Claude Code settings with the goal reminder's hook; null: none.</param>
     /// <param name="resume">The session to resume and its next turn (the check gate's feedback); null: a new session on the goal.</param>
     public static IReadOnlyList<string> ClaudeArgs(SessionTask task, string pluginDirectory, string mcpConfigFile, string promptFile, string? settingsFile = null,
         (string SessionId, string Prompt)? resume = null)
     {
+        if (task.Bare)
+            return BareArgs(task, mcpConfigFile);
         List<string> args =
         [
             "-p", resume is { } next ? next.Prompt : $"/chargehand:change {task.Goal}",
@@ -60,6 +64,24 @@ public static partial class SessionDriver
         return args;
     }
 
+    /// <summary>The bare arm's session (ADR 0079): the goal as the prompt, the same tools minus chargehand's own, the same model and cap, and nothing else: no plugin, no skill, no appended system prompt, no hook.</summary>
+    private static List<string> BareArgs(SessionTask task, string mcpConfigFile)
+    {
+        List<string> args =
+        [
+            "-p", task.Goal,
+            "--permission-mode", "dontAsk",
+            "--allowedTools", BareTools,
+            "--strict-mcp-config", "--mcp-config", mcpConfigFile,
+            "--output-format", "stream-json", "--verbose",
+        ];
+        if (task.Model is { Length: > 0 })
+            args.AddRange(["--model", task.Model]);
+        if (task.MaxUsd is { } usd)
+            args.AddRange(["--max-budget-usd", usd.ToString(CultureInfo.InvariantCulture)]);
+        return args;
+    }
+
     public static string McpConfig(string url, string token) =>
         JsonSerializer.Serialize(new McpConfigFile(new McpConfigServers(new McpConfigServer("http", url, new McpConfigHeaders($"Bearer {token}")))), SessionsJsonContext.Default.McpConfigFile);
 
@@ -76,17 +98,17 @@ public static partial class SessionDriver
             var promptFile = Path.Combine(scratch.FullName, "prompt.md");
             await File.WriteAllTextAsync(promptFile, options.PromptText, ct);
             var mcpFile = Path.Combine(scratch.FullName, "mcp.json");
-            await WritePrivate(mcpFile, options.McpUrl is { } url && options.McpToken is { } token ? McpConfig(url, token) : """{"mcpServers":{}}""", ct);
+            await WritePrivate(mcpFile, !task.Bare && options.McpUrl is { } url && options.McpToken is { } token ? McpConfig(url, token) : """{"mcpServers":{}}""", ct);
 
             var started = DateTimeOffset.UtcNow;
-            var rules = await SessionChecks.RulesAsync(options.WorkDirectory, start, ct);
-            var reminder = GoalReminder.For(task, started);
+            IReadOnlyList<string> rules = task.Bare ? [] : await SessionChecks.RulesAsync(options.WorkDirectory, start, ct);
+            var reminder = task.Bare ? null : GoalReminder.For(task, started);
             var files = new Files(mcpFile, promptFile, reminder is null ? null : Path.Combine(scratch.FullName, "settings.json"), Path.Combine(scratch.FullName, "reminder.json"));
             if (files.Settings is not null)
                 await File.WriteAllTextAsync(files.Settings, GoalReminder.Settings(), ct);
             var detector = new StallDetector(TimeSpan.FromSeconds(task.NoProgressSeconds), 5, task.MaxTurns, TimeSpan.FromMinutes(task.MaxMinutes), started);
             await using var stream = new StreamWriter(new FileStream(Path.Combine(options.OutDirectory, "stream.jsonl"), FileMode.Create, FileAccess.Write), new UTF8Encoding(false));
-            var governor = task.Governor is { Mode: not GovernorMode.Off } governed ? new Governor(governed) : null;
+            var governor = !task.Bare && task.Governor is { Mode: not GovernorMode.Off } governed ? new Governor(governed) : null;
             await using var governorLog = governor is null ? null
                 : new StreamWriter(new FileStream(Path.Combine(options.OutDirectory, GovernorFile), FileMode.Create, FileAccess.Write), new UTF8Encoding(false));
             var run = new Run(options, stream, detector, governor, governorLog, new SemaphoreSlim(1, 1),
@@ -117,8 +139,11 @@ public static partial class SessionDriver
         };
         foreach (var a in options.Command.LeadingArgs.Concat(ClaudeArgs(options.Task, options.PluginDirectory, files.Mcp, files.Prompt, files.Settings, resume)))
             psi.ArgumentList.Add(a);
-        psi.Environment["CHARGEHAND_BRANCH"] = options.Task.Branch;
-        psi.Environment["CHARGEHAND_DRIVEN"] = "1";
+        if (!options.Task.Bare)
+        {
+            psi.Environment["CHARGEHAND_BRANCH"] = options.Task.Branch;
+            psi.Environment["CHARGEHAND_DRIVEN"] = "1";
+        }
         if (files.Settings is not null)
             psi.Environment[GoalReminder.FileVariable] = files.Reminder;
         return psi;

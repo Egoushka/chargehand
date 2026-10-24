@@ -30,8 +30,11 @@ internal sealed class TaskRunnerRig : IDisposable
         public Task<IReadOnlyList<EvidenceFailure>> ResolveAsync(ResultContract contract, EvidenceScope scope, CancellationToken ct) => Task.FromResult<IReadOnlyList<EvidenceFailure>>([]);
     }
 
-    public TaskRunnerRig(FakeVolumes? volumes = null, TaskLimits? limits = null)
+    private readonly bool _bare;
+
+    public TaskRunnerRig(FakeVolumes? volumes = null, TaskLimits? limits = null, bool bare = false)
     {
+        _bare = bare;
         Volumes = volumes ?? new FakeVolumes(_ => SessionStatus.Completed);
         Log = new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
         _limits = limits ?? new TaskLimits(10_000_000, null);
@@ -40,7 +43,7 @@ internal sealed class TaskRunnerRig : IDisposable
     private TaskRunnerSettings Settings(string goal)
     {
         var request = new RunRequest("request/v1", "Run the tasks.", new RequestContext(false, "driven", Repository: new RepositoryRef("/srv/repo", Commit)),
-            Driven: new RequestDriven([new DrivenTask("t1", Goal: goal)], MaxTokensTotal: 10_000_000, MaxUsdTotal: 5m));
+            Driven: new RequestDriven([new DrivenTask("t1", Goal: goal)], MaxTokensTotal: 10_000_000, MaxUsdTotal: 5m, Bench: _bare ? true : null, Arm: _bare ? RequestDriven.BareArm : null));
         return new TaskRunnerSettings(BatchId, request, "ghcr.io/example/session@sha256:1111111111111111111111111111111111111111111111111111111111111111", "/srv/checkouts/repo-abc1234",
             Commit, "https://github.com/o/r.git", "main", new BatchNetworkInfo($"chargehand-net-{BatchId}", "egress-1", "egress-1", 3128), null, new DrivenPreset(), _limits, false,
             new Dictionary<string, string> { ["CLAUDE_CODE_OAUTH_TOKEN"] = "value-of-claude-code-oauth-token" }, new PushCredential("value-of-secret-push"), Path.Combine(Dir.Path, ".driven"),

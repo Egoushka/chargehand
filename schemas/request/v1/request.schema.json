@@ -91,6 +91,7 @@
         "max_usd_total": { "type": "number", "exclusiveMinimum": 0, "description": "Dollars over the batch; enforced only where the credential is priced (an API key)." },
         "draft_pr": { "const": true, "description": "Always true: pull requests are opened as drafts and never merged." },
         "bench": { "type": "boolean", "description": "The batch is a benchmark run (ADR 0052). Its tasks' learning records are tagged bench and left out of budgets, learn reports, the console and the pull request read-back unless asked for. Default false." },
+        "arm": { "type": "string", "enum": ["chargehand", "bare"], "description": "The benchmark's arm (ADR 0079). bare runs each task as one plain headless agent session on the checkout and pushes the branch it leaves: no plan, governor, checks, check retries, handover notes, verification or pull request. Needs bench: true. Default chargehand." },
         "plan": { "type": "boolean", "description": "Run the planning step before the batch (ADR 0049): one cheap read-only run sizes tasks that have no size, splits a large task into an ordered chain and assigns shared numbers. true forces it, false skips it; left out, the profile's driven.planning.enabled decides. A task's own size and depends_on always win. The plan is the batch result's plan artifact." }
       }
     },

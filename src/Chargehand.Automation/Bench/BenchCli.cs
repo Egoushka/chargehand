@@ -11,18 +11,20 @@ public static class BenchCli
     public const string Usage = """
         usage: chargehand [--profile <path>] bench run <taskset.json> [--dry-run] [--baseline] [--check-pins] [--only <id,id>]
                           [--remote <url template>] [--max-tokens <n>] [--max-usd <n>] [--max-parallel <n>]
-                          [--workdir <dir>] [--out <dir>] [--accept-root <dir>] [--url <server>]
+                          [--workdir <dir>] [--out <dir>] [--accept-root <dir>] [--url <server>] [--arm chargehand|bare]
                chargehand bench report <results.json> [<other.json>] [--out <file>]
           run --dry-run   checks the task set, the pins and that every acceptance command exists; starts nothing, calls no model
           run --baseline  runs the repositories' test commands and every acceptance check on the pinned commits in containers: each check must
                           behave as the set says (a change's check fails, an impossible task's guard passes); calls no model
           run             one driven batch per repository on the server (--url, CHARGEHAND_URL; key CHARGEHAND_API_KEY), then the acceptance checks;
                           needs --remote (CHARGEHAND_BENCH_REMOTE) and a cap per batch; writes results.json and report.md to --out
-          report          renders a results file again, or compares two (the first is the base)
+          run --arm bare  the control arm (ADR 0079): each task is one plain agent session on the same pin, goal, model and caps, with none of chargehand's features; the branch it
+                          leaves gets the same acceptance check. Run both arms on the same set, then `bench report` the two results files
+          report          renders a results file again, or compares two (the first is the base; a chargehand file and a bare file give the two arms side by side)
         """;
 
     private static readonly string[] Flags = ["--dry-run", "--baseline", "--check-pins"];
-    private static readonly string[] Valued = ["--only", "--remote", "--max-tokens", "--max-usd", "--max-parallel", "--workdir", "--out", "--accept-root", "--url"];
+    private static readonly string[] Valued = ["--only", "--remote", "--max-tokens", "--max-usd", "--max-parallel", "--workdir", "--out", "--accept-root", "--url", "--arm"];
 
     public static int Report(IReadOnlyList<string> args, TextWriter output, TextWriter error)
     {
@@ -82,6 +84,12 @@ public static class BenchCli
         IReadOnlySet<string>? only = options.TryGetValue("--only", out var ids) ? ids.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal) : null;
         var dryRun = options.ContainsKey("--dry-run");
         var baseline = options.ContainsKey("--baseline");
+        var arm = options.GetValueOrDefault("--arm");
+        if (arm is not (null or BenchResults.ChargehandArm or BenchResults.BareArm) || (baseline && arm is not null))
+        {
+            error.WriteLine(baseline ? "--baseline starts no session, so --arm does not apply." : "--arm is chargehand or bare.");
+            return 2;
+        }
         if (dryRun && baseline)
         {
             error.WriteLine("--dry-run and --baseline are two different checks; pick one.");
@@ -97,7 +105,7 @@ public static class BenchCli
         var workDirectory = Path.GetFullPath(options.GetValueOrDefault("--workdir") ?? Path.Combine(workingDirectory, "runs", "bench", "work"));
         var outDirectory = Path.GetFullPath(options.GetValueOrDefault("--out") ?? Path.Combine(workingDirectory, "runs", "bench", $"{set.Name}-{stamp}"));
         var bench = new BenchOptions(outDirectory, environment, only, dryRun, baseline, options.ContainsKey("--check-pins"), options.GetValueOrDefault("--remote") ?? env("CHARGEHAND_BENCH_REMOTE"),
-            maxTokens, maxUsd, maxParallel);
+            maxTokens, maxUsd, maxParallel, arm == BenchResults.BareArm ? arm : null);
         var workspace = new GitBenchWorkspace(workDirectory, options.GetValueOrDefault("--accept-root"));
 
         if (dryRun)

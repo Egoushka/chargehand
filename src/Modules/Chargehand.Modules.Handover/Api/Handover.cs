@@ -28,10 +28,11 @@ namespace Chargehand.Modules.Handover.Api;
 /// <param name="Goal">The task's goal; with it, a passing branch that changes only tests and build files is flagged unless the goal asks for that work (<see cref="TestIntegrity"/>). Null: not assessed.</param>
 /// <param name="LocalOnly">The repository is local-only (ADR 0069): the hand-over refuses before any git or forge call.</param>
 /// <param name="Provenance">The run that wrote the branch (ADR 0074): its trailers go on every commit past the base that has none, and at the end of the pull request body, so a squash merge keeps them. Null: no trailers.</param>
+/// <param name="Bare">The benchmark's control arm (ADR 0079): the scans and the CI-change refusal still run, then the branch is pushed with no test run and no pull request.</param>
 /// <param name="FallbackBaseBranch">For a pull request stacked on another task's branch (ADR 0049), <paramref name="BaseBranch"/> is that branch: if the host refuses it, the pull request is opened against this one instead and says so.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
-    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false, string? FallbackBaseBranch = null, bool LocalOnly = false, Provenance? Provenance = null);
+    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false, string? FallbackBaseBranch = null, bool LocalOnly = false, Provenance? Provenance = null, bool Bare = false);
 
 /// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
 public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
@@ -196,6 +197,8 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         var checkout = await GitProcess.RunAsync(run.Scratch, run.Env, ["-c", "core.hooksPath=/dev/null", "checkout", "--quiet", input.Branch], GitTimeout, ct);
         if (checkout.ExitCode != 0)
             return run.Refuse($"chargehand could not check the branch out: {checkout.Tail}", ErrorCode.SessionFailed, changed: changed, commit: commit);
+        if (input.Bare)
+            return null;
         var plan = VerifyCommand.Resolve(input.VerifyCommand, run.Scratch);
         run.VerificationPaths = VerifyCommand.VerificationPaths(changed, plan);
         if (plan is null)
@@ -259,6 +262,8 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
     private async Task<HandoverOutcome> OpenAsync(HandoverRun run, CancellationToken ct)
     {
         var (input, commit, changed, verification, verificationPaths, changes) = (run.Input, run.Commit, run.Changed, run.Verification, run.VerificationPaths, run.Changes);
+        if (input.Bare)
+            return new(HandoverStatus.Pushed, "", null, input.Branch, commit, null, null, changed, [], [], changes);
         var integrity = input.Goal is { } goal && verification is { ExitCode: 0, TimedOut: false } ? TestIntegrity.Assess(changed, goal) : null;
         var repository = RemoteRepository.Parse(input.RemoteUrl, forge) ?? (input.AllowLocalRemote ? new RemoteRepository("local", "local") : null);
         if (repository is null)

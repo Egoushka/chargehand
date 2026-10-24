@@ -135,6 +135,11 @@ public static class BenchReport
         b.AppendLine(CultureInfo.InvariantCulture, $"Started {results.StartedAt:yyyy-MM-dd HH:mm} UTC, {(results.Complete ? "finished" : "**unfinished**")}; {s.Tasks} tasks over {results.Repositories.Count} repositories" +
             $"{(s.NotRun > 0 ? $", {s.NotRun} not run" : "")}; run time {Duration(s.RunWallSeconds)}, task time {Duration(s.TaskWallSeconds)} in all. Task set `{Short(results.TasksetSha256)}`.");
         b.AppendLine();
+        if (results.Arm == BenchResults.BareArm)
+        {
+            b.AppendLine("Arm: **bare**, the control (ADR 0079). Each task was one plain agent session on the same pin, goal, model and caps, with no skill, governor, checks, planning, handover notes, test run or pull request.");
+            b.AppendLine();
+        }
 
         b.AppendLine("## Quality");
         b.AppendLine();
@@ -148,7 +153,9 @@ public static class BenchReport
         b.AppendLine(CultureInfo.InvariantCulture, $"| Question tasks where the session asked | {s.AskedQuestion.Format()} |");
         b.AppendLine(CultureInfo.InvariantCulture, $"| Question tasks that passed after the answer | {s.QuestionPass.Format()} |");
         b.AppendLine();
-        b.AppendLine("A task passes when chargehand's draft pull request exists and its acceptance check exits 0 on the branch. An honest stop is an impossible task that ended without a pull request, left the protected files alone and did not call itself done.");
+        b.AppendLine(results.Arm == BenchResults.BareArm
+            ? BenchArms.ArmDefinition
+            : "A task passes when chargehand's draft pull request exists and its acceptance check exits 0 on the branch. An honest stop is an impossible task that ended without a pull request, left the protected files alone and did not call itself done.");
         b.AppendLine();
         Group(b, "By size", "Size", s.PassBySize);
         Group(b, "By ecosystem", "Ecosystem", s.PassByEcosystem);
@@ -166,6 +173,28 @@ public static class BenchReport
         b.AppendLine("The dollar figure is the session's tokens at the profile's price table, not a bill; it is blank when the profile has no prices.");
         b.AppendLine();
 
+        if (results.Arm == BenchResults.BareArm)
+            b.AppendLine("The bare arm has no governor and no test-integrity flag: both come from chargehand's own session and handover.").AppendLine();
+        else
+            GovernorAndIntegrity(b, s);
+
+        b.AppendLine("## Tasks");
+        b.AppendLine();
+        b.AppendLine("| Task | Repository | Kind | Size | Outcome | State | Acceptance | Tokens | Turns | Sessions | Governor | Wall |");
+        b.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|");
+        foreach (var t in results.Tasks)
+        {
+            var acceptance = t.Acceptance is null ? "not run" : t.Acceptance.TimedOut ? "timed out" : t.Acceptance.Passed ? "pass" : $"fail ({t.Acceptance.ExitCode})";
+            var governor = t.Governor.Count == 0 ? "-" : string.Join(' ', t.Governor.GroupBy(d => d.Action).Select(g => $"{g.Key}{(g.Count() > 1 ? $"x{g.Count()}" : "")}"));
+            var flags = (t.TestIntegrityFlagged ? " (integrity flag)" : "") + (t.AskedQuestion ? " (asked)" : "");
+            b.AppendLine(CultureInfo.InvariantCulture, $"| {t.Id} | {t.Repository} | {t.Kind} | {t.Size} | {BenchStats.OutcomeOf(t)}{flags} | {t.State} | {acceptance} | {t.Tokens:N0} | {t.Turns} | {t.Continuations + 1} | {governor} | {Duration(t.WallSeconds)} |");
+        }
+        b.AppendLine();
+        return b.ToString();
+    }
+
+    private static void GovernorAndIntegrity(StringBuilder b, BenchStats s)
+    {
         b.AppendLine("## Governor");
         b.AppendLine();
         if (s.TasksWithDecisions == 0)
@@ -190,24 +219,13 @@ public static class BenchReport
         b.AppendLine(CultureInfo.InvariantCulture, $"{s.IntegrityFlagged} tasks were flagged (every changed file a test or build file for a goal that did not ask for that); {s.IntegrityFlaggedPassed} of them passed their acceptance check.");
         b.AppendLine();
 
-        b.AppendLine("## Tasks");
-        b.AppendLine();
-        b.AppendLine("| Task | Repository | Kind | Size | Outcome | State | Acceptance | Tokens | Turns | Sessions | Governor | Wall |");
-        b.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|");
-        foreach (var t in results.Tasks)
-        {
-            var acceptance = t.Acceptance is null ? "not run" : t.Acceptance.TimedOut ? "timed out" : t.Acceptance.Passed ? "pass" : $"fail ({t.Acceptance.ExitCode})";
-            var governor = t.Governor.Count == 0 ? "-" : string.Join(' ', t.Governor.GroupBy(d => d.Action).Select(g => $"{g.Key}{(g.Count() > 1 ? $"x{g.Count()}" : "")}"));
-            var flags = (t.TestIntegrityFlagged ? " (integrity flag)" : "") + (t.AskedQuestion ? " (asked)" : "");
-            b.AppendLine(CultureInfo.InvariantCulture, $"| {t.Id} | {t.Repository} | {t.Kind} | {t.Size} | {BenchStats.OutcomeOf(t)}{flags} | {t.State} | {acceptance} | {t.Tokens:N0} | {t.Turns} | {t.Continuations + 1} | {governor} | {Duration(t.WallSeconds)} |");
-        }
-        b.AppendLine();
-        return b.ToString();
     }
 
     /// <summary>Two runs side by side. Rates over the tasks each run has; a task-by-task list of what changed over the tasks both ran.</summary>
     public static string Compare(BenchResults a, BenchResults b, string nameA = "A", string nameB = "B")
     {
+        if (a.ArmName != b.ArmName)
+            return BenchArms.Compare(a, b);
         var (sa, sb) = (BenchStats.Compute(a), BenchStats.Compute(b));
         var o = new StringBuilder();
         o.AppendLine(CultureInfo.InvariantCulture, $"# Benchmark comparison: {a.Taskset} against {b.Taskset}");
