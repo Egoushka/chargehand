@@ -38,11 +38,12 @@ internal sealed class RunServiceStarter(RunService runs, AccountSettings? accoun
         if (runs.Halted)
             return new BatchStart(null, RunService.HaltedMessage);
         var actor = Principal.Owner.Name;
+        // Admitted without an account too: a paused credential refuses the start there as well, and intake retries it.
+        var (admitted, refusal) = await runs.AdmitAsync(account is null ? null : new Principal(account.Name, account), request, ct);
+        if (refusal is not null)
+            return new BatchStart(null, account is null ? refusal.Message : $"account '{account.Name}': {refusal.Message}");
         if (account is not null)
         {
-            var (admitted, refusal) = await runs.AdmitAsync(new Principal(account.Name, account), request, ct);
-            if (refusal is not null)
-                return new BatchStart(null, $"account '{account.Name}': {refusal.Message}");
             if (account.PauseOnForecast && await runs.ForecastAsync(account, ct) is { OverCap: true } forecast)
                 return new BatchStart(null, string.Create(CultureInfo.InvariantCulture,
                     $"account '{account.Name}' is paused: its month forecast of ${forecast.ProjectedUsd:0.00} passes max_usd_per_month ${forecast.CapUsd:0.00} (pause_on_forecast)"));

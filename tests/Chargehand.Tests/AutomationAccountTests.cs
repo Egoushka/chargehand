@@ -71,6 +71,20 @@ public class AutomationAccountTests
         Assert.Equal(AccountSettings.Owner, s.Service.Held.Single(r => r.Id == start.RunId).Actor);
     }
 
+    [Fact]
+    public async Task Without_an_account_a_paused_server_credential_refuses_an_automated_start_for_intake_to_retry()
+    {
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
+        await s.Service.ReportCredentialAsync(CredentialHealth.Server, "claude -p exited 1: Failed to authenticate. API Error: 401 OAuth access token has been revoked.", CancellationToken.None);
+
+        var start = await new RunServiceStarter(s.Service).StartAsync(Runs.DraftRequest(), default);
+
+        Assert.Null(start.RunId);
+        Assert.Contains("credential", start.Refusal, StringComparison.Ordinal);
+        Assert.Contains("revoked", start.Refusal, StringComparison.Ordinal);
+        Assert.Empty(s.Service.Held);
+    }
+
     [Theory]
     [InlineData("""{"name":"bot","driven":true,"allow_server_credential":true}""", "ghost", "automation.account: 'ghost'")]
     [InlineData("""{"name":"bot","allow_server_credential":true}""", "bot", "with driven: true")]
