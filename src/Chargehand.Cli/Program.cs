@@ -638,8 +638,18 @@ async Task<int> EvalGate(string baseRoot, string changeRoot, IReadOnlyList<strin
     var runner = new EvalRunner(r => new Orchestrator(profile, runtime, runtimeVersion, r, runLog, new Dictionary<string, int>()), runtime, profile.IntakeModel,
         runLog, langfuse, () => tracing?.ForceFlush(10_000), Console.Out);
     var verdicts = new List<Verdict>();
-    foreach (var cell in cells)
-        verdicts.Add(await runner.RunAsync(cell, await langfuse.ItemsAsync(cell.Dataset, ct), baseRoot, changeRoot, name, trade, ct));
+    try
+    {
+        foreach (var cell in cells)
+            verdicts.Add(await runner.RunAsync(cell, await langfuse.ItemsAsync(cell.Dataset, ct), baseRoot, changeRoot, name, trade, ct));
+    }
+    catch (DatasetNotFoundException e)
+    {
+        // Fails the check with a plain message: the last line is what scripts/prompt-ci.sh posts as the commit status.
+        Console.Error.WriteLine(e.Action);
+        Console.WriteLine($"prompt-ci: failure: {e.Message}");
+        return 1;
+    }
 
     Console.WriteLine();
     Console.WriteLine("| cell | items | quality change | t | cost change | t | verdict |");
