@@ -374,7 +374,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         return new BatchSetup(s, settings, claude, image, drivenPreset, kind.Model, own, priced, limits, push, modelEnvironment, SitesOf(s));
     }
 
-    /// <summary>The bare arm pushes a branch nobody has tested, so it is for the benchmark only (ADR 0079).</summary>
+    /// <summary>The bare arm pushes a branch nobody has tested, so it is for the benchmark only (ADR 0080).</summary>
     public static void CheckArm(RequestDriven driven)
     {
         if (driven.Arm is null or RequestDriven.ChargehandArm)

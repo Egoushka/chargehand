@@ -64,7 +64,7 @@ public sealed partial class TaskRunner
         return (partial, handoverRun, handed);
     }
 
-    /// <summary>The bare arm's end (ADR 0079): a session that finished with commits has its branch pushed; any other end leaves nothing, with no partial draft and no second session.</summary>
+    /// <summary>The bare arm's end (ADR 0080): a session that finished with commits has its branch pushed; any other end leaves nothing, with no partial draft and no second session.</summary>
     private async Task<(bool Partial, (string RunId, string OutDirectory) Run, HandoverOutcome? Handed)> HandOverBareAsync(ResolvedTask task, TaskRun run, CancellationToken ct)
     {
         var session = run.Session;

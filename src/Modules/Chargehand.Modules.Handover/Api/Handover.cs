@@ -28,7 +28,7 @@ namespace Chargehand.Modules.Handover.Api;
 /// <param name="Goal">The task's goal; with it, a passing branch that changes only tests and build files is flagged unless the goal asks for that work (<see cref="TestIntegrity"/>). Null: not assessed.</param>
 /// <param name="LocalOnly">The repository is local-only (ADR 0069): the hand-over refuses before any git or forge call.</param>
 /// <param name="Provenance">The run that wrote the branch (ADR 0074): its trailers go on every commit past the base that has none, and at the end of the pull request body, so a squash merge keeps them. Null: no trailers.</param>
-/// <param name="Bare">The benchmark's control arm (ADR 0079): the scans and the CI-change refusal still run, then the branch is pushed with no test run and no pull request.</param>
+/// <param name="Bare">The benchmark's control arm (ADR 0080): the scans and the CI-change refusal still run, then the branch is pushed with no test run and no pull request.</param>
 /// <param name="FallbackBaseBranch">For a pull request stacked on another task's branch (ADR 0049), <paramref name="BaseBranch"/> is that branch: if the host refuses it, the pull request is opened against this one instead and says so.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,

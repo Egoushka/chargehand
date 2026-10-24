@@ -541,7 +541,7 @@ public sealed class BenchRunnerTests : IDisposable
         Assert.Contains("the profile names no session image for python", Out.ToString());
     }
 
-    // ---- the bare arm (ADR 0079) ----
+    // ---- the bare arm (ADR 0080) ----
 
     [Fact]
     public async Task The_bare_arm_sends_the_same_goals_as_a_plain_batch_with_no_second_round_and_marks_its_results()

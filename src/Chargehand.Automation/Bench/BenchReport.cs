@@ -137,7 +137,7 @@ public static class BenchReport
         b.AppendLine();
         if (results.Arm == BenchResults.BareArm)
         {
-            b.AppendLine("Arm: **bare**, the control (ADR 0079). Each task was one plain agent session on the same pin, goal, model and caps, with no skill, governor, checks, planning, handover notes, test run or pull request.");
+            b.AppendLine("Arm: **bare**, the control (ADR 0080). Each task was one plain agent session on the same pin, goal, model and caps, with no skill, governor, checks, planning, handover notes, test run or pull request.");
             b.AppendLine();
         }
 

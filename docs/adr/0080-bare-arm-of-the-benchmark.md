@@ -1,4 +1,4 @@
-# 0079. A bare control arm for the benchmark
+# 0080. A bare control arm for the benchmark
 
 - Status: accepted
 - Date: 2026-10-24

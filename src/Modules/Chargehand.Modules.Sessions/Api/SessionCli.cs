@@ -94,7 +94,7 @@ public static class SessionCli
         var secrets = SecretVariables
             .Select(Environment.GetEnvironmentVariable).Where(v => !string.IsNullOrEmpty(v)).Select(v => v!).ToList();
         // The note is the manifest the image build wrote, else one probe by the driver: the model never has to look. It sits after the static text, which stays as Prompt CI saw it.
-        // The bare arm (ADR 0079) gets no driver prompt, no environment note and no way to call the server.
+        // The bare arm (ADR 0080) gets no driver prompt, no environment note and no way to call the server.
         var options = task.Bare
             ? new SessionOptions(work, output, task, SessionCommand.Claude, secrets, "", null, null)
             : new SessionOptions(work, output, task, SessionCommand.Claude, secrets, $"{DefaultPrompt}\n\n{EnvironmentNote.Render(ToolchainManifest.Load(manifestPath) ?? await ToolchainManifest.ProbeAsync(ct), task.Environment)}",

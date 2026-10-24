@@ -64,7 +64,7 @@ public static partial class SessionDriver
         return args;
     }
 
-    /// <summary>The bare arm's session (ADR 0079): the goal as the prompt, the same tools minus chargehand's own, the same model and cap, and nothing else: no plugin, no skill, no appended system prompt, no hook.</summary>
+    /// <summary>The bare arm's session (ADR 0080): the goal as the prompt, the same tools minus chargehand's own, the same model and cap, and nothing else: no plugin, no skill, no appended system prompt, no hook.</summary>
     private static List<string> BareArgs(SessionTask task, string mcpConfigFile)
     {
         List<string> args =

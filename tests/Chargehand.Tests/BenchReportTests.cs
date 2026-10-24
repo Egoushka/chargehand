@@ -265,7 +265,7 @@ public class BenchReportTests
         Assert.Equal(2, BenchCli.Report([dir.Write("not.json", "{\"hello\":1}")], output, error));
     }
 
-    // ---- the two arms side by side (ADR 0079) ----
+    // ---- the two arms side by side (ADR 0080) ----
 
     private static BenchResults Arm(string? arm, params TaskResult[] tasks) => Results(tasks) with { Arm = arm };
 

@@ -5,7 +5,7 @@ using Chargehand.Kernel;
 
 namespace Chargehand.Tests;
 
-/// <summary>The benchmark's arm on a driven request (ADR 0079): which values the server accepts, and that the field is additive on the wire.</summary>
+/// <summary>The benchmark's arm on a driven request (ADR 0080): which values the server accepts, and that the field is additive on the wire.</summary>
 public class DrivenArmTests
 {
     private static RequestDriven Driven(string? arm, bool? bench) => new([new DrivenTask("t", Goal: "g")], Bench: bench, Arm: arm);

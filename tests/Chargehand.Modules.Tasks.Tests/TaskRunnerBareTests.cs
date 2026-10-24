@@ -5,7 +5,7 @@ using static Chargehand.Tests.DrivenFakes;
 
 namespace Chargehand.Modules.Tasks.Tests;
 
-/// <summary>The benchmark's bare arm (ADR 0079) as a task runs it: a plain session, one handover that skips the tests and the pull request, and no salvage or second session.</summary>
+/// <summary>The benchmark's bare arm (ADR 0080) as a task runs it: a plain session, one handover that skips the tests and the pull request, and no salvage or second session.</summary>
 public class TaskRunnerBareTests
 {
     private static SessionOutcome Outcome(SessionStatus status, string reason = "", int commits = 0, bool bare = true) =>

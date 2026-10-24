@@ -200,7 +200,7 @@ public static partial class SessionDriver
                 governorHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(options.OutDirectory, GovernorFile), ct)));
             }
 
-            // The bare arm (ADR 0079) commits once, as the person who ran it would, and writes no handoff.
+            // The bare arm (ADR 0080) commits once, as the person who ran it would, and writes no handoff.
             var snapshotNote = _task.Bare ? await SnapshotAsync(options, "", detector.Turns, ct, BareSubject)
                 : _stoppedBy.Cause is { } stopped ? await SnapshotAsync(options, stopped.Reason, detector.Turns, ct) : null;
             if (_stoppedBy.Cause is { } stoppedFor && !_task.Bare)

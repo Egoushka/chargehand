@@ -11,7 +11,7 @@ namespace Chargehand.Bench;
 /// <param name="CheckPins">In a dry run, ask each upstream whether it serves the pinned commit (needs the network).</param>
 /// <param name="RemoteTemplate">Where the server may push a task's branch, one URL per repository: <c>{name}</c> is the repository's name in the set. A fork you own, or a <c>file://</c> path.</param>
 /// <param name="MaxTokens">Input plus output tokens per batch (one batch per repository, one more for the question tasks); a real run needs this, <paramref name="MaxUsd"/> or both.</param>
-/// <param name="Arm"><c>bare</c>: the control arm (ADR 0079), each task one plain agent session with none of chargehand's features; null or <c>chargehand</c>: the driven session.</param>
+/// <param name="Arm"><c>bare</c>: the control arm (ADR 0080), each task one plain agent session with none of chargehand's features; null or <c>chargehand</c>: the driven session.</param>
 public sealed record BenchOptions(
     string OutDirectory,
     BenchEnvironment Environment,

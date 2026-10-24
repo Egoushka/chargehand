@@ -4,7 +4,7 @@ using static Chargehand.Modules.Sessions.Tests.SessionDriverTests;
 
 namespace Chargehand.Modules.Sessions.Tests;
 
-/// <summary>The bare arm of the benchmark (ADR 0079): the goal goes to Claude Code as written, nothing steers or checks the session, and the working tree is committed once at the end.</summary>
+/// <summary>The bare arm of the benchmark (ADR 0080): the goal goes to Claude Code as written, nothing steers or checks the session, and the working tree is committed once at the end.</summary>
 public class SessionBareTests
 {
     private static SessionTask BareTask() => Task() with { Bare = true };

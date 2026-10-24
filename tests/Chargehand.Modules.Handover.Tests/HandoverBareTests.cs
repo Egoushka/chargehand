@@ -5,7 +5,7 @@ namespace Chargehand.Modules.Handover.Tests;
 
 using Handover = Chargehand.Modules.Handover.Api.Handover;
 
-/// <summary>The bare arm's handover (ADR 0079): the branch is scanned and pushed as it is, with no test run and no pull request.</summary>
+/// <summary>The bare arm's handover (ADR 0080): the branch is scanned and pushed as it is, with no test run and no pull request.</summary>
 public class HandoverBareTests
 {
     private static readonly string AwsKey = "AKIA" + "IOSFODNN7EXAMPLE";

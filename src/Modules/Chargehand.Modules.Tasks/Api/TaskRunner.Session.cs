@@ -194,7 +194,7 @@ public sealed partial class TaskRunner
         await workspace.PrepareWorkspaceAsync(new WorkspaceSpec(runId, settings.Image, settings.SourcePath, RunnerNames.Work(runId), branch, settings.BaseCommit), ct);
         if (seed is not null)
             await volumes.WriteSeedAsync(runId, seed, ct);
-        // The bare arm (ADR 0079) keeps the limits and the caps, which bound its cost as they bound the other arm's, and drops everything that steers or checks the session.
+        // The bare arm (ADR 0080) keeps the limits and the caps, which bound its cost as they bound the other arm's, and drops everything that steers or checks the session.
         await volumes.WriteTaskAsync(runId, Bare
             ? new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices, CheckRetries: 0, Bare: true)
             : new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices,

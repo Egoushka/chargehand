@@ -3,7 +3,7 @@ using System.Text;
 
 namespace Chargehand.Bench;
 
-/// <summary>The two arms of a benchmark side by side (ADR 0079): chargehand's driven session and the bare agent, on the same task set. Rates carry the Wilson interval; the per-task table and
+/// <summary>The two arms of a benchmark side by side (ADR 0080): chargehand's driven session and the bare agent, on the same task set. Rates carry the Wilson interval; the per-task table and
 /// the list of tasks where the arms differ come from the same facts as every other report.</summary>
 public static class BenchArms
 {
