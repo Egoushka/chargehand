@@ -11,7 +11,7 @@ namespace Chargehand.Automation;
 /// <paramref name="flakes"/> is the CI history the <c>flaky-tests</c> template is given; without it the template reads the test code only. <paramref name="alerts"/> reads the open alerts of
 /// <c>security-alerts</c> as the GitHub App; without it that template starts nothing.</summary>
 public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IRepositoryHeads heads, ScheduleState state, IScheduleNotifier notifier, IMorningSource morning, TimeProvider? clock = null,
-    Action<string>? warn = null, IFlakeHistory? flakes = null, ISecurityAlerts? alerts = null)
+    Action<string>? warn = null, IFlakeHistory? flakes = null, ISecurityAlerts? alerts = null, ManagedClones? clones = null)
 {
     /// <summary>What a start did: a run (or the report) started and counts against the cap; nothing was due to start, yet the occurrence is dealt with; or it is tried again later.</summary>
     private enum Start { Started, Nothing, Later }
@@ -27,8 +27,11 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
     public static readonly TimeSpan LostAfter = TimeSpan.FromMinutes(30);
 
     private readonly TimeProvider _time = clock ?? TimeProvider.System;
-    private readonly Action<string> _warn = warn ?? (message => Console.Error.WriteLine($"chargehand: {message}"));
+    private readonly Action<string> _warn = warn ?? Warned;
+    private readonly CheckoutSources _checkouts = new(heads, clones, "schedules", warn ?? Warned, warn ?? Warned);
     private readonly Dictionary<string, DateTimeOffset> _retryAt = [];
+
+    private static void Warned(string message) => Console.Error.WriteLine($"chargehand: {message}");
 
     /// <summary>Wakes until <paramref name="ct"/> ends. A failed wake is reported and tried again at the next one.</summary>
     public async Task RunAsync(IBatchStarter starter, CancellationToken ct)
@@ -115,11 +118,11 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
         IReadOnlyList<SecurityAlert> taking = [];
         if (entry.Template == ScheduleTemplates.SecurityAlerts && (taking = await AlertsToTakeAsync(entry, now, ct)).Count == 0)
             return Start.Nothing;
-        var commit = await heads.CurrentCommitAsync(entry.Repository!.Path, ct);
+        var source = await _checkouts.CurrentAsync(null, entry.Repository!.Path, ct);
         var tasks = taking.Count > 0
             ? [.. taking.Select(a => SecurityAlerts.TaskFor(a, entry.Text()!, entry.Size()))]
             : new List<DrivenTask> { new($"schedule-{entry.Id}", Goal: await GoalAsync(entry, ct), Size: entry.Size()) };
-        var started = await starter.StartAsync(Request(entry, new RepositoryRef(entry.Repository.Path, commit), tasks), ct);
+        var started = await starter.StartAsync(Request(entry, source, tasks), ct);
         if (started.RunId is not { } run)
         {
             _warn($"schedules: {entry.Id}: the server did not start the run: {started.Refusal}");

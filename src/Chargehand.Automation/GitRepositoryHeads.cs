@@ -6,7 +6,7 @@ namespace Chargehand.Automation;
 /// <summary>The commit a triggered batch starts from: the default branch of the checkout's <c>origin</c>, after a fetch with the server's own git credentials. A fetch that fails is not fatal, since a
 /// batch on a slightly old base still ends in a pull request the integrator can bring up to date; the caller is told through <paramref name="warn"/>. A checkout of <paramref name="clones"/> is fetched with
 /// the App's token instead (ADR 0051, <c>discover</c>). With <paramref name="clones"/>, a checkout git cannot write (a read-only mount) is not taken from: <see cref="ReadOnlyCheckoutException"/> names its
-/// remote, so the caller can fetch a managed clone of it instead.</summary>
+/// remote, so the caller can fetch a managed clone of it instead. A pull request head is the same: the exception carries the <c>refs/pull/N/head</c> a host job fetched, if any.</summary>
 public sealed partial class GitRepositoryHeads(Action<string>? warn = null, ManagedClones? clones = null) : IRepositoryHeads
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(2);
@@ -16,14 +16,19 @@ public sealed partial class GitRepositoryHeads(Action<string>? warn = null, Mana
         var fetch = await GitAsync(path, ["fetch", "--quiet", "origin"], ct, await AuthAsync(path, ct));
         if (fetch.ExitCode != 0)
         {
-            if (clones is not null && !clones.Owns(path) && CannotWrite().IsMatch(fetch.Output))
-            {
-                var origin = await GitAsync(path, ["remote", "get-url", "origin"], ct);
-                throw new ReadOnlyCheckoutException(fetch.Output, origin.ExitCode == 0 ? origin.Output : "", await HeadAsync(path, ct));
-            }
+            if (Unwritable(path, fetch.Output))
+                throw await ReadOnlyAsync(path, fetch.Output, await HeadAsync(path, ct), ct);
             warn?.Invoke($"intake: could not fetch {Path.GetFileName(Path.GetFullPath(path))}: {fetch.Output}");
         }
         return await HeadAsync(path, ct) ?? throw new IntakeException($"{Path.GetFileName(Path.GetFullPath(path))} has no origin/HEAD to start from");
+    }
+
+    private bool Unwritable(string path, string output) => clones is not null && !clones.Owns(path) && CannotWrite().IsMatch(output);
+
+    private static async Task<ReadOnlyCheckoutException> ReadOnlyAsync(string path, string output, string? stale, CancellationToken ct)
+    {
+        var origin = await GitAsync(path, ["remote", "get-url", "origin"], ct);
+        return new ReadOnlyCheckoutException(output, origin.ExitCode == 0 ? origin.Output : "", stale);
     }
 
     private static async Task<string?> HeadAsync(string path, CancellationToken ct)
@@ -46,8 +51,11 @@ public sealed partial class GitRepositoryHeads(Action<string>? warn = null, Mana
             // A read-only checkout cannot fetch; a host job that keeps it current may have fetched refs/pull/* already. The caller
             // compares the commit with the pull request's head, so a stale ref only waits for the next poll.
             var kept = await GitAsync(path, ["rev-parse", "--verify", "--end-of-options", $"refs/pull/{id}/head^{{commit}}"], ct);
-            return kept.ExitCode == 0 && kept.Output.Length >= 7 ? kept.Output
-                : throw new IntakeException($"could not fetch the head of pull request {id} into {Path.GetFileName(Path.GetFullPath(path))}: {fetch.Output}");
+            var commit = kept.ExitCode == 0 && kept.Output.Length >= 7 ? kept.Output : null;
+            // With clones the caller decides: it uses that ref if it is the head it wants, else fetches into the managed clone.
+            if (Unwritable(path, fetch.Output))
+                throw await ReadOnlyAsync(path, fetch.Output, commit, ct);
+            return commit ?? throw new IntakeException($"could not fetch the head of pull request {id} into {Path.GetFileName(Path.GetFullPath(path))}: {fetch.Output}");
         }
         var head = await GitAsync(path, ["rev-parse", "--verify", "--end-of-options", $"{local}^{{commit}}"], ct);
         return head.ExitCode == 0 && head.Output.Length >= 7 ? head.Output : throw new IntakeException($"pull request {id} has no head commit in {Path.GetFileName(Path.GetFullPath(path))}");

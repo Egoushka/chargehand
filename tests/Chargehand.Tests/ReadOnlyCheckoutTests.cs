@@ -83,6 +83,130 @@ public class ReadOnlyCheckoutTests
         Assert.Contains(rig.Warnings, w => w.Contains("starts from the commit the checkout has", StringComparison.Ordinal));
     }
 
+    private static AutomationGitHub Reviewing() =>
+        new(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, [IntakeRig.Author], MaxConcurrent: 5, ReviewPulls: true);
+
+    private const string Sha = "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    private const string Old = "0ld0ld0ld0ld0ld0ld0ld0ld0ld0ld0ld0ld0ld0";
+
+    [Fact]
+    public async Task A_pull_head_git_cannot_fetch_into_a_read_only_checkout_says_so_with_the_ref_a_host_job_kept_and_without_clones_that_ref_is_used()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+        using var origin = new TempDir();
+        using var checkout = new TempDir();
+        using var dir = new TempDir();
+        Git(origin.Path, "init", "-q", "-b", "main");
+        File.WriteAllText(Path.Combine(origin.Path, "a.txt"), "one");
+        Git(origin.Path, "add", ".");
+        Git(origin.Path, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "one");
+        var kept = Git(origin.Path, "rev-parse", "HEAD");
+        Git(origin.Path, "update-ref", "refs/pull/5/head", kept);
+        Git(checkout.Path, "clone", "-q", origin.Path, ".");
+        Git(checkout.Path, "update-ref", "refs/pull/5/head", kept);
+        var git = Path.Combine(checkout.Path, ".git");
+        File.SetUnixFileMode(git, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            var e = await Assert.ThrowsAsync<ReadOnlyCheckoutException>(() => new GitRepositoryHeads(clones: Clones(dir)).FetchPullHeadAsync(checkout.Path, 5, default));
+            Assert.Equal((origin.Path, kept), (e.OriginUrl, e.Stale));
+
+            Assert.Equal(kept, await new GitRepositoryHeads().FetchPullHeadAsync(checkout.Path, 5, default));
+        }
+        finally
+        {
+            File.SetUnixFileMode(git, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    [Fact]
+    public async Task A_pull_request_is_reviewed_from_the_managed_clone_when_the_checkout_cannot_be_written_and_later_ones_go_there_directly()
+    {
+        using var dir = new TempDir();
+        var clones = Clones(dir);
+        using var rig = new IntakeRig(Reviewing(), clones: clones);
+        rig.Heads.ReadOnly["/srv/repos/repo"] = new ReadOnlyCheckoutException("cannot open '.git/FETCH_HEAD': Read-only file system", Url, Old);
+        rig.OpenPull(5, Sha);
+        await rig.Poll();
+        rig.OpenPull(6, "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        await rig.Poll();
+
+        Assert.Equal([new RepositoryRef(clones.PathOf(IntakeRig.Repo), Sha), new RepositoryRef(clones.PathOf(IntakeRig.Repo), "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")],
+            rig.Starter.Started.Select(r => r.Context.Repository));
+        Assert.Equal(["/srv/repos/repo", clones.PathOf(IntakeRig.Repo), clones.PathOf(IntakeRig.Repo)], rig.Heads.FetchedInto);
+        Assert.Contains(rig.Infos, i => i.Contains("intake: octo/repo: /srv/repos/repo cannot be written", StringComparison.Ordinal));
+        Assert.Empty(rig.Warnings);
+    }
+
+    [Fact]
+    public async Task A_pull_request_whose_head_the_host_job_already_fetched_into_the_read_only_checkout_is_reviewed_there()
+    {
+        using var dir = new TempDir();
+        using var rig = new IntakeRig(Reviewing(), clones: Clones(dir));
+        rig.Heads.ReadOnly["/srv/repos/repo"] = new ReadOnlyCheckoutException("cannot open '.git/FETCH_HEAD': Read-only file system", Url, Sha);
+        rig.OpenPull(5, Sha);
+        await rig.Poll();
+
+        Assert.Equal(new RepositoryRef("/srv/repos/repo", Sha), Assert.Single(rig.Starter.Started).Context.Repository);
+        Assert.Equal(["/srv/repos/repo"], rig.Heads.FetchedInto);
+    }
+
+    [Fact]
+    public async Task A_pull_request_whose_read_only_checkout_has_an_old_head_and_whose_remote_cannot_be_cloned_is_not_reviewed_and_says_why()
+    {
+        using var dir = new TempDir();
+        using var rig = new IntakeRig(Reviewing(), clones: Clones(dir, cloned: false));
+        rig.Heads.ReadOnly["/srv/repos/repo"] = new ReadOnlyCheckoutException("cannot open '.git/FETCH_HEAD': Read-only file system", "git@github.example.test:octo/repo.git", Old);
+        rig.OpenPull(5, Sha);
+        await rig.Poll();
+
+        Assert.Empty(rig.Starter.Started);
+        Assert.Contains(rig.Warnings, w => w.Contains("octo/repo#5: review not started", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_scheduled_run_on_a_read_only_checkout_starts_from_the_managed_clone_at_a_fresh_commit()
+    {
+        using var dir = new TempDir();
+        var clones = Clones(dir);
+        using var rig = new ScheduleRig(ScheduleRig.Docs());
+        rig.UseClones(clones);
+        rig.Heads.ReadOnly["/srv/repos/repo"] = new ReadOnlyCheckoutException("cannot open '.git/FETCH_HEAD': Read-only file system", Url, Old);
+        await rig.Tick();
+        await rig.Wake(TimeSpan.FromHours(4));
+
+        var request = Assert.Single(rig.Starter.Started);
+        Assert.Equal(new RepositoryRef(clones.PathOf(IntakeRig.Repo), rig.Heads.Commit), request.Context.Repository);
+        Assert.Equal(["/srv/repos/repo", clones.PathOf(IntakeRig.Repo)], rig.Heads.Asked);
+    }
+
+    [Fact]
+    public async Task A_plane_item_on_a_read_only_checkout_starts_from_the_managed_clone_at_a_fresh_commit()
+    {
+        using var dir = new TempDir();
+        var clones = Clones(dir);
+        using var rig = new PlaneRig();
+        rig.UseClones(clones);
+        rig.Heads.ReadOnly["/srv/repos/repo"] = new ReadOnlyCheckoutException("cannot open '.git/FETCH_HEAD': Read-only file system", Url, Old);
+        rig.Item(7);
+        await rig.Poll();
+
+        Assert.Equal(new RepositoryRef(clones.PathOf(IntakeRig.Repo), rig.Heads.Commit), Assert.Single(rig.Starter.Started).Context.Repository);
+        Assert.Equal(["/srv/repos/repo", clones.PathOf(IntakeRig.Repo)], rig.Heads.Asked);
+    }
+
+    [Fact]
+    public void The_clones_are_among_the_repository_roots_when_only_schedules_or_plane_intake_is_configured()
+    {
+        using var dir = new TempDir();
+        var profile = Profile.Load(dir.Write("local.json", """{"schema":"profile/v1","worker_root":"/var/tmp/ch","repository_roots":["/srv/repos"]}"""));
+
+        Assert.Equal(["/srv/repos"], profile.Roots);
+        foreach (var automation in new[] { new AutomationSettings(Schedules: new AutomationSchedules()), new AutomationSettings(Plane: new AutomationPlane()) })
+            Assert.Equal(["/srv/repos", Path.Combine("/var/tmp/ch", "repos")], (profile with { Automation = automation }).Roots);
+    }
+
     [Fact]
     public void GitHub_intake_puts_its_clones_among_the_repository_roots_without_discover()
     {

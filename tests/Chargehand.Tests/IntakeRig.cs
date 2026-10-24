@@ -183,12 +183,16 @@ internal sealed class FakeHeads : IRepositoryHeads
 
     public List<int> Fetched { get; } = [];
 
+    /// <summary>The checkouts pull request heads were fetched into, in order.</summary>
+    public List<string> FetchedInto { get; } = [];
+
     public Func<int, string> Listed { get; set; } = _ => "";
 
     public Task<string> FetchPullHeadAsync(string path, int number, CancellationToken ct)
     {
         Fetched.Add(number);
-        return Task.FromResult(PullHeads.GetValueOrDefault(number) ?? Listed(number));
+        FetchedInto.Add(path);
+        return ReadOnly.TryGetValue(path, out var e) ? throw e : Task.FromResult(PullHeads.GetValueOrDefault(number) ?? Listed(number));
     }
 }
 
