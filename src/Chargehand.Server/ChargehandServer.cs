@@ -97,10 +97,8 @@ public static partial class ChargehandServer
         // OrchestrateTool reads the MCP call's Prefer header.
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddSingleton(new McpHttp(settings.McpWait ?? DefaultMcpWait, log));
-        // The owner hears of a paused or resumed model credential where scheduled results go (automation.schedules.notify_url).
-        Func<string, string, CancellationToken, Task>? notify = settings.Profile?.Automation?.Schedules?.NotifyUrl is { } notifyUrl
-            ? (title, body, ct) => new Chargehand.Automation.HttpScheduleNotifier().PostAsync(notifyUrl, title, body, ct)
-            : null;
+        // The owner hears of a paused or resumed model credential where scheduled results go (automation.schedules.notify_url), else on the phone (automation.notify.ntfy_url).
+        var notify = CredentialAlert.Notify(settings.Profile?.Automation);
         AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory, driven, settings.MaxConcurrentRuns, settings.MaxSessionCalls, settings.StateDirectory, log, settings.Clock,
                 settings.Accounts, notify)
             // Hybrid: 2026-07-28 clients run stateless (tasks, input_required results); initialize clients get a session.
