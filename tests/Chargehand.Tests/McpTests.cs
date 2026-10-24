@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Chargehand.Contracts;
@@ -241,6 +242,37 @@ public class McpTests
         Assert.Equal(ResultStatus.Completed, Result(done).Status);
         var list = JsonDocument.Parse(await (await s.Http.GetAsync($"/v1/runs?run_id={status.RunId}")).Content.ReadAsStringAsync());
         Assert.Equal(repo.Commit, list.RootElement.GetProperty("runs")[0].GetProperty("commit").GetString());
+    }
+
+    [Fact]
+    public async Task A_session_reads_its_own_research_with_the_result_tool_and_no_other_run()
+    {
+        // CHARGEHAND-313: a run token's principal is the owner, who sees every run; the result tool must answer the token's own runs only.
+        var runtime = new ScriptedRuntime(Runs.WorkerReply) { Hold = new() };
+        await using var s = await TestServer.StartAsync(runtime, tweak: (_, settings) => settings with { McpWait = TimeSpan.FromMilliseconds(300) });
+        var repo = Runs.GitRepo(s.WorkerRoot);
+        var other = (await (await s.PostAsync(Runs.CheapRequest(repo), waitSeconds: 0)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("run_id").GetString()!;
+        var token = s.Tokens.Issue(new RunTokenClaims("run-parent", repo.Path, repo.Commit, null, null, DateTimeOffset.UtcNow.AddHours(1)), DateTimeOffset.UtcNow);
+        await using var client = await Connect(s, bearer: token);
+        var request = new RunRequest("request/v1", "What does the README say?", new RequestContext(false, "default", Repository: repo));
+        var call = await client.CallToolAsync(OrchestrateTool.Name, Args(request).ToDictionary(a => a.Key, a => (object?)a.Value)).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        var own = JsonSerializer.Deserialize<RunStatus>(((TextContentBlock)call.Content[^1]).Text, ContractJson.Options)!.RunId;
+
+        async Task Check()
+        {
+            var refused = await client.CallToolAsync(ResultTool.Name, new Dictionary<string, object?> { ["run_id"] = other }).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.True(refused.IsError);
+            Assert.Contains($"no run {other}", ((TextContentBlock)refused.Content[0]).Text, StringComparison.Ordinal);
+        }
+
+        // Held in this process, then finished and read back from the run log.
+        await Check();
+        runtime.Hold.SetResult();
+        foreach (var id in new[] { own, other })
+            await ServerTests.WaitUntil(async () => (await s.Http.GetAsync($"/v1/runs/{id}")).StatusCode == System.Net.HttpStatusCode.OK);
+        await Check();
+        var done = await client.CallToolAsync(ResultTool.Name, new Dictionary<string, object?> { ["run_id"] = own }).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(ResultStatus.Completed, Result(done).Status);
     }
 
     [Fact]
