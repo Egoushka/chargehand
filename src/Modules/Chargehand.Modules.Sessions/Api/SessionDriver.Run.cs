@@ -215,7 +215,7 @@ public static partial class SessionDriver
             var streamHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(options.OutDirectory, "stream.jsonl"), ct)));
             var outcome = new SessionOutcome(status, reason, detector.Turns, _tally.Input, _tally.Output, _tally.CacheRead, _tally.CostUsd, _exitCode,
                 [.. questions.Select(q => Redact(q, options.Secrets))], bundle, streamHash, _tally.CacheWrite, _tally.SessionId, _tally.Model, _tally.ModelUsage.Count == 0 ? null : _tally.ModelUsage,
-                _tally.UsdEstimate, status == SessionStatus.RateLimited ? UsageLimit.ResetsAt(_tally.ResultText) : null, _tally.UsdEstimatePartial, commits, snapshotNote,
+                _tally.UsdEstimate, status == SessionStatus.RateLimited ? GatewayRefusal.ResetsAt(_tally.ResultText, DateTimeOffset.UtcNow) : null, _tally.UsdEstimatePartial, commits, snapshotNote,
                 governor is null ? null : _decisions, governorHash, checks, reminder?.Gate.Sent ?? 0, _task.Bare);
             await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "session-outcome.json"), Redact(JsonSerializer.Serialize(outcome, OutcomeJson.SessionOutcome), options.Secrets), ct);
             return outcome;

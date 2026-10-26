@@ -5,6 +5,7 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Modules.Batches.Api;
@@ -117,6 +118,12 @@ public sealed partial class BatchLifecycle
         {
             if (c.Detaching())
                 return;
+            if (o.Budget)
+                c.Progress?.Invoke(RunStatus.Of(c.RunId, RunState.Running, RunEventKind.SessionProgress) with
+                {
+                    TaskId = o.Id,
+                    Detail = $"task {o.Id}: the model gateway's budget is used up; no task starts until {(o.RetryAfter ?? GatewayRefusal.NextUtcDay(DateTimeOffset.UtcNow)).UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)}, and the task can be sent again then",
+                });
             if (tasks is not null)
                 await tasks.FinishedAsync(o);
             c.Progress?.Invoke(TaskFinished(c.RunId, o));

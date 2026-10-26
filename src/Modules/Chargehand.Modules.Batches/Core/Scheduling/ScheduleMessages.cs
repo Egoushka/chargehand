@@ -1,3 +1,4 @@
+using Chargehand.Contracts;
 using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Modules.Batches.Core.Scheduling;
@@ -20,7 +21,7 @@ internal sealed record Admitted(string TaskId, string? Runner, string? Forced, D
 internal sealed record Held(string TaskId, string Detail, DateTimeOffset Now) : ScheduleEvent;
 
 /// <summary>Nothing will place the task: the batch stops starting tasks.</summary>
-internal sealed record Refused(string TaskId, string? Detail, DateTimeOffset Now) : ScheduleEvent;
+internal sealed record Refused(string TaskId, string? Detail, DateTimeOffset Now, ErrorCode? Error = null) : ScheduleEvent;
 
 /// <summary>The placed task did not start this time: another batch holds the shared slots, or a halt cut the host's answer short.</summary>
 internal sealed record Blocked(DateTimeOffset Now) : ScheduleEvent;

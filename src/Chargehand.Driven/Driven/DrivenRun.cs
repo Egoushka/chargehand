@@ -72,6 +72,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     private readonly int _maxParallelTotal = Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4);
 
+    /// <summary>What the model gateway's refusals allow now: a spent budget halts starts until its reset, a rate limit shrinks the pool (issue #578).</summary>
+    private readonly GatewayGate _gate = new(Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4), log: message => Console.Error.WriteLine($"chargehand: {message}"));
+
     private readonly SemaphoreSlim _global = new(Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4));
 
     /// <summary>What an operator can do to a batch this process is running now (CHARGEHAND-214); null for any other.</summary>
@@ -121,6 +124,12 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     /// <summary><c>driven.max_parallel_total</c>: tasks running at once across every batch.</summary>
     public int MaxParallelTotal => _maxParallelTotal;
+
+    /// <summary><see cref="MaxParallelTotal"/> as the gateway's rate limits leave it now (never below 1).</summary>
+    public int EffectiveMaxParallelTotal => _gate.Effective;
+
+    /// <summary>Until when a spent gateway budget holds every start; null when none does.</summary>
+    public DateTimeOffset? GatewayHaltedUntil => _gate.HaltedUntil;
 
     /// <summary>Tasks running now, across every batch of this process.</summary>
     public int SessionsRunning => Math.Max(0, _maxParallelTotal - _global.CurrentCount);
@@ -363,7 +372,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var own = new AccountCredentials(profile.Http?.Accounts).For(c.Actor);
         var priced = own is not null || claude.ApiKeySecret is not null;
         var perTaskUsd = Math.Min(kind.Budget.MaxUsd, c.Request.Driven!.MaxUsdTotal ?? decimal.MaxValue);
-        var limits = DrivenBatch.Limits(c.Request, options, drivenPreset, perTaskUsd, priced, _global);
+        var limits = DrivenBatch.Limits(c.Request, options, drivenPreset, perTaskUsd, priced, _global, _gate);
         // No push_secret: the GitHub App pushes, once the checkout says the remote is on GitHub (PushOf).
         var push = settings.PushSecret is { } pushSecret ? new PushCredential(Resolve(s, pushSecret)) : s.AppToken is not null ? null : throw new ChargehandException(ErrorCode.CredentialUnavailable,
             "driven.push_secret is not set and there is no GitHub App (driven.integrator), so nothing could be pushed",

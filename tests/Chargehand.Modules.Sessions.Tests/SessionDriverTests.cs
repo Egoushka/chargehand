@@ -417,6 +417,37 @@ public class SessionDriverTests
         Assert.Equal(outcome.RateLimitResetsAt, read.RateLimitResetsAt);
     }
 
+    [Theory]
+    [InlineData("API Error: 402 {\"error\":{\"message\":\"Budget has been exceeded! Current cost: 5, Max budget: 5\"}}")]
+    [InlineData("API Error: 429 {\"error\":{\"message\":\"Max budget exceeded for key\",\"type\":\"rate_limit_error\"}}")]
+    public async Task A_gateway_budget_refusal_ends_the_session_resumable_with_the_next_utc_midnight_as_its_reset(string text)
+    {
+        using var w = new Workspace();
+        var result = JsonSerializer.Serialize(new { type = "result", is_error = true, result = text });
+        var before = DateTimeOffset.UtcNow;
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init, Assistant("m1", "hi"), result), Task()), default);
+        Assert.Equal((SessionStatus.RateLimited, GatewayRefusal.BudgetReason), (outcome.Status, outcome.Reason));
+        Assert.Equal(GatewayRefusal.NextUtcDay(before), outcome.RateLimitResetsAt);
+    }
+
+    [Fact]
+    public async Task A_plain_429_keeps_the_rate_limit_reason_and_reads_the_gateways_retry_after()
+    {
+        using var w = new Workspace();
+        var result = JsonSerializer.Serialize(new { type = "result", is_error = true, result = "API Error: 429 rate_limit_error, retry-after: 30" });
+        var before = DateTimeOffset.UtcNow;
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init, Assistant("m1", "hi"), result), Task()), default);
+        Assert.Equal((SessionStatus.RateLimited, "rate_limited"), (outcome.Status, outcome.Reason));
+        Assert.InRange(outcome.RateLimitResetsAt!.Value, before.AddSeconds(30), DateTimeOffset.UtcNow.AddSeconds(30));
+    }
+
+    [Theory]
+    [InlineData("API Error: 402 payment required", true)]
+    [InlineData("Budget has been exceeded! status 429", true)]
+    [InlineData("API Error: 429 rate limit exceeded", false)]
+    [InlineData("error at line 402 of Program.cs", false)]
+    public void Only_a_402_or_a_limit_naming_a_budget_is_a_budget_refusal(string text, bool budget) => Assert.Equal(budget, GatewayRefusal.IsBudget(text));
+
     [Fact]
     public async Task A_result_with_a_429_error_is_rate_limited_without_a_reset_time_and_other_errors_still_fail()
     {
