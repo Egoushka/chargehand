@@ -210,7 +210,7 @@ public sealed partial class TaskRunner
         try
         {
             var container = await StartSessionAsync(task, fixRun, f.Branch, request.Goal, integrator.CiFix.Turns, integrator.CiFix.Minutes, left, running.UsdEstimate ?? 0, f.Seed, sessionStarted,
-                $"session container started (CI fix attempt {request.Attempt} of {request.MaxAttempts})", f.Span, f.TraceId, f.Budget, token);
+                $"session container started (CI fix attempt {request.Attempt} of {request.MaxAttempts})", f.Span, f.TraceId, f.Budget, token, followUp: true);
             f.Containers[fixRun] = container;
             await WaitAsync(container, fixRun, task.Id, integrator.CiFix.Minutes, f.Progress, sessionStarted, running, token);
             await Tolerant(task.Id, () => volumes.FetchOutputAsync(fixRun, outDirectory, token), token);
