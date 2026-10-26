@@ -2,6 +2,7 @@ using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
 
@@ -143,5 +144,40 @@ public class DrivenReviewRoundTests
 
         Assert.Equal(ErrorCode.InvalidRequest, result.Error!.Code);
         Assert.Contains("a completed one with a pushed branch can continue", result.Error.Message);
+    }
+
+    /// <summary>Fails the first task's write after its pull request is open: what a crash between the handover and the end of the task looks like.</summary>
+    private sealed class FailsOnce : ILearningStore
+    {
+        private int _calls;
+
+        public Task AppendAsync(LearningRecord record, CancellationToken ct) =>
+            Interlocked.Increment(ref _calls) == 1 ? throw new InvalidOperationException("the store broke") : Task.CompletedTask;
+
+        public Task AppendAsync(PrOutcomeRecord record, CancellationToken ct) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct, bool includeBench = false) => Task.FromResult<IReadOnlyList<LearningEntry>>([]);
+    }
+
+    [Fact]
+    public async Task A_task_that_failed_after_opening_its_pull_request_keeps_its_run_id_and_a_review_round_continues_it()
+    {
+        var brancher = new FakeBrancher();
+        using var rig = new DrivenRunTests.Rig(brancher: brancher, learning: new FailsOnce());
+        var first = await rig.Run.RunAsync(Request(new DrivenTask("t1", Goal: "Add a retry")), First, Token, default);
+        var firstRun = rig.Engine.Started[0].RunId;
+
+        Assert.Equal(ResultStatus.Failed, first.Status);
+        var row = Row(first);
+        Assert.Equal("failed", row.GetProperty("status").GetString());
+        Assert.Equal(firstRun, row.GetProperty("run_id").GetString());
+        Assert.Equal($"chargehand/{firstRun}", row.GetProperty("branch").GetString());
+        Assert.NotNull(row.GetProperty("pr_url").GetString());
+
+        var result = await rig.Run.RunAsync(Review("alice: use a constant"), Round, Token, default);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal($"chargehand/{firstRun}", Assert.Single(brancher.Requests).Branch);
+        Assert.Contains("A reviewer has asked for changes.", rig.Volumes.Tasks[1].Goal);
     }
 }
