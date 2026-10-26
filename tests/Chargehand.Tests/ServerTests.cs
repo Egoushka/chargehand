@@ -48,13 +48,13 @@ internal sealed class TestServer : IAsyncDisposable
 
     public static async Task<TestServer> StartAsync(ScriptedRuntime runtime, IReadOnlyList<string>? allowedHosts = null, Func<string, JsonlRunLog, Chargehand.Driven.DrivenRun>? driven = null,
         IReadOnlyList<AccountSettings>? accounts = null, TimeProvider? clock = null, bool ui = false, Func<string?, IWorkerRuntime>? runtimeFor = null, Func<string, ServerSettings, ServerSettings>? tweak = null,
-        Chargehand.Automation.GitHubIntake? intake = null, Chargehand.Automation.PlaneIntake? plane = null, Chargehand.Automation.PhoneAnswers? phone = null)
+        Chargehand.Automation.GitHubIntake? intake = null, Chargehand.Automation.PhoneAnswers? phone = null)
     {
         var root = new TempDir();
         var log = new JsonlRunLog(System.IO.Path.Combine(root.Path, "log.jsonl"));
         var settings = new ServerSettings(0, Key, Repo.Path("presets"), AllowedHosts: allowedHosts, Accounts: accounts,
             AccountKeysFile: System.IO.Path.Combine(root.Path, "accounts.json"), Clock: clock, Ui: ui);
-        var app = ChargehandServer.Create(tweak is null ? settings : tweak(root.Path, settings), Runs.Orchestrator(runtime, root.Path, log, runtimeFor), log, driven?.Invoke(root.Path, log), intake, plane: plane, phone: phone);
+        var app = ChargehandServer.Create(tweak is null ? settings : tweak(root.Path, settings), Runs.Orchestrator(runtime, root.Path, log, runtimeFor), log, driven?.Invoke(root.Path, log), intake, phone: phone);
         await app.StartAsync();
         return new TestServer(root, runtime, log, app, new Uri(app.Urls.First()));
     }

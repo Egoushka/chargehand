@@ -62,7 +62,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         expect(await violations(page)).toEqual([]);
 
         // Every source with its switch: a click sets it with one PUT and the switch follows the answer.
-        await expect(page.getByText('1 running, queue with Plane')).toBeVisible();
+        await expect(page.getByText('1 running, 2 queued')).toBeVisible();
         const shop = page.getByRole('switch', { name: 'Watch example/web-shop' });
         await expect(shop).toBeChecked();
         await shop.click();

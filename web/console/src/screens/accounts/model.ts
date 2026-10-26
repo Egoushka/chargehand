@@ -213,7 +213,7 @@ export function forecastView(account: AccountBody) {
 /** What the forecast does to the automated starts charged to the account (ADR 0076); null when none are. */
 function automationText(account: AccountBody, over: boolean): string | null {
   if (!account.automation) return null;
-  const charged = 'Automated starts (intake, Plane, schedules) are charged to this account.';
+  const charged = 'Automated starts (intake, schedules) are charged to this account.';
   if (!account.pause_on_forecast)
     return `${charged} pause_on_forecast is off: the forecast only warns.`;
   return over

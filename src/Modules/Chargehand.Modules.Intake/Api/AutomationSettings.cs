@@ -8,18 +8,16 @@ namespace Chargehand.Modules.Intake.Api;
 /// <summary>ADR 0051: work that starts without a caller. Unset, nothing is watched. The Intake module owns these settings (ADR 0060); <c>Chargehand.Automation</c> reads them until it is ported.</summary>
 /// <param name="Github">Issues and comments on GitHub that start a driven batch; null: not watched.</param>
 /// <param name="Schedules">Work that runs on a clock within a monthly cap (ADR 0068); null: none.</param>
-/// <param name="Plane">Plane work items in a chosen state that start a driven batch; null: not watched.</param>
-/// <param name="Account">An account of <c>http.accounts</c> that every automated start (GitHub, Plane, schedules) is charged to and admitted as (ADR 0076): its caps, budget clamps, concurrency
+/// <param name="Account">An account of <c>http.accounts</c> that every automated start (GitHub, schedules) is charged to and admitted as (ADR 0076): its caps, budget clamps, concurrency
 /// limit and opt-in forecast pause apply. Null: they run as the owner, with no account caps.</param>
 /// <param name="Notify">Where a driven task's question or partial stop is sent with its answer options (ADR 0077); null: nowhere, it waits in the inbox.</param>
-public sealed record AutomationSettings(AutomationGitHub? Github = null, AutomationSchedules? Schedules = null, AutomationPlane? Plane = null, string? Account = null, AutomationNotify? Notify = null)
+public sealed record AutomationSettings(AutomationGitHub? Github = null, AutomationSchedules? Schedules = null, string? Account = null, AutomationNotify? Notify = null)
 {
     /// <param name="drivenEnabled">Whether <c>driven.enabled</c> is set.</param>
     public void Validate(bool drivenEnabled, DrivenIntegrator? integrator)
     {
         Github?.Validate(drivenEnabled, integrator);
         Schedules?.Validate(drivenEnabled);
-        Plane?.Validate(drivenEnabled);
         Notify?.Validate(drivenEnabled);
     }
 }

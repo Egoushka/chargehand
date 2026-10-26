@@ -182,29 +182,13 @@ public class ReadOnlyCheckoutTests
     }
 
     [Fact]
-    public async Task A_plane_item_on_a_read_only_checkout_starts_from_the_managed_clone_at_a_fresh_commit()
-    {
-        using var dir = new TempDir();
-        var clones = Clones(dir);
-        using var rig = new PlaneRig();
-        rig.UseClones(clones);
-        rig.Heads.ReadOnly["/srv/repos/repo"] = new ReadOnlyCheckoutException("cannot open '.git/FETCH_HEAD': Read-only file system", Url, Old);
-        rig.Item(7);
-        await rig.Poll();
-
-        Assert.Equal(new RepositoryRef(clones.PathOf(IntakeRig.Repo), rig.Heads.Commit), Assert.Single(rig.Starter.Started).Context.Repository);
-        Assert.Equal(["/srv/repos/repo", clones.PathOf(IntakeRig.Repo)], rig.Heads.Asked);
-    }
-
-    [Fact]
-    public void The_clones_are_among_the_repository_roots_when_only_schedules_or_plane_intake_is_configured()
+    public void The_clones_are_among_the_repository_roots_when_only_schedules_are_configured()
     {
         using var dir = new TempDir();
         var profile = Profile.Load(dir.Write("local.json", """{"schema":"profile/v1","worker_root":"/var/tmp/ch","repository_roots":["/srv/repos"]}"""));
 
         Assert.Equal(["/srv/repos"], profile.Roots);
-        foreach (var automation in new[] { new AutomationSettings(Schedules: new AutomationSchedules()), new AutomationSettings(Plane: new AutomationPlane()) })
-            Assert.Equal(["/srv/repos", Path.Combine("/var/tmp/ch", "repos")], (profile with { Automation = automation }).Roots);
+        Assert.Equal(["/srv/repos", Path.Combine("/var/tmp/ch", "repos")], (profile with { Automation = new AutomationSettings(Schedules: new AutomationSchedules()) }).Roots);
     }
 
     [Fact]

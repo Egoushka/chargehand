@@ -41,23 +41,23 @@ public class DependencyHealthTests
     [Fact]
     public async Task Every_configured_check_is_named_in_the_report_and_all_ok_is_200()
     {
-        var (status, body) = await Deep(Ok("runner"), Ok("plane key"));
+        var (status, body) = await Deep(Ok("runner"), Ok("push token"));
 
         Assert.Equal(HttpStatusCode.OK, status);
-        Assert.Equal(["runner", "plane key"], body.GetProperty("checks").EnumerateArray().Select(c => c.GetProperty("name").GetString()));
+        Assert.Equal(["runner", "push token"], body.GetProperty("checks").EnumerateArray().Select(c => c.GetProperty("name").GetString()));
         Assert.All(body.GetProperty("checks").EnumerateArray(), c => Assert.True(c.GetProperty("ok").GetBoolean()));
     }
 
     [Fact]
     public async Task A_failing_configured_check_makes_the_report_503_and_names_the_reason()
     {
-        var (status, body) = await Deep(Ok("runner"), DependencyHealth.Plane(new Uri("https://plane.example.test/"), "ws", "p1", () => "plane-key", new Canned(_ => HttpStatusCode.Unauthorized)));
+        var (status, body) = await Deep(Ok("runner"), DependencyHealth.PushToken(new Uri("https://api.example.test/"), () => Secret, new Canned(_ => HttpStatusCode.Unauthorized)));
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, status);
         Assert.Equal("failing", body.GetProperty("status").GetString());
         Assert.True(body.GetProperty("probe").GetProperty("ok").GetBoolean());
         var failed = Assert.Single(body.GetProperty("checks").EnumerateArray(), c => !c.GetProperty("ok").GetBoolean());
-        Assert.Equal("plane key", failed.GetProperty("name").GetString());
+        Assert.Equal("push token", failed.GetProperty("name").GetString());
         Assert.Contains("refuses the key", failed.GetProperty("reason").GetString(), StringComparison.Ordinal);
     }
 
@@ -155,24 +155,13 @@ public class DependencyHealthTests
     }
 
     [Fact]
-    public async Task The_plane_check_is_one_get_of_the_project_with_the_key_in_the_header()
-    {
-        var handler = new Canned(_ => HttpStatusCode.OK);
-
-        Assert.Null(await DependencyHealth.Plane(new Uri("https://plane.example.test/"), "ws", "p1", () => "plane-key", handler).CheckAsync(CancellationToken.None));
-
-        var request = Assert.Single(handler.Requests);
-        Assert.Equal((HttpMethod.Get, "https://plane.example.test/api/v1/workspaces/ws/projects/p1/", "plane-key"), (request.Method, request.Url, request.ApiKey));
-    }
-
-    [Fact]
     public async Task A_key_that_cannot_be_read_fails_its_check_with_the_reason_and_no_secret()
     {
-        var probe = DependencyHealth.Plane(new Uri("https://plane.example.test/"), "ws", "p1", () => throw new InvalidOperationException("secret item 'PLANE_KEY' is not set"), new Canned(_ => HttpStatusCode.OK));
+        var probe = DependencyHealth.PushToken(new Uri("https://api.example.test/"), () => throw new InvalidOperationException("secret item 'PUSH_TOKEN' is not set"), new Canned(_ => HttpStatusCode.OK));
 
         var check = (await DependencyHealth.RunAsync([probe], TimeSpan.FromSeconds(1), CancellationToken.None)).Single();
 
         Assert.False(check.Ok);
-        Assert.Contains("PLANE_KEY", check.Reason, StringComparison.Ordinal);
+        Assert.Contains("PUSH_TOKEN", check.Reason, StringComparison.Ordinal);
     }
 }
