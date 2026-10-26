@@ -16,8 +16,8 @@ dotnet run --project src/Chargehand.Cli -- run|serve|show|cache|reconcile|routes
 scripts/prompt-ci.sh <pr>             # Prompt CI on the owner's machine (profiles/local.eval.json, eval OpenCode server)
 ```
 
-Hooks: `git config core.hooksPath .githooks` (denylist + gitleaks on pre-commit, denylist +
-Conventional Commits on commit-msg). Never `--no-verify`. A linked worktree has no `.private-terms` of its own; the
+Hooks: `lefthook install` (agent-checks, denylist + gitleaks on pre-commit, denylist +
+Conventional Commits on commit-msg; the scripts live in `.githooks/`). Never `--no-verify`. A linked worktree has no `.private-terms` of its own; the
 hooks read the main checkout's, so don't copy it in.
 
 ## Layout

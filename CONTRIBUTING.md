@@ -24,7 +24,7 @@ project's license.
 ## Setup
 
 ```bash
-git config core.hooksPath .githooks
+lefthook install                           # commit hooks: agent-checks, denylist, gitleaks
 cp .private-terms.example .private-terms   # then list your own private terms
 ```
 
