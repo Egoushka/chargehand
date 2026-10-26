@@ -52,7 +52,7 @@ public sealed class BatchScheduler(RunTask run, TimeSpan? backoff = null, IAdmis
         Action<string, string>? onHold = null, Func<TaskOutcome, Task>? onSkipped = null, Action<string, DateTimeOffset>? onPause = null)
     {
         var plan = new SchedulePlan([.. tasks], limits.MaxParallel, limits.MaxTokensTotal, limits.MaxUsdTotal, limits.PerTask, backoff ?? UsageLimit.DefaultBackoff, admission?.Interval);
-        using var shell = new BatchSchedulerRun(plan, new ScheduleHost(run, limits.Global, admission, taskRequestMb, control, time ?? TimeProvider.System, journal),
+        using var shell = new BatchSchedulerRun(plan, new ScheduleHost(run, limits.Global, admission, taskRequestMb, control, time ?? TimeProvider.System, journal, limits.Gate),
             new ScheduleCallbacks(onFinished, onHold, onSkipped, onPause), ct);
         return await shell.RunAsync();
     }

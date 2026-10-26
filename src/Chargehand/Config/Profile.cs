@@ -59,9 +59,9 @@ public sealed record Profile(
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
 
-    /// <summary>Where a request's repository may live (ADR 0023); worker_root alone when the profile names none. The managed clones (ADR 0051) are among them when GitHub intake, schedules or Plane intake is configured.</summary>
+    /// <summary>Where a request's repository may live (ADR 0023); worker_root alone when the profile names none. The managed clones (ADR 0051) are among them when GitHub intake or schedules is configured.</summary>
     public IReadOnlyList<string> Roots => RepositoryRoots is null ? [WorkerRoot]
-        : Automation is { Github: not null } or { Schedules: not null } or { Plane: not null } ? [.. RepositoryRoots, ClonesRoot] : RepositoryRoots;
+        : Automation is { Github: not null } or { Schedules: not null } ? [.. RepositoryRoots, ClonesRoot] : RepositoryRoots;
 
     /// <summary>Where intake and the scheduler clone the repositories they discover and those whose checkout they cannot write.</summary>
     [JsonIgnore]
@@ -405,7 +405,7 @@ public sealed record DeliverySettings(IReadOnlyList<string>? LocalOnly = null)
                 "Fix delivery.local_only in the profile; docs/guide/reference.md lists the fields.");
         var policy = new DeliveryPolicy(roots);
         var watched = (automation?.Github?.Repositories?.Select(r => ("automation.github.repositories", r.Key, r.Value.Path)) ?? [])
-            .Concat(automation?.Plane?.Projects?.Select(r => ("automation.plane.projects", r.Key, r.Value.Path)) ?? []);
+            ;
         foreach (var (section, name, path) in watched)
             if (policy.Forced(path))
                 throw new ChargehandException(ErrorCode.InvalidRequest, $"{section}.{name}.path is under delivery.local_only: intake reads a forge and starts batches that push",

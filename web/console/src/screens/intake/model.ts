@@ -31,7 +31,7 @@ const REASONS: Record<string, string> = {
     'The repository merges by policy, so it takes work only from an issue written by an allowed author.',
   gone: 'The run to continue is no longer in the run log.',
   wait: 'Waiting for a free slot; it starts when a triggered batch ends.',
-  cap: 'The cap of starts in 24 hours was used; it is not started later.',
+  cap: 'Refused by the daily cap of starts of a release before 0.19.4; it was not started later.',
   notask:
     'No finished task for this branch is in the run log, so the branch is unknown to chargehand.',
   busy: 'The pull request’s task is still running; the comments are taken when it ends.',
@@ -168,19 +168,14 @@ export interface DayBar {
   /** The day of the month. */
   label: string;
   count: number;
-  atCap: boolean;
 }
 
 const dayKey = (date: Date) =>
   new Intl.DateTimeFormat('en-CA', { timeZone: DISPLAY_ZONE }).format(date);
 
-/**
- * Starts per day for the last `days` days, counted from the tasks the state file lists (the latest 100). The server's cap holds
- * over any 24 hours, not over a calendar day, so a bar at the cap is a day that used it, not a refusal.
- */
+/** Starts per day for the last `days` days, counted from the tasks the state file lists (the latest 100). */
 export function startsPerDay(
   tasks: IntakeTaskBody[],
-  cap: number,
   now: number = Date.now(),
   days = 7,
 ): DayBar[] {
@@ -193,7 +188,7 @@ export function startsPerDay(
     const date = new Date(now - (days - 1 - i) * 86_400_000);
     const key = dayKey(date);
     const count = counts.get(key) ?? 0;
-    return { key, label: key.slice(8).replace(/^0/, ''), count, atCap: cap > 0 && count >= cap };
+    return { key, label: key.slice(8).replace(/^0/, ''), count };
   });
 }
 
@@ -270,26 +265,23 @@ export function policyRows(
     });
 }
 
-/** A row of the Sources panel: a GitHub repository or a Plane project, with its switch and its queue. */
+/** A row of the Sources panel: a GitHub repository, with its switch and its queue. */
 export interface SourceRow {
-  kind: 'github' | 'plane';
-  /** What the switch is set by: `owner/repo`, or the Plane project id. */
+  /** What the switch is set by: `owner/repo`. */
   id: string;
   name: string;
-  /** The checkout, and for a repository whether the profile lists it or the App's installation shows it. */
+  /** The checkout, and whether the profile lists the repository or the App's installation shows it. */
   detail: string;
   enabled: boolean;
   running: number;
-  /** Null for a Plane project: its waiting items are counted for Plane as a whole. */
-  queued: number | null;
+  queued: number;
   recent: IntakeSourceRunBody[];
 }
 
-/** GitHub's repositories, then Plane's projects, each in the order the server gives. */
+/** GitHub's repositories, in the order the server gives. */
 export function sourceRows(body: IntakeSourcesBody): SourceRow[] {
-  const github = body.sources.map(
+  return body.sources.map(
     (s): SourceRow => ({
-      kind: 'github',
       id: s.repository,
       name: s.repository,
       detail: `${s.origin === 'discovered' ? 'discovered, managed clone' : 'listed'} · ${s.path}`,
@@ -299,23 +291,9 @@ export function sourceRows(body: IntakeSourcesBody): SourceRow[] {
       recent: s.recent ?? [],
     }),
   );
-  const plane = (body.plane?.projects ?? []).map(
-    (p): SourceRow => ({
-      kind: 'plane',
-      id: p.project,
-      name: p.remote ?? p.project,
-      detail: p.remote ? `project ${p.project} · ${p.path}` : p.path,
-      enabled: p.enabled,
-      running: p.running,
-      queued: null,
-      recent: p.recent,
-    }),
-  );
-  return [...github, ...plane];
 }
 
-/** "2 running, 1 queued"; a Plane project's queue is not known on its own. */
+/** "2 running, 1 queued". */
 export function queueText(row: SourceRow): string {
-  const queued = row.queued == null ? 'queue with Plane' : `${row.queued} queued`;
-  return `${row.running} running, ${queued}`;
+  return `${row.running} running, ${row.queued} queued`;
 }

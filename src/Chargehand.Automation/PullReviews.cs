@@ -26,7 +26,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
 
     private static string Key(string repository, int number, string sha) => $"{repository}#{number.ToString(CultureInfo.InvariantCulture)}@{sha}";
 
-    /// <summary>Starts a review for each pull request whose head commit has none. A cap or a busy server leaves the rest for a later poll.</summary>
+    /// <summary>Starts a review for each pull request whose head commit has none. No free slot or a busy server leaves the rest for a later poll.</summary>
     public async Task StartAsync(string name, AutomationRepository repository, CheckoutSources checkouts, IBatchStarter starter, CancellationToken ct)
     {
         foreach (var pull in await host.OpenPullsAsync(name, ct))
@@ -86,7 +86,6 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
         }
         var now = time.GetUtcNow();
         state.Reviews.Add(new PullReview(name, pull.Number, pull.HeadSha, run, now));
-        state.ReviewStarts.Add(now);
         Settle(key);
         return true;
     }
@@ -97,10 +96,8 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
         state.Save(time.GetUtcNow());
     }
 
-    /// <summary>The daily cap is used, or as many batches and reviews run as <c>max_concurrent</c> allows.</summary>
-    private bool Full() =>
-        state.ReviewStarts.Count(s => s > time.GetUtcNow() - TimeSpan.FromDays(1)) >= settings.MaxReviewsPerDay
-        || state.Tasks.Count(t => t.Phase == IntakePhase.Running) + state.Reviews.Count >= settings.MaxConcurrent;
+    /// <summary>As many batches and reviews run as <c>max_concurrent</c> allows. Spend is bounded by the account a review is admitted as (ADR 0076).</summary>
+    private bool Full() => state.Tasks.Count(t => t.Phase == IntakePhase.Running) + state.Reviews.Count >= settings.MaxConcurrent;
 
     private static string Cut(string diff) => diff.Length <= MaxDiff ? diff : diff[..MaxDiff] + $"\n[diff truncated at {MaxDiff.ToString(CultureInfo.InvariantCulture)} characters]";
 

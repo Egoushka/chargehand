@@ -1,41 +1,49 @@
 using System.Text.Json;
+using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Modules.Sessions.Api;
 
-/// <param name="Source">"request" (the caller named the command) or "detected".</param>
+/// <param name="Source">"request" (the caller named the command), "ci" (read from the repository's own CI workflow) or "detected".</param>
 public sealed record VerifyPlan(IReadOnlyList<string> Argv, string Source);
 
 /// <summary>The command that verifies a writing node's change (ADR 0035): the request's, else the repository's own test command.</summary>
 public static class VerifyCommand
 {
-    /// <summary>Null when the caller named none and the directory has no recognisable test setup.</summary>
-    public static VerifyPlan? Resolve(IReadOnlyList<string>? requested, string directory)
-    {
-        if (requested is { Count: > 0 })
-            return new VerifyPlan(requested, "request");
-        return Detect(directory) is { } argv ? new VerifyPlan(argv, "detected") : null;
-    }
+    private static readonly string[] NoOpBodies = ["true", "/bin/true", "/usr/bin/true", ":", "exit 0"];
 
-    private static string[]? Detect(string dir)
+    private const long MaxWorkflowBytes = 500_000;
+
+    /// <summary>A command that provably checks nothing: empty, blank, or a shell no-op such as <c>true</c> or <c>:</c> (CHARGEHAND-431). A caller
+    /// that names one is not believed; chargehand works out its own command instead.</summary>
+    public static bool IsNoOp(IReadOnlyList<string> argv) =>
+        argv.Count == 0 || argv.All(a => a.Trim().Length == 0) || NoOpBodies.Contains(argv[^1].Trim(), StringComparer.Ordinal);
+
+    /// <summary>Null when the caller named none (or a no-op) and the directory has no recognisable test setup.</summary>
+    public static VerifyPlan? Resolve(IReadOnlyList<string>? requested, string directory) =>
+        requested is { Count: > 0 } && !IsNoOp(requested) ? new VerifyPlan(requested, "request") : Detect(directory);
+
+    private static VerifyPlan? Detect(string dir)
     {
         // A repository's own check script is its real test command (docs/guide/driven.md, "scripts/check.sh"); prefer it
         // over a guessed ecosystem command, the way chargehand's own onboarding (RepositoryDetector.AddScripts) already does.
         if (File.Exists(Path.Combine(dir, "scripts", "check.sh")))
-            return ["sh", "scripts/check.sh"];
+            return new(["sh", "scripts/check.sh"], "detected");
+        if (DetectFromCi(dir) is { } ci)
+            return new(ci, "ci");
         bool Has(string pattern) => Directory.EnumerateFiles(dir, pattern, SearchOption.TopDirectoryOnly).Any();
         if (Has("*.sln") || Has("*.slnx") || Has("*.csproj"))
-            return ["dotnet", "test"];
+            return new(["dotnet", "test"], "detected");
         if (File.Exists(Path.Combine(dir, "package.json")) && HasNpmTest(Path.Combine(dir, "package.json")))
-            return ["npm", "test"];
+            return new(["npm", "test"], "detected");
         if (File.Exists(Path.Combine(dir, "pytest.ini")) || PyprojectUsesPytest(dir))
-            return ["python3", "-m", "pytest"];
+            return new(["python3", "-m", "pytest"], "detected");
         if (File.Exists(Path.Combine(dir, "pyproject.toml")) || HasPythonTests(dir))
-            return ["python3", "-m", "unittest"];
+            return new(["python3", "-m", "unittest"], "detected");
         if (File.Exists(Path.Combine(dir, "Cargo.toml")))
-            return ["cargo", "test"];
+            return new(["cargo", "test"], "detected");
         if (File.Exists(Path.Combine(dir, "go.mod")))
-            return ["go", "test", "./..."];
-        return DetectJvm(dir);
+            return new(["go", "test", "./..."], "detected");
+        return DetectJvm(dir) is { } jvm ? new(jvm, "detected") : null;
     }
 
     /// <summary>check, not test: ktlint and detekt (the lint tools of a JVM/Android build, the session-jdk image has the JDK and
@@ -50,6 +58,65 @@ public static class VerifyCommand
         if (File.Exists(Path.Combine(dir, "pom.xml")))
             return ["mvn", "-B", "test"];
         return null;
+    }
+
+    /// <summary>The first <c>run:</c> step of <c>.github/workflows/*.yml</c> whose text names a test runner or a check (<see cref="RepositoryReadiness.RunsTests"/>), read as a
+    /// shell command; null when the repository has no workflow, or none of its steps' commands look like tests.</summary>
+    private static string[]? DetectFromCi(string dir)
+    {
+        var workflows = Path.Combine(dir, ".github", "workflows");
+        if (!Directory.Exists(workflows))
+            return null;
+        var files = Directory.EnumerateFiles(workflows, "*.yml").Concat(Directory.EnumerateFiles(workflows, "*.yaml")).Order(StringComparer.Ordinal);
+        foreach (var file in files)
+        {
+            if (new FileInfo(file).Length > MaxWorkflowBytes)
+                continue;
+            foreach (var run in RunSteps(File.ReadAllLines(file)))
+                if (RepositoryReadiness.RunsTests([run]))
+                    return ["sh", "-c", run];
+        }
+        return null;
+    }
+
+    /// <summary>The body of every <c>run:</c> step of a workflow file: a single line as is, or a <c>|</c>/<c>&gt;</c> block joined with <c>&amp;&amp;</c>.</summary>
+    private static IEnumerable<string> RunSteps(string[] lines)
+    {
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var indented = lines[i].TrimStart();
+            if (!indented.StartsWith("run:", StringComparison.Ordinal))
+                continue;
+            var rest = indented["run:".Length..].Trim();
+            if (rest.Length > 0 && rest is not "|" and not ">" and not "|-" and not ">-")
+            {
+                yield return rest;
+                continue;
+            }
+            var (block, next) = ReadBlock(lines, i + 1);
+            if (block.Count > 0)
+                yield return string.Join(" && ", block);
+            i = next - 1;
+        }
+    }
+
+    /// <summary>The indented lines right after a <c>run: |</c>/<c>run: &gt;</c> header, and the index of the first line after them.</summary>
+    private static (List<string> Lines, int Next) ReadBlock(string[] lines, int start)
+    {
+        List<string> block = [];
+        int? indent = null;
+        var i = start;
+        for (; i < lines.Length; i++)
+        {
+            if (lines[i].Trim().Length == 0)
+                continue;
+            var own = lines[i].Length - lines[i].TrimStart().Length;
+            indent ??= own;
+            if (own < indent)
+                break;
+            block.Add(lines[i].Trim());
+        }
+        return (block, i);
     }
 
     private static bool HasNpmTest(string packageJson)

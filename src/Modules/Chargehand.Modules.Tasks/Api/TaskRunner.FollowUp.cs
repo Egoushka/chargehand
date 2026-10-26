@@ -22,18 +22,20 @@ public sealed partial class TaskRunner
         var (partial, handoverRun, handed) = await HandOverTaskAsync(task, run, ct);
         var result = await ResultAsync(task, run, partial, handoverRun.RunId, handed, ct);
         var startNote = run.StartFailure is null ? null : $"; continuation {run.Continuation + 1} did not start";
+        // A stall that would continue (ADR 0044) but left no commit has no branch to continue from; a re-plan (ADR 0049's chain, issue #432) replaces the plain continuation attempt.
+        var replan = run.Best is null && run.Session.Status == SessionStatus.Stalled && StallDetector.Continuable(run.Session.Reason);
         (string? Detail, SessionOutcome? Spent) follow = (null, null);
         if (FollowsUp(handed, run.Stack))
         {
             // A restart during the follow-up keeps this outcome rather than handing the task over again; the pull request itself holds the count of fix attempts (ADR 0046).
-            var early = Outcome(task, run.RunId, result, run.Total, handed, settings.Priced, partial, startNote);
+            var early = Outcome(task, run.RunId, result, run.Total, handed, settings.Priced, partial, startNote, replan);
             await LearnAsync(task, early, run.Session, run.Total, run.Continuation, run.Decisions, handed, partial, run.LastHead, run.Budget);
             await RecordAsync(task.Id, new TaskFinished(early));
             follow = await FollowUpAsync(task, handed!, Path.Combine(handoverRun.OutDirectory, "chargehand.bundle"), run.Best?.Commits ?? 0, run.Branch, partial, run.Total, run.Containers, run.Span,
                 run.TraceId, progress, sha => run.LastHead = sha, run.Budget, ct);
         }
         var spent = follow.Spent ?? run.Total;
-        var outcome = Outcome(task, run.RunId, result, spent, handed, settings.Priced, partial, startNote);
+        var outcome = Outcome(task, run.RunId, result, spent, handed, settings.Priced, partial, startNote, replan);
         if (follow.Detail is { } integration)
             outcome = outcome with { Detail = outcome.Detail is { } before ? $"{before}; {integration}" : integration };
         await LearnAsync(task, outcome, run.Session, spent, run.Continuation, run.Decisions, handed, partial, run.LastHead, run.Budget);
@@ -208,7 +210,7 @@ public sealed partial class TaskRunner
         try
         {
             var container = await StartSessionAsync(task, fixRun, f.Branch, request.Goal, integrator.CiFix.Turns, integrator.CiFix.Minutes, left, running.UsdEstimate ?? 0, f.Seed, sessionStarted,
-                $"session container started (CI fix attempt {request.Attempt} of {request.MaxAttempts})", f.Span, f.TraceId, f.Budget, token);
+                $"session container started (CI fix attempt {request.Attempt} of {request.MaxAttempts})", f.Span, f.TraceId, f.Budget, token, followUp: true);
             f.Containers[fixRun] = container;
             await WaitAsync(container, fixRun, task.Id, integrator.CiFix.Minutes, f.Progress, sessionStarted, running, token);
             await Tolerant(task.Id, () => volumes.FetchOutputAsync(fixRun, outDirectory, token), token);
@@ -306,7 +308,8 @@ public sealed partial class TaskRunner
         return body.Append(CostReceipt.Footer(total, continuation)).ToString();
     }
 
-    private static TaskOutcome Outcome(ResolvedTask task, string runId, ResultContract result, SessionOutcome session, HandoverOutcome? handed, bool priced, bool partial, string? partialNote)
+    private static TaskOutcome Outcome(ResolvedTask task, string runId, ResultContract result, SessionOutcome session, HandoverOutcome? handed, bool priced, bool partial, string? partialNote,
+        bool replan = false)
     {
         var state = result.Status switch
         {
@@ -316,9 +319,11 @@ public sealed partial class TaskRunner
         };
         var pushed = handed?.Status is HandoverStatus.Pushed or HandoverStatus.PrFailed;
         var detail = Detail(state, result, session, handed, pushed, partial, partialNote);
+        if (replan)
+            detail = detail is { Length: > 0 } ? $"{detail}; stalled with no commits, re-planning into smaller tasks" : "stalled with no commits, re-planning into smaller tasks";
         return new TaskOutcome(task.Id, state, runId, detail, result.Error?.Code,
             priced ? session.CostUsd ?? 0 : 0, session.InputTokens + session.OutputTokens, pushed ? handed!.Branch : null, handed?.PullRequest?.Url,
-            session.Status == SessionStatus.RateLimited ? session.RateLimitResetsAt : null);
+            session.Status == SessionStatus.RateLimited ? session.RateLimitResetsAt : null, Replan: replan, Budget: session.Reason == GatewayRefusal.BudgetReason);
     }
 
     private static string? Detail(TaskState state, ResultContract result, SessionOutcome session, HandoverOutcome? handed, bool pushed, bool partial, string? partialNote) =>

@@ -5,6 +5,7 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Modules.Batches.Api;
@@ -117,6 +118,12 @@ public sealed partial class BatchLifecycle
         {
             if (c.Detaching())
                 return;
+            if (o.Budget)
+                c.Progress?.Invoke(RunStatus.Of(c.RunId, RunState.Running, RunEventKind.SessionProgress) with
+                {
+                    TaskId = o.Id,
+                    Detail = $"task {o.Id}: the model gateway's budget is used up; no task starts until {(o.RetryAfter ?? GatewayRefusal.NextUtcDay(DateTimeOffset.UtcNow)).UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)}, and the task can be sent again then",
+                });
             if (tasks is not null)
                 await tasks.FinishedAsync(o);
             c.Progress?.Invoke(TaskFinished(c.RunId, o));
@@ -128,6 +135,50 @@ public sealed partial class BatchLifecycle
                 await tasks.FinishedAsync(o);
             c.Progress?.Invoke(TaskFinished(c.RunId, o));
         }, (id, lifts) => Pause(c, id, lifts));
+    }
+
+    /// <summary>After the schedule, a task that stalled with no commits (<see cref="TaskOutcome.Replan"/>, issue #432) is split into a chain of smaller tasks and run, replacing its outcome
+    /// with the chain's; a task the planner cannot split this way, or without a planner at all, keeps the outcome it ended with. A second schedule wave runs only the chain's tasks, on the
+    /// same router so they reach the same runner.</summary>
+    public async Task<(IReadOnlyList<ResolvedTask> Ready, BatchOutcome Ran)> ReplanAsync(BatchRunContext c, IReadOnlyList<ResolvedTask> ready, BatchOutcome ran, BatchLimits limits,
+        TaskJournal? tasks, SiteRouter router, IAdmission? admission, int requestMb, IBatchPlanner? planner)
+    {
+        ArgumentNullException.ThrowIfNull(c);
+        ArgumentNullException.ThrowIfNull(ran);
+        if (planner is null || !ran.Tasks.Any(o => o.Replan))
+            return (ready, ran);
+        List<ResolvedTask> readyNow = [.. ready];
+        List<TaskOutcome> outcomes = [.. ran.Tasks];
+        List<ResolvedTask> added = [];
+        foreach (var stalled in ran.Tasks.Where(o => o.Replan))
+        {
+            if (readyNow.FirstOrDefault(r => r.Id == stalled.Id) is not { } original || await ChainOfAsync(c, original, planner) is not { } chain)
+                continue;
+            readyNow.Remove(original);
+            readyNow.AddRange(chain);
+            outcomes.Remove(stalled);
+            added.AddRange(chain);
+        }
+        if (added.Count == 0)
+            return (ready, ran);
+        var wave = await ScheduleAsync(c, added, limits, tasks, router, admission, requestMb);
+        outcomes.AddRange(wave.Tasks);
+        return (readyNow, new BatchOutcome(outcomes, wave.Action ?? ran.Action, wave.Error ?? ran.Error));
+    }
+
+    /// <summary>The planner's split of one stalled task, applied as a chain (<see cref="PlanApplier.Replan"/>); null when the planner fails, is refused or proposes no usable split, so the
+    /// task's own outcome stands.</summary>
+    private static async Task<IReadOnlyList<ResolvedTask>?> ChainOfAsync(BatchRunContext c, ResolvedTask task, IBatchPlanner planner)
+    {
+        try
+        {
+            var proposal = await planner.ProposeAsync(new PlanInput(c.Request, [task], c.RunId, Replan: true), c.Ct);
+            return proposal.Tasks.FirstOrDefault(t => t.Id == task.Id)?.Split is { } split ? PlanApplier.Replan(task, split) : null;
+        }
+        catch (Exception e) when (e is PlanException or ChargehandException or HttpRequestException or IOException)
+        {
+            return null;
+        }
     }
 
     private void Pause(BatchRunContext c, string taskId, DateTimeOffset lifts)

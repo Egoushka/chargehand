@@ -143,18 +143,18 @@ public sealed partial class TaskRunner
     }
 
     /// <summary>The session's start as the step <c>session/&lt;task&gt;/&lt;run&gt;</c> (ADR 0061). A step that runs again first adopts or removes the container an earlier attempt left; the
-    /// workspace and task file steps inside it that finished are not repeated.</summary>
+    /// workspace and task file steps inside it that finished are not repeated. A <paramref name="followUp"/> session (a CI fix) runs after the task ended, so its container is not the task's.</summary>
     private async Task<string> StartSessionAsync(ResolvedTask task, string runId, string branch, string goal, int maxTurns, int maxMinutes, (long Tokens, decimal? Usd) left, decimal spentUsd,
-        string? seed, DateTimeOffset sessionStarted, string detail, Activity? span, string traceId, BudgetChoice? budget, CancellationToken ct)
+        string? seed, DateTimeOffset sessionStarted, string detail, Activity? span, string traceId, BudgetChoice? budget, CancellationToken ct, bool followUp = false)
     {
         if (steps is null)
-            return await CreateSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, left, spentUsd, seed, sessionStarted, detail, span, traceId, budget, ct);
+            return await CreateSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, left, spentUsd, seed, sessionStarted, detail, span, traceId, budget, ct, followUp);
         // A run id gets one start, so a completed key is never asked for again.
         var container = $"chargehand-{runId}";
         await steps.RunAsync(StepKey.Session(settings.BatchId, task.Id, runId), async (attempt, token) =>
             container = attempt.Repeated && await AdoptAsync(task.Id, runId, token) is { } adopted
                 ? adopted
-                : await CreateSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, left, spentUsd, seed, sessionStarted, detail, span, traceId, budget, token), ct);
+                : await CreateSessionAsync(task, runId, branch, goal, maxTurns, maxMinutes, left, spentUsd, seed, sessionStarted, detail, span, traceId, budget, token, followUp), ct);
         return container;
     }
 
@@ -187,7 +187,7 @@ public sealed partial class TaskRunner
 
     /// <summary>The session's container, workspace and task file, up to the container's start.</summary>
     private async Task<string> CreateSessionAsync(ResolvedTask task, string runId, string branch, string goal, int maxTurns, int maxMinutes, (long Tokens, decimal? Usd) left, decimal spentUsd,
-        string? seed, DateTimeOffset sessionStarted, string detail, Activity? span, string traceId, BudgetChoice? budget, CancellationToken ct)
+        string? seed, DateTimeOffset sessionStarted, string detail, Activity? span, string traceId, BudgetChoice? budget, CancellationToken ct, bool followUp = false)
     {
         var preset = settings.Preset;
         await engine.CreateVolumeAsync(RunnerNames.Out(runId), runId, ct);
@@ -206,7 +206,9 @@ public sealed partial class TaskRunner
         AddServiceEnvironment(env, task, runId, maxMinutes, left, sessionStarted, span, traceId);
         var container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
             preset.MemoryMb, preset.Cpus, preset.Pids, ["session"], Caches: settings.Shared?.Caches is { Count: > 0 } caches ? caches : null, Home: settings.Shared?.Home), ct);
-        await RecordAsync(task.Id, new TaskContainerStarted(container));
+        // An ended task takes no more events (TaskMachine.Refusal): a follow-up's container is tracked by the follow-up.
+        if (!followUp)
+            await RecordAsync(task.Id, new TaskContainerStarted(container));
         Publish(task.Id, RunEventKind.ContainerStarted, detail, s => s with { Branch = branch });
         return container;
     }

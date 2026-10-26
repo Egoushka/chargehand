@@ -72,7 +72,7 @@ public sealed partial class TaskRunner
             partial ? LearningOutcome.Partial : outcome.State switch { TaskState.Completed => LearningOutcome.Completed, TaskState.NeedsInput => LearningOutcome.NeedsInput, _ => LearningOutcome.Failed },
             StopReason(last), settings.Governor is { } governor ? JsonNamingPolicy.SnakeCaseLower.ConvertName(governor.Mode.ToString()) : null, Summarize(decisions), handed?.TestIntegrity is not null,
             pr is not null && settings.Remote is { } remote ? new LearningPr(pr.Url, pr.Number, remote, head) : null, settings.Actor,
-            _memoryPeaks.TryGetValue(task.Id, out var peakMb) ? peakMb : null, IsBench);
+            _memoryPeaks.TryGetValue(task.Id, out var peakMb) ? peakMb : null, IsBench, GoalTerms.Of(task.Goal));
         try
         {
             await learning.AppendAsync(record, CancellationToken.None);

@@ -71,6 +71,17 @@ public class VerifyBranchCliTests
     }
 
     [Fact]
+    public async Task The_command_sees_the_base_commit_it_started_from_in_its_environment()
+    {
+        using var f = new Fixture();
+        var baseCommit = G(f.Work, "rev-parse", "HEAD").Trim();
+        var (_, record) = await Run(f, "30", "sh", "-c", "echo base=$CHARGEHAND_BASE_COMMIT checks=$AGENT_CHECKS_BASE");
+        var tail = record.GetProperty("output_tail").GetString();
+        Assert.Contains($"base={baseCommit} checks={baseCommit}", tail);
+        Assert.NotEqual(baseCommit, record.GetProperty("commit").GetString());   // the branch moved HEAD on; the variables name the commit before it
+    }
+
+    [Fact]
     public async Task A_failing_command_is_its_own_exit_code_in_the_record_and_verify_branch_still_exits_0()
     {
         using var f = new Fixture();

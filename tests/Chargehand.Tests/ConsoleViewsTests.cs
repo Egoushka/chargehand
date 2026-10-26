@@ -106,7 +106,8 @@ public class ConsoleViewsTests
         state.Tasks.Add(new IntakeTask("o/r", 12, "b1", "t1", now.AddHours(-3), "M", IntakePhase.Asked, AskedCommentId: 5));
         state.Tasks.Add(new IntakeTask("o/r", 13, "b2", "t1", now.AddHours(-1), "S"));
         state.Tasks.Add(new IntakeTask("o/r", 99, "b3", "t1", now.AddHours(-2), "M", IntakePhase.Done, PrUrl: "https://example.test/o/r/pull/99", Branch: "chargehand/b3-t1", Round: 1));
-        state.Starts.AddRange([now.AddHours(-1), now.AddHours(-2), now.AddHours(-30)]);
+        state.Waiting.Add(new WaitingTrigger("label:o/r#15:4", "o/r", 15, now.AddMinutes(-20), "admission", "account 'a': budget_exceeded"));
+        state.Waiting.Add(new WaitingTrigger("comment:o/r:9", "o/r", 16, now.AddMinutes(-30), "max_concurrent"));
         state.Handled.UnionWith(["label:o/r#12:1", "comment:o/r:5", "comment:o/r:6", "review:o/r:7", "round:o/r#99:8"]);
         state.Notified.UnionWith(["wait:comment:o/r:9", "cap:label:o/r#14:3"]);
         state.Pending.Add(new PendingReview("r7", "o/r", 99, "octo", "SECRET REVIEW BODY", "src/a.cs", 10, now.AddHours(-1)));
@@ -122,10 +123,13 @@ public class ConsoleViewsTests
         Assert.Equal(("o/r", "/srv/checkouts/r"), (body.GetProperty("watched")[0].GetProperty("repository").GetString(), body.GetProperty("watched")[0].GetProperty("path").GetString()));
         Assert.Equal(["octo"], body.GetProperty("allowed_authors").EnumerateArray().Select(a => a.GetString()));
         Assert.Equal(("chargehand", "@chargehand", 120), (body.GetProperty("label").GetString(), body.GetProperty("mention").GetString(), body.GetProperty("poll_seconds").GetInt32()));
-        Assert.Equal((1, 2, 3), (body.GetProperty("caps").GetProperty("max_concurrent").GetInt32(), body.GetProperty("caps").GetProperty("max_starts_per_day").GetInt32(), body.GetProperty("caps").GetProperty("max_review_rounds").GetInt32()));
-        var starts = body.GetProperty("starts");
-        Assert.Equal((2, 2, 0), (starts.GetProperty("last24h").GetInt32(), starts.GetProperty("cap").GetInt32(), starts.GetProperty("remaining").GetInt32()));
-        Assert.Equal(now.AddHours(-2).AddDays(1), starts.GetProperty("next_slot_at").GetDateTimeOffset());
+        // ADR 0081: the profile's max_starts_per_day is ignored, so neither a daily cap nor a window of starts is shown.
+        Assert.Equal((1, 3), (body.GetProperty("caps").GetProperty("max_concurrent").GetInt32(), body.GetProperty("caps").GetProperty("max_review_rounds").GetInt32()));
+        Assert.False(body.GetProperty("caps").TryGetProperty("max_starts_per_day", out _));
+        Assert.False(body.TryGetProperty("starts", out _));
+        var waiting = body.GetProperty("waiting").EnumerateArray().ToList();
+        Assert.Equal([("comment:o/r:9", "max_concurrent"), ("label:o/r#15:4", "admission")], waiting.Select(w => (w.GetProperty("trigger").GetString()!, w.GetProperty("reason").GetString()!)));
+        Assert.Equal("account 'a': budget_exceeded", waiting[1].GetProperty("detail").GetString());
         Assert.Equal(1, body.GetProperty("running").GetInt32());
         var tasks = body.GetProperty("tasks").EnumerateArray().ToList();
         Assert.Equal(["b2", "b3", "b1"], tasks.Select(t => t.GetProperty("batch_run_id").GetString()));
@@ -144,14 +148,14 @@ public class ConsoleViewsTests
     }
 
     [Fact]
-    public async Task Intake_without_a_state_file_has_every_start_free_and_without_automation_it_is_off()
+    public async Task Intake_without_a_state_file_has_nothing_waiting_and_without_automation_it_is_off()
     {
         await using (var rig = await ConsoleRig.StartAsync(profile: IntakeProfile))
         {
             var body = await ConsoleRig.Get(rig.Owner, "/v1/intake");
             Assert.True(body.GetProperty("enabled").GetBoolean());
             Assert.False(body.GetProperty("state_present").GetBoolean());
-            Assert.Equal(2, body.GetProperty("starts").GetProperty("remaining").GetInt32());
+            Assert.Equal(0, body.GetProperty("waiting").GetArrayLength());
             Assert.Equal(0, body.GetProperty("tasks").GetArrayLength());
         }
         await using var off = await ConsoleRig.StartAsync();
@@ -172,7 +176,7 @@ public class ConsoleViewsTests
         Assert.True(body.GetProperty("enabled").GetBoolean());
         Assert.True(body.GetProperty("state_present").GetBoolean());
         Assert.StartsWith("the state file could not be read", body.GetProperty("not_recorded")[0].GetString(), StringComparison.Ordinal);
-        Assert.Equal(2, body.GetProperty("starts").GetProperty("remaining").GetInt32());
+        Assert.Equal(0, body.GetProperty("waiting").GetArrayLength());
     }
 
     // Repositories

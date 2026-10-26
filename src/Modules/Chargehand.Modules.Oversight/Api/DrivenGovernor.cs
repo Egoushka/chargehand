@@ -65,7 +65,7 @@ public sealed partial class DrivenGovernorValidator : IValidateOptions<DrivenGov
 
 /// <summary>Budgets from past spend (ADR 0045): once a size class has <paramref name="MinTasks"/> finished tasks in the last <paramref name="WindowDays"/> days for the repository (else for all
 /// repositories), its budget is the <paramref name="Percentile"/>th percentile of their spend; below that the flat budget applies, and a task's own <c>budget_usd</c> always wins.</summary>
-public sealed record DrivenGovernorHistory(int MinTasks = 20, int WindowDays = 60, int Percentile = 80)
+public sealed record DrivenGovernorHistory(int MinTasks = 5, int WindowDays = 60, int Percentile = 80)
 {
     internal void Validate(List<string> problems)
     {

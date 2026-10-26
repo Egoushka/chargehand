@@ -23,11 +23,19 @@ public sealed record PullReview(string Repository, int Pull, string Sha, string 
 /// <param name="Path">The file an inline comment is on; null for a conversation comment.</param>
 public sealed record PendingReview(string Id, string Repository, int Pull, string Author, string Body, string? Path, int? Line, DateTimeOffset At);
 
+/// <summary>A trigger that waits to start (CHARGEHAND-297): kept in the state file until it starts or is withdrawn, so a restart and the console see it. It is not in <see cref="IntakeState.Handled"/>.</summary>
+/// <param name="Key">The trigger's key, as <see cref="IntakeState.Handled"/> will hold it once it starts.</param>
+/// <param name="Issue">The issue, or the pull request of a review round.</param>
+/// <param name="Since">When it first waited.</param>
+/// <param name="Reason"><c>max_concurrent</c> (no free slot), <c>admission</c> (the server or <c>automation.account</c> refused the start, ADR 0076) or <c>checkout</c> (the base commit could not be read).</param>
+/// <param name="Detail">The refusal as the server gave it, for <c>admission</c> and <c>checkout</c>.</param>
+public sealed record WaitingTrigger(string Key, string Repository, int Issue, DateTimeOffset Since, string Reason, string? Detail = null);
+
 /// <summary>What intake did with a trigger, and when: the console's answer to "why did nothing start" (CHARGEHAND-214).</summary>
 /// <param name="Key">The trigger's key as <see cref="IntakeState.Handled"/> holds it (<c>label:owner/repo#12:&lt;event id&gt;</c>, <c>comment:owner/repo:&lt;comment id&gt;</c>).</param>
 /// <param name="Outcome"><c>started</c>, <c>continued</c> (an answer), <c>round_started</c> (review comments), <c>queued</c> (a review comment waits for a round) or <c>ignored</c>.</param>
-/// <param name="Reason">For <c>ignored</c>: <c>author_not_allowed</c>, <c>active</c> (already working on the issue), <c>author</c> (a merge repository takes issues of allowed authors only), <c>cap</c>, <c>gone</c> (the earlier run is not in the log),
-/// <c>not_chargehand_branch</c> or <c>review_rounds_off</c>.</param>
+/// <param name="Reason">For <c>ignored</c>: <c>author_not_allowed</c>, <c>active</c> (already working on the issue), <c>author</c> (a merge repository takes issues of allowed authors only), <c>cap</c> (the daily cap of releases before 0.19.4),
+/// <c>gone</c> (the earlier run is not in the log), <c>withdrawn</c> (a waiting trigger's label, comment or issue is gone), <c>not_chargehand_branch</c> or <c>review_rounds_off</c>.</param>
 /// <param name="Author">The GitHub login that set the label or wrote the comment, where there is one.</param>
 public sealed record IntakeTrigger(DateTimeOffset At, string Key, string Outcome, string? Reason = null, string? Author = null);
 
@@ -76,8 +84,8 @@ public sealed class IntakeState
 
     public const int MaxTriggers = 200;
 
-    /// <summary>When triggered batches started, for the daily cap; entries older than a day are dropped when the state is saved.</summary>
-    public List<DateTimeOffset> Starts { get; init; } = [];
+    /// <summary>Triggers that wait for a slot or for admission, oldest first.</summary>
+    public List<WaitingTrigger> Waiting { get; init; } = [];
 
     /// <summary>Head commits already given a review, as <c>owner/repo#12@sha</c>; it only grows, so a commit is reviewed once.</summary>
     public HashSet<string> Reviewed { get; init; } = [];
@@ -88,8 +96,6 @@ public sealed class IntakeState
     /// <summary>Reviews that run or wait for their comment.</summary>
     public List<PullReview> Reviews { get; init; } = [];
 
-    /// <summary>When reviews started, for <c>max_reviews_per_day</c>.</summary>
-    public List<DateTimeOffset> ReviewStarts { get; init; } = [];
 
     public static IntakeState Load(string path)
     {
@@ -106,11 +112,10 @@ public sealed class IntakeState
             Notified = state.Notified ?? [],
             Tasks = state.Tasks ?? [],
             Starting = state.Starting ?? [],
-            Starts = state.Starts ?? [],
+            Waiting = state.Waiting ?? [],
             Triggers = state.Triggers ?? [],
             Reviewed = state.Reviewed ?? [],
             Reviews = state.Reviews ?? [],
-            ReviewStarts = state.ReviewStarts ?? [],
             Labeled = new HashSet<string>(state.Labeled ?? [], StringComparer.OrdinalIgnoreCase),
         };
     }
@@ -122,8 +127,6 @@ public sealed class IntakeState
 
     public void Save(DateTimeOffset now)
     {
-        Starts.RemoveAll(s => s <= now - TimeSpan.FromDays(1));
-        ReviewStarts.RemoveAll(s => s <= now - TimeSpan.FromDays(1));
         if (Triggers.Count > MaxTriggers)
             Triggers.RemoveRange(0, Triggers.Count - MaxTriggers);
         if (_path is null)

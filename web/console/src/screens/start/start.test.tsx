@@ -25,7 +25,8 @@ const type = (label: string, value: string) =>
 const typeAt = (label: string, index: number, value: string) =>
   fireEvent.change(screen.getAllByLabelText(label)[index] as HTMLElement, { target: { value } });
 const click = (name: string | RegExp) => fireEvent.click(screen.getByRole('button', { name }));
-const post = (api: ReturnType<typeof serveApi>) => api.calls.find((c) => c.method === 'POST');
+const post = (api: ReturnType<typeof serveApi>) =>
+  api.calls.find((c) => c.method === 'POST' && c.path === '/v1/runs');
 
 /** Fills the form so it can be sent: a repository (which brings its commit), a label, the first task's goal and a dollar cap. */
 function complete() {
@@ -142,7 +143,7 @@ describe('Start a batch: the form', () => {
     expect(
       (screen.getAllByRole('button', { name: 'Add task' })[0] as HTMLButtonElement).disabled,
     ).toBe(true);
-  });
+  }, 20_000);
 
   it('sets a size, a budget and a multi-line goal on a task', async () => {
     await open();

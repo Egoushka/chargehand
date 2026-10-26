@@ -78,6 +78,8 @@ public static class TaskResultBuilder
                 questions: s.Questions.Count > 0 ? s.Questions : ["The session asked for input but named no question."]),
             SessionStatus.Stalled => draft.Unfinished(ErrorCode.SessionStalled, $"the session was stopped: {s.Reason.Replace('_', ' ')}",
                 "Send the task again with a narrower goal, or raise the driven preset's limits (max_minutes, no_progress_minutes, max_turns). The session log is in the session-log artifact."),
+            SessionStatus.RateLimited when s.Reason == GatewayRefusal.BudgetReason => draft.Unfinished(ErrorCode.RateLimited, "the model gateway refused the session over a spend budget",
+                "No start can succeed until the budget resets; the task's branch and output are kept. Send the task again after the reset.", ChargehandException.Retryable(ErrorCode.RateLimited)),
             SessionStatus.RateLimited => draft.Unfinished(ErrorCode.RateLimited, "the session ended on a usage or rate limit",
                 "Retry once the limit lifts. The batch holds its remaining tasks until then.", ChargehandException.Retryable(ErrorCode.RateLimited)),
             SessionStatus.TokenCap => draft.Unfinished(ErrorCode.CostCapReached, "the session reached its token cap and was stopped",

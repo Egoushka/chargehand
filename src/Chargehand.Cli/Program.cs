@@ -547,19 +547,6 @@ Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? Sch
         flakes: flakes, alerts: alerts, clones: clones);
 }
 
-// Plane intake (ADR 0067): null unless the profile has automation.plane. The key is read from the secret store at each call; its state sits next to the run log.
-Chargehand.Automation.PlaneIntake? PlaneIntake()
-{
-    if (profile.Automation?.Plane is not { Url: { } url, ApiKeySecret: { } apiKeySecret, Workspace: { } workspace } plane)
-        return null;
-    var api = new HttpClient { BaseAddress = new Uri(url.TrimEnd('/') + "/") };
-    var directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake");
-    var state = Chargehand.Automation.PlaneState.Load(Path.Combine(directory, "plane.json"));
-    var clones = ManagedClones();
-    return new Chargehand.Automation.PlaneIntake(plane, new Chargehand.Automation.PlaneHost(api, workspace, () => profile.Secret(apiKeySecret)), runLog,
-        new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state, sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "plane-sources.json")), clones: clones);
-}
-
 // What /v1/health?deep=1 asks besides the model (CHARGEHAND-316): only what the profile configures, each a read. Secrets are read when the probe runs, so an item that is not in the store yet fails that check and not the server's start.
 List<DependencyProbe> HealthProbes()
 {
@@ -574,8 +561,6 @@ List<DependencyProbe> HealthProbes()
         if (driven.PushSecret is { } push && driven.Forge is not { Kind: "gitlab" })
             probes.Add(DependencyHealth.PushToken(GitHubApiRoot(driven), () => profile.Secret(push)));
     }
-    if (profile.Automation?.Plane is { Url: { } url, ApiKeySecret: { } apiKeySecret, Workspace: { } workspace, Projects: { Count: > 0 } projects })
-        probes.Add(DependencyHealth.Plane(new Uri(url.TrimEnd('/') + "/"), workspace, projects.Keys.First(), () => profile.Secret(apiKeySecret)));
     return probes;
 }
 
@@ -606,6 +591,8 @@ async Task<int> Serve()
         return 2;
     }
     using var tracing = Tracing();
+    foreach (var deprecated in profile.Automation?.Deprecations() ?? [])
+        Console.Error.WriteLine($"chargehand serve: {deprecated}");
     var (runtime, runtimeVersion) = await Connect();
     if (Chargehand.ClaudeCode.AccountRuntimes.Unsupported(runtime, http.Accounts) is { } unsupported)
     {
@@ -621,9 +608,8 @@ async Task<int> Serve()
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
-        PlaneStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "plane.json"),
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn, Probes: HealthProbes()),
-        orchestrator, runLog, drivenRun, GitHubIntake(), Schedules(drivenRun), PlaneIntake(), PhoneAnswers());
+        orchestrator, runLog, drivenRun, GitHubIntake(), Schedules(drivenRun), PhoneAnswers());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);
@@ -634,6 +620,8 @@ async Task<int> Serve()
 async Task<int> Mcp()
 {
     using var tracing = Tracing();
+    foreach (var deprecated in profile.Automation?.Deprecations() ?? [])
+        Console.Error.WriteLine($"chargehand serve: {deprecated}");
     var (runtime, runtimeVersion) = await Connect();
     var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
     using var host = ChargehandServer.CreateStdio(Path.Combine(root, "presets"), orchestrator, Console.OpenStandardInput(), Console.OpenStandardOutput());
@@ -662,6 +650,8 @@ async Task<int> EvalGate(string baseRoot, string changeRoot, IReadOnlyList<strin
     var name = Option("--name") ?? $"eval-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
 
     using var tracing = Tracing();
+    foreach (var deprecated in profile.Automation?.Deprecations() ?? [])
+        Console.Error.WriteLine($"chargehand serve: {deprecated}");
     var (runtime, runtimeVersion) = await Connect();
     var langfuse = Evals();
     // Evals never use memory (ADR 0008), and each arm reads prompts/ and presets/ from its own root.

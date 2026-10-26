@@ -286,6 +286,8 @@ The request is refused as `invalid_request` before anything starts when the earl
 }
 ```
 
+The verify command takes one argument vector. To add a second check, chain it: `["sh", "-c", "dotnet test && agent-checks check"]`. The session image ships [agent-checks](https://github.com/Egoushka/agent-checks), which fails a branch whose added lines skip or empty its tests. The fresh container has no origin to diff against, so the command's environment names the commit the workspace started from: `CHARGEHAND_BASE_COMMIT` (chargehand's own name) and `AGENT_CHECKS_BASE` (agent-checks' default for `--base`; an explicit flag wins).
+
 The repository's CI still runs the whole suite on the pull request. The command lives in the profile, not the repository, so the change being verified cannot choose its own check.
 
 **A JDK image by ecosystem** (`driven.services.images`, `{"gradle": "<digest>", "maven": "<digest>"}`). A repository whose top level has that ecosystem gets that image for its sessions and its verification; the value must also be in `driven.images`. `images/session-jdk/Dockerfile` builds `FROM` the session image and adds a JDK, Gradle (checksum-verified) and Maven; the release workflow pushes it as `chargehand-session-jdk`. By hand: `docker build -f images/session-jdk/Dockerfile --build-arg BASE=<session image by digest> -t chargehand-session-jdk .`. It makes JVM Gradle and Maven repositories verifiable; it has no Android SDK. The Gradle and Maven package hosts are not in the driven preset's allowlist: add them under `driven.network.allow` (`chargehand init` lists them).
@@ -341,7 +343,7 @@ A task that threw before its session ended (cancelled, a start that failed) writ
 A task's budget is chosen once, when the task starts, and every session of the task (continuations and CI fixes too) is held to it. In this order:
 
 1. The request's `tasks[].budget_usd`. It always wins.
-2. A percentile of past spend. If the task's size class has at least `driven.governor.history.min_tasks` (20) finished tasks in the last `window_days` (60) days for the same repository, the budget is the `percentile`th (80) percentile of their spend, nearest rank, rounded to four decimals. If the repository alone has too few but all repositories together have enough, the same over all of them.
+2. A percentile of past spend. If the task's size class has at least `driven.governor.history.min_tasks` (5) finished tasks in the last `window_days` (60) days for the same repository, the budget is the `percentile`th (80) percentile of their spend, nearest rank, rounded to four decimals. If the repository alone has too few but all repositories together have enough, the same over all of them.
 3. The flat budget of the size class (`driven.governor.budgets`, else 1.5, 4 and 10).
 
 A finished task is one that `completed`, or that the governor stopped at its budget (`budget_spent`): the second counts at what it spent, because leaving it out would let a budget that stops its tasks shrink each time it is recalculated. A task that failed, asked a question or stopped for another reason says little about what the work costs and is left out. A task whose spend is unknown, or only partly priced (a model with no price), has no figure and is left out. Spend is the learning record's `usd_estimate`, the dollar equivalent of the session's tokens, so the rule works on a subscription. A history whose percentile is 0 gives the flat budget.

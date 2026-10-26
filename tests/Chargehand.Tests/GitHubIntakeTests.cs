@@ -12,8 +12,8 @@ namespace Chargehand.Tests;
 /// <summary>ADR 0051: an issue label or an @-mention by an allowed author starts a driven batch of one task; a reply to its questions continues it. GitHub, the batch starter, the run log and the clock are fakes.</summary>
 public class GitHubIntakeTests
 {
-    private static AutomationGitHub Settings(int concurrent = 2, int perDay = 10) =>
-        new(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, [IntakeRig.Author], MaxConcurrent: concurrent, MaxStartsPerDay: perDay);
+    private static AutomationGitHub Settings(int concurrent = 2) =>
+        new(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, [IntakeRig.Author], MaxConcurrent: concurrent);
 
     private static bool Valid(RunRequest request) => ContractSchemas.Validate(ContractSchemas.Request, JsonSerializer.SerializeToElement(request, ContractJson.Options)).Count == 0;
 
@@ -363,42 +363,93 @@ public class GitHubIntakeTests
     }
 
     [Fact]
-    public async Task Triggers_over_the_daily_cap_are_refused_once_and_not_started_later_but_a_new_trigger_after_a_day_is()
+    public async Task Twenty_seven_labelled_issues_with_four_slots_all_start_over_successive_polls_across_a_restart_and_none_is_handled_before_it_starts()
     {
-        using var rig = new IntakeRig(Settings(perDay: 1));
-        rig.Labeled(1);
-        await rig.Poll();
-        rig.Log.End("run-1", IntakeRig.Pr("issue-1"));
-        rig.Labeled(2, "alice", 5);
-        await rig.Poll();
-        await rig.Poll();
+        // CHARGEHAND-297 (#529): 27 issues labelled at once, 4 slots. Starts per day are not counted; the waiting ones are in the state file.
+        using var rig = new IntakeRig(Settings(concurrent: 4));
+        for (var n = 1; n <= 27; n++)
+            rig.Labeled(n, "alice", 100 + n);
 
-        Assert.Single(rig.Starter.Started);
-        Assert.Single(rig.GitHub.Posted, p => p.Issue == 2 && p.Body.Contains("did not start", StringComparison.Ordinal));
+        for (var poll = 0; rig.Starter.Started.Count < 27; poll++)
+        {
+            Assert.True(poll < 20, $"only {rig.Starter.Started.Count} of 27 started");
+            if (poll == 3)
+                rig.Restart();
+            await rig.Poll();
+            var state = rig.State;
+            var started = state.Tasks.Select(t => t.Issue).ToHashSet();
+            var waiting = state.Waiting.Select(w => w.Issue).ToHashSet();
+            Assert.Equal(27 - started.Count, waiting.Count);
+            Assert.Empty(started.Intersect(waiting));
+            Assert.All(state.Waiting, w => Assert.Equal(("max_concurrent", false), (w.Reason, state.Handled.Contains(w.Key))));
+            Assert.Equal(started.Count, state.Handled.Count(k => k.StartsWith("label:", StringComparison.Ordinal)));
+            foreach (var task in state.Tasks.Where(t => t.Phase == IntakePhase.Running))
+                rig.Log.End(task.BatchRunId, IntakeRig.Pr(task.TaskId));
+            rig.Time.Advance(TimeSpan.FromMinutes(2));
+        }
 
-        rig.Time.Advance(TimeSpan.FromHours(25));
-        await rig.Poll();
-        Assert.Single(rig.Starter.Started);
-
-        rig.Labeled(3, "alice", 6);
-        await rig.Poll();
-        Assert.Equal(["issue-1", "issue-3"], rig.Starter.Started.Select(r => r.Driven!.Tasks.Single().Id));
+        Assert.Equal(27, rig.Starter.Started.Select(r => r.Driven!.Tasks.Single().Id).Distinct().Count());
+        Assert.Empty(rig.State.Waiting);
+        Assert.DoesNotContain(rig.GitHub.Posted, p => p.Body.Contains("did not start", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task An_answer_counts_against_the_daily_cap_like_any_start()
+    public async Task A_start_the_account_refuses_waits_in_the_queue_and_starts_when_admitted()
     {
-        using var rig = new IntakeRig(Settings(perDay: 1));
+        using var rig = new IntakeRig();
+        rig.Labeled(7, "alice", 41);
+        rig.Starter.Refuse = "account 'automation': budget_exceeded: max_usd_per_day";
+        await rig.Poll();
+        rig.Restart();
+        await rig.Poll();
+
+        var waiting = Assert.Single(rig.State.Waiting);
+        Assert.Equal(("label:octo/repo#7:41", "admission"), (waiting.Key, waiting.Reason));
+        Assert.Contains("budget_exceeded", waiting.Detail);
+        Assert.DoesNotContain(waiting.Key, rig.State.Handled);
+
+        rig.Starter.Refuse = null;
+        await rig.Poll();
+        Assert.Single(rig.Starter.Started);
+        Assert.Empty(rig.State.Waiting);
+    }
+
+    [Fact]
+    public async Task A_waiting_trigger_whose_label_is_taken_off_leaves_the_queue_and_says_so_in_the_log()
+    {
+        using var rig = new IntakeRig(Settings(concurrent: 1));
+        rig.Labeled(1);
+        rig.Labeled(2, "alice", 5);
+        await rig.Poll();
+        Assert.Single(rig.State.Waiting);
+
+        rig.GitHub.Issues.RemoveAll(i => i.Number == 2);
+        await rig.Poll();
+
+        Assert.Empty(rig.State.Waiting);
+        Assert.Contains(rig.State.Triggers, t => t is { Key: "label:octo/repo#2:5", Outcome: "ignored", Reason: "withdrawn" });
+    }
+
+    [Fact]
+    public async Task An_answer_over_the_slots_waits_and_continues_when_a_slot_frees()
+    {
+        using var rig = new IntakeRig(Settings(concurrent: 1));
         rig.Labeled(7, "alice", 41);
         await rig.Poll();
         rig.Log.Asked("task-run", "Which policy?");
         rig.Log.End("run-1", new TaskOutcome("issue-7", TaskState.NeedsInput, "task-run", "asked"));
+        rig.Labeled(8, "alice", 42);
         await rig.Poll();
         rig.Comment(7, "alice", "exponential");
         await rig.Poll();
 
-        Assert.Single(rig.Starter.Started);
-        Assert.Contains("did not start", rig.GitHub.Posted.Last().Body);
+        Assert.Equal(2, rig.Starter.Started.Count);
+        Assert.Contains(rig.State.Waiting, w => w.Issue == 7);
+
+        rig.Log.End("run-2", IntakeRig.Pr("issue-8"));
+        await rig.Poll();
+        Assert.Equal(3, rig.Starter.Started.Count);
+        Assert.Empty(rig.State.Waiting);
     }
 
     [Fact]

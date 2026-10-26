@@ -9,7 +9,6 @@ export interface IntakeRepositoryBody {
 
 export interface IntakeCaps {
   max_concurrent: number;
-  max_starts_per_day: number;
   max_review_rounds: number;
   max_tokens_total: number;
   max_usd_total: number;
@@ -17,12 +16,17 @@ export interface IntakeCaps {
   budget_class: string;
 }
 
-/** Starts in the last 24 hours against the daily cap; `next_slot_at` is set when the cap is full. */
-export interface IntakeStarts {
-  last24h: number;
-  cap: number;
-  remaining: number;
-  next_slot_at?: string | null;
+/**
+ * A trigger that waits to start, oldest first: `max_concurrent` (no free slot), `admission` (the
+ * server or `automation.account` refused the start) or `checkout`. `detail` is the refusal.
+ */
+export interface IntakeWaitingBody {
+  trigger: string;
+  repository: string;
+  issue: number;
+  since: string;
+  reason: string;
+  detail?: string | null;
 }
 
 export interface IntakeTaskBody {
@@ -59,7 +63,7 @@ export interface IntakeNoticeBody {
   trigger: string;
 }
 
-/** What intake did with a trigger, newest first. `reason` is set for `ignored`: `author_not_allowed`, `active`, `author`, `cap`, `gone`, `not_chargehand_branch` or `review_rounds_off`. Never the comment's text. */
+/** What intake did with a trigger, newest first. `reason` is set for `ignored`: `author_not_allowed`, `active`, `author`, `cap` (before 0.19.4), `gone`, `withdrawn`, `not_chargehand_branch` or `review_rounds_off`. Never the comment's text. */
 export interface IntakeTriggerBody {
   at: string;
   trigger: string;
@@ -93,7 +97,7 @@ export interface IntakeBody extends ContractMeta {
   mention?: string | null;
   poll_seconds?: number | null;
   caps?: IntakeCaps | null;
-  starts?: IntakeStarts | null;
+  waiting?: IntakeWaitingBody[] | null;
   running: number;
   tasks: IntakeTaskBody[];
   pending_reviews: IntakePendingBody[];
@@ -112,7 +116,7 @@ export const intakeQuery = () =>
 
 export const useIntake = () => useQuery(intakeQuery());
 
-/** A batch intake started for a source, newest first. `item` is `#12`, `#12 round 2` or a Plane identifier (`ABC-12`). */
+/** A batch intake started for a source, newest first. `item` is `#12` or `#12 round 2`. */
 export interface IntakeSourceRunBody {
   batch_run_id: string;
   task_id: string;
@@ -135,27 +139,14 @@ export interface IntakeSourceBody {
   recent?: IntakeSourceRunBody[] | null;
 }
 
-/** A project of `automation.plane.projects`. */
-export interface IntakePlaneSourceBody {
-  project: string;
-  enabled: boolean;
-  path: string;
-  remote?: string | null;
-  running: number;
-  recent: IntakeSourceRunBody[];
-}
-
 /**
  * `intake-sources/v1`: the on/off switch of every source intake watches (CHARGEHAND-241, 242). Owner only.
- * `configured` is GitHub intake's; `plane` is absent from a server before Plane projects were listed.
  */
 export interface IntakeSourcesBody {
   contract_version: 'intake-sources/v1';
   configured: boolean;
   discover: boolean;
   sources: IntakeSourceBody[];
-  /** `queued` counts Plane items waiting for a free slot over all projects: Plane intake's keys do not name the project. */
-  plane?: { configured: boolean; queued: number; projects: IntakePlaneSourceBody[] } | null;
   not_recorded?: string[] | null;
 }
 
@@ -165,9 +156,8 @@ export const intakeSourcesQuery = () =>
     queryFn: ({ signal }) => getJson<IntakeSourcesBody>('/v1/intake/sources', signal),
   });
 
-/** One switch: a GitHub repository or a Plane project. */
+/** One switch: a GitHub repository. */
 export interface SourceSwitch {
-  kind: 'github' | 'plane';
   id: string;
   enabled: boolean;
 }
@@ -177,10 +167,7 @@ export async function setIntakeSource(change: SourceSwitch): Promise<IntakeSourc
   const entry = { enabled: change.enabled };
   const reply = await call<IntakeSourcesBody>('/v1/intake/sources', {
     method: 'PUT',
-    body:
-      change.kind === 'github'
-        ? { sources: [{ repository: change.id, ...entry }] }
-        : { plane_projects: [{ project: change.id, ...entry }] },
+    body: { sources: [{ repository: change.id, ...entry }] },
   });
   if (!reply.ok) throw new ApiError(reply.status, problems(reply));
   return reply.data;

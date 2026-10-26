@@ -11,7 +11,7 @@ namespace Chargehand.Modules.Sessions.Api;
 /// them from the image itself.</summary>
 /// <param name="Ecosystems">The names <c>RepositoryDetector</c> found at the repository's top level, such as <c>dotnet</c>.</param>
 /// <param name="Verify">The command chargehand runs on the branch afterwards; null: none could be found.</param>
-/// <param name="VerifySource"><c>request</c> (the caller named it) or <c>detected</c>.</param>
+/// <param name="VerifySource"><c>request</c> (the caller named it), <c>ci</c> (read from the repository's CI workflow) or <c>detected</c>.</param>
 /// <param name="Caches">Ecosystems whose cache is a shared volume mounted in this container (see <see cref="CacheVolumes"/>).</param>
 /// <param name="Services">Test services of the batch, reachable by name.</param>
 /// <param name="Tools">The lines <c>mise ls --current</c> printed after the install helper (ADR 0078); null: no helper ran, and the image's own tools are the toolchain.</param>
@@ -134,7 +134,7 @@ public static class EnvironmentNote
         if (environment.Ecosystems.Count > 0)
             note.Append("- This repository uses: ").AppendJoin(", ", environment.Ecosystems).Append(".\n");
         if (environment.Verify is { Count: > 0 } verify)
-            note.Append(CultureInfo.InvariantCulture, $"- After you finish, chargehand runs `{string.Join(' ', verify)}` on your branch in a fresh container ({(environment.VerifySource == "request" ? "the command the task named" : "detected from the repository")}). Run the same command yourself.\n");
+            note.Append(CultureInfo.InvariantCulture, $"- After you finish, chargehand runs `{string.Join(' ', verify)}` on your branch in a fresh container ({VerifySourceNote(environment.VerifySource)}). Run the same command yourself.\n");
         else
             note.Append("- chargehand found no test command for this repository, so it will not push the branch unless the tests run; find the command in the repository's own files.\n");
         if (environment.Tools is { } tools)
@@ -159,4 +159,11 @@ public static class EnvironmentNote
         }
         return note.ToString();
     }
+
+    private static string VerifySourceNote(string? source) => source switch
+    {
+        "request" => "the command the task named",
+        "ci" => "read from this repository's CI workflow",
+        _ => "detected from the repository",
+    };
 }
