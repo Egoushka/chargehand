@@ -276,4 +276,85 @@ public class BatchSchedulerTests
         Assert.Equal(["t2", "t3"], skipped.Select(o => o.Id));
         Assert.Equal(["t1", "t4"], runner.Started);
     }
+
+    [Fact]
+    public void A_rate_limit_halves_the_pool_to_one_and_a_slot_returns_every_ten_quiet_minutes()
+    {
+        var clock = new ManualTimeProvider();
+        var gate = new GatewayGate(8, clock);
+        gate.RateLimited(null);
+        Assert.Equal(4, gate.Effective);
+        gate.RateLimited(null);
+        gate.RateLimited(null);
+        gate.RateLimited(null);
+        Assert.Equal(1, gate.Effective);
+        clock.Advance(TimeSpan.FromMinutes(9));
+        Assert.Equal(1, gate.Effective);
+        clock.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal(2, gate.Effective);
+        clock.Advance(TimeSpan.FromMinutes(100));
+        Assert.Equal(8, gate.Effective);
+    }
+
+    [Fact]
+    public void Retry_after_holds_every_start_until_it_passes_whatever_the_pool_allows()
+    {
+        var clock = new ManualTimeProvider();
+        var gate = new GatewayGate(4, clock);
+        gate.RateLimited(clock.GetUtcNow().AddMinutes(2));
+        Assert.False(gate.TryEnter());
+        clock.Advance(TimeSpan.FromMinutes(2));
+        Assert.True(gate.TryEnter());
+        Assert.True(gate.TryEnter());
+        Assert.False(gate.TryEnter());                     // two slots after one halving
+    }
+
+    [Fact]
+    public async Task A_rate_limited_task_shrinks_the_pool_while_the_others_run_on()
+    {
+        var clock = new ManualTimeProvider();
+        var gate = new GatewayGate(4, clock);
+        var runner = new ScriptedRunner();
+        var batch = new BatchScheduler(runner, backoff: TimeSpan.FromMinutes(1), time: clock)
+            .RunAsync(Tasks(6), new BatchLimits(4, null, null, new TaskLimits(1000, null), Gate: gate), default);
+        await runner.WaitStarted(4);
+        runner.Finish("t1", TaskState.Completed);
+        runner.Finish("t2", TaskState.Completed);
+        await runner.WaitStarted(6);
+        runner.Pending["t3"].TrySetResult(new TaskOutcome("t3", TaskState.Failed, "run-t3", "429", ErrorCode.RateLimited, RetryAfter: clock.GetUtcNow().AddMinutes(2)));
+        SpinWait.SpinUntil(() => gate.Effective == 2, TimeSpan.FromSeconds(5));
+        Assert.Equal(2, gate.Effective);
+        foreach (var id in new[] { "t4", "t5", "t6" })
+            runner.Finish(id);
+        await batch;
+    }
+
+    [Fact]
+    public async Task A_budget_refusal_stops_the_batch_at_once_halts_every_later_start_until_the_reset_and_names_the_action()
+    {
+        var clock = new ManualTimeProvider();
+        var reset = clock.GetUtcNow().AddHours(9);
+        var told = new List<string>();
+        var gate = new GatewayGate(4, clock, told.Add);
+        var runner = new ScriptedRunner();
+        var limits = new BatchLimits(1, null, null, new TaskLimits(1000, null), Gate: gate);
+        var batch = new BatchScheduler(runner, time: clock).RunAsync(Tasks(3), limits, default);
+        await runner.WaitStarted(1);
+        runner.Pending["t1"].TrySetResult(new TaskOutcome("t1", TaskState.Failed, "run-t1", "402", ErrorCode.RateLimited, RetryAfter: reset, Budget: true));
+        var outcome = await batch.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(ErrorCode.RateLimited, outcome.Error);
+        Assert.Equal([TaskState.Failed, TaskState.NotStarted, TaskState.NotStarted], outcome.Tasks.Select(t => t.State));
+        Assert.Contains("budget", outcome.Action, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(reset, gate.HaltedUntil);
+        Assert.Single(told);
+
+        var later = await new BatchScheduler(runner, time: clock).RunAsync(Tasks(2), limits, default).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(["t1"], runner.Started);              // nothing new started while the budget is spent
+        Assert.Equal(ErrorCode.RateLimited, later.Error);
+        Assert.All(later.Tasks, t => Assert.Equal(TaskState.NotStarted, t.State));
+
+        clock.Advance(TimeSpan.FromHours(9));
+        Assert.Null(gate.HaltedUntil);
+        Assert.True(gate.TryEnter());
+    }
 }

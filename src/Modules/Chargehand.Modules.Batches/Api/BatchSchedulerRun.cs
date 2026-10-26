@@ -8,7 +8,7 @@ using Chargehand.Modules.Tasks.Api;
 namespace Chargehand.Modules.Batches.Api;
 
 /// <summary>What the shell runs a batch's tasks with: the runner delegate, the shared slots, the host, the operator's controls, the clock and the batch's journal (null: nothing is kept).</summary>
-internal sealed record ScheduleHost(RunTask Run, SemaphoreSlim? Global, IAdmission? Admission, int TaskRequestMb, BatchControl? Control, TimeProvider Time, TaskJournal? Journal = null);
+internal sealed record ScheduleHost(RunTask Run, SemaphoreSlim? Global, IAdmission? Admission, int TaskRequestMb, BatchControl? Control, TimeProvider Time, TaskJournal? Journal = null, IStartGate? Gate = null);
 
 /// <summary>The caller's callbacks; see <see cref="BatchScheduler.RunAsync"/>.</summary>
 internal sealed record ScheduleCallbacks(Func<TaskOutcome, Task>? Finished, Action<string, string>? Hold, Func<TaskOutcome, Task>? Skipped, Action<string, DateTimeOffset>? Pause);
@@ -92,6 +92,12 @@ internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, Sc
         return await SweepAsync();
     }
 
+    private void Release()
+    {
+        host.Global?.Release();
+        host.Gate?.Exit();
+    }
+
     private DateTimeOffset Now => host.Time.GetUtcNow();
 
     // A task an operator cancelled before it started never does: the cancels reach the machine before it looks at the batch.
@@ -112,8 +118,15 @@ internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, Sc
 
     private async Task<ScheduleStep> PlaceAsync(Place place)
     {
+        if (host.Gate?.HaltedUntil is { } until)
+            return Apply(new Refused(place.TaskId, $"the model gateway's budget is used up until {until.UtcDateTime:yyyy-MM-dd'T'HH:mm:ss'Z'}", Now, ErrorCode.RateLimited))!;
         if (host.Global is not null && !await host.Global.WaitAsync(0, CancellationToken.None))
             return Apply(new Blocked(Now))!;
+        if (host.Gate is { } gate && !gate.TryEnter())
+        {
+            Release();
+            return Apply(new Blocked(Now))!;
+        }
         if (host.Admission is null)
             return Apply(new Admitted(place.TaskId, null, null, Now))!;
         AdmissionDecision decision;
@@ -123,12 +136,12 @@ internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, Sc
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            host.Global?.Release();
+            Release();
             return Apply(new Blocked(Now))!;
         }
         if (decision.Admit)
             return Apply(new Admitted(place.TaskId, decision.Runner, decision.Detail, Now))!;
-        host.Global?.Release();
+        Release();
         // Refused: nothing will place it, so the batch stops starting tasks and what runs finishes.
         return decision.Refuse ? Apply(new Refused(place.TaskId, decision.Detail, Now))! : Apply(new Held(place.TaskId, decision.Detail!, Now))!;
     }
@@ -153,14 +166,26 @@ internal sealed class BatchSchedulerRun(SchedulePlan plan, ScheduleHost host, Sc
                 continue;
             var outcome = await task.Task;
             host.Control?.Ended(outcome.Id);
+            Told(outcome);
             lock (_gate)
                 _live.Remove(index);
-            host.Global?.Release();
+            Release();
             host.Admission?.Ended(task.PlacedOn);
             task.Cts.Dispose();
             Apply(new Ended(plan.Tasks[index].Id, outcome, Now));
             await TellAsync();
         }
+    }
+
+    // A refusal of the gateway shrinks the pool, or halts every batch's starts until the reset (issue #578).
+    private void Told(TaskOutcome outcome)
+    {
+        if (host.Gate is not { } gate || outcome.Error is not ErrorCode.RateLimited)
+            return;
+        if (outcome.Budget)
+            gate.BudgetExhausted(outcome.RetryAfter ?? GatewayRefusal.NextUtcDay(Now));
+        else
+            gate.RateLimited(outcome.RetryAfter);
     }
 
     /// <summary>The ends and skips the last decisions asked for, told to the caller one at a time, in order.</summary>

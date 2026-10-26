@@ -82,7 +82,7 @@ public static class DrivenBatch
     /// <param name="priced">The credential has a dollar price (an API key): the dollar cap is required and enforced. A subscription has none: a batch that
     /// names no token cap gets the per-task cap once per task, which is what the scheduler reserves for a task before starting it.</param>
     /// <param name="perTaskUsd">A task's dollar cap where the credential is priced.</param>
-    public static BatchLimits Limits(RunRequest request, BatchOptions profile, DrivenPreset preset, decimal perTaskUsd, bool priced, SemaphoreSlim? global)
+    public static BatchLimits Limits(RunRequest request, BatchOptions profile, DrivenPreset preset, decimal perTaskUsd, bool priced, SemaphoreSlim? global, IStartGate? gate = null)
     {
         var driven = request.Driven!;
         if (priced && driven.MaxUsdTotal is null)
@@ -90,6 +90,6 @@ public static class DrivenBatch
         var perTask = preset.MaxTokens ?? DefaultTaskTokens;
         var parallel = Math.Clamp(Math.Min(driven.MaxParallel ?? profile.MaxParallel, profile.MaxParallel), 1, ParallelCeiling);
         return new BatchLimits(parallel, driven.MaxTokensTotal ?? (priced ? null : perTask * driven.Tasks.Count), priced ? driven.MaxUsdTotal : null,
-            new TaskLimits(perTask, priced ? perTaskUsd : null), global);
+            new TaskLimits(perTask, priced ? perTaskUsd : null), global, gate);
     }
 }

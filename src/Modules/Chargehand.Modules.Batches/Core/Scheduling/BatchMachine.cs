@@ -15,6 +15,9 @@ internal static class BatchMachine
     /// <summary>The longest wait for a limit to lift; past it the batch stops and the caller retries.</summary>
     public static readonly TimeSpan MaxPause = TimeSpan.FromHours(6);
 
+    public const string BudgetAction =
+        "The model gateway's budget is used up, so no task starts until it resets; the interrupted task's branch and output are kept. Send the tasks that did not finish again after the reset.";
+
     public const string RateLimitedAction =
         "The subscription is rate limited or unavailable, so the rest of the batch was not started. Retry later, or switch the profile to an API key "
         + "(claude_code.api_key_secret in place of oauth_token_secret) and resend the tasks that did not finish.";
@@ -37,7 +40,9 @@ internal static class BatchMachine
             Refused refused => Idle(state with
             {
                 StopReason = state.StopReason ?? $"not started: {refused.Detail}",
-                StopError = state.StopError ?? ErrorCode.ContainerUnavailable,
+                StopError = state.StopError ?? refused.Error ?? ErrorCode.ContainerUnavailable,
+                LimitStop = state.LimitStop || refused.Error is ErrorCode.RateLimited,
+                Action = state.Action ?? (refused.Error is ErrorCode.RateLimited ? BudgetAction : null),
             }, refused.Now, commands),
             Blocked blocked => Idle(state, blocked.Now, commands),
             Reported reported => Report(state, reported, commands),
@@ -275,6 +280,8 @@ internal static class BatchMachine
             return s with { StopReason = "not started: the provider is rate limited or unavailable", Action = RateLimitedAction };
         if (outcome.Error is not ErrorCode.RateLimited)
             return s;
+        if (outcome.Budget)
+            return LimitStopped(s, "not started: the model gateway's budget is used up", BudgetAction);
         s = s with { Strikes = s.Strikes + 1 };
         if (s.Strikes >= 2)
             return LimitStopped(s, "not started: the provider's rate limit was hit twice in a row", RepeatedLimitAction);
