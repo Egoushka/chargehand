@@ -157,6 +157,7 @@ public class IntakeSourcesTests
         Assert.Equal(HttpStatusCode.BadRequest, (await server.Http.PutAsJsonAsync("/v1/intake/sources", new { ids = "x" })).StatusCode);
     }
 
+    // agent-checks: allow deleted-tests, deleted-assertions -- Plane intake removed with its tests (D-56)
     [Fact]
     public async Task The_console_lists_each_source_with_its_queue()
     {

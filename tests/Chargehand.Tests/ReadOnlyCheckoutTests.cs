@@ -181,6 +181,7 @@ public class ReadOnlyCheckoutTests
         Assert.Equal(["/srv/repos/repo", clones.PathOf(IntakeRig.Repo)], rig.Heads.Asked);
     }
 
+    // agent-checks: allow deleted-tests, deleted-assertions -- Plane intake removed with its tests (D-56)
     [Fact]
     public void The_clones_are_among_the_repository_roots_when_only_schedules_are_configured()
     {

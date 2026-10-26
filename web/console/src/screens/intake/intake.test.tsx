@@ -518,6 +518,7 @@ describe('Intake for an account', () => {
 });
 
 describe('Intake sources', () => {
+  // agent-checks: allow deleted-assertions -- Plane intake removed with its tests (D-56)
   it('lists GitHub repositories, each with its queue', () => {
     const rows = sourceRows(adm.intakeSources());
     expect(rows.map((r) => [r.name, r.enabled])).toEqual([

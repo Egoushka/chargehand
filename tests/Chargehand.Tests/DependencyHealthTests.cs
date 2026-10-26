@@ -38,6 +38,7 @@ public class DependencyHealthTests
         return (response.StatusCode, JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.Clone());
     }
 
+    // agent-checks: allow deleted-tests, deleted-assertions -- Plane intake removed with its tests (D-56)
     [Fact]
     public async Task Every_configured_check_is_named_in_the_report_and_all_ok_is_200()
     {
