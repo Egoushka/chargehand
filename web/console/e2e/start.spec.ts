@@ -215,7 +215,8 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         await page.getByRole('button', { name: 'Start batch' }).click();
 
         await expect(page).toHaveURL(new RegExp(`/console/runs/${NEW_RUN}$`));
-        const post = mock.calls.find((c) => c.method === 'POST');
+        // The editor also POSTs /v1/forecast as the form fills (#583); that call may land first.
+        const post = mock.calls.find((c) => c.method === 'POST' && c.path === '/v1/runs');
         expect(post?.path).toBe('/v1/runs');
         expect(post?.headers.prefer).toBe('wait=0');
         expect(post?.body).toEqual({
@@ -236,7 +237,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
             ],
           },
         });
-        expect(mock.calls.filter((c) => c.method === 'POST')).toHaveLength(1);
+        expect(mock.calls.filter((c) => c.method === 'POST' && c.path === '/v1/runs')).toHaveLength(1);
         expect(await seen.finish()).toEqual([]);
       });
     });
