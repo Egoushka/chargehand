@@ -50,7 +50,7 @@ Write an issue that says what you want done, the way you would brief a colleague
 3. The pull request's body ends its goal with `Closes #<n>`. Merge it (or let the [integrator](driven.md#merging-by-policy) merge it, if the repository is `merge` there) and GitHub closes the issue.
 4. Review comments you leave on the pull request start a review round on the same branch, up to three per pull request together with CI fix attempts.
 
-At most 2 tasks run at once and 10 start in any 24 hours; [the limits](intake.md#limits) are profile keys.
+At most 2 tasks run at once, and the rest wait their turn; spend is bounded by `automation.account`'s dollar caps ([the limits](intake.md#limits)).
 
 ## Turning a repository off
 

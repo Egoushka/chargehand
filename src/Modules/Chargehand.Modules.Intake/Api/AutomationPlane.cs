@@ -19,10 +19,10 @@ namespace Chargehand.Modules.Intake.Api;
 /// <param name="MaxTokensTotal">The token cap of a triggered batch (default 2,000,000).</param>
 /// <param name="MaxUsdTotal">The dollar cap of a triggered batch (default 5).</param>
 /// <param name="MaxConcurrent">Triggered batches running at once (default 2); a trigger over it waits for a slot.</param>
-/// <param name="MaxStartsPerDay">Triggered batches started in any 24 hours (default 10); a trigger over it is refused.</param>
+/// <param name="MaxStartsPerDay">Deprecated, ignored since 0.19.3 (ADR 0081): spend is bounded by <c>automation.account</c>'s dollar caps. Accepted so a profile that sets it still loads.</param>
 public sealed partial record AutomationPlane(string? Url = null, string? ApiKeySecret = null, string? Workspace = null, IReadOnlyDictionary<string, PlaneProject>? Projects = null,
     string? TriggerState = null, string? StartedState = null, string? ReviewState = null, string? FailedState = null, int PollSeconds = 120, string BudgetClass = "M",
-    long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int MaxStartsPerDay = 10)
+    long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int? MaxStartsPerDay = null)
 {
     internal void Validate(bool drivenEnabled)
     {
@@ -68,7 +68,6 @@ public sealed partial record AutomationPlane(string? Url = null, string? ApiKeyS
         if (MaxTokensTotal < 1) yield return "max_tokens_total must be above 0";
         if (MaxUsdTotal <= 0) yield return "max_usd_total must be above 0";
         if (MaxConcurrent is < 1 or > 10) yield return "max_concurrent must be 1 to 10";
-        if (MaxStartsPerDay is < 1 or > 1000) yield return "max_starts_per_day must be 1 to 1000";
     }
 
     private static bool Same(string a, string? b) => string.Equals(a.Trim(), b?.Trim(), StringComparison.OrdinalIgnoreCase);

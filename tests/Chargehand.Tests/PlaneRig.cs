@@ -57,8 +57,8 @@ internal sealed class PlaneRig : IDisposable
         Intake = Build();
     }
 
-    public static AutomationPlane Defaults(int concurrent = 2, int perDay = 10, string? failed = "Failed") => new("https://plane.example.test", "plane-key", "ws", new Dictionary<string, PlaneProject> { [Project] = new("/srv/repos/repo", "octo/repo") },
-        "Agent", "In Progress", "In Review", failed, MaxConcurrent: concurrent, MaxStartsPerDay: perDay);
+    public static AutomationPlane Defaults(int concurrent = 2, string? failed = "Failed") => new("https://plane.example.test", "plane-key", "ws", new Dictionary<string, PlaneProject> { [Project] = new("/srv/repos/repo", "octo/repo") },
+        "Agent", "In Progress", "In Review", failed, MaxConcurrent: concurrent);
 
     public AutomationPlane Settings { get; }
 

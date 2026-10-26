@@ -23,7 +23,7 @@ public class PlaneSettingsTests
         var plane = Load(Valid + "}").Automation!.Plane!;
 
         Assert.Equal(("Agent", "In Progress", "In Review", (string?)null), (plane.TriggerState, plane.StartedState, plane.ReviewState, plane.FailedState));
-        Assert.Equal((120, "M", 2, 10, 2_000_000L, 5m), (plane.PollSeconds, plane.BudgetClass, plane.MaxConcurrent, plane.MaxStartsPerDay, plane.MaxTokensTotal, plane.MaxUsdTotal));
+        Assert.Equal((120, "M", 2, (int?)null, 2_000_000L, 5m), (plane.PollSeconds, plane.BudgetClass, plane.MaxConcurrent, plane.MaxStartsPerDay, plane.MaxTokensTotal, plane.MaxUsdTotal));
         Assert.Equal(("/srv/repos/repo", "octo/repo"), (plane.Projects!["p1"].Path, plane.Projects["p1"].Remote));
     }
 
@@ -46,7 +46,6 @@ public class PlaneSettingsTests
     [InlineData("\"review_state\":\"In Review\"", "\"review_state\":\"In Review\",\"poll_seconds\":5", "poll_seconds")]
     [InlineData("\"review_state\":\"In Review\"", "\"review_state\":\"In Review\",\"budget_class\":\"XL\"", "budget_class")]
     [InlineData("\"review_state\":\"In Review\"", "\"review_state\":\"In Review\",\"max_concurrent\":0", "max_concurrent")]
-    [InlineData("\"review_state\":\"In Review\"", "\"review_state\":\"In Review\",\"max_starts_per_day\":0", "max_starts_per_day")]
     [InlineData("\"review_state\":\"In Review\"", "\"review_state\":\"In Review\",\"max_tokens_total\":0", "max_tokens_total")]
     [InlineData("\"review_state\":\"In Review\"", "\"review_state\":\"In Review\",\"max_usd_total\":0", "max_usd_total")]
     public void A_value_that_cannot_work_is_refused_when_the_profile_loads(string from, string to, string problem)

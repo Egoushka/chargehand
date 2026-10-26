@@ -31,7 +31,7 @@ const REASONS: Record<string, string> = {
     'The repository merges by policy, so it takes work only from an issue written by an allowed author.',
   gone: 'The run to continue is no longer in the run log.',
   wait: 'Waiting for a free slot; it starts when a triggered batch ends.',
-  cap: 'The cap of starts in 24 hours was used; it is not started later.',
+  cap: 'Refused by the daily cap of starts of a release before 0.19.3; it was not started later.',
   notask:
     'No finished task for this branch is in the run log, so the branch is unknown to chargehand.',
   busy: 'The pull request’s task is still running; the comments are taken when it ends.',
@@ -168,19 +168,14 @@ export interface DayBar {
   /** The day of the month. */
   label: string;
   count: number;
-  atCap: boolean;
 }
 
 const dayKey = (date: Date) =>
   new Intl.DateTimeFormat('en-CA', { timeZone: DISPLAY_ZONE }).format(date);
 
-/**
- * Starts per day for the last `days` days, counted from the tasks the state file lists (the latest 100). The server's cap holds
- * over any 24 hours, not over a calendar day, so a bar at the cap is a day that used it, not a refusal.
- */
+/** Starts per day for the last `days` days, counted from the tasks the state file lists (the latest 100). */
 export function startsPerDay(
   tasks: IntakeTaskBody[],
-  cap: number,
   now: number = Date.now(),
   days = 7,
 ): DayBar[] {
@@ -193,7 +188,7 @@ export function startsPerDay(
     const date = new Date(now - (days - 1 - i) * 86_400_000);
     const key = dayKey(date);
     const count = counts.get(key) ?? 0;
-    return { key, label: key.slice(8).replace(/^0/, ''), count, atCap: cap > 0 && count >= cap };
+    return { key, label: key.slice(8).replace(/^0/, ''), count };
   });
 }
 

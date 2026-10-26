@@ -93,20 +93,20 @@ public class PlaneIntakeTests
     }
 
     [Fact]
-    public async Task A_trigger_over_the_daily_cap_is_refused_once_and_not_retried()
+    public async Task Starts_are_not_counted_per_day_only_slots_bound_them()
     {
-        using var rig = new PlaneRig(PlaneRig.Defaults(perDay: 1));
-        rig.Item(1);
-        rig.Item(2);
-        await rig.Poll();
-        await rig.Poll();
+        // ADR 0081: a profile's max_starts_per_day is ignored; spend is bounded by automation.account.
+        using var rig = new PlaneRig(PlaneRig.Defaults(concurrent: 1) with { MaxStartsPerDay = 1 });
+        for (var n = 1; n <= 3; n++)
+            rig.Item(n);
+        for (var n = 1; n <= 3; n++)
+        {
+            await rig.Poll();
+            rig.Log.End($"run-{n}", PlaneRig.Pr(n));
+        }
 
-        Assert.Single(rig.Starter.Started);
-        Assert.Single(rig.Plane.Comments, c => c.Item == "item-2" && c.Text.Contains("did not start"));
-        rig.Time.Advance(TimeSpan.FromDays(2));
-        rig.Log.End("run-1", PlaneRig.Pr(1));
-        await rig.Poll();
-        Assert.Single(rig.Starter.Started);
+        Assert.Equal(3, rig.Starter.Started.Count);
+        Assert.DoesNotContain(rig.Plane.Comments, c => c.Text.Contains("did not start", StringComparison.Ordinal));
     }
 
     [Fact]

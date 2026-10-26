@@ -15,7 +15,7 @@ public class PullReviewTests
     private const string Sha = "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     private const string Sha2 = "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-    private static AutomationGitHub On(int perDay = 20, int concurrent = 2) =>
+    private static AutomationGitHub On(int? perDay = null, int concurrent = 2) =>
         new(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, [IntakeRig.Author], MaxConcurrent: concurrent, ReviewPulls: true, MaxReviewsPerDay: perDay);
 
     private static bool Valid(RunRequest request) => ContractSchemas.Validate(ContractSchemas.Request, JsonSerializer.SerializeToElement(request, ContractJson.Options)).Count == 0;
@@ -29,21 +29,12 @@ public class PullReviewTests
     }
 
     [Fact]
-    public void The_review_keys_default_to_off_and_twenty_a_day()
+    public void Reviews_default_to_off_and_a_daily_review_cap_still_loads_but_is_ignored()
     {
         var github = Load("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":[]}""").Automation!.Github!;
-        Assert.Equal((false, 20), (github.ReviewPulls, github.MaxReviewsPerDay));
-        var set = Load("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":[],"review_pulls":true,"max_reviews_per_day":5}""").Automation!.Github!;
-        Assert.Equal((true, 5), (set.ReviewPulls, set.MaxReviewsPerDay));
-    }
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(1001)]
-    public void A_daily_review_cap_outside_1_to_1000_is_refused(int cap)
-    {
-        var e = Assert.Throws<ChargehandException>(() => Load("{\"repositories\":{\"octo/repo\":{\"path\":\"/p\"}},\"allowed_authors\":[],\"max_reviews_per_day\":" + cap + "}"));
-        Assert.Contains("max_reviews_per_day must be 1 to 1000", e.Message);
+        Assert.Equal((false, (int?)null), (github.ReviewPulls, github.MaxReviewsPerDay));
+        var set = Load("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":[],"review_pulls":true,"max_reviews_per_day":0}""").Automation!.Github!;
+        Assert.Equal((true, 0), (set.ReviewPulls, set.MaxReviewsPerDay));
     }
 
     [Fact]
@@ -156,19 +147,16 @@ public class PullReviewTests
     }
 
     [Fact]
-    public async Task At_most_max_reviews_per_day_start_in_any_24_hours_and_the_rest_wait_without_being_dropped()
+    public async Task Reviews_are_not_counted_per_day_only_slots_bound_them()
     {
+        // ADR 0081: reviews are admitted as automation.account like batches, so its dollar caps bound them.
         using var rig = new IntakeRig(On(perDay: 2, concurrent: 10));
         rig.OpenPull(1, Sha);
         rig.OpenPull(2, Sha);
         rig.OpenPull(3, Sha);
         await rig.Poll();
-        Assert.Equal(2, rig.Starter.Started.Count);
 
-        rig.Time.Advance(TimeSpan.FromHours(25));
-        await rig.Poll();
         Assert.Equal(3, rig.Starter.Started.Count);
-        Assert.Equal("Review pull request octo/repo#3.", rig.Starter.Started[2].Text);
     }
 
     [Fact]

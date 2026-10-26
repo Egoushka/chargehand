@@ -28,7 +28,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     /// <summary>A batch with no run record and an owner that is gone is lost after this long (a restart gives the resumer time to write the batch's start again).</summary>
     public static readonly TimeSpan LostAfter = TimeSpan.FromMinutes(30);
 
-    /// <summary>How long a comment waits for a round (the branch busy, a cap): then it is dropped.</summary>
+    /// <summary>How long a comment waits for a round (the branch busy, no free slot): then it is dropped.</summary>
     private static readonly TimeSpan PendingFor = TimeSpan.FromDays(7);
 
     private const int MaxDetail = 600;
@@ -43,6 +43,9 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private readonly Dictionary<(string Repository, int Number), IntakePull> _pulls = [];
     private readonly CheckoutSources _checkouts = new(heads, clones, "intake", warn ?? Warned, info ?? Informed);
     private readonly PullReviews _reviews = new(settings, host, log, state, clock ?? TimeProvider.System, warn ?? Warned);
+
+    /// <summary>The waiting triggers this poll read again; one of a repository that was not is withdrawn.</summary>
+    private readonly HashSet<string> _stillWaiting = [];
 
     private static void Warned(string message) => Console.Error.WriteLine($"chargehand: {message}");
 
@@ -105,6 +108,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     public async Task PollAsync(IBatchStarter starter, CancellationToken ct)
     {
         _pulls.Clear();
+        _stillWaiting.Clear();
         await ReportEndedAsync(ct);
         await _reviews.ReportEndedAsync(ct);
         _watched = await WatchAsync(ct);
@@ -126,6 +130,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                 }
                 if (settings.ReviewPulls)
                     await _reviews.StartAsync(name, repository, _checkouts, starter, ct);
+                Withdraw(name);
             }
             catch (IntakeException e)
             {
@@ -276,7 +281,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             Log(key, "ignored", "author", issue.Author);
             return Outcome.Settled;
         }
-        if (await CapsAsync(key, name, issue.Number, $"Comment {settings.Mention} again later.", ct) is { } held)
+        if (await SlotAsync(key, name, issue.Number, ct) is { } held)
             return held;
         RepositoryRef source;
         try
@@ -286,6 +291,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         catch (IntakeException e)
         {
             _warn($"intake: {name}#{issue.Number}: {e.Message}");
+            Wait(key, name, issue.Number, "checkout", e.Message);
             return Outcome.Deferred;
         }
         var size = IntakeGoal.SizeOf(issue.Labels) ?? settings.BudgetClass;
@@ -297,7 +303,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
 
     private async Task<Outcome> ContinueAsync(string key, string name, IntakeTask earlier, IntakeComment reply, IBatchStarter starter, CancellationToken ct)
     {
-        if (await CapsAsync(key, name, earlier.Issue, "Reply again later.", ct) is { } held)
+        if (await SlotAsync(key, name, earlier.Issue, ct) is { } held)
             return held;
         // The continuation starts at the commit the earlier task started at: its kept work is a branch from there.
         if ((await log.ReadAsync(earlier.BatchRunId, ct)).Start?.Request.Context.Repository is not { } repository)
@@ -314,23 +320,41 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             starter, run => $"chargehand continues with your answer: run `{run}` (task `{taskId}`), on the same branch.", earlier, null, ct);
     }
 
-    /// <summary>Waits or refuses where a cap says so: null when the batch may start.</summary>
-    private async Task<Outcome?> CapsAsync(string key, string name, int issue, string retry, CancellationToken ct)
+    /// <summary>Waits while every slot is taken: null when the batch may start. Spend is bounded by the account the start is admitted as (ADR 0076), not by a count of starts.</summary>
+    private async Task<Outcome?> SlotAsync(string key, string name, int issue, CancellationToken ct)
     {
-        if (state.Tasks.Count(t => t.Phase == IntakePhase.Running) >= settings.MaxConcurrent)
-        {
-            _info($"intake: {key}: waiting: max_concurrent");
-            await NotifyOnceAsync($"wait:{key}", name, issue, $"chargehand is waiting for a free slot: {settings.MaxConcurrent.ToString(CultureInfo.InvariantCulture)} triggered batches are running. This starts when one ends.", ct);
-            return Outcome.Deferred;
-        }
-        if (state.Starts.Count(s => s > _time.GetUtcNow() - TimeSpan.FromDays(1)) >= settings.MaxStartsPerDay)
-        {
-            await NotifyOnceAsync($"cap:{key}", name, issue, $"chargehand did not start: {settings.MaxStartsPerDay.ToString(CultureInfo.InvariantCulture)} triggered batches have started in the last 24 hours, which is the limit. {retry}", ct);
-            state.Handled.Add(key);
-            Log(key, "ignored", "cap");
-            return Outcome.Settled;
-        }
-        return null;
+        if (state.Tasks.Count(t => t.Phase == IntakePhase.Running) < settings.MaxConcurrent)
+            return null;
+        _info($"intake: {key}: waiting: max_concurrent");
+        Wait(key, name, issue, "max_concurrent");
+        await NotifyOnceAsync($"wait:{key}", name, issue, $"chargehand is waiting for a free slot: {settings.MaxConcurrent.ToString(CultureInfo.InvariantCulture)} triggered batches are running. This starts when one ends.", ct);
+        return Outcome.Deferred;
+    }
+
+    /// <summary>Keeps a trigger that cannot start yet in the state file, saved before any comment about it; a later poll reads it again and starts it.</summary>
+    private void Wait(string key, string name, int issue, string reason, string? detail = null)
+    {
+        _stillWaiting.Add(key);
+        var index = state.Waiting.FindIndex(w => w.Key == key);
+        var since = index >= 0 ? state.Waiting[index].Since : _time.GetUtcNow();
+        var waiting = new WaitingTrigger(key, name, issue, since, reason, detail);
+        if (index >= 0)
+            state.Waiting[index] = waiting;
+        else
+            state.Waiting.Add(waiting);
+        state.Save(_time.GetUtcNow());
+    }
+
+    /// <summary>After a repository's pass: a waiting trigger that settled leaves the queue, and one that was not read again (its label taken off, its comment deleted, its issue closed) is withdrawn.</summary>
+    private void Withdraw(string name)
+    {
+        var gone = state.Waiting.Where(w => w.Repository == name && (state.Handled.Contains(w.Key) || !_stillWaiting.Contains(w.Key))).ToList();
+        if (gone.Count == 0)
+            return;
+        foreach (var w in gone.Where(w => !state.Handled.Contains(w.Key)))
+            Log(w.Key, "ignored", "withdrawn");
+        state.Waiting.RemoveAll(gone.Contains);
+        state.Save(_time.GetUtcNow());
     }
 
     private async Task<Outcome> LaunchAsync(string key, string name, int issue, RepositoryRef repository, DrivenTask task, Func<string, IntakeTask> track, IBatchStarter starter, Func<string, string> announce,
@@ -345,6 +369,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         if (started.RunId is not { } run)
         {
             _warn($"intake: {name}#{issue}: the server did not start the batch: {started.Refusal}");
+            Wait(key, name, issue, "admission", started.Refusal);
             return Outcome.Deferred;
         }
         var now = _time.GetUtcNow();
@@ -352,8 +377,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         if (replaces is not null)
             state.Replace(replaces, replaces with { Phase = IntakePhase.Done });
         state.Tasks.Add(track(run));
-        state.Starts.Add(now);
         state.Handled.Add(key);
+        state.Waiting.RemoveAll(w => w.Key == key);
         Log(key, key.StartsWith("round:", StringComparison.Ordinal) ? "round_started" : replaces is not null ? "continued" : "started");
         settled?.Invoke();
         state.Save(now);
@@ -475,12 +500,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             return;
         }
         var key = $"round:{name}#{number}:{fresh[0].Id}";
-        if (await CapsAsync(key, name, number, "Comment again later.", ct) is { } held)
-        {
-            if (held == Outcome.Settled)
-                Drop(waiting);
+        if (await SlotAsync(key, name, number, ct) is not null)
             return;
-        }
         if ((await log.ReadAsync(found.Batch, ct)).Start?.Request.Context.Repository is not { } repository)
         {
             await NotifyOnceAsync($"gone:{name}#{number}", name, number, $"chargehand cannot continue run `{found.Batch}`: it is no longer in the run log.", ct);

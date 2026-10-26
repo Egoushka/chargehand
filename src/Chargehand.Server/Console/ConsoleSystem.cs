@@ -31,7 +31,7 @@ public sealed record ProfileDriven(bool Enabled, int MaxParallel, int MaxParalle
     DrivenLimits? Limits, DrivenGovernor? Governor, DrivenAdmission? Admission, ProfileIntegrator? Integrator, DrivenPlanning? Planning, DrivenLearning? Learning, string? ForgeKind, string? ForgeHost,
     IReadOnlyList<string> ServiceRepositories, bool TaskSourceSet);
 
-public sealed record ProfileAutomation(IReadOnlyList<string> Repositories, int AllowedAuthors, string Label, string Mention, int PollSeconds, int MaxConcurrent, int MaxStartsPerDay, int MaxReviewRounds);
+public sealed record ProfileAutomation(IReadOnlyList<string> Repositories, int AllowedAuthors, string Label, string Mention, int PollSeconds, int MaxConcurrent, int MaxReviewRounds);
 
 /// <summary>The profile as the owner may see it: settings only. Secret items, URLs' paths and queries, headers, environment values, commands and key files are left out.</summary>
 public sealed record ProfileView(string Schema, string Runtime, string DefaultPreset, string? IntakeModel, string WorkerRoot, IReadOnlyList<string> RepositoryRoots, decimal RunCapUsd, int MaxParallelNodes, bool SupportCheck,
@@ -244,7 +244,7 @@ internal static class ConsoleSystem
                 [.. (driven.Services?.Repositories ?? new Dictionary<string, IReadOnlyList<DrivenTestService>>()).Keys.Order(StringComparer.Ordinal)], driven.TaskSource is not null),
             p.Automation?.Github is { } github
                 ? new ProfileAutomation([.. (github.Repositories ?? new Dictionary<string, AutomationRepository>()).Keys.Order(StringComparer.Ordinal)], github.AllowedAuthors?.Count ?? 0, github.Label, github.Mention, github.PollSeconds,
-                    github.MaxConcurrent, github.MaxStartsPerDay, github.MaxReviewRounds)
+                    github.MaxConcurrent, github.MaxReviewRounds)
                 : null);
     }
 }

@@ -415,11 +415,11 @@
             "budget_class": { "enum": ["S", "M", "L"], "description": "The size class of a triggered task whose issue has no size:S, size:M or size:L label (exactly one). It sets the governor's budget (ADR 0045). Default M." },
             "max_tokens_total": { "type": "integer", "minimum": 1, "description": "The token cap of one triggered batch. Default 2000000." },
             "max_usd_total": { "type": "number", "exclusiveMinimum": 0, "description": "The dollar cap of one triggered batch, where the credential is priced. Default 5." },
-            "max_concurrent": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Triggered batches running at once. A trigger over it waits for a slot, with one comment. Default 2." },
-            "max_starts_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Triggered batches started in any 24 hours, answers included. A trigger over it is refused, with one comment. Default 10." },
+            "max_concurrent": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Triggered batches running at once. A trigger over it waits for a slot in the intake state file's queue, with one comment, and starts when one frees. Default 2." },
+            "max_starts_per_day": { "type": "integer", "deprecated": true, "description": "Deprecated, ignored since 0.19.3: spend is bounded by automation.account's dollar caps (ADR 0076), slots by max_concurrent (ADR 0081). Accepted so an older profile still loads." },
             "max_review_rounds": { "type": "integer", "minimum": 0, "maximum": 3, "description": "Review rounds per chargehand pull request: inline review comments of allowed authors, and comments that mention the bot, start a session on the pull request's branch. The CI fixer's attempts count against the same cap of 3 per pull request. Default 3; 0: the loop is off." },
             "review_pulls": { "type": "boolean", "description": "Review every open, non-draft pull request of the watched repositories, once per head commit, and comment the findings. Default false." },
-            "max_reviews_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Reviews started in any 24 hours. A pull request over it waits until the window has room. Default 20." },
+            "max_reviews_per_day": { "type": "integer", "deprecated": true, "description": "Deprecated, ignored since 0.19.3: spend is bounded by automation.account's dollar caps (ADR 0076), which reviews are admitted as too; slots by max_concurrent (ADR 0081). Accepted so an older profile still loads." },
             "discover": { "type": "boolean", "description": "Also watch every repository the App's installations can see, each cloned into <worker_root>/repos/<owner>/<repo> and fetched with the App's token; repositories is then optional. Default false." }
           }
         },
@@ -455,7 +455,7 @@
             "max_tokens_total": { "type": "integer", "minimum": 1, "description": "The token cap of one triggered batch. Default 2000000." },
             "max_usd_total": { "type": "number", "exclusiveMinimum": 0, "description": "The dollar cap of one triggered batch. Default 5." },
             "max_concurrent": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Triggered batches running at once. Default 2." },
-            "max_starts_per_day": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Triggered batches started in any 24 hours. Default 10." }
+            "max_starts_per_day": { "type": "integer", "deprecated": true, "description": "Deprecated, ignored since 0.19.3: spend is bounded by automation.account's dollar caps (ADR 0076), slots by max_concurrent (ADR 0081). Accepted so an older profile still loads." }
           }
         },
         "schedules": {

@@ -121,7 +121,7 @@ public sealed class PlaneIntake(AutomationPlane settings, IPlaneHost host, IRunL
     private async Task<Outcome> StartAsync(string key, string project, PlaneProject checkout, PlaneItem listed, string startedState, IBatchStarter starter, CancellationToken ct)
     {
         var identifier = await IdentifierAsync(project, listed, ct);
-        if (await CapsAsync(key, project, listed.Id, ct) is { } held)
+        if (await SlotAsync(key, project, listed.Id, ct) is { } held)
             return held;
         RepositoryRef source;
         try
@@ -148,7 +148,6 @@ public sealed class PlaneIntake(AutomationPlane settings, IPlaneHost host, IRunL
         var now = _time.GetUtcNow();
         state.Starting.Remove(key);
         state.Tasks.Add(new PlaneTask(project, listed.Id, identifier, run, taskId, now));
-        state.Starts.Add(now);
         state.Handled.Add(key);
         state.Save(now);
         await TryAsync(identifier, "the state change", () => host.SetStateAsync(project, listed.Id, startedState, ct));
@@ -157,23 +156,13 @@ public sealed class PlaneIntake(AutomationPlane settings, IPlaneHost host, IRunL
         return Outcome.Started;
     }
 
-    /// <summary>Waits or refuses where a cap says so: null when the batch may start.</summary>
-    private async Task<Outcome?> CapsAsync(string key, string project, string item, CancellationToken ct)
+    /// <summary>Waits while every slot is taken: null when the batch may start. Spend is bounded by the account the start is admitted as (ADR 0076), not by a count of starts.</summary>
+    private async Task<Outcome?> SlotAsync(string key, string project, string item, CancellationToken ct)
     {
-        if (state.Tasks.Count(t => t.Phase == PlanePhase.Running) >= settings.MaxConcurrent)
-        {
-            await NotifyOnceAsync($"wait:{key}", project, item, $"chargehand is waiting for a free slot: {settings.MaxConcurrent.ToString(CultureInfo.InvariantCulture)} triggered batches are running. This starts when one ends.", ct);
-            return Outcome.Deferred;
-        }
-        if (state.Starts.Count(s => s > _time.GetUtcNow() - TimeSpan.FromDays(1)) >= settings.MaxStartsPerDay)
-        {
-            await NotifyOnceAsync($"cap:{key}", project, item,
-                $"chargehand did not start: {settings.MaxStartsPerDay.ToString(CultureInfo.InvariantCulture)} triggered batches have started in the last 24 hours, which is the limit. Move the item to {settings.TriggerState} again later.", ct);
-            state.Handled.Add(key);
-            state.Save(_time.GetUtcNow());
-            return Outcome.Settled;
-        }
-        return null;
+        if (state.Tasks.Count(t => t.Phase == PlanePhase.Running) < settings.MaxConcurrent)
+            return null;
+        await NotifyOnceAsync($"wait:{key}", project, item, $"chargehand is waiting for a free slot: {settings.MaxConcurrent.ToString(CultureInfo.InvariantCulture)} triggered batches are running. This starts when one ends.", ct);
+        return Outcome.Deferred;
     }
 
     /// <summary>Says how the batches that ended ended, and frees their slots.</summary>

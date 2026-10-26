@@ -9,7 +9,6 @@ import { safeHttpUrl } from '../../lib/url';
 import { useIsPhone } from '../../shell/useIsPhone';
 import {
   Badge,
-  CapMeter,
   Cell,
   cssVars,
   EmptyState,
@@ -409,60 +408,54 @@ function PolicyPanel({
   );
 }
 
+/** What each reason a trigger waits for means. */
+const WAIT_REASONS: Record<string, string> = {
+  max_concurrent: 'no free slot',
+  admission: 'refused by the account',
+  checkout: 'base commit unreadable',
+};
+
 function StartsPanel({ data }: { data: IntakeBody }) {
-  const starts = data.starts;
-  const cap = starts?.cap ?? data.caps?.max_starts_per_day ?? 0;
-  const bars = startsPerDay(data.tasks, cap);
-  const peak = Math.max(cap, ...bars.map((b) => b.count), 1);
+  const waiting = data.waiting ?? [];
+  const bars = startsPerDay(data.tasks);
+  const peak = Math.max(...bars.map((b) => b.count), 1);
   const [left, right, base, height] = [20, 296, 104, 80];
   const slot = (right - left) / bars.length;
-  const y = (n: number) => base - (n / peak) * height;
   return (
-    <Panel
-      title="Starts per day"
-      style={cssVars({ '--o': 1 })}
-      aside={cap ? `cap ${cap} in any 24 h` : 'no cap'}
-    >
+    <Panel title="Starts per day" style={cssVars({ '--o': 1 })} aside={`${waiting.length} waiting`}>
       <div className="stack stack--tight">
-        {starts ? (
-          <CapMeter
-            label="Starts in the last 24 hours"
-            value={starts.last24h}
-            cap={starts.cap}
-            text={`${starts.last24h} of ${starts.cap}`}
-          />
-        ) : null}
-        {starts?.next_slot_at ? (
-          <p className="dim small" role="status">
-            The cap is full: the next start is possible at {formatTime(starts.next_slot_at)}. A
-            trigger over the cap is refused with one comment and not started later.
-          </p>
-        ) : starts ? (
-          <p className="dim small">
-            {starts.remaining} {starts.remaining === 1 ? 'start' : 'starts'} left in this window.
-          </p>
+        <p className="dim small">
+          No daily count of starts: spend is bounded by the automation account’s dollar caps, and a
+          trigger waits here for a free slot or for the account to admit it.
+        </p>
+        {waiting.length > 0 ? (
+          <ul className="small" aria-label="Waiting to start">
+            {waiting.map((w) => (
+              <li key={w.trigger}>
+                <span className="mono">
+                  {w.repository}#{w.issue}
+                </span>{' '}
+                <span className="dim">
+                  {WAIT_REASONS[w.reason] ?? w.reason} since {formatTime(w.since)}
+                  {w.detail ? `: ${w.detail}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
         ) : null}
         <svg
           className="starts-chart"
           viewBox="0 0 300 124"
           role="img"
-          aria-label={`Starts per day, last 7 days: ${bars.map((b) => `${b.label}: ${b.count}`).join(', ')}${cap ? `; cap ${cap}` : ''}`}
+          aria-label={`Starts per day, last 7 days: ${bars.map((b) => `${b.label}: ${b.count}`).join(', ')}`}
         >
           <line className="base" x1={left} x2={right} y1={base} y2={base} />
-          {cap ? <path className="cap" d={`M${left} ${y(cap).toFixed(1)}H${right}`} /> : null}
           {bars.map((bar, i) => {
             const x = left + i * slot + 8;
             const h = (bar.count / peak) * height;
             return (
               <g key={bar.key}>
-                <rect
-                  className={bar.atCap ? 'dangerf' : 'neutralf'}
-                  x={x}
-                  y={base - h}
-                  width={slot - 16}
-                  height={h}
-                  rx={1}
-                />
+                <rect className="neutralf" x={x} y={base - h} width={slot - 16} height={h} rx={1} />
                 <text x={x + (slot - 16) / 2} y={base - h - 4} textAnchor="middle">
                   {bar.count}
                 </text>
@@ -475,7 +468,7 @@ function StartsPanel({ data }: { data: IntakeBody }) {
         </svg>
         <p className="dim small">
           Counted from the {data.tasks.length} tasks the state file lists (the latest 100), by day
-          in Kyiv time. The cap itself holds over any 24 hours.
+          in Kyiv time.
         </p>
       </div>
     </Panel>
@@ -520,7 +513,7 @@ function RulesPanel({ data }: { data: IntakeBody }) {
           [
             'Per trigger',
             caps
-              ? `${formatTokens(caps.max_tokens_total)} tokens, ${formatUsd(caps.max_usd_total)}; ${caps.max_concurrent} concurrent; ${caps.max_starts_per_day} starts per day; ${caps.max_review_rounds} review rounds`
+              ? `${formatTokens(caps.max_tokens_total)} tokens, ${formatUsd(caps.max_usd_total)}; ${caps.max_concurrent} concurrent; ${caps.max_review_rounds} review rounds`
               : DASH,
           ],
         ]}

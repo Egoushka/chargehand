@@ -86,7 +86,7 @@ describe('intake model', () => {
   it('gives every notice the reason intake wrote on the issue, and calls "wait" and "busy" waiting', () => {
     const notices = triggerRows(adm.intake()).filter((r) => r.at === null);
     const byReason = (text: RegExp) => notices.find((r) => text.test(r.reason));
-    expect(byReason(/cap of starts/)?.result).toBe('ignored');
+    expect(byReason(/daily cap of starts/)?.result).toBe('ignored');
     expect(byReason(/free slot/)?.result).toBe('waiting');
     expect(byReason(/written by an allowed author/)?.result).toBe('ignored');
     expect(byReason(/review rounds of this pull request/)?.result).toBe('ignored');
@@ -131,7 +131,7 @@ describe('intake model', () => {
     expect(queued[0]).toMatchObject({ round: 0, phase: 'queued', pending: 2 });
   });
 
-  it('counts starts per day in Kyiv time over seven days, and marks a day at the cap', () => {
+  it('counts starts per day in Kyiv time over seven days', () => {
     const now = Date.UTC(2026, 9, 13, 12, 0, 0);
     const at = (iso: string): IntakeTaskBody =>
       ({
@@ -146,13 +146,11 @@ describe('intake model', () => {
         at('2026-10-12T10:00:00Z'),
         at('2026-10-01T10:00:00Z'), // outside the window
       ],
-      3,
       now,
     );
     expect(bars).toHaveLength(7);
     expect(bars.map((b) => b.label)).toEqual(['7', '8', '9', '10', '11', '12', '13']);
     expect(bars.map((b) => b.count)).toEqual([0, 0, 0, 0, 0, 1, 3]);
-    expect(bars.map((b) => b.atCap)).toEqual([false, false, false, false, false, false, true]);
   });
 
   it('gives every repository the profile names a policy: always_ask wins, listed modes hold, the rest is off', () => {
@@ -179,42 +177,47 @@ describe('intake model', () => {
 });
 
 describe('Intake with data', () => {
-  it('shows the cap on starts in the last 24 hours and the seven days as bars', async () => {
+  it('shows the triggers waiting to start, no daily cap, and the seven days as bars', async () => {
     await open();
     const starts = panel('Starts per day');
-    const meter = starts.getByRole('meter');
-    expect(meter.getAttribute('aria-label')).toBe('Starts in the last 24 hours');
-    expect(within(meter).getByText('7 of 10')).toBeTruthy();
-    expect(starts.getByText(/3 starts left in this window/)).toBeTruthy();
+    expect(starts.queryByRole('meter')).toBeNull();
+    expect(starts.getByText('1 waiting')).toBeTruthy();
+    const waiting = within(starts.getByRole('list', { name: 'Waiting to start' }));
+    expect(waiting.getByText('example/web-shop#31')).toBeTruthy();
+    expect(waiting.getByText(/no free slot since/)).toBeTruthy();
     const chart = starts.getByRole('img', { name: /^Starts per day, last 7 days: / });
-    expect(chart.getAttribute('aria-label')).toMatch(/; cap 10$/);
+    expect(chart.getAttribute('aria-label')).not.toMatch(/cap/);
     expect(chart.querySelectorAll('rect')).toHaveLength(7);
     expect(starts.getByText(/Counted from the 5 tasks the state file lists/)).toBeTruthy();
     expect(screen.getByText(/Polling every 120 s/)).toBeTruthy();
     expect(screen.getByText(/state saved/)).toBeTruthy();
   });
 
-  it('says when the cap is full and when the next start is possible', async () => {
+  it('names why a trigger waits and the refusal the account gave', async () => {
     const now = Date.now();
     serveApi({
       intake: adm.intake(
         {
-          starts: {
-            last24h: 10,
-            cap: 10,
-            remaining: 0,
-            next_slot_at: new Date(now + 3 * 3600_000).toISOString(),
-          },
+          waiting: [
+            {
+              trigger: 'label:example/infra#40:9',
+              repository: 'example/infra',
+              issue: 40,
+              since: new Date(now - 600_000).toISOString(),
+              reason: 'admission',
+              detail: "account 'automation': budget_exceeded",
+            },
+          ],
         },
         now,
       ),
     });
     renderConsole('/console/intake');
     await screen.findByRole('table', { name: 'Trigger log' });
-    expect(panel('Starts per day').getByRole('status').textContent).toMatch(
-      /The cap is full: the next start is possible at (\d{1,2} [A-Z][a-z]{2} )?\d\d:\d\d/,
-    );
-    expect(panel('Starts per day').getByRole('meter').getAttribute('data-level')).toBe('danger');
+    const waiting = within(panel('Starts per day').getByRole('list', { name: 'Waiting to start' }));
+    expect(
+      waiting.getByText(/refused by the account since .*: account 'automation': budget_exceeded/),
+    ).toBeTruthy();
   });
 
   it('lists the trigger log with what intake did and why, and a dash where no time was recorded', async () => {
@@ -233,7 +236,7 @@ describe('Intake with data', () => {
     expect(cells[0]?.textContent).toBe('—');
     expect(cells[1]?.textContent).toBe('labelexample/web-shop#232');
     expect(cells[2]?.textContent).toBe('Ignored');
-    expect(cells[3]?.textContent).toMatch(/cap of starts in 24 hours was used/);
+    expect(cells[3]?.textContent).toMatch(/daily cap of starts of a release before 0.19.3/);
 
     const acted = rows.find((r) => /example\/payments-api#231/.test(r.textContent ?? ''));
     const actedCells = within(acted as HTMLElement).getAllByRole('cell');
@@ -291,9 +294,7 @@ describe('Intake with data', () => {
     expect(rules.getByText('@chargehand (the comment author must be allowed)')).toBeTruthy();
     expect(rules.getByText('octocat')).toBeTruthy();
     expect(rules.getByText(/from the issue’s size:S, size:M or size:L label, else M/)).toBeTruthy();
-    expect(
-      rules.getByText('2M tokens, $5.00; 2 concurrent; 10 starts per day; 3 review rounds'),
-    ).toBeTruthy();
+    expect(rules.getByText('2M tokens, $5.00; 2 concurrent; 3 review rounds')).toBeTruthy();
     expect(rules.getByText('edit later')).toBeTruthy();
   });
 
@@ -394,9 +395,7 @@ describe('Intake with data', () => {
     const items = within(log.closest('section') as HTMLElement).getAllByRole('listitem');
     expect(items).toHaveLength(11);
     expect(screen.queryByRole('table', { name: 'Trigger log' })).toBeNull();
-    expect(items.some((i) => /cap of starts in 24 hours was used/.test(i.textContent ?? ''))).toBe(
-      true,
-    );
+    expect(items.some((i) => /daily cap of starts/.test(i.textContent ?? ''))).toBe(true);
   });
 });
 

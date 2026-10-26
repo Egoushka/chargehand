@@ -44,9 +44,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         await expect(
           page.getByText(/Comment by octocat on src\/Retry\.cs:41/).first(),
         ).toBeVisible();
-        await expect(
-          page.getByText(/The cap of starts in 24 hours was used/).first(),
-        ).toBeVisible();
+        await expect(page.getByText(/Refused by the daily cap of starts/).first()).toBeVisible();
         await expect(page.getByText('max_attempts 3')).toBeVisible();
         await expect(
           page.getByRole('heading', { name: 'Not recorded by the server' }),
@@ -76,7 +74,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         }
 
         await page.getByRole('button', { name: 'Acted', exact: true }).click();
-        await expect(page.getByText(/The cap of starts in 24 hours was used/)).toHaveCount(0);
+        await expect(page.getByText(/Refused by the daily cap of starts/)).toHaveCount(0);
         await shot(page, `intake-acted-${device}-${scheme}`);
         expect(await violations(page)).toEqual([]);
         expect(await seen.finish()).toEqual([]);

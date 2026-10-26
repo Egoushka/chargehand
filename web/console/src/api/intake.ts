@@ -9,7 +9,6 @@ export interface IntakeRepositoryBody {
 
 export interface IntakeCaps {
   max_concurrent: number;
-  max_starts_per_day: number;
   max_review_rounds: number;
   max_tokens_total: number;
   max_usd_total: number;
@@ -17,12 +16,17 @@ export interface IntakeCaps {
   budget_class: string;
 }
 
-/** Starts in the last 24 hours against the daily cap; `next_slot_at` is set when the cap is full. */
-export interface IntakeStarts {
-  last24h: number;
-  cap: number;
-  remaining: number;
-  next_slot_at?: string | null;
+/**
+ * A trigger that waits to start, oldest first: `max_concurrent` (no free slot), `admission` (the
+ * server or `automation.account` refused the start) or `checkout`. `detail` is the refusal.
+ */
+export interface IntakeWaitingBody {
+  trigger: string;
+  repository: string;
+  issue: number;
+  since: string;
+  reason: string;
+  detail?: string | null;
 }
 
 export interface IntakeTaskBody {
@@ -59,7 +63,7 @@ export interface IntakeNoticeBody {
   trigger: string;
 }
 
-/** What intake did with a trigger, newest first. `reason` is set for `ignored`: `author_not_allowed`, `active`, `author`, `cap`, `gone`, `not_chargehand_branch` or `review_rounds_off`. Never the comment's text. */
+/** What intake did with a trigger, newest first. `reason` is set for `ignored`: `author_not_allowed`, `active`, `author`, `cap` (before 0.19.3), `gone`, `withdrawn`, `not_chargehand_branch` or `review_rounds_off`. Never the comment's text. */
 export interface IntakeTriggerBody {
   at: string;
   trigger: string;
@@ -93,7 +97,7 @@ export interface IntakeBody extends ContractMeta {
   mention?: string | null;
   poll_seconds?: number | null;
   caps?: IntakeCaps | null;
-  starts?: IntakeStarts | null;
+  waiting?: IntakeWaitingBody[] | null;
   running: number;
   tasks: IntakeTaskBody[];
   pending_reviews: IntakePendingBody[];
