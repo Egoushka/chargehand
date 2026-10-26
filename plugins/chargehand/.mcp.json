@@ -3,7 +3,7 @@
     "chargehand": {
       "command": "dotnet",
       "args": ["dnx", "Chargehand@0.19.0", "--yes", "--source", "https://api.nuget.org/v3/index.json", "--", "mcp"],
-      "env": { "CHARGEHAND_RUNTIME": "claude_code" }
+      "env": { "CHARGEHAND_RUNTIME": "claude_code", "DOTNET_SYSTEM_NET_DISABLEIPV6": "1" }
     }
   }
 }

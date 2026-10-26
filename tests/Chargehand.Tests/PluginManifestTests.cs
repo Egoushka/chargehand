@@ -38,6 +38,14 @@ public class PluginManifestTests
     }
 
     [Fact]
+    public void Mcp_entry_starts_dnx_over_ipv4()
+    {
+        // .NET does not fall back from a black-holed IPv6 route: dnx then waits ~75 s per start, past the client's MCP connect timeout.
+        var server = Json("plugins", "chargehand", ".mcp.json").GetProperty("mcpServers").GetProperty("chargehand");
+        Assert.Equal("1", server.GetProperty("env").GetProperty("DOTNET_SYSTEM_NET_DISABLEIPV6").GetString());
+    }
+
+    [Fact]
     public void Marketplace_lists_the_plugin_directory()
     {
         var entry = Json(".claude-plugin", "marketplace.json").GetProperty("plugins")[0];
