@@ -5,6 +5,30 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.0](https://github.com/Egoushka/chargehand/compare/v0.18.1...v0.19.0) (2026-10-26)
+
+
+### Features
+
+* **bench:** add a bare control arm that runs each task as one plain agent session (CHARGEHAND-320) ([#483](https://github.com/Egoushka/chargehand/issues/483)) ([4ae3a00](https://github.com/Egoushka/chargehand/commit/4ae3a0095c85fd8d982f5b1b02ed13c11cd9e554))
+* **config:** describe every profile key in the schema and test it (CHARGEHAND-319) ([#478](https://github.com/Egoushka/chargehand/issues/478)) ([50e5ac9](https://github.com/Egoushka/chargehand/commit/50e5ac99065da9b44d081b1b0c17b0857988eb37))
+* **mcp:** return a running run as a normal result, not a tool error (CHARGEHAND-315) ([#480](https://github.com/Egoushka/chargehand/issues/480)) ([1242647](https://github.com/Egoushka/chargehand/commit/124264715cd4fa47d90da05639ed2cbd5b370886))
+* **plugin:** add unmeasured eval cases for skill and tool selection (CHARGEHAND-321) ([#477](https://github.com/Egoushka/chargehand/issues/477)) ([f974e13](https://github.com/Egoushka/chargehand/commit/f974e1372ce60861bb1081edb229a3dd81525e51))
+* **server:** probe runners, GitHub App, push token and Plane key in deep health (CHARGEHAND-316) ([#481](https://github.com/Egoushka/chargehand/issues/481)) ([dd2a1fb](https://github.com/Egoushka/chargehand/commit/dd2a1fb95e5f94619a4e0077b0a9447b335109f3))
+
+
+### Bug Fixes
+
+* **bench:** cmd-option-deprecated says how the help marks a deprecated option ([#469](https://github.com/Egoushka/chargehand/issues/469)) ([236e2fe](https://github.com/Egoushka/chargehand/commit/236e2fe3e71c4b38d4e22a35144ffe460e3cd52b))
+* **evals:** fail prompt-ci when a dataset is missing and list skipped cells (CHARGEHAND-312) ([#471](https://github.com/Egoushka/chargehand/issues/471)) ([50eaf2c](https://github.com/Egoushka/chargehand/commit/50eaf2c291bad246adae3987be69d48379bfcaad))
+* **intake:** a crash after a batch starts cannot start it twice (CHARGEHAND-317) ([#482](https://github.com/Egoushka/chargehand/issues/482)) ([f5f9925](https://github.com/Egoushka/chargehand/commit/f5f99259e58b77670b2e77c0f1f95ce8ade773b3))
+* **intake:** refuse starts while the model credential is paused, account or not (CHARGEHAND-309) ([#473](https://github.com/Egoushka/chargehand/issues/473)) ([a673d1a](https://github.com/Egoushka/chargehand/commit/a673d1aaeb0ac0f152f30737a5475d5831a47db4))
+* **intake:** use a managed clone for reviews, schedules and Plane when the checkout is read-only (CHARGEHAND-310) ([#474](https://github.com/Egoushka/chargehand/issues/474)) ([0e3d7dd](https://github.com/Egoushka/chargehand/commit/0e3d7ddd55333590fc9f36a1b44e158a5a61b776))
+* **kernel:** scan added lines that begin with two pluses (CHARGEHAND-314) ([#470](https://github.com/Egoushka/chargehand/issues/470)) ([a70adc8](https://github.com/Egoushka/chargehand/commit/a70adc80ec679da8ae5d73762a8a0fec12069b91))
+* **server:** a run token reads only its own run and the runs it started (CHARGEHAND-313) ([#475](https://github.com/Egoushka/chargehand/issues/475)) ([476f3cf](https://github.com/Egoushka/chargehand/commit/476f3cfa8ff75f148b305cb53625750902c57a62))
+* **server:** send the credential-paused alert to the phone URL when no schedules URL is set (CHARGEHAND-318) ([#479](https://github.com/Egoushka/chargehand/issues/479)) ([f4b8eb0](https://github.com/Egoushka/chargehand/commit/f4b8eb046789d497eda01348afb466661ff7dbba))
+* **sessions:** ask for a missing report once, then keep the commits as a partial draft (CHARGEHAND-311) ([#476](https://github.com/Egoushka/chargehand/issues/476)) ([e1896cf](https://github.com/Egoushka/chargehand/commit/e1896cfc9479478feece1199e07583020da00e1d))
+
 ## [0.18.1](https://github.com/Egoushka/chargehand/compare/v0.18.0...v0.18.1) (2026-10-23)
 
 
