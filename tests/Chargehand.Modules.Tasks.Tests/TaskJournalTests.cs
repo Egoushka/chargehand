@@ -83,7 +83,7 @@ public sealed class TaskJournalTests : IAsyncLifetime
         await tasks.FinishedAsync(new TaskOutcome("t1", TaskState.NeedsInput, "run-1", "asked", ErrorCode.Cancelled));
 
         var e = Assert.Single(await _journal.ReadEventsAsync(TaskJournal.FlowOf(Batch)));
-        Assert.Equal(("finished", """{"task":"t1","outcome":{"id":"t1","state":"needs_input","run_id":"run-1","detail":"asked","error":"cancelled","usd":0,"tokens":0,"replace":false}}"""),
+        Assert.Equal(("finished", """{"task":"t1","outcome":{"id":"t1","state":"needs_input","run_id":"run-1","detail":"asked","error":"cancelled","usd":0,"tokens":0,"replace":false,"replan":false}}"""),
             (e.Kind, e.Payload));
     }
 
