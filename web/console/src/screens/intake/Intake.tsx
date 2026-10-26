@@ -55,7 +55,6 @@ export function Intake() {
   const gate = useOwnerGate();
   const intake = useQuery({ ...intakeQuery(), enabled: gate.allowed });
   const sources = useQuery({ ...intakeSourcesQuery(), enabled: gate.allowed });
-  const watching = sources.data && (sources.data.configured || sources.data.plane?.configured);
   const system = useQuery({ ...systemQuery(), enabled: gate.allowed });
   const pulls = useQuery({
     ...pullsQuery({ since: '14d', limit: 200 }),
@@ -72,9 +71,8 @@ export function Intake() {
         <div>
           <h1 className="screen__title">Intake and automation</h1>
           <p className="screen__sub">
-            GitHub issues, review comments and Plane work items that start work, and the integrator
-            policy for each repository. chargehand polls GitHub as its App and Plane with its key;
-            there is no webhook.
+            GitHub issues and review comments that start work, and the integrator policy for each
+            repository. chargehand polls GitHub as its App; there is no webhook.
           </p>
         </div>
         <div className="screen__actions">
@@ -128,7 +126,7 @@ export function Intake() {
         />
       ) : null}
 
-      {watching ? <SourcesPanel data={sources.data} /> : null}
+      {sources.data?.configured ? <SourcesPanel data={sources.data} /> : null}
 
       {data && !data.enabled ? (
         <Panel title="GitHub intake">

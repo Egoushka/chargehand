@@ -39,19 +39,18 @@ namespace Chargehand.Server;
 /// <param name="Profile">The profile, for the console's read routes (CHARGEHAND-209): the owner's <c>system</c> and <c>repositories</c> views and intake's settings. Null: those views are empty.</param>
 /// <param name="SecretPresent">Whether a secret item resolves, for an account's credential state; null: it is not known.</param>
 /// <param name="IntakeStatePath">Intake's state file (<c>intake/github.json</c>) for <c>GET /v1/intake</c>; null: none.</param>
-/// <param name="PlaneStatePath">Plane intake's state file (<c>intake/plane.json</c>) for the queues of <c>GET /v1/intake/sources</c>; null: none.</param>
 /// <param name="Access">Sign-in by Cloudflare Access identity (ADR 0071); null: keys only.</param>
 /// <param name="AccessCerts">Reads the team's signing keys; null: an HTTPS GET of <see cref="CloudflareAccessSettings.CertsUrl"/>.</param>
 /// <param name="ProxySignIn">Sign-in by the email a trusted single-sign-on proxy forwards (ADR 0071); null: keys only.</param>
 /// <param name="ProxyResolver">Resolves the proxies' names; null: DNS.</param>
-/// <param name="Probes">What <c>?deep=1</c> on <c>/v1/health</c> checks besides the intake model (CHARGEHAND-316): the runners, the GitHub App, the push token and the Plane key the profile configures; null: none.</param>
+/// <param name="Probes">What <c>?deep=1</c> on <c>/v1/health</c> checks besides the intake model (CHARGEHAND-316): the runners, the GitHub App and the push token the profile configures; null: none.</param>
 /// <param name="InboxDismissalsPath">The file of the inbox's dismissals (<c>inbox/dismissed.json</c>, ADR 0064); null: nothing can be dismissed.</param>
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
     IReadOnlyList<string>? AllowedHosts = null, int MaxConcurrentRuns = 1, int MaxSessionCalls = 2, string? StateDirectory = null,
     IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null, bool Ui = false,
     Profile? Profile = null, Func<string, bool>? SecretPresent = null, string? IntakeStatePath = null, string? InboxDismissalsPath = null, TimeSpan? McpWait = null,
     CloudflareAccessSettings? Access = null, Func<CancellationToken, Task<string>>? AccessCerts = null,
-    ProxySignInSettings? ProxySignIn = null, Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? ProxyResolver = null, string? PlaneStatePath = null,
+    ProxySignInSettings? ProxySignIn = null, Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? ProxyResolver = null,
     IReadOnlyList<DependencyProbe>? Probes = null);
 
 /// <summary>
@@ -80,7 +79,7 @@ public static partial class ChargehandServer
 
     public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log, Chargehand.Driven.DrivenRun? driven = null, Chargehand.Automation.GitHubIntake? intake = null,
         Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? scheduler = null,
-        Chargehand.Automation.PlaneIntake? plane = null, Chargehand.Automation.PhoneAnswers? phone = null)
+        Chargehand.Automation.PhoneAnswers? phone = null)
     {
         var address = IPAddress.Parse(settings.Listen);
         IReadOnlyList<string> hosts = settings.AllowedHosts ?? [];
@@ -124,9 +123,6 @@ public static partial class ChargehandServer
                 var source = new ServerMorningSource(() => new ConsoleContext(settings, runs, log, driven, new SecretPresence(settings.SecretPresent), dismissals));
                 return new ScheduleService(scheduler(source), runs, automationAccount);
             });
-        // ADR 0067: only when the profile has automation.plane.
-        if (plane is not null)
-            builder.Services.AddHostedService(sp => new PlaneIntakeService(plane, sp.GetRequiredService<RunService>(), automationAccount));
         // ADR 0077: only when the profile has automation.notify. It reads the same inbox the console does.
         if (phone is not null)
             builder.Services.AddHostedService(sp =>
@@ -261,7 +257,7 @@ public static partial class ChargehandServer
             var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
             ConsoleAnswers.Map(app, ctx => new ConsoleContext(settings, ctx.RequestServices.GetRequiredService<RunService>(), log, driven, new SecretPresence(settings.SecretPresent), dismissals), phone);
         }
-        ConsoleSources.Map(app, settings, intake, plane);
+        ConsoleSources.Map(app, settings, intake);
 
         foreach (var path in new[] { "/v1/accounts/me", IdentityPath })
             app.MapGet(path, async (HttpContext ctx, RunService runs) =>

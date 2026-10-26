@@ -705,7 +705,7 @@ export function systemFull(now = Date.now()): SystemBody {
   };
 }
 
-/** `intake-sources/v1`: three GitHub repositories (one discovered and switched off) and two Plane projects. */
+/** `intake-sources/v1`: three GitHub repositories (one discovered and switched off). */
 export function intakeSources(
   over: Partial<IntakeSourcesBody> = {},
   now = Date.now(),
@@ -755,21 +755,6 @@ export function intakeSources(
         path: '/var/tmp/ch/repos/example/notes',
       }),
     ],
-    plane: {
-      configured: true,
-      queued: 1,
-      projects: [
-        {
-          project: 'proj-ops',
-          enabled: true,
-          path: '/srv/work/infra',
-          remote: 'example/infra',
-          running: 1,
-          recent: [run('OPS-12', 'running', 40, BATCH_B)],
-        },
-        { project: 'proj-docs', enabled: false, path: '/srv/work/docs', running: 0, recent: [] },
-      ],
-    },
     not_recorded: [
       'Queued counts a trigger told to wait for a free slot until it starts: one withdrawn while it waited is still counted.',
     ],
@@ -779,30 +764,16 @@ export function intakeSources(
 
 /** What `PUT /v1/intake/sources` answers: the list with the switches in `body` set. */
 export function switched(list: IntakeSourcesBody, body: unknown): IntakeSourcesBody {
-  const change = body as {
-    sources?: { repository: string; enabled: boolean }[];
-    plane_projects?: { project: string; enabled: boolean }[];
-  };
-  const set = new Map<string, boolean>([
-    ...(change.sources ?? []).map((e): [string, boolean] => [`github:${e.repository}`, e.enabled]),
-    ...(change.plane_projects ?? []).map((e): [string, boolean] => [
-      `plane:${e.project}`,
-      e.enabled,
-    ]),
-  ]);
+  const change = body as { sources?: { repository: string; enabled: boolean }[] };
+  const set = new Map<string, boolean>(
+    (change.sources ?? []).map((e): [string, boolean] => [e.repository, e.enabled]),
+  );
   return {
     ...list,
     sources: list.sources.map((s) => ({
       ...s,
-      enabled: set.get(`github:${s.repository}`) ?? s.enabled,
+      enabled: set.get(s.repository) ?? s.enabled,
     })),
-    plane: list.plane && {
-      ...list.plane,
-      projects: list.plane.projects.map((p) => ({
-        ...p,
-        enabled: set.get(`plane:${p.project}`) ?? p.enabled,
-      })),
-    },
   };
 }
 
