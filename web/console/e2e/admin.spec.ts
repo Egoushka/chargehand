@@ -29,7 +29,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         await listenForViolations(page);
       });
 
-      test('Intake: the trigger log, the cap on starts, the rules and the integrator policy', async ({
+      test('Intake: the trigger log, the waiting triggers, the rules and the integrator policy', async ({
         page,
       }) => {
         const mock = await mockApi(page);
@@ -40,13 +40,11 @@ for (const [device, viewport] of Object.entries(SIZES)) {
           page.getByRole('heading', { level: 1, name: 'Intake and automation' }),
         ).toBeVisible();
         await expect(page.getByText(/Polling every 120 s/)).toBeVisible();
-        await expect(page.getByText('7 of 10')).toBeVisible();
+        await expect(page.getByText('1 waiting')).toBeVisible();
         await expect(
           page.getByText(/Comment by octocat on src\/Retry\.cs:41/).first(),
         ).toBeVisible();
-        await expect(
-          page.getByText(/The cap of starts in 24 hours was used/).first(),
-        ).toBeVisible();
+        await expect(page.getByText(/Refused by the daily cap of starts/).first()).toBeVisible();
         await expect(page.getByText('max_attempts 3')).toBeVisible();
         await expect(
           page.getByRole('heading', { name: 'Not recorded by the server' }),
@@ -76,7 +74,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         }
 
         await page.getByRole('button', { name: 'Acted', exact: true }).click();
-        await expect(page.getByText(/The cap of starts in 24 hours was used/)).toHaveCount(0);
+        await expect(page.getByText(/Refused by the daily cap of starts/)).toHaveCount(0);
         await shot(page, `intake-acted-${device}-${scheme}`);
         expect(await violations(page)).toEqual([]);
         expect(await seen.finish()).toEqual([]);

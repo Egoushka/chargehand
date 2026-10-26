@@ -17,8 +17,8 @@ public class ReviewRoundTests
 
     private static bool Valid(RunRequest request) => ContractSchemas.Validate(ContractSchemas.Request, JsonSerializer.SerializeToElement(request, ContractJson.Options)).Count == 0;
 
-    private static AutomationGitHub Settings(int concurrent = 2, int perDay = 10, int rounds = 3) =>
-        new(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, [IntakeRig.Author], MaxConcurrent: concurrent, MaxStartsPerDay: perDay, MaxReviewRounds: rounds);
+    private static AutomationGitHub Settings(int concurrent = 2, int rounds = 3) =>
+        new(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, [IntakeRig.Author], MaxConcurrent: concurrent, MaxReviewRounds: rounds);
 
     /// <summary>An issue's task ended in pull request 9 on <see cref="Branch"/>: the first poll fixes the cursors, the batch starts, ends and is reported.</summary>
     private static async Task<IntakeRig> WithPullRequest(AutomationGitHub? settings = null)
@@ -383,7 +383,7 @@ public class ReviewRoundTests
     }
 
     [Fact]
-    public async Task A_round_counts_toward_the_concurrency_and_daily_limits_like_any_batch()
+    public async Task A_round_takes_a_slot_like_any_batch_and_waits_in_the_queue_for_one()
     {
         using var busy = await WithPullRequest(Settings(concurrent: 1));
         busy.Labeled(8, "alice", 42);
@@ -393,16 +393,11 @@ public class ReviewRoundTests
         await busy.Poll();
         Assert.Equal(2, busy.Starter.Started.Count);
         Assert.Single(busy.GitHub.Posted, p => p.Issue == 9 && p.Body.Contains("waiting for a free slot", StringComparison.Ordinal));
+        Assert.Equal(9, Assert.Single(busy.State.Waiting).Issue);
         busy.Log.End("run-2", IntakeRig.Pr("issue-8", run: "other"));
         await busy.Poll();
         Assert.Equal(3, busy.Starter.Started.Count);
-
-        using var capped = await WithPullRequest(Settings(perDay: 1));
-        capped.Review(9, "alice", "Fix this.");
-        await capped.Poll();
-        Assert.Single(capped.Starter.Started);
-        Assert.Contains("did not start", capped.GitHub.Posted.Last().Body);
-        Assert.Empty(capped.State.Pending);
+        Assert.Empty(busy.State.Waiting);
     }
 
     [Fact]

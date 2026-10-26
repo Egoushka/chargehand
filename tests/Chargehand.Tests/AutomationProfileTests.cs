@@ -22,7 +22,7 @@ public class AutomationProfileTests
     {
         var github = Load("""{"repositories":{"octo/repo":{"path":"/srv/repos/repo"}},"allowed_authors":["alice"]}""").Automation!.Github!;
 
-        Assert.Equal(("chargehand", "@chargehand", 120, "M", 2, 10), (github.Label, github.Mention, github.PollSeconds, github.BudgetClass, github.MaxConcurrent, github.MaxStartsPerDay));
+        Assert.Equal(("chargehand", "@chargehand", 120, "M", 2, (int?)null), (github.Label, github.Mention, github.PollSeconds, github.BudgetClass, github.MaxConcurrent, github.MaxStartsPerDay));
         Assert.Equal((2_000_000L, 5m, 3), (github.MaxTokensTotal, github.MaxUsdTotal, github.MaxReviewRounds));
         Assert.Equal("/srv/repos/repo", github.Repositories!["octo/repo"].Path);
     }
@@ -41,7 +41,6 @@ public class AutomationProfileTests
     [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"mention":"chargehand"}""", "mention")]
     [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"budget_class":"XL"}""", "budget_class")]
     [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_concurrent":0}""", "max_concurrent")]
-    [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_starts_per_day":0}""", "max_starts_per_day")]
     [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_review_rounds":4}""", "max_review_rounds")]
     [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_review_rounds":-1}""", "max_review_rounds")]
     public void A_value_that_cannot_work_is_refused_when_the_profile_loads(string github, string problem)
@@ -49,6 +48,23 @@ public class AutomationProfileTests
         var e = Assert.Throws<ChargehandException>(() => Load(github));
         Assert.Contains(problem, e.Message);
         Assert.Equal(ErrorCode.InvalidRequest, e.Code);
+    }
+
+    [Fact]
+    public void The_daily_caps_of_earlier_releases_still_load_are_ignored_and_are_named_once_as_deprecated()
+    {
+        // ADR 0081: a profile written for 0.19.2 keeps loading, whatever it set.
+        using var dir = new TempDir();
+        var profile = Profile.Load(dir.Write("local.json", """
+            {"schema":"profile/v1","driven":{"enabled":true,"integrator":{"app_id":1,"private_key_secret":"app-key"}},"automation":{
+              "github":{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_starts_per_day":0,"max_reviews_per_day":5000}}}
+            """));
+
+        var deprecated = profile.Automation!.Deprecations().ToList();
+        Assert.Equal(2, deprecated.Count);
+        Assert.All(deprecated, d => Assert.Contains("deprecated and ignored since 0.19.4: spend is bounded by automation.account's dollar caps (ADR 0076)", d));
+        Assert.Equal(["automation.github.max_starts_per_day", "automation.github.max_reviews_per_day"], deprecated.Select(d => d[..d.IndexOf(' ')]));
+        Assert.Empty(Load("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"]}""").Automation!.Deprecations());
     }
 
     [Fact]
@@ -102,8 +118,7 @@ public class AutomationProfileTests
         state.Pending.Add(new PendingReview("c40", "octo/repo", 9, "alice", "@chargehand go on", null, null, now));
         state.CommentCursor["octo/repo"] = now;
         state.Tasks.Add(new IntakeTask("octo/repo", 7, "run-1", "issue-7", now, "M", IntakePhase.Asked, 99, "https://github.example.test/octo/repo/pull/1", "chargehand/x", 2));
-        state.Starts.Add(now);
-        state.Starts.Add(now - TimeSpan.FromDays(2));
+        state.Waiting.Add(new WaitingTrigger("label:octo/repo#8:3", "octo/repo", 8, now, "admission", "account 'a': budget_exceeded"));
         state.Save(now);
 
         var loaded = IntakeState.Load(path);
@@ -112,7 +127,7 @@ public class AutomationProfileTests
         Assert.Equal(state.Tasks, loaded.Tasks);
         Assert.Equal(state.Pending, loaded.Pending);
         Assert.Equal(now, loaded.ReviewCursor["octo/repo"]);
-        Assert.Equal([now], loaded.Starts);
+        Assert.Equal(state.Waiting, loaded.Waiting);
         Assert.False(File.Exists(path + ".tmp"));
     }
 }

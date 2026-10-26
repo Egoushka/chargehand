@@ -591,6 +591,8 @@ async Task<int> Serve()
         return 2;
     }
     using var tracing = Tracing();
+    foreach (var deprecated in profile.Automation?.Deprecations() ?? [])
+        Console.Error.WriteLine($"chargehand serve: {deprecated}");
     var (runtime, runtimeVersion) = await Connect();
     if (Chargehand.ClaudeCode.AccountRuntimes.Unsupported(runtime, http.Accounts) is { } unsupported)
     {
@@ -618,6 +620,8 @@ async Task<int> Serve()
 async Task<int> Mcp()
 {
     using var tracing = Tracing();
+    foreach (var deprecated in profile.Automation?.Deprecations() ?? [])
+        Console.Error.WriteLine($"chargehand serve: {deprecated}");
     var (runtime, runtimeVersion) = await Connect();
     var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
     using var host = ChargehandServer.CreateStdio(Path.Combine(root, "presets"), orchestrator, Console.OpenStandardInput(), Console.OpenStandardOutput());
@@ -646,6 +650,8 @@ async Task<int> EvalGate(string baseRoot, string changeRoot, IReadOnlyList<strin
     var name = Option("--name") ?? $"eval-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
 
     using var tracing = Tracing();
+    foreach (var deprecated in profile.Automation?.Deprecations() ?? [])
+        Console.Error.WriteLine($"chargehand serve: {deprecated}");
     var (runtime, runtimeVersion) = await Connect();
     var langfuse = Evals();
     // Evals never use memory (ADR 0008), and each arm reads prompts/ and presets/ from its own root.

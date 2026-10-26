@@ -20,6 +20,14 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
         Schedules?.Validate(drivenEnabled);
         Notify?.Validate(drivenEnabled);
     }
+
+    /// <summary>The keys the profile sets that are accepted and ignored, one line each, for the server to write once at startup.</summary>
+    public IEnumerable<string> Deprecations()
+    {
+        const string why = "deprecated and ignored since 0.19.4: spend is bounded by automation.account's dollar caps (ADR 0076), slots by max_concurrent";
+        if (Github?.MaxStartsPerDay is not null) yield return $"automation.github.max_starts_per_day is {why}";
+        if (Github?.MaxReviewsPerDay is not null) yield return $"automation.github.max_reviews_per_day is {why}";
+    }
 }
 
 /// <summary>A label on an issue, or a mention of the bot in a comment, by an allowed author starts a driven batch of one task (ADR 0051). chargehand polls: the server is not reachable from GitHub.
@@ -34,16 +42,16 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
 /// <param name="MaxTokensTotal">The token cap of a triggered batch (default 2,000,000); binds on a subscription and on an API key.</param>
 /// <param name="MaxUsdTotal">The dollar cap of a triggered batch (default 5); binds where the credential is priced.</param>
 /// <param name="MaxConcurrent">Triggered batches running at once (default 2); a trigger over it waits for a slot.</param>
-/// <param name="MaxStartsPerDay">Triggered batches started in any 24 hours (default 10); a trigger over it is refused.</param>
+/// <param name="MaxStartsPerDay">Deprecated, ignored since 0.19.4 (ADR 0081): spend is bounded by <c>automation.account</c>'s dollar caps. Accepted so a profile that sets it still loads.</param>
 /// <param name="MaxReviewRounds">Review rounds per pull request (default 3, 0 to turn the loop off): comments of allowed authors on a chargehand pull request start a session on its branch. The CI fixer's attempts count
 /// against the same cap of 3 per pull request, so rounds and fix attempts together never pass it (ADR 0051).</param>
 /// <param name="ReviewPulls">Review every open, non-draft pull request of the watched repositories once per head commit and comment the findings (default false).</param>
-/// <param name="MaxReviewsPerDay">Reviews started in any 24 hours (default 20); a pull request over it waits until the window has room.</param>
+/// <param name="MaxReviewsPerDay">Deprecated, ignored since 0.19.4 (ADR 0081), like <paramref name="MaxStartsPerDay"/>: reviews are admitted as <c>automation.account</c> too.</param>
 /// <param name="Discover">Also watch every repository the App's installations can see, each cloned into <c>&lt;worker_root&gt;/repos/&lt;owner&gt;/&lt;repo&gt;</c> and fetched with the App's token (default false).
 /// A repository in <paramref name="Repositories"/> keeps its own checkout.</param>
 public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, AutomationRepository>? Repositories = null, IReadOnlyList<string>? AllowedAuthors = null, string Label = "chargehand",
-    string Mention = "@chargehand", int PollSeconds = 120, string BudgetClass = "M", long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int MaxStartsPerDay = 10, int MaxReviewRounds = 3,
-    bool ReviewPulls = false, int MaxReviewsPerDay = 20, bool Discover = false)
+    string Mention = "@chargehand", int PollSeconds = 120, string BudgetClass = "M", long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int? MaxStartsPerDay = null, int MaxReviewRounds = 3,
+    bool ReviewPulls = false, int? MaxReviewsPerDay = null, bool Discover = false)
 {
     /// <summary>Where discovered repositories are cloned, under <c>worker_root</c>.</summary>
     public const string ClonesDirectory = "repos";
@@ -87,8 +95,6 @@ public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, Automa
         if (MaxTokensTotal < 1) yield return "max_tokens_total must be above 0";
         if (MaxUsdTotal <= 0) yield return "max_usd_total must be above 0";
         if (MaxConcurrent is < 1 or > 10) yield return "max_concurrent must be 1 to 10";
-        if (MaxStartsPerDay is < 1 or > 1000) yield return "max_starts_per_day must be 1 to 1000";
-        if (MaxReviewsPerDay is < 1 or > 1000) yield return "max_reviews_per_day must be 1 to 1000";
         if (MaxReviewRounds is < 0 or > DrivenCiFix.AttemptCap) yield return $"max_review_rounds must be 0 to {DrivenCiFix.AttemptCap}";
     }
 
