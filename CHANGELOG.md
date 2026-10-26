@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.3](https://github.com/Egoushka/chargehand/compare/v0.19.2...v0.19.3) (2026-10-26)
+
+
+### Bug Fixes
+
+* **sessions:** refuse no-op verification commands and derive a default from CI (CHARGEHAND-431) ([#461](https://github.com/Egoushka/chargehand/issues/461)) ([2228c47](https://github.com/Egoushka/chargehand/commit/2228c471fdcf1e92b5de7b561be64485e9de9a70))
+
 ## [0.19.2](https://github.com/Egoushka/chargehand/compare/v0.19.1...v0.19.2) (2026-10-26)
 
 
