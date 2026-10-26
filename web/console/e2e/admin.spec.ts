@@ -29,7 +29,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         await listenForViolations(page);
       });
 
-      test('Intake: the trigger log, the cap on starts, the rules and the integrator policy', async ({
+      test('Intake: the trigger log, the waiting triggers, the rules and the integrator policy', async ({
         page,
       }) => {
         const mock = await mockApi(page);
@@ -40,7 +40,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
           page.getByRole('heading', { level: 1, name: 'Intake and automation' }),
         ).toBeVisible();
         await expect(page.getByText(/Polling every 120 s/)).toBeVisible();
-        await expect(page.getByText('7 of 10')).toBeVisible();
+        await expect(page.getByText('1 waiting')).toBeVisible();
         await expect(
           page.getByText(/Comment by octocat on src\/Retry\.cs:41/).first(),
         ).toBeVisible();
