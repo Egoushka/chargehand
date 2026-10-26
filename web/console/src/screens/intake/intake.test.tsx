@@ -236,7 +236,7 @@ describe('Intake with data', () => {
     expect(cells[0]?.textContent).toBe('—');
     expect(cells[1]?.textContent).toBe('labelexample/web-shop#232');
     expect(cells[2]?.textContent).toBe('Ignored');
-    expect(cells[3]?.textContent).toMatch(/daily cap of starts of a release before 0.19.3/);
+    expect(cells[3]?.textContent).toMatch(/daily cap of starts of a release before 0.19.4/);
 
     const acted = rows.find((r) => /example\/payments-api#231/.test(r.textContent ?? ''));
     const actedCells = within(acted as HTMLElement).getAllByRole('cell');

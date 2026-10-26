@@ -17,11 +17,11 @@ public sealed record IntakeTaskBody(string Repository, int Issue, string BatchRu
 public sealed record IntakePendingBody(string Id, string Repository, int Pull, string Author, string? Path, int? Line, DateTimeOffset At);
 
 /// <param name="Reason">Why intake did not act, as it wrote it on the issue: <c>active</c> (already working on it), <c>author</c> (a merge repository needs an issue by an allowed author), <c>gone</c> (the run is no longer
-/// in the log), <c>wait</c> (no free slot), <c>cap</c> (the daily cap of releases before 0.19.3), <c>notask</c>, <c>busy</c>, <c>rounds</c> (review rounds used up).</param>
+/// in the log), <c>wait</c> (no free slot), <c>cap</c> (the daily cap of releases before 0.19.4), <c>notask</c>, <c>busy</c>, <c>rounds</c> (review rounds used up).</param>
 public sealed record IntakeNoticeBody(string Reason, string Trigger);
 
 /// <summary>What intake did with a trigger, newest first (CHARGEHAND-214). <paramref name="Outcome"/> is <c>started</c>, <c>continued</c>, <c>round_started</c>, <c>queued</c> or <c>ignored</c>; for <c>ignored</c> the
-/// <paramref name="Reason"/> is <c>author_not_allowed</c>, <c>active</c>, <c>author</c>, <c>cap</c> (before 0.19.3), <c>gone</c>, <c>withdrawn</c>, <c>not_chargehand_branch</c> or <c>review_rounds_off</c>. <paramref name="Author"/> is the login that set the label or wrote the comment.</summary>
+/// <paramref name="Reason"/> is <c>author_not_allowed</c>, <c>active</c>, <c>author</c>, <c>cap</c> (before 0.19.4), <c>gone</c>, <c>withdrawn</c>, <c>not_chargehand_branch</c> or <c>review_rounds_off</c>. <paramref name="Author"/> is the login that set the label or wrote the comment.</summary>
 public sealed record IntakeTriggerBody(DateTimeOffset At, string Trigger, string Outcome, string? Reason, string? Author);
 
 /// <param name="HandledLabels">Label triggers seen, acted on or ignored; a trigger is handled once.</param>

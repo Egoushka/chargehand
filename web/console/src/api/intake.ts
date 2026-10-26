@@ -63,7 +63,7 @@ export interface IntakeNoticeBody {
   trigger: string;
 }
 
-/** What intake did with a trigger, newest first. `reason` is set for `ignored`: `author_not_allowed`, `active`, `author`, `cap` (before 0.19.3), `gone`, `withdrawn`, `not_chargehand_branch` or `review_rounds_off`. Never the comment's text. */
+/** What intake did with a trigger, newest first. `reason` is set for `ignored`: `author_not_allowed`, `active`, `author`, `cap` (before 0.19.4), `gone`, `withdrawn`, `not_chargehand_branch` or `review_rounds_off`. Never the comment's text. */
 export interface IntakeTriggerBody {
   at: string;
   trigger: string;

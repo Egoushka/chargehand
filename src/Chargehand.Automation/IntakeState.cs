@@ -34,7 +34,7 @@ public sealed record WaitingTrigger(string Key, string Repository, int Issue, Da
 /// <summary>What intake did with a trigger, and when: the console's answer to "why did nothing start" (CHARGEHAND-214).</summary>
 /// <param name="Key">The trigger's key as <see cref="IntakeState.Handled"/> holds it (<c>label:owner/repo#12:&lt;event id&gt;</c>, <c>comment:owner/repo:&lt;comment id&gt;</c>).</param>
 /// <param name="Outcome"><c>started</c>, <c>continued</c> (an answer), <c>round_started</c> (review comments), <c>queued</c> (a review comment waits for a round) or <c>ignored</c>.</param>
-/// <param name="Reason">For <c>ignored</c>: <c>author_not_allowed</c>, <c>active</c> (already working on the issue), <c>author</c> (a merge repository takes issues of allowed authors only), <c>cap</c> (the daily cap of releases before 0.19.3),
+/// <param name="Reason">For <c>ignored</c>: <c>author_not_allowed</c>, <c>active</c> (already working on the issue), <c>author</c> (a merge repository takes issues of allowed authors only), <c>cap</c> (the daily cap of releases before 0.19.4),
 /// <c>gone</c> (the earlier run is not in the log), <c>withdrawn</c> (a waiting trigger's label, comment or issue is gone), <c>not_chargehand_branch</c> or <c>review_rounds_off</c>.</param>
 /// <param name="Author">The GitHub login that set the label or wrote the comment, where there is one.</param>
 public sealed record IntakeTrigger(DateTimeOffset At, string Key, string Outcome, string? Reason = null, string? Author = null);

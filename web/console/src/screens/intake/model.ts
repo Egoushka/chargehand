@@ -31,7 +31,7 @@ const REASONS: Record<string, string> = {
     'The repository merges by policy, so it takes work only from an issue written by an allowed author.',
   gone: 'The run to continue is no longer in the run log.',
   wait: 'Waiting for a free slot; it starts when a triggered batch ends.',
-  cap: 'Refused by the daily cap of starts of a release before 0.19.3; it was not started later.',
+  cap: 'Refused by the daily cap of starts of a release before 0.19.4; it was not started later.',
   notask:
     'No finished task for this branch is in the run log, so the branch is unknown to chargehand.',
   busy: 'The pull request’s task is still running; the comments are taken when it ends.',

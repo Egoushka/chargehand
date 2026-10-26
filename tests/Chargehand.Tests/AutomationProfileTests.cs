@@ -63,7 +63,7 @@ public class AutomationProfileTests
 
         var deprecated = profile.Automation!.Deprecations().ToList();
         Assert.Equal(3, deprecated.Count);
-        Assert.All(deprecated, d => Assert.Contains("deprecated and ignored since 0.19.3: spend is bounded by automation.account's dollar caps (ADR 0076)", d));
+        Assert.All(deprecated, d => Assert.Contains("deprecated and ignored since 0.19.4: spend is bounded by automation.account's dollar caps (ADR 0076)", d));
         Assert.Equal(["automation.github.max_starts_per_day", "automation.github.max_reviews_per_day", "automation.plane.max_starts_per_day"], deprecated.Select(d => d[..d.IndexOf(' ')]));
         Assert.Empty(Load("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"]}""").Automation!.Deprecations());
     }

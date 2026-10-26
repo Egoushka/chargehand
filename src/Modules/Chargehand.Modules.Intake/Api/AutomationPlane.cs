@@ -19,7 +19,7 @@ namespace Chargehand.Modules.Intake.Api;
 /// <param name="MaxTokensTotal">The token cap of a triggered batch (default 2,000,000).</param>
 /// <param name="MaxUsdTotal">The dollar cap of a triggered batch (default 5).</param>
 /// <param name="MaxConcurrent">Triggered batches running at once (default 2); a trigger over it waits for a slot.</param>
-/// <param name="MaxStartsPerDay">Deprecated, ignored since 0.19.3 (ADR 0081): spend is bounded by <c>automation.account</c>'s dollar caps. Accepted so a profile that sets it still loads.</param>
+/// <param name="MaxStartsPerDay">Deprecated, ignored since 0.19.4 (ADR 0081): spend is bounded by <c>automation.account</c>'s dollar caps. Accepted so a profile that sets it still loads.</param>
 public sealed partial record AutomationPlane(string? Url = null, string? ApiKeySecret = null, string? Workspace = null, IReadOnlyDictionary<string, PlaneProject>? Projects = null,
     string? TriggerState = null, string? StartedState = null, string? ReviewState = null, string? FailedState = null, int PollSeconds = 120, string BudgetClass = "M",
     long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int? MaxStartsPerDay = null)
