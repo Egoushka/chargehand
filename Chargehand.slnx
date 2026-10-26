@@ -17,6 +17,7 @@
     <Project Path="src/Modules/Chargehand.Modules.Accounts/Chargehand.Modules.Accounts.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Batches/Chargehand.Modules.Batches.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Console/Chargehand.Modules.Console.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Economics/Chargehand.Modules.Economics.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Evaluation/Chargehand.Modules.Evaluation.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Forge/Chargehand.Modules.Forge.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Gateway/Chargehand.Modules.Gateway.csproj" />
@@ -50,6 +51,7 @@
     <Project Path="tests/Chargehand.Architecture.Tests/Chargehand.Architecture.Tests.csproj" />
     <Project Path="tests/Chargehand.Kernel.Tests/Chargehand.Kernel.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Batches.Tests/Chargehand.Modules.Batches.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Economics.Tests/Chargehand.Modules.Economics.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Forge.Tests/Chargehand.Modules.Forge.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Gateway.Tests/Chargehand.Modules.Gateway.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Handover.Tests/Chargehand.Modules.Handover.Tests.csproj" />

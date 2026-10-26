@@ -6,6 +6,8 @@ import type {
   AnalyticsBucket,
   AnalyticsGroupBy,
   AnalyticsParams,
+  CostBody,
+  CostRow,
   GovernorCount,
   PrCounts,
   RunPoint,
@@ -366,4 +368,63 @@ export function finishedRuns(now: number): RunSummary[] {
       now,
     );
   });
+}
+
+const costRow = (repository: string, preset: string, over: Partial<CostRow>): CostRow => ({
+  repository,
+  preset,
+  runs: 0,
+  usd: 0,
+  pull_requests: 0,
+  merged: 0,
+  closed_unmerged: 0,
+  open: 0,
+  unknown: 0,
+  no_pull_request_usd: 0,
+  closed_usd: 0,
+  wasted_usd: 0,
+  ...over,
+});
+
+/** A `cost/v1` body: one driven preset that merged, one default preset that opened nothing. */
+export function costBody(): CostBody {
+  const driven = costRow('acme/app', 'driven', {
+    runs: 4,
+    usd: 10,
+    pull_requests: 3,
+    merged: 1,
+    closed_unmerged: 1,
+    open: 1,
+    usd_per_merged: 10,
+    no_pull_request_usd: 1,
+    closed_usd: 2,
+    wasted_usd: 3,
+  });
+  const idle = costRow('acme/app', 'default', {
+    runs: 2,
+    usd: 6,
+    no_pull_request_usd: 6,
+    wasted_usd: 6,
+  });
+  const total = costRow('*', '*', {
+    ...driven,
+    runs: 6,
+    usd: 16,
+    no_pull_request_usd: 7,
+    wasted_usd: 9,
+    usd_per_merged: 16,
+  });
+  return {
+    contract_version: 'cost/v1',
+    generated_at: '2026-10-26T12:00:00Z',
+    windows: [7, 30].map((days) => ({
+      days,
+      since: '2026-10-01T00:00:00Z',
+      total,
+      rows: [driven, idle],
+    })),
+    not_recorded: [
+      'Runs are placed in a window by when they finished, and a pull request by its state now.',
+    ],
+  };
 }

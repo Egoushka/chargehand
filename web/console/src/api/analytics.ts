@@ -135,3 +135,43 @@ export const analyticsQuery = (params: AnalyticsParams = {}) =>
   });
 
 export const useAnalytics = (params: AnalyticsParams = {}) => useQuery(analyticsQuery(params));
+
+/** One repository and preset over one window of `cost/v1`; `*` marks a total. */
+export interface CostRow {
+  repository: string;
+  preset: string;
+  runs: number;
+  usd: number;
+  pull_requests: number;
+  merged: number;
+  closed_unmerged: number;
+  open: number;
+  /** Pull requests whose state could not be read. */
+  unknown: number;
+  /** All of `usd` over `merged`; absent when nothing merged. */
+  usd_per_merged?: number | null;
+  no_pull_request_usd: number;
+  closed_usd: number;
+  /** `no_pull_request_usd` plus `closed_usd`: spend that left no merged change. */
+  wasted_usd: number;
+}
+
+export interface CostWindow {
+  days: number;
+  since: string;
+  total: CostRow;
+  rows: CostRow[];
+}
+
+/** `cost/v1`: dollars per merged pull request per repository and preset over 7 and 30 days. */
+export interface CostBody extends ContractMeta {
+  contract_version: 'cost/v1';
+  windows: CostWindow[];
+  not_recorded: string[];
+}
+
+export const costQuery = () =>
+  queryOptions({
+    queryKey: ['analytics', 'cost'],
+    queryFn: ({ signal }) => getJson<CostBody>('/v1/cost', signal),
+  });

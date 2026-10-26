@@ -46,6 +46,8 @@ const string Usage = """
       learn report [--since <days>d|<time>] [--include-bench]
                                    what finished driven tasks taught, per repository and size class: spend, completion, governor checkpoints,
                                    how their pull requests ended (reads learning.jsonl next to the run log; the server writes it)
+      cost [--json]                dollars per merged pull request per repository and preset over 7 and 30 days, and the spend that left
+                                   nothing (run log joined to the outcomes the server recorded in learning.jsonl)
       watch <run-id> [--url <server>]
                                    one line per event of a run on a server until its result; exit 0 completed, 1 failed, 3 needs input
                                    (server: --url or CHARGEHAND_URL, key: CHARGEHAND_API_KEY, else the profile's http block)
@@ -221,7 +223,7 @@ if (argv is ["doctor", .. var doctorArgs])
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Onboarding.DoctorCli.RunAsync(doctorArgs, profilePath, new Chargehand.Onboarding.SystemDoctorEnvironment(), DrivenPresetAllow(), Console.Out, Console.Error, stop.Token);
 }
-if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions" or "runs" or "accounts" or "learn"))
+if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions" or "runs" or "accounts" or "learn" or "cost"))
 {
     Console.Error.WriteLine(Usage);
     return 2;
@@ -266,6 +268,9 @@ switch (argv)
         return await Chargehand.Modules.Runners.Api.RunsCli.KillAllAsync(new Chargehand.Modules.Runners.Api.DockerCliEngine(), Console.Out, Console.Error, ct);
     case ["learn", "report", .. var learnOptions]:
         return await Chargehand.Modules.Oversight.Api.LearningCli.RunAsync(learnOptions, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow, ct);
+    case ["cost", .. var costOptions]:
+        return await Chargehand.Modules.Economics.Api.CostCli.RunAsync(costOptions, runLog, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow,
+            report => JsonSerializer.Serialize(report, ContractJson.Options), ct);
     case ["reconcile", var id]:
         return await Reconcile(id);
     case ["cache", var id]:
