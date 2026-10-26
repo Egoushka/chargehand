@@ -5,7 +5,7 @@
 
 ## Context
 
-GitHub intake (ADR 0051) and Plane intake (ADR 0067) capped triggered batches at `max_starts_per_day` (default 10) in any
+GitHub intake (ADR 0051), and Plane intake (ADR 0067) until it was removed, capped triggered batches at `max_starts_per_day` (default 10) in any
 24 hours, and pull request reviews at `max_reviews_per_day` (default 20). A trigger over the start cap was refused with
 one comment and marked handled: it never started unless someone applied the label again.
 
@@ -19,7 +19,7 @@ Evidence from a server that ran it (Egoushka/chargehand#529):
 
 A count of starts is a poor proxy for what it was meant to limit. A small task and a large one count the same, and the
 count refuses work outright when it should hold it. Money already has a bound: ADR 0076 admits and charges every
-automated start (GitHub, Plane, schedules, reviews; all through the same `RunServiceStarter`) to `automation.account`,
+automated start (GitHub, schedules, reviews; all through the same `RunServiceStarter`) to `automation.account`,
 with `max_usd_per_day`, `max_usd_per_month` and an opt-in `pause_on_forecast`, and a refused start is retried at the
 next poll. Runs that go through a priced gateway make those dollar caps bind. Slots have bounds too: intake's
 `max_concurrent`, `driven.max_parallel_total`, and memory admission (ADR 0045).
@@ -37,14 +37,13 @@ next poll. Runs that go through a priced gateway make those dollar caps bind. Sl
 
 Option 2.
 
-- `max_starts_per_day` (GitHub and Plane) and `max_reviews_per_day` are ignored. Profile schema v1 is published, so the
+- `automation.github.max_starts_per_day` and `max_reviews_per_day` are ignored. Profile schema v1 is published, so the
   keys stay accepted (any integer), are marked `deprecated`, and the server writes one stderr line per key at startup.
 - A trigger that cannot start yet waits in a queue in the intake state file (`waiting`, next to the run log), with why:
   `max_concurrent`, `admission` (the server or the account refused it: halted, too many unfinished runs, a dollar cap,
   a forecast pause) or `checkout`. It is not marked handled until it starts. A restart reads the queue back, and the
   console's `/v1/intake` lists it. A waiting trigger whose label, comment or issue is gone leaves the queue and is
   logged `ignored: withdrawn`.
-- Plane intake keeps its wait (the item stays in the trigger state and is read again) without a queue of its own.
 
 ## Consequences
 

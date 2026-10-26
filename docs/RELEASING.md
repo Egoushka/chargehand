@@ -28,5 +28,5 @@ Release-As: 0.<N+1>.0"
 release-please reads the footer on its next run and sets that version instead of the patch bump, in the same pull
 request flow.
 
-A milestone is a named goal — tracked as a goal in [Plane](adr/0067-intake-from-plane.md), the project's tracker, or
+A milestone is a named goal — tracked as a milestone of the repository's GitHub issues, or
 in [`ROADMAP.md`](../ROADMAP.md) — not a round number or a tally of merged pull requests.

@@ -9,6 +9,7 @@ import {
   Select,
   Textarea,
 } from '../../ui';
+import { TaskForecastLine } from './Forecast';
 import {
   type Issue,
   issuesAt,
@@ -27,6 +28,8 @@ export interface TaskEditorProps {
   tasks: TaskDraft[];
   /** One per task, in the same order. */
   estimates: TaskEstimate[];
+  /** The learning records' name of the batch's repository, for the forecast; empty: none chosen. */
+  repository: string;
   issues: Issue[];
   /** Show the problems that only mean "not filled in yet". */
   showLate: boolean;
@@ -40,6 +43,7 @@ export interface TaskEditorProps {
 export function TaskEditor({
   tasks,
   estimates,
+  repository,
   issues,
   showLate,
   phone,
@@ -220,6 +224,7 @@ export function TaskEditor({
                 {`Budget ${formatUsd(estimate.usd, estimate.source === 'repository' || estimate.source === 'all')} · ${estimate.label}${estimate.sizeAssumed ? '; no size set, so M is assumed' : ''}`}
               </p>
             ) : null}
+            <TaskForecastLine repository={repository} goal={task.goal} size={task.size} />
           </li>
         );
       })}

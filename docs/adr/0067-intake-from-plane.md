@@ -1,6 +1,6 @@
 # 0067. Intake from Plane work items
 
-- Status: accepted
+- Status: superseded; the Plane intake was removed on 2026-10-26 when the maintainer's tracker moved to GitHub issues. Kept as history.
 - Date: 2026-10-18
 
 ## Context

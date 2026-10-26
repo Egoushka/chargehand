@@ -547,19 +547,6 @@ Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? Sch
         flakes: flakes, alerts: alerts, clones: clones);
 }
 
-// Plane intake (ADR 0067): null unless the profile has automation.plane. The key is read from the secret store at each call; its state sits next to the run log.
-Chargehand.Automation.PlaneIntake? PlaneIntake()
-{
-    if (profile.Automation?.Plane is not { Url: { } url, ApiKeySecret: { } apiKeySecret, Workspace: { } workspace } plane)
-        return null;
-    var api = new HttpClient { BaseAddress = new Uri(url.TrimEnd('/') + "/") };
-    var directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake");
-    var state = Chargehand.Automation.PlaneState.Load(Path.Combine(directory, "plane.json"));
-    var clones = ManagedClones();
-    return new Chargehand.Automation.PlaneIntake(plane, new Chargehand.Automation.PlaneHost(api, workspace, () => profile.Secret(apiKeySecret)), runLog,
-        new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state, sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "plane-sources.json")), clones: clones);
-}
-
 // What /v1/health?deep=1 asks besides the model (CHARGEHAND-316): only what the profile configures, each a read. Secrets are read when the probe runs, so an item that is not in the store yet fails that check and not the server's start.
 List<DependencyProbe> HealthProbes()
 {
@@ -574,8 +561,6 @@ List<DependencyProbe> HealthProbes()
         if (driven.PushSecret is { } push && driven.Forge is not { Kind: "gitlab" })
             probes.Add(DependencyHealth.PushToken(GitHubApiRoot(driven), () => profile.Secret(push)));
     }
-    if (profile.Automation?.Plane is { Url: { } url, ApiKeySecret: { } apiKeySecret, Workspace: { } workspace, Projects: { Count: > 0 } projects })
-        probes.Add(DependencyHealth.Plane(new Uri(url.TrimEnd('/') + "/"), workspace, projects.Keys.First(), () => profile.Secret(apiKeySecret)));
     return probes;
 }
 
@@ -623,9 +608,8 @@ async Task<int> Serve()
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
-        PlaneStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "plane.json"),
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn, Probes: HealthProbes()),
-        orchestrator, runLog, drivenRun, GitHubIntake(), Schedules(drivenRun), PlaneIntake(), PhoneAnswers());
+        orchestrator, runLog, drivenRun, GitHubIntake(), Schedules(drivenRun), PhoneAnswers());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);

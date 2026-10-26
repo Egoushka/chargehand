@@ -53,19 +53,6 @@ public static class DependencyHealth
     public static DependencyProbe PushToken(Uri githubApi, Func<string> token, HttpMessageHandler? handler = null) =>
         Get("push token", githubApi, "user", () => new("Bearer", token()), "GitHub", handler);
 
-    /// <summary>The Plane key: one read of the workspace's project.</summary>
-    public static DependencyProbe Plane(Uri instance, string workspace, string project, Func<string> key, HttpMessageHandler? handler = null)
-    {
-        var path = $"api/v1/workspaces/{Uri.EscapeDataString(workspace)}/projects/{Uri.EscapeDataString(project)}/";
-        return new DependencyProbe("plane key", async ct =>
-        {
-            using var client = Client(handler);
-            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(instance, path));
-            request.Headers.Add("X-API-Key", key());
-            return Judge("Plane", (await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct)).StatusCode);
-        });
-    }
-
     private static DependencyProbe Get(string name, Uri baseUrl, string path, Func<System.Net.Http.Headers.AuthenticationHeaderValue> auth, string what, HttpMessageHandler? handler) =>
         new(name, async ct =>
         {

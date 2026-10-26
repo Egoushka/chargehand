@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
+using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Modules.Batches.Api;
@@ -15,7 +16,9 @@ public sealed record PlanAssignment(string What, string Value);
 /// <param name="DependsOn">The task ids the task waits for in the batch as it runs: the caller's, plus the previous link of a chain the plan made.</param>
 /// <param name="SplitFrom">The id of the larger task the plan split this one out of; the chain's last link keeps that id.</param>
 /// <param name="Kept">Why the plan left the task whole when it proposed a split.</param>
-public sealed record PlanEntry(string Id, string? Size, string? SizeFrom, IReadOnlyList<string> DependsOn, string? SplitFrom = null, IReadOnlyList<PlanAssignment>? Assigned = null, string? Kept = null);
+/// <param name="Forecast">What the task is expected to cost before it starts (CHARGEHAND-438); null when the host did not forecast it.</param>
+public sealed record PlanEntry(string Id, string? Size, string? SizeFrom, IReadOnlyList<string> DependsOn, string? SplitFrom = null, IReadOnlyList<PlanAssignment>? Assigned = null, string? Kept = null,
+    TaskForecast? Forecast = null);
 
 /// <summary>What the planning step did to a batch (ADR 0049), recorded as the <c>plan</c> artifact of the batch result and as a <c>plan</c> run event. The plan is advice that the caller's own
 /// <c>size</c> and <c>depends_on</c> override; it is read from the repository at the base commit and says what it read. Whether the tasks conflict in ways other than the numbers it assigned

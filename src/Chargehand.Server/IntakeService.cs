@@ -30,7 +30,7 @@ internal sealed class IntakeService(GitHubIntake intake, RunService runs, Accoun
 
 /// <summary>Starts a batch on this server's run service; a halted server, or one with too many unfinished runs, refuses it and intake tries again at the next poll. With
 /// <paramref name="account"/> (<c>automation.account</c>, ADR 0076) the batch is admitted and charged as that account: its caps and clamps apply, and with <c>pause_on_forecast</c> a month
-/// forecast over its cap holds the start too. Every refusal is retried later by intake, Plane and schedules alike.</summary>
+/// forecast over its cap holds the start too. Every refusal is retried later by intake and schedules alike.</summary>
 internal sealed class RunServiceStarter(RunService runs, AccountSettings? account = null) : IBatchStarter
 {
     public async Task<BatchStart> StartAsync(RunRequest request, CancellationToken ct)

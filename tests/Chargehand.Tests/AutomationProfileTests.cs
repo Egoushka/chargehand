@@ -57,14 +57,13 @@ public class AutomationProfileTests
         using var dir = new TempDir();
         var profile = Profile.Load(dir.Write("local.json", """
             {"schema":"profile/v1","driven":{"enabled":true,"integrator":{"app_id":1,"private_key_secret":"app-key"}},"automation":{
-              "github":{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_starts_per_day":0,"max_reviews_per_day":5000},
-              "plane":{"url":"https://plane.example.test","api_key_secret":"k","workspace":"w","projects":{"p":{"path":"/p"}},"trigger_state":"Agent","started_state":"In Progress","review_state":"In Review","max_starts_per_day":40}}}
+              "github":{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_starts_per_day":0,"max_reviews_per_day":5000}}}
             """));
 
         var deprecated = profile.Automation!.Deprecations().ToList();
-        Assert.Equal(3, deprecated.Count);
+        Assert.Equal(2, deprecated.Count);
         Assert.All(deprecated, d => Assert.Contains("deprecated and ignored since 0.19.4: spend is bounded by automation.account's dollar caps (ADR 0076)", d));
-        Assert.Equal(["automation.github.max_starts_per_day", "automation.github.max_reviews_per_day", "automation.plane.max_starts_per_day"], deprecated.Select(d => d[..d.IndexOf(' ')]));
+        Assert.Equal(["automation.github.max_starts_per_day", "automation.github.max_reviews_per_day"], deprecated.Select(d => d[..d.IndexOf(' ')]));
         Assert.Empty(Load("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"]}""").Automation!.Deprecations());
     }
 

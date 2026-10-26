@@ -63,7 +63,7 @@ public sealed record PullRequestBody(string Url, int? Number, string? Repository
 public sealed record BatchTaskBody(string Id, string? Ref, string? Goal, bool GoalTruncated, string? Size, string? SizeFrom, IReadOnlyList<string> DependsOn, string? SplitFrom, TaskLinkBody? Continues,
     string State, string? Phase, DateTimeOffset? StartedAt, DateTimeOffset? FinishedAt, string? RunId, string? Container, string? Branch, string? PrUrl, ErrorBody? Error, string? Detail,
     BudgetBody? Budget, TaskSpendBody? Spend, GovernorBody? Governor, string? Outcome, bool TestIntegrityFlagged, TaskLiveBody? Live, IReadOnlyList<TaskSessionBody> Sessions,
-    IReadOnlyList<string> Questions, bool? Answered, IReadOnlyList<TaskLinkBody> AnsweredBy, AnswerHint? Answer, PullRequestBody? PullRequest, CiBody? Ci = null);
+    IReadOnlyList<string> Questions, bool? Answered, IReadOnlyList<TaskLinkBody> AnsweredBy, AnswerHint? Answer, PullRequestBody? PullRequest, CiBody? Ci = null, TaskForecast? Forecast = null);
 
 public sealed record ArtifactRef(string Kind, string MediaType, string Sha256, string? Uri);
 
@@ -270,7 +270,7 @@ internal static class ConsoleBatches
             GovernorOf(record, kept.Governor.Where(g => g.TaskId == seed.Id).ToList()), record?.Record.Outcome, record?.Record.TestIntegrityFlagged ?? false,
             LiveOf(c, batch.BatchRunId, seed.Id, entry), Sessions(entry, runId, record, kept.Sessions.Where(s => s.TaskId == seed.Id)), questions, state == "needs_input" ? continuations.Count > 0 : null, answeredBy,
             state == "needs_input" && continuations.Count == 0 && runId is not null ? new AnswerHint("POST", "/v1/runs", new ContinueFrom(batch.BatchRunId, seed.Id), batch.Repository, "driven") : null, pr,
-            CiOf(kept, seed.Id, goalFull));
+            CiOf(kept, seed.Id, goalFull), batch.Plan.FirstOrDefault(x => x.Id == seed.Id)?.Forecast);
     }
 
     /// <summary>The governor's counts (learning record) and its decisions in full (the sessions' logs); null when the task has neither.</summary>

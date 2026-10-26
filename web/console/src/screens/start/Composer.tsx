@@ -629,6 +629,7 @@ export function Composer({
               <TaskEditor
                 tasks={draft.tasks}
                 estimates={estimate.tasks}
+                repository={repo?.repository ?? draft.repository}
                 issues={issues}
                 showLate={showLate}
                 phone={phone}

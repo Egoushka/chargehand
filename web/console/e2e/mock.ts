@@ -86,6 +86,10 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
               ? { since: null, tasks: 0, groups: [] }
               : learnReport(query.get('since') ?? undefined, now),
         });
+      case '/v1/forecast':
+        return route.fulfill({
+          json: { size_class: 'M', basis: 'flat', samples: 0, usd_p90: 4, suggest_split: false },
+        });
       case '/v1/analytics': {
         // The Repositories screen reads this route too, with its own invented history; `insight` picks Analytics'.
         if (!options.insight) return route.fulfill({ json: adm.repositoryHistory(now) });
