@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.1](https://github.com/Egoushka/chargehand/compare/v0.19.0...v0.19.1) (2026-10-26)
+
+
+### Features
+
+* **batches:** re-plan a stalled task with no commits instead of continuing it ([#460](https://github.com/Egoushka/chargehand/issues/460)) ([558a1bb](https://github.com/Egoushka/chargehand/commit/558a1bb541c99a41835f6d591417412b3559c489))
+* **verify:** export the base commit and ship agent-checks in the session image ([#499](https://github.com/Egoushka/chargehand/issues/499)) ([e1033d1](https://github.com/Egoushka/chargehand/commit/e1033d1cf9b9a8a719e20a1bbb2bc82095363af0))
+
+
+### Bug Fixes
+
+* **plugin:** start dnx over IPv4 so the MCP server answers within the connect timeout ([#498](https://github.com/Egoushka/chargehand/issues/498)) ([e738fe3](https://github.com/Egoushka/chargehand/commit/e738fe38f8f4120ea4a533dcb3b46aecdf0e14ce))
+
 ## [0.19.0](https://github.com/Egoushka/chargehand/compare/v0.18.1...v0.19.0) (2026-10-26)
 
 
