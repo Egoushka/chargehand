@@ -417,14 +417,16 @@ public class AccountsTests
     {
         await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.WorkerReply), accounts: [Account("alice"), Account("bob")]);
         var repo = Runs.GitRepo(s.WorkerRoot);
-        await Seed(s.Log, "run-alice", "alice", Now, 0);
-        await Seed(s.Log, "run-bob", "bob", Now, 0);
+        await Seed(s.Log, "run-alice", "alice", Now, 0, parent: "run-task");
+        await Seed(s.Log, "run-alice-other", "alice", Now, 0);
+        await Seed(s.Log, "run-bob", "bob", Now, 0, parent: "run-task");
         var claims = new RunTokenClaims("run-task", repo.Path, repo.Commit, null, null, DateTimeOffset.UtcNow.AddHours(1), "alice");
         var token = s.Tokens.Issue(claims, DateTimeOffset.UtcNow);
         Assert.Equal("alice", s.Tokens.Validate(token, DateTimeOffset.UtcNow)!.Actor);
         using var session = s.As(token);
 
         Assert.Equal(HttpStatusCode.OK, (await session.GetAsync("/v1/runs/run-alice")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await session.GetAsync("/v1/runs/run-alice-other")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await session.GetAsync("/v1/runs/run-bob")).StatusCode);
         var started = await Body(await Post(session, new RunRequest("request/v1", "What does the README say?", new RequestContext(false, "default", Repository: repo))));
         Assert.Equal("alice", started.GetProperty("actor").GetString());
@@ -437,7 +439,7 @@ public class AccountsTests
     {
         await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.WorkerReply), accounts: [Account("alice")]);
         var repo = Runs.GitRepo(s.WorkerRoot);
-        await Seed(s.Log, "run-before", null, Now, 0);
+        await Seed(s.Log, "run-before", null, Now, 0, parent: "run-task");
         var token = s.Tokens.Issue(new RunTokenClaims("run-task", repo.Path, repo.Commit, null, null, DateTimeOffset.UtcNow.AddHours(1)), DateTimeOffset.UtcNow);
         using var session = s.As(token);
 

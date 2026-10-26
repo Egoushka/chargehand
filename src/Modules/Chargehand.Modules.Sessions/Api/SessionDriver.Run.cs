@@ -100,6 +100,17 @@ public static partial class SessionDriver
             return results;
         }
 
+        /// <summary>The one extra turn for a session that finished on its own without a usable report: it asks for the report and nothing else, so the branch is the one the checks passed.</summary>
+        public async Task ReportAsync(string? start, Func<(string SessionId, string Prompt), ProcessStartInfo> resume, CancellationToken ct)
+        {
+            if (_checksFailed || !Finished() || Extract(_tally).Report is { } report && HasSummary(report) || _tally.SessionId is not { } session
+                || detector.Check(DateTimeOffset.UtcNow) is StallReason.WallClock)
+                return;
+            detector.Touch(DateTimeOffset.UtcNow);
+            _tally.NewProcess();
+            await DriveAsync(resume((session, ReportRequest)), start, DateTimeOffset.UtcNow, ct);
+        }
+
         private bool Finished() => _stoppedBy.Cause is null && _tally.HasResult && !_tally.ResultIsError && Extract(_tally).Questions.Count == 0;
 
         private void Remind()
@@ -189,12 +200,14 @@ public static partial class SessionDriver
                 governorHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(options.OutDirectory, GovernorFile), ct)));
             }
 
-            var snapshotNote = _stoppedBy.Cause is { } stopped ? await SnapshotAsync(options, stopped.Reason, detector.Turns, ct) : null;
-            if (_stoppedBy.Cause is { } stoppedFor)
+            // The bare arm (ADR 0080) commits once, as the person who ran it would, and writes no handoff.
+            var snapshotNote = _task.Bare ? await SnapshotAsync(options, "", detector.Turns, ct, BareSubject)
+                : _stoppedBy.Cause is { } stopped ? await SnapshotAsync(options, stopped.Reason, detector.Turns, ct) : null;
+            if (_stoppedBy.Cause is { } stoppedFor && !_task.Bare)
                 await WriteHandoffAsync(options, start, stoppedFor.Reason, detector.Turns, _trace, ct);
             var bundle = await BundleAsync(options, ct);
             var commits = bundle && start is not null ? await CommitsAsync(options, start, ct) : 0;
-            var (report, questions) = Extract(_tally);
+            var (report, questions) = _task.Bare ? ((string?)null, new List<string>()) : Extract(_tally);
             if (report is not null)
                 await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "driven-report.json"), Redact(report, options.Secrets), ct);
             var (status, reason) = Conclude(_stoppedBy, _tally, questions, _checksFailed);
@@ -203,7 +216,7 @@ public static partial class SessionDriver
             var outcome = new SessionOutcome(status, reason, detector.Turns, _tally.Input, _tally.Output, _tally.CacheRead, _tally.CostUsd, _exitCode,
                 [.. questions.Select(q => Redact(q, options.Secrets))], bundle, streamHash, _tally.CacheWrite, _tally.SessionId, _tally.Model, _tally.ModelUsage.Count == 0 ? null : _tally.ModelUsage,
                 _tally.UsdEstimate, status == SessionStatus.RateLimited ? UsageLimit.ResetsAt(_tally.ResultText) : null, _tally.UsdEstimatePartial, commits, snapshotNote,
-                governor is null ? null : _decisions, governorHash, checks, reminder?.Gate.Sent ?? 0);
+                governor is null ? null : _decisions, governorHash, checks, reminder?.Gate.Sent ?? 0, _task.Bare);
             await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "session-outcome.json"), Redact(JsonSerializer.Serialize(outcome, OutcomeJson.SessionOutcome), options.Secrets), ct);
             return outcome;
         }

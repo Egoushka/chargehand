@@ -125,4 +125,24 @@ public class BenchCliTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => run.Go(null, run.SetPath, "--baseline"));
         Assert.Equal((1, 0), (run.EnginesAsked, run.ServersAsked));
     }
+
+    [Fact]
+    public async Task An_arm_is_chargehand_or_bare_and_a_baseline_has_none()
+    {
+        using var run = new Run();
+        Assert.Equal(2, await run.Go(null, run.SetPath, "--dry-run", "--arm", "other"));
+        Assert.Contains("--arm is chargehand or bare.", run.Error.ToString());
+        Assert.Equal(2, await run.Go(null, run.SetPath, "--baseline", "--arm", "bare"));
+        Assert.Contains("--baseline starts no session, so --arm does not apply.", run.Error.ToString());
+        Assert.Equal(0, run.EnginesAsked);
+    }
+
+    [Fact]
+    public async Task A_dry_run_of_the_bare_arm_reads_the_set_and_starts_nothing()
+    {
+        using var run = new Run();
+        Assert.Equal(0, await run.Go(null, run.SetPath, "--dry-run", "--arm", "bare"));
+        Assert.Contains("arm: bare", run.Out.ToString());
+        Assert.Equal((0, 0), (run.EnginesAsked, run.ServersAsked));
+    }
 }

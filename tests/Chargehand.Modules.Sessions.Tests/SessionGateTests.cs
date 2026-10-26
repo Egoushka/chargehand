@@ -104,6 +104,72 @@ public class SessionGateTests
         Assert.Equal(1, Runs(w));
     }
 
+    /// <summary>A session that finishes with prose only; a resumed run saves its prompt and answers with <paramref name="onResume"/> (a report, or more prose).</summary>
+    private static string ProseOnly(Workspace w, string onResume) => $"""
+        echo x >> '{w.Out}/runs'
+        case " $* " in
+          *" --resume "*)
+            printf '%s' "$2" > '{w.Out}/feedback.txt'
+        {onResume}
+            ;;
+          *)
+        {Emit(Init, Assistant("m1", "All done, the change is committed."), Result())}
+            ;;
+        esac
+        """;
+
+    [Fact]
+    public async Task A_finished_session_with_no_report_is_asked_once_for_the_report_and_completes_with_it()
+    {
+        using var w = new Workspace();
+        var outcome = await SessionDriver.RunAsync(Options(w, ProseOnly(w, Emit(Assistant("m2", "here\n" + Report), Result())), Task()), default);
+        Assert.Equal(SessionStatus.Completed, outcome.Status);
+        Assert.Equal(2, Runs(w));
+        Assert.Contains("no JSON report", File.ReadAllText(Path.Combine(w.Out, "feedback.txt")));
+        using var written = JsonDocument.Parse(File.ReadAllText(Path.Combine(w.Out, "driven-report.json")));
+        Assert.Equal("s", written.RootElement.GetProperty("summary").GetString());
+    }
+
+    [Fact]
+    public async Task A_session_that_still_prints_no_report_is_not_asked_again()
+    {
+        using var w = new Workspace();
+        var outcome = await SessionDriver.RunAsync(Options(w, ProseOnly(w, Emit(Assistant("m2", "sorry, no report"), Result())), Task()), default);
+        Assert.Equal(SessionStatus.Completed, outcome.Status);
+        Assert.Equal(2, Runs(w));
+        Assert.False(File.Exists(Path.Combine(w.Out, "driven-report.json")));
+    }
+
+    [Fact]
+    public async Task A_report_without_a_summary_counts_as_no_report()
+    {
+        using var w = new Workspace();
+        var first = Emit(Init, Assistant("m1", "done\n```json\n{\"claims\":[]}\n```"), Result());
+        var script = $"""
+            echo x >> '{w.Out}/runs'
+            case " $* " in
+              *" --resume "*)
+            {Emit(Assistant("m2", Report), Result())}
+                ;;
+              *)
+            {first}
+                ;;
+            esac
+            """;
+        var outcome = await SessionDriver.RunAsync(Options(w, script, Task()), default);
+        Assert.Equal(SessionStatus.Completed, outcome.Status);
+        Assert.Equal(2, Runs(w));
+    }
+
+    [Fact]
+    public async Task A_session_that_asks_a_question_is_not_asked_for_a_report()
+    {
+        using var w = new Workspace();
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init, Assistant("m1", "NEEDS_INPUT:\n1. Which database?"), Result()) + $"\necho x >> '{w.Out}/runs'", Task()), default);
+        Assert.Equal(SessionStatus.NeedsInput, outcome.Status);
+        Assert.Equal(1, Runs(w));
+    }
+
     [Fact]
     public async Task A_check_output_is_redacted_before_it_is_stored_or_sent_back()
     {

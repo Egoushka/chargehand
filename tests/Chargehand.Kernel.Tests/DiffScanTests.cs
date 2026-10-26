@@ -42,6 +42,37 @@ public class DiffScanTests
         Assert.Empty(DiffScan.Scan("+++ b/f.txt\n context " + AwsKey + "\n", [], ["f.txt"]));
     }
 
+    // An added line "++ x" reads "+++ x" in the diff; inside a hunk it is content, not a file header.
+    [Theory]
+    [InlineData("aws")]
+    [InlineData("github-token")]
+    public void An_added_line_that_begins_with_two_pluses_is_scanned(string kind)
+    {
+        var secret = kind == "aws" ? AwsKey : GithubToken;
+        var finding = Assert.Single(DiffScan.Scan(Diff("++ " + secret), [], ["f.txt"]));
+        Assert.Equal(kind, finding.Kind);
+        Assert.Equal("f.txt", finding.Path);
+    }
+
+    [Fact]
+    public void A_content_line_that_looks_like_a_file_header_does_not_change_the_path()
+    {
+        var diff = Diff("++ b/other.txt", "key = " + AwsKey);
+        Assert.Equal("f.txt", Assert.Single(DiffScan.Scan(diff, [], ["f.txt"])).Path);
+    }
+
+    [Fact]
+    public void Each_file_section_names_its_own_path_and_a_deleted_file_has_none()
+    {
+        var diff = "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -0,0 +1 @@\n+" + AwsKey + "\n"
+            + "diff --git a/gone.txt b/gone.txt\n--- a/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-x\n"
+            + "diff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -0,0 +1 @@\n+" + GithubToken + "\n";
+        var findings = DiffScan.Scan(diff, [], ["a.txt", "gone.txt", "b.txt"]);
+        Assert.Contains(new ScanFinding("aws", "a.txt"), findings);
+        Assert.Contains(new ScanFinding("github-token", "b.txt"), findings);
+        Assert.Equal(2, findings.Count);
+    }
+
     [Fact]
     public void A_credential_literal_is_a_finding_whatever_its_shape()
     {

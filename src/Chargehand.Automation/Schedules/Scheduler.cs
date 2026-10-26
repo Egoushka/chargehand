@@ -11,7 +11,7 @@ namespace Chargehand.Automation;
 /// <paramref name="flakes"/> is the CI history the <c>flaky-tests</c> template is given; without it the template reads the test code only. <paramref name="alerts"/> reads the open alerts of
 /// <c>security-alerts</c> as the GitHub App; without it that template starts nothing.</summary>
 public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IRepositoryHeads heads, ScheduleState state, IScheduleNotifier notifier, IMorningSource morning, TimeProvider? clock = null,
-    Action<string>? warn = null, IFlakeHistory? flakes = null, ISecurityAlerts? alerts = null)
+    Action<string>? warn = null, IFlakeHistory? flakes = null, ISecurityAlerts? alerts = null, ManagedClones? clones = null)
 {
     /// <summary>What a start did: a run (or the report) started and counts against the cap; nothing was due to start, yet the occurrence is dealt with; or it is tried again later.</summary>
     private enum Start { Started, Nothing, Later }
@@ -27,8 +27,11 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
     public static readonly TimeSpan LostAfter = TimeSpan.FromMinutes(30);
 
     private readonly TimeProvider _time = clock ?? TimeProvider.System;
-    private readonly Action<string> _warn = warn ?? (message => Console.Error.WriteLine($"chargehand: {message}"));
+    private readonly Action<string> _warn = warn ?? Warned;
+    private readonly CheckoutSources _checkouts = new(heads, clones, "schedules", warn ?? Warned, warn ?? Warned);
     private readonly Dictionary<string, DateTimeOffset> _retryAt = [];
+
+    private static void Warned(string message) => Console.Error.WriteLine($"chargehand: {message}");
 
     /// <summary>Wakes until <paramref name="ct"/> ends. A failed wake is reported and tried again at the next one.</summary>
     public async Task RunAsync(IBatchStarter starter, CancellationToken ct)
@@ -89,7 +92,7 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
             Consume(entry, now, $"the cap of {entry.Cap().ToString(CultureInfo.InvariantCulture)} starts in {ScheduleState.MonthOf(now)} is used");
         else if (state.Running.Any(r => r.Entry == entry.Id))
             Consume(entry, now, "its last run is still going");
-        else if (await StartAsync(entry, starter, now, ct) is var start and not Start.Later)
+        else if (await StartAsync(entry, last, starter, now, ct) is var start and not Start.Later)
         {
             state.Handled[entry.Id] = now;
             if (start == Start.Started)
@@ -105,7 +108,7 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
         state.Save(now);
     }
 
-    private async Task<Start> StartAsync(ScheduleEntry entry, IBatchStarter starter, DateTimeOffset now, CancellationToken ct)
+    private async Task<Start> StartAsync(ScheduleEntry entry, DateTimeOffset last, IBatchStarter starter, DateTimeOffset now, CancellationToken ct)
     {
         if (entry.Kind() == ScheduleKind.Report)
         {
@@ -115,17 +118,19 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
         IReadOnlyList<SecurityAlert> taking = [];
         if (entry.Template == ScheduleTemplates.SecurityAlerts && (taking = await AlertsToTakeAsync(entry, now, ct)).Count == 0)
             return Start.Nothing;
-        var commit = await heads.CurrentCommitAsync(entry.Repository!.Path, ct);
+        var source = await _checkouts.CurrentAsync(null, entry.Repository!.Path, ct);
         var tasks = taking.Count > 0
             ? [.. taking.Select(a => SecurityAlerts.TaskFor(a, entry.Text()!, entry.Size()))]
             : new List<DrivenTask> { new($"schedule-{entry.Id}", Goal: await GoalAsync(entry, ct), Size: entry.Size()) };
-        var started = await starter.StartAsync(Request(entry, new RepositoryRef(entry.Repository.Path, commit), tasks), ct);
+        var occurrence = $"{entry.Id}@{last.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)}";
+        var started = await TriggeredStart.StartAsync(starter, log, state.Starting, state.Save, occurrence, Request(entry, source, tasks), now, ct);
         if (started.RunId is not { } run)
         {
             _warn($"schedules: {entry.Id}: the server did not start the run: {started.Refusal}");
             _retryAt[entry.Id] = now + RetryAfter;
             return Start.Later;
         }
+        state.Starting.Remove(occurrence);
         state.Running.Add(new ScheduledRun(entry.Id, run, now, entry.Kind()));
         if (taking.Count > 0)
             state.Taken[entry.Id] = [.. state.Taken.GetValueOrDefault(entry.Id) ?? [], .. taking.Select(a => a.Key)];

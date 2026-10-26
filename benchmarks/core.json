@@ -97,7 +97,7 @@
       "repository": "commander-js",
       "kind": "change",
       "size": "S",
-      "goal": "Add a deprecated(message) method to Option. When an option marked with it is used on the command line, write the line `warning: option '<flags>' is deprecated: <message>` (the flags exactly as the option was declared, a newline at the end) to the command's error output, that is, through the writeErr of configureOutput, and then parse the option as usual so its value is still stored. The help text marks such an option as deprecated. An option without it behaves as before. Declare the method in typings/index.d.ts and add tests.",
+      "goal": "Add a deprecated(message) method to Option. When an option marked with it is used on the command line, write the line `warning: option '<flags>' is deprecated: <message>` (the flags exactly as the option was declared, a newline at the end) to the command's error output, that is, through the writeErr of configureOutput, and then parse the option as usual so its value is still stored. The help text marks such an option by appending ` (deprecated)` to its description, for example `legacy mode (deprecated)`. An option without it behaves as before. Declare the method in typings/index.d.ts and add tests.",
       "acceptance": {
         "script": "acceptance/commander-option-deprecated.sh",
         "timeout_minutes": 10

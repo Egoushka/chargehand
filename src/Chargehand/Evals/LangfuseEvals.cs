@@ -3,8 +3,13 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
 namespace Chargehand.Evals;
+
+/// <summary>Langfuse has no dataset of this name: a renamed or never pushed one, a wrong base URL, or keys of another project.</summary>
+public sealed class DatasetNotFoundException(string dataset) : ChargehandException(ErrorCode.InvalidRequest, $"eval dataset {dataset} not found in Langfuse",
+    "Check the dataset name in evals/cells.json, the Langfuse base URL and that the keys belong to the project holding it; `eval push <cell>` creates it.");
 
 /// <summary>
 /// Eval items, dataset runs and scores in Langfuse (ADR 0019): the items live in datasets of the orchestrator's own
@@ -21,12 +26,13 @@ public sealed class LangfuseEvals
         _http.DefaultRequestHeaders.Authorization = new("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{publicKey}:{secretKey}")));
     }
 
-    /// <summary>A dataset not created yet (a new cell's, before its first push) has no items, so the gate blocks on too
-    /// few items rather than crashing on Langfuse's 404.</summary>
+    /// <summary>The dataset's active items. A dataset that exists but holds none returns an empty list (the gate skips
+    /// it, CHARGEHAND-57); one Langfuse answers 404 for (renamed, never pushed, a wrong base URL or a key for another
+    /// project) throws, so a misconfiguration cannot pass as an unseeded dataset.</summary>
     public async Task<IReadOnlyList<EvalItem>> ItemsAsync(string dataset, CancellationToken ct)
     {
         if (!await ExistsAsync(dataset, ct))
-            return [];
+            throw new DatasetNotFoundException(dataset);
         var items = new List<EvalItem>();
         for (var page = 1; ; page++)
         {

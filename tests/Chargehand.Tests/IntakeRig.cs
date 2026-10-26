@@ -151,13 +151,20 @@ internal sealed class FakeStarter(FakeRunLog log) : IBatchStarter
 
     public string? Refuse { get; set; }
 
+    /// <summary>The process dies at the next start: before the batch exists (<c>before</c>) or after it, before the caller learns its id (<c>after</c>).</summary>
+    public string? Die { get; set; }
+
     public Task<BatchStart> StartAsync(RunRequest request, CancellationToken ct)
     {
         if (Refuse is not null)
             return Task.FromResult(new BatchStart(null, Refuse));
+        if (Die == "before")
+            throw new InvalidOperationException("the process died");
         Started.Add(request);
         var run = $"run-{Started.Count}";
         log.Start(run, request);
+        if (Die == "after")
+            throw new InvalidOperationException("the process died");
         return Task.FromResult(new BatchStart(run));
     }
 }
@@ -183,12 +190,16 @@ internal sealed class FakeHeads : IRepositoryHeads
 
     public List<int> Fetched { get; } = [];
 
+    /// <summary>The checkouts pull request heads were fetched into, in order.</summary>
+    public List<string> FetchedInto { get; } = [];
+
     public Func<int, string> Listed { get; set; } = _ => "";
 
     public Task<string> FetchPullHeadAsync(string path, int number, CancellationToken ct)
     {
         Fetched.Add(number);
-        return Task.FromResult(PullHeads.GetValueOrDefault(number) ?? Listed(number));
+        FetchedInto.Add(path);
+        return ReadOnly.TryGetValue(path, out var e) ? throw e : Task.FromResult(PullHeads.GetValueOrDefault(number) ?? Listed(number));
     }
 }
 

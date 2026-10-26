@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text.Json;
+using Chargehand.Automation;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Server;
 
@@ -78,4 +80,41 @@ public class CredentialHealthTests
         }
         Assert.Equal(["chargehand: credential 'server' rejected, runs paused", "chargehand: credential 'server' works again"], posted);
     }
+
+    private sealed class RecordingNotifier : IScheduleNotifier
+    {
+        public List<string> Urls { get; } = [];
+
+        public Task PostAsync(string url, string title, string body, CancellationToken ct)
+        {
+            Urls.Add(url);
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task The_paused_alert_goes_to_the_phone_url_when_there_are_no_schedules()
+    {
+        var notifier = new RecordingNotifier();
+        var notify = CredentialAlert.Notify(new AutomationSettings(Notify: new AutomationNotify(NtfyUrl: "https://ntfy.example/phone")), notifier);
+
+        await notify!("chargehand: credential 'server' rejected, runs paused", "x", CancellationToken.None);
+
+        Assert.Equal(["https://ntfy.example/phone"], notifier.Urls);
+    }
+
+    [Fact]
+    public async Task The_paused_alert_still_goes_to_the_schedules_url_when_both_are_set()
+    {
+        var notifier = new RecordingNotifier();
+        var automation = new AutomationSettings(Schedules: new AutomationSchedules(NotifyUrl: "https://ntfy.example/schedules"),
+            Notify: new AutomationNotify(NtfyUrl: "https://ntfy.example/phone"));
+
+        await CredentialAlert.Notify(automation, notifier)!("t", "b", CancellationToken.None);
+
+        Assert.Equal(["https://ntfy.example/schedules"], notifier.Urls);
+    }
+
+    [Fact]
+    public void Without_either_url_there_is_no_paused_alert() => Assert.Null(CredentialAlert.Notify(new AutomationSettings()));
 }

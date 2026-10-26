@@ -18,7 +18,8 @@ public class ScheduleFlakeTests
     {
         await rig.Tick();
         await rig.Wake(TimeSpan.FromHours(4));
-        return Assert.Single(rig.Starter.Started).Text;
+        // The trigger marker the start adds for crash recovery is not part of the goal.
+        return System.Text.RegularExpressions.Regex.Replace(Assert.Single(rig.Starter.Started).Text, @"\n\n\[trigger [^\]]*\]$", "");
     }
 
     [Fact]

@@ -41,6 +41,9 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
 {
     public static readonly TimeSpan PollEvery = TimeSpan.FromSeconds(30);
 
+    /// <summary>The waits after a poll that failed, before the next one; the watch ends when this many polls in a row fail (the last has no wait).</summary>
+    public static readonly IReadOnlyList<TimeSpan> PollBackoff = [TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(120)];
+
     private static readonly TimeSpan HeadPollEvery = TimeSpan.FromSeconds(5);
     private const int HeadPolls = 6;
 
@@ -193,13 +196,30 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
             return new(IntegrationAction.None, "not watched");
         var maxPolls = Math.Max(1, (int)(TimeSpan.FromMinutes(CiFix.Wait) / PollEvery));
         var polls = 0;
+        var failedPolls = 0;
         string? fixedHead = null;
         var gateRead = mode != IntegrationMode.Merge;
         try
         {
             while (true)
             {
-                var pr = await host.GetAsync(target.Repository, target.Number, ct);
+                PrSnapshot pr;
+                try
+                {
+                    pr = await host.GetAsync(target.Repository, target.Number, ct);
+                }
+                catch (IntegrationException e)
+                {
+                    // A poll that fails (the host could not be reached, a 5xx) says nothing about the checks: wait and ask again, up to PollBackoff.Count failures in a row.
+                    if (++failedPolls >= PollBackoff.Count)
+                        return Say(report, IntegrationAction.Failed, $"watching the required checks stopped: {failedPolls} polls in a row failed; the last: {e.Message}");
+                    report($"poll failed ({failedPolls} of {PollBackoff.Count}): {e.Message}; asking again in {PollBackoff[failedPolls - 1].TotalSeconds:0} s");
+                    if (++polls > maxPolls)
+                        return Say(report, IntegrationAction.NeedsAttention, $"stopped watching after {CiFix.Wait} minutes: {failedPolls} polls failed and the required checks were not read");
+                    await _delay(PollBackoff[failedPolls - 1], ct);
+                    continue;
+                }
+                failedPolls = 0;
                 if (Ended(pr, report, watch) is { } ended)
                     return ended;
                 // No required check will ever report on a branch without the rule, so there is nothing to wait for.

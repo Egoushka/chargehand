@@ -126,6 +126,10 @@ public static class RunScope
     /// <summary>Where the middleware leaves a request's token claims.</summary>
     public const string ItemKey = "chargehand.run-token";
 
+    /// <summary>Whether a call under <paramref name="claims"/> may read a run: its own task's, or one it started. Null claims (a key's call) read whatever the principal sees.</summary>
+    public static bool Reads(RunTokenClaims? claims, string runId, string? parentRunId) =>
+        claims is null || runId == claims.RunId || parentRunId == claims.RunId;
+
     private static readonly string[] AllowedPresets = ["default", "review"];
 
     private static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(10);

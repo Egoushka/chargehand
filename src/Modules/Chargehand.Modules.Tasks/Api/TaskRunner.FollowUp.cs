@@ -22,18 +22,20 @@ public sealed partial class TaskRunner
         var (partial, handoverRun, handed) = await HandOverTaskAsync(task, run, ct);
         var result = await ResultAsync(task, run, partial, handoverRun.RunId, handed, ct);
         var startNote = run.StartFailure is null ? null : $"; continuation {run.Continuation + 1} did not start";
+        // A stall that would continue (ADR 0044) but left no commit has no branch to continue from; a re-plan (ADR 0049's chain, issue #432) replaces the plain continuation attempt.
+        var replan = run.Best is null && run.Session.Status == SessionStatus.Stalled && StallDetector.Continuable(run.Session.Reason);
         (string? Detail, SessionOutcome? Spent) follow = (null, null);
         if (FollowsUp(handed, run.Stack))
         {
             // A restart during the follow-up keeps this outcome rather than handing the task over again; the pull request itself holds the count of fix attempts (ADR 0046).
-            var early = Outcome(task, run.RunId, result, run.Total, handed, settings.Priced, partial, startNote);
+            var early = Outcome(task, run.RunId, result, run.Total, handed, settings.Priced, partial, startNote, replan);
             await LearnAsync(task, early, run.Session, run.Total, run.Continuation, run.Decisions, handed, partial, run.LastHead, run.Budget);
             await RecordAsync(task.Id, new TaskFinished(early));
             follow = await FollowUpAsync(task, handed!, Path.Combine(handoverRun.OutDirectory, "chargehand.bundle"), run.Best?.Commits ?? 0, run.Branch, partial, run.Total, run.Containers, run.Span,
                 run.TraceId, progress, sha => run.LastHead = sha, run.Budget, ct);
         }
         var spent = follow.Spent ?? run.Total;
-        var outcome = Outcome(task, run.RunId, result, spent, handed, settings.Priced, partial, startNote);
+        var outcome = Outcome(task, run.RunId, result, spent, handed, settings.Priced, partial, startNote, replan);
         if (follow.Detail is { } integration)
             outcome = outcome with { Detail = outcome.Detail is { } before ? $"{before}; {integration}" : integration };
         await LearnAsync(task, outcome, run.Session, spent, run.Continuation, run.Decisions, handed, partial, run.LastHead, run.Budget);
@@ -48,6 +50,8 @@ public sealed partial class TaskRunner
     private async Task<(bool Partial, (string RunId, string OutDirectory) Run, HandoverOutcome? Handed)> HandOverTaskAsync(ResolvedTask task, TaskRun run, CancellationToken ct)
     {
         var (session, best) = (run.Session, run.Best);
+        if (Bare)
+            return await HandOverBareAsync(task, run, ct);
         var finished = session.Status == SessionStatus.Completed && run.ReportJson is not null && DrivenReport.Parse(run.ReportJson) is not null;
         var partial = !finished && best is not null && (Salvageable(session) || session.Status == SessionStatus.NeedsInput || best.RunId != run.RunId);
         var handoverRun = partial ? (best!.RunId, best.OutDirectory) : (run.RunId, run.OutDirectory);
@@ -62,6 +66,17 @@ public sealed partial class TaskRunner
         return (partial, handoverRun, handed);
     }
 
+    /// <summary>The bare arm's end (ADR 0080): a session that finished with commits has its branch pushed; any other end leaves nothing, with no partial draft and no second session.</summary>
+    private async Task<(bool Partial, (string RunId, string OutDirectory) Run, HandoverOutcome? Handed)> HandOverBareAsync(ResolvedTask task, TaskRun run, CancellationToken ct)
+    {
+        var session = run.Session;
+        var handoverRun = (run.RunId, run.OutDirectory);
+        if (session is not { Status: SessionStatus.Completed, BundleWritten: true, Commits: > 0 })
+            return (false, handoverRun, null);
+        var handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"Task: {task.Id}", partial: false, run.Stack, session, ct, bare: true);
+        return (false, handoverRun, handed);
+    }
+
     /// <summary>The task's own <c>result/v1</c>, built, checked and signed, and its start and run records in the run log.</summary>
     private async Task<ResultContract> ResultAsync(ResolvedTask task, TaskRun run, bool partial, string handoverRun, HandoverOutcome? handed, CancellationToken ct)
     {
@@ -72,7 +87,7 @@ public sealed partial class TaskRunner
         var children = (await log.ListAsync(new RunListQuery(Since: run.Started, Limit: 200), record)).Where(r => r.ParentRunId is { } parent && run.Runs.Contains(parent)).ToList();
         var result = await results.BuildAsync(new DrivenTaskInput(task.Id, run.RunId, run.TraceId, settings.Model, settings.ClaudeVersion, run.Total, run.ReportJson, handed, children,
             Directory.Exists(scratchClone) ? scratchClone : settings.SourcePath, settings.BaseCommit, settings.Priced,
-            partial ? new KeptWork(run.Branch, run.Best!.RunId, run.Best.Commits, settings.BaseCommit) : null), record);
+            partial ? new KeptWork(run.Branch, run.Best!.RunId, run.Best.Commits, settings.BaseCommit) : null, Bare), record);
         result = result with { Actor = settings.Actor };
         result = results.Sign(result);
         await log.AppendAsync(new StartRecord(run.RunId, run.Started, run.TraceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId, ProcessBoot.Id, settings.Actor), CancellationToken.None);
@@ -240,13 +255,13 @@ public sealed partial class TaskRunner
     private static bool IsStartFailure(Exception e, CancellationToken ct) =>
         e is ChargehandException or HttpRequestException or IOException || (e is TaskCanceledException && !ct.IsCancellationRequested);
 
-    private Task<HandoverOutcome> HandOverAsync(ResolvedTask task, (string RunId, string OutDirectory) run, string branch, string title, string body, bool partial, StackBase? stack, SessionOutcome spent, CancellationToken ct) =>
+    private Task<HandoverOutcome> HandOverAsync(ResolvedTask task, (string RunId, string OutDirectory) run, string branch, string title, string body, bool partial, StackBase? stack, SessionOutcome spent, CancellationToken ct, bool bare = false) =>
         handover.RunAsync(new HandoverInput(run.RunId, run.OutDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, stack?.PullRequestBase ?? settings.BaseBranch,
             title, stack is null ? body : $"{body}\n\n{stack.Note}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote, LocalOnly: settings.LocalOnly,
             Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
             Goal: task.Goal, UpdateReused: !partial && task.From?.Pushed is null, PolicyNote: stack is null && settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null,
             FallbackBaseBranch: stack?.PullRequestBase is null ? null : settings.BaseBranch,
-            Provenance: TaskProvenance.Of(task, run.RunId, spent, settings.Model, settings.ClaudeVersion)), ct);
+            Provenance: TaskProvenance.Of(task, run.RunId, spent, settings.Model, settings.ClaudeVersion), Bare: bare), ct);
 
     /// <summary>How much of a handoff goes into a continuation's prompt, and how much into a partial pull request's body.</summary>
     private const int ProgressInGoal = 8000;
@@ -275,8 +290,11 @@ public sealed partial class TaskRunner
 
     private static string PartialBody(ResolvedTask task, SessionOutcome last, SessionOutcome total, int continuation, string? startFailure, string? progress)
     {
-        var body = new StringBuilder(string.Create(CultureInfo.InvariantCulture,
-            $"Partial result: the session {(last.Status == SessionStatus.NeedsInput ? "stopped to ask a question" : $"was stopped by {StopReason(last).Replace('_', ' ')}")} after {total.Turns} turns and did not finish. This is unfinished work, kept so it is not lost; read it before anything else.\n\nTask: {task.Id}"))
+        var turns = total.Turns;
+        var lead = last.Status == SessionStatus.Completed
+            ? $"the session ended after {turns} turns but printed no usable report, even when asked for one, so what it did is unchecked."
+            : $"the session {(last.Status == SessionStatus.NeedsInput ? "stopped to ask a question" : $"was stopped by {StopReason(last).Replace('_', ' ')}")} after {turns} turns and did not finish.";
+        var body = new StringBuilder(string.Create(CultureInfo.InvariantCulture, $"Partial result: {lead} This is unfinished work, kept so it is not lost; read it before anything else.\n\nTask: {task.Id}"))
             .Append(ContinuationNote(continuation));
         if (last.Status == SessionStatus.NeedsInput && last.Questions.Count > 0)
             body.Append("\n\nQuestions for you:\n").AppendJoin('\n', last.Questions.Select(q => $"- {q}"));
@@ -290,7 +308,8 @@ public sealed partial class TaskRunner
         return body.Append(CostReceipt.Footer(total, continuation)).ToString();
     }
 
-    private static TaskOutcome Outcome(ResolvedTask task, string runId, ResultContract result, SessionOutcome session, HandoverOutcome? handed, bool priced, bool partial, string? partialNote)
+    private static TaskOutcome Outcome(ResolvedTask task, string runId, ResultContract result, SessionOutcome session, HandoverOutcome? handed, bool priced, bool partial, string? partialNote,
+        bool replan = false)
     {
         var state = result.Status switch
         {
@@ -300,15 +319,19 @@ public sealed partial class TaskRunner
         };
         var pushed = handed?.Status is HandoverStatus.Pushed or HandoverStatus.PrFailed;
         var detail = Detail(state, result, session, handed, pushed, partial, partialNote);
+        if (replan)
+            detail = detail is { Length: > 0 } ? $"{detail}; stalled with no commits, re-planning into smaller tasks" : "stalled with no commits, re-planning into smaller tasks";
         return new TaskOutcome(task.Id, state, runId, detail, result.Error?.Code,
             priced ? session.CostUsd ?? 0 : 0, session.InputTokens + session.OutputTokens, pushed ? handed!.Branch : null, handed?.PullRequest?.Url,
-            session.Status == SessionStatus.RateLimited ? session.RateLimitResetsAt : null);
+            session.Status == SessionStatus.RateLimited ? session.RateLimitResetsAt : null, Replan: replan);
     }
 
     private static string? Detail(TaskState state, ResultContract result, SessionOutcome session, HandoverOutcome? handed, bool pushed, bool partial, string? partialNote) =>
         state == TaskState.Completed ? handed?.TestIntegrity is { } flag ? $"test integrity: {flag.Reason}" : null
             : !partial || handed is null ? result.Summary
             : session.Status == SessionStatus.NeedsInput ? $"partial: needs input ({string.Join("; ", session.Questions)}); {(pushed ? handed.PullRequest is null ? "branch pushed, pull request failed" : "draft PR opened" : $"not handed over: {handed.Reason}")}{partialNote}"
-            : pushed ? $"partial: stopped by {StopReason(session)}; {(handed.PullRequest is null ? "branch pushed, pull request failed" : "draft PR opened")}{partialNote}"
-            : $"partial: stopped by {StopReason(session)}; not handed over: {handed.Reason}{partialNote}";
+            : pushed ? $"partial: {EndedBy(session)}; {(handed.PullRequest is null ? "branch pushed, pull request failed" : "draft PR opened")}{partialNote}"
+            : $"partial: {EndedBy(session)}; not handed over: {handed.Reason}{partialNote}";
+
+    private static string EndedBy(SessionOutcome session) => session.Status == SessionStatus.Completed ? "finished without a usable report" : $"stopped by {StopReason(session)}";
 }

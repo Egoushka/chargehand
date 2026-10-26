@@ -545,6 +545,6 @@ public class SharedServicesTests
     {
         using var schema = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(Repo.Root, "profiles", "profile.schema.json")));
         var services = schema.RootElement.GetProperty("properties").GetProperty("driven").GetProperty("properties").GetProperty("services").GetProperty("properties");
-        Assert.Equal(["caches", "images", "repositories"], services.EnumerateObject().Select(p => p.Name));
+        Assert.Equal(["caches", "images", "repositories", "verify"], services.EnumerateObject().Select(p => p.Name));
     }
 }

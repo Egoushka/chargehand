@@ -137,6 +137,25 @@ public class PullReviewTests
     }
 
     [Fact]
+    public async Task A_stale_ref_that_skips_a_review_is_said_once_per_head_and_a_new_head_is_said_again()
+    {
+        using var rig = new IntakeRig(On());
+        rig.OpenPull(5, Sha);
+        rig.Heads.PullHeads[5] = Sha2;
+        await rig.Poll();
+        await rig.Poll();
+
+        var warning = Assert.Single(rig.Warnings);
+        Assert.Contains("octo/repo#5", warning, StringComparison.Ordinal);
+        Assert.Contains(Sha[..7], warning, StringComparison.Ordinal);
+        Assert.Contains(Sha2[..7], warning, StringComparison.Ordinal);
+
+        rig.OpenPull(5, Sha2[..7] + "ccccccccccccccccccccccccccccccccc");
+        await rig.Poll();
+        Assert.Equal(2, rig.Warnings.Count);
+    }
+
+    [Fact]
     public async Task At_most_max_reviews_per_day_start_in_any_24_hours_and_the_rest_wait_without_being_dropped()
     {
         using var rig = new IntakeRig(On(perDay: 2, concurrent: 10));

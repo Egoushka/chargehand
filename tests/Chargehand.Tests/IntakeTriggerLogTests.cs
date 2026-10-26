@@ -165,9 +165,30 @@ public class IntakeTriggerLogTests
             "intake: label:octo/repo#8:42: ignored: author_not_allowed (mallory)",
             "intake: label:octo/repo#9:43: waiting: max_concurrent",
             "intake: octo/repo#7: run run-1 ended: failed",
-            "intake: poll: 1 repositories, 0 running",
             "intake: label:octo/repo#9:43: started",
             "intake: label:octo/repo#7:44: waiting: max_concurrent",
         ], rig.Infos);
+    }
+
+    [Fact]
+    public async Task The_poll_line_is_logged_when_a_count_changes_and_otherwise_once_an_hour()
+    {
+        // CHARGEHAND-316: the same line every poll was 52 of 90 server log lines.
+        using var rig = new IntakeRig(Settings(concurrent: 2));
+        await rig.Poll();
+        rig.Time.Advance(TimeSpan.FromMinutes(5));
+        await rig.Poll();
+        rig.Time.Advance(TimeSpan.FromMinutes(5));
+        await rig.Poll();
+        Assert.Equal(["intake: poll: 1 repositories, 0 running"], rig.Infos.Where(i => i.StartsWith("intake: poll:", StringComparison.Ordinal)));
+
+        rig.Labeled(7, "alice", 41);
+        await rig.Poll();
+        await rig.Poll();
+        Assert.Equal(["intake: poll: 1 repositories, 0 running", "intake: poll: 1 repositories, 1 running"], rig.Infos.Where(i => i.StartsWith("intake: poll:", StringComparison.Ordinal)));
+
+        rig.Time.Advance(TimeSpan.FromMinutes(61));
+        await rig.Poll();
+        Assert.Equal(3, rig.Infos.Count(i => i.StartsWith("intake: poll:", StringComparison.Ordinal)));
     }
 }

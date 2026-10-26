@@ -6,10 +6,10 @@ using Chargehand.Modules.Ledger.Api;
 
 namespace Chargehand.Automation;
 
-/// <summary>Reviews every open, non-draft pull request of the watched repositories (ADR 0051), once per head commit: the head is fetched into the server's checkout, a read-only run of the
+/// <summary>Reviews every open, non-draft pull request of the watched repositories (ADR 0051), once per head commit: the head is fetched into the server's checkout (a read-only one: into the repository's managed clone), a read-only run of the
 /// <c>review</c> preset gets the diff, and when it ends one comment carries the findings. The commit is recorded in <see cref="IntakeState.Reviewed"/> after the run starts, and the comment's hidden
 /// marker names the commit, so neither a restart nor a lost state file reviews or comments twice.</summary>
-internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, IRunLog log, IRepositoryHeads heads, IntakeState state, TimeProvider time, Action<string> warn)
+internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, IRunLog log, IntakeState state, TimeProvider time, Action<string> warn)
 {
     public const string Preset = "review";
     public const int MaxDiff = 60000;
@@ -18,12 +18,16 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
     private const int MaxFinding = 1500;
     private const int MaxLocator = 120;
 
+    private readonly HashSet<string> _stale = [];
+
     public static string MarkerFor(string sha) => $"<!-- chargehand-review {sha} -->";
+
+    private static string Short(string sha) => sha[..Math.Min(sha.Length, 7)];
 
     private static string Key(string repository, int number, string sha) => $"{repository}#{number.ToString(CultureInfo.InvariantCulture)}@{sha}";
 
     /// <summary>Starts a review for each pull request whose head commit has none. A cap or a busy server leaves the rest for a later poll.</summary>
-    public async Task StartAsync(string name, AutomationRepository repository, IBatchStarter starter, CancellationToken ct)
+    public async Task StartAsync(string name, AutomationRepository repository, CheckoutSources checkouts, IBatchStarter starter, CancellationToken ct)
     {
         foreach (var pull in await host.OpenPullsAsync(name, ct))
         {
@@ -33,7 +37,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
                 return;
             try
             {
-                if (!await TryStartAsync(name, repository, pull, starter, ct))
+                if (!await TryStartAsync(name, repository, pull, checkouts, starter, ct))
                     return;
             }
             catch (IntakeException e)
@@ -44,7 +48,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
     }
 
     /// <summary>False when the server refused the run: the rest wait for the next poll.</summary>
-    private async Task<bool> TryStartAsync(string name, AutomationRepository repository, ReviewablePull pull, IBatchStarter starter, CancellationToken ct)
+    private async Task<bool> TryStartAsync(string name, AutomationRepository repository, ReviewablePull pull, CheckoutSources checkouts, IBatchStarter starter, CancellationToken ct)
     {
         var key = Key(name, pull.Number, pull.HeadSha);
         if (await HasCommentAsync(name, pull.Number, pull.HeadSha, ct))
@@ -52,9 +56,14 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
             Settle(key);
             return true;
         }
-        // A push between the listing and the fetch: the next poll lists the new commit.
-        if (await heads.FetchPullHeadAsync(repository.Path, pull.Number, ct) != pull.HeadSha)
+        var source = await checkouts.PullHeadAsync(name, repository.Path, pull.Number, pull.HeadSha, ct);
+        if (source.Commit != pull.HeadSha)
+        {
+            // A push between the listing and the fetch, or a ref a host job has not brought up yet: the next poll tries again, and the line is written once per head.
+            if (_stale.Add(key))
+                warn($"intake: {name}#{pull.Number}: review waits: the checkout has {Short(source.Commit)} for the head, GitHub lists {Short(pull.HeadSha)}");
             return true;
+        }
         string diff;
         try
         {
@@ -67,7 +76,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
             Settle(key);
             return true;
         }
-        var request = new RunRequest("request/v1", $"Review pull request {name}#{pull.Number.ToString(CultureInfo.InvariantCulture)}.", new RequestContext(false, Preset, Repository: new RepositoryRef(repository.Path, pull.HeadSha)),
+        var request = new RunRequest("request/v1", $"Review pull request {name}#{pull.Number.ToString(CultureInfo.InvariantCulture)}.", new RequestContext(false, Preset, Repository: source),
             [new CallerInput("goal", "goal", IntakeGoal.Pull(pull.Title, pull.Body)), new CallerInput("diff", "diff", Cut(diff)), new CallerInput("tests", "test-output", "not run by chargehand; see the pull request's checks")]);
         var started = await starter.StartAsync(request, ct);
         if (started.RunId is not { } run)

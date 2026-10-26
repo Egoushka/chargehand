@@ -43,6 +43,20 @@ public static class VerifyCommand
             return new(["cargo", "test"], "detected");
         if (File.Exists(Path.Combine(dir, "go.mod")))
             return new(["go", "test", "./..."], "detected");
+        return DetectJvm(dir) is { } jvm ? new(jvm, "detected") : null;
+    }
+
+    /// <summary>check, not test: ktlint and detekt (the lint tools of a JVM/Android build, the session-jdk image has the JDK and
+    /// Gradle for, ADR 0048) bind their verification tasks to Gradle's check task by default.</summary>
+    private static string[]? DetectJvm(string dir)
+    {
+        bool Has(string pattern) => Directory.EnumerateFiles(dir, pattern, SearchOption.TopDirectoryOnly).Any();
+        if (File.Exists(Path.Combine(dir, "gradlew")))
+            return ["./gradlew", "check", "--no-daemon"];
+        if (Has("build.gradle") || Has("build.gradle.kts") || Has("settings.gradle") || Has("settings.gradle.kts"))
+            return ["gradle", "check", "--no-daemon"];
+        if (File.Exists(Path.Combine(dir, "pom.xml")))
+            return ["mvn", "-B", "test"];
         return null;
     }
 
@@ -136,6 +150,7 @@ public static class VerifyCommand
         return segments[..^1].Any(s => s is "test" or "tests" or "scripts" or ".github" or "__tests__")
             || name.Contains("test", StringComparison.OrdinalIgnoreCase) || name.Contains("spec", StringComparison.OrdinalIgnoreCase)
             || name is "Makefile" or "package.json" or "pyproject.toml" or "Cargo.toml" or "go.mod" or "pytest.ini" or "Directory.Build.props"
+                or "pom.xml" or "gradlew" or "build.gradle" or "build.gradle.kts" or "settings.gradle" or "settings.gradle.kts"
             || name.EndsWith(".csproj", StringComparison.Ordinal) || name.EndsWith(".sln", StringComparison.Ordinal) || name.EndsWith(".slnx", StringComparison.Ordinal)
             || (plan is not null && plan.Argv.Count > 0 && (plan.Argv[0] == path || plan.Argv[0] == "./" + path));
     }

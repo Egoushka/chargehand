@@ -10,8 +10,8 @@ namespace Chargehand.Server;
 
 /// <summary>
 /// MCP tool "result" (ADR 0065): the result of a run an orchestrate call answered with its id, for a client that has only MCP. It waits as orchestrate does
-/// (over HTTP at most <see cref="McpHttp.Wait"/>), then returns result/v1, or run-status/v1 as a tool error while the run goes on. Who may read a run is the
-/// same as for <c>GET /v1/runs/{id}</c>.
+/// (over HTTP at most <see cref="McpHttp.Wait"/>), then returns result/v1, or run-status/v1 (not an error) while the run goes on. Who may read a run is the
+/// same as for <c>GET /v1/runs/{id}</c>, a run token's included.
 /// </summary>
 public static class ResultTool
 {
@@ -27,9 +27,9 @@ public static class ResultTool
         {
             Name = Name,
             Description = "Read the result of a chargehand run that an orchestrate call answered with a run id because it was still running. Returns result/v1 once the "
-                        + "run finished; before that, waits a while and returns the run's status as an error, so call it again.",
+                        + "run finished; before that, waits a while and returns the run's run-status/v1, so call it again.",
             UseStructuredContent = true,
-            OutputSchema = JsonDocument.Parse(ContractSchemas.Text(ContractSchemas.Result)).RootElement.Clone(),
+            OutputSchema = JsonDocument.Parse(ContractSchemas.McpOutputText()).RootElement.Clone(),
         });
         tool.ProtocolTool.InputSchema = JsonDocument.Parse(InputSchema).RootElement.Clone();
         return tool;
@@ -41,8 +41,10 @@ public static class ResultTool
             return Error("result takes run_id: the id an orchestrate call returned");
         var runs = context.Services!.GetRequiredService<RunService>();
         var http = context.Services!.GetService<McpHttp>();
-        var who = PrincipalHttp.Of(context.Services!.GetService<IHttpContextAccessor>()?.HttpContext);
-        if (runs.Find(runId) is { } run && Principal.Sees(who, run.Actor))
+        var httpContext = context.Services!.GetService<IHttpContextAccessor>()?.HttpContext;
+        var who = PrincipalHttp.Of(httpContext);
+        var scope = httpContext?.Items[RunScope.ItemKey] as RunTokenClaims;
+        if (runs.Find(runId) is { } run && Principal.Sees(who, run.Actor) && RunScope.Reads(scope, runId, run.ParentRunId))
         {
             try
             {
@@ -60,7 +62,7 @@ public static class ResultTool
                 return OrchestrateTool.Output(run.Done.Result);
         }
         // Finished runs leave this process for the run log; over stdio there is none to read.
-        var stored = http is null ? null : await ChargehandServer.Stored(http.Log, runId, ct);
+        var stored = http is null ? null : await ChargehandServer.Stored(http.Log, runId, ct, scope);
         return stored switch
         {
             null => Error($"no run {runId} on this server"),

@@ -28,10 +28,25 @@ public class LangfuseEvalsTests
     private static LangfuseEvals Make(FakeHandler h) => new(new HttpClient(h) { BaseAddress = new Uri("http://127.0.0.1:3000/") }, "pk", "sk");
 
     [Fact]
-    public async Task A_dataset_that_does_not_exist_has_no_items()
+    public async Task A_dataset_that_does_not_exist_is_an_error_naming_it()
     {
-        // Langfuse answers 404 for the items of a dataset nobody created yet: a new cell's, before its first push.
+        // A renamed dataset, a wrong base URL or a key for another project all answer 404 to the dataset lookup. That
+        // must not read as an unseeded (empty) dataset, or the gate passes without checking anything.
         var h = new FakeHandler(_ => (HttpStatusCode.NotFound, """{"message":"Dataset not found"}"""));
+
+        var e = await Assert.ThrowsAsync<DatasetNotFoundException>(() => Make(h).ItemsAsync("chargehand-review-worker", CancellationToken.None));
+
+        Assert.Contains("chargehand-review-worker", e.Message, StringComparison.Ordinal);
+        Assert.Contains("not found", e.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(h.Seen, p => p.Contains("dataset-items", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_existing_dataset_without_items_is_empty()
+    {
+        var h = new FakeHandler(path => path.StartsWith("/api/public/v2/datasets/", StringComparison.Ordinal)
+            ? (HttpStatusCode.OK, """{"name":"chargehand-review-worker"}""")
+            : (HttpStatusCode.OK, """{"data":[],"meta":{"totalPages":0}}"""));
 
         var items = await Make(h).ItemsAsync("chargehand-review-worker", CancellationToken.None);
 

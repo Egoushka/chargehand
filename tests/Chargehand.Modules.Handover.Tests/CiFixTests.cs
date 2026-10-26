@@ -368,4 +368,60 @@ public class CiFixTests
         Assert.Equal(IntegrationAction.Failed, result.Action);
         Assert.Contains("502", result.Detail);
     }
+
+    [Fact]
+    public async Task One_failed_poll_in_three_is_retried_after_a_backoff_and_a_failing_job_is_still_fixed()
+    {
+        var ci = new Ci();
+        var host = HostFor(ci);
+        var script = host.Script!;
+        var reads = 0;
+        host.Script = h => ++reads == 2 ? throw new IntegrationException("the pull request's state could not be reached: An error occurred while sending the request.")
+            : h.Calls.Count(c => c == "get") >= 5 && ci.Fixes >= 1 ? script(h) with { Merged = true } : script(h);
+        List<TimeSpan> waits = [];
+        var integrator = new Integrator(new IntegratorPolicy(new DrivenIntegrator(1, 2, "k", new Dictionary<string, string> { ["o/r"] = "merge" })), host, new DrivenCiFix(WaitMinutes: 2),
+            (span, _) => { waits.Add(span); return Task.CompletedTask; });
+
+        // The fix starts on poll 1; the head moves, poll 2 fails, poll 3 sees the new head.
+        var result = await integrator.FollowAsync(Target(), ci.Session(), _ => { }, default);
+
+        Assert.Equal(IntegrationAction.Merged, result.Action);
+        Assert.Single(ci.Requests);
+        Assert.Contains(Integrator.PollBackoff[0], waits);
+    }
+
+    [Fact]
+    public async Task A_failed_poll_between_two_waiting_looks_does_not_end_the_watch_and_a_good_poll_resets_the_count()
+    {
+        var ci = new Ci();
+        var host = HostFor(ci);
+        var reads = 0;
+        // Fail, fail, ok (pending), fail, fail, ok (fixable failure then merged): never three in a row.
+        host.Script = h => ++reads is 1 or 2 or 4 or 5 ? throw new IntegrationException("the pull request's state could not be reached: boom")
+            : reads == 3 ? FakeIntegrationHost.Snapshot(draft: false, status: "BLOCKED", autoMerge: true, checks: [new CheckStatus("build", true, CheckOutcome.Pending, 900)])
+            : FakeIntegrationHost.Snapshot(draft: false, status: "CLEAN", autoMerge: true, merged: true);
+
+        var result = await Make(host, new DrivenCiFix(WaitMinutes: 5)).FollowAsync(Target(), ci.Session(), _ => { }, default);
+
+        Assert.Equal(IntegrationAction.Merged, result.Action);
+    }
+
+    [Fact]
+    public async Task Three_failed_polls_in_a_row_end_the_watch_and_the_report_says_how_many_failed()
+    {
+        var host = new FakeIntegrationHost { ReadFails = new IntegrationException("the pull request's state could not be reached: An error occurred while sending the request.") };
+        List<TimeSpan> waits = [];
+        List<string> told = [];
+        var integrator = new Integrator(new IntegratorPolicy(new DrivenIntegrator(1, 2, "k", new Dictionary<string, string> { ["o/r"] = "merge" })), host, new DrivenCiFix(WaitMinutes: 2),
+            (span, _) => { waits.Add(span); return Task.CompletedTask; });
+
+        var result = await integrator.FollowAsync(Target(), (_, _) => throw new InvalidOperationException(), told.Add, default);
+
+        Assert.Equal(IntegrationAction.Failed, result.Action);
+        Assert.Equal(3, host.Calls.Count(c => c == "get"));
+        Assert.Equal(Integrator.PollBackoff.Take(2), waits);
+        Assert.Contains("3 polls in a row failed", result.Detail);
+        Assert.Contains("could not be reached", result.Detail);
+        Assert.Contains(told, t => t.Contains("3 polls in a row failed", StringComparison.Ordinal));
+    }
 }

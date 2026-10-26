@@ -21,5 +21,6 @@ public interface ITaskResults
 /// <param name="RepositoryPath">chargehand's scratch clone that holds the branch commit, for the citations.</param>
 /// <param name="Priced">The credential has a dollar price (an API key): the result carries dollars; else they are unknown, never 0.</param>
 /// <param name="Kept">The work an unfinished task leaves for a continuation (ADR 0045); null: none.</param>
+/// <param name="Bare">The task ran as the benchmark's bare arm (ADR 0080): no report is expected, and the result is the branch the agent left, or the absence of one.</param>
 public sealed record DrivenTaskInput(string TaskId, string RunId, string TraceId, string Model, string ClaudeVersion, SessionOutcome Session, string? ReportJson,
-    HandoverOutcome? Handover, IReadOnlyList<RunSummary> Children, string RepositoryPath, string BaseCommit, bool Priced, KeptWork? Kept = null);
+    HandoverOutcome? Handover, IReadOnlyList<RunSummary> Children, string RepositoryPath, string BaseCommit, bool Priced, KeptWork? Kept = null, bool Bare = false);

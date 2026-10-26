@@ -66,7 +66,7 @@ public class GoalReminderTests
         using var w = new Workspace();
         var hook = w.Dir.Write("hook.sh", GoalReminder.HookCommand);
         // The stand-in runs the hook as Claude Code would after a tool call: once the reminder is due, and once more after it was claimed.
-        var script = Emit(Init, Assistant("m1", "working")) + $"""
+        var script = Emit(Init, Assistant("m1", "working\n" + Reported)) + $"""
 
             for i in $(seq 1 40); do [ -f "$CHARGEHAND_REMINDER_FILE" ] && break; sleep 0.1; done
             sh '{hook}' > '{w.Out}/hook1.txt'

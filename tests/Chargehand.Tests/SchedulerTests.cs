@@ -99,7 +99,16 @@ internal sealed class ScheduleRig : IDisposable
 
     private ISecurityAlerts? _alerts;
 
-    private Scheduler Build() => new(_settings, Log, Heads, ScheduleState.Load(StateFile), Notifier, Morning, Time, Warnings.Add, Flakes, _alerts);
+    private ManagedClones? _clones;
+
+    private Scheduler Build() => new(_settings, Log, Heads, ScheduleState.Load(StateFile), Notifier, Morning, Time, Warnings.Add, Flakes, _alerts, _clones);
+
+    /// <summary>The managed clones read-only checkouts fall back to; the scheduler is built again on the same state.</summary>
+    public void UseClones(ManagedClones clones)
+    {
+        _clones = clones;
+        Restart();
+    }
 
     /// <summary>The alerts reader of <c>security-alerts</c>, or none (no App); the scheduler is built again on the same state.</summary>
     public void UseAlerts(ISecurityAlerts? alerts)
@@ -159,7 +168,17 @@ internal sealed class ScheduleHeads : IRepositoryHeads
 
     public string? Fail { get; set; }
 
-    public Task<string> CurrentCommitAsync(string path, CancellationToken ct) => Fail is null ? Task.FromResult(Commit) : throw new IntakeException(Fail);
+    /// <summary>Checkouts that cannot be written, and what fetching into them says.</summary>
+    public Dictionary<string, ReadOnlyCheckoutException> ReadOnly { get; } = [];
+
+    /// <summary>The paths asked for a commit, in order.</summary>
+    public List<string> Asked { get; } = [];
+
+    public Task<string> CurrentCommitAsync(string path, CancellationToken ct)
+    {
+        Asked.Add(path);
+        return ReadOnly.TryGetValue(path, out var e) ? throw e : Fail is null ? Task.FromResult(Commit) : throw new IntakeException(Fail);
+    }
 
     public Task<string> FetchPullHeadAsync(string path, int number, CancellationToken ct) => throw new NotSupportedException("schedules never fetch a pull request");
 }

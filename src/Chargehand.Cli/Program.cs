@@ -519,6 +519,15 @@ Chargehand.Automation.GitHubIntake? GitHubIntake()
         integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "sources.json")), clones: clones);
 }
 
+// The managed clones a read-only checkout falls back to, fetched with the integrator App's token; null without an App, and the checkout's own commit is used.
+Chargehand.Automation.ManagedClones? ManagedClones()
+{
+    if (profile.Driven is not { Integrator: { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId } } driven)
+        return null;
+    var tokens = new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(new HttpClient { BaseAddress = GitHubApiRoot(driven) }, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System);
+    return new Chargehand.Automation.ManagedClones(profile.ClonesRoot, tokens.GetAsync);
+}
+
 // Scheduled work (ADR 0068): null unless the profile has automation.schedules. Its state sits next to the run log. flaky-tests reads CI history with the forge credential the driven run reads pull requests with.
 Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? Schedules(Chargehand.Driven.DrivenRun? driven)
 {
@@ -533,8 +542,9 @@ Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? Sch
         var api = new HttpClient { BaseAddress = GitHubApiRoot(drivenSettings) };
         alerts = new Chargehand.Automation.GitHubIntakeHost(api, new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System));
     }
-    return morning => new Chargehand.Automation.Scheduler(schedules, runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, new Chargehand.Automation.HttpScheduleNotifier(), morning,
-        flakes: flakes, alerts: alerts);
+    var clones = ManagedClones();
+    return morning => new Chargehand.Automation.Scheduler(schedules, runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state, new Chargehand.Automation.HttpScheduleNotifier(), morning,
+        flakes: flakes, alerts: alerts, clones: clones);
 }
 
 // Plane intake (ADR 0067): null unless the profile has automation.plane. The key is read from the secret store at each call; its state sits next to the run log.
@@ -545,8 +555,28 @@ Chargehand.Automation.PlaneIntake? PlaneIntake()
     var api = new HttpClient { BaseAddress = new Uri(url.TrimEnd('/') + "/") };
     var directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake");
     var state = Chargehand.Automation.PlaneState.Load(Path.Combine(directory, "plane.json"));
+    var clones = ManagedClones();
     return new Chargehand.Automation.PlaneIntake(plane, new Chargehand.Automation.PlaneHost(api, workspace, () => profile.Secret(apiKeySecret)), runLog,
-        new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine), state, sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "plane-sources.json")));
+        new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state, sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "plane-sources.json")), clones: clones);
+}
+
+// What /v1/health?deep=1 asks besides the model (CHARGEHAND-316): only what the profile configures, each a read. Secrets are read when the probe runs, so an item that is not in the store yet fails that check and not the server's start.
+List<DependencyProbe> HealthProbes()
+{
+    List<DependencyProbe> probes = [];
+    if (profile.Driven is { Enabled: true } driven)
+    {
+        var doctor = new Chargehand.Onboarding.SystemDoctorEnvironment();
+        foreach (var runner in driven.ResolvedRunners())
+            probes.Add(DependencyHealth.Runner(driven.NamesRunners ? $"runner {runner.Name}" : "runner", ct => doctor.ProbeRunnerAsync(profile, new DrivenRunner(runner.Url, runner.ApiKeySecret), ct)));
+        if (driven.Integrator is { AppId: not null, PrivateKeySecret: not null } && AppTokens(driven) is { } tokens)
+            probes.Add(DependencyHealth.GitHubApp(tokens));
+        if (driven.PushSecret is { } push && driven.Forge is not { Kind: "gitlab" })
+            probes.Add(DependencyHealth.PushToken(GitHubApiRoot(driven), () => profile.Secret(push)));
+    }
+    if (profile.Automation?.Plane is { Url: { } url, ApiKeySecret: { } apiKeySecret, Workspace: { } workspace, Projects: { Count: > 0 } projects })
+        probes.Add(DependencyHealth.Plane(new Uri(url.TrimEnd('/') + "/"), workspace, projects.Keys.First(), () => profile.Secret(apiKeySecret)));
+    return probes;
 }
 
 // Questions and partial stops sent to a phone (ADR 0077): null unless the profile has automation.notify. Its state sits next to the run log; secrets are read at each call.
@@ -592,7 +622,7 @@ async Task<int> Serve()
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
         PlaneStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "plane.json"),
-        InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn),
+        InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn, Probes: HealthProbes()),
         orchestrator, runLog, drivenRun, GitHubIntake(), Schedules(drivenRun), PlaneIntake(), PhoneAnswers());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");
@@ -638,8 +668,18 @@ async Task<int> EvalGate(string baseRoot, string changeRoot, IReadOnlyList<strin
     var runner = new EvalRunner(r => new Orchestrator(profile, runtime, runtimeVersion, r, runLog, new Dictionary<string, int>()), runtime, profile.IntakeModel,
         runLog, langfuse, () => tracing?.ForceFlush(10_000), Console.Out);
     var verdicts = new List<Verdict>();
-    foreach (var cell in cells)
-        verdicts.Add(await runner.RunAsync(cell, await langfuse.ItemsAsync(cell.Dataset, ct), baseRoot, changeRoot, name, trade, ct));
+    try
+    {
+        foreach (var cell in cells)
+            verdicts.Add(await runner.RunAsync(cell, await langfuse.ItemsAsync(cell.Dataset, ct), baseRoot, changeRoot, name, trade, ct));
+    }
+    catch (DatasetNotFoundException e)
+    {
+        // Fails the check with a plain message: the last line is what scripts/prompt-ci.sh posts as the commit status.
+        Console.Error.WriteLine(e.Action);
+        Console.WriteLine($"prompt-ci: failure: {e.Message}");
+        return 1;
+    }
 
     Console.WriteLine();
     Console.WriteLine("| cell | items | quality change | t | cost change | t | verdict |");
