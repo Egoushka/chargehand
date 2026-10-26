@@ -69,7 +69,7 @@ public class MiseSpikeTests
         var clock = Stopwatch.StartNew();
         ContainerState state;
         while ((state = await engine.InspectAsync(id, default)).Status == ContainerStatus.Running)
-            await Task.Delay(500);
+            await Task.Delay(500); // agent-checks: allow sleep-in-test -- poll interval of a wait on the container's exit (opt-in spike, real engine)
         var seconds = clock.Elapsed.TotalSeconds;
         var log = await engine.LogsTailAsync(id, 64 * 1024, default);
         await engine.RemoveAsync(id, default);
