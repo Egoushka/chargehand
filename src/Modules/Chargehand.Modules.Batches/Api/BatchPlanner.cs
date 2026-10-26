@@ -56,7 +56,8 @@ public sealed record PlanProposal(IReadOnlyList<ProposedTask> Tasks, IReadOnlyLi
 /// <param name="Request">The batch's request: the repository and commit the planner reads.</param>
 /// <param name="Tasks">The batch's tasks as resolved: goals and the sizes the caller gave.</param>
 /// <param name="RunId">The batch's run id; the planning run is recorded as its child.</param>
-public sealed record PlanInput(RunRequest Request, IReadOnlyList<ResolvedTask> Tasks, string RunId);
+/// <param name="Replan">One task that stalled with no commits (issue #432), asked to be split regardless of its size: the pre-batch question is not asked.</param>
+public sealed record PlanInput(RunRequest Request, IReadOnlyList<ResolvedTask> Tasks, string RunId, bool Replan = false);
 
 public interface IBatchPlanner
 {
@@ -156,6 +157,27 @@ public static partial class PlanApplier
         }
     }
 
+    /// <summary>Splits a task that stalled with no commits into a chain of smaller tasks, each depending on the one before (issue #432): the same chain shape as <see cref="Apply"/>'s own split,
+    /// but forced by the stall rather than chosen from the task's size, and kept to the task already in flight, so the first link keeps its own dependencies and upstream work (it already ran) and
+    /// only the links after it depend on the one before. The last link keeps the task's id, its ref and its acceptance checks.</summary>
+    /// <exception cref="PlanException">The proposal has no usable split for the task.</exception>
+    public static IReadOnlyList<ResolvedTask> Replan(ResolvedTask task, IReadOnlyList<ProposedPart>? split)
+    {
+        if (ValidParts(split) is not { } parts)
+            throw new PlanException($"the replan needs 2 to {MaxParts} parts with a goal each");
+        var k = parts.Count;
+        List<ResolvedTask> chain = [];
+        for (var j = 0; j < k; j++)
+        {
+            var id = j == k - 1 ? task.Id : $"{task.Id}-replan-{j + 1}";
+            var goal = PartGoal(task.Goal, parts[j].Goal!.Trim(), j + 1, k);
+            var dependsOn = j == 0 ? task.DependsOn : [$"{task.Id}-replan-{j}"];
+            chain.Add(new ResolvedTask(id, j == k - 1 ? task.Ref : null, goal, Size: SizeOf(parts[j].Size) ?? "M", DependsOn: dependsOn, Upstream: j == 0 ? task.Upstream : null,
+                SplitFrom: task.Id, SizeFrom: "plan", Acceptance: j == k - 1 ? task.Acceptance : null));
+        }
+        return chain;
+    }
+
     /// <summary>The plan of a batch whose planner failed or was missing: nothing changes.</summary>
     public static BatchPlan Skipped(string source, string reason, string? runId, IReadOnlyList<ResolvedTask> tasks) =>
         new(source, runId, "skipped", reason, [], null, [.. tasks.Select(t => new PlanEntry(t.Id, t.Size, t.Size is null ? null : "caller", t.DependsOn ?? []))], []);
@@ -237,7 +259,7 @@ public sealed class ModelPlanner(PlanRunner run, string preset) : IBatchPlanner
     public async Task<PlanProposal> ProposeAsync(PlanInput input, CancellationToken ct)
     {
         var runId = RunIds.New();
-        var request = new RunRequest("request/v1", PlanPrompt(input.Tasks), new RequestContext(false, preset, Repository: input.Request.Context.Repository));
+        var request = new RunRequest("request/v1", input.Replan ? ReplanPrompt(input.Tasks[0]) : PlanPrompt(input.Tasks), new RequestContext(false, preset, Repository: input.Request.Context.Repository));
         var result = await run(request, runId, input.RunId, ct);
         if (result.Status != ResultStatus.Completed)
             throw new PlanException($"the planning run ended {JsonNamingPolicy.SnakeCaseLower.ConvertName(result.Status.ToString())}: {result.Error?.Message ?? result.Summary}");
@@ -284,6 +306,22 @@ public sealed class ModelPlanner(PlanRunner run, string preset) : IBatchPlanner
             var goal = task.Goal.Length > GoalInPrompt ? task.Goal[..GoalInPrompt].TrimEnd() + " [cut]" : task.Goal;
             text.Append(goal.ReplaceLineEndings("\n").Replace("\n", "\n    ", StringComparison.Ordinal)).Append('\n');
         }
+        return text.ToString();
+    }
+
+    /// <summary>Asked after a task stalled with no commits (issue #432): unlike <see cref="PlanPrompt"/>, the split is wanted regardless of size, since continuing the same plan did not work.</summary>
+    public static string ReplanPrompt(ResolvedTask task)
+    {
+        var text = new StringBuilder();
+        text.Append("Answer this question about the repository at the pinned commit. It is one question with one answer: do not split it, do not ask for anything, and do not change any file.\n\n");
+        text.Append("A coding session given the task below stopped without making a single commit. Split it into 2 to 4 smaller tasks, in the order they must be done: each a complete goal one "
+            + "session can finish, naming what the earlier parts left in place (the next session starts from the branch the one before it left).\n\n");
+        text.Append("Read the repository with your tools to judge the split; do not guess what exists. Name what you looked at in `checked`, one short line each.\n\n");
+        text.Append("Put the plan in `summary` as exactly one JSON object and nothing else, shaped like this:\n\n");
+        text.Append("""{"checked": ["what you read"], "tasks": [{"id": "the task's id", "split": [{"goal": "first part", "size": "M"}, {"goal": "second part", "size": "M"}]}]}""");
+        text.Append(CultureInfo.InvariantCulture, $"\n\nUse exactly this id: {task.Id}\n\nThe task's goal:\n");
+        var goal = task.Goal.Length > GoalInPrompt ? task.Goal[..GoalInPrompt].TrimEnd() + " [cut]" : task.Goal;
+        text.Append(goal.ReplaceLineEndings("\n")).Append('\n');
         return text.ToString();
     }
 }
