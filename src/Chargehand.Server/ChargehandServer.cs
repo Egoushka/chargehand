@@ -311,6 +311,27 @@ public static partial class ChargehandServer
             return Json(Chargehand.Modules.Oversight.Api.LearningReport.Build(entries, since), StatusCodes.Status200OK);
         });
 
+        // What a task is expected to cost before it starts (CHARGEHAND-438): the most similar finished tasks of the repository, else of the size class; an account's own records only.
+        app.MapPost("/v1/forecast", async (HttpContext ctx) =>
+        {
+            ForecastRequest? body;
+            try
+            {
+                body = await ctx.Request.ReadFromJsonAsync<ForecastRequest>(ContractJson.Options, ctx.RequestAborted);
+            }
+            catch (JsonException)
+            {
+                body = null;
+            }
+            if (body is not { Repository: { Length: > 0 } repository } || body.Size is not (null or "S" or "M" or "L"))
+                return Json(Problem("repository is required and size must be S, M or L"), StatusCodes.Status400BadRequest);
+            var who = PrincipalHttp.Of(ctx);
+            var forecast = driven is null
+                ? Chargehand.Modules.Oversight.Api.Forecaster.Predict(settings.Profile?.Driven?.Governor ?? new(), new(repository, body.Goal, body.Size, body.Preset), [], DateTimeOffset.UtcNow)
+                : await driven.ForecastAsync(new(repository, body.Goal, body.Size, body.Preset), actor => Principal.Sees(who, actor), ctx.RequestAborted);
+            return Json(forecast, StatusCodes.Status200OK);
+        });
+
         app.MapPost("/v1/runs/{id}/cancel", async (string id, HttpContext ctx, RunService runs) =>
         {
             var who = PrincipalHttp.Of(ctx);
@@ -458,6 +479,8 @@ public static partial class ChargehandServer
 
     internal static IResult? OwnerOnly(HttpContext ctx) =>
         PrincipalHttp.Of(ctx) is { IsOwner: false } ? Json(Problem("only the owner's key may do that"), StatusCodes.Status403Forbidden) : null;
+
+    private sealed record ForecastRequest(string? Repository, string? Goal, string? Size, string? Preset);
 
     internal static IResult Json(object value, int status) => HttpResults.Json(value, ContractJson.Options, statusCode: status);
 

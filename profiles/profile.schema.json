@@ -264,7 +264,7 @@
               "additionalProperties": false,
               "description": "ADR 0045's budget from history: once a size class has min_tasks finished tasks (completed, or stopped at their budget) in the last window_days days for the repository, or else for all repositories, its budget is the percentile-th percentile of their spend. Below that the flat budget applies; a task's own budget_usd always wins. A key left out keeps its default.",
               "properties": {
-                "min_tasks": { "type": "integer", "minimum": 1, "description": "Finished tasks of the size class needed. Default 20." },
+                "min_tasks": { "type": "integer", "minimum": 1, "description": "Finished tasks of the size class needed. Default 5." },
                 "window_days": { "type": "integer", "minimum": 1, "description": "How far back finished tasks count. Default 60." },
                 "percentile": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Nearest-rank percentile of their spend. Default 80." }
               }

@@ -99,5 +99,12 @@ export function learn(): LearnReport {
 
 /** `serveApi({ replies })` for the routes Start a batch reads that the fake server has no default for. */
 export function startReplies(): Record<string, [number, unknown]> {
-  return { '/v1/repositories': [200, repositories()], '/v1/learn': [200, learn()] };
+  return {
+    '/v1/repositories': [200, repositories()],
+    '/v1/learn': [200, learn()],
+    '/v1/forecast': [
+      200,
+      { size_class: 'M', basis: 'flat', samples: 0, usd_p90: 4, suggest_split: false },
+    ],
+  };
 }
