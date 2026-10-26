@@ -237,7 +237,9 @@ for (const [device, viewport] of Object.entries(SIZES)) {
             ],
           },
         });
-        expect(mock.calls.filter((c) => c.method === 'POST' && c.path === '/v1/runs')).toHaveLength(1);
+        expect(mock.calls.filter((c) => c.method === 'POST' && c.path === '/v1/runs')).toHaveLength(
+          1,
+        );
         expect(await seen.finish()).toEqual([]);
       });
     });
