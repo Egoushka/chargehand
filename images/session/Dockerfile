@@ -29,6 +29,13 @@ RUN apt-get update \
     && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --uid 10001 --create-home --home-dir /home/session --shell /bin/bash session
+# agent-checks, pinned to a tag, installed here so the no-network verification run has it (ADR 0039). pipx puts the venv under /opt and the entry point on PATH.
+ARG AGENT_CHECKS_VERSION=v0.1.3
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends pipx \
+    && PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install "git+https://github.com/Egoushka/agent-checks@${AGENT_CHECKS_VERSION}" \
+    && agent-checks --version \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out /opt/chargehand
 COPY plugins/chargehand /opt/chargehand-plugin
 # A new named volume mounted here takes this ownership on first use, so the non-root session can write it. /cache/<ecosystem> are where the shared package caches of ADR 0048 mount (driven.services.caches).

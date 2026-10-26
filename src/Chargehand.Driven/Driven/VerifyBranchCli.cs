@@ -8,7 +8,8 @@ namespace Chargehand.Driven;
 /// <summary><c>chargehand verify-branch --bundle &lt;file&gt; --branch chargehand/&lt;run&gt; --timeout-seconds N [--work &lt;dir&gt;] -- &lt;command...&gt;</c>: what a fresh
 /// verification container runs (ADR 0039). The workspace is a clean clone at the base commit; this puts the session's branch on it from the bundle, checks it out detached,
 /// runs the command, and prints one line, <see cref="Marker"/> followed by JSON, which is the only thing the host reads. The tests' own output goes into that JSON as a
-/// tail, never to stdout, so nothing the tests print can forge the record. Exit code 0 when the command ran (its own verdict is in the record; 127 when the program is not in the image), 2 when it could not.</summary>
+/// tail, never to stdout, so nothing the tests print can forge the record. The command's environment carries the workspace's base commit (read before the bundle is applied)
+/// as <c>CHARGEHAND_BASE_COMMIT</c> and as <c>AGENT_CHECKS_BASE</c>, the default base of agent-checks, so a checker in the image can diff the branch without an origin. Exit code 0 when the command ran (its own verdict is in the record; 127 when the program is not in the image), 2 when it could not.</summary>
 public static class VerifyBranchCli
 {
     public const string Marker = ContainerVerifier.Marker;
@@ -25,6 +26,13 @@ public static class VerifyBranchCli
         List<string> argv = [.. args.Skip(separator + 1)];
 
         var env = Environment.GetEnvironmentVariables().Cast<System.Collections.DictionaryEntry>().ToDictionary(e => (string)e.Key, e => (string)(e.Value ?? ""));
+        // The workspace is still at the base commit here. The container has no origin to diff against, so a checker needs the commit itself.
+        var baseCommit = (await Git(work, env, ["-c", "safe.directory=*", "rev-parse", "HEAD"], ct)).Stdout.Trim();
+        if (baseCommit.Length > 0)
+        {
+            env["CHARGEHAND_BASE_COMMIT"] = baseCommit;
+            env["AGENT_CHECKS_BASE"] = baseCommit;
+        }
         var fetch = await Git(work, env, ["-c", "safe.directory=*", "-c", "fetch.fsckObjects=true", "-c", "core.hooksPath=/dev/null", "fetch", "--quiet", bundle, $"refs/heads/{branch}:refs/heads/verify-target"], ct);
         if (fetch.ExitCode != 0)
             return Record(output, argv, -1, $"the bundle does not apply to the workspace: {fetch.Tail}", false, TimeSpan.Zero, "", exitCode: 2);
