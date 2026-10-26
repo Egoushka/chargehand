@@ -211,6 +211,28 @@ public class DrivenIntegrationTests
     }
 
     [Fact]
+    public async Task A_fix_session_starts_when_the_batch_journals_its_tasks_though_the_task_has_ended()
+    {
+        // The task is journaled as ended before its pull request is watched, so a restart does not hand it over twice; the fix session's container is the follow-up's, not the task's.
+        var host = new FakeIntegrationHost();
+        host.Logs[900] = "FAILED Retry.Tests: expected 3 but got 2";
+        using var rig = new DrivenRunTests.Rig(integrator: Config(), integration: host, durable: true,
+            outcomes: (_, goal) => goal.StartsWith("Fix the failing CI checks", StringComparison.Ordinal) ? Done(5) : Done(4));
+        host.Script = h =>
+        {
+            var fixedOnce = rig.Handover.Inputs.Count >= 2;
+            return h.Current with { HeadSha = fixedOnce ? "head1" : "head0", Merged = fixedOnce, Checks = [new CheckStatus("build", true, fixedOnce ? CheckOutcome.Passed : CheckOutcome.Failed, 900)] };
+        };
+
+        var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal(2, rig.Engine.Started.Count);
+        Assert.Equal(2, rig.Handover.Inputs.Count);
+        Assert.Contains("(1 CI fix attempt(s) pushed)", Row(result).GetProperty("detail").GetString());
+    }
+
+    [Fact]
     public async Task A_fix_session_that_ends_without_a_commit_pushes_nothing_and_the_task_still_completes()
     {
         var host = new FakeIntegrationHost();
