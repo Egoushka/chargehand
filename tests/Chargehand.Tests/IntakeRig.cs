@@ -157,6 +157,9 @@ internal sealed class FakeStarter(FakeRunLog log) : IBatchStarter
 
     public string? Refuse { get; set; }
 
+    /// <summary>How many starts the account admits in all, as a money cap that covers that many; null: no cap.</summary>
+    public int? Allowance { get; set; }
+
     /// <summary>The process dies at the next start: before the batch exists (<c>before</c>) or after it, before the caller learns its id (<c>after</c>).</summary>
     public string? Die { get; set; }
 
@@ -164,6 +167,8 @@ internal sealed class FakeStarter(FakeRunLog log) : IBatchStarter
     {
         if (Refuse is not null)
             return Task.FromResult(new BatchStart(null, Refuse));
+        if (Started.Count >= Allowance)
+            return Task.FromResult(new BatchStart(null, "account 'automation': budget_exceeded: max_usd_per_day"));
         if (Die == "before")
             throw new InvalidOperationException("the process died");
         Started.Add(request);
