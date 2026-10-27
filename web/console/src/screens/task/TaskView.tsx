@@ -6,6 +6,7 @@ import { describeBudgetSource } from '../../lib/budgets';
 import {
   baseName,
   DASH,
+  formatClock,
   formatDuration,
   formatTime,
   formatTokens,
@@ -48,7 +49,14 @@ import {
 } from '../batch/model';
 import { NotRecorded } from '../batch/NotRecorded';
 import { CodeBlock } from '../code/CodeBlock';
-import { answerPreview, answersReady, sessionRows, sessionText, turnsSeries } from './model';
+import {
+  answerPreview,
+  answersReady,
+  flightRecord,
+  sessionRows,
+  sessionText,
+  turnsSeries,
+} from './model';
 import './task.css';
 
 const DiffView = lazy(() => import('../code/DiffView').then((m) => ({ default: m.DiffView })));
@@ -156,6 +164,7 @@ export function TaskView({ batchId, taskId, mode, onOpenPage }: TaskViewProps) {
         ) : null}
         <Overview detail={detail} turns={turns} />
         <Question detail={detail} />
+        <FlightRecorder detail={detail} />
         <Changes detail={detail} show={showDiff} onToggle={() => setShowDiff((s) => !s)} />
         <EventsOf detail={detail} wrap={phone} />
         <NotRecorded notes={notesAbout(detail.not_recorded, 'transcript')} />
@@ -612,6 +621,93 @@ function Question({ detail }: { detail: NonNullable<ReturnType<typeof useBatchTa
         <p className="dim small">This question has no request to answer it; open the batch.</p>
       )}
     </section>
+  );
+}
+
+/** Turns, spend and tokens over the progress events, with the stage changes and the governor's marks beside them. */
+function FlightRecorder({
+  detail,
+}: {
+  detail: NonNullable<ReturnType<typeof useBatchTask>['data']>;
+}) {
+  const events = detail.timeline.available ? detail.timeline.events : [];
+  const log = detail.task.governor?.log;
+  const { points, stages, marks } = useMemo(() => flightRecord(events, log), [events, log]);
+  const usd = points.flatMap((p) => (p.usd == null ? [] : [p.usd]));
+  const tokens = points.flatMap((p) => (p.tokens == null ? [] : [p.tokens]));
+  return (
+    <section className="stack stack--tight flight" aria-label="Flight recorder">
+      <div className="label-caps">Flight recorder</div>
+      {points.length < 2 ? (
+        <p className="dim">
+          Too few progress events to draw; the server keeps one every 30 seconds.
+        </p>
+      ) : (
+        <div className="flight__rows">
+          <FlightRow
+            name="Turns"
+            now={String(points.at(-1)?.turns)}
+            values={points.map((p) => p.turns)}
+            label={`turns over time, now ${points.at(-1)?.turns}`}
+          />
+          {usd.length >= 2 ? (
+            <FlightRow
+              name="Spend"
+              now={formatUsd(usd.at(-1), true)}
+              values={usd}
+              label={`spend over time, now ${formatUsd(usd.at(-1), true)}`}
+            />
+          ) : null}
+          {tokens.length >= 2 ? (
+            <FlightRow
+              name="Tokens"
+              now={formatTokens(tokens.at(-1))}
+              values={tokens}
+              label={`tokens over time, now ${formatTokens(tokens.at(-1))}`}
+            />
+          ) : null}
+        </div>
+      )}
+      {stages.length > 0 || marks.length > 0 ? (
+        <ul className="flight__marks">
+          {stages.map((s) => (
+            <li key={`${s.stage}-${s.at}`}>
+              <span className="mono">{formatClock(s.at)}</span> stage {s.stage} from turn {s.turn}
+            </li>
+          ))}
+          {marks.map((m) => (
+            <li key={`${m.session}-${m.at}-${m.signal}-${m.turn}`}>
+              <span className="mono">{formatClock(m.at)}</span> {m.action} · {m.signal} · turn{' '}
+              {m.turn}
+              {m.acted ? ' · acted' : ''}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="dim small">
+        Tool calls and diff growth are not recorded in the progress events.
+      </p>
+    </section>
+  );
+}
+
+function FlightRow({
+  name,
+  now,
+  values,
+  label,
+}: {
+  name: string;
+  now: string;
+  values: number[];
+  label: string;
+}) {
+  return (
+    <div className="flight__row">
+      <span className="dim small">{name}</span>
+      <Sparkline values={values} width={160} height={28} label={label} />
+      <span className="b">{now}</span>
+    </div>
   );
 }
 

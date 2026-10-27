@@ -112,3 +112,45 @@
 .page-task {
   max-width: 880px;
 }
+
+.flight__rows {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.flight__row {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 160px) auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.flight__marks {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
+.flight__rows {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.flight__row {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 160px) auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.flight__marks {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
