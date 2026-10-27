@@ -5,7 +5,7 @@ using Chargehand.Contracts;
 
 namespace Chargehand.Modules.Sessions.Api;
 
-/// <param name="Kind"><c>rule</c> (a line of the repository's <see cref="SessionChecks.RulesFile"/>) or <c>acceptance</c> (one of the task's criteria).</param>
+/// <param name="Kind"><c>check</c> (the repository's declared check, ADR 0078), <c>rule</c> (a line of the repository's <see cref="SessionChecks.RulesFile"/>) or <c>acceptance</c> (one of the task's criteria).</param>
 /// <param name="ExitCode">What the command ended with; null when it timed out or could not start.</param>
 /// <param name="OutputTail">The end of its stdout and stderr, secrets redacted, at most <see cref="SessionChecks.MaxTail"/> characters.</param>
 /// <param name="Attempt">The gate round of this run: 1 is the check after the session's first finish.</param>
@@ -24,6 +24,9 @@ public static class SessionChecks
 
     public static readonly TimeSpan Timeout = TimeSpan.FromMinutes(10);
 
+    /// <summary>A repository's whole check (<c>scripts/check.sh</c>) builds and runs every test, so it gets longer than one rule.</summary>
+    public static readonly TimeSpan CheckTimeout = TimeSpan.FromMinutes(30);
+
     public static IReadOnlyList<string> ParseRules(string text) =>
         [.. text.ReplaceLineEndings("\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith('#'))];
 
@@ -40,10 +43,16 @@ public static class SessionChecks
     public static IReadOnlyList<AcceptanceCheck> All(IReadOnlyList<string> rules, IReadOnlyList<AcceptanceCheck>? acceptance) =>
         [.. rules.Select(r => new AcceptanceCheck(r)), .. acceptance ?? []];
 
+    /// <param name="declared">The repository's declared check as a shell command (<see cref="Shell"/>); it runs first. Null: none.</param>
     public static async Task<IReadOnlyList<CheckResult>> RunAllAsync(IReadOnlyList<string> rules, IReadOnlyList<AcceptanceCheck>? acceptance, string workDirectory, int attempt,
-        IReadOnlyList<string> secrets, CancellationToken ct, TimeSpan? timeout = null)
+        IReadOnlyList<string> secrets, CancellationToken ct, TimeSpan? timeout = null, string? declared = null)
     {
         List<CheckResult> results = [];
+        if (declared is not null)
+        {
+            var (exit, output) = await RunAsync("/bin/sh", ["-c", declared], workDirectory, timeout ?? CheckTimeout, ct);
+            results.Add(new CheckResult("check", SessionDriver.Redact(declared, secrets), exit == 0, exit, Tail(SessionDriver.Redact(output, secrets)), attempt));
+        }
         foreach (var (check, i) in All(rules, acceptance).Select((c, i) => (c, i)))
         {
             var (exit, output) = await RunAsync("/bin/sh", ["-c", check.Command], workDirectory, timeout ?? Timeout, ct);
@@ -68,6 +77,10 @@ public static class SessionChecks
         }
         return text.ToString();
     }
+
+    /// <summary>An argument list as one <c>sh</c> command line: a word with anything but letters, digits and <c>-_./=:@%+,</c> is single-quoted.</summary>
+    public static string Shell(IReadOnlyList<string> argv) =>
+        string.Join(' ', argv.Select(a => a.Length > 0 && a.All(c => char.IsAsciiLetterOrDigit(c) || "-_./=:@%+,".Contains(c)) ? a : $"'{a.Replace("'", "'\\''", StringComparison.Ordinal)}'"));
 
     private static string Tail(string text) => text.Length <= MaxTail ? text : "…" + text[^MaxTail..];
 

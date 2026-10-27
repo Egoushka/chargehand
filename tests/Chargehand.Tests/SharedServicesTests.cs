@@ -126,6 +126,22 @@ public class SharedServicesTests
         Assert.DoesNotContain("environment", System.Text.Json.JsonSerializer.Serialize(new SessionTask("run1", "g", "chargehand/run1", 80, 45, 600), SessionCli.Json));
     }
 
+    /// <summary>ADR 0078: under mise nothing runs in a fresh container; the session is told the driver runs the declared check here and CI decides.</summary>
+    [Fact]
+    public void Under_mise_the_note_says_the_driver_runs_the_declared_check_and_ci_decides()
+    {
+        var check = EnvironmentNote.Render(Manifest(), new SessionEnvironment([], ["sh", "scripts/check.sh"], "declared", Tools: []));
+        Assert.Contains("chargehand runs `sh scripts/check.sh` in this container before it pushes, and the repository's CI then decides the merge", check);
+        Assert.DoesNotContain("fresh container", check);
+        var json = System.Text.Json.JsonSerializer.Serialize(new SessionTask("run1", "g", "chargehand/run1", 80, 45, 600, Check: ["sh", "scripts/check.sh"]), SessionCli.Json);
+        using var dir = new TempDir();
+        Assert.Equal(["sh", "scripts/check.sh"], SessionCli.ReadTask(dir.Write("task.json", json)).Check);
+
+        var none = EnvironmentNote.Render(Manifest(), new SessionEnvironment([], Tools: []));
+        Assert.Contains("declares no check; its CI decides", none);
+        Assert.DoesNotContain("found no test command", none);
+    }
+
     [Fact]
     public void The_note_lists_what_mise_installed_for_the_repository_and_says_where_the_caches_are()
     {
@@ -483,6 +499,35 @@ public class SharedServicesTests
         Assert.Equal(home, Assert.Single(rig.Verifiers).Shared!.Home);
     }
 
+    /// <summary>ADR 0078, step 4: under the switch the repository's CI verifies. The session driver runs the declared check before the push, and the hand-over runs no fresh verifier.</summary>
+    [Fact]
+    public async Task With_driven_environment_mise_the_driver_runs_the_declared_check_and_the_handover_leaves_verification_to_ci()
+    {
+        using var rig = new BatchRig(null, "App.csproj", environment: "mise");
+        Directory.CreateDirectory(Path.Combine(rig.Dir.Path, "checkout", "scripts"));
+        File.WriteAllText(Path.Combine(rig.Dir.Path, "checkout", "scripts", "check.sh"), "#!/bin/sh\n");
+        await rig.RunAsync();
+
+        var task = Assert.Single(rig.Volumes.Tasks);
+        Assert.Equal(["sh", "scripts/check.sh"], task.Check);
+        Assert.Equal("declared", task.Environment!.VerifySource);
+        var input = Assert.Single(rig.Handover.Inputs);
+        Assert.True(input.CiVerifies);
+        Assert.Equal(["sh", "scripts/check.sh"], input.PrePushCheck);
+    }
+
+    [Fact]
+    public async Task With_driven_environment_mise_a_repository_that_declares_no_check_gets_none_detected()
+    {
+        using var rig = new BatchRig(null, "App.csproj", environment: "mise");
+        await rig.RunAsync();
+
+        var task = Assert.Single(rig.Volumes.Tasks);
+        Assert.Null(task.Check);
+        Assert.Null(task.Environment!.Verify);
+        Assert.True(Assert.Single(rig.Handover.Inputs).CiVerifies);
+    }
+
     [Fact]
     public async Task A_failed_install_stops_the_task_before_a_session_is_started()
     {
@@ -505,6 +550,8 @@ public class SharedServicesTests
         Assert.Null(session.Home);
         Assert.False(session.Install);
         Assert.Null(Assert.Single(rig.Volumes.Tasks).Environment!.Tools);
+        Assert.Null(Assert.Single(rig.Volumes.Tasks).Check);
+        Assert.False(Assert.Single(rig.Handover.Inputs).CiVerifies);
     }
 
     [Fact]

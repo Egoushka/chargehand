@@ -78,12 +78,13 @@ public static partial class SessionDriver
         public async Task<IReadOnlyList<CheckResult>?> GateAsync(IReadOnlyList<string> rules, string? start, Func<(string SessionId, string Prompt), ProcessStartInfo> resume,
             CancellationToken ct)
         {
-            if (rules.Count == 0 && _task.Acceptance is not { Count: > 0 })
+            var check = _task.Check is { Count: > 0 } declared ? SessionChecks.Shell(declared) : null;
+            if (rules.Count == 0 && _task.Acceptance is not { Count: > 0 } && check is null)
                 return null;
             IReadOnlyList<CheckResult>? results = null;
             for (var attempt = 1; Finished(); attempt++)
             {
-                results = await SessionChecks.RunAllAsync(rules, _task.Acceptance, options.WorkDirectory, attempt, options.Secrets, ct);
+                results = await SessionChecks.RunAllAsync(rules, _task.Acceptance, options.WorkDirectory, attempt, options.Secrets, ct, declared: check);
                 if (results.All(r => r.Passed))
                     return results;
                 if (attempt > _task.CheckRetries || _tally.SessionId is not { } session || detector.Check(DateTimeOffset.UtcNow) is StallReason.WallClock)

@@ -6,7 +6,7 @@ namespace Chargehand.Modules.Handover.Api;
 public sealed partial class Handover
 {
     private static string DescribeBody(string body, List<string> changed, VerificationRecord? verification, IReadOnlyList<string> verificationPaths, string? policyNote, TestIntegrityFlag? integrity,
-        string? noTestsRule)
+        string? noTestsRule, string? ciVerdict = null)
     {
         var text = new StringBuilder();
         if (integrity is not null)
@@ -14,7 +14,8 @@ public sealed partial class Handover
         text.Append(body.TrimEnd()).Append("\n\n---\n\n");
         // A flagged pull request is never merged, so the opted-in text about auto-merge would be untrue.
         text.Append(integrity is not null && policyNote is not null ? "Opened by chargehand as a draft. Because of the warning above, chargehand marks it ready for review and does not merge it." : policyNote ?? "Opened by chargehand as a draft; it is not merged and chargehand will not merge it.").Append("\n\n");
-        text.Append(verification is null
+        text.Append(ciVerdict is not null ? $"Verification: the repository's CI. {ciVerdict}\n"
+            : verification is null
             ? $"Verification: no test command was found, so nothing was run.{(noTestsRule is null ? "" : $" It was pushed because {noTestsRule}.")}\n"
             : string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"Verification (chargehand's own run in a fresh container, {VerificationSourceText(verification.Source)}): `{string.Join(' ', verification.Argv)}` exited {verification.ExitCode} in {verification.Duration.TotalSeconds:0}s.\n"));

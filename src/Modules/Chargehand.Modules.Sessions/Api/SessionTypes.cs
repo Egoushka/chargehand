@@ -18,6 +18,8 @@ namespace Chargehand.Modules.Sessions.Api;
 /// <param name="CheckRetries">How many times a failed check is sent back to the session as its next turn before the session ends as <c>checks_failed</c>.</param>
 /// <param name="ReminderMinutes">The goal and criteria are re-sent after this many minutes (<see cref="GoalReminder"/>); null with <paramref name="ReminderTurns"/> null: never.</param>
 /// <param name="ReminderTurns">The goal and criteria are re-sent after this many assistant messages; null: by minutes only.</param>
+/// <param name="Check">ADR 0078: the repository's declared check, run by the driver in this container before the rules and criteria, as a filter before the push (the repository's CI verifies);
+/// null: none.</param>
 /// <param name="Bare">The benchmark's control arm (ADR 0080): the goal goes to Claude Code as it is, with no plugin, skill, system prompt, research or review call, governor, check gate or reminder, and the working tree is committed once when the session ends.</param>
 public sealed record SessionTask(string RunId, string Goal, string Branch, int MaxTurns, int MaxMinutes, int NoProgressSeconds,
     long? MaxTokens = null, string? Model = null, decimal? MaxUsd = null,
@@ -28,7 +30,8 @@ public sealed record SessionTask(string RunId, string Goal, string Branch, int M
     int CheckRetries = SessionChecks.DefaultRetries,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ReminderMinutes = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ReminderTurns = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Bare = false);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Bare = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Check = null);
 
 /// <summary>How to start Claude Code: the program and arguments that go before its own (a test runs a script as <c>sh script</c>).</summary>
 public sealed record SessionCommand(string File, IReadOnlyList<string> LeadingArgs)

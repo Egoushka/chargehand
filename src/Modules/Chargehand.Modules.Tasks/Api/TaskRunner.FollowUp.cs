@@ -230,7 +230,7 @@ public sealed partial class TaskRunner
         handover.RunAsync(new HandoverInput(fixRun, outDirectory, settings.SourcePath, settings.BaseCommit, f.Branch, settings.RemoteUrl, settings.BaseBranch, PullRequestTitle.Of(task.Title, task.Goal),
             $"CI fix attempt {request.Attempt}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote, LocalOnly: settings.LocalOnly,
             Report: e => { if (e.Kind != RunEventKind.PrOpened) Publish(task.Id, e.Kind, e.Detail, s => s with { Branch = e.Kind == RunEventKind.Pushed ? f.Branch : null }); },
-            Provenance: TaskProvenance.Of(task, fixRun, spent, settings.Model, settings.ClaudeVersion)), token);
+            Provenance: TaskProvenance.Of(task, fixRun, spent, settings.Model, settings.ClaudeVersion), CiVerifies: settings.Mise is not null, PrePushCheck: PrePushCheck), token);
 
     /// <summary>The pull request's checks and the CI fix attempts, kept for the console (CHARGEHAND-214).</summary>
     private IntegrationWatch WatchOf(ResolvedTask task, PullRequestRef pr)
@@ -261,7 +261,10 @@ public sealed partial class TaskRunner
             Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
             Goal: task.Goal, UpdateReused: !partial && task.From?.Pushed is null, PolicyNote: stack is null && settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null,
             FallbackBaseBranch: stack?.PullRequestBase is null ? null : settings.BaseBranch,
-            Provenance: TaskProvenance.Of(task, run.RunId, spent, settings.Model, settings.ClaudeVersion), Bare: bare), ct);
+            Provenance: TaskProvenance.Of(task, run.RunId, spent, settings.Model, settings.ClaudeVersion), Bare: bare, CiVerifies: settings.Mise is not null, PrePushCheck: PrePushCheck), ct);
+
+    /// <summary>ADR 0078: under mise, the check the repository declares (<see cref="SharedServicesPlan.Verify"/>), which the session driver runs before the push; null otherwise.</summary>
+    private IReadOnlyList<string>? PrePushCheck => settings.Mise is not null ? settings.Shared?.Verify : null;
 
     /// <summary>How much of a handoff goes into a continuation's prompt, and how much into a partial pull request's body.</summary>
     private const int ProgressInGoal = 8000;

@@ -26,7 +26,9 @@ public sealed record SharedServicesPlan(IReadOnlyList<string> Caches, IReadOnlyL
     public static SharedServicesPlan For(DrivenSharedServices? settings, string sourcePath, IReadOnlyList<string>? requestedVerify, string identity, string batchId, string network, bool mise = false)
     {
         var scan = Directory.Exists(sourcePath) ? RepositoryDetector.Scan(sourcePath) : new RepositoryScan([], []);
-        var verify = Directory.Exists(sourcePath) ? VerifyCommand.Resolve(requestedVerify, sourcePath) : requestedVerify is { Count: > 0 } ? new VerifyPlan(requestedVerify, "request") : null;
+        // ADR 0078: under mise the check is what the repository declares; nothing is detected.
+        var verify = !Directory.Exists(sourcePath) ? requestedVerify is { Count: > 0 } ? new VerifyPlan(requestedVerify, "request") : null
+            : mise ? VerifyCommand.Declared(requestedVerify, sourcePath) : VerifyCommand.Resolve(requestedVerify, sourcePath);
         var caches = CachesOf(settings, identity, mise);
         IReadOnlyList<ServiceSpec> services = [.. (settings?.ServicesOf(identity) ?? []).Select(s => new ServiceSpec(batchId, s.Name, s.Image, network, s.Port,
             s.Env ?? new Dictionary<string, string>(), s.Tmpfs ?? [], s.MemoryMb))];
