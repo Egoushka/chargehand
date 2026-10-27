@@ -149,15 +149,21 @@ public static partial class SessionDriver
         return psi;
     }
 
+    private static (bool RateLimited, bool Budget) Refused(Tally tally)
+    {
+        var budget = tally.ResultIsError && GatewayRefusal.IsBudget(tally.ResultText);
+        return (budget || (tally.ResultIsError && UsageLimit.Matches(tally.ResultText)), budget);
+    }
+
     /// <summary>The session's status and reason: the cause it was stopped for, else a branch that failed the check gate, else what the stream's result and the questions say.</summary>
     private static (SessionStatus Status, string Reason) Conclude(StopCause stoppedBy, Tally tally, IReadOnlyList<string> questions, bool checksFailed = false)
     {
         if (stoppedBy.Cause is null && checksFailed)
             return (SessionStatus.Failed, ChecksFailed);
-        var rateLimited = tally.ResultIsError && UsageLimit.Matches(tally.ResultText);
+        var (rateLimited, budget) = Refused(tally);
         var status = stoppedBy.Cause?.Status
             ?? (rateLimited ? SessionStatus.RateLimited : questions.Count > 0 ? SessionStatus.NeedsInput : tally.HasResult && !tally.ResultIsError ? SessionStatus.Completed : SessionStatus.Failed);
-        var reason = stoppedBy.Cause?.Reason ?? (status == SessionStatus.RateLimited ? "rate_limited" : status == SessionStatus.Failed ? (tally.HasResult ? "session_error" : "no_result") : "");
+        var reason = stoppedBy.Cause?.Reason ?? (status == SessionStatus.RateLimited ? (budget ? GatewayRefusal.BudgetReason : "rate_limited") : status == SessionStatus.Failed ? (tally.HasResult ? "session_error" : "no_result") : "");
         return (status, reason);
     }
 

@@ -37,13 +37,16 @@ The goal's first line is the issue's title (the pull request's title is cut from
 
 | Key | Default | When over it |
 |---|---|---|
-| `max_concurrent` | 2 | the trigger waits, with one comment, and starts when a triggered batch ends |
-| `max_starts_per_day` | 10 | refused, with one comment; not started later. A reply that would exceed it is refused the same way and can be sent again. Any 24 hours, not a calendar day |
+| `max_concurrent` | 2 | the trigger waits, with one comment, in the queue (below), and starts when a triggered batch ends |
 | one task per issue | | a second trigger on an issue whose task is running gets one comment |
 
 `max_tokens_total` (2,000,000) and `max_usd_total` (5) cap a triggered batch like `driven.max_tokens_total` and `max_usd_total` do for a caller's; both are always sent, and the one that applies is the one the credential's kind needs. A halted server, or one with ten unfinished runs, leaves the trigger for the next poll.
 
-**Charging automated starts to an account.** `automation.account` (beside `automation.github`, `plane` and `schedules`) names an account of `http.accounts` with `driven: true`. Every automated start, from GitHub, Plane or a schedule, is then admitted as that account, the way a person's request is: its credential rule, `repositories`, `max_concurrent_runs` and day and month caps apply, its budgets are clamped to what the windows have left, and the run counts in its spend. With `pause_on_forecast: true` on the account, its automated starts are held while its month forecast passes `max_usd_per_month` ([ADR 0076](../adr/0076-month-spend-forecast.md)). A refused or held start is retried at the next poll, with a line on stderr that says why. Without `automation.account`, automated starts run as the owner, with no account caps, as before.
+**No daily count of starts** ([ADR 0081](../adr/0081-automated-work-is-bounded-by-money-and-slots.md)). Spend is bounded by money, through `automation.account` below, and concurrency by `max_concurrent`, `driven.max_parallel_total` and memory admission. `max_starts_per_day` and `max_reviews_per_day` are still accepted so an older profile loads, are ignored, and are named once on stderr when the server starts. Set `automation.account` with `max_usd_per_day` and `max_usd_per_month` on any server that runs intake: without it nothing bounds a day's spend but the per-batch caps times the slots.
+
+**The queue.** A trigger that cannot start yet (no free slot, a start the server or the account refused, a base commit that could not be read) is kept in `waiting` in the state file with why, is not marked handled, and starts at a later poll, after a restart too. `GET /v1/intake` lists it under `waiting`. Taking the label off a waiting issue, or deleting the comment, takes it out of the queue (logged `ignored: withdrawn`).
+
+**Charging automated starts to an account.** `automation.account` (beside `automation.github` and `schedules`) names an account of `http.accounts` with `driven: true`. Every automated start, from GitHub or a schedule, is then admitted as that account, the way a person's request is: its credential rule, `repositories`, `max_concurrent_runs` and day and month caps apply, its budgets are clamped to what the windows have left, and the run counts in its spend. With `pause_on_forecast: true` on the account, its automated starts are held while its month forecast passes `max_usd_per_month` ([ADR 0076](../adr/0076-month-spend-forecast.md)). A refused or held start is retried at the next poll, with a line on stderr that says why. Without `automation.account`, automated starts run as the owner, with no account caps, as before.
 
 ## Security
 
@@ -70,10 +73,8 @@ The goal's first line is the issue's title (the pull request's title is cut from
     "max_tokens_total": 2000000,
     "max_usd_total": 5,
     "max_concurrent": 2,
-    "max_starts_per_day": 10,
     "max_review_rounds": 3,
-    "review_pulls": false,
-    "max_reviews_per_day": 20 } }
+    "review_pulls": false } }
 }
 ```
 
@@ -85,7 +86,7 @@ The goal's first line is the issue's title (the pull request's title is cut from
 
 **The trigger label.** The first time intake watches a repository it creates the label (`label`, default `chargehand`) if the repository has none.
 
-**Switching a repository off.** `GET /v1/intake/sources` lists the watched repositories with their switch; `PUT /v1/intake/sources` with `{"sources": [{"repository": "octo/repo", "enabled": false}]}` sets it (owner's key only; a repository intake does not watch is a 404). Off, intake reads nothing of it: labels and comments wait and are read when it is on again. Batches already running still report. The same routes list each Plane project of `automation.plane.projects` under `plane` and switch one with `{"plane_projects": [{"project": "<id>", "enabled": false}]}`; `intake/plane-sources.json` holds the projects switched off. Each source also carries its queue: `running`, `queued` (review comments waiting for a round and triggers told to wait for a free slot; Plane's waiting items are counted for all projects together, as `plane.queued`) and its five latest batches. The console's Intake page shows them with a switch each.
+**Switching a repository off.** `GET /v1/intake/sources` lists the watched repositories with their switch; `PUT /v1/intake/sources` with `{"sources": [{"repository": "octo/repo", "enabled": false}]}` sets it (owner's key only; a repository intake does not watch is a 404). Off, intake reads nothing of it: labels and comments wait and are read when it is on again. Batches already running still report. Each source also carries its queue: `running`, `queued` (review comments waiting for a round and triggers told to wait for a free slot) and its five latest batches. The console's Intake page shows them with a switch each.
 
 ## State
 
@@ -123,43 +124,11 @@ Never twice for one commit: the commit is recorded before the comment, and the m
 | Key | Default | When over it |
 |---|---|---|
 | `review_pulls` | false | off: nothing is reviewed (a review already running still gets its comment) |
-| `max_reviews_per_day` | 20 (1 to 1000) | the pull request waits, uncommented, until a review leaves the 24-hour window |
 
-Reviews share `max_concurrent` with the batches: a review waits while that many batches and reviews run. They do not count toward `max_starts_per_day`. A diff GitHub will not render (too large) is skipped with a line on stderr. The run reads the head commit and nothing else; the pull request's text is untrusted, and the preset has no edit, shell or web tools. To turn it on add `"review_pulls": true` to `automation.github`. A server whose checkouts are mounted read-only cannot fetch the head itself: keep `refs/pull/*/head` fetched from outside (`git fetch origin '+refs/pull/*/head:refs/pull/*/head'` in the job that updates the checkouts) and chargehand uses that ref.
+Reviews share `max_concurrent` with the batches: a review waits while that many batches and reviews run. A review is admitted as `automation.account` like a batch, so the account's dollar caps bound it; `max_reviews_per_day` is ignored. A diff GitHub will not render (too large) is skipped with a line on stderr. The run reads the head commit and nothing else; the pull request's text is untrusted, and the preset has no edit, shell or web tools. To turn it on add `"review_pulls": true` to `automation.github`. A server whose checkouts are mounted read-only cannot fetch the head itself: keep `refs/pull/*/head` fetched from outside (`git fetch origin '+refs/pull/*/head:refs/pull/*/head'` in the job that updates the checkouts) and chargehand uses that ref.
 
 ## Not covered
 
 Review summaries (the body of a submitted review) are not read, only its inline comments. A webhook instead of the poll. Issues in a repository nobody listed. Labels from a bot account. Not run against GitHub: see the ADR's UNKNOWN lists.
 
 Work that starts on a clock instead of from an issue is in [Scheduled work](schedules.md). Sending a task's question to a phone, and its answer back, is in [Answers from the phone](phone-answers.md).
-## Plane work items
-
-Intake from Plane ([ADR 0067](../adr/0067-intake-from-plane.md)) starts the same batch of one task from a work item that is in a chosen state. chargehand **polls** Plane's REST API with an API key; the server is on a private network and Plane cannot call it. Off unless the profile has `automation.plane`. Not run against a real Plane, only against a fake host and a stub HTTP handler.
-
-```json
-{
-  "driven": { "enabled": true },
-  "automation": { "plane": {
-    "url": "https://plane.example.test",
-    "api_key_secret": "chargehand-plane-key",
-    "workspace": "my-workspace",
-    "projects": { "<plane-project-id>": { "path": "/srv/chargehand/repos/repo", "remote": "octo/repo" } },
-    "trigger_state": "Agent",
-    "started_state": "In Progress",
-    "review_state": "In Review",
-    "failed_state": "Backlog",
-    "poll_seconds": 120,
-    "budget_class": "M",
-    "max_tokens_total": 2000000,
-    "max_usd_total": 5,
-    "max_concurrent": 2,
-    "max_starts_per_day": 10 } }
-}
-```
-
-- States are named, not numbered; the match ignores case. A project that has no state with one of the three required names is skipped with a line on stderr. `failed_state` is optional: without it a failed item stays in `started_state` and a comment says why.
-- Each poll reads the items of every listed project and keeps those in `trigger_state`. The goal is the item's name, its description as plain text and `Tracker item: <PROJECT>-<number>`; the item's name is the pull request's title.
-- On start the item moves to `started_state` and gets a comment with the run id. When the batch ends it gets the pull request link and moves to `review_state`; a failure, a lost run or questions get a comment with the reason and move it to `failed_state`.
-- Replies are not read. To answer a question, put the answer in the description and move the item to `trigger_state` again: a changed update time is a new trigger. An item whose batch still runs is not started again.
-- Caps, `poll_seconds` and `budget_class` work as for GitHub. There is no author list: use an API key of a member who can reach only the listed projects.
-- State is `intake/plane.json` next to the run log. Deleting it makes the server forget what it started.

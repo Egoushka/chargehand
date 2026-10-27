@@ -323,7 +323,7 @@ public sealed partial class TaskRunner
             detail = detail is { Length: > 0 } ? $"{detail}; stalled with no commits, re-planning into smaller tasks" : "stalled with no commits, re-planning into smaller tasks";
         return new TaskOutcome(task.Id, state, runId, detail, result.Error?.Code,
             priced ? session.CostUsd ?? 0 : 0, session.InputTokens + session.OutputTokens, pushed ? handed!.Branch : null, handed?.PullRequest?.Url,
-            session.Status == SessionStatus.RateLimited ? session.RateLimitResetsAt : null, Replan: replan);
+            session.Status == SessionStatus.RateLimited ? session.RateLimitResetsAt : null, Replan: replan, Budget: session.Reason == GatewayRefusal.BudgetReason);
     }
 
     private static string? Detail(TaskState state, ResultContract result, SessionOutcome session, HandoverOutcome? handed, bool pushed, bool partial, string? partialNote) =>

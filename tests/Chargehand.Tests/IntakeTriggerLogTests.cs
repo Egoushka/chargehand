@@ -10,8 +10,8 @@ namespace Chargehand.Tests;
 /// <summary>CHARGEHAND-214: intake keeps what it did with each trigger and when, so the console can say why nothing started. The comment text is never kept, only the key, the login and the outcome.</summary>
 public class IntakeTriggerLogTests
 {
-    private static AutomationGitHub Settings(int concurrent = 2, int perDay = 10, int rounds = 3) =>
-        new(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, [IntakeRig.Author], MaxConcurrent: concurrent, MaxStartsPerDay: perDay, MaxReviewRounds: rounds);
+    private static AutomationGitHub Settings(int concurrent = 2, int rounds = 3) =>
+        new(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, [IntakeRig.Author], MaxConcurrent: concurrent, MaxReviewRounds: rounds);
 
     [Fact]
     public async Task A_started_task_is_logged_with_the_time_and_the_trigger()
@@ -53,16 +53,21 @@ public class IntakeTriggerLogTests
     }
 
     [Fact]
-    public async Task A_second_trigger_on_a_running_issue_and_a_trigger_past_the_daily_cap_are_ignored_with_their_reasons()
+    public async Task A_second_trigger_on_a_running_issue_is_ignored_and_one_that_waits_for_a_slot_is_logged_when_it_starts()
     {
-        using var rig = new IntakeRig(Settings(perDay: 1));
+        using var rig = new IntakeRig(Settings(concurrent: 1));
         rig.Labeled(7, "alice", 41);
         await rig.Poll();
         rig.Comment(7, "alice", "@chargehand again");
         rig.Labeled(8, "alice", 42);
         await rig.Poll();
 
-        Assert.Equal(["started:", "ignored:cap", "ignored:active"], rig.State.Triggers.Select(t => $"{t.Outcome}:{t.Reason}"));
+        Assert.Equal(["started:", "ignored:active"], rig.State.Triggers.Select(t => $"{t.Outcome}:{t.Reason}"));
+        Assert.Equal("label:octo/repo#8:42", Assert.Single(rig.State.Waiting).Key);
+
+        rig.Log.End("run-1", IntakeRig.Pr("issue-7"));
+        await rig.Poll();
+        Assert.Equal(["started:", "ignored:active", "started:"], rig.State.Triggers.Select(t => $"{t.Outcome}:{t.Reason}"));
     }
 
     [Fact]

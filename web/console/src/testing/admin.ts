@@ -47,13 +47,21 @@ export function intake(over: Partial<IntakeBody> = {}, now = Date.now()): Intake
     poll_seconds: 120,
     caps: {
       max_concurrent: 2,
-      max_starts_per_day: 10,
       max_review_rounds: 3,
       max_tokens_total: 2_000_000,
       max_usd_total: 5,
       budget_class: 'M',
     },
-    starts: { last24h: 7, cap: 10, remaining: 3, next_slot_at: null },
+    waiting: [
+      {
+        trigger: 'label:example/web-shop#31:7001',
+        repository: 'example/web-shop',
+        issue: 31,
+        since: iso(now, 20),
+        reason: 'max_concurrent',
+        detail: null,
+      },
+    ],
     running: 1,
     tasks: [
       task({}, now, 15),
@@ -153,7 +161,7 @@ export const intakeOff = (now = Date.now()): IntakeBody =>
       mention: null,
       poll_seconds: null,
       caps: null,
-      starts: null,
+      waiting: [],
       running: 0,
       tasks: [],
       pending_reviews: [],
@@ -693,7 +701,6 @@ export function systemFull(now = Date.now()): SystemBody {
         mention: '@chargehand',
         poll_seconds: 120,
         max_concurrent: 2,
-        max_starts_per_day: 10,
         max_review_rounds: 3,
       },
     },
@@ -705,7 +712,7 @@ export function systemFull(now = Date.now()): SystemBody {
   };
 }
 
-/** `intake-sources/v1`: three GitHub repositories (one discovered and switched off) and two Plane projects. */
+/** `intake-sources/v1`: three GitHub repositories (one discovered and switched off). */
 export function intakeSources(
   over: Partial<IntakeSourcesBody> = {},
   now = Date.now(),
@@ -755,21 +762,6 @@ export function intakeSources(
         path: '/var/tmp/ch/repos/example/notes',
       }),
     ],
-    plane: {
-      configured: true,
-      queued: 1,
-      projects: [
-        {
-          project: 'proj-ops',
-          enabled: true,
-          path: '/srv/work/infra',
-          remote: 'example/infra',
-          running: 1,
-          recent: [run('OPS-12', 'running', 40, BATCH_B)],
-        },
-        { project: 'proj-docs', enabled: false, path: '/srv/work/docs', running: 0, recent: [] },
-      ],
-    },
     not_recorded: [
       'Queued counts a trigger told to wait for a free slot until it starts: one withdrawn while it waited is still counted.',
     ],
@@ -779,30 +771,16 @@ export function intakeSources(
 
 /** What `PUT /v1/intake/sources` answers: the list with the switches in `body` set. */
 export function switched(list: IntakeSourcesBody, body: unknown): IntakeSourcesBody {
-  const change = body as {
-    sources?: { repository: string; enabled: boolean }[];
-    plane_projects?: { project: string; enabled: boolean }[];
-  };
-  const set = new Map<string, boolean>([
-    ...(change.sources ?? []).map((e): [string, boolean] => [`github:${e.repository}`, e.enabled]),
-    ...(change.plane_projects ?? []).map((e): [string, boolean] => [
-      `plane:${e.project}`,
-      e.enabled,
-    ]),
-  ]);
+  const change = body as { sources?: { repository: string; enabled: boolean }[] };
+  const set = new Map<string, boolean>(
+    (change.sources ?? []).map((e): [string, boolean] => [e.repository, e.enabled]),
+  );
   return {
     ...list,
     sources: list.sources.map((s) => ({
       ...s,
-      enabled: set.get(`github:${s.repository}`) ?? s.enabled,
+      enabled: set.get(s.repository) ?? s.enabled,
     })),
-    plane: list.plane && {
-      ...list.plane,
-      projects: list.plane.projects.map((p) => ({
-        ...p,
-        enabled: set.get(`plane:${p.project}`) ?? p.enabled,
-      })),
-    },
   };
 }
 

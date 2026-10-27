@@ -5,7 +5,6 @@ import { useSetIntakeSource } from '../../api/intake';
 import { DASH, formatDateTime } from '../../lib/format';
 import { useIsPhone } from '../../shell/useIsPhone';
 import {
-  Badge,
   Banner,
   Cell,
   cssVars,
@@ -20,24 +19,23 @@ import {
 import { ScrollBox } from '../admin/parts';
 import { queueText, type SourceRow, sourceRows } from './model';
 
-const COLS = 'minmax(0,1.4fr) 72px 132px minmax(0,1.3fr) 56px';
+const COLS = 'minmax(0,1.4fr) 132px minmax(0,1.3fr) 56px';
 const PHASE: Record<IntakeSourceRunBody['phase'], string> = {
   running: 'running',
   asked: 'asked a question',
   done: 'done',
 };
 
-/** Every source intake watches, GitHub's repositories and Plane's projects, with its switch and its queue (CHARGEHAND-242). */
+/** Every repository intake watches, with its switch and its queue (CHARGEHAND-242). */
 export function SourcesPanel({ data }: { data: IntakeSourcesBody }) {
   const phone = useIsPhone();
   const set = useSetIntakeSource();
   const rows = sourceRows(data);
   const pending = set.isPending ? set.variables : undefined;
-  const toggle = (row: SourceRow, enabled: boolean) =>
-    set.mutate({ kind: row.kind, id: row.id, enabled });
+  const toggle = (row: SourceRow, enabled: boolean) => set.mutate({ id: row.id, enabled });
   const props = (row: SourceRow) => ({
     row,
-    busy: pending?.kind === row.kind && pending.id === row.id,
+    busy: pending?.id === row.id,
     onToggle: toggle,
   });
   return (
@@ -53,12 +51,12 @@ export function SourcesPanel({ data }: { data: IntakeSourcesBody }) {
         <EmptyState
           icon="folder"
           title="No source watched"
-          text="The profile lists no repository under automation.github and no project under automation.plane, and the App discovers none."
+          text="The profile lists no repository under automation.github, and the App discovers none."
         />
       ) : phone ? (
         <ul className="list-reset">
           {rows.map((row) => (
-            <SourceCard key={`${row.kind}:${row.id}`} {...props(row)} />
+            <SourceCard key={row.id} {...props(row)} />
           ))}
         </ul>
       ) : (
@@ -66,19 +64,15 @@ export function SourcesPanel({ data }: { data: IntakeSourcesBody }) {
           <Table cols={COLS} label="Sources">
             <TableHead>
               <HeadCell>Source</HeadCell>
-              <HeadCell>From</HeadCell>
               <HeadCell>Queue</HeadCell>
               <HeadCell>Recent runs</HeadCell>
               <HeadCell>On</HeadCell>
             </TableHead>
             {rows.map((row) => (
-              <TableRow key={`${row.kind}:${row.id}`}>
+              <TableRow key={row.id}>
                 <Cell strong className="wrap" title={row.detail}>
                   <div className="ch-trunc">{row.name}</div>
                   <div className="dim small mono ch-trunc">{row.detail}</div>
-                </Cell>
-                <Cell>
-                  <Badge size="s" label={row.kind === 'github' ? 'GitHub' : 'Plane'} />
                 </Cell>
                 <Cell className="wrap">{queueText(row)}</Cell>
                 <Cell className="wrap">
@@ -93,9 +87,6 @@ export function SourcesPanel({ data }: { data: IntakeSourcesBody }) {
         </ScrollBox>
       )}
       <p className="pad dim small sep-top">
-        {data.plane?.configured
-          ? `Plane: ${data.plane.queued} ${data.plane.queued === 1 ? 'item waits' : 'items wait'} for a free slot over all projects. `
-          : ''}
         Off: nothing of the source is read or started; running batches still report. Queued counts
         review comments waiting for a round and triggers told to wait for a free slot.
       </p>
@@ -131,7 +122,6 @@ function SourceCard(props: RowProps) {
     <li className="li" style={cssVars({ '--cols': 'minmax(0,1fr) auto' })}>
       <div className="li__main">
         <div className="row">
-          <Badge size="s" label={row.kind === 'github' ? 'GitHub' : 'Plane'} />
           <span className="b ch-trunc" title={row.name}>
             {row.name}
           </span>

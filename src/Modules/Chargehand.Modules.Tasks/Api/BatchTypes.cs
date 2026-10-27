@@ -7,12 +7,14 @@ public enum TaskState { Completed, Failed, NeedsInput, NotStarted, Cancelled }
 
 /// <summary>One task's end (ADR 0039). <c>RunId</c> is the run in the run store that holds its own <c>result/v1</c>.</summary>
 /// <param name="RetryAfter">For a <see cref="ErrorCode.RateLimited"/> end: when the limit lifts, if known; the scheduler holds new starts until then.</param>
+/// <param name="Budget">The gateway refused the task over a spend budget (402, or a 429 naming a budget): no start can succeed before <see cref="RetryAfter"/>, so the batch stops starting tasks and the
+/// gateway gate holds every batch's starts until then (issue #578).</param>
 /// <param name="Runner">The runner the task's sessions ran on, when the profile names its runners (ADR 0058).</param>
 /// <param name="Replace">The task did not start because its runner could not be reached (ADR 0058): the scheduler places it again on another, a limited number of times, and never records this outcome.</param>
 /// <param name="Replan">The task stalled on a reason that would continue it (ADR 0044) but made no commits, so continuing never had a branch to continue from (issue #432): the batch asks the
 /// planner to split it into a chain of smaller tasks instead of ending it failed.</param>
 public sealed record TaskOutcome(string Id, TaskState State, string? RunId = null, string? Detail = null, ErrorCode? Error = null, decimal Usd = 0, long Tokens = 0,
-    string? Branch = null, string? PrUrl = null, DateTimeOffset? RetryAfter = null, string? Runner = null, bool Replace = false, bool Replan = false);
+    string? Branch = null, string? PrUrl = null, DateTimeOffset? RetryAfter = null, string? Runner = null, bool Replace = false, bool Replan = false, bool Budget = false);
 
 /// <summary>The most one task may use. Tokens bind in both credential modes; <c>MaxUsd</c> is null where the credential is not priced.</summary>
 public sealed record TaskLimits(long MaxTokens, decimal? MaxUsd);
@@ -64,8 +66,9 @@ public interface ITaskRunner
 /// <param name="MaxParallel">Tasks of this batch at once.</param>
 /// <param name="MaxTokensTotal">Input plus output tokens over the batch; null for none.</param>
 /// <param name="MaxUsdTotal">Dollars over the batch; null for none.</param>
+/// <param name="Gate">Shared too: the gateway's refusals shrink the pool or halt starts (<see cref="IStartGate"/>).</param>
 /// <param name="Global">Shared between batches: a task holds one slot while it runs (driven.max_parallel_total).</param>
-public sealed record BatchLimits(int MaxParallel, long? MaxTokensTotal, decimal? MaxUsdTotal, TaskLimits PerTask, SemaphoreSlim? Global = null);
+public sealed record BatchLimits(int MaxParallel, long? MaxTokensTotal, decimal? MaxUsdTotal, TaskLimits PerTask, SemaphoreSlim? Global = null, IStartGate? Gate = null);
 
 /// <param name="Action">What the caller should do about a stop the batch could not fix by itself (a rate-limited subscription); null otherwise.</param>
 /// <param name="Error">Set when the batch stopped starting tasks because of the provider's usage or rate limit (<see cref="ErrorCode.RateLimited"/>): the batch is retryable after the reset.</param>

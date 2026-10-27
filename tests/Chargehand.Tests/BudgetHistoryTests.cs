@@ -134,7 +134,7 @@ public class BudgetHistoryTests
     }
 
     [Fact]
-    public void The_percentile_the_minimum_and_the_window_come_from_the_profile_and_default_to_20_tasks_60_days_and_the_80th_percentile()
+    public void The_percentile_the_minimum_and_the_window_come_from_the_profile_and_default_to_5_tasks_60_days_and_the_80th_percentile()
     {
         var spends = Enumerable.Range(1, 10).Select(i => (decimal)i).ToArray();
         var median = new DrivenGovernor(History: new DrivenGovernorHistory(MinTasks: 10, Percentile: 50));
@@ -143,11 +143,11 @@ public class BudgetHistoryTests
         Assert.Equal(10m, Choose(max, Tasks(Repo, "M", spends)).Usd);
 
         var defaults = new DrivenGovernor();
-        var nineteen = Tasks(Repo, "M", [.. Enumerable.Repeat(2m, 19)]);
-        Assert.Equal(new BudgetSource("flat"), Choose(defaults, nineteen).Source);
-        var twenty = new List<LearningRecord>([.. nineteen, Past(10m, daysAgo: 59)]);
-        Assert.Equal(new BudgetChoice(2m, new BudgetSource("history", 20, 80, "repository")), Choose(defaults, twenty));
-        var oneOutside = new List<LearningRecord>([.. nineteen, Past(10m, daysAgo: 61)]);
+        var four = Tasks(Repo, "M", [.. Enumerable.Repeat(2m, 4)]);
+        Assert.Equal(new BudgetSource("flat"), Choose(defaults, four).Source);
+        var five = new List<LearningRecord>([.. four, Past(10m, daysAgo: 59)]);
+        Assert.Equal(new BudgetChoice(2m, new BudgetSource("history", 5, 80, "repository")), Choose(defaults, five));
+        var oneOutside = new List<LearningRecord>([.. four, Past(10m, daysAgo: 61)]);
         Assert.Equal(new BudgetSource("flat"), Choose(defaults, oneOutside).Source);
     }
 

@@ -139,7 +139,6 @@ export interface ProfileAutomation {
   mention: string;
   poll_seconds: number;
   max_concurrent: number;
-  max_starts_per_day: number;
   max_review_rounds: number;
 }
 

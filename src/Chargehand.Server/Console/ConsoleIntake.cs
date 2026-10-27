@@ -6,9 +6,10 @@ namespace Chargehand.Server;
 
 public sealed record IntakeRepositoryBody(string Repository, string Path);
 
-public sealed record IntakeCaps(int MaxConcurrent, int MaxStartsPerDay, int MaxReviewRounds, long MaxTokensTotal, decimal MaxUsdTotal, string BudgetClass);
+public sealed record IntakeCaps(int MaxConcurrent, int MaxReviewRounds, long MaxTokensTotal, decimal MaxUsdTotal, string BudgetClass);
 
-public sealed record IntakeStarts(int Last24h, int Cap, int Remaining, DateTimeOffset? NextSlotAt);
+/// <summary>A trigger that waits to start, oldest first (CHARGEHAND-297): <paramref name="Reason"/> is <c>max_concurrent</c>, <c>admission</c> or <c>checkout</c>, <paramref name="Detail"/> the server's refusal.</summary>
+public sealed record IntakeWaitingBody(string Trigger, string Repository, int Issue, DateTimeOffset Since, string Reason, string? Detail);
 
 public sealed record IntakeTaskBody(string Repository, int Issue, string BatchRunId, string TaskId, DateTimeOffset Started, string Size, string Phase, string? PrUrl, string? Branch, int? Round, bool AwaitingAnswer);
 
@@ -16,11 +17,11 @@ public sealed record IntakeTaskBody(string Repository, int Issue, string BatchRu
 public sealed record IntakePendingBody(string Id, string Repository, int Pull, string Author, string? Path, int? Line, DateTimeOffset At);
 
 /// <param name="Reason">Why intake did not act, as it wrote it on the issue: <c>active</c> (already working on it), <c>author</c> (a merge repository needs an issue by an allowed author), <c>gone</c> (the run is no longer
-/// in the log), <c>wait</c> (no free slot), <c>cap</c> (the daily cap), <c>notask</c>, <c>busy</c>, <c>rounds</c> (review rounds used up).</param>
+/// in the log), <c>wait</c> (no free slot), <c>cap</c> (the daily cap of releases before 0.19.4), <c>notask</c>, <c>busy</c>, <c>rounds</c> (review rounds used up).</param>
 public sealed record IntakeNoticeBody(string Reason, string Trigger);
 
 /// <summary>What intake did with a trigger, newest first (CHARGEHAND-214). <paramref name="Outcome"/> is <c>started</c>, <c>continued</c>, <c>round_started</c>, <c>queued</c> or <c>ignored</c>; for <c>ignored</c> the
-/// <paramref name="Reason"/> is <c>author_not_allowed</c>, <c>active</c>, <c>author</c>, <c>cap</c>, <c>gone</c>, <c>not_chargehand_branch</c> or <c>review_rounds_off</c>. <paramref name="Author"/> is the login that set the label or wrote the comment.</summary>
+/// <paramref name="Reason"/> is <c>author_not_allowed</c>, <c>active</c>, <c>author</c>, <c>cap</c> (before 0.19.4), <c>gone</c>, <c>withdrawn</c>, <c>not_chargehand_branch</c> or <c>review_rounds_off</c>. <paramref name="Author"/> is the login that set the label or wrote the comment.</summary>
 public sealed record IntakeTriggerBody(DateTimeOffset At, string Trigger, string Outcome, string? Reason, string? Author);
 
 /// <param name="HandledLabels">Label triggers seen, acted on or ignored; a trigger is handled once.</param>
@@ -28,9 +29,9 @@ public sealed record IntakeHandledBody(int Total, int Labels, int Comments, int 
 
 /// <summary><c>intake/v1</c>: GitHub intake's settings and what it remembers (<c>intake/github.json</c>), read from the file the poller saves. <c>Enabled</c> is false when the profile has no <c>automation.github</c>.</summary>
 public sealed record IntakeBody(string ContractVersion, DateTimeOffset GeneratedAt, bool Enabled, bool StatePresent, DateTimeOffset? StateSavedAt, IReadOnlyList<IntakeRepositoryBody> Watched,
-    IReadOnlyList<string> AllowedAuthors, string? Label, string? Mention, int? PollSeconds, IntakeCaps? Caps, IntakeStarts? Starts, int Running, IReadOnlyList<IntakeTaskBody> Tasks,
+    IReadOnlyList<string> AllowedAuthors, string? Label, string? Mention, int? PollSeconds, IntakeCaps? Caps, int Running, IReadOnlyList<IntakeTaskBody> Tasks,
     IReadOnlyList<IntakePendingBody> PendingReviews, IntakeHandledBody Handled, IReadOnlyList<IntakeNoticeBody> Notices, IReadOnlyDictionary<string, DateTimeOffset> CommentCursors,
-    IReadOnlyList<string> NotRecorded, IReadOnlyList<IntakeTriggerBody>? Triggers = null);
+    IReadOnlyList<string> NotRecorded, IReadOnlyList<IntakeTriggerBody>? Triggers = null, IReadOnlyList<IntakeWaitingBody>? Waiting = null);
 
 internal static class ConsoleIntake
 {
@@ -53,7 +54,7 @@ internal static class ConsoleIntake
         var path = c.Settings.IntakeStatePath;
         var info = path is not null && File.Exists(path) ? new FileInfo(path) : null;
         if (settings is null)
-            return new IntakeBody(Contract, c.Now, false, info is not null, null, [], [], null, null, null, null, null, 0, [], [], new(0, 0, 0, 0, 0), [], new Dictionary<string, DateTimeOffset>(), NotRecorded);
+            return new IntakeBody(Contract, c.Now, false, info is not null, null, [], [], null, null, null, null, 0, [], [], new(0, 0, 0, 0, 0), [], new Dictionary<string, DateTimeOffset>(), NotRecorded);
         var state = new IntakeState();
         string? problem = null;
         if (info is not null)
@@ -65,22 +66,19 @@ internal static class ConsoleIntake
             {
                 problem = $"the state file could not be read: {e.Message}";
             }
-        var day = c.Now - TimeSpan.FromDays(1);
-        var starts = state.Starts.Where(s => s > day).OrderBy(s => s).ToList();
-        var full = starts.Count >= settings.MaxStartsPerDay;
         var tasks = state.Tasks.OrderByDescending(t => t.Started).Take(MaxTasks)
             .Select(t => new IntakeTaskBody(t.Repository, t.Issue, t.BatchRunId, t.TaskId, t.Started, t.Size, t.Phase.ToString().ToLowerInvariant(), t.PrUrl, t.Branch, t.Round, t.Phase == IntakePhase.Asked)).ToList();
         return new IntakeBody(Contract, c.Now, true, info is not null, info?.LastWriteTimeUtc, [.. (settings.Repositories ?? new Dictionary<string, AutomationRepository>()).OrderBy(r => r.Key, StringComparer.Ordinal).Select(r => new IntakeRepositoryBody(r.Key, r.Value.Path))],
             [.. settings.AllowedAuthors ?? []], settings.Label, settings.Mention, settings.PollSeconds,
-            new IntakeCaps(settings.MaxConcurrent, settings.MaxStartsPerDay, settings.MaxReviewRounds, settings.MaxTokensTotal, settings.MaxUsdTotal, settings.BudgetClass),
-            new IntakeStarts(starts.Count, settings.MaxStartsPerDay, Math.Max(0, settings.MaxStartsPerDay - starts.Count), full ? starts[starts.Count - settings.MaxStartsPerDay] + TimeSpan.FromDays(1) : null),
+            new IntakeCaps(settings.MaxConcurrent, settings.MaxReviewRounds, settings.MaxTokensTotal, settings.MaxUsdTotal, settings.BudgetClass),
             state.Tasks.Count(t => t.Phase == IntakePhase.Running), tasks,
             [.. state.Pending.OrderByDescending(p => p.At).Select(p => new IntakePendingBody(p.Id, p.Repository, p.Pull, p.Author, p.Path, p.Line, p.At))],
             new IntakeHandledBody(state.Handled.Count, state.Handled.Count(k => k.StartsWith("label:", StringComparison.Ordinal)), state.Handled.Count(k => k.StartsWith("comment:", StringComparison.Ordinal)),
                 state.Handled.Count(k => k.StartsWith("review:", StringComparison.Ordinal)), state.Handled.Count(k => k.StartsWith("round:", StringComparison.Ordinal))),
             [.. state.Notified.Select(Notice).OrderBy(n => n.Reason, StringComparer.Ordinal).ThenBy(n => n.Trigger, StringComparer.Ordinal).Take(MaxNotices)],
             state.CommentCursor, problem is null ? NotRecorded : [problem, .. NotRecorded],
-            [.. state.Triggers.OrderByDescending(t => t.At).Take(MaxTriggers).Select(t => new IntakeTriggerBody(t.At, t.Key, t.Outcome, t.Reason, t.Author))]);
+            [.. state.Triggers.OrderByDescending(t => t.At).Take(MaxTriggers).Select(t => new IntakeTriggerBody(t.At, t.Key, t.Outcome, t.Reason, t.Author))],
+            [.. state.Waiting.OrderBy(w => w.Since).Select(w => new IntakeWaitingBody(w.Key, w.Repository, w.Issue, w.Since, w.Reason, w.Detail))]);
     }
 
     /// <summary>A notified key is <c>&lt;reason&gt;:&lt;trigger&gt;</c>.</summary>

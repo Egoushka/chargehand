@@ -72,6 +72,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     private readonly int _maxParallelTotal = Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4);
 
+    /// <summary>What the model gateway's refusals allow now: a spent budget halts starts until its reset, a rate limit shrinks the pool (issue #578).</summary>
+    private readonly GatewayGate _gate = new(Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4), log: message => Console.Error.WriteLine($"chargehand: {message}"));
+
     private readonly SemaphoreSlim _global = new(Math.Max(1, profile.Driven?.MaxParallelTotal ?? 4));
 
     /// <summary>What an operator can do to a batch this process is running now (CHARGEHAND-214); null for any other.</summary>
@@ -121,6 +124,12 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     /// <summary><c>driven.max_parallel_total</c>: tasks running at once across every batch.</summary>
     public int MaxParallelTotal => _maxParallelTotal;
+
+    /// <summary><see cref="MaxParallelTotal"/> as the gateway's rate limits leave it now (never below 1).</summary>
+    public int EffectiveMaxParallelTotal => _gate.Effective;
+
+    /// <summary>Until when a spent gateway budget holds every start; null when none does.</summary>
+    public DateTimeOffset? GatewayHaltedUntil => _gate.HaltedUntil;
 
     /// <summary>Tasks running now, across every batch of this process.</summary>
     public int SessionsRunning => Math.Max(0, _maxParallelTotal - _global.CurrentCount);
@@ -340,6 +349,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var routes = SiteRoute.Of(setup, setup.Priced ? null : _lifecycle.TokenKey(c.RunId));
         // Planning (ADR 0049) changes sizes, goals and the chain of tasks before they are recorded, so a restart carries the planned batch and does not plan again.
         var (ready, plan) = c.Resume is null ? await _lifecycle.PlanAsync(c, resolved, settings.Planning?.Enabled ?? false, setup.Services.Planner) : (resolved, c.Resume.Plan);
+        plan = await ForecastPlanAsync(plan, c, ready, settings);
         var tasks = await _lifecycle.TasksOfAsync(c, ready, unresolved, plan);
         var checkout = await CheckoutAsync(c, setup, ready);
         c.Span?.SetTag("chargehand.credential_delivery", routes[0].Delivery);
@@ -363,7 +373,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var own = new AccountCredentials(profile.Http?.Accounts).For(c.Actor);
         var priced = own is not null || claude.ApiKeySecret is not null;
         var perTaskUsd = Math.Min(kind.Budget.MaxUsd, c.Request.Driven!.MaxUsdTotal ?? decimal.MaxValue);
-        var limits = DrivenBatch.Limits(c.Request, options, drivenPreset, perTaskUsd, priced, _global);
+        var limits = DrivenBatch.Limits(c.Request, options, drivenPreset, perTaskUsd, priced, _global, _gate);
         // No push_secret: the GitHub App pushes, once the checkout says the remote is on GitHub (PushOf).
         var push = settings.PushSecret is { } pushSecret ? new PushCredential(Resolve(s, pushSecret)) : s.AppToken is not null ? null : throw new ChargehandException(ErrorCode.CredentialUnavailable,
             "driven.push_secret is not set and there is no GitHub App (driven.integrator), so nothing could be pushed",
@@ -513,6 +523,41 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var choice = MemoryRequest.Choose(profile.Driven?.Admission ?? new DrivenAdmission(), limitMb, repository, records, DateTimeOffset.UtcNow);
         Console.Error.WriteLine($"chargehand: admission: a task asks the host for {choice.Describe()}; its container is limited to {limitMb} MiB");
         return choice.Mb;
+    }
+
+    /// <summary>What a task about to start is expected to cost (CHARGEHAND-438), from the learning records <paramref name="sees"/> admits; without records, the flat budget.</summary>
+    public async Task<TaskForecast> ForecastAsync(ForecastQuery query, Func<string?, bool> sees, CancellationToken ct)
+    {
+        IReadOnlyList<LearningRecord> records = [];
+        if (learning is not null)
+        {
+            try
+            {
+                records = [.. (await learning.ReadAsync(ct)).Where(e => sees(e.Record.Actor)).Select(e => e.Record)];
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine($"chargehand: could not read the learning records for a forecast: {e.Message}");
+            }
+        }
+        return Forecaster.Predict(profile.Driven?.Governor ?? new DrivenGovernor(), query, records, DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>The plan with each task's forecast. The repository is named as the request names it: before the checkout the remote is not known, so a path that is not a remote forecasts from the size class.</summary>
+    private async Task<BatchPlan?> ForecastPlanAsync(BatchPlan? plan, BatchRunContext c, IReadOnlyList<ResolvedTask> tasks, DrivenSettings settings)
+    {
+        if (plan is null || c.Resume is not null)
+            return plan;
+        var (request, ct) = (c.Request, c.Ct);
+        var path = request.Context.Repository?.Path;
+        var repository = TaskRunner.RepositoryKey(path is null ? null : RemoteRepository.Parse(path, settings.Forge), path);
+        List<PlanEntry> entries = [];
+        foreach (var entry in plan.Tasks)
+        {
+            var goal = tasks.FirstOrDefault(t => t.Id == entry.Id)?.Goal;
+            entries.Add(entry with { Forecast = await ForecastAsync(new ForecastQuery(repository, goal, entry.Size), _ => true, ct) });
+        }
+        return plan with { Tasks = entries };
     }
 
     private static string Resolve(DrivenServices s, string item)

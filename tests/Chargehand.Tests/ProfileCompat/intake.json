@@ -109,14 +109,13 @@
       "max_tokens_total": 2000000,
       "max_usd_total": 5,
       "max_concurrent": 2,
-      "max_starts_per_day": 10,
+      "max_starts_per_day": null,
       "max_review_rounds": 2,
       "review_pulls": false,
-      "max_reviews_per_day": 20,
+      "max_reviews_per_day": null,
       "discover": false
     },
     "schedules": null,
-    "plane": null,
     "account": null,
     "notify": null
   },
