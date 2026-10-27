@@ -279,8 +279,10 @@ public class SessionDriverTests
     {
         using var w = new Workspace();
         File.WriteAllText(Path.Combine(w.Work, "late.txt"), "written");
+        // git status runs this command and waits for it, so it hangs however fast git itself is; the cheap calls before it finish well inside the timeout.
+        w.Git("config", "core.fsmonitor", "sh -c 'sleep 60'");
         var sw = Stopwatch.StartNew();
-        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init) + "\nsleep 60", Task(noProgressSeconds: 1)) with { GitTimeout = TimeSpan.FromMilliseconds(1) }, default);
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init) + "\nsleep 60", Task(noProgressSeconds: 1)) with { GitTimeout = TimeSpan.FromSeconds(2) }, default);
 
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(30), $"took {sw.Elapsed}");
         Assert.Contains("timed out", outcome.SnapshotNote);
