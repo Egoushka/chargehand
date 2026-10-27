@@ -39,6 +39,7 @@ The goal's first line is the issue's title (the pull request's title is cut from
 |---|---|---|
 | `max_concurrent` | 2 | the trigger waits, with one comment, in the queue (below), and starts when a triggered batch ends |
 | `max_review_backlog` | 3 | a new issue or comment start waits, reason `review_backlog`, while that many pull requests chargehand opened in the repository have no review from an allowed author; a review, merge or close frees a place. Review rounds, answers and CI fixes are never held. 0 turns it off ([ADR 0084](../adr/0084-the-intake-governor-admits-queued-work-by-checks.md)) |
+| `subscription_block` | false | a new issue or comment start while a running task's rate-limit pause has not reset: off, the server log warns once per pause and the console says so on the Intake page, and the start goes on; on, it waits with reason `subscription` until the pause resets. Not a forecast: the signal is a report after the fact ([ADR 0084](../adr/0084-the-intake-governor-admits-queued-work-by-checks.md)) |
 | one task per issue | | a second trigger on an issue whose task is running gets one comment |
 
 `max_tokens_total` (2,000,000) and `max_usd_total` (5) cap a triggered batch like `driven.max_tokens_total` and `max_usd_total` do for a caller's; both are always sent, and the one that applies is the one the credential's kind needs. A halted server, or one with ten unfinished runs, leaves the trigger for the next poll.

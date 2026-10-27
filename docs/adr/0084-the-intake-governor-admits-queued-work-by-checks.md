@@ -43,8 +43,8 @@ records `admission`. The governor adds two checks that run in intake before the 
    `automation.github.max_review_backlog` (**default 3**), a new driven start of any issue or comment trigger waits with reason `review_backlog`
    ("3 pull requests await review"). A pull request waits for review while it is open, its head branch is `chargehand/*` in the repository itself, and no allowed author has submitted a review on it (an approval, a change request or a review comment; a plain conversation comment does not count). A
    merge or a close frees a place at the next poll. Review rounds, answers to a task's questions and CI fixes work on an open pull request and are never held by it. `0` turns the check off.
-2. **Subscription headroom.** A start that would use a subscription runtime, while a task of a running batch reported a rate-limit pause that has not reset, is a
-   *hit*. By default a hit **warns**: one server log line per pause and a banner on the console overview ("subscription limit reported by a running task, resets at ...");
+2. **Subscription headroom.** A driven start, while a task of a running batch has reported a rate-limit pause that has not reset, is a
+   *hit*. The intake cannot tell which credential a start will use, and a rate limit is a rate limit, so every start counts. By default a hit **warns**: one server log line per pause and a banner on the console overview ("subscription limit reported by a running task, resets at ...");
    the start goes on. `automation.github.subscription_block: true` turns the warning into a hold with reason `subscription` until the pause resets.
    **Default false**: the signal is a report after the fact, not a forecast, and a wrong block idles the owner's main tool. After a week of data the owner decides
    whether to turn it on, and #441 replaces the signal with a forecast.

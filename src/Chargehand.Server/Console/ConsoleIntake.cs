@@ -8,8 +8,11 @@ public sealed record IntakeRepositoryBody(string Repository, string Path);
 
 public sealed record IntakeCaps(int MaxConcurrent, int MaxReviewRounds, long MaxTokensTotal, decimal MaxUsdTotal, string BudgetClass);
 
-/// <summary>A trigger that waits to start, oldest first (CHARGEHAND-297): <paramref name="Reason"/> is <c>max_concurrent</c>, <c>admission</c> or <c>checkout</c>, <paramref name="Detail"/> the server's refusal.</summary>
+/// <summary>A trigger that waits to start, oldest first (CHARGEHAND-297): <paramref name="Reason"/> is <c>max_concurrent</c>, <c>review_backlog</c>, <c>subscription</c>, <c>breaker</c>, <c>admission</c> or <c>checkout</c>, <paramref name="Detail"/> the server's refusal.</summary>
 public sealed record IntakeWaitingBody(string Trigger, string Repository, int Issue, DateTimeOffset Since, string Reason, string? Detail);
+
+/// <summary>The subscription check of the intake governor (ADR 0084): <paramref name="Block"/> is <c>automation.github.subscription_block</c>; <paramref name="ResetsAt"/> is when the rate-limit pause a running task reported ends, null when none is active.</summary>
+public sealed record IntakeSubscriptionBody(bool Block, DateTimeOffset? ResetsAt);
 
 public sealed record IntakeTaskBody(string Repository, int Issue, string BatchRunId, string TaskId, DateTimeOffset Started, string Size, string Phase, string? PrUrl, string? Branch, int? Round, bool AwaitingAnswer);
 
@@ -31,7 +34,7 @@ public sealed record IntakeHandledBody(int Total, int Labels, int Comments, int 
 public sealed record IntakeBody(string ContractVersion, DateTimeOffset GeneratedAt, bool Enabled, bool StatePresent, DateTimeOffset? StateSavedAt, IReadOnlyList<IntakeRepositoryBody> Watched,
     IReadOnlyList<string> AllowedAuthors, string? Label, string? Mention, int? PollSeconds, IntakeCaps? Caps, int Running, IReadOnlyList<IntakeTaskBody> Tasks,
     IReadOnlyList<IntakePendingBody> PendingReviews, IntakeHandledBody Handled, IReadOnlyList<IntakeNoticeBody> Notices, IReadOnlyDictionary<string, DateTimeOffset> CommentCursors,
-    IReadOnlyList<string> NotRecorded, IReadOnlyList<IntakeTriggerBody>? Triggers = null, IReadOnlyList<IntakeWaitingBody>? Waiting = null);
+    IReadOnlyList<string> NotRecorded, IReadOnlyList<IntakeTriggerBody>? Triggers = null, IReadOnlyList<IntakeWaitingBody>? Waiting = null, IntakeSubscriptionBody? Subscription = null);
 
 internal static class ConsoleIntake
 {
@@ -78,7 +81,8 @@ internal static class ConsoleIntake
             [.. state.Notified.Select(Notice).OrderBy(n => n.Reason, StringComparer.Ordinal).ThenBy(n => n.Trigger, StringComparer.Ordinal).Take(MaxNotices)],
             state.CommentCursor, problem is null ? NotRecorded : [problem, .. NotRecorded],
             [.. state.Triggers.OrderByDescending(t => t.At).Take(MaxTriggers).Select(t => new IntakeTriggerBody(t.At, t.Key, t.Outcome, t.Reason, t.Author))],
-            [.. state.Waiting.OrderBy(w => w.Since).Select(w => new IntakeWaitingBody(w.Key, w.Repository, w.Issue, w.Since, w.Reason, w.Detail))]);
+            [.. state.Waiting.OrderBy(w => w.Since).Select(w => new IntakeWaitingBody(w.Key, w.Repository, w.Issue, w.Since, w.Reason, w.Detail))],
+            new IntakeSubscriptionBody(settings.SubscriptionBlock, c.Driven?.RateLimitPauses(c.Now) is { Count: > 0 } pauses ? pauses.Max(p => p.ResetsAt) : null));
     }
 
     /// <summary>A notified key is <c>&lt;reason&gt;:&lt;trigger&gt;</c>.</summary>

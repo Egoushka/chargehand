@@ -115,7 +115,8 @@
       "review_pulls": false,
       "max_reviews_per_day": null,
       "discover": false,
-      "max_review_backlog": 3
+      "max_review_backlog": 3,
+      "subscription_block": false
     },
     "schedules": null,
     "account": null,

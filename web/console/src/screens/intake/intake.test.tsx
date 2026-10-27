@@ -220,6 +220,17 @@ describe('Intake with data', () => {
     ).toBeTruthy();
   });
 
+  it('warns of a reported rate limit and says whether starts wait', async () => {
+    const now = Date.now();
+    const resets = new Date(now + 3_600_000).toISOString();
+    serveApi({ intake: adm.intake({ subscription: { block: false, resets_at: resets } }, now) });
+    renderConsole('/console/intake');
+    await screen.findByRole('table', { name: 'Trigger log' });
+    expect(
+      within(panel('Starts per day').getByRole('status')).getByText(/New starts go on anyway/),
+    ).toBeTruthy();
+  });
+
   it('lists the trigger log with what intake did and why, and a dash where no time was recorded', async () => {
     await open();
     const log = within(screen.getByRole('table', { name: 'Trigger log' }));

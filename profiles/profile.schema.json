@@ -425,6 +425,7 @@
             "review_pulls": { "type": "boolean", "description": "Review every open, non-draft pull request of the watched repositories, once per head commit, and comment the findings. Default false." },
             "max_reviews_per_day": { "type": "integer", "deprecated": true, "description": "Deprecated, ignored since 0.19.4: spend is bounded by automation.account's dollar caps (ADR 0076), which reviews are admitted as too; slots by max_concurrent (ADR 0081). Accepted so an older profile still loads." },
             "max_review_backlog": { "type": "integer", "minimum": 0, "maximum": 50, "description": "Pull requests chargehand opened that wait for a review, per repository, at which new driven starts wait (reason review_backlog, ADR 0084). A merge, a close or a review frees a place. 0 turns the check off. Default 3." },
+            "subscription_block": { "type": "boolean", "description": "A new driven start while a running task reported a rate-limit pause that has not reset: false warns in the server log and goes on, true waits with reason subscription (ADR 0084). Default false." },
             "discover": { "type": "boolean", "description": "Also watch every repository the App's installations can see, each cloned into <worker_root>/repos/<owner>/<repo> and fetched with the App's token; repositories is then optional. Default false." }
           }
         },

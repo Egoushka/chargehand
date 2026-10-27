@@ -9,6 +9,7 @@ import { safeHttpUrl } from '../../lib/url';
 import { useIsPhone } from '../../shell/useIsPhone';
 import {
   Badge,
+  Banner,
   Cell,
   cssVars,
   EmptyState,
@@ -410,6 +411,9 @@ function PolicyPanel({
 const WAIT_REASONS: Record<string, string> = {
   max_concurrent: 'no free slot',
   admission: 'refused by the account',
+  review_backlog: 'pull requests await review',
+  subscription: 'rate-limit pause',
+  breaker: 'paused by a breaker',
   checkout: 'base commit unreadable',
   lost: 'run lost in a restart; starts again once',
 };
@@ -427,6 +431,17 @@ function StartsPanel({ data }: { data: IntakeBody }) {
           No daily count of starts: spend is bounded by the automation account’s dollar caps, and a
           trigger waits here for a free slot or for the account to admit it.
         </p>
+        {data.subscription?.resets_at ? (
+          <Banner
+            tone="warn"
+            icon="pause"
+            title={`A running task reported a rate limit until ${formatTime(data.subscription.resets_at)}`}
+          >
+            {data.subscription.block
+              ? 'New starts wait until it resets.'
+              : 'New starts go on anyway; set subscription_block to hold them.'}
+          </Banner>
+        ) : null}
         {waiting.length > 0 ? (
           <ul className="small" aria-label="Waiting to start">
             {waiting.map((w) => (

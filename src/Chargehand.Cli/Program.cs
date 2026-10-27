@@ -522,7 +522,7 @@ Chargehand.Modules.Forge.Api.IIntegrationHost? IntegrationHost(Chargehand.Config
 }
 
 // GitHub intake (ADR 0051): null unless the profile has automation.github. It reads and comments as the integrator's GitHub App; its state sits next to the run log.
-Chargehand.Automation.GitHubIntake? GitHubIntake()
+Chargehand.Automation.GitHubIntake? GitHubIntake(Chargehand.Driven.DrivenRun? drivenRun)
 {
     if (profile.Automation?.Github is not { } github || profile.Driven is not { Integrator: { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId } } driven)
         return null;
@@ -533,7 +533,8 @@ Chargehand.Automation.GitHubIntake? GitHubIntake()
     // The App's repositories (discover) and those whose checkout cannot be written are cloned under worker_root and fetched with the App's token, on this host only.
     var clones = new Chargehand.Automation.ManagedClones(profile.ClonesRoot, tokens.GetAsync);
     return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state,
-        integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "sources.json")), clones: clones);
+        integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "sources.json")), clones: clones,
+        subscriptionResetsAt: now => drivenRun?.RateLimitPauses(now) is { Count: > 0 } pauses ? pauses.Max(p => p.ResetsAt) : null);
 }
 
 // The managed clones a read-only checkout falls back to, fetched with the integrator App's token; null without an App, and the checkout's own commit is used.
@@ -626,7 +627,7 @@ async Task<int> Serve()
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "batches"), http.Accounts, AccountsCli.KeysFile(runLogPath), Ui: http.Ui,
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn, Probes: HealthProbes()),
-        orchestrator, runLog, drivenRun, GitHubIntake(), Schedules(drivenRun), PhoneAnswers());
+        orchestrator, runLog, drivenRun, GitHubIntake(drivenRun), Schedules(drivenRun), PhoneAnswers());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);

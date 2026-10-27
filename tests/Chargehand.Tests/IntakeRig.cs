@@ -333,7 +333,11 @@ internal sealed class IntakeRig : IDisposable
 
     public IntakeState State => IntakeState.Load(StatePath);
 
-    private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy, IntakeSources.Load(SourcesPath), _clones, Infos.Add);
+    private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy, IntakeSources.Load(SourcesPath), _clones, Infos.Add,
+        subscriptionResetsAt: now => RateLimitUntil > now ? RateLimitUntil : null);
+
+    /// <summary>When the rate-limit pause a running task reported ends; null: none.</summary>
+    public DateTimeOffset? RateLimitUntil { get; set; }
 
     private string SourcesPath => Path.Combine(_dir.Path, "intake", "sources.json");
 
