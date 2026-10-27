@@ -23,7 +23,9 @@ public sealed record IntakePull(int Number, string HeadBranch, string? HeadRepos
 /// <summary>An open pull request as the review loop sees it (ADR 0051).</summary>
 /// <param name="Body">The description; empty when there is none.</param>
 /// <param name="HeadSha">The commit its head branch points at now.</param>
-public sealed record ReviewablePull(int Number, string Title, string Body, string Author, string HeadSha, bool Draft);
+/// <param name="HeadBranch">The head branch; empty when not read.</param>
+/// <param name="SameRepository">The head branch is in the repository the pull request is against, not a fork.</param>
+public sealed record ReviewablePull(int Number, string Title, string Body, string Author, string HeadSha, bool Draft, string HeadBranch = "", bool SameRepository = true);
 
 /// <summary>An inline comment of a review, on a line of a file of a pull request.</summary>
 /// <param name="Line">The line it is on in the head commit, else the line it was made on; null when the review comment is on the file as a whole.</param>
@@ -63,6 +65,9 @@ public interface IIntakeHost
 
     /// <summary>The open pull requests of a repository, drafts included.</summary>
     Task<IReadOnlyList<ReviewablePull>> OpenPullsAsync(string repository, CancellationToken ct);
+
+    /// <summary>The logins that submitted a review (approval, change request or comment) on a pull request, in order.</summary>
+    Task<IReadOnlyList<string>> ReviewersAsync(string repository, int number, CancellationToken ct);
 
     /// <summary>The pull request's whole diff as GitHub renders it.</summary>
     /// <exception cref="IntakeException">GitHub answered 406 or 422 when the diff is too large to render.</exception>

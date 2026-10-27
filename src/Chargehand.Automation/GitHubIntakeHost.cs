@@ -52,7 +52,11 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
 
     public async Task<IReadOnlyList<ReviewablePull>> OpenPullsAsync(string repository, CancellationToken ct) =>
         [.. (await PagesAsync(repository, $"{RepoPath(repository)}/pulls?state=open", "the open pull requests", ct)).Select(p => Parse(() => new ReviewablePull(p.GetProperty("number").GetInt32(), Text(p, "title") ?? "",
-            Text(p, "body") ?? "", Login(p, "user"), Text(p.GetProperty("head"), "sha") ?? "", p.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True)))];
+            Text(p, "body") ?? "", Login(p, "user"), Text(p.GetProperty("head"), "sha") ?? "", p.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True, Text(p.GetProperty("head"), "ref") ?? "",
+            string.Equals(FullName(p.GetProperty("head")), FullName(p.GetProperty("base")), StringComparison.OrdinalIgnoreCase))))];
+
+    public async Task<IReadOnlyList<string>> ReviewersAsync(string repository, int number, CancellationToken ct) =>
+        [.. (await PagesAsync(repository, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/reviews", "the pull request's reviews", ct)).Select(r => Parse(() => Login(r, "user")))];
 
     public Task<string> PullDiffAsync(string repository, int number, CancellationToken ct) =>
         SendAsync(repository, HttpMethod.Get, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}", null, "the pull request's diff", DiffMedia, ct);

@@ -114,7 +114,8 @@
       "max_review_rounds": 2,
       "review_pulls": false,
       "max_reviews_per_day": null,
-      "discover": false
+      "discover": false,
+      "max_review_backlog": 3
     },
     "schedules": null,
     "account": null,

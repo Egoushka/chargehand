@@ -103,6 +103,12 @@ internal sealed class FakeGitHub : IIntakeHost
 
     public Task<IReadOnlyList<ReviewablePull>> OpenPullsAsync(string repository, CancellationToken ct) => Task.FromResult<IReadOnlyList<ReviewablePull>>([.. OpenPulls]);
 
+    /// <summary>The logins that reviewed a pull request, by number.</summary>
+    public Dictionary<int, List<string>> Reviewers { get; } = [];
+
+    public Task<IReadOnlyList<string>> ReviewersAsync(string repository, int number, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<string>>([.. Reviewers.GetValueOrDefault(number) ?? []]);
+
     public Task<string> PullDiffAsync(string repository, int number, CancellationToken ct) =>
         DiffFailsWith is { } status ? throw new IntakeException($"GitHub answered {status} to the diff", status) : Task.FromResult(Diffs.GetValueOrDefault(number, "diff --git a/x b/x"));
 

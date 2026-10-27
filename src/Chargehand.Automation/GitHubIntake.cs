@@ -43,6 +43,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private readonly Dictionary<(string Repository, int Number), IntakePull> _pulls = [];
     private readonly CheckoutSources _checkouts = new(heads, clones, "intake", warn ?? Warned, info ?? Informed);
     private readonly PullReviews _reviews = new(settings, host, log, state, clock ?? TimeProvider.System, warn ?? Warned);
+    private readonly ReviewBacklog _backlog = new(settings, host);
 
     /// <summary>The waiting triggers this poll read again; one of a repository that was not is withdrawn.</summary>
     private readonly HashSet<string> _stillWaiting = [];
@@ -109,6 +110,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     {
         _pulls.Clear();
         _stillWaiting.Clear();
+        _backlog.NewPoll();
         await ReportEndedAsync(ct);
         await _reviews.ReportEndedAsync(ct);
         _watched = await WatchAsync(ct);
@@ -284,6 +286,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             Log(key, "ignored", "author", issue.Author);
             return Outcome.Settled;
         }
+        if (await BacklogAsync(key, name, issue.Number, ct) is { } backlog)
+            return backlog;
         if (await SlotAsync(key, name, issue.Number, ct) is { } held)
             return held;
         RepositoryRef source;
@@ -321,6 +325,17 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var task = new DrivenTask(taskId, Size: earlier.Size, Answers: [IntakeGoal.Answer(reply.Body)], ContinueFrom: new ContinueFrom(earlier.BatchRunId, earlier.TaskId));
         return await LaunchAsync(key, name, earlier.Issue, repository, task, run => earlier with { BatchRunId = run, TaskId = taskId, Started = _time.GetUtcNow(), Phase = IntakePhase.Running, AskedCommentId = null, PrUrl = null, Trigger = null },
             starter, run => $"chargehand continues with your answer: run `{run}` (task `{taskId}`), on the same branch.", earlier, null, ct);
+    }
+
+    /// <summary>Waits while pull requests chargehand opened wait for a review (ADR 0084): null when the batch may start. Answers and review rounds never come here.</summary>
+    private async Task<Outcome?> BacklogAsync(string key, string name, int issue, CancellationToken ct)
+    {
+        if (await _backlog.HoldAsync(name, ct) is not { } why)
+            return null;
+        _info($"intake: {key}: waiting: review_backlog: {why}");
+        Wait(key, name, issue, "review_backlog", why);
+        await NotifyOnceAsync($"backlog:{key}", name, issue, $"chargehand is waiting: {why}. This starts when one is reviewed, merged or closed.", ct);
+        return Outcome.Deferred;
     }
 
     /// <summary>Waits while every slot is taken: null when the batch may start. Spend is bounded by the account the start is admitted as (ADR 0076), not by a count of starts.</summary>
@@ -442,7 +457,10 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     }
 
     private static bool IsChargehandBranch(IntakePull pull) =>
-        BranchName().IsMatch(pull.HeadBranch) && !pull.HeadBranch.Contains("..", StringComparison.Ordinal) && string.Equals(pull.HeadRepository, pull.BaseRepository, StringComparison.OrdinalIgnoreCase);
+        IsChargehandBranch(pull.HeadBranch, string.Equals(pull.HeadRepository, pull.BaseRepository, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A branch chargehand pushes (<c>chargehand/*</c>) in the repository itself, not a fork.</summary>
+    internal static bool IsChargehandBranch(string branch, bool sameRepository) => sameRepository && BranchName().IsMatch(branch) && !branch.Contains("..", StringComparison.Ordinal);
 
     /// <summary>Starts a review round for each pull request that has comments waiting (ADR 0051): one continuation of the task that opened it, with the comments as its answers. A comment waits while the
     /// branch is busy or a cap says wait; it is dropped when the pull request is closed, when its task cannot be found, when the round cap is used, or when a round already took it.</summary>

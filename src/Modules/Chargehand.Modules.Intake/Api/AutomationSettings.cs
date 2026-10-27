@@ -47,11 +47,12 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
 /// against the same cap of 3 per pull request, so rounds and fix attempts together never pass it (ADR 0051).</param>
 /// <param name="ReviewPulls">Review every open, non-draft pull request of the watched repositories once per head commit and comment the findings (default false).</param>
 /// <param name="MaxReviewsPerDay">Deprecated, ignored since 0.19.4 (ADR 0081), like <paramref name="MaxStartsPerDay"/>: reviews are admitted as <c>automation.account</c> too.</param>
+/// <param name="MaxReviewBacklog">Pull requests chargehand opened that wait for a review, per repository, at which new driven starts wait (default 3, 0 turns the check off; ADR 0084). A merge, a close or a review frees a place.</param>
 /// <param name="Discover">Also watch every repository the App's installations can see, each cloned into <c>&lt;worker_root&gt;/repos/&lt;owner&gt;/&lt;repo&gt;</c> and fetched with the App's token (default false).
 /// A repository in <paramref name="Repositories"/> keeps its own checkout.</param>
 public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, AutomationRepository>? Repositories = null, IReadOnlyList<string>? AllowedAuthors = null, string Label = "chargehand",
     string Mention = "@chargehand", int PollSeconds = 120, string BudgetClass = "M", long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int? MaxStartsPerDay = null, int MaxReviewRounds = 3,
-    bool ReviewPulls = false, int? MaxReviewsPerDay = null, bool Discover = false)
+    bool ReviewPulls = false, int? MaxReviewsPerDay = null, bool Discover = false, int MaxReviewBacklog = 3)
 {
     /// <summary>Where discovered repositories are cloned, under <c>worker_root</c>.</summary>
     public const string ClonesDirectory = "repos";
@@ -95,6 +96,7 @@ public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, Automa
         if (MaxTokensTotal < 1) yield return "max_tokens_total must be above 0";
         if (MaxUsdTotal <= 0) yield return "max_usd_total must be above 0";
         if (MaxConcurrent is < 1 or > 10) yield return "max_concurrent must be 1 to 10";
+        if (MaxReviewBacklog is < 0 or > 50) yield return "max_review_backlog must be 0 to 50";
         if (MaxReviewRounds is < 0 or > DrivenCiFix.AttemptCap) yield return $"max_review_rounds must be 0 to {DrivenCiFix.AttemptCap}";
     }
 
