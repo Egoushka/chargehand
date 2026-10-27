@@ -18,7 +18,7 @@ namespace Chargehand.Automation;
 /// <see cref="IntakeState"/> before the comment about it, so a restart cannot start a trigger twice. The watched repositories are the profile's, and with <c>discover</c> every one the App can see, each
 /// cloned into <paramref name="clones"/>; one switched off in <paramref name="sources"/> is not read.</summary>
 public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost host, IRunLog log, IRepositoryHeads heads, IntakeState state, TimeProvider? clock = null, Action<string>? warn = null,
-    IntegratorPolicy? integrator = null, IntakeSources? sources = null, ManagedClones? clones = null, Action<string>? info = null)
+    IntegratorPolicy? integrator = null, IntakeSources? sources = null, ManagedClones? clones = null, Action<string>? info = null, Func<DateTimeOffset, DateTimeOffset?>? subscriptionResetsAt = null)
 {
     public const string Preset = "driven";
 
@@ -44,6 +44,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private readonly CheckoutSources _checkouts = new(heads, clones, "intake", warn ?? Warned, info ?? Informed);
     private readonly PullReviews _reviews = new(settings, host, log, state, clock ?? TimeProvider.System, warn ?? Warned);
     private readonly ReviewBacklog _backlog = new(settings, host);
+    private DateTimeOffset? _warnedPause;
 
     /// <summary>The waiting triggers this poll read again; one of a repository that was not is withdrawn.</summary>
     private readonly HashSet<string> _stillWaiting = [];
@@ -288,6 +289,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         }
         if (await BacklogAsync(key, name, issue.Number, ct) is { } backlog)
             return backlog;
+        if (await SubscriptionAsync(key, name, issue.Number, ct) is { } limited)
+            return limited;
         if (await SlotAsync(key, name, issue.Number, ct) is { } held)
             return held;
         RepositoryRef source;
@@ -335,6 +338,28 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         _info($"intake: {key}: waiting: review_backlog: {why}");
         Wait(key, name, issue, "review_backlog", why);
         await NotifyOnceAsync($"backlog:{key}", name, issue, $"chargehand is waiting: {why}. This starts when one is reviewed, merged or closed.", ct);
+        return Outcome.Deferred;
+    }
+
+    /// <summary>A task of a running batch reported a rate limit that has not reset (ADR 0084): the start is warned about in the server log, once per pause, and goes on; with <c>subscription_block</c> it waits. Null when it may start.</summary>
+    private async Task<Outcome?> SubscriptionAsync(string key, string name, int issue, CancellationToken ct)
+    {
+        if (subscriptionResetsAt?.Invoke(_time.GetUtcNow()) is not { } resets)
+            return null;
+        var until = resets.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+        if (!settings.SubscriptionBlock)
+        {
+            if (_warnedPause != resets)
+            {
+                _warnedPause = resets;
+                _warn($"intake: a running task reported a rate-limit pause until {until}; new starts go on (set automation.github.subscription_block to hold them)");
+            }
+            return null;
+        }
+        var why = $"a running task reported a rate-limit pause until {until}";
+        _info($"intake: {key}: waiting: subscription: {why}");
+        Wait(key, name, issue, "subscription", why);
+        await NotifyOnceAsync($"subscription:{key}", name, issue, $"chargehand is waiting: {why}. This starts after it resets.", ct);
         return Outcome.Deferred;
     }
 

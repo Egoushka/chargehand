@@ -48,11 +48,12 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
 /// <param name="ReviewPulls">Review every open, non-draft pull request of the watched repositories once per head commit and comment the findings (default false).</param>
 /// <param name="MaxReviewsPerDay">Deprecated, ignored since 0.19.4 (ADR 0081), like <paramref name="MaxStartsPerDay"/>: reviews are admitted as <c>automation.account</c> too.</param>
 /// <param name="MaxReviewBacklog">Pull requests chargehand opened that wait for a review, per repository, at which new driven starts wait (default 3, 0 turns the check off; ADR 0084). A merge, a close or a review frees a place.</param>
+/// <param name="SubscriptionBlock">A new driven start while a running task's rate-limit pause has not reset: false (default) warns in the server log and goes on, true waits with reason <c>subscription</c> (ADR 0084).</param>
 /// <param name="Discover">Also watch every repository the App's installations can see, each cloned into <c>&lt;worker_root&gt;/repos/&lt;owner&gt;/&lt;repo&gt;</c> and fetched with the App's token (default false).
 /// A repository in <paramref name="Repositories"/> keeps its own checkout.</param>
 public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, AutomationRepository>? Repositories = null, IReadOnlyList<string>? AllowedAuthors = null, string Label = "chargehand",
     string Mention = "@chargehand", int PollSeconds = 120, string BudgetClass = "M", long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int? MaxStartsPerDay = null, int MaxReviewRounds = 3,
-    bool ReviewPulls = false, int? MaxReviewsPerDay = null, bool Discover = false, int MaxReviewBacklog = 3)
+    bool ReviewPulls = false, int? MaxReviewsPerDay = null, bool Discover = false, int MaxReviewBacklog = 3, bool SubscriptionBlock = false)
 {
     /// <summary>Where discovered repositories are cloned, under <c>worker_root</c>.</summary>
     public const string ClonesDirectory = "repos";

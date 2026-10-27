@@ -99,6 +99,8 @@ export interface IntakeBody extends ContractMeta {
   poll_seconds?: number | null;
   caps?: IntakeCaps | null;
   waiting?: IntakeWaitingBody[] | null;
+  /** The intake governor's subscription check (ADR 0084): whether `subscription_block` is on, and when a reported rate-limit pause ends. */
+  subscription?: { block: boolean; resets_at: string | null } | null;
   running: number;
   tasks: IntakeTaskBody[];
   pending_reviews: IntakePendingBody[];
