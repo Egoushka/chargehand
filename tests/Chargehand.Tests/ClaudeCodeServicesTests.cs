@@ -320,8 +320,7 @@ public sealed class ClaudeCodeServicesTests : IDisposable
             {after}
             cat "{_dir.Path}/events.jsonl"
             """);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        ScriptFile.Seal(script);
         return script;
     }
 }

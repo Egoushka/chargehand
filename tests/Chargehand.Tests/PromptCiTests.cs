@@ -43,8 +43,7 @@ public sealed class PromptCiTests : IDisposable
               "api -X") printf '%s\n' "$*" >> "{log}" ;;
             esac
             """);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(gh, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        ScriptFile.Seal(gh);
 
         var psi = new ProcessStartInfo(Repo.Path("scripts", "prompt-ci.sh")) { WorkingDirectory = _work };
         psi.ArgumentList.Add("1");

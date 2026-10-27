@@ -19,8 +19,7 @@ public sealed class OpenCodeServeScriptTests : IDisposable
             echo "args=$*" > "{{_dir.Path}}/seen.txt"
             echo "disable_project_config=$OPENCODE_DISABLE_PROJECT_CONFIG config_project_disable=$OPENCODE_CONFIG_PROJECT_DISABLE" >> "{{_dir.Path}}/seen.txt"
             """);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(bin, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        ScriptFile.Seal(bin);
         var config = _dir.Write("opencode.json", "{}");
         var psi = new ProcessStartInfo("sh") { WorkingDirectory = _dir.Path };
         foreach (var a in new[] { Repo.Path("scripts", "opencode-serve.sh"), bin, config, "4999" })

@@ -259,8 +259,7 @@ public class GoalSixTests
             done
             cat "{dir.Path}/events.jsonl"
             """);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        ScriptFile.Seal(script);
         return script;
     }
 }

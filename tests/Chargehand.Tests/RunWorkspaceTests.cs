@@ -96,7 +96,7 @@ public class RunWorkspaceTests
         using var _r = root;
         var hook = Path.Combine(ws.Directory, ".git", "hooks", "pre-commit");
         File.WriteAllText(hook, "#!/bin/sh\nexit 1\n");
-        File.SetUnixFileMode(hook, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        ScriptFile.Seal(hook);
         File.WriteAllText(Path.Combine(ws.Directory, "a.txt"), "a\n");
         Assert.NotNull(await ws.CommitAsync("feat: a", default));
     }

@@ -2,6 +2,7 @@ using Chargehand.Contracts;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Journal.Api;
+using Chargehand.Tests;
 
 namespace Chargehand.Modules.Handover.Tests;
 
@@ -55,8 +56,7 @@ public sealed class JournaledHandoverTests : IDisposable
     {
         var path = Path.Combine(_f.Remote, "hooks", hook);
         File.WriteAllText(path, $"#!/bin/sh\ncat > /dev/null\n: > '{Reached}'\nwhile [ -e '{HangFlag}' ]; do sleep 0.1; done\nexit 0\n");
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        ScriptFile.Seal(path);
         File.WriteAllText(HangFlag, "");
     }
 

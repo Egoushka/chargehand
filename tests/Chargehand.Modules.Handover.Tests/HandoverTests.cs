@@ -20,11 +20,7 @@ public class HandoverTests
 
     private static readonly string[] EvilHooks = ["post-checkout", "post-merge", "pre-push", "reference-transaction", "post-commit"];
 
-    private static void MakeExecutable(string path)
-    {
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-    }
+    private static void MakeExecutable(string path) => ScriptFile.Seal(path);
 
     private static (int Exit, string Out) Git(string dir, params string[] args)
     {
