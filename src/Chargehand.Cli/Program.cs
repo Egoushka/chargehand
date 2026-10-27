@@ -59,6 +59,9 @@ const string Usage = """
       why <path>:<line> [--repo <dir>] [--stream <stream.jsonl>]
                                    which run wrote that line (git blame, the commit's Chargehand-* trailers, then the run log's goal and the
                                    batch records' session); with --stream, the session messages that edited the file. Works without a profile
+      takeover <batch-run>/<task> [--repo <dir>] [--remote <name>] [--worktree <dir>]
+                                   a stalled driven task's pushed branch in a local worktree (<repo>/.claude/worktrees/takeover-<task>) with its
+                                   handoff in .chargehand/ (handoff.json, progress.md); prints the claude command that opens a session there
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
       cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
       routes [run-log.jsonl ...]   routing report per preset, node kind and model; suggestions only
@@ -209,6 +212,15 @@ if (argv is ["why", .. var whyArgs])
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Modules.Tasks.Api.WhyCli.RunAsync(whyArgs, new JsonlRunLog(whyLogPath), Path.Combine(Path.GetDirectoryName(Path.GetFullPath(whyLogPath))!, "records"),
         Directory.GetCurrentDirectory(), Console.Out, Console.Error, stop.Token);
+}
+// Reads the run log and git only: it needs no server (issue 443).
+if (argv is ["takeover", .. var takeoverArgs])
+{
+    var (_, takeoverLogPath) = InstallPaths.Resolve(Profile.Load(profilePath).RunLog, Directory.GetCurrentDirectory(), AppContext.BaseDirectory,
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify));
+    using var stop = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Modules.Batches.Api.TakeoverCli.RunAsync(takeoverArgs, new JsonlRunLog(takeoverLogPath), Directory.GetCurrentDirectory(), Console.Out, Console.Error, stop.Token);
 }
 if (argv is ["adopt", .. var adoptArgs])
 {
