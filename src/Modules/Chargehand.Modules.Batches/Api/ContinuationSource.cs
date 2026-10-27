@@ -47,7 +47,8 @@ public sealed class ContinuationSource(IRunLog log)
     {
         var kept = KeptWorkOf(entry?.Run?.Result);
         var asked = status == "needs_input";
-        var pushed = !asked && kept is null && status == "completed" ? PushedWorkOf(entry?.Run?.Result) : null;
+        // A task that failed after its push (issue #579) has a pull request a reviewer can ask changes of, as a completed one has.
+        var pushed = !asked && kept is null ? PushedWorkOf(entry?.Run?.Result) : null;
         if (!asked && kept is null && pushed is null)
             throw Refuse(task, $"ended {status.Replace('_', ' ')} and kept no work; only a task that ended needs_input, a partial one or a completed one with a pushed branch can continue");
         if (entry is not { Start: { } start, Run: { } run })

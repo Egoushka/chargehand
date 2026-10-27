@@ -383,6 +383,23 @@ public class ReviewRoundTests
     }
 
     [Fact]
+    public async Task A_task_that_failed_after_opening_its_pull_request_is_continued_by_a_round()
+    {
+        using var rig = new IntakeRig(Settings());
+        await rig.Poll();
+        var batch = Runs.DraftRequest() with { Context = new RequestContext(false, "driven", Repository: new RepositoryRef("/srv/repos/repo", rig.Heads.Commit)) };
+        rig.Log.Start("run-api", batch);
+        rig.Log.TaskRun("api-task-run", "run-api", "chargehand/api-task-run");
+        // Issue #579: the task failed after its handover; its row keeps the run, the branch and the pull request.
+        rig.Log.End("run-api", new TaskOutcome("t1", TaskState.Failed, "api-task-run", "the store broke", ErrorCode.Internal, 0, 1, "chargehand/api-task-run", "https://github.example.test/octo/repo/pull/20"));
+        rig.Pull(20, "chargehand/api-task-run");
+        rig.Review(20, "alice", "Fix this.");
+        await rig.Poll();
+
+        Assert.Equal(new ContinueFrom("run-api", "t1"), Assert.Single(rig.Starter.Started).Driven!.Tasks.Single().ContinueFrom);
+    }
+
+    [Fact]
     public async Task A_round_takes_a_slot_like_any_batch_and_waits_in_the_queue_for_one()
     {
         using var busy = await WithPullRequest(Settings(concurrent: 1));

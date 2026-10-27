@@ -20,6 +20,8 @@ public sealed partial class TaskRunner
     private async Task<TaskOutcome> FinishAsync(ResolvedTask task, TaskRun run, IProgress<TaskUsage> progress, CancellationToken ct)
     {
         var (partial, handoverRun, handed) = await HandOverTaskAsync(task, run, ct);
+        if (handed?.Status is HandoverStatus.Pushed or HandoverStatus.PrFailed)
+            run.Pushed = handed;
         var result = await ResultAsync(task, run, partial, handoverRun.RunId, handed, ct);
         var startNote = run.StartFailure is null ? null : $"; continuation {run.Continuation + 1} did not start";
         // A stall that would continue (ADR 0044) but left no commit has no branch to continue from; a re-plan (ADR 0049's chain, issue #432) replaces the plain continuation attempt.

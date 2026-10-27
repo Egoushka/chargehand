@@ -126,6 +126,9 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
 
         public string? LastHead { get; set; }
 
+        /// <summary>The handover, once its branch is pushed: a failure after it still names the run, the branch and the pull request (issue #579).</summary>
+        public HandoverOutcome? Pushed { get; set; }
+
         public string StackDirectory { get; set; } = "";
 
         public bool Ended { get; set; }
@@ -174,7 +177,9 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
         catch (Exception e)
         {
             Failed(task, run, e);
-            throw;
+            if (e is OperationCanceledException || run.Pushed is null)
+                throw;
+            return FailedAfterPush(task, run, e);
         }
         finally
         {
@@ -188,6 +193,15 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
         span?.SetTag("chargehand.task.id", task.Id);
         span?.SetTag("chargehand.task.ref", task.Ref);
         return span?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
+    }
+
+    /// <summary>The pull request is open: the batch result keeps the task's run and branch, so a review round or a CI fix can still find and continue it (issue #579).</summary>
+    private TaskOutcome FailedAfterPush(ResolvedTask task, TaskRun run, Exception e)
+    {
+        var error = ChargehandException.ErrorOf(e);
+        var spent = run.Total;
+        return new TaskOutcome(task.Id, TaskState.Failed, run.RunId, error.Message, error.Code, settings.Priced ? spent?.CostUsd ?? 0 : 0,
+            (spent?.InputTokens ?? 0) + (spent?.OutputTokens ?? 0), run.Pushed!.Branch, run.Pushed.PullRequest?.Url);
     }
 
     private void Failed(ResolvedTask task, TaskRun run, Exception e)
