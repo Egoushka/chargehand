@@ -51,10 +51,9 @@ records `admission`. The governor adds two checks that run in intake before the 
 
 **Safety nets** replace the removed count. Both pause *intake starts* only; running batches, rounds and CI fixes go on.
 
-- **Start-rate breaker.** More than `automation.github.max_starts_per_hour` (default 12) driven starts in the last hour pauses new starts (reason `breaker`)
-  and notifies the owner once. It clears when the hour's count falls under the limit. It bounds a loop, not spend; the account bounds spend.
-- **Failure breaker.** 3 failed batches in a row in one repository pause that repository's starts (reason `breaker`), with one comment on the
-  trigger and one notification. It clears when a task of that repository succeeds, or after `automation.github.breaker_cooldown_minutes` (default 120).
+- **Start-rate breaker.** More than `automation.github.max_starts_per_hour` (default 30) driven starts in the last hour pauses new starts (reason `breaker`)
+  and warns once in the server log; each held trigger gets one comment. It clears when the hour's count falls under the limit. It bounds a loop, not spend; the account bounds spend. The default is above what four slots start in a busy hour (27 labelled issues must still all start); a push notification through `automation.notify` is a follow-up.
+- **Failure breaker.** 3 failed batches in a row in one repository pause that repository's starts (reason `breaker`), with one warning in the server log and one comment on each held trigger. It clears when a task of that repository succeeds, or after `automation.github.breaker_cooldown_minutes` (default 120).
 - The existing limit of 3 rounds per pull request stays.
 
 **Visible reason.** A waiting trigger keeps its reason and detail in `Waiting` and on `/v1/intake`; none is marked handled. Reasons are checked in this order and the

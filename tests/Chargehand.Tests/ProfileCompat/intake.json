@@ -116,7 +116,9 @@
       "max_reviews_per_day": null,
       "discover": false,
       "max_review_backlog": 3,
-      "subscription_block": false
+      "subscription_block": false,
+      "max_starts_per_hour": 30,
+      "breaker_cooldown_minutes": 120
     },
     "schedules": null,
     "account": null,

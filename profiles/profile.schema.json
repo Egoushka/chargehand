@@ -426,6 +426,8 @@
             "max_reviews_per_day": { "type": "integer", "deprecated": true, "description": "Deprecated, ignored since 0.19.4: spend is bounded by automation.account's dollar caps (ADR 0076), which reviews are admitted as too; slots by max_concurrent (ADR 0081). Accepted so an older profile still loads." },
             "max_review_backlog": { "type": "integer", "minimum": 0, "maximum": 50, "description": "Pull requests chargehand opened that wait for a review, per repository, at which new driven starts wait (reason review_backlog, ADR 0084). A merge, a close or a review frees a place. 0 turns the check off. Default 3." },
             "subscription_block": { "type": "boolean", "description": "A new driven start while a running task reported a rate-limit pause that has not reset: false warns in the server log and goes on, true waits with reason subscription (ADR 0084). Default false." },
+            "max_starts_per_hour": { "type": "integer", "minimum": 0, "maximum": 1000, "description": "Driven starts in the last hour at which new starts wait (reason breaker, ADR 0084); a brake on a loop, not a budget. 0 turns it off. Default 30." },
+            "breaker_cooldown_minutes": { "type": "integer", "minimum": 1, "maximum": 10080, "description": "How long a repository whose last 3 batches failed holds new starts, counted from the last failure (reason breaker, ADR 0084). A later success ends the streak. Default 120." },
             "discover": { "type": "boolean", "description": "Also watch every repository the App's installations can see, each cloned into <worker_root>/repos/<owner>/<repo> and fetched with the App's token; repositories is then optional. Default false." }
           }
         },
