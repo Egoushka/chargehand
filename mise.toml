@@ -1,0 +1,4 @@
+# The toolchain a driven session installs for this repository (ADR 0078, driven.environment "mise"). .NET comes from global.json; Node is pinned here because mise
+# reads pin files at the repository root only, and must match web/console/.nvmrc (MisePinTests).
+[tools]
+node = "24.21.0"

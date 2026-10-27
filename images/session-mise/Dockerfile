@@ -1,7 +1,24 @@
 # The base image of ADR 0078 (driven.environment: "mise"): Debian, git, make, a C toolchain, curl, unzip, Python 3 and the mise binary, and no SDK. The toolchain a repository pins is
 # installed into its home volume (/home/session) by an install helper that runs this same image. Build from the repository root:
 #   docker build -f images/session-mise/Dockerfile -t chargehand-session-mise .
-# This step holds the base only; the driver and Claude Code layers come with the CI-as-verifier step.
+# The `chargehand session` driver is published self-contained, so the image holds no .NET a repository's own pin could collide with; Claude Code is its native binary.
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG TARGETARCH
+WORKDIR /src
+COPY . .
+RUN case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+         amd64) rid=linux-x64 ;; \
+         arm64) rid=linux-arm64 ;; \
+         *) echo "no .NET runtime for this architecture" >&2; exit 1 ;; \
+       esac \
+    && dotnet publish src/Chargehand.Cli -c Release -r "$rid" --self-contained -o /out
+
+# npm only fetches the binary for this platform; Node stays in this stage, so a repository's own Node pin is the only node on PATH.
+FROM node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS claude
+# Must match claude_code.version in the profile: the adapter refuses to run on a mismatch (ADR 0020).
+ARG CLAUDE_CODE_VERSION=2.1.283
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cache clean --force
+
 FROM debian:13-slim
 ARG MISE_VERSION=2026.10.17
 ARG MISE_SHA256_X64=fe6dd17e68e09682b31d2e7bb7bb755d22636ac1af5d94621e300f2ca9e9fe8a
@@ -20,7 +37,16 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --uid 10001 --create-home --home-dir /home/session --shell /bin/bash session \
     && mkdir -p /work /out && chown 10001:10001 /work /out
+COPY --from=build /out /opt/chargehand
+COPY --from=claude /usr/local/lib/node_modules/@anthropic-ai/claude-code /opt/claude-code
+COPY plugins/chargehand /opt/chargehand-plugin
+RUN ln -s /opt/claude-code/bin/claude.exe /usr/local/bin/claude \
+    && claude --version \
+    && /opt/chargehand/Chargehand.Cli session --probe /opt/chargehand/environment.json
 # The shims directory is on PATH: a tool the install helper put on the home volume resolves in a session without activation. The template sets MISE_DATA_DIR to the same place.
-ENV HOME=/home/session MISE_DATA_DIR=/home/session/.local/share/mise PATH=/home/session/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin DISABLE_AUTOUPDATER=1 DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+ENV HOME=/home/session MISE_DATA_DIR=/home/session/.local/share/mise PATH=/home/session/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin DISABLE_AUTOUPDATER=1 DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 USER 10001
 WORKDIR /work
+# The runner passes the verb: `session` for a session. The install helper replaces the entrypoint (ContainerTemplate.InstallEntrypoint).
+ENTRYPOINT ["/opt/chargehand/Chargehand.Cli"]
+CMD ["session"]

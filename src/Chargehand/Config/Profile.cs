@@ -337,7 +337,7 @@ public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string L
 /// <param name="Runners">ADR 0058: several runner services, each with its own limits, platform and the server's address as its egress reaches it; set instead of <c>Runner</c>, never with it.</param>
 /// <param name="ImageVariants">ADR 0058: for an image of <c>Images</c> (which <c>Services.Images</c> draws from), the image to use on a runner of another platform.</param>
 /// <param name="Environment">ADR 0078: <c>image</c> (the default, also when unset): the toolchains are the session image's. <c>mise</c>: the first of <c>Images</c> is the mise base image; an install helper installs what the repository
-/// pins into a per-repository home volume before each session, and <c>Services.Caches</c> and <c>Services.Images</c> are ignored.</param>
+/// pins into a per-repository home volume before each session, <c>Services.Caches</c> and <c>Services.Images</c> are ignored, and the repository's CI verifies (the driver runs the declared check before the push).</param>
 public sealed partial record DrivenSettings(
     bool Enabled = false,
     int MaxParallel = 2,
