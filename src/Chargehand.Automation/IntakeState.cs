@@ -12,8 +12,9 @@ public enum IntakePhase { Running, Asked, Done }
 /// <param name="PrUrl">The pull request the task opened, once it did.</param>
 /// <param name="Branch">The task's branch, once it pushed one; a review round's, from the start.</param>
 /// <param name="Round">The number of the review round this task is (shared with the CI fix attempts of the pull request); null for a task started from an issue. <paramref name="Issue"/> is then the pull request's number.</param>
+/// <param name="Trigger">The key of the trigger that started the task fresh from its issue; null for a continuation or a round. A run a restart lost is started again from it once (issue #557).</param>
 public sealed record IntakeTask(string Repository, int Issue, string BatchRunId, string TaskId, DateTimeOffset Started, string Size, IntakePhase Phase = IntakePhase.Running,
-    long? AskedCommentId = null, string? PrUrl = null, string? Branch = null, int? Round = null);
+    long? AskedCommentId = null, string? PrUrl = null, string? Branch = null, int? Round = null, string? Trigger = null);
 
 /// <summary>A review of a pull request's head commit that is running, or finished and not yet commented (ADR 0051). The run is a plain read-only run, not a driven batch.</summary>
 public sealed record PullReview(string Repository, int Pull, string Sha, string RunId, DateTimeOffset Started);
@@ -27,7 +28,8 @@ public sealed record PendingReview(string Id, string Repository, int Pull, strin
 /// <param name="Key">The trigger's key, as <see cref="IntakeState.Handled"/> will hold it once it starts.</param>
 /// <param name="Issue">The issue, or the pull request of a review round.</param>
 /// <param name="Since">When it first waited.</param>
-/// <param name="Reason"><c>max_concurrent</c> (no free slot), <c>admission</c> (the server or <c>automation.account</c> refused the start, ADR 0076) or <c>checkout</c> (the base commit could not be read).</param>
+/// <param name="Reason"><c>max_concurrent</c> (no free slot), <c>admission</c> (the server or <c>automation.account</c> refused the start, ADR 0076), <c>checkout</c> (the base commit could not be read)
+/// or <c>lost</c> (a restart lost the issue's run, which starts again once; issue #557).</param>
 /// <param name="Detail">The refusal as the server gave it, for <c>admission</c> and <c>checkout</c>.</param>
 public sealed record WaitingTrigger(string Key, string Repository, int Issue, DateTimeOffset Since, string Reason, string? Detail = null);
 

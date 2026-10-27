@@ -411,6 +411,7 @@ const WAIT_REASONS: Record<string, string> = {
   max_concurrent: 'no free slot',
   admission: 'refused by the account',
   checkout: 'base commit unreadable',
+  lost: 'run lost in a restart; starts again once',
 };
 
 function StartsPanel({ data }: { data: IntakeBody }) {

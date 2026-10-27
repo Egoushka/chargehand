@@ -325,6 +325,42 @@ public class GitHubIntakeTests
     }
 
     [Fact]
+    public async Task A_run_lost_in_a_restart_waits_in_the_queue_and_starts_again_once()
+    {
+        using var rig = new IntakeRig(Settings(concurrent: 1));
+        rig.Labeled(7, "alice", 41);
+        rig.Labeled(8, "alice", 42);
+        await rig.Poll();
+        var goal = rig.Starter.Started[0].Driven!.Tasks.Single().Goal;
+        // Issue #557: the server restarted before the batch had state to resume from.
+        rig.Log.Forget("run-1");
+        rig.Time.Advance(GitHubIntake.LostAfter + TimeSpan.FromMinutes(1));
+        rig.Restart();
+        await rig.Poll();
+
+        Assert.Single(rig.GitHub.Posted, p => p.Issue == 7 && p.Body.Contains("lost run `run-1`", StringComparison.Ordinal) && p.Body.Contains("starts the task again", StringComparison.Ordinal));
+        // The trigger that waited first takes the slot; the lost run waits in the state file, through a restart.
+        Assert.Equal(["issue-7", "issue-8"], rig.Starter.Started.Select(r => r.Driven!.Tasks.Single().Id));
+        Assert.Equal(7, Assert.Single(rig.State.Waiting).Issue);
+
+        rig.Restart();
+        rig.Log.End("run-2", IntakeRig.Pr("issue-8"));
+        await rig.Poll();
+
+        Assert.Equal(["issue-7", "issue-8", "issue-7"], rig.Starter.Started.Select(r => r.Driven!.Tasks.Single().Id));
+        Assert.Equal(goal, rig.Starter.Started[2].Driven!.Tasks.Single().Goal);
+        Assert.Empty(rig.State.Waiting);
+
+        rig.Log.Forget("run-3");
+        rig.Time.Advance(GitHubIntake.LostAfter + TimeSpan.FromMinutes(1));
+        await rig.Poll();
+
+        Assert.Single(rig.GitHub.Posted, p => p.Issue == 7 && p.Body.Contains("lost run `run-3`", StringComparison.Ordinal) && p.Body.Contains("to start the task again", StringComparison.Ordinal));
+        Assert.Equal(3, rig.Starter.Started.Count);
+        Assert.Empty(rig.State.Waiting);
+    }
+
+    [Fact]
     public async Task Triggers_over_the_concurrency_cap_wait_with_one_comment_and_start_when_a_slot_frees()
     {
         using var rig = new IntakeRig(Settings(concurrent: 1));

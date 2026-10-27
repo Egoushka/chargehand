@@ -18,7 +18,8 @@ export interface IntakeCaps {
 
 /**
  * A trigger that waits to start, oldest first: `max_concurrent` (no free slot), `admission` (the
- * server or `automation.account` refused the start) or `checkout`. `detail` is the refusal.
+ * server or `automation.account` refused the start), `checkout`, or `lost` (a restart lost the issue's run,
+ * which starts again once; `detail` is the lost run). Otherwise `detail` is the refusal.
  */
 export interface IntakeWaitingBody {
   trigger: string;

@@ -123,6 +123,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                 await LabelAsync(name, ct);
                 await LabelTriggersAsync(name, repository, starter, ct);
                 await CommentTriggersAsync(name, repository, starter, ct);
+                await LostAsync(name, repository, starter, ct);
                 if (settings.MaxReviewRounds > 0)
                 {
                     await ReviewCommentsAsync(name, ct);
@@ -264,7 +265,9 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         return await StartAsync(key, name, repository, issue, comment.Body, comment.Author, starter, ct);
     }
 
-    private async Task<Outcome> StartAsync(string key, string name, AutomationRepository repository, IntakeIssue issue, string? comment, string? commentAuthor, IBatchStarter starter, CancellationToken ct)
+    /// <param name="goal">The goal of a lost run that starts again; null: made from the issue.</param>
+    private async Task<Outcome> StartAsync(string key, string name, AutomationRepository repository, IntakeIssue issue, string? comment, string? commentAuthor, IBatchStarter starter, CancellationToken ct,
+        string? goal = null)
     {
         if (state.LatestFor(name, issue.Number) is { Phase: IntakePhase.Running } active)
         {
@@ -296,8 +299,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         }
         var size = IntakeGoal.SizeOf(issue.Labels) ?? settings.BudgetClass;
         var taskId = TaskId(issue.Number);
-        var goal = IntakeGoal.Issue(name, issue, comment, commentAuthor);
-        return await LaunchAsync(key, name, issue.Number, source, new DrivenTask(taskId, Goal: goal, Size: size), run => new IntakeTask(name, issue.Number, run, taskId, _time.GetUtcNow(), size),
+        goal ??= IntakeGoal.Issue(name, issue, comment, commentAuthor);
+        return await LaunchAsync(key, name, issue.Number, source, new DrivenTask(taskId, Goal: goal, Size: size), run => new IntakeTask(name, issue.Number, run, taskId, _time.GetUtcNow(), size, Trigger: key),
             starter, run => $"chargehand started run `{run}` (task `{taskId}`). It works on its own branch and opens a draft pull request when it is done, or asks here if it needs an answer.", null, null, ct);
     }
 
@@ -316,7 +319,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         }
         var taskId = TaskId(earlier.Issue);
         var task = new DrivenTask(taskId, Size: earlier.Size, Answers: [IntakeGoal.Answer(reply.Body)], ContinueFrom: new ContinueFrom(earlier.BatchRunId, earlier.TaskId));
-        return await LaunchAsync(key, name, earlier.Issue, repository, task, run => earlier with { BatchRunId = run, TaskId = taskId, Started = _time.GetUtcNow(), Phase = IntakePhase.Running, AskedCommentId = null, PrUrl = null },
+        return await LaunchAsync(key, name, earlier.Issue, repository, task, run => earlier with { BatchRunId = run, TaskId = taskId, Started = _time.GetUtcNow(), Phase = IntakePhase.Running, AskedCommentId = null, PrUrl = null, Trigger = null },
             starter, run => $"chargehand continues with your answer: run `{run}` (task `{taskId}`), on the same branch.", earlier, null, ct);
     }
 
@@ -562,6 +565,45 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
 
     private static string TaskId(int issue) => $"issue-{issue.ToString(CultureInfo.InvariantCulture)}";
 
+    private const string LostPrefix = "lost:";
+
+    /// <summary>A run a restart lost before its batch had state to resume from (issue #557) waits in the queue to start again, once: only a fresh start from an issue, never a run that was itself
+    /// such a second start. Kept before the comment that says so.</summary>
+    private bool Requeue(IntakeTask task)
+    {
+        if (task.Trigger is not { } trigger || trigger.StartsWith(LostPrefix, StringComparison.Ordinal))
+            return false;
+        var key = $"{LostPrefix}{task.Repository}#{task.Issue.ToString(CultureInfo.InvariantCulture)}:{task.BatchRunId}";
+        if (state.Waiting.All(w => w.Key != key))
+            state.Waiting.Add(new WaitingTrigger(key, task.Repository, task.Issue, _time.GetUtcNow(), "lost", task.BatchRunId));
+        Log(key, "queued", "lost");
+        state.Save(_time.GetUtcNow());
+        return true;
+    }
+
+    /// <summary>Starts the lost runs that wait in the queue, after the triggers that waited before them, with the goal the lost run had when the run log still holds it.</summary>
+    private async Task LostAsync(string name, AutomationRepository repository, IBatchStarter starter, CancellationToken ct)
+    {
+        foreach (var lost in state.Waiting.Where(w => w.Repository == name && w.Key.StartsWith(LostPrefix, StringComparison.Ordinal)).ToList())
+        {
+            _stillWaiting.Add(lost.Key);
+            IntakeIssue issue;
+            try
+            {
+                issue = await host.GetAsync(name, lost.Issue, ct);
+            }
+            catch (IntakeException e) when (e.Status is 404 or 410)
+            {
+                state.Waiting.Remove(lost);
+                Log(lost.Key, "ignored", "gone");
+                continue;
+            }
+            var run = lost.Key[(lost.Key.LastIndexOf(':') + 1)..];
+            var goal = (await log.ReadAsync(run, ct)).Start?.Request.Driven?.Tasks is [{ Goal: { } earlier }, ..] ? earlier : null;
+            await StartAsync(lost.Key, name, repository, issue, null, null, starter, ct, goal);
+        }
+    }
+
     /// <summary>Says how the batches that ended ended, and frees their slots.</summary>
     private async Task ReportEndedAsync(CancellationToken ct)
     {
@@ -587,7 +629,9 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var row = result is null ? null : RowOf(result, task.TaskId);
         var phase = IntakePhase.Done;
         string text;
-        if (result is null)
+        if (result is null && Requeue(task))
+            text = $"chargehand lost run `{task.BatchRunId}`: the server that ran it stopped and did not take it up again. chargehand starts the task again, once, when a slot is free.";
+        else if (result is null)
             text = $"chargehand lost run `{task.BatchRunId}`: the server that ran it stopped and did not take it up again. Comment {settings.Mention} to start the task again.";
         else if (row is null)
             text = $"chargehand's run `{task.BatchRunId}` ended without starting the task: {Cut(result.Error?.Message ?? result.Summary, MaxDetail)}";
