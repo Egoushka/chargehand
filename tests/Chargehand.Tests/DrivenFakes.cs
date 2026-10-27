@@ -23,9 +23,15 @@ internal static class DrivenFakes
         private readonly object _gate = new();
         private readonly HashSet<string> _stopped = [];
 
-        public List<string> Calls { get; } = [];
-        public List<ContainerSpec> Started { get; } = [];
-        public List<EgressSpec> Egresses { get; } = [];
+        // Calls arrive from several tasks while a test reads them: each read is a copy taken under the lock the writes hold.
+        private readonly List<string> _calls = [];
+        private readonly List<ContainerSpec> _started = [];
+        private readonly List<EgressSpec> _egresses = [];
+        private readonly List<ServiceSpec> _services = [];
+
+        public List<string> Calls { get { lock (_gate) return [.. _calls]; } }
+        public List<ContainerSpec> Started { get { lock (_gate) return [.. _started]; } }
+        public List<EgressSpec> Egresses { get { lock (_gate) return [.. _egresses]; } }
         public bool HoldRunning { get; set; }
         /// <summary>Each container answers running to this many inspections before it exits.</summary>
         public int RunFor { get; set; }
@@ -57,10 +63,10 @@ internal static class DrivenFakes
         private void Record(string call)
         {
             lock (_gate)
-                Calls.Add(call);
+                _calls.Add(call);
         }
 
-        public List<ServiceSpec> Services { get; } = [];
+        public List<ServiceSpec> Services { get { lock (_gate) return [.. _services]; } }
 
         /// <summary>What a service's start throws; null: it starts.</summary>
         public Func<ServiceSpec, Exception?>? OnService { get; set; }
@@ -70,7 +76,7 @@ internal static class DrivenFakes
             if (OnService?.Invoke(spec) is { } failure)
                 throw failure;
             lock (_gate)
-                Services.Add(spec);
+                _services.Add(spec);
             Record($"service {spec.Name}");
             return Task.FromResult($"cid-svc-{spec.Name}");
         }
@@ -78,16 +84,16 @@ internal static class DrivenFakes
         public Task<string> StartAsync(ContainerSpec spec, CancellationToken ct)
         {
             lock (_gate)
-                Started.Add(spec);
+                _started.Add(spec);
             Record($"start {spec.RunId}");
             lock (_gate)
-                if (Started.Count == HoldNth)
+                if (_started.Count == HoldNth)
                     _held.Add($"cid-{spec.RunId}");
             if (CancelOnStart)
                 throw new OperationCanceledException();
             int number;
             lock (_gate)
-                number = Started.Count;
+                number = _started.Count;
             if (OnStart?.Invoke(number) is { } failure)
                 throw failure;
             return Task.FromResult($"cid-{spec.RunId}");
@@ -156,7 +162,7 @@ internal static class DrivenFakes
         public Task RemoveVolumeAsync(string name, CancellationToken ct) { Record($"volume-rm {name}"); return Task.CompletedTask; }
         public Task CreateNetworkAsync(string name, string batchId, CancellationToken ct) { Record($"network {name}"); return Task.CompletedTask; }
         public Task RemoveNetworkAsync(string name, CancellationToken ct) { Record($"network-rm {name}"); return Task.CompletedTask; }
-        public Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct) { lock (_gate) Egresses.Add(spec); Record($"egress {spec.BatchId} [{string.Join(' ', spec.Forwards ?? [])}]"); return Task.FromResult("egress-1"); }
+        public Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct) { lock (_gate) _egresses.Add(spec); Record($"egress {spec.BatchId} [{string.Join(' ', spec.Forwards ?? [])}]"); return Task.FromResult("egress-1"); }
         public Task ConnectNetworkAsync(string container, string network, CancellationToken ct) { Record($"connect {container} {network}"); return Task.CompletedTask; }
         public Task PrepareWorkspaceAsync(WorkspaceSpec spec, CancellationToken ct) { Record($"prepare {spec.RunId} {spec.Branch} {spec.Commit}"); return Task.CompletedTask; }
     }
