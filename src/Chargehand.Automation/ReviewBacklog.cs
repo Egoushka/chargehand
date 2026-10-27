@@ -4,7 +4,7 @@ using Chargehand.Modules.Intake.Api;
 namespace Chargehand.Automation;
 
 /// <summary>The review-backlog check of the intake governor (ADR 0084): how many pull requests chargehand opened in a repository wait for someone to review them. Read once per poll and repository.</summary>
-internal sealed class ReviewBacklog(AutomationGitHub settings, IIntakeHost host)
+internal sealed class ReviewBacklog(AutomationGitHub settings, IIntakeHost host, IntakeState state)
 {
     private readonly Dictionary<string, int> _counts = [];
 
@@ -17,10 +17,12 @@ internal sealed class ReviewBacklog(AutomationGitHub settings, IIntakeHost host)
             return null;
         if (!_counts.TryGetValue(repository, out var count))
             _counts[repository] = count = await CountAsync(repository, ct);
-        return count >= settings.MaxReviewBacklog ? $"{count.ToString(CultureInfo.InvariantCulture)} pull requests await review (limit {settings.MaxReviewBacklog.ToString(CultureInfo.InvariantCulture)})" : null;
+        // A task still running will open a pull request: counting it admits one item per place that frees, not every waiting item at once. Read fresh, so a start of this poll counts.
+        count += state.Tasks.Count(t => t is { Phase: IntakePhase.Running, Round: null } && t.Repository == repository);
+        return count >= settings.MaxReviewBacklog ? $"{count.ToString(CultureInfo.InvariantCulture)} pull requests await review or are being written (limit {settings.MaxReviewBacklog.ToString(CultureInfo.InvariantCulture)})" : null;
     }
 
-    /// <summary>Open, chargehand's own branch, and no review yet from an allowed author.</summary>
+    /// <summary>Open, chargehand's own branch, and no review yet from an allowed author; the tasks that run and have not opened theirs are added in <see cref="HoldAsync"/>.</summary>
     private async Task<int> CountAsync(string repository, CancellationToken ct)
     {
         var count = 0;

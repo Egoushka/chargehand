@@ -43,7 +43,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private readonly Dictionary<(string Repository, int Number), IntakePull> _pulls = [];
     private readonly CheckoutSources _checkouts = new(heads, clones, "intake", warn ?? Warned, info ?? Informed);
     private readonly PullReviews _reviews = new(settings, host, log, state, clock ?? TimeProvider.System, warn ?? Warned);
-    private readonly ReviewBacklog _backlog = new(settings, host);
+    private readonly ReviewBacklog _backlog = new(settings, host, state);
     private readonly IntakeBreakers _breakers = new(settings, state, clock ?? TimeProvider.System, warn ?? Warned);
     private DateTimeOffset? _warnedPause;
 
