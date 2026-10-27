@@ -37,6 +37,9 @@ public sealed class StdioMcpTests : IAsyncDisposable
         return await McpClient.CreateAsync(new StreamClientTransport(_toServer.Writer.AsStream(), _toClient.Reader.AsStream()),
             new McpClientOptions
             {
+                // Not left to fall back to the 2025-11-25 handshake (no tasks) when the discover probe is slow on a loaded machine.
+                ProtocolVersion = "2026-07-28",
+                DiscoverProbeTimeout = TimeSpan.FromSeconds(60),
                 Handlers = new McpClientHandlers
                 {
                     ElicitationHandler = asked is null ? null : (p, _) =>
