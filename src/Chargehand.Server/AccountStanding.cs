@@ -12,8 +12,9 @@ public sealed record AccountLimits(decimal? MaxUsdPerDay, decimal? MaxUsdPerMont
 
 public sealed record StandingSpend(WindowSpend Day, WindowSpend Month);
 
-/// <param name="Usd">Priced usage only: a subscription run adds none, so a token cap is the bound that always binds.</param>
-public sealed record WindowSpend(decimal Usd, long Tokens, DateTimeOffset ResetsAt);
+/// <param name="Usd">What an API key was billed (ADR 0082): a subscription call adds none, so a token cap is the bound that always binds.</param>
+/// <param name="UsdAtApiPrice">Every call at the profile's price table, whoever paid; equals <paramref name="Usd"/> when no subscription ran.</param>
+public sealed record WindowSpend(decimal Usd, long Tokens, DateTimeOffset ResetsAt, decimal UsdAtApiPrice = 0);
 
 /// <summary>The caller's own standing (ADR 0054), from the same spend the caps are checked against (ADR 0050). The owner has no caps; its spend is that of runs recorded as owner.</summary>
 public static class AccountStanding
@@ -27,7 +28,7 @@ public static class AccountStanding
         var a = who.Account;
         return new(who.Name, who.IsOwner, a?.Driven ?? true, a?.Repositories,
             new(a?.MaxUsdPerDay, a?.MaxUsdPerMonth, a?.MaxTokensPerDay, a?.MaxTokensPerMonth, a?.MaxConcurrentRuns),
-            new(new(day.Usd, day.Tokens, AccountPolicy.NextDay(now)), new(month.Usd, month.Tokens, AccountPolicy.NextMonth(now))),
+            new(new(day.Usd, day.Tokens, AccountPolicy.NextDay(now), day.UsdAtApiPrice), new(month.Usd, month.Tokens, AccountPolicy.NextMonth(now), month.UsdAtApiPrice)),
             runs.Unfinished(who.Name), runs.Halted, runs.Presets(), SpendForecasts.Of(month.Usd, trailing.Usd, a?.MaxUsdPerMonth, now));
     }
 }

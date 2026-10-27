@@ -1,4 +1,5 @@
 import type { AccountBody, KeyBody } from '../../api/common';
+import type { WindowSpend } from '../../api/types';
 import { baseName, capLevel, formatPercent, formatTokens, formatUsd } from '../../lib/format';
 import type { Status } from '../../lib/status';
 
@@ -172,12 +173,12 @@ export const capsRows = (account: AccountBody): Array<[string, string]> => {
   const { limits, spend } = account;
   const row = (cap: number | undefined, show: (n: number) => string): string =>
     cap == null ? 'no cap' : show(cap);
+  const billed = (w: WindowSpend, cap: number | undefined): string =>
+    `${formatUsd(w.usd)} billed of ${row(cap, formatUsd)}` +
+    (w.usd_at_api_price == null ? '' : `, ${formatUsd(w.usd_at_api_price)} at API price`);
   return [
-    ['Dollars per day', `${formatUsd(spend.day.usd)} of ${row(limits.max_usd_per_day, formatUsd)}`],
-    [
-      'Dollars per month',
-      `${formatUsd(spend.month.usd)} of ${row(limits.max_usd_per_month, formatUsd)}`,
-    ],
+    ['Dollars per day', billed(spend.day, limits.max_usd_per_day)],
+    ['Dollars per month', billed(spend.month, limits.max_usd_per_month)],
     [
       'Tokens per day',
       `${formatTokens(spend.day.tokens)} of ${row(limits.max_tokens_per_day, formatTokens)}`,

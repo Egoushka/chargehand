@@ -88,12 +88,14 @@ public sealed class Orchestrator(
         IntakeOutcome? intake = null;
         TaskAction? executed = null;
         Enhanced? enhanced = null;
+        string? credential = null;
         try
         {
             if (request.Driven is not null)
                 throw new ChargehandException(ErrorCode.InvalidRequest, "a request with a driven block runs only through chargehand serve", "Send it to the server's POST /v1/runs or its MCP tool.");
             // The account's own credential, or a refusal, before anything is spent (ADR 0053).
             var worker = runtimeFor?.Invoke(actor) ?? runtime;
+            credential = worker.Credential;
             var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
             var (kindName, kind) = AnswerKind(preset);
             // A writing preset without a sandbox is refused before anything is spent (ADR 0035).
@@ -184,7 +186,7 @@ public sealed class Orchestrator(
         run?.SetTag("chargehand.action", executed is null ? null : Name(executed.Value));
         // A caller's cancel must not stop the record of it from being written.
         await runLog.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, presetName, intake?.Spec is null ? null : Name(intake.Spec.Action), intake?.Spec, result,
-            executed is null ? null : Name(executed.Value), extensions.ToReport(), actor), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
+            executed is null ? null : Name(executed.Value), extensions.ToReport(), actor, credential), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
         await ReportOutcome(enhanced, result, executed);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
@@ -385,7 +387,7 @@ public sealed class Orchestrator(
                 var usd = prices.PriceUsd(m.Model ?? modelLabel, m.Tokens!);
                 var latency = ((m.Completed ?? m.Created) - m.Created).TotalMilliseconds;
                 await runLog.AppendAsync(new CallRecord(runId, node.Id, kindName, nodeResult.SessionId, m.Id, m.Model ?? modelLabel, m.Created, latency, m.Tokens, usd, chain,
-                    nodeResult.ForkedFrom, instructionRefs), token);
+                    nodeResult.ForkedFrom, instructionRefs, worker.Credential), token);
                 using var call = Telemetry.Source.StartActivity("chargehand.call", ActivityKind.Client, span?.Context ?? default, startTime: m.Created);
                 TagChain(call, chain);
                 call?.SetTag("langfuse.session.id", nodeResult.SessionId);

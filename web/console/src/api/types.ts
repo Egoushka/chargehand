@@ -142,7 +142,10 @@ export type RunReply =
   | { state: 'lost'; status: RunStatus };
 
 export interface WindowSpend {
+  /** Billed to an API key; a subscription call adds none (ADR 0082). */
   usd: number;
+  /** Every call at the price table, whoever paid; absent from an older server. */
+  usd_at_api_price?: number;
   tokens: number;
   resets_at: string;
 }
