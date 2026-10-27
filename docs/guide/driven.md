@@ -245,6 +245,10 @@ A session that ends with a question (`needs_input`) after committing is handed o
 
 `POST /v1/runs/{id}/cancel` cancels a run; `POST /v1/halt` cancels every run and refuses new ones until `POST /v1/resume`; `GET /v1/runs` lists runs with state, cost, branch and pull-request link. `chargehand runs kill --all` removes the containers by label with no server. Cancel never pushes. The cancelled batch's result says `cancelled`, not `tasks_incomplete`.
 
+### Taking a stalled task over
+
+When a task ends `failed` or `needs_input` with its branch pushed and you would rather finish it yourself than send it round again, run `chargehand takeover <batch-run-id>/<task-id>` in a clone of the repository. It reads the run log, fetches the task's branch from `origin`, checks it out in `.claude/worktrees/takeover-<task>` (`--worktree`, `--remote` and `--repo` change that) and writes `.chargehand/handoff.json` and `.chargehand/progress.md` there. They are built by the same code as the driver's own handoff, from git (base and head commits, commit subjects, changed paths), with the task's goal and the questions its session asked at the top; the session's tool calls and steps are not known after the fact, so those lists are empty. The directory is added to the worktree's `info/exclude`, so it is never committed. The command ends by printing `cd <worktree> && claude "..."`, which opens a session that reads `progress.md` first. A task that completed, or stopped without a pushed branch (its work is only in a runner's output volume), is refused. The console's task page shows the same command behind a **Take over** button for a failed or `needs_input` task that has a branch.
+
 ### Answering a question
 
 A session that cannot go on without a person ends `needs_input`: the batch is `failed` with `tasks_incomplete`, the task's result is `needs_input` with the questions, and a `question` event carries them while the batch still runs. With commits on its branch, the task is also handed over as a `[partial]` draft pull request (above). The answer is a new batch with a task that continues the old one:

@@ -232,6 +232,24 @@ describe('a task as a page', () => {
     expect(await screen.findByText('Branch name copied')).toBeTruthy();
   });
 
+  it('shows the takeover command for a stalled task with a branch, and not for a finished one', async () => {
+    const stalled = taskDetail(BATCH_A, 't2-retry-policy');
+    serve({}, { 't2-retry-policy': { task: { ...stalled.task, state: 'failed' } } });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    const first = renderConsole(page('t2-retry-policy'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Take over' }));
+    const command = `chargehand takeover ${BATCH_A}/t2-retry-policy`;
+    expect(screen.getByText(command)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy the takeover command' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(command));
+    first.unmount();
+    serve();
+    renderConsole(page('t2-retry-policy'));
+    await screen.findByRole('heading', { level: 1, name: 't2-retry-policy' });
+    expect(screen.queryByRole('button', { name: 'Take over' })).toBeNull();
+  });
+
   it('shows the events of the task, or says the server holds none', async () => {
     serve();
     const first = renderConsole(page('t3-memory-ttl'));

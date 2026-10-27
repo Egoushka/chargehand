@@ -362,6 +362,9 @@ function Overview({
                       )
                     }
                   />
+                  {task.state === 'failed' || task.state === 'needs_input' ? (
+                    <TakeOver batchId={detail.batch_run_id} taskId={task.id} />
+                  ) : null}
                 </span>
               ) : (
                 <span key="b" className="dim">
@@ -465,6 +468,34 @@ function Overview({
           ]}
         />
       </section>
+    </>
+  );
+}
+
+/** The CLI command that checks a stalled task's branch out into a local worktree with its handoff and prints how to open a Claude Code session there. */
+function TakeOver({ batchId, taskId }: { batchId: string; taskId: string }) {
+  const [open, setOpen] = useState(false);
+  const toast = useToast();
+  const command = `chargehand takeover ${batchId}/${taskId}`;
+  return (
+    <>
+      <Button size="sm" label="Take over" onClick={() => setOpen((v) => !v)} aria-expanded={open} />
+      {open ? (
+        <span className="row">
+          <code className="mono">{command}</code>
+          <IconButton
+            icon="copy"
+            size="sm"
+            label="Copy the takeover command"
+            onClick={() =>
+              navigator.clipboard.writeText(command).then(
+                () => toast.push({ tone: 'ok', icon: 'check', title: 'Command copied' }),
+                () => toast.push({ tone: 'warn', icon: 'alert-triangle', title: 'Cannot copy' }),
+              )
+            }
+          />
+        </span>
+      ) : null}
     </>
   );
 }
