@@ -1,4 +1,4 @@
-import type { BatchTaskBody } from '../../api/batch';
+import type { BatchTaskBody, GovernorDecisionBody } from '../../api/batch';
 import type { BatchTaskDetailBody } from '../../api/batch-task';
 import type { RunStatus } from '../../api/types';
 import { formatClock } from '../../lib/format';
@@ -46,6 +46,52 @@ export function turnsSeries(events: readonly RunStatus[]): number[] {
     .filter((e) => e.event === 'session_progress' && typeof e.turns === 'number')
     .sort((a, b) => Date.parse(a.at ?? '') - Date.parse(b.at ?? ''))
     .map((e) => e.turns as number);
+}
+
+export interface FlightPoint {
+  at: string;
+  turns: number;
+  tokens: number | null;
+  usd: number | null;
+}
+
+export interface FlightStage {
+  stage: string;
+  turn: number;
+  at: string;
+}
+
+export interface FlightRecord {
+  points: FlightPoint[];
+  /** Where the session moved to another step of the change skill. */
+  stages: FlightStage[];
+  /** The governor's decisions, in the order the sessions made them. */
+  marks: GovernorDecisionBody[];
+}
+
+/** The task's flight: its progress events oldest first (the ones with turns), the stage changes among them, and the governor's log. */
+export function flightRecord(
+  events: readonly RunStatus[],
+  log: readonly GovernorDecisionBody[] | null | undefined,
+): FlightRecord {
+  const progress = events
+    .filter((e) => e.event === 'session_progress' && typeof e.turns === 'number' && e.at)
+    .sort((a, b) => Date.parse(a.at ?? '') - Date.parse(b.at ?? ''));
+  const stages: FlightStage[] = [];
+  for (const e of progress) {
+    if (e.stage && e.stage !== stages.at(-1)?.stage)
+      stages.push({ stage: e.stage, turn: e.turns as number, at: e.at as string });
+  }
+  return {
+    points: progress.map((e) => ({
+      at: e.at as string,
+      turns: e.turns as number,
+      tokens: typeof e.tokens === 'number' ? e.tokens : null,
+      usd: typeof e.usd_estimate === 'number' ? e.usd_estimate : null,
+    })),
+    stages,
+    marks: [...(log ?? [])].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)),
+  };
 }
 
 /** One answer for each question, none of them empty. */

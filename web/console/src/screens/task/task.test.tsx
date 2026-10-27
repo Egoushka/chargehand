@@ -9,6 +9,7 @@ import { viewport } from '../../testing/viewport';
 import {
   answerPreview,
   answersReady,
+  flightRecord,
   sessionRows,
   sessionText,
   TERMINAL,
@@ -78,6 +79,52 @@ describe('the task model', () => {
     });
     expect(turnsSeries([at(3, 30), at(1, 10), at(2, 20)])).toEqual([10, 20, 30]);
     expect(turnsSeries(batchEvents().filter((e) => e.event === 'governor'))).toEqual([]);
+  });
+
+  it('records the flight: one point per progress event, stage changes, and the governor marks', () => {
+    const at = (min: number) => new Date(Date.UTC(2026, 9, 13, 10, min)).toISOString();
+    const progress = (min: number, turns: number, extra: object) => ({
+      contract_version: 'run-status/v1' as const,
+      run_id: 'r',
+      status: 'running' as const,
+      event: 'session_progress' as const,
+      task_id: 't',
+      at: at(min),
+      turns,
+      ...extra,
+    });
+    const record = flightRecord(
+      [
+        progress(3, 30, { tokens: 300, usd_estimate: 0.9, stage: 'test' }),
+        progress(1, 10, { tokens: 100, usd_estimate: 0.2, stage: 'research' }),
+        progress(2, 20, { tokens: 200, usd_estimate: 0.5, stage: 'research' }),
+        { ...progress(4, 40, {}), turns: undefined, detail: 'the runner does not answer' },
+      ],
+      [
+        {
+          at: at(2),
+          session: 's',
+          turn: 20,
+          mode: 'observe',
+          action: 'warn',
+          signal: 'spend',
+          rule: 'r',
+          values: {},
+          acted: false,
+        },
+      ],
+    );
+    expect(record.points.map((p) => [p.turns, p.tokens, p.usd])).toEqual([
+      [10, 100, 0.2],
+      [20, 200, 0.5],
+      [30, 300, 0.9],
+    ]);
+    expect(record.stages.map((s) => [s.stage, s.turn])).toEqual([
+      ['research', 10],
+      ['test', 30],
+    ]);
+    expect(record.marks.map((m) => [m.turn, m.action, m.signal])).toEqual([[20, 'warn', 'spend']]);
+    expect(flightRecord([], null)).toEqual({ points: [], stages: [], marks: [] });
   });
 
   it('wants one non-empty answer for each question', () => {
@@ -259,6 +306,78 @@ describe('a task as a page', () => {
     serve({}, { 't3-memory-ttl': { timeline: { available: false, total: 0, events: [] } } });
     renderConsole(page('t3-memory-ttl'));
     expect(await screen.findByText('The events are not held')).toBeTruthy();
+  });
+
+  it('shows the flight recorder of a task, and says what it does not record', async () => {
+    const base = taskDetail(BATCH_A, 't4-metrics');
+    const at = (min: number) => new Date(Date.UTC(2026, 9, 13, 10, min)).toISOString();
+    const progress = (min: number, turns: number, stage: 'research' | 'write' | 'test') => ({
+      contract_version: 'run-status/v1' as const,
+      run_id: BATCH_A,
+      status: 'running' as const,
+      event: 'session_progress' as const,
+      task_id: 't4-metrics',
+      at: at(min),
+      turns,
+      tokens: turns * 10_000,
+      usd_estimate: turns * 0.02,
+      stage,
+    });
+    serve(
+      {},
+      {
+        't4-metrics': {
+          task: {
+            ...base.task,
+            governor: {
+              mode: 'observe',
+              decisions: [],
+              log: [
+                {
+                  at: at(2),
+                  session: 's',
+                  turn: 20,
+                  mode: 'observe',
+                  action: 'checkpoint',
+                  signal: 'context',
+                  rule: 'context-checkpoint',
+                  values: {},
+                  acted: false,
+                },
+              ],
+            },
+          },
+          timeline: {
+            available: true,
+            total: 3,
+            events: [
+              progress(1, 10, 'research'),
+              progress(2, 20, 'write'),
+              progress(3, 30, 'test'),
+            ],
+          },
+        },
+      },
+    );
+    renderConsole(page('t4-metrics'));
+    const recorder = await screen.findByRole('region', { name: 'Flight recorder' });
+    expect(within(recorder).getByRole('img', { name: 'turns over time, now 30' })).toBeTruthy();
+    expect(
+      within(recorder).getByRole('img', { name: /spend over time, now ≈ \$0\.60/ }),
+    ).toBeTruthy();
+    expect(within(recorder).getByRole('img', { name: /tokens over time, now 300/ })).toBeTruthy();
+    expect(within(recorder).getByText(/checkpoint · context · turn 20/)).toBeTruthy();
+    expect(within(recorder).getByText(/stage write from turn 20/)).toBeTruthy();
+    expect(within(recorder).getByText(/Tool calls and diff growth are not recorded/)).toBeTruthy();
+  });
+
+  it('keeps the flight recorder on a phone without a fixed width', async () => {
+    viewport(true);
+    serve();
+    renderConsole(page('t4-metrics'));
+    const recorder = await screen.findByRole('region', { name: 'Flight recorder' });
+    expect(recorder.className).toContain('flight');
+    expect(within(recorder).getByText(/Too few progress events to draw/)).toBeTruthy();
   });
 
   it('has a 44 px footer on a phone', async () => {
