@@ -30,8 +30,19 @@ public interface IRunLog
 }
 
 /// <summary>An account's spend in a window: finished runs by their result's usage, unfinished ones by their calls so far. A task or call of a driven batch is not counted
-/// apart: the batch's result holds its cost. <c>Usd</c> counts only priced usage (a subscription run adds none), so a token cap is the bound that always binds.</summary>
-public sealed record ActorSpend(decimal Usd, long Tokens);
+/// apart: the batch's result holds its cost. <c>Usd</c> counts only what an API key was billed (ADR 0082): a subscription call adds tokens and no dollars, so a token cap is the
+/// bound that always binds there. <c>UsdAtApiPrice</c> is every call at the profile's table, whoever paid.</summary>
+public sealed record ActorSpend(decimal Usd, long Tokens, decimal UsdAtApiPrice = 0);
+
+/// <summary>Which credential paid for a call or run, from the runtime's auth source and never from the model's name.</summary>
+public static class CredentialKind
+{
+    public const string ApiKey = "api_key";
+    public const string Subscription = "subscription";
+
+    /// <summary>Whether the record's dollars were billed: a record from before the field was an API-priced one.</summary>
+    public static bool Billed(string? credential) => credential != Subscription;
+}
 
 /// <param name="Status">Only runs in this state; null for all.</param>
 /// <param name="Since">Only runs started at or after this time.</param>
@@ -80,6 +91,7 @@ public static class ProcessBoot
 /// <param name="Tokens">Null for calls whose usage OpenCode does not report (intake via generate).</param>
 /// <param name="Usd">Priced with the profile's table; null when tokens are unknown.</param>
 /// <param name="ForkedFrom">The session this call's session was forked from, if any (cache report).</param>
+/// <param name="Credential">The <see cref="CredentialKind"/> that paid; null on a record from before it existed (counts as an API key).</param>
 /// <param name="Instructions">The node's instruction entries by key, hashed, in the order they were set (cache report).</param>
 public sealed record CallRecord(
     string RunId,
@@ -94,7 +106,8 @@ public sealed record CallRecord(
     decimal? Usd,
     PromptChain PromptChain,
     string? ForkedFrom = null,
-    IReadOnlyList<InstructionRef>? Instructions = null)
+    IReadOnlyList<InstructionRef>? Instructions = null,
+    string? Credential = null)
 {
     public long? PromptTokens => Tokens is null ? null : Tokens.Input + Tokens.CacheRead + Tokens.CacheWrite;
 
@@ -103,6 +116,7 @@ public sealed record CallRecord(
 
 public sealed record InstructionRef(string Key, string Sha256);
 
+/// <param name="Credential">The <see cref="CredentialKind"/> that paid for the run; null on a record from before it existed (counts as an API key).</param>
 /// <param name="ExecutedAction">What ran: intake's action, or "answer" when the preset or the split plan did not allow it.</param>
 public sealed record RunRecord(
     string RunId,
@@ -114,7 +128,8 @@ public sealed record RunRecord(
     ResultContract Result,
     string? ExecutedAction = null,
     ExtensionsReport? Extensions = null,
-    string? Actor = null);
+    string? Actor = null,
+    string? Credential = null);
 
 /// <summary>What the profile's extensions did in one run, for the run log and <c>chargehand show</c> (goal 0.6). Null on a record from before it existed.</summary>
 public sealed record ExtensionsReport(IReadOnlyList<MemoryReport> Memory, IReadOnlyList<ServiceReport> Services)

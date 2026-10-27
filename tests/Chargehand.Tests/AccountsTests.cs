@@ -41,12 +41,32 @@ public class AccountsTests
     }
 
     /// <summary>A finished run of <paramref name="actor"/>, as the log would hold it.</summary>
-    private static async Task Seed(JsonlRunLog log, string runId, string? actor, DateTimeOffset finished, decimal usd, long tokens = 0, string? parent = null, RunRequest? request = null)
+    private static async Task Seed(JsonlRunLog log, string runId, string? actor, DateTimeOffset finished, decimal usd, long tokens = 0, string? parent = null, RunRequest? request = null, string? credential = null)
     {
         var req = request ?? Runs.DraftRequest();
         await log.AppendAsync(new StartRecord(runId, finished.AddMinutes(-1), new string('0', 32), req, 1, parent, "earlier-boot", actor), CancellationToken.None);
         var result = Runs.Completed() with { TaskId = runId, Usage = new Usage(tokens, 0, 0, 0, usd), Actor = actor };
-        await log.AppendAsync(new RunRecord(runId, finished.AddMinutes(-1), finished, req.Context.Preset, null, null, result, Actor: actor), CancellationToken.None);
+        await log.AppendAsync(new RunRecord(runId, finished.AddMinutes(-1), finished, req.Context.Preset, null, null, result, Actor: actor, Credential: credential), CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Spend_counts_dollars_of_api_key_runs_only_and_tokens_of_both_with_the_subscription_at_api_price_beside()
+    {
+        using var dir = new TempDir();
+        var log = new JsonlRunLog(System.IO.Path.Combine(dir.Path, "log.jsonl"));
+        await Seed(log, "run-api", "alice", Now, 1.25m, tokens: 100, credential: CredentialKind.ApiKey);
+        await Seed(log, "run-sub", "alice", Now, 8m, tokens: 400, credential: CredentialKind.Subscription);
+        await Seed(log, "run-old", "alice", Now, 0.5m, tokens: 10);
+        await log.AppendAsync(new StartRecord("run-live", Now.AddHours(-1), new string('0', 32), Runs.DraftRequest(), Environment.ProcessId, BootId: ProcessBoot.Id, Actor: "alice"), CancellationToken.None);
+        var chain = new PromptChain([], new AsSent("v", "a", "m", "d"));
+        await log.AppendAsync(new CallRecord("run-live", "n1", "worker", null, null, "p/small", Now.AddMinutes(-30), 1, new TokenCounts(70, 30, 0, 0, 0), 0.2m, chain, Credential: CredentialKind.ApiKey), CancellationToken.None);
+        await log.AppendAsync(new CallRecord("run-live", "n2", "worker", null, null, "p/small", Now.AddMinutes(-20), 1, new TokenCounts(70, 30, 0, 0, 0), 3m, chain, Credential: CredentialKind.Subscription), CancellationToken.None);
+
+        var spend = await log.SpendAsync("alice", Now.AddHours(-12), CancellationToken.None);
+
+        Assert.Equal(1.25m + 0.5m + 0.2m, spend.Usd);
+        Assert.Equal(1.25m + 8m + 0.5m + 0.2m + 3m, spend.UsdAtApiPrice);
+        Assert.Equal(100 + 400 + 10 + 200, spend.Tokens);
     }
 
     private static string Key(TestServer s, string account) => s.Keys.Create(account, null).Key;

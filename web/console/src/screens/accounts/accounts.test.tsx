@@ -152,11 +152,18 @@ describe('accounts model', () => {
 
   it('lists every cap with the spend against it', () => {
     const rows = Object.fromEntries(capsRows(byName('ci-bot')));
-    expect(rows['Dollars per day']).toBe('$9.40 of $10.00');
-    expect(rows['Dollars per month']).toBe('$61.20 of $100.00');
+    expect(rows['Dollars per day']).toBe('$9.40 billed of $10.00');
+    expect(rows['Dollars per month']).toBe('$61.20 billed of $100.00');
     expect(rows['Tokens per day']).toBe('1.88M of 8M');
     expect(rows['Tokens per month']).toBe('12.2M of no cap');
     expect(rows['Concurrent runs']).toBe('2 of 3');
+  });
+
+  it('shows what a subscription ran at the API price beside what the key was billed', () => {
+    const account = byName('ci-bot');
+    const day = { ...account.spend.day, usd: 1, usd_at_api_price: 85 };
+    const rows = Object.fromEntries(capsRows({ ...account, spend: { ...account.spend, day } }));
+    expect(rows['Dollars per day']).toBe('$1.00 billed of $10.00, $85.00 at API price');
   });
 });
 
@@ -205,7 +212,7 @@ describe('Accounts with data', () => {
     expect(panel('Keys of ci-bot').getByText('ci pipeline')).toBeTruthy();
     expect(panel('Keys of ci-bot').getByText('k7f3a1')).toBeTruthy();
     expect(panel('Keys of ci-bot').getByText(/Revoked/)).toBeTruthy();
-    expect(panel('Limits of ci-bot').getByText('$9.40 of $10.00')).toBeTruthy();
+    expect(panel('Limits of ci-bot').getByText('$9.40 billed of $10.00')).toBeTruthy();
     expect(
       within(rowOf('ci-bot')).getByRole('button', { name: 'ci-bot' }).getAttribute('aria-pressed'),
     ).toBe('true');

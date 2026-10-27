@@ -9,6 +9,9 @@ namespace Chargehand.Runtime;
 /// </summary>
 public interface IWorkerRuntime
 {
+    /// <summary>Which credential pays for this runtime's calls, <c>api_key</c> or <c>subscription</c> (ADR 0082): a dollar cap counts the first only.</summary>
+    string Credential => "api_key";
+
     Task<WorkerSession> CreateAsync(NodeSpec spec, CancellationToken ct);
 
     /// <summary>Sets a durable instruction block. Call only before the node's first prompt (ADR 0010).</summary>

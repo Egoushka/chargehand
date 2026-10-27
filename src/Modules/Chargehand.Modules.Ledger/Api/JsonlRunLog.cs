@@ -100,25 +100,39 @@ public sealed class JsonlRunLog(string path) : IRunLog
                     return true;
             return false;
         }
-        decimal usd = 0;
-        long tokens = 0;
+        var total = new SpendTotal();
         foreach (var start in starts.Values.Where(s => s.Actor == actor && !InBatch(s)))
         {
             if (finished.TryGetValue(start.RunId, out var run))
             {
                 if (run.Finished < since)
                     continue;
-                usd += run.Result.Usage.Usd ?? 0;
-                tokens += run.Result.Usage.Input + run.Result.Usage.Output;
+                total.Add(run.Result.Usage.Usd, run.Credential, run.Result.Usage.Input + run.Result.Usage.Output);
             }
             else if (start.OwnerAlive())
                 foreach (var call in data.Calls.Where(c => c.RunId == start.RunId && c.Started >= since))
                 {
-                    usd += call.Usd ?? 0;
-                    tokens += call.Tokens is { } t ? t.Input + t.Output : 0;
+                    total.Add(call.Usd, call.Credential, call.Tokens is { } t ? t.Input + t.Output : 0);
                 }
         }
-        return new(usd, tokens);
+        return total.Result();
+    }
+
+    /// <summary>Dollars count as billed only for a credential that is billed; tokens and the price-table figure count for every one.</summary>
+    private sealed class SpendTotal
+    {
+        private decimal _billed, _atApiPrice;
+        private long _tokens;
+
+        public void Add(decimal? usd, string? credential, long tokens)
+        {
+            _atApiPrice += usd ?? 0;
+            if (CredentialKind.Billed(credential))
+                _billed += usd ?? 0;
+            _tokens += tokens;
+        }
+
+        public ActorSpend Result() => new(_billed, _tokens, _atApiPrice);
     }
 
     /// <summary>A string member of a result artifact's inline JSON (the branch artifact's <c>branch</c>, the pull request's <c>url</c>); null when there is none.</summary>
