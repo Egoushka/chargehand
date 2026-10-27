@@ -10,4 +10,4 @@ It also holds Claude Code (its native binary, no Node on PATH), the chargehand p
 docker build -f images/session-mise/Dockerfile -t chargehand-session-mise .
 ```
 
-**Size:** 1.04 GB on disk (measured 2026-10-23, local build on an arm64 Mac with OrbStack), against 2.1 to 2.4 GB for `images/session`. It holds no SDK; the toolchains live in the repository's home volume.
+**Size:** 1.58 GB on disk with the driver and Claude Code (1.04 GB for the base alone; measured 2026-10-27, local build on an arm64 Mac with OrbStack), against 2.1 to 2.4 GB for `images/session`. It holds no SDK; the toolchains live in the repository's home volume.
