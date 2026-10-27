@@ -26,7 +26,9 @@ public class McpTests
                 AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {bearer ?? TestServer.Key}" }
                     .Concat(prefer is null ? [] : [new("Prefer", prefer)]).ToDictionary(),
             }),
-            new McpClientOptions { Handlers = new McpClientHandlers { ElicitationHandler = elicit } });
+            // The client probes with server/discover and, when the probe is slow (a loaded machine), silently falls back to the 2025-11-25 handshake, which has no tasks:
+            // then a task call comes back as a plain answer. Pinning the version makes a slow probe wait (or fail loudly) instead.
+            new McpClientOptions { ProtocolVersion = "2026-07-28", DiscoverProbeTimeout = TimeSpan.FromSeconds(60), Handlers = new McpClientHandlers { ElicitationHandler = elicit } });
 
     private static Dictionary<string, JsonElement> Args(RunRequest request) =>
         JsonSerializer.SerializeToElement(request, ContractJson.Options).EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone());
