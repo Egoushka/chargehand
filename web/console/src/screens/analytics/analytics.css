@@ -154,3 +154,8 @@
     flex-basis: 100%;
   }
 }
+
+/* Wider than a phone: the table scrolls in its own box, not the page. */
+.an-cost {
+  min-width: 720px;
+}

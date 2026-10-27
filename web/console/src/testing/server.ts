@@ -1,7 +1,7 @@
 // A fake server for tests: answers the routes the console calls from the fixtures, and records what was asked.
 import { vi } from 'vitest';
 import type { AccountsBody } from '../api/accounts';
-import type { AnalyticsBody, AnalyticsBucket, AnalyticsGroupBy } from '../api/analytics';
+import type { AnalyticsBody, AnalyticsBucket, AnalyticsGroupBy, CostBody } from '../api/analytics';
 import type { BatchBody } from '../api/batch';
 import type { BatchTaskDetailBody } from '../api/batch-task';
 import type { InboxBody } from '../api/inbox';
@@ -14,7 +14,7 @@ import type { LearnReport, Me, RunSummary } from '../api/types';
 import * as adm from './admin';
 import * as fx from './fixtures';
 import * as rx from './fixtures-runs';
-import { analyticsBody, learnReport } from './learning';
+import { analyticsBody, costBody, learnReport } from './learning';
 
 export interface Scenario {
   key?: string;
@@ -37,6 +37,8 @@ export interface Scenario {
   accounts?: AccountsBody;
   /** Replaces the generated `analytics/v1` for every range. */
   analytics?: AnalyticsBody;
+  /** Replaces the generated `cost/v1`. */
+  cost?: CostBody;
   /** Replaces the generated `/v1/learn` report for every range. */
   learn?: LearnReport;
   /** Answers by exact path (before the query), replacing the defaults: `[status, body, headers]`. */
@@ -100,6 +102,7 @@ export function serveApi(scenario: Scenario = {}) {
           unknown: [],
         }),
       );
+    if (path === '/v1/cost') return Promise.resolve(json(scenario.cost ?? costBody()));
     if (path === '/v1/analytics') {
       const q = new URLSearchParams(input.split('?')[1] ?? '');
       return Promise.resolve(

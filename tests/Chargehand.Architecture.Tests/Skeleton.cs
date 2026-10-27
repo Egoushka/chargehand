@@ -20,6 +20,8 @@ internal static class Skeleton
         ["Chargehand.Modules.Accounts"] = 3,
         // Below Sessions, where the governor runs (ADR 0060, amendment of 2026-10-14).
         ["Chargehand.Modules.Oversight"] = 3,
+        // Reads the run log (Ledger), the forge and the learning records (Oversight): a read model with nothing below that reads it.
+        ["Chargehand.Modules.Economics"] = 4,
         // Gateway, Runners, Sessions: the container engine checks egress settings with the gateway's rules, and sessions run on the
         // engine (ADR 0060, amendment "Gateway, Runners and Sessions in order").
         ["Chargehand.Modules.Gateway"] = 4,

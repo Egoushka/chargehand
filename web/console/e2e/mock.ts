@@ -4,6 +4,7 @@ import * as adm from '../src/testing/admin';
 import * as fx from '../src/testing/fixtures';
 import {
   analyticsBody,
+  costBody,
   finishedBatch,
   finishedRuns,
   learnReport,
@@ -90,6 +91,8 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
         return route.fulfill({
           json: { size_class: 'M', basis: 'flat', samples: 0, usd_p90: 4, suggest_split: false },
         });
+      case '/v1/cost':
+        return route.fulfill({ json: costBody() });
       case '/v1/analytics': {
         // The Repositories screen reads this route too, with its own invented history; `insight` picks Analytics'.
         if (!options.insight) return route.fulfill({ json: adm.repositoryHistory(now) });

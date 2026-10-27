@@ -20,6 +20,7 @@ import { useIsPhone } from '../../shell/useIsPhone';
 import { EmptyState, ErrorState, Kpi, Panel, Segmented, Skeleton } from '../../ui';
 import { BudgetChart } from './BudgetChart';
 import { Continuations } from './Continuations';
+import { CostPanel } from './CostPanel';
 import { DurationChart } from './DurationChart';
 import { DecisionBars, FalseStopChart } from './GovernorPanel';
 import {
@@ -419,6 +420,8 @@ export function Analytics() {
                 note={ciFixerNote(body.not_recorded)}
               />
             </Panel>
+
+            <CostPanel />
 
             <Panel
               className="an-wide"

@@ -22,6 +22,7 @@ internal static class ConsoleRoutes
         var secrets = new SecretPresence(settings.SecretPresent);
         var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
         ConsoleContext Context(HttpContext ctx) => new(settings, ctx.RequestServices.GetRequiredService<RunService>(), log, driven, secrets, dismissals);
+        var costStates = ConsoleCost.StatesFor(driven);
         IResult? OwnerOnly(HttpContext ctx) => ChargehandServer.OwnerOnly(ctx);
 
         // Block bodies where a lambda would be one call: an expression body that is a statement also converts to RequestDelegate, which discards the result and answers 200 with no body.
@@ -106,6 +107,11 @@ internal static class ConsoleRoutes
             if (!LearningSeries.Groupings.Contains(groupBy))
                 return Json(ChargehandServer.Problem($"group_by must be one of {string.Join(", ", LearningSeries.Groupings)}"), StatusCodes.Status400BadRequest);
             return Json(await ConsoleAnalytics.BuildAsync(c, PrincipalHttp.Of(ctx), since, bucket, groupBy, q.TryGetValue("account", out var account) ? account.ToString() : null, ctx.RequestAborted));
+        });
+
+        app.MapGet("/v1/cost", async (HttpContext ctx) =>
+        {
+            return Json(await ConsoleCost.BuildAsync(Context(ctx), costStates, PrincipalHttp.Of(ctx), ctx.RequestAborted));
         });
 
         app.MapGet("/v1/repositories", async (HttpContext ctx) =>

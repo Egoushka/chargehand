@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Cost per merged pull request: run-log spend joined to pull request outcomes.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
+    <ProjectReference Include="..\..\Shared\Chargehand.Kernel\Chargehand.Kernel.csproj" />
+    <ProjectReference Include="..\Chargehand.Modules.Forge\Chargehand.Modules.Forge.csproj" />
+    <ProjectReference Include="..\Chargehand.Modules.Ledger\Chargehand.Modules.Ledger.csproj" />
+    <ProjectReference Include="..\Chargehand.Modules.Oversight\Chargehand.Modules.Oversight.csproj" />
+  </ItemGroup>
+
+</Project>
