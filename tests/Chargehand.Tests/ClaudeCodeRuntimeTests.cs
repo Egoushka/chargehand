@@ -340,8 +340,7 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
             echo '{"type":"result","subtype":"success","is_error":true,"result":"API Error: 400 could not auto resolve a provider"}'
             exit 1
             """);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(claude, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        ScriptFile.Seal(claude);
         var rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", new ClaudeCodeCredential("k", false), CancellationToken.None);
 
         var e = await Assert.ThrowsAsync<InvalidOperationException>(() => rt.GenerateAsync(null, "spec please", CancellationToken.None));
@@ -403,8 +402,7 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
             echo "$MAX_THINKING_TOKENS" > "{_dir.Path}/thinking.txt"
             cat "{_dir.Path}/events.jsonl"
             """);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        ScriptFile.Seal(script);
         return script;
     }
 

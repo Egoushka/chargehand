@@ -212,8 +212,7 @@ public sealed partial class ReviewScriptsTests : IDisposable
               *) echo '{}' ;;
             esac
             """);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(bin, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        ScriptFile.Seal(bin);
         return (Path.GetDirectoryName(bin)!, log);
     }
 

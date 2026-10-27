@@ -255,8 +255,7 @@ public class AccountModelTests
             echo "api=$ANTHROPIC_API_KEY oauth=$CLAUDE_CODE_OAUTH_TOKEN base=$ANTHROPIC_BASE_URL" >> "$(dirname "$0")/calls.txt"
             echo '{"is_error":false,"result":"hi"}'
             """);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        ScriptFile.Seal(script);
         return script;
     }
 

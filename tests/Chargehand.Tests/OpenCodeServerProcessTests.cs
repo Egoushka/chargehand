@@ -104,8 +104,7 @@ public sealed class OpenCodeServerProcessTests : IDisposable
     private string Executable(string name, string content)
     {
         var script = _dir.Write(name, content);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        ScriptFile.Seal(script);
         return script;
     }
 }

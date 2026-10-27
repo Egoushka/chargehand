@@ -209,8 +209,7 @@ public sealed class KillAtEveryStepTests
         var reached = Path.Combine(scenario.Remote, "reached");
         var path = Path.Combine(scenario.Remote, "hooks", hook);
         await File.WriteAllTextAsync(path, $"#!/bin/sh\ncat > /dev/null\n: > '{reached}'\nwhile [ -e '{path}' ]; do sleep 0.05; done\nexit 0\n");
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        ScriptFile.Seal(path);
         using var watch = new PeriodicTimer(TimeSpan.FromMilliseconds(10));
         using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         while (!File.Exists(reached) && await watch.WaitForNextTickAsync(limit.Token))
