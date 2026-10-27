@@ -282,6 +282,26 @@ public class McpTests
     }
 
     [Fact]
+    public async Task A_driven_session_may_call_the_tools_its_token_opens_to_start_research_and_read_its_result()
+    {
+        // CHARGEHAND-239: dontAsk denies an MCP tool --allowedTools does not name, so a session that could not call result stopped at a run id.
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.WorkerReply));
+        var repo = Runs.GitRepo(s.WorkerRoot);
+        var token = s.Tokens.Issue(new RunTokenClaims("run-parent", repo.Path, repo.Commit, null, null, DateTimeOffset.UtcNow.AddHours(1)), DateTimeOffset.UtcNow);
+        using var config = JsonDocument.Parse(SessionDriver.McpConfig(new Uri(s.BaseAddress, "/v1/mcp").ToString(), token));
+        var server = config.RootElement.GetProperty("mcpServers").EnumerateObject().Single();
+        await using var client = await Connect(s, bearer: server.Value.GetProperty("headers").GetProperty("Authorization").GetString()!["Bearer ".Length..]);
+        var served = (await client.ListToolsAsync()).Select(t => $"mcp__{server.Name}__{t.Name}").ToHashSet();
+
+        var args = SessionDriver.ClaudeArgs(new SessionTask("run1", "Add a retry", "chargehand/run1", MaxTurns: 80, MaxMinutes: 5, NoProgressSeconds: 60),
+            "/opt/plugin", "/tmp/mcp.json", "/tmp/prompt.md");
+        var allowed = args[args.ToList().IndexOf("--allowedTools") + 1].Split(',');
+        Assert.Contains($"mcp__{server.Name}__{OrchestrateTool.Name}", allowed);
+        Assert.Contains($"mcp__{server.Name}__{ResultTool.Name}", allowed);
+        Assert.All(allowed.Where(a => a.StartsWith("mcp__", StringComparison.Ordinal)), a => Assert.Contains(a, served));
+    }
+
+    [Fact]
     public async Task The_result_tool_names_an_unknown_run()
     {
         await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
