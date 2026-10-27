@@ -126,6 +126,19 @@ public class SharedServicesTests
         Assert.DoesNotContain("environment", System.Text.Json.JsonSerializer.Serialize(new SessionTask("run1", "g", "chargehand/run1", 80, 45, 600), SessionCli.Json));
     }
 
+    [Fact]
+    public void The_note_lists_what_mise_installed_for_the_repository_and_says_where_the_caches_are()
+    {
+        var note = EnvironmentNote.Render(Manifest(), new SessionEnvironment(["dotnet"], Tools: ["node  22.11.0  ~/work/.nvmrc  22", "dotnet  8.0.404  ~/work/mise.toml  8"]));
+        Assert.Contains("mise ls --current", note);
+        Assert.Contains("  node  22.11.0  ~/work/.nvmrc  22\n  dotnet  8.0.404  ~/work/mise.toml  8\n", note);
+        Assert.Contains("kept per repository in /home/session", note);
+        Assert.DoesNotContain("Package caches are empty", note);
+        var json = System.Text.Json.JsonSerializer.Serialize(new SessionTask("run1", "g", "chargehand/run1", 80, 45, 600, Environment: new SessionEnvironment(["dotnet"], Tools: ["node  22.11.0"])), SessionCli.Json);
+        Assert.Contains("\"tools\":[\"node  22.11.0\"]", json);
+        Assert.Contains("\"tools\":null", System.Text.Json.JsonSerializer.Serialize(new SessionTask("run1", "g", "chargehand/run1", 80, 45, 600, Environment: new SessionEnvironment(["dotnet"])), SessionCli.Json));
+    }
+
     // --- cache volumes
 
     [Fact]
@@ -325,7 +338,7 @@ public class SharedServicesTests
         public List<ContainerVerifierSettings> Verifiers { get; } = [];
         public DrivenRun Run { get; }
 
-        public BatchRig(DrivenSharedServices? shared, string? checkoutFile = null, string remote = "https://github.com/o/r.git")
+        public BatchRig(DrivenSharedServices? shared, string? checkoutFile = null, string remote = "https://github.com/o/r.git", string? environment = null)
         {
             var checkout = Path.Combine(Dir.Path, "checkout");
             Directory.CreateDirectory(checkout);
@@ -334,7 +347,7 @@ public class SharedServicesTests
             var profile = Runs.Profile(Dir.Path) with
             {
                 ClaudeCode = new ClaudeCodeSettings("2.1.283", OauthTokenSecret: "claude-code-oauth-token"),
-                Driven = new DrivenSettings(true, MaxParallel: 2, Images: [Image, JdkImage], PushSecret: "secret-push", Services: shared),
+                Driven = new DrivenSettings(true, MaxParallel: 2, Images: [Image, JdkImage], PushSecret: "secret-push", Services: shared, Environment: environment),
             };
             var services = new DrivenServices(Engine, Engine, Volumes, _ => throw new NotSupportedException("the handover is faked"), null,
                 (_, _, _) => Task.FromResult(new DrivenCheckout(checkout, Commit, remote, "main")), new DrivenRunTests.NoEvidenceProblems(), name => $"value-of-{name}",
@@ -433,6 +446,65 @@ public class SharedServicesTests
         Assert.DoesNotContain("NUGET_PACKAGES", session.Env.Keys);
         Assert.Equal(Image, rig.Verifiers.Single().Image);
         Assert.Equal(["gradle"], Assert.Single(rig.Volumes.Tasks).Environment!.Ecosystems);
+    }
+
+    // --- driven.environment: "mise" (ADR 0078)
+
+    private const string ToolsLog = "mise node@22.11.0 installed\n--- chargehand tools\nnode  22.11.0  ~/work/.nvmrc  22\ndotnet  8.0.404  ~/work/mise.toml  8\n";
+
+    [Fact]
+    public async Task With_driven_environment_mise_one_install_helper_runs_before_the_session_which_then_mounts_the_repositorys_home_volume()
+    {
+        using var rig = new BatchRig(Shared(), "App.csproj", environment: "mise");
+        rig.Engine.LogsOf = id => id.EndsWith("-install", StringComparison.Ordinal) ? ToolsLog : "";
+        var result = await rig.RunAsync();
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        var home = HomeVolumes.Name("o/r");
+        Assert.Equal(2, rig.Engine.Started.Count);
+        var (helper, session) = (rig.Engine.Started[0], rig.Engine.Started[1]);
+        Assert.True(helper.Install);
+        Assert.EndsWith("-install", helper.RunId, StringComparison.Ordinal);
+        Assert.Equal(home, helper.Home);
+        Assert.NotEqual(session.Network, helper.Network);
+        Assert.False(session.Install);
+        Assert.Equal(home, session.Home);
+        Assert.Null(session.Caches);
+        Assert.DoesNotContain("NUGET_PACKAGES", session.Env.Keys);
+        Assert.Equal(Image, session.ImageDigest); // the first of driven.images, not the JDK image the ecosystem table would pick
+        Assert.Equal(Image, helper.ImageDigest);
+        ContainerTemplate.RunArgs(helper, "/dev/null");
+        ContainerTemplate.RunArgs(session, "/dev/null");
+        var calls = rig.Engine.Calls;
+        Assert.True(calls.FindIndex(c => c.StartsWith("prepare " + session.RunId + " ", StringComparison.Ordinal)) < calls.IndexOf("start " + helper.RunId), "the helper installs into the checkout the workspace holds");
+        Assert.True(calls.IndexOf("start " + helper.RunId) < calls.IndexOf("start " + session.RunId));
+        Assert.Contains(rig.Engine.Egresses, e => e.Allow.SequenceEqual(HomeVolumes.ToolchainHosts));
+        Assert.Equal(["node  22.11.0  ~/work/.nvmrc  22", "dotnet  8.0.404  ~/work/mise.toml  8"], Assert.Single(rig.Volumes.Tasks).Environment!.Tools);
+        Assert.Equal(home, Assert.Single(rig.Verifiers).Shared!.Home);
+    }
+
+    [Fact]
+    public async Task A_failed_install_stops_the_task_before_a_session_is_started()
+    {
+        using var rig = new BatchRig(null, "App.csproj", environment: "mise");
+        rig.Engine.ExitCodeOf = id => id.EndsWith("-install", StringComparison.Ordinal) ? 1 : 0;
+        rig.Engine.LogsOf = _ => "mise ERROR node@99 not found";
+        var result = await rig.RunAsync();
+
+        Assert.NotEqual(ResultStatus.Completed, result.Status);
+        Assert.Single(rig.Engine.Started);
+        Assert.Empty(rig.Volumes.Tasks);
+    }
+
+    [Fact]
+    public async Task Without_the_switch_no_helper_runs_and_no_session_has_a_home_volume()
+    {
+        using var rig = new BatchRig(Shared(), "App.csproj");
+        await rig.RunAsync();
+        var session = Assert.Single(rig.Engine.Started);
+        Assert.Null(session.Home);
+        Assert.False(session.Install);
+        Assert.Null(Assert.Single(rig.Volumes.Tasks).Environment!.Tools);
     }
 
     [Fact]

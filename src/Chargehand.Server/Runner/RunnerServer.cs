@@ -71,7 +71,7 @@ public static class RunnerServer
             if (await engine.CountAsync(ct) >= policy.MaxContainers)
                 return Reply(StatusCodes.Status429TooManyRequests, $"{policy.MaxContainers} session containers exist already");
             var spec = new ContainerSpec(start.RunId, start.Image, start.WorkVolume, start.OutVolume, start.Network, start.Env, start.MemoryMb, start.Cpus, start.Pids, start.Command,
-                Caches: start.Caches);
+                Caches: start.Caches, Home: start.Home, Install: start.Install == true);
             _ = ContainerTemplate.RunArgs(spec, "/dev/null");
             _ = ContainerTemplate.EnvFileLines(spec.Env);
             return Ok(new { id = await engine.StartAsync(spec, ct) });

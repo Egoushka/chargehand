@@ -52,6 +52,7 @@ public static partial class ContainerTemplate
         var caches = spec.Caches ?? [];
         if (caches.Any(c => CacheVolumes.EcosystemOf(c) is null) || caches.Select(CacheVolumes.EcosystemOf).Distinct().Count() != caches.Count)
             throw new ArgumentException("caches must be cache volumes (chargehand-cache-<ecosystem>-<12 hex>), one per ecosystem", nameof(spec));
+        CheckHome(spec, caches);
 
         List<string> args =
         [
@@ -60,7 +61,7 @@ public static partial class ContainerTemplate
             "--label", $"{RunLabel}={spec.RunId}",
             "--read-only",
             "--tmpfs", "/tmp:rw,nosuid,size=1g",
-            "--tmpfs", "/home/session:rw,nosuid,size=2g,uid=10001,gid=10001",
+            .. spec.Home is null ? (string[])["--tmpfs", "/home/session:rw,nosuid,size=2g,uid=10001,gid=10001"] : [],
             "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges",
             "--user", spec.User,
@@ -72,12 +73,56 @@ public static partial class ContainerTemplate
             "-v", $"{spec.WorkVolume}:/work",
             "-v", $"{spec.OutVolume}:/out",
             .. caches.SelectMany(c => new[] { "-v", $"{c}:{CacheVolumes.MountRoot}/{CacheVolumes.EcosystemOf(c)}" }),
+            .. spec.Home is null ? (string[])[] : HomeMounts(spec.Home),
             "--workdir", "/work",
             "--env-file", envFile,
+            .. spec.Install ? (string[])["--entrypoint", InstallEntrypoint] : [],
             spec.ImageDigest,
             .. spec.Command,
         ];
         return args;
+    }
+
+    /// <summary>The run id of an install helper ends with this; the helper's work and out volumes are the run's own, without it.</summary>
+    public const string InstallSuffix = "-install";
+
+    /// <summary>The program an install helper runs: the image's shell, named by the template so the image's own entry point (the driver's verbs) is not in play.</summary>
+    public const string InstallEntrypoint = "sh";
+
+    /// <summary>What <see cref="InstallScript"/> prints before the output of <c>mise ls --current</c>, so the server can tell the tools from the install's own output.</summary>
+    public const string ToolsMarker = "--- chargehand tools";
+
+    /// <summary>The one script an install helper runs (ADR 0078): the shell start-up files go first, so nothing a session left there runs; then mise installs what the checkout pins, and the tools in effect
+    /// are listed. It has no input: nothing in it comes from a caller.</summary>
+    public static readonly string InstallScript = string.Join("; ",
+        "set -e",
+        $"rm -f {string.Join(' ', HomeVolumes.StartupFiles.Select(f => $"{HomeVolumes.MountPoint}/{f}"))}",
+        "mise install --yes",
+        $"echo '{ToolsMarker}'",
+        "mise ls --current --no-header");
+
+    /// <summary>The words after the image for an install helper.</summary>
+    public static readonly IReadOnlyList<string> InstallCommand = ["-c", InstallScript];
+
+    /// <summary>The home volume at the account's home directory, the tmpfs for Claude Code's state on top of it, and the variables that point mise and Claude Code at them. Every value is a constant.</summary>
+    private static string[] HomeMounts(string home) =>
+    [
+        "-v", $"{home}:{HomeVolumes.MountPoint}",
+        "--tmpfs", $"{HomeVolumes.ClaudeConfigDir}:rw,nosuid,size=2g,uid=10001,gid=10001",
+        .. HomeVolumes.Environment.SelectMany(e => new[] { "-e", $"{e.Name}={e.Value}" }),
+    ];
+
+    /// <summary>A home volume is exactly one volume of the home shape, never with ecosystem caches; an install helper is a run's own, with the fixed command and nothing but a proxy in its environment.</summary>
+    private static void CheckHome(ContainerSpec spec, IReadOnlyList<string> caches)
+    {
+        if (spec.Home is { } home && (!HomeVolumes.IsHomeVolume(home) || caches.Count > 0))
+            throw new ArgumentException("home must be one home volume (chargehand-cache-<12 hex>) and not combined with caches", nameof(spec));
+        if (!spec.Install && spec.Command.SequenceEqual(InstallCommand, StringComparer.Ordinal))
+            throw new ArgumentException("only an install helper runs the install script", nameof(spec));
+        if (!spec.Install)
+            return;
+        if (spec.Home is null || !spec.RunId.EndsWith(InstallSuffix, StringComparison.Ordinal) || !spec.Command.SequenceEqual(InstallCommand, StringComparer.Ordinal))
+            throw new ArgumentException($"an install helper has a home volume, a run id ending in {InstallSuffix} and the template's own command", nameof(spec));
     }
 
     /// <summary>The capabilities a database image's entrypoint needs to start as root, fix the ownership of its data directory and drop to its own user; nothing else is kept.</summary>

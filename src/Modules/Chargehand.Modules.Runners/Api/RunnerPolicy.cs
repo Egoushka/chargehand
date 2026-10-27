@@ -28,15 +28,35 @@ public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressIma
     {
         if (!Images.Contains(start.Image, StringComparer.Ordinal))
             return "image is not on the runner's allowlist";
-        if (start.WorkVolume != WorkPrefix + start.RunId || start.OutVolume != OutPrefix + start.RunId)
+        var install = start.Install == true;
+        var run = install && start.RunId.EndsWith(ContainerTemplate.InstallSuffix, StringComparison.Ordinal) ? start.RunId[..^ContainerTemplate.InstallSuffix.Length] : start.RunId;
+        if (install && run == start.RunId)
+            return $"an install helper's run id ends with {ContainerTemplate.InstallSuffix}";
+        if (start.WorkVolume != WorkPrefix + run || start.OutVolume != OutPrefix + run)
             return $"volumes must be {WorkPrefix}<run id> and {OutPrefix}<run id>";
         if (!start.Network.StartsWith(NetworkPrefix, StringComparison.Ordinal))
             return $"the network must be a batch network ({NetworkPrefix}<batch id>)";
         if (start.Caches?.FirstOrDefault(c => CacheVolumes.EcosystemOf(c) is null) is { } cache)
             return $"'{cache}' is not a cache volume ({CacheVolumes.Prefix}<ecosystem>-<12 hex>)";
+        if (RefuseHome(start, install) is { } refusal)
+            return refusal;
         if (start.MemoryMb > MaxMemoryMb || start.Cpus > MaxCpus || start.Pids > MaxPids)
             return $"limits are above the runner's ceilings (memory {MaxMemoryMb} MiB, cpus {MaxCpus}, pids {MaxPids})";
         return null;
+    }
+
+    /// <summary>The home volume of ADR 0078 and the install helper: exactly the home shape, never with caches, and the helper only with the template's own command.</summary>
+    private static string? RefuseHome(RunnerStart start, bool install)
+    {
+        if (start.Home is { } home && !HomeVolumes.IsHomeVolume(home))
+            return $"'{home}' is not a home volume ({CacheVolumes.Prefix}<12 hex>)";
+        if (start.Home is not null && start.Caches is { Count: > 0 })
+            return "a home volume replaces the ecosystem caches; a start names one or the other";
+        if (install && start.Home is null)
+            return "an install helper needs a home volume";
+        return install != start.Command.SequenceEqual(ContainerTemplate.InstallCommand, StringComparer.Ordinal)
+            ? install ? "an install helper runs the template's install script and nothing else" : "only an install helper runs the install script"
+            : null;
     }
 
     /// <summary>A test service starts from an image the runner lists for it, on a batch network, under the ceilings of a session container.</summary>

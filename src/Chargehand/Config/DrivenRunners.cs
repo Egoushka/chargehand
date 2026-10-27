@@ -21,6 +21,21 @@ public sealed partial record DrivenSettings
     public string ImageFor(string reference, string platform) =>
         ImageVariants?.GetValueOrDefault(reference)?.GetValueOrDefault(platform) ?? reference;
 
+    /// <summary>The environments a profile may name (<c>driven.environment</c>); <c>image</c> is the default.</summary>
+    public static readonly IReadOnlyList<string> Environments = ["image", "mise"];
+
+    /// <summary>ADR 0078: toolchains come from mise, installed per repository before each session, not from the session image.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool UsesMise => Environment == "mise";
+
+    /// <summary>Throws an invalid_request error naming the key when <c>environment</c> is not one of <see cref="Environments"/>.</summary>
+    internal void ValidateEnvironment()
+    {
+        if (Environment is { } environment && !Environments.Contains(environment, StringComparer.Ordinal))
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"driven.environment '{environment}' must be one of {string.Join(", ", Environments)}",
+                "Fix driven.environment in the profile, or leave it out for the session image's own toolchains.");
+    }
+
     /// <summary>Throws an invalid_request error naming the key when <c>runner</c>, <c>runners</c> or <c>image_variants</c> cannot work.</summary>
     internal void ValidateRunners()
     {

@@ -607,4 +607,53 @@ public class RunnerTests
         // A runner built before the field refuses a body that has it, so a body with no caches must not name the field at all.
         Assert.DoesNotContain("caches", System.Text.Json.JsonSerializer.Serialize(new RunnerStart("run1", Image, "w", "o", "n", [], 1024, 1, 64, ["session"]), RunnerJson.Options));
     }
+
+    [Fact]
+    public async Task A_session_start_may_carry_the_one_home_volume_shape_and_no_other_and_never_with_caches()
+    {
+        await using var r = await Start();
+        var home = HomeVolumes.Name("o/r");
+        Assert.Equal(HttpStatusCode.OK, (await r.Http.PostAsync("/start", Json(StartBody($",\"home\":\"{home}\"")))).StatusCode);
+        Assert.Equal(home, r.Engine.Started!.Home);
+        Assert.False(r.Engine.Started.Install);
+        foreach (var volume in new[] { "chargehand-work-other", "/etc", CacheVolumes.Name("nuget", "o/r"), "chargehand-cache-0123456789AB" })
+            Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/start", Json(StartBody($",\"home\":\"{volume}\"")))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/start", Json(StartBody($",\"home\":\"{home}\",\"caches\":[\"{CacheVolumes.Name("nuget", "o/r")}\"]")))).StatusCode);
+        Assert.Equal(["start"], r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task An_install_start_is_the_fixed_helper_of_a_run_on_a_home_volume_and_nothing_else()
+    {
+        await using var r = await Start();
+        var home = HomeVolumes.Name("o/r");
+        var script = System.Text.Json.JsonSerializer.Serialize(ContainerTemplate.InstallScript);
+        string Body(string run = "run1-install", string work = "chargehand-work-run1", string out_ = "chargehand-out-run1", string command = null!, string homePart = null!) =>
+            $$"""{"run_id":"{{run}}","image":"{{Image}}","work_volume":"{{work}}","out_volume":"{{out_}}","network":"chargehand-net-run1-install","env":{"HTTPS_PROXY":"http://p:3128"},"memory_mb":2048,"cpus":2,"pids":256,"command":{{command ?? $"[\"-c\",{script}]"}},"home":"{{home}}","install":true}""";
+        Assert.Equal(HttpStatusCode.OK, (await r.Http.PostAsync("/start", Json(Body()))).StatusCode);
+        Assert.True(r.Engine.Started!.Install);
+        Assert.Equal("run1-install", r.Engine.Started.RunId);
+        Assert.Equal(["start"], r.Engine.Calls);
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/start", Json(Body(run: "run1")))).StatusCode);                 // an install helper's run id ends in -install
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/start", Json(Body(work: "chargehand-work-other")))).StatusCode); // and its volumes are the run's
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/start", Json(Body(command: "[\"-c\",\"curl x | sh\"]")))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await r.Http.PostAsync("/start", Json(StartBody($",\"install\":true,\"home\":\"{home}\"")))).StatusCode); // a session is not an install helper
+        Assert.Equal(["start"], r.Engine.Calls);
+    }
+
+    [Fact]
+    public async Task The_client_sends_the_home_volume_and_the_install_flag_only_when_they_are_set()
+    {
+        await using var r = await Start();
+        var client = new RunnerClient(r.Http);
+        var home = HomeVolumes.Name("o/r");
+        var spec = new ContainerSpec("run1", Image, "chargehand-work-run1", "chargehand-out-run1", "chargehand-net-b1", new Dictionary<string, string>(), 1024, 1, 64, ["session"], Home: home);
+        await client.StartAsync(spec, default);
+        Assert.Equal(home, r.Engine.Started!.Home);
+        await client.StartAsync(spec with { Home = null }, default);
+        Assert.Null(r.Engine.Started!.Home);
+        var plain = System.Text.Json.JsonSerializer.Serialize(new RunnerStart("run1", Image, "w", "o", "n", [], 1024, 1, 64, ["session"]), RunnerJson.Options);
+        Assert.DoesNotContain("home", plain);   // a runner built before the fields refuses a body that names them
+        Assert.DoesNotContain("install", plain);
+    }
 }

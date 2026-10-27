@@ -29,8 +29,11 @@ public static partial class CacheVolumes
     {
         if (!Ecosystems.ContainsKey(ecosystem))
             throw new ArgumentException($"no cache for '{ecosystem}'", nameof(ecosystem));
-        return $"{Prefix}{ecosystem}-{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(repository.Trim().ToLowerInvariant())))[..12].ToLowerInvariant()}";
+        return $"{Prefix}{ecosystem}-{Hash(repository)}";
     }
+
+    /// <summary>Twelve hex characters of the hash of <paramref name="repository"/>, the part of a volume name that identifies the repository (the home volume of ADR 0078 uses it too).</summary>
+    internal static string Hash(string repository) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(repository.Trim().ToLowerInvariant())))[..12].ToLowerInvariant();
 
     /// <summary>The ecosystem of a cache volume name, or null when the name is not one.</summary>
     public static string? EcosystemOf(string volume) => VolumeName().Match(volume) is { Success: true } m ? m.Groups["e"].Value : null;
