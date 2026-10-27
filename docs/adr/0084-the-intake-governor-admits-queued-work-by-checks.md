@@ -41,7 +41,7 @@ records `admission`. The governor adds two checks that run in intake before the 
 
 1. **Review backlog.** Per repository, the number of open pull requests chargehand opened that wait for a review. When it reaches
    `automation.github.max_review_backlog` (**default 3**), a new driven start of any issue or comment trigger waits with reason `review_backlog`
-   ("3 pull requests await review"). A pull request waits for review while it is open, its head branch is `chargehand/*` in the repository itself, and no allowed author has reviewed it, approved it or commented on it. A
+   ("3 pull requests await review"). A pull request waits for review while it is open, its head branch is `chargehand/*` in the repository itself, and no allowed author has submitted a review on it (an approval, a change request or a review comment; a plain conversation comment does not count). A
    merge or a close frees a place at the next poll. Review rounds, answers to a task's questions and CI fixes work on an open pull request and are never held by it. `0` turns the check off.
 2. **Subscription headroom.** A start that would use a subscription runtime, while a task of a running batch reported a rate-limit pause that has not reset, is a
    *hit*. By default a hit **warns**: one server log line per pause and a banner on the console overview ("subscription limit reported by a running task, resets at ...");
