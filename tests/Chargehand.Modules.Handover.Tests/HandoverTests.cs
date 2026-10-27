@@ -57,7 +57,7 @@ public class HandoverTests
         public string BaseCommit { get; }
 
         public Fixture(Action<string>? edit = null, bool commit = true, bool makeBundle = true, bool rejectAll = false, bool orphan = false, bool revert = false, Action<string>? afterBundle = null, Action<string>? thenEdit = null,
-            bool untested = false, string file = "retry.txt")
+            bool untested = false, string file = "retry.txt", Action<string>? source = null)
         {
             Directory.CreateDirectory(Source);
             Directory.CreateDirectory(Out);
@@ -66,6 +66,7 @@ public class HandoverTests
             File.WriteAllText(Path.Combine(Source, "README.md"), "hello\n");
             if (!untested)
                 File.WriteAllText(Path.Combine(Source, "package.json"), """{"scripts":{"test":"echo ok"}}""");
+            source?.Invoke(Source);
             G(Source, "add", "-A");
             G(Source, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "base");
             BaseCommit = G(Source, "rev-parse", "HEAD").Trim();

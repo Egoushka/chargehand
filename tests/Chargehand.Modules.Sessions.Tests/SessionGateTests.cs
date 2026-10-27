@@ -50,6 +50,31 @@ public class SessionGateTests
     }
 
     [Fact]
+    public async Task The_declared_check_runs_first_in_the_gate_as_the_driver_s_own_run()
+    {
+        using var w = new Workspace();
+        CommitRules(w, "test -f a.txt\n");
+        var task = Task() with { Check = ["sh", "-c", "echo 'the check ran' && test -f a.txt"] };
+        var outcome = await SessionDriver.RunAsync(Options(w, Script(w), task), default);
+        Assert.Equal(SessionStatus.Completed, outcome.Status);
+        Assert.Equal(["check", "rule"], outcome.Checks!.Select(c => c.Kind));
+        var check = outcome.Checks![0];
+        Assert.Equal(("sh -c 'echo '\\''the check ran'\\'' && test -f a.txt'", true), (check.Command, check.Passed));
+        Assert.Contains("the check ran", check.OutputTail);
+    }
+
+    [Fact]
+    public async Task A_failing_declared_check_goes_back_to_the_session_like_a_rule()
+    {
+        using var w = new Workspace();
+        var task = Task() with { Check = ["sh", "-c", "test -f fixed.txt"] };
+        var outcome = await SessionDriver.RunAsync(Options(w, Script(w, onResume: "touch fixed.txt"), task), default);
+        Assert.Equal(SessionStatus.Completed, outcome.Status);
+        Assert.Equal(2, Runs(w));
+        Assert.Contains("## check: `sh -c 'test -f fixed.txt'`", File.ReadAllText(Path.Combine(w.Out, "feedback.txt")));
+    }
+
+    [Fact]
     public async Task A_failed_criterion_goes_back_to_the_session_which_fixes_it_and_completes()
     {
         using var w = new Workspace();

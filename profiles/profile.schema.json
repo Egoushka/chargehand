@@ -208,7 +208,7 @@
         },
         "environment": {
           "enum": ["image", "mise"],
-          "description": "ADR 0078. image (the default): the toolchains are the session image's. mise: the first of driven.images is the mise base image; an install helper installs what the repository pins into a per-repository home volume before each session, and driven.services.caches and driven.services.images are ignored."
+          "description": "ADR 0078. image (the default): the toolchains are the session image's. mise: the first of driven.images is the mise base image; an install helper installs what the repository pins into a per-repository home volume before each session, driven.services.caches and driven.services.images are ignored, and the repository's CI verifies: the session driver runs the declared check (context.verify, driven.services.verify, then scripts/check.sh) before the push, and no fresh-container verifier runs."
         },
         "services": {
           "type": "object",

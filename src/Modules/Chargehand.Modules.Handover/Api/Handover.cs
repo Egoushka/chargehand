@@ -29,10 +29,14 @@ namespace Chargehand.Modules.Handover.Api;
 /// <param name="LocalOnly">The repository is local-only (ADR 0069): the hand-over refuses before any git or forge call.</param>
 /// <param name="Provenance">The run that wrote the branch (ADR 0074): its trailers go on every commit past the base that has none, and at the end of the pull request body, so a squash merge keeps them. Null: no trailers.</param>
 /// <param name="Bare">The benchmark's control arm (ADR 0080): the scans and the CI-change refusal still run, then the branch is pushed with no test run and no pull request.</param>
+/// <param name="CiVerifies">ADR 0078: the repository's CI verifies (<c>driven.environment: "mise"</c>). No fresh-container verification runs; the pull request says which checks decide and that the
+/// pre-push check is a filter. A repository with no CI and no check is refused unless the change is documentation only.</param>
+/// <param name="PrePushCheck">With <paramref name="CiVerifies"/>: the check the session driver ran before the push (<c>VerifyCommand.Declared</c>); null: none was declared.</param>
 /// <param name="FallbackBaseBranch">For a pull request stacked on another task's branch (ADR 0049), <paramref name="BaseBranch"/> is that branch: if the host refuses it, the pull request is opened against this one instead and says so.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
-    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false, string? FallbackBaseBranch = null, bool LocalOnly = false, Provenance? Provenance = null, bool Bare = false);
+    bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false, string? FallbackBaseBranch = null, bool LocalOnly = false, Provenance? Provenance = null, bool Bare = false,
+    bool CiVerifies = false, IReadOnlyList<string>? PrePushCheck = null);
 
 /// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
 public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
@@ -199,6 +203,8 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             return run.Refuse($"chargehand could not check the branch out: {checkout.Tail}", ErrorCode.SessionFailed, changed: changed, commit: commit);
         if (input.Bare)
             return null;
+        if (input.CiVerifies)
+            return await CiVerdictAsync(run, ct);
         var plan = VerifyCommand.Resolve(input.VerifyCommand, run.Scratch);
         run.VerificationPaths = VerifyCommand.VerificationPaths(changed, plan);
         if (plan is null)
@@ -270,7 +276,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             return new(HandoverStatus.PrFailed, "the remote's owner and repository could not be read from its URL", ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity);
         try
         {
-            var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity, run.NoTestsRule);
+            var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity, run.NoTestsRule, run.CiVerdict);
             var (pr, bodyUsed) = await OpenPullRequestAsync(input, repository, prBody, ct);
             var detail = pr.Reused && input.UpdateReused ? await UpdateReusedAsync(run, repository, pr, bodyUsed, ct) : "draft pull request opened";
             input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, detail, pr.Url));
@@ -322,6 +328,9 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
 
         /// <summary>Why a branch with no test command was pushed all the same (<see cref="NoTestsRuleAsync"/>); null otherwise.</summary>
         public string? NoTestsRule { get; set; }
+
+        /// <summary>With <see cref="HandoverInput.CiVerifies"/>: what the pull request says verifies it (<see cref="CiVerdictAsync"/>); null otherwise.</summary>
+        public string? CiVerdict { get; set; }
 
         public HandoverOutcome Refuse(string reason, ErrorCode error, VerificationRecord? verification = null, IReadOnlyList<string>? changed = null, IReadOnlyList<ScanFinding>? findings = null,
             IReadOnlyList<string>? verificationPaths = null, string? commit = null) =>

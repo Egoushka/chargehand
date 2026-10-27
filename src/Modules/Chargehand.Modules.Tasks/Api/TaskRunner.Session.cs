@@ -200,7 +200,8 @@ public sealed partial class TaskRunner
             ? new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices, CheckRetries: 0, Bare: true)
             : new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices,
                 Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd, budget), Environment: settings.Shared?.ForSession(tools), Acceptance: task.Acceptance,
-                CheckRetries: preset.CheckRetries, ReminderMinutes: preset.GoalReminderMinutes > 0 ? preset.GoalReminderMinutes : null, ReminderTurns: preset.GoalReminderTurns), ct);
+                CheckRetries: preset.CheckRetries, ReminderMinutes: preset.GoalReminderMinutes > 0 ? preset.GoalReminderMinutes : null, ReminderTurns: preset.GoalReminderTurns,
+                Check: PrePushCheck), ct);
 
         var env = ModelEnvironment(runId, maxMinutes, left, sessionStarted);
         AddServiceEnvironment(env, task, runId, maxMinutes, left, sessionStarted, span, traceId);

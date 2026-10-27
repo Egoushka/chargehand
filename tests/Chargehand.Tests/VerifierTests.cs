@@ -48,6 +48,30 @@ public class VerifierTests
         Assert.Equal(["./gradlew", "check", "--no-daemon"], plan!.Argv);
     }
 
+    /// <summary>ADR 0078: the declared check is the request's (the profile's already merged into it), then <c>scripts/check.sh</c>; nothing is detected.</summary>
+    [Theory]
+    [InlineData("App.csproj")]
+    [InlineData("package.json")]
+    [InlineData(".github/workflows/ci.yml")]
+    public void The_declared_check_detects_nothing_from_ecosystem_files_or_ci(string marker)
+    {
+        using var dir = new TempDir();
+        dir.Write(marker, marker == "package.json" ? """{"scripts":{"test":"jest"}}""" : "jobs:\n  t:\n    steps:\n      - run: dotnet test\n");
+        Assert.Null(VerifyCommand.Declared(null, dir.Path));
+    }
+
+    [Fact]
+    public void The_declared_check_is_the_request_s_then_scripts_check_sh()
+    {
+        using var dir = new TempDir();
+        dir.Write("scripts/check.sh", "#!/bin/sh\necho ok\n");
+        Assert.Equal("declared", VerifyCommand.Declared(null, dir.Path)!.Source);
+        Assert.Equal(["sh", "scripts/check.sh"], VerifyCommand.Declared(null, dir.Path)!.Argv);
+        Assert.Equal(["make", "test"], VerifyCommand.Declared(["make", "test"], dir.Path)!.Argv);
+        Assert.Equal("request", VerifyCommand.Declared(["make", "test"], dir.Path)!.Source);
+        Assert.Equal(["sh", "scripts/check.sh"], VerifyCommand.Declared(["true"], dir.Path)!.Argv);
+    }
+
     [Fact]
     public void A_scripts_check_sh_wins_over_a_guessed_ecosystem_command()
     {

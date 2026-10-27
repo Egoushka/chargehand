@@ -3,7 +3,7 @@ using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Modules.Sessions.Api;
 
-/// <param name="Source">"request" (the caller named the command), "ci" (read from the repository's own CI workflow) or "detected".</param>
+/// <param name="Source">"request" (the caller named the command), "ci" (read from the repository's own CI workflow), "detected", or "declared" (<c>scripts/check.sh</c>, ADR 0078).</param>
 public sealed record VerifyPlan(IReadOnlyList<string> Argv, string Source);
 
 /// <summary>The command that verifies a writing node's change (ADR 0035): the request's, else the repository's own test command.</summary>
@@ -21,6 +21,12 @@ public static class VerifyCommand
     /// <summary>Null when the caller named none (or a no-op) and the directory has no recognisable test setup.</summary>
     public static VerifyPlan? Resolve(IReadOnlyList<string>? requested, string directory) =>
         requested is { Count: > 0 } && !IsNoOp(requested) ? new VerifyPlan(requested, "request") : Detect(directory);
+
+    /// <summary>ADR 0078: the check a repository declares, with nothing detected: the request's (the profile's <c>driven.services.verify</c> is merged into it), then
+    /// <c>scripts/check.sh</c>. Null: none, and CI is the only check.</summary>
+    public static VerifyPlan? Declared(IReadOnlyList<string>? requested, string directory) =>
+        requested is { Count: > 0 } && !IsNoOp(requested) ? new VerifyPlan(requested, "request")
+        : File.Exists(Path.Combine(directory, "scripts", "check.sh")) ? new VerifyPlan(["sh", "scripts/check.sh"], "declared") : null;
 
     private static VerifyPlan? Detect(string dir)
     {

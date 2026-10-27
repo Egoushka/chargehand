@@ -133,7 +133,12 @@ public static class EnvironmentNote
             return note.ToString();
         if (environment.Ecosystems.Count > 0)
             note.Append("- This repository uses: ").AppendJoin(", ", environment.Ecosystems).Append(".\n");
-        if (environment.Verify is { Count: > 0 } verify)
+        // ADR 0078: tools from mise mean the switch is on, and the repository's CI verifies.
+        if (environment.Tools is not null)
+            note.Append(environment.Verify is { Count: > 0 } check
+                ? $"- When you finish, chargehand runs `{string.Join(' ', check)}` in this container before it pushes, and the repository's CI then decides the merge. Run the same command yourself first.\n"
+                : "- This repository declares no check; its CI decides once the branch is pushed. Run what its CI runs, if the tools for it are here.\n");
+        else if (environment.Verify is { Count: > 0 } verify)
             note.Append(CultureInfo.InvariantCulture, $"- After you finish, chargehand runs `{string.Join(' ', verify)}` on your branch in a fresh container ({VerifySourceNote(environment.VerifySource)}). Run the same command yourself.\n");
         else
             note.Append("- chargehand found no test command for this repository, so it will not push the branch unless the tests run; find the command in the repository's own files.\n");
