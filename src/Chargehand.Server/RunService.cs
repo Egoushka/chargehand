@@ -98,8 +98,11 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
             if (log is null || (await log.ReadAsync(from.RunId, ct)).Start?.Actor != account.Name)
                 return (request, new("continue_not_allowed", $"continue_from {from.RunId} is not a run of account '{account.Name}'", StatusCodes.Status403Forbidden));
         ActorSpend none = new(0, 0);
+        // Money committed to unfinished runs counts as spent until they finish and their real cost takes its place (ADR 0083).
+        var reserved = ReservedUsd(account.Name);
         var day = log is not null && AccountPolicy.UsesDay(account) ? await log.SpendAsync(account.Name, AccountPolicy.DayStart(now), ct) : none;
         var month = log is not null && AccountPolicy.UsesMonth(account) ? await log.SpendAsync(account.Name, AccountPolicy.MonthStart(now), ct) : none;
+        (day, month) = (day with { Usd = day.Usd + reserved }, month with { Usd = month.Usd + reserved });
         // ponytail: count-then-start is not atomic; two racing requests can exceed max_concurrent_runs by one.
         var unfinished = Unfinished(account.Name);
         return AccountPolicy.Refusal(account, request, unfinished, day, month, now) is { } refusal
@@ -143,15 +146,19 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
     }
 
     /// <summary>The account's month spend forecast (ADR 0076); null without a run log.</summary>
-    public async Task<SpendForecast?> ForecastAsync(AccountSettings account, CancellationToken ct)
+    /// <param name="committedUsd">Money already committed but not yet spent: the account's reservations and the next start's budget (ADR 0083).</param>
+    public async Task<SpendForecast?> ForecastAsync(AccountSettings account, CancellationToken ct, decimal committedUsd = 0)
     {
         if (log is null)
             return null;
         var now = Now;
         var month = await log.SpendAsync(account.Name, AccountPolicy.MonthStart(now), ct);
         var trailing = await log.SpendAsync(account.Name, SpendForecasts.TrailingStart(now), ct);
-        return SpendForecasts.Of(month.Usd, trailing.Usd, account.MaxUsdPerMonth, now);
+        return SpendForecasts.Of(month.Usd + committedUsd, trailing.Usd, account.MaxUsdPerMonth, now);
     }
+
+    /// <summary>The dollar budgets that <paramref name="actor"/>'s unfinished top-level runs may still spend (ADR 0083): a batch's <c>max_usd_total</c>, a run's <c>budget_usd</c>.</summary>
+    public decimal ReservedUsd(string actor) => _runs.Values.Where(r => !r.IsChild && r.Actor == actor).Sum(r => r.ReservedUsd);
 
     /// <summary>Unfinished top-level runs (queued or running) that <paramref name="actor"/> started and this process holds.</summary>
     public int Unfinished(string actor) => _runs.Values.Count(r => !r.IsChild && r.Actor == actor);
@@ -186,6 +193,8 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         return bad.Count > 0 ? (null, bad) : (request, []);
     }
 
+    private static decimal Reserve(RunRequest request) => request.Driven is { } driven ? driven.MaxUsdTotal ?? 0 : request.Context.BudgetUsd ?? 0;
+
     /// <summary>Queues a run, or returns null when <see cref="MaxUnfinished"/> top-level runs are unfinished (a run with <paramref name="chargeTo"/> is never refused).</summary>
     /// <param name="chargeTo">The parent run whose token started this one: it runs on the child gate and its cost goes to that run's ledger.</param>
     /// <param name="actor">The account that started it (ADR 0050); on the run's records, result and events.</param>
@@ -194,7 +203,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         // ponytail: count-then-add is not atomic; two racing calls can exceed the bound by one.
         if (chargeTo is null && _runs.Values.Count(r => !r.IsChild) >= MaxUnfinished)
             return null;
-        var run = new RunHandle(RunIds.New(), stopping) { IsChild = chargeTo is not null, ParentRunId = parentRunId, Actor = actor, IsBatch = request.Driven is not null };
+        var run = new RunHandle(RunIds.New(), stopping) { IsChild = chargeTo is not null, ParentRunId = parentRunId, Actor = actor, IsBatch = request.Driven is not null, ReservedUsd = Reserve(request) };
         _runs[run.Id] = run;
         run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
         Track(() => Execute(run, request, parentRunId, chargeTo));
@@ -212,7 +221,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         var swept = await driven.SweepOrphansAsync(open, ct);
         foreach (var state in open)
         {
-            var run = new RunHandle(state.RunId, stopping) { Actor = state.Actor, IsBatch = true };
+            var run = new RunHandle(state.RunId, stopping) { Actor = state.Actor, IsBatch = true, ReservedUsd = Reserve(state.Request) };
             _runs[run.Id] = run;
             run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
             Track(() => Execute(run, state.Request, null, null, state));
@@ -318,6 +327,9 @@ public sealed class RunHandle(string id, CancellationToken stopping) : IDisposab
 
     /// <summary>Started through a session's run token: it runs on the child gate.</summary>
     public bool IsChild { get; init; }
+
+    /// <summary>What the run may still spend, held back from its account's caps while it is unfinished (ADR 0083).</summary>
+    public decimal ReservedUsd { get; init; }
 
     /// <summary>The run it was started under (its start record's parent); null for none.</summary>
     public string? ParentRunId { get; init; }

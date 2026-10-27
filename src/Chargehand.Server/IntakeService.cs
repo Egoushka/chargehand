@@ -44,9 +44,13 @@ internal sealed class RunServiceStarter(RunService runs, AccountSettings? accoun
             return new BatchStart(null, account is null ? refusal.Message : $"account '{account.Name}': {refusal.Message}");
         if (account is not null)
         {
-            if (account.PauseOnForecast && await runs.ForecastAsync(account, ct) is { OverCap: true } forecast)
+            if (account.PauseOnForecast && await runs.ForecastAsync(account, ct, runs.ReservedUsd(account.Name) + (admitted.Driven?.MaxUsdTotal ?? 0)) is { OverCap: true } forecast)
                 return new BatchStart(null, string.Create(CultureInfo.InvariantCulture,
                     $"account '{account.Name}' is paused: its month forecast of ${forecast.ProjectedUsd:0.00} passes max_usd_per_month ${forecast.CapUsd:0.00} (pause_on_forecast)"));
+            // A budget cut by what running batches have reserved waits for them (ADR 0083); cut by spend alone, it still runs on what is left.
+            if (runs.ReservedUsd(account.Name) > 0 && request.Driven?.MaxUsdTotal is { } wanted && admitted.Driven?.MaxUsdTotal < wanted)
+                return new BatchStart(null, string.Create(CultureInfo.InvariantCulture,
+                    $"account '{account.Name}': the budget of ${wanted:0.00} does not fit beside the ${runs.ReservedUsd(account.Name):0.00} reserved by its running work; waiting for it to finish"));
             (request, actor) = (admitted, account.Name);
         }
         return runs.Start(request, actor: actor) is { } run ? new BatchStart(run.Id) : new BatchStart(null, $"{RunService.MaxUnfinished} runs are unfinished");
