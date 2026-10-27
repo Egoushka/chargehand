@@ -13,6 +13,7 @@ import {
   Table,
   TableHead,
   TableRow,
+  TableScroll,
 } from '../../ui';
 
 const COLS = 'minmax(0,2fr) minmax(0,1fr) 4rem 5rem 4rem 4rem 4rem 5.5rem 5.5rem';
@@ -79,23 +80,29 @@ export function CostPanel() {
             onValueChange={setWindow}
             items={cost.data.windows.map((w) => ({ id: String(w.days), label: days(w.days) }))}
           />
-          <Table cols={COLS} label={`Cost per merged pull request, last ${days(chosen.days)}`}>
-            <TableHead>
-              <HeadCell>Repository</HeadCell>
-              <HeadCell>Preset</HeadCell>
-              <HeadCell num>Runs</HeadCell>
-              <HeadCell num>Spend</HeadCell>
-              <HeadCell num>PRs</HeadCell>
-              <HeadCell num>Merged</HeadCell>
-              <HeadCell num>Closed</HeadCell>
-              <HeadCell num>$ / merged</HeadCell>
-              <HeadCell num>Wasted</HeadCell>
-            </TableHead>
-            <Line row={chosen.total} total />
-            {chosen.rows.map((row) => (
-              <Line key={`${row.repository}|${row.preset}`} row={row} />
-            ))}
-          </Table>
+          <TableScroll label="Cost per merged pull request">
+            <Table
+              className="an-cost"
+              cols={COLS}
+              label={`Cost per merged pull request, last ${days(chosen.days)}`}
+            >
+              <TableHead>
+                <HeadCell>Repository</HeadCell>
+                <HeadCell>Preset</HeadCell>
+                <HeadCell num>Runs</HeadCell>
+                <HeadCell num>Spend</HeadCell>
+                <HeadCell num>PRs</HeadCell>
+                <HeadCell num>Merged</HeadCell>
+                <HeadCell num>Closed</HeadCell>
+                <HeadCell num>$ / merged</HeadCell>
+                <HeadCell num>Wasted</HeadCell>
+              </TableHead>
+              <Line row={chosen.total} total />
+              {chosen.rows.map((row) => (
+                <Line key={`${row.repository}|${row.preset}`} row={row} />
+              ))}
+            </Table>
+          </TableScroll>
           {chosen.total.unknown > 0 ? (
             <p className="dim small">
               {formatCount(chosen.total.unknown)} pull requests could not be read (no forge
