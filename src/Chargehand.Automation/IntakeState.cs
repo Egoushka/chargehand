@@ -12,9 +12,10 @@ public enum IntakePhase { Running, Asked, Done }
 /// <param name="PrUrl">The pull request the task opened, once it did.</param>
 /// <param name="Branch">The task's branch, once it pushed one; a review round's, from the start.</param>
 /// <param name="Round">The number of the review round this task is (shared with the CI fix attempts of the pull request); null for a task started from an issue. <paramref name="Issue"/> is then the pull request's number.</param>
+/// <param name="FailedAt">When the batch ended without a pull request, a question or a finished round (it failed, was lost or never started the task); null otherwise. Three in a row in a repository open the failure breaker (ADR 0084).</param>
 /// <param name="Trigger">The key of the trigger that started the task fresh from its issue; null for a continuation or a round. A run a restart lost is started again from it once (issue #557).</param>
 public sealed record IntakeTask(string Repository, int Issue, string BatchRunId, string TaskId, DateTimeOffset Started, string Size, IntakePhase Phase = IntakePhase.Running,
-    long? AskedCommentId = null, string? PrUrl = null, string? Branch = null, int? Round = null, string? Trigger = null);
+    long? AskedCommentId = null, string? PrUrl = null, string? Branch = null, int? Round = null, string? Trigger = null, DateTimeOffset? FailedAt = null);
 
 /// <summary>A review of a pull request's head commit that is running, or finished and not yet commented (ADR 0051). The run is a plain read-only run, not a driven batch.</summary>
 public sealed record PullReview(string Repository, int Pull, string Sha, string RunId, DateTimeOffset Started);

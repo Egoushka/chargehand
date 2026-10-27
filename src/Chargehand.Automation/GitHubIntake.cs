@@ -44,6 +44,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private readonly CheckoutSources _checkouts = new(heads, clones, "intake", warn ?? Warned, info ?? Informed);
     private readonly PullReviews _reviews = new(settings, host, log, state, clock ?? TimeProvider.System, warn ?? Warned);
     private readonly ReviewBacklog _backlog = new(settings, host);
+    private readonly IntakeBreakers _breakers = new(settings, state, clock ?? TimeProvider.System, warn ?? Warned);
     private DateTimeOffset? _warnedPause;
 
     /// <summary>The waiting triggers this poll read again; one of a repository that was not is withdrawn.</summary>
@@ -287,6 +288,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             Log(key, "ignored", "author", issue.Author);
             return Outcome.Settled;
         }
+        if (await BreakerAsync(key, name, issue.Number, ct) is { } tripped)
+            return tripped;
         if (await BacklogAsync(key, name, issue.Number, ct) is { } backlog)
             return backlog;
         if (await SubscriptionAsync(key, name, issue.Number, ct) is { } limited)
@@ -328,6 +331,17 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var task = new DrivenTask(taskId, Size: earlier.Size, Answers: [IntakeGoal.Answer(reply.Body)], ContinueFrom: new ContinueFrom(earlier.BatchRunId, earlier.TaskId));
         return await LaunchAsync(key, name, earlier.Issue, repository, task, run => earlier with { BatchRunId = run, TaskId = taskId, Started = _time.GetUtcNow(), Phase = IntakePhase.Running, AskedCommentId = null, PrUrl = null, Trigger = null },
             starter, run => $"chargehand continues with your answer: run `{run}` (task `{taskId}`), on the same branch.", earlier, null, ct);
+    }
+
+    /// <summary>Waits while a breaker is open (ADR 0084): too many starts in the hour, or three failed batches in a row in the repository. Null when the batch may start.</summary>
+    private async Task<Outcome?> BreakerAsync(string key, string name, int issue, CancellationToken ct)
+    {
+        if (_breakers.Hold(name) is not { } why)
+            return null;
+        _info($"intake: {key}: waiting: breaker: {why}");
+        Wait(key, name, issue, "breaker", why);
+        await NotifyOnceAsync($"breaker:{key}", name, issue, $"chargehand is waiting: {why}. New starts here pause until then; work already running goes on.", ct);
+        return Outcome.Deferred;
     }
 
     /// <summary>Waits while pull requests chargehand opened wait for a review (ADR 0084): null when the batch may start. Answers and review rounds never come here.</summary>
@@ -672,7 +686,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var row = result is null ? null : RowOf(result, task.TaskId);
         var phase = IntakePhase.Done;
         string text;
-        if (result is null && Requeue(task))
+        var requeued = result is null && Requeue(task);
+        if (requeued)
             text = $"chargehand lost run `{task.BatchRunId}`: the server that ran it stopped and did not take it up again. chargehand starts the task again, once, when a slot is free.";
         else if (result is null)
             text = $"chargehand lost run `{task.BatchRunId}`: the server that ran it stopped and did not take it up again. Comment {settings.Mention} to start the task again.";
@@ -707,7 +722,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             phase = IntakePhase.Done;
         }
         _info($"intake: {task.Repository}#{task.Issue.ToString(CultureInfo.InvariantCulture)}: run {task.BatchRunId} ended: {row?.Status ?? (result is null ? "lost" : "task_not_started")}");
-        state.Replace(task, task with { Phase = phase, AskedCommentId = phase == IntakePhase.Asked ? commentId : null, PrUrl = row?.PrUrl, Branch = row?.Branch });
+        var failed = !requeued && (result is null || row?.Status is not ("completed" or "needs_input"));
+        state.Replace(task, task with { Phase = phase, AskedCommentId = phase == IntakePhase.Asked ? commentId : null, PrUrl = row?.PrUrl, Branch = row?.Branch, FailedAt = failed ? _time.GetUtcNow() : null });
         state.Save(_time.GetUtcNow());
     }
 
