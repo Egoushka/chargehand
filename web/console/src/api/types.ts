@@ -165,6 +165,8 @@ export interface Me {
   };
   spend: { day: WindowSpend; month: WindowSpend };
   unfinished_runs: number;
+  /** Budgets of the unfinished runs, counted against the caps beside the spend (ADR 0083); absent from an older server. */
+  reserved_usd?: number;
   halted: boolean;
   presets: string[];
   /** The month's spend at the trailing 7-day rate (CHARGEHAND-216); absent from an older server. */

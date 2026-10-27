@@ -159,6 +159,11 @@ describe('accounts model', () => {
     expect(rows['Concurrent runs']).toBe('2 of 3');
   });
 
+  it('shows the budget that running work has reserved beside the spend', () => {
+    const rows = Object.fromEntries(capsRows({ ...byName('ci-bot'), reserved_usd: 5 }));
+    expect(rows['Dollars per day']).toBe('$9.40 billed of $10.00, $5.00 reserved');
+  });
+
   it('shows what a subscription ran at the API price beside what the key was billed', () => {
     const account = byName('ci-bot');
     const day = { ...account.spend.day, usd: 1, usd_at_api_price: 85 };

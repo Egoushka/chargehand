@@ -230,6 +230,27 @@ public class AccountsTests
     }
 
     [Fact]
+    public async Task Admission_reserves_the_budget_of_unfinished_runs_so_four_starts_against_a_cap_that_covers_two_admit_two_and_a_finished_run_frees_its_reservation()
+    {
+        var runtime = new ScriptedRuntime(Runs.DraftReply) { Hold = new() };
+        await using var s = await TestServer.StartAsync(runtime, accounts: [Account("alice", usdDay: 10m)], clock: ClockAtNow());
+        using var alice = s.As(Key(s, "alice"));
+        var request = Runs.DraftRequest() with { Context = Runs.DraftRequest().Context with { BudgetUsd = 5m } };
+
+        var statuses = new List<HttpStatusCode>();
+        for (var i = 0; i < 4; i++)
+            statuses.Add((await Post(alice, request, wait: 0)).StatusCode);
+
+        Assert.Equal([HttpStatusCode.Accepted, HttpStatusCode.Accepted, HttpStatusCode.TooManyRequests, HttpStatusCode.TooManyRequests], statuses);
+        var standing = await Body(await alice.GetAsync("/v1/accounts/me"));
+        Assert.Equal(10m, standing.GetProperty("reserved_usd").GetDecimal());
+
+        runtime.Hold.SetResult();
+        await ServerTests.WaitUntil(async () => (await Body(await alice.GetAsync("/v1/accounts/me"))).GetProperty("unfinished_runs").GetInt32() == 0);
+        Assert.Equal(HttpStatusCode.Accepted, (await Post(alice, request, wait: 0)).StatusCode);
+    }
+
+    [Fact]
     public async Task Only_the_owner_halts_and_resumes()
     {
         await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), accounts: [Account("alice")]);

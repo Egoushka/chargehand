@@ -173,9 +173,11 @@ export const capsRows = (account: AccountBody): Array<[string, string]> => {
   const { limits, spend } = account;
   const row = (cap: number | undefined, show: (n: number) => string): string =>
     cap == null ? 'no cap' : show(cap);
+  const reserved = account.reserved_usd ?? 0;
   const billed = (w: WindowSpend, cap: number | undefined): string =>
     `${formatUsd(w.usd)} billed of ${row(cap, formatUsd)}` +
-    (w.usd_at_api_price == null ? '' : `, ${formatUsd(w.usd_at_api_price)} at API price`);
+    (w.usd_at_api_price == null ? '' : `, ${formatUsd(w.usd_at_api_price)} at API price`) +
+    (reserved ? `, ${formatUsd(reserved)} reserved` : '');
   return [
     ['Dollars per day', billed(spend.day, limits.max_usd_per_day)],
     ['Dollars per month', billed(spend.month, limits.max_usd_per_month)],
