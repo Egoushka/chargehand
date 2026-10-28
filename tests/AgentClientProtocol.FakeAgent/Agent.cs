@@ -128,19 +128,25 @@ internal sealed class Agent(Wire wire, int protocolVersion)
         }
 
         var cancel = _cancels[sessionId] = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        JsonObject? result = null;
+        Scenarios.Failure? failed = null;
         try
         {
-            var result = await Scenarios.RunAsync(this, sessionId, text, cancel.Task);
-            wire.Reply(id, result);
+            result = await Scenarios.RunAsync(this, sessionId, text, cancel.Task);
         }
         catch (Scenarios.Failure failure)
         {
-            wire.Fail(id, failure.Code, failure.Message);
+            failed = failure;
         }
         finally
         {
             _active.TryRemove(sessionId, out _);
         }
+        // The session is free before the reply goes out: a client may send its next prompt as soon as it reads it.
+        if (failed is not null)
+            wire.Fail(id, failed.Code, failed.Message);
+        else
+            wire.Reply(id, result!);
     }
 
     public Task GateAsync(string sessionId) => Gate(sessionId).Task;
