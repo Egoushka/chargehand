@@ -10,7 +10,7 @@
 
 # chargehand
 
-> An orchestrator for coding agents (Claude Code, OpenCode): send a question or a change, get back typed JSON where every claim cites a file at a pinned commit.
+> Ask a question about your code from Claude Code or any MCP client and get back claims that each cite a file at a pinned commit, checked before you see them.
 
 <!-- readme:status:start -->
 **Active**. I work on it this month.
@@ -36,20 +36,25 @@ agent's context stays small, cached and disposable.
 
 ## What it does
 
-- **Answers with checked citations.** A *citation* is a file and line range, a commit, a diff range, a session
-  message or an input id. Each one must exist at the pinned commit before a claim leaves its worker; the worker gets
-  one repair turn, and claims that still fail move to open questions.
-- **Splits a question** into 2 to 4 read-only subtasks run as a task graph, when intake chooses it and the preset
-  allows it. Later subtasks reuse the first one's cached prompt prefix.
-- **Presets** set the tools, the token and dollar budgets and the allowed actions: `default`, `cheap`, `thorough`,
-  `strict`, `draft` (for programs that bring their own facts), `review`, and `code`, which writes a branch that passes
-  its tests in a sandbox.
-- **Driven batches** run a list of tasks as parallel Claude Code sessions, one locked-down container each, and end
-  each in a draft pull request.
-- **Plugs into your tools.** An MCP server (stdio or HTTP), an HTTP API, a CLI, a Claude Code plugin
-  (`/chargehand:change`: one prompt to a reviewed change on a local branch) and an operator console in the browser.
-- **Measures itself.** The run log records tokens, cache hits, cost and the prompt chain of every call; *Prompt CI*
-  gates prompt and preset changes on paired evals before they merge.
+**Answers with checked citations.** You ask a question about a repository; chargehand runs a read-only agent session
+(Claude Code or OpenCode) on a clone at a pinned commit and returns typed JSON (`result/v1`): claims, open questions, a
+confidence, the cost and the prompts behind it. A *citation* is a file and line range, a commit, a diff range, a
+session message or an input id. Each one must exist at the pinned commit before a claim leaves its worker; the worker
+gets one repair turn, and claims that still fail move to open questions.
+
+You reach it as an MCP server (stdio or HTTP), an HTTP API or a CLI. Presets (`default`, `cheap`, `thorough`,
+`strict`, `draft`, `review`) set the tools, the token and dollar budgets and whether a question may be split into 2 to 4
+read-only subtasks.
+
+Also in the box, each with its own guide:
+
+- A `code` preset and **driven batches** that write a tested branch or a draft pull request in a sandbox
+  ([Writing a branch](docs/guide/writing.md), [Driven sessions](docs/guide/driven.md)).
+- `/chargehand:change`, a Claude Code plugin command: one prompt to a reviewed change on a local branch
+  ([the change command](docs/guide/change.md)).
+- An operator console in the browser ([Web UI](docs/guide/web-ui.md)).
+- *Prompt CI*, which gates prompt and preset changes on paired evals; the run log records tokens, cache hits, cost and
+  the prompt chain of every call ([Prompt CI](docs/guide/prompt-ci.md)).
 
 Not here: an agent loop of its own, direct calls to model providers, a model gateway, a memory store (it uses yours
 over MCP), a hosted service. A citation that resolves points at something that exists; checking that the cited text
@@ -60,8 +65,27 @@ supports the claim is planned, not built ([roadmap](ROADMAP.md)).
 
 ## Quick start
 
-From a clone, ask one question about chargehand itself. Needs the .NET 10 SDK, git, and Claude Code 2.1.283 on
-`PATH`, signed in (run `claude` once). With no profile, the workers use the CLI's own login and default model.
+Ask Claude Code a question about your own repository, with no clone of chargehand.
+
+You need:
+
+- the .NET 10 SDK (`dotnet --version` prints `10.x`), which provides `dnx`;
+- Claude Code 2.1.283 on `PATH` (`claude --version`), signed in (run `claude` once);
+- a token for the workers: `claude setup-token` prints one for your subscription (an `ANTHROPIC_API_KEY` works too and
+  bills per token).
+
+```bash
+claude mcp add chargehand -e CLAUDE_CODE_OAUTH_TOKEN=<token> -- dnx Chargehand@0.19.4 --yes -- mcp
+```
+
+Replace `0.19.4` with the newest version of the [`Chargehand` package](https://www.nuget.org/packages/Chargehand) on
+nuget.org and pin it: the package changes before 1.0. In a Claude Code session in the repository you want to ask
+about, say: *use chargehand to find where retries are decided, and cite the code.* The answer lists claims, each
+with its file and lines. Other editors and agents (Cursor, VS Code, Codex, Gemini CLI and more) are in
+[Connect your editor or agent](docs/guide/clients.md).
+
+**From a clone,** to ask one question about chargehand itself without MCP: it needs the .NET 10 SDK, git and the same
+Claude Code, signed in. With no profile, the workers use the CLI's own login and default model.
 
 ```bash
 git clone https://github.com/Egoushka/chargehand.git && cd chargehand
@@ -79,12 +103,6 @@ dotnet run --project src/Chargehand.Cli -- run < request.json
 It prints `result/v1` on stdout: claims with citations, open questions, a confidence and the cost. The
 [quickstart guide](docs/guide/quickstart.md) explains every field, OpenCode instead of Claude Code, and what to do
 when a run fails.
-
-To use it from an MCP client without a clone, run the package from nuget.org with `dnx`, pinned to a release:
-
-```bash
-claude mcp add chargehand -e CLAUDE_CODE_OAUTH_TOKEN=<token> -- dnx Chargehand@<version> --yes -- mcp
-```
 
 ## How it works
 
