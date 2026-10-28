@@ -152,7 +152,7 @@ public static partial class SessionDriver
     private static (bool RateLimited, bool Budget) Refused(Tally tally)
     {
         var budget = tally.ResultIsError && GatewayRefusal.IsBudget(tally.ResultText);
-        return (budget || (tally.ResultIsError && UsageLimit.Matches(tally.ResultText)), budget);
+        return (budget || (tally.ResultIsError && (tally.ResultApiStatus == 429 || UsageLimit.Matches(tally.ResultText))), budget);
     }
 
     /// <summary>The session's status and reason: the cause it was stopped for, else a branch that failed the check gate, else what the stream's result and the questions say.</summary>

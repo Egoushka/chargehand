@@ -139,6 +139,15 @@ public sealed class ClaudeCodeRuntimeTests : IDisposable
     }
 
     [Fact]
+    public void A_2_1_303_subscription_limit_result_keeps_its_text_and_reads_as_rate_limited()
+    {
+        var s = new ClaudeCodeWorkerRuntime.Session("s", Spec, null);
+        Apply(s, """{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"result":"You've hit your session limit · resets 4:41pm (Europe/Kiev)"}""");
+        Assert.Equal("You've hit your session limit · resets 4:41pm (Europe/Kiev) (API status 429)", s.Messages[^1].Error);
+        Assert.True(ChargehandException.RateLimited(s.Messages[^1].Error));
+    }
+
+    [Fact]
     public void An_error_result_with_result_text_keeps_that_text_and_a_successful_one_has_no_error()
     {
         var s = new ClaudeCodeWorkerRuntime.Session("s", Spec, null);

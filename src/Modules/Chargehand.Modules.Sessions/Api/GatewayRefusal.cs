@@ -14,7 +14,7 @@ public static partial class GatewayRefusal
     public static bool IsBudget(string? text) =>
         text is not null && (PaymentRequired().IsMatch(text) || (UsageLimit.Matches(text) && text.Contains("budget", StringComparison.OrdinalIgnoreCase)));
 
-    /// <summary>When the refusal lifts: a budget's own reset, else the next UTC midnight; a rate limit's <c>retry-after</c> (seconds, or a time), else Claude Code's reset epoch, else null.</summary>
+    /// <summary>When the refusal lifts: a budget's own reset, else the next UTC midnight; a rate limit's <c>retry-after</c> (seconds, or a time), else Claude Code's reset (epoch or local clock time), else null.</summary>
     public static DateTimeOffset? ResetsAt(string? text, DateTimeOffset now)
     {
         if (text is null)
@@ -22,7 +22,7 @@ public static partial class GatewayRefusal
         var named = Reset().Match(text) is { Success: true } r && DateTimeOffset.TryParse(r.Groups[1].Value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var at)
             ? at
             : RetryAfter().Match(text) is { Success: true } m && double.TryParse(m.Groups[1].Value, CultureInfo.InvariantCulture, out var seconds) ? now.AddSeconds(seconds)
-            : UsageLimit.ResetsAt(text);
+            : UsageLimit.ResetsAt(text, now);
         return IsBudget(text) ? (named is { } t && t > now ? t : NextUtcDay(now)) : named;
     }
 

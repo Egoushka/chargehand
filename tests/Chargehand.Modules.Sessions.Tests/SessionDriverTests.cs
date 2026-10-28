@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
@@ -480,7 +481,44 @@ public class SessionDriverTests
     public void The_text_of_a_result_names_a_usage_or_rate_limit_and_maybe_when_it_lifts(string text, bool limited, long? resets)
     {
         Assert.Equal(limited, UsageLimit.Matches(text));
-        Assert.Equal(resets is { } r ? DateTimeOffset.FromUnixTimeSeconds(r) : null, UsageLimit.ResetsAt(text));
+        Assert.Equal(resets is { } r ? DateTimeOffset.FromUnixTimeSeconds(r) : null, UsageLimit.ResetsAt(text, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>Claude Code 2.1.303's subscription limit wording: the reset is a local clock time in the named zone, the next one after now (Kyiv is UTC+2 from 2026-10-25).</summary>
+    [Theory]
+    [InlineData("You've hit your session limit · resets 4:41pm (Europe/Kiev)", "2026-10-28T12:00:00Z", "2026-10-28T14:41:00Z")]
+    [InlineData("You've hit your session limit · resets 4:41pm (Europe/Kiev)", "2026-10-28T15:00:00Z", "2026-10-29T14:41:00Z")]
+    [InlineData("You've hit your weekly limit · resets 9am (Europe/Kiev)", "2026-10-28T12:00:00Z", "2026-10-29T07:00:00Z")]
+    [InlineData("You've hit your weekly limit · resets Nov 3, 9am (Europe/Kiev)", "2026-10-28T12:00:00Z", "2026-11-03T07:00:00Z")]
+    [InlineData("You've hit your session limit · resets 4:41pm (Mars/Olympus_Mons)", "2026-10-28T12:00:00Z", null)]
+    [InlineData("You've hit your session limit", "2026-10-28T12:00:00Z", null)]
+    public void A_subscription_limit_names_its_reset_as_a_local_clock_time(string text, string now, string? resets)
+    {
+        Assert.True(UsageLimit.Matches(text));
+        Assert.Equal(resets is null ? null : DateTimeOffset.Parse(resets, CultureInfo.InvariantCulture), UsageLimit.ResetsAt(text, DateTimeOffset.Parse(now, CultureInfo.InvariantCulture)));
+    }
+
+    [Fact]
+    public async Task A_2_1_303_subscription_limit_result_is_rate_limited_until_its_local_reset()
+    {
+        using var w = new Workspace();
+        const string Text = "You've hit your session limit · resets 4:41pm (Europe/Kiev)";
+        var result = JsonSerializer.Serialize(new { type = "result", subtype = "success", is_error = true, api_error_status = 429, result = Text });
+        var before = DateTimeOffset.UtcNow;
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init, Assistant("m1", "hi"), result), Task()), default);
+        Assert.Equal((SessionStatus.RateLimited, "rate_limited"), (outcome.Status, outcome.Reason));
+        Assert.InRange(outcome.RateLimitResetsAt!.Value, before, DateTimeOffset.UtcNow.AddDays(1));
+        Assert.Equal((41, 0), (outcome.RateLimitResetsAt.Value.Minute, outcome.RateLimitResetsAt.Value.Second));
+    }
+
+    [Fact]
+    public async Task An_error_result_with_api_status_429_is_rate_limited_whatever_its_text()
+    {
+        using var w = new Workspace();
+        var result = JsonSerializer.Serialize(new { type = "result", subtype = "success", is_error = true, api_error_status = 429, result = "Request refused" });
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init, Assistant("m1", "hi"), result), Task()), default);
+        Assert.Equal((SessionStatus.RateLimited, "rate_limited"), (outcome.Status, outcome.Reason));
+        Assert.Null(outcome.RateLimitResetsAt);
     }
 
     [Fact]
