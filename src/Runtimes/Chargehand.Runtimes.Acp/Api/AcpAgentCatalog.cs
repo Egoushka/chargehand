@@ -57,6 +57,8 @@ public sealed partial class AcpAgentCatalog
         return new AcpAgentCatalog([.. file.Agents ?? []]);
     }
 
+    public bool Contains(string id) => _byId.ContainsKey(id);
+
     /// <summary>The pinned agent, or an error naming the ones that are.</summary>
     public AcpAgentSpec Get(string id) =>
         _byId.TryGetValue(id, out var agent)

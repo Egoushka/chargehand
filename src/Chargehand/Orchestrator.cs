@@ -274,6 +274,17 @@ public sealed class Orchestrator(
         return new DrivenCheckout(directory, commit, remote, head is not null && head.StartsWith("origin/", StringComparison.Ordinal) ? head["origin/".Length..] : "main");
     }
 
+    /// <summary>The clone of the request's commit that a conversation's agent reads (the same checkout as a worker's). A tracked file the preset denies reading refuses the conversation, as
+    /// it does a driven session: the agent has a shell. A preset that writes is refused: a conversation reads (ADR 0086).</summary>
+    /// <param name="presetName">The preset whose read rules apply; null: <c>default</c>.</param>
+    public async Task<string> CheckoutForConversationAsync(RepositoryRef repo, string? presetName, CancellationToken ct)
+    {
+        var (_, kind) = AnswerKind(Preset.Load(Path.Combine(rootDirectory, "presets"), presetName ?? "default"));
+        if (kind.Writes)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"preset '{presetName}' writes, and a conversation only reads", "Name a research preset or leave the preset out.");
+        return (await Checkout(repo, kind, refuseDenied: true, ct)).Directory;
+    }
+
     private static ResultError Cancelled() => new(ErrorCode.Cancelled, "the run was cancelled", false, "Start the task again if it is still wanted; nothing was pushed.");
 
     /// <summary>Records a run that was cancelled before it started (it was queued): a start record and a failed result with <c>cancelled</c>.</summary>

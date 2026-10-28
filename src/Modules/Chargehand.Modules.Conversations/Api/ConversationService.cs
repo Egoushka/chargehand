@@ -14,7 +14,9 @@ namespace Chargehand.Modules.Conversations.Api;
 /// message. Events are journaled in <paramref name="directory"/>; a conversation still open when the server stopped is lost when the next one starts.</summary>
 /// <param name="directory">Where the journals live, <c>conversations/</c> beside the run log.</param>
 /// <param name="log">The run log, for what an account's runs cost in a window; null: only its conversations count.</param>
-public sealed partial class ConversationService(IConversationRuntime runtime, string directory, ConversationSettings settings, IRunLog? log = null, TimeProvider? clock = null) : IAsyncDisposable
+/// <param name="credentials">The pause on a runtime's credential; null: a rejected credential is not remembered.</param>
+public sealed partial class ConversationService(IConversationRuntime runtime, string directory, ConversationSettings settings, IRunLog? log = null, TimeProvider? clock = null,
+    ConversationCredentials? credentials = null) : IAsyncDisposable
 {
     /// <summary>The longest message taken, in characters.</summary>
     public const int MaxMessageChars = 100_000;
@@ -63,6 +65,9 @@ public sealed partial class ConversationService(IConversationRuntime runtime, st
     {
         if (Problems(request) is { Count: > 0 } errors)
             return ConversationOutcome.Fail<ConversationView>(ProblemKind.Invalid, [.. errors]);
+        var key = runtime.CredentialKey(request.Runtime!);
+        if (key is not null && credentials?.Refusal(key) is { } paused)
+            return ConversationOutcome.Refuse<ConversationView>(paused);
         var now = _clock.GetUtcNow();
         var (day, month) = await SpendAsync(who, now, ct);
         if (ConversationAdmission.AtStart(who, request.Repository!, request.Commit!, request.Preset, OpenOf(who?.Name), day, month, now) is { } refusal)
@@ -71,7 +76,8 @@ public sealed partial class ConversationService(IConversationRuntime runtime, st
         var id = ConversationIds.New(now);
         var repository = new RepositoryRef(request.Repository!, request.Commit!);
         var handle = ConversationHandle.Open(id, runtime, _journal, _clock,
-            new StateData(ConversationState.Starting, Repository: repository, Runtime: request.Runtime, Model: request.Model, Preset: request.Preset, Actor: who?.Name));
+            new StateData(ConversationState.Starting, Repository: repository, Runtime: request.Runtime, Model: request.Model, Preset: request.Preset, Actor: who?.Name),
+            key is null ? null : credentials?.Watch(key));
         try
         {
             handle.Started(await runtime.StartAsync(new RuntimeStart(id, request.Runtime!, repository, request.Model, request.Preset), ct));

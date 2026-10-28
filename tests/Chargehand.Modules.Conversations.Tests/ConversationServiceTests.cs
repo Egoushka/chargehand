@@ -391,6 +391,6 @@ public sealed class ConversationServiceTests : IAsyncLifetime
     public void The_settings_are_valid_by_default_and_name_what_is_wrong()
     {
         Assert.Empty(new ConversationSettings().Problems());
-        Assert.Equal(["runtime must name a runtime", "max_messages must be 1 to 10000"], new ConversationSettings(" ", 0).Problems());
+        Assert.Equal(["runtime must be one of fake, acp", "max_messages must be 1 to 10000"], new ConversationSettings(" ", 0).Problems());
     }
 }

@@ -138,8 +138,9 @@ public static partial class ChargehandServer
             });
         // ADR 0086: only when the profile has http.conversations. After the resumer too: an earlier process's open conversations are lost before the listener opens.
         if (settings.Conversations is { } conversations)
-            builder.Services.AddSingleton(_ => new ConversationService(settings.ConversationRuntime ?? new FakeConversationRuntime(), settings.ConversationsDirectory
-                ?? throw new InvalidOperationException("http.conversations needs a directory for the journals"), conversations, log, settings.Clock))
+            builder.Services.AddSingleton(sp => new ConversationService(settings.ConversationRuntime ?? new FakeConversationRuntime(), settings.ConversationsDirectory
+                ?? throw new InvalidOperationException("http.conversations needs a directory for the journals"), conversations, log, settings.Clock,
+                new ConversationCredentials(sp.GetRequiredService<RunService>().Credentials, sp.GetRequiredService<RunService>().ReportCredentialAsync, settings.Clock)))
                 .AddHostedService<ConversationHost>();
         // ADR 0045: reads back what became of the pull requests, only where there are learning records.
         if (driven?.Learning is not null)

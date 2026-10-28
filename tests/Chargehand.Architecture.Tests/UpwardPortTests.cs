@@ -10,12 +10,14 @@ public class UpwardPortTests
 {
     /// <summary>
     /// Full names of the allowed upward ports. The amendment allowed two, added by C3's Tasks slice; P3 (<c>ITaskState</c>, Tasks to Batches) went when task state moved into the
-    /// journal (ADR 0061, amendment of 2026-10-14). Research implements P4, the only one left, and <c>DrivenRun</c> wires it.
+    /// journal (ADR 0061, amendment of 2026-10-14). Research implements P4, and <c>DrivenRun</c> wires it. The conversations module's runtime port is the second.
     /// </summary>
     internal static readonly HashSet<string> Allowed =
     [
         // P4 Tasks -> Research proof.
         "Chargehand.Modules.Tasks.Api.ITaskResults",
+        // ADR 0086, decision 6: conversations reach an agent through this port; the ACP runtime implements it, the server wires it.
+        "Chargehand.Modules.Conversations.Api.IConversationRuntime",
     ];
 
     [Fact]
