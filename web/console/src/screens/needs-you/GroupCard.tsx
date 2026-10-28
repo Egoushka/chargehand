@@ -15,7 +15,7 @@ export interface GroupCardProps {
   cardRef?: Ref<HTMLElement>;
 }
 
-/** Failures with the same repository and code as one card (CHARGEHAND-237): the count, the newest, the rest behind Show. */
+/** Failures with the same cause as one card (CHARGEHAND-237, ADR 0085): the count, the newest, the rest behind Show. */
 export function GroupCard({ group, items, cursor, cardRef }: GroupCardProps) {
   const [open, setOpen] = useState(false);
   const heading = useId();
@@ -24,6 +24,8 @@ export function GroupCard({ group, items, cursor, cardRef }: GroupCardProps) {
   const code = group.reason ?? newest.error?.code ?? 'failure';
   const run = targetRun(newest);
   const repo = baseName(group.repository);
+  const repositories = new Set(items.map((i) => i.repository).filter(Boolean)).size;
+  const where = group.repository ? repo : `${repositories} repositories`;
   return (
     <article
       ref={cardRef}
@@ -34,11 +36,11 @@ export function GroupCard({ group, items, cursor, cardRef }: GroupCardProps) {
     >
       <div className="card__head">
         <StatusPill status={inboxStatus(newest)} />
-        <Badge size="s" label={repo} title={group.repository ?? undefined} />
+        <Badge size="s" label={where} title={group.repository ?? undefined} />
         <Badge
           size="s"
           label={`×${group.count}`}
-          title={`${group.count} failures with this code on this repository`}
+          title={`${group.count} failures with this cause`}
         />
         <span className="spacer" />
         <span className="dim mono" title={formatDateTime(group.at)}>

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
@@ -24,9 +25,9 @@ public class ConsoleInboxGroupsTests
     private static Task<HttpResponseMessage> Post(HttpClient http, string path, params string[] ids) => http.PostAsJsonAsync(path, new { ids });
 
     private static async Task RunAsync(ConsoleRig rig, string id, string text, DateTimeOffset at, ResultStatus status = ResultStatus.Completed, ErrorCode? error = null, string? actor = null,
-        string? commit = null)
+        string? commit = null, string repository = "/srv/repo")
     {
-        var request = new RunRequest("request/v1", text, new RequestContext(false, "review", Repository: new RepositoryRef("/srv/repo", commit ?? ConsoleRig.Commit)));
+        var request = new RunRequest("request/v1", text, new RequestContext(false, "review", Repository: new RepositoryRef(repository, commit ?? ConsoleRig.Commit)));
         var start = ConsoleSeed.Start(id, request, actor, at);
         await rig.Log.AppendAsync(start, default);
         await rig.Log.AppendAsync(ConsoleSeed.Finish(start, ConsoleSeed.Result(id, status, "done", error: error is { } code ? new ResultError(code, "it failed", false, null) : null, actor: actor), at.AddMinutes(5)), default);
@@ -51,6 +52,47 @@ public class ConsoleInboxGroupsTests
         Assert.Equal(4, group.GetProperty("count").GetInt32());
         Assert.Equal(["failure:run-3b", "failure:run-2", "failure:run-1"], group.GetProperty("items").EnumerateArray().Select(i => i.GetString()));
         Assert.Equal(Now.AddHours(-6.5).AddMinutes(5), group.GetProperty("at").GetDateTimeOffset());
+    }
+
+    /// <summary>ADR 0085: a review's budget is the preset's, so reviews that stopped at it are one cause across repositories; a repository's secrets are the repository's own.</summary>
+    [Fact]
+    public async Task Reviews_that_stopped_at_their_budget_are_one_cause_across_repositories_and_secrets_stay_per_repository()
+    {
+        await using var rig = await ConsoleRig.StartAsync();
+        await RunAsync(rig, "run-a", "Review pull request o/a#1.", Now.AddHours(-5), ResultStatus.Failed, ErrorCode.CostCapReached, repository: "/srv/o/a");
+        await RunAsync(rig, "run-b", "Review pull request o/b#2.", Now.AddHours(-4), ResultStatus.Failed, ErrorCode.CostCapReached, repository: "/srv/o/b");
+        await RunAsync(rig, "run-c", "Explain the cache", Now.AddHours(-3), ResultStatus.Failed, ErrorCode.CostCapReached, repository: "/srv/o/c");
+        await RunAsync(rig, "run-s1", "Review pull request o/a#3.", Now.AddHours(-2), ResultStatus.Failed, ErrorCode.CheckoutHasSecrets, repository: "/srv/o/a");
+        await RunAsync(rig, "run-s2", "Review pull request o/b#4.", Now.AddHours(-1), ResultStatus.Failed, ErrorCode.CheckoutHasSecrets, repository: "/srv/o/b");
+
+        var body = await ConsoleRig.Get(rig.Owner, "/v1/inbox");
+
+        var group = Assert.Single(body.GetProperty("groups").EnumerateArray());
+        Assert.Equal("cost_cap_reached:review", group.GetProperty("cause_key").GetString());
+        Assert.False(group.TryGetProperty("repository", out var repository) && repository.ValueKind == JsonValueKind.String);
+        Assert.Equal(["failure:run-b", "failure:run-a"], group.GetProperty("items").EnumerateArray().Select(i => i.GetString()));
+        var keys = body.GetProperty("items").EnumerateArray().ToDictionary(i => i.GetProperty("id").GetString()!, i => i.GetProperty("cause_key").GetString());
+        Assert.Equal("cost_cap_reached", keys["failure:run-c"]);
+        Assert.Equal(("checkout_has_secrets:/srv/o/a", "checkout_has_secrets:/srv/o/b"), (keys["failure:run-s1"], keys["failure:run-s2"]));
+    }
+
+    /// <summary>ADR 0085: the owner of a card is the first <c>inbox.owners</c> glob its repository matches, else the account that started it.</summary>
+    [Fact]
+    public async Task A_card_names_its_owner_from_the_profile_globs_else_the_account()
+    {
+        await using var rig = await ConsoleRig.StartAsync(profile: root => Runs.Profile(root) with
+        {
+            Inbox = new InboxSettings(new Dictionary<string, string> { ["o/a"] = "infra desk", ["o/*"] = "web desk" }),
+        });
+        await RunAsync(rig, "run-a", "Explain a", Now.AddHours(-3), ResultStatus.Failed, ErrorCode.Internal, repository: "/srv/o/a");
+        await RunAsync(rig, "run-b", "Explain b", Now.AddHours(-2), ResultStatus.Failed, ErrorCode.Internal, repository: "/srv/o/b");
+        await RunAsync(rig, "run-x", "Explain x", Now.AddHours(-1), ResultStatus.Failed, ErrorCode.Internal, repository: "/srv/other/x");
+
+        var items = (await ConsoleRig.Get(rig.Owner, "/v1/inbox")).GetProperty("items").EnumerateArray().ToDictionary(i => i.GetProperty("id").GetString()!);
+
+        Assert.Equal("infra desk", items["failure:run-a"].GetProperty("owner").GetString());
+        Assert.Equal("web desk", items["failure:run-b"].GetProperty("owner").GetString());
+        Assert.False(items["failure:run-x"].TryGetProperty("owner", out var none) && none.ValueKind == JsonValueKind.String);
     }
 
     [Fact]

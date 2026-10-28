@@ -257,6 +257,7 @@
   "automation": null,
   "preset_services": null,
   "delivery": null,
+  "inbox": null,
   "roots": [
     "/srv/chargehand/work",
     "/path/to/your/repositories"
