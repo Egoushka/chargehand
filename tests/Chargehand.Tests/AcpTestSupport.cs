@@ -28,7 +28,7 @@ internal static class AcpTestSupport
         return (session.Id, await runtime.ReadMessagesAsync(session.Id, deadline.Token), outcome);
     }
 
-    private static string DotnetHost() => Environment.ProcessPath is { } p && Path.GetFileNameWithoutExtension(p) == "dotnet" ? p : "dotnet";
+    internal static string DotnetHost() => Environment.ProcessPath is { } p && Path.GetFileNameWithoutExtension(p) == "dotnet" ? p : "dotnet";
 }
 
 /// <summary>A runtime, a checkout directory and the run's end: disposing stops the agent processes the test started.</summary>

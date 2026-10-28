@@ -19,6 +19,9 @@ public sealed class FakeConversationRuntime(decimal? usdPerTurn = null) : IConve
 
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
 
+    /// <summary>The credential the agent pays with, for the pause check; null: it needs none.</summary>
+    public string? Credential { get; init; }
+
     /// <summary>Set to make the next <see cref="StartAsync"/> throw it, as an agent that does not start does.</summary>
     public Exception? StartFailure { get; set; }
 
@@ -26,6 +29,8 @@ public sealed class FakeConversationRuntime(decimal? usdPerTurn = null) : IConve
     public IReadOnlyList<string> Prompts(string conversationId) => _sessions.TryGetValue(conversationId, out var s) ? [.. s.Prompts] : [];
 
     public bool Supports(string runtime) => runtime == Name;
+
+    public string? CredentialKey(string runtime) => Credential;
 
     public Task<RuntimeStarted> StartAsync(RuntimeStart start, CancellationToken ct)
     {

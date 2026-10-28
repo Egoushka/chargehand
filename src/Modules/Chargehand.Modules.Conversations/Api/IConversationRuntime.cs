@@ -9,6 +9,9 @@ public interface IConversationRuntime
     /// <summary>Whether <paramref name="runtime"/>, the <c>runtime</c> of a start request, names an agent this implementation reaches.</summary>
     bool Supports(string runtime);
 
+    /// <summary>The credential a conversation on <paramref name="runtime"/> pays with, named for the pause check (<see cref="ConversationCredentials"/>); null: it needs none.</summary>
+    string? CredentialKey(string runtime) => null;
+
     /// <summary>Opens the agent's side of the conversation. The checkout is the repository at the commit; it is read-only unless the person approves an edit.</summary>
     /// <exception cref="Exception">The agent could not start; the conversation then fails.</exception>
     Task<RuntimeStarted> StartAsync(RuntimeStart start, CancellationToken ct);

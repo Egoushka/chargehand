@@ -1,13 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>The ACP worker runtime's parts that need no old core: the pinned agent list, the read-only rules and usage accounting.</Description>
+    <Description>The ACP runtimes' parts that need no old core: the pinned agent list, the read-only rules, usage accounting and the conversation runtime.</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
     <ProjectReference Include="..\..\Shared\AgentClientProtocol.Net\AgentClientProtocol.Net.csproj" />
     <ProjectReference Include="..\..\Shared\Chargehand.Kernel\Chargehand.Kernel.csproj" />
+    <ProjectReference Include="..\..\Modules\Chargehand.Modules.Conversations\Chargehand.Modules.Conversations.csproj" />
   </ItemGroup>
 
 </Project>

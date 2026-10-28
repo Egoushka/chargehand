@@ -5,7 +5,7 @@ namespace AgentClientProtocol.FakeAgent;
 
 /// <summary>The fake agent's side of the protocol. A prompt's first word picks the scenario:
 /// <c>say</c> (three chunks), <c>gate</c> (holds the turn until <c>session/set_mode</c> asks for mode <c>release</c>), <c>slow</c> (waits for cancel), <c>ask KIND</c> (permission), <c>tool</c>, <c>usage</c>,
-/// <c>die</c>, <c>fs PATH</c>, <c>caps</c>, <c>unknown</c>, <c>noise</c>, <c>terminal</c>.</summary>
+/// <c>die</c>, <c>authfail</c> (a JSON-RPC error that says the key was rejected), <c>fs PATH</c>, <c>caps</c>, <c>unknown</c>, <c>noise</c>, <c>terminal</c>.</summary>
 internal sealed class Agent(Wire wire, int protocolVersion)
 {
     private readonly ConcurrentDictionary<string, bool> _active = new();
@@ -132,6 +132,10 @@ internal sealed class Agent(Wire wire, int protocolVersion)
         {
             var result = await Scenarios.RunAsync(this, sessionId, text, cancel.Task);
             wire.Reply(id, result);
+        }
+        catch (Scenarios.Failure failure)
+        {
+            wire.Fail(id, failure.Code, failure.Message);
         }
         finally
         {

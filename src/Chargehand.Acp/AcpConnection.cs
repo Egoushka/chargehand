@@ -7,13 +7,10 @@ using Chargehand.Sandbox;
 
 namespace Chargehand.Acp;
 
-/// <summary>What an agent's callbacks reach: the node that owns the connection.</summary>
-internal sealed record AcpCallbacks(Func<SessionNotification, ValueTask> OnUpdate, Func<RequestPermissionRequest, RequestPermissionOutcome> OnPermission);
-
 /// <summary>One agent process and its one ACP session (ADR 0086, decision 8). The process starts inside the sandbox with a private home and
 /// the key in its environment, and is read-only three ways: permission requests are rejected (<see cref="AcpReadOnlyPolicy"/>), the agent's
 /// own read-only or plan mode is set when it has one, and the sandbox mounts the checkout read-only.</summary>
-internal sealed class AcpConnection : IAsyncDisposable
+internal sealed class AcpConnection : IAcpAgent
 {
     private readonly AcpClient _client;
     private readonly SandboxLaunch _launch;
@@ -33,7 +30,7 @@ internal sealed class AcpConnection : IAsyncDisposable
     public string? Model { get; }
 
     public static async Task<AcpConnection> StartAsync(AcpAgentSpec agent, IReadOnlyDictionary<string, string> environment, ISandbox sandbox, string directory,
-        ModelRef? model, AcpCallbacks callbacks, CancellationToken ct)
+        ModelRef? model, AcpAgentCallbacks callbacks, CancellationToken ct)
     {
         var work = Directory.CreateTempSubdirectory("chargehand-acp-").FullName;
         // The agent's cwd is the private directory, so the checkout is outside what the sandbox lets it write. Network stays on: it calls its model.
@@ -54,7 +51,7 @@ internal sealed class AcpConnection : IAsyncDisposable
                 {
                     ClientInfo = new Implementation("chargehand"),
                     OnSessionUpdate = (n, _) => callbacks.OnUpdate(n),
-                    OnRequestPermission = (r, _) => ValueTask.FromResult(callbacks.OnPermission(r)),
+                    OnRequestPermission = (r, _) => callbacks.OnPermission(r),
                 });
             return await OpenAsync(agent, client, launch, work, directory, model, ct);
         }
@@ -125,6 +122,8 @@ internal sealed class AcpConnection : IAsyncDisposable
     }
 
     public string StderrTail => _client.StderrTail;
+
+    public Task<Exception> Closed => _client.Closed;
 
     public async ValueTask DisposeAsync()
     {

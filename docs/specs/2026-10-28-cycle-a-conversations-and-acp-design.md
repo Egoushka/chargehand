@@ -69,8 +69,9 @@ Evidence: `main` at 9c5029fd, `acp-spike` report of 2026-10-27, research of 2026
    recorded from real agents are scrubbed of ids and prompts before commit.
 4. **The ACP runtime for research workers** (decisions 8 to 10), proven on Codex (`codex-acp`) and Gemini CLI
    (`--acp`) through the gateway or an API key.
-5. **The ACP runtime behind conversations**: Task 2's fake swapped for ACP under a profile switch, with an end-to-end
-   test that runs a conversation on Gemini CLI.
+5. **The ACP runtime behind conversations**: Task 2's fake swapped for ACP under a profile switch
+   (`http.conversations.runtime: "acp"`), with an end-to-end test that runs a conversation on the scripted fake ACP agent.
+   The follow-ups of Task 2 ride along: the credential-paused check. A list route is not added: no decision asks for one.
 6. **Clients guide and VS Code agent plugin** (decision 11).
 
 Tasks 2, 3 and 6 can run in parallel. Task 4 needs 3, and Task 5 needs 2 and 4.
@@ -107,8 +108,11 @@ attached to the pull request with ids scrubbed.
   - Each `result/v1` validates and has at least one citation, and every citation resolves at the pinned commit.
   - The run summary shows the runtime, model and usage.
   - Total spend is under $5.
-- **Live, conversation:** a conversation on `acp:gemini` started with `curl`, streamed, sent a second message, and
-  ended. The transcript is attached.
+- `AcpConversationTests` (in `scripts/check.sh`): start, stream, a second message, an approval allowed and one rejected,
+  usage, end, an agent that dies and a rejected key, over the HTTP routes with the scripted fake agent as a child process.
+- **Live, conversation, by a maintainer with Codex access:** `scripts/acp-conversation-live-check.py --agent codex`
+  (steps and expected output in `docs/guide/acp.md`, "Live check on your own Codex access"); the output is attached.
+  The owner declined to pay for live runs, so this has not run. A conversation on `acp:gemini` is **UNKNOWN**.
 - `ClientsGuideTests`: every JSON and TOML snippet in `docs/guide/clients.md` parses. The VS Code agent plugin manifest
   validates.
 

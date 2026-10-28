@@ -5,6 +5,12 @@ namespace AgentClientProtocol.FakeAgent;
 /// <summary>What the fake agent does for the first word of a prompt.</summary>
 internal static class Scenarios
 {
+    /// <summary>A scenario that ends the prompt with a JSON-RPC error, as a provider that rejects the key does.</summary>
+    public sealed class Failure(int code, string message) : Exception(message)
+    {
+        public int Code { get; } = code;
+    }
+
     public static async Task<JsonObject> RunAsync(Agent agent, string session, string prompt, Task cancelled)
     {
         var words = prompt.Split(' ', 2);
@@ -54,6 +60,8 @@ internal static class Scenarios
                 return End("end_turn");
             case "terminal":
                 return await TerminalAsync(agent, session);
+            case "authfail":
+                throw new Failure(-32000, "authentication_error: invalid x-api-key");
             default:
                 agent.Chunk(session, $"unknown command: {words[0]}");
                 return End("refusal");
@@ -81,12 +89,15 @@ internal static class Scenarios
         });
     }
 
+    private static int _asks = 1;
+
+    /// <summary>Each ask is a new tool call (t2, t3, ...), as a real agent's are.</summary>
     private static async Task<JsonObject> AskAsync(Agent agent, string session, string kind)
     {
         var reply = await agent.Wire.CallAsync("session/request_permission", new JsonObject
         {
             ["sessionId"] = session,
-            ["toolCall"] = new JsonObject { ["toolCallId"] = "t2", ["title"] = "Do it", ["kind"] = kind, ["status"] = "pending", ["rawInput"] = new JsonObject { ["command"] = "rm -rf x" } },
+            ["toolCall"] = new JsonObject { ["toolCallId"] = $"t{Interlocked.Increment(ref _asks)}", ["title"] = "Do it", ["kind"] = kind, ["status"] = "pending", ["rawInput"] = new JsonObject { ["command"] = "rm -rf x" } },
             ["options"] = new JsonArray(
                 new JsonObject { ["optionId"] = "allow-once", ["name"] = "Allow", ["kind"] = "allow_once" },
                 new JsonObject { ["optionId"] = "reject", ["name"] = "Reject", ["kind"] = "reject_once" }),

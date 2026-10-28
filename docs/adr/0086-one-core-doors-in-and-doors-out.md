@@ -72,7 +72,10 @@ which the skeleton rules forbid new projects to reference (ADR 0060), so the run
 holds what needs no old type (the pinned list, the profile block, the read-only rules, the mode choice, usage
 accounting, the agent's environment), and `src/Chargehand.Acp`, an old-style project beside `Chargehand.ClaudeCode`,
 holds the `IWorkerRuntime` adapter. The adapter folds into the new project when the interface is ported, and
-`IConversationRuntime` (Task 5) is implemented in the new project from the start.
+`IConversationRuntime` (Task 5) is implemented in the new project from the start. The sandbox is also an old type, so the
+runtime starts an agent through `IAcpLauncher`, a port in the new project that `Chargehand.Acp` implements with the sandbox
+(`AcpSandboxLauncher`). The checkout and the key are likewise passed in as delegates, and the port `IConversationRuntime`
+is on the upward-port allowlist (a higher project implements a lower module's port).
 
 Three small changes in the old core let a runtime like this one exist: `ISandbox.Wrap` returns the confined command line
 for a child the caller keeps open, `IWorkerRuntime.ReportsUsage` and `.ResearchOnly` let the orchestrator refuse

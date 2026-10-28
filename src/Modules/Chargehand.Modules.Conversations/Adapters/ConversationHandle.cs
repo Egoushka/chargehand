@@ -13,6 +13,7 @@ internal sealed class ConversationHandle : IConversationEntry, IAsyncDisposable
     private readonly IConversationRuntime _runtime;
     private readonly ConversationJournal.Writer _writer;
     private readonly TimeProvider _clock;
+    private readonly ICredentialWatch? _watch;
     private readonly List<ConversationEvent> _events = [];
     private readonly Queue<string> _queue = new();
     private readonly CancellationTokenSource _stop = new();
@@ -20,9 +21,9 @@ internal sealed class ConversationHandle : IConversationEntry, IAsyncDisposable
     private ConversationSnapshot? _snapshot;
     private Task _pump = Task.CompletedTask;
 
-    private ConversationHandle(string id, IConversationRuntime runtime, ConversationJournal.Writer writer, TimeProvider clock)
+    private ConversationHandle(string id, IConversationRuntime runtime, ConversationJournal.Writer writer, TimeProvider clock, ICredentialWatch? watch)
     {
-        (_id, _runtime, _writer, _clock) = (id, runtime, writer, clock);
+        (_id, _runtime, _writer, _clock, _watch) = (id, runtime, writer, clock, watch);
     }
 
     public ConversationSnapshot Snapshot
@@ -44,9 +45,10 @@ internal sealed class ConversationHandle : IConversationEntry, IAsyncDisposable
     }
 
     /// <summary>The handle of a new conversation, whose first event records its start fields. The runtime has not been started.</summary>
-    public static ConversationHandle Open(string id, IConversationRuntime runtime, ConversationJournal journal, TimeProvider clock, StateData start)
+    /// <param name="watch">The pause on the runtime's credential, told of rejections and of turns that work; null: the runtime has no credential.</param>
+    public static ConversationHandle Open(string id, IConversationRuntime runtime, ConversationJournal journal, TimeProvider clock, StateData start, ICredentialWatch? watch = null)
     {
-        var handle = new ConversationHandle(id, runtime, journal.Open(id), clock);
+        var handle = new ConversationHandle(id, runtime, journal.Open(id), clock, watch);
         lock (handle._gate)
             handle.Append(start);
         return handle;
@@ -300,11 +302,25 @@ internal sealed class ConversationHandle : IConversationEntry, IAsyncDisposable
         _writer.Append(e);
         _events.Add(e);
         _snapshot = ConversationReducer.Apply(_snapshot, _id, e);
+        Watch(data);
         if (_snapshot.IsOver)
             _writer.Dispose();
         var previous = _changed;
         _changed = NewSignal();
         previous.TrySetResult();
+    }
+
+    private void Watch(ConversationEventData data)
+    {
+        switch (data)
+        {
+            case ErrorData error:
+                _watch?.Rejected(error.Message);
+                break;
+            case StateData { State: ConversationState.Idle, StopReason: "end_turn" }:
+                _watch?.Worked();
+                break;
+        }
     }
 
     private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);

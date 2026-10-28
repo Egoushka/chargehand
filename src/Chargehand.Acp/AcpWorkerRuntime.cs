@@ -147,7 +147,7 @@ public sealed class AcpWorkerRuntime(AcpAgentSpec agent, IReadOnlyDictionary<str
         var text = new StringBuilder();
         try
         {
-            var callbacks = new AcpCallbacks(
+            var callbacks = new AcpAgentCallbacks(
                 n =>
                 {
                     if (n.Update is AgentMessageChunk { Content: { Type: "text", Text: { } chunk } })
@@ -155,7 +155,7 @@ public sealed class AcpWorkerRuntime(AcpAgentSpec agent, IReadOnlyDictionary<str
                             text.Append(chunk);
                     return ValueTask.CompletedTask;
                 },
-                r => AcpReadOnlyPolicy.Decide(r).Outcome);
+                r => ValueTask.FromResult(AcpReadOnlyPolicy.Decide(r).Outcome));
             await using var connection = await StartAsync(directory.FullName, model, callbacks, ct);
             var result = await connection.Session.PromptAsync(prompt, ct);
             if (result.StopReason != AcpStopReason.EndTurn)
@@ -275,9 +275,9 @@ public sealed class AcpWorkerRuntime(AcpAgentSpec agent, IReadOnlyDictionary<str
         node.Spec.Model is { } pinned ? $"{pinned.ProviderId}/{pinned.ModelId}" : node.Connection?.Model is { } current ? $"{agent.ProviderId}/{current}" : null;
 
     private async Task<AcpConnection> StartAsync(AcpNode node, CancellationToken ct) =>
-        await StartAsync(node.Spec.Directory, node.Spec.Model, new AcpCallbacks(n => OnUpdate(node, n), r => OnPermission(node, r)), ct);
+        await StartAsync(node.Spec.Directory, node.Spec.Model, new AcpAgentCallbacks(n => OnUpdate(node, n), r => ValueTask.FromResult(OnPermission(node, r))), ct);
 
-    private async Task<AcpConnection> StartAsync(string directory, ModelRef? model, AcpCallbacks callbacks, CancellationToken ct)
+    private async Task<AcpConnection> StartAsync(string directory, ModelRef? model, AcpAgentCallbacks callbacks, CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(StartupTimeout);
