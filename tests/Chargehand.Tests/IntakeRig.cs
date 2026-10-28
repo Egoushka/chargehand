@@ -155,6 +155,9 @@ internal sealed class FakeStarter(FakeRunLog log) : IBatchStarter
 {
     public List<RunRequest> Started { get; } = [];
 
+    /// <summary>The <c>budgetIsCap</c> each start was sent with, in order.</summary>
+    public List<bool> BudgetIsCap { get; } = [];
+
     public string? Refuse { get; set; }
 
     /// <summary>How many starts the account admits in all, as a money cap that covers that many; null: no cap.</summary>
@@ -163,8 +166,16 @@ internal sealed class FakeStarter(FakeRunLog log) : IBatchStarter
     /// <summary>The process dies at the next start: before the batch exists (<c>before</c>) or after it, before the caller learns its id (<c>after</c>).</summary>
     public string? Die { get; set; }
 
+    public Task<BatchStart> StartAsync(RunRequest request, bool budgetIsCap, CancellationToken ct)
+    {
+        BudgetIsCap.Add(budgetIsCap);
+        return StartAsync(request, ct);
+    }
+
     public Task<BatchStart> StartAsync(RunRequest request, CancellationToken ct)
     {
+        if (BudgetIsCap.Count < Started.Count + 1)
+            BudgetIsCap.Add(false);
         if (Refuse is not null)
             return Task.FromResult(new BatchStart(null, Refuse));
         if (Started.Count >= Allowance)

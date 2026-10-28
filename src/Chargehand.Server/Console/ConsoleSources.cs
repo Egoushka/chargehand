@@ -16,7 +16,10 @@ public sealed record IntakeSourceRunBody(string BatchRunId, string TaskId, strin
 public sealed record IntakeSourceBody(string Repository, bool Enabled, string Origin, string Path, int Running = 0, int Queued = 0, IReadOnlyList<IntakeSourceRunBody>? Recent = null);
 
 /// <summary><c>intake-sources/v1</c>. <paramref name="Configured"/> is false when the profile has no <c>automation.github</c>; <see cref="Sources"/> is then empty.</summary>
-public sealed record IntakeSourcesBody(string ContractVersion, bool Configured, bool Discover, IReadOnlyList<IntakeSourceBody> Sources, IReadOnlyList<string>? NotRecorded = null);
+public sealed record IntakeSourcesBody(string ContractVersion, bool Configured, bool Discover, IReadOnlyList<IntakeSourceBody> Sources, IReadOnlyList<string>? NotRecorded = null, ReviewPolicyBody? Reviews = null);
+
+/// <summary>The owner's review policy (ADR 0085): repositories left out of reviews, and the budget of one review when it is above the preset's.</summary>
+public sealed record ReviewPolicyBody(IReadOnlyList<string> Excluded, decimal? BudgetUsd);
 
 /// <summary>The on/off switch of each source intake watches (CHARGEHAND-241), for the console: <c>GET /v1/intake/sources</c> lists GitHub's repositories with their queues, <c>PUT</c> with
 /// <c>{"sources": [{"repository": "owner/repo", "enabled": false}]}</c> sets some and answers the list. The owner's alone.
@@ -37,6 +40,8 @@ internal static class ConsoleSources
     public static void Map(WebApplication app, ServerSettings settings, GitHubIntake? intake)
     {
         app.MapGet("/v1/intake/sources", (HttpContext ctx) => ChargehandServer.OwnerOnly(ctx) ?? ChargehandServer.Json(Build(settings, intake), StatusCodes.Status200OK));
+
+        MapReviewPolicy(app, intake);
 
         app.MapPut("/v1/intake/sources", async (HttpContext ctx) =>
         {
@@ -65,13 +70,86 @@ internal static class ConsoleSources
         });
     }
 
+    /// <summary>The owner's review policy, each a <c>POST</c> so an inbox option can send it (ADR 0085): <c>/v1/intake/reviews/exclude</c> and <c>/include</c> with <c>{"repository"}</c>, and <c>/v1/intake/reviews/budget</c>
+    /// with <c>{"usd": 2.5}</c> or <c>{"usd": null}</c>. Never reachable by a run token or an account. Each answers the policy and the call that undoes it.</summary>
+    private static void MapReviewPolicy(WebApplication app, GitHubIntake? intake)
+    {
+        app.MapPost("/v1/intake/reviews/exclude", async (HttpContext ctx) => await ReviewsAsync(ctx, intake, false));
+        app.MapPost("/v1/intake/reviews/include", async (HttpContext ctx) => await ReviewsAsync(ctx, intake, true));
+        app.MapPost("/v1/intake/reviews/budget", async (HttpContext ctx) =>
+        {
+            if (ChargehandServer.OwnerOnly(ctx) is { } refused)
+                return refused;
+            if (intake is null)
+                return NoIntake();
+            decimal? usd;
+            try
+            {
+                using var doc = await JsonDocument.ParseAsync(ctx.Request.Body, cancellationToken: ctx.RequestAborted);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("usd", out var value))
+                    return Bad("the body must be {\"usd\": 2.5} or {\"usd\": null}");
+                usd = value.ValueKind == JsonValueKind.Null ? null : value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var d) && d is > 0 and <= MaxReviewBudgetUsd ? d : throw new JsonException();
+            }
+            catch (JsonException)
+            {
+                return Bad($"usd must be null or a number above 0 and up to {MaxReviewBudgetUsd}");
+            }
+            var before = intake.Sources.ReviewBudgetUsd;
+            return Write(() => intake.Sources.SetReviewBudget(usd), intake, new { method = "POST", path = "/v1/intake/reviews/budget", body = new { usd = before } });
+        });
+    }
+
+    private const decimal MaxReviewBudgetUsd = 100m;
+
+    private static async Task<IResult> ReviewsAsync(HttpContext ctx, GitHubIntake? intake, bool on)
+    {
+        if (ChargehandServer.OwnerOnly(ctx) is { } refused)
+            return refused;
+        if (intake is null)
+            return NoIntake();
+        string? repository;
+        try
+        {
+            using var doc = await JsonDocument.ParseAsync(ctx.Request.Body, cancellationToken: ctx.RequestAborted);
+            repository = doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("repository", out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        }
+        catch (JsonException)
+        {
+            repository = null;
+        }
+        if (string.IsNullOrEmpty(repository))
+            return Bad("the body must be {\"repository\": \"owner/repo\"}");
+        if (!intake.Watched.ContainsKey(repository))
+            return ChargehandServer.Json(ChargehandServer.Problem($"intake does not watch {repository}"), StatusCodes.Status404NotFound);
+        return Write(() => intake.Sources.SetReviews(repository, on), intake, new { method = "POST", path = $"/v1/intake/reviews/{(on ? "exclude" : "include")}", body = new { repository } });
+    }
+
+    private static IResult NoIntake() => ChargehandServer.Json(ChargehandServer.Problem("GitHub intake is not configured (the profile has no automation.github)"), StatusCodes.Status409Conflict);
+
+    private static IResult Bad(string why) => ChargehandServer.Json(ChargehandServer.Problem(why), StatusCodes.Status400BadRequest);
+
+    private static IResult Write(Func<bool> change, GitHubIntake intake, object undo)
+    {
+        try
+        {
+            var changed = change();
+            return ChargehandServer.Json(new { changed, reviews = Policy(intake), undo }, StatusCodes.Status200OK);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return ChargehandServer.Json(ChargehandServer.Problem($"the review policy could not be written: {e.Message}"), StatusCodes.Status503ServiceUnavailable);
+        }
+    }
+
+    private static ReviewPolicyBody Policy(GitHubIntake intake) => new(intake.Sources.ReviewsOff, intake.Sources.ReviewBudgetUsd);
+
     public static IntakeSourcesBody Build(ServerSettings settings, GitHubIntake? intake)
     {
         List<string> problems = [];
         var github = intake is null ? null : Read(settings.IntakeStatePath, IntakeState.Load, "GitHub", problems) ?? new IntakeState();
         var sources = intake is null ? [] : intake.Watched.OrderBy(w => w.Key, StringComparer.OrdinalIgnoreCase)
             .Select(w => GitHubSource(w.Key, intake.Sources.IsOn(w.Key), w.Value, github!)).ToList();
-        return new(Contract, intake is not null, intake?.Discovers ?? false, sources, [.. problems, .. Unrecorded]);
+        return new(Contract, intake is not null, intake?.Discovers ?? false, sources, [.. problems, .. Unrecorded], intake is null ? null : Policy(intake));
     }
 
     private static IntakeSourceBody GitHubSource(string repository, bool on, WatchedRepository watched, IntakeState state)

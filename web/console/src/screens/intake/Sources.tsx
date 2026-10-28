@@ -18,6 +18,7 @@ import {
 } from '../../ui';
 import { ScrollBox } from '../admin/parts';
 import { queueText, type SourceRow, sourceRows } from './model';
+import { ReviewPolicy } from './ReviewPolicy';
 
 const COLS = 'minmax(0,1.4fr) 132px minmax(0,1.3fr) 56px';
 const PHASE: Record<IntakeSourceRunBody['phase'], string> = {
@@ -86,6 +87,7 @@ export function SourcesPanel({ data }: { data: IntakeSourcesBody }) {
           </Table>
         </ScrollBox>
       )}
+      {data.reviews ? <ReviewPolicy policy={data.reviews} /> : null}
       <p className="pad dim small sep-top">
         Off: nothing of the source is read or started; running batches still report. Queued counts
         review comments waiting for a round and triggers told to wait for a free slot.

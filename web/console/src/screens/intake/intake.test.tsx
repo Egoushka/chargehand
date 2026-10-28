@@ -567,6 +567,28 @@ describe('Intake sources', () => {
     expect(run.getAttribute('href')).toBe('/console/runs/run-20261013-124239-1fdf01');
   });
 
+  it('lists what the owner changed about reviews, each with an Undo that sends the inverse call', async () => {
+    const api = serveApi({
+      intakeSources: adm.intakeSources({
+        reviews: { excluded: ['example/web-shop'], budget_usd: 2 },
+      }),
+    });
+    renderConsole('/console/intake');
+    const policy = await screen.findByLabelText('Review policy');
+    expect(within(policy).getByText('example/web-shop')).toBeTruthy();
+    expect(within(policy).getByText('$2.00')).toBeTruthy();
+    fireEvent.click(within(policy).getByRole('button', { name: 'Review example/web-shop again' }));
+    fireEvent.click(
+      await within(policy).findByRole('button', { name: "Restore the preset's review budget" }),
+    );
+    await waitFor(() =>
+      expect(api.calls.filter((c) => c.method === 'POST').map((c) => [c.path, c.body])).toEqual([
+        ['/v1/intake/reviews/include', { repository: 'example/web-shop' }],
+        ['/v1/intake/reviews/budget', { usd: null }],
+      ]),
+    );
+  });
+
   it('switches a repository off with one PUT', async () => {
     const api = await open();
     const sources = await sourcesPanel();

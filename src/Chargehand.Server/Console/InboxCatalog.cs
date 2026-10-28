@@ -4,7 +4,7 @@ using Chargehand.Modules.Oversight.Api;
 namespace Chargehand.Server;
 
 /// <summary>A choice an inbox card offers (ADR 0085): a server call, a command to copy, or a page to open; never a manual step described in words.</summary>
-/// <param name="Id"><c>retry</c>, <c>take_over</c>, <c>answer</c>, <c>open</c> or <c>dismiss</c>.</param>
+/// <param name="Id"><c>retry</c>, <c>take_over</c>, <c>answer</c>, <c>exclude_reviews</c>, <c>raise_review_budget</c>, <c>open</c> or <c>dismiss</c>.</param>
 /// <param name="Effect">What choosing it does, in one sentence.</param>
 /// <param name="EstimateUsd">What it is likely to spend, when it spends: the task's own spend last time.</param>
 /// <param name="Call">The request that carries it out; null for a command or a page.</param>
@@ -125,11 +125,22 @@ internal static class InboxCatalog
         if (task && entry.TakeOver)
             options.Add(new("take_over", "Take over", "Finish it yourself: the command checks out its branch in a worktree with a handoff note; it refuses a task that pushed no branch.",
                 Command: $"chargehand takeover {item.BatchRunId}/{item.TaskId}"));
+        var lane = Fix;
+        if (item.Subject == "run" && InboxRules.ReviewedPull(c.Text) is { } pull)
+        {
+            var repository = pull[..pull.LastIndexOf('#')];
+            if (item.Reason == "checkout_has_secrets")
+                (options, lane) = ([.. options, new("exclude_reviews", $"Exclude {repository} from reviews", "Stops reviewing this repository's pull requests; Intake lists it, and Undo puts it back.",
+                    Call: new InboxCall("POST", "/v1/intake/reviews/exclude", new { repository }))], Decide);
+            else if (item.Reason == "cost_cap_reached" && learned?.Budget.Usd is { } spentCap && spentCap > 0)
+                (options, lane) = ([.. options, new("raise_review_budget", $"Raise the review budget to {Usd(spentCap * 2)}", $"Lets one review spend up to {Usd(spentCap * 2)} instead of {Usd(spentCap)}; Intake shows it, and Undo restores the old one.",
+                    Call: new InboxCall("POST", "/v1/intake/reviews/budget", new { usd = spentCap * 2 }))], Decide);
+        }
         // Nothing on the card can fix it: the run's page has its log and result.
         if (options.Count == 0 && (task ? $"/console/runs/{Uri.EscapeDataString(item.BatchRunId!)}/tasks/{Uri.EscapeDataString(item.TaskId!)}" : item.RunId is { } run ? $"/console/runs/{Uri.EscapeDataString(run)}" : null) is { } page)
             options.Add(new("open", task ? "Open task" : "Open run", "Opens it with its result and its log.", Url: page));
         options.Add(dismiss);
-        return item with { What = $"{Subject(c)} {entry.Verb}", Why = why, Options = options, Lane = Fix };
+        return item with { What = $"{Subject(c)} {entry.Verb}", Why = why, Options = options, Lane = lane };
     }
 
     /// <summary>The sentence's subject: the review's pull request, or the kind of work and its repository.</summary>

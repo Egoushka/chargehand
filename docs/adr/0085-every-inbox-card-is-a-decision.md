@@ -70,6 +70,16 @@ Option 3.
 - Auto-retry spends without a person asking. It is bounded by the infrastructure codes, once per task, a daily dollar
   cap and the account's caps, and each retry is a normal batch in Runs.
 
+## Implementation notes
+
+- The review policy is kept in `intake/sources.json` beside the switches. A review budget set there replaces the
+  `review` preset's per-run cap through a server-internal flag (`budgetIsCap`: intake's starter, the run service, the
+  orchestrator). It is not a field of `request/v1`, so no client can lift a cap by asking. The account's own caps still
+  clamp it at admission.
+- "Retry with a bigger budget" for a task is not offered. A driven task's dollar cap is the smaller of the preset's
+  `max_usd` and the batch's `max_usd_total`, and its token cap is the preset's, so raising the batch total lifts
+  neither. It needs a per-task override in the driven path and is left for its own change.
+
 ## Reopen if
 
 A rule at `on` is restored more than 1 in 20 times; Decide holds more than 10 items for a week on the owner's server;

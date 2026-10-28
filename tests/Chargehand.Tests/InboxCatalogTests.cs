@@ -127,6 +127,31 @@ public partial class InboxCatalogTests
         Assert.Equal(["dismiss"], item.GetProperty("options").EnumerateArray().Select(o => o.GetProperty("id").GetString()).Where(id => id != "open"));
     }
 
+    [Fact]
+    public async Task A_review_that_stopped_at_its_budget_offers_to_double_it_and_a_review_of_a_repository_with_secrets_offers_to_exclude_it()
+    {
+        await using var rig = await ConsoleRig.StartAsync();
+        var at = ConsoleRig.Now;
+        foreach (var (run, pull, code) in new[] { ("run-cap", 8, ErrorCode.CostCapReached), ("run-secret", 9, ErrorCode.CheckoutHasSecrets) })
+        {
+            var review = ConsoleSeed.Start(run, Runs.DraftRequest() with { Text = $"Review pull request o/r#{pull}." }, null, at.AddHours(-3));
+            await rig.Log.AppendAsync(review, default);
+            await rig.Log.AppendAsync(ConsoleSeed.Finish(review, ConsoleSeed.Result(run, ResultStatus.Failed, "no", error: new ResultError(code, "no", false, "fix")), at.AddHours(-3)), default);
+            await ConsoleSeed.LearnAsync(rig, ConsoleSeed.Learned(run, "t1", LearningOutcome.Failed, at: at.AddHours(-3)) with { RunId = run });
+        }
+
+        var cap = await ItemAsync(rig, "failure:run-cap");
+        var secret = await ItemAsync(rig, "failure:run-secret");
+
+        var raise = cap.GetProperty("options").EnumerateArray().Single(o => o.GetProperty("id").GetString() == "raise_review_budget");
+        Assert.Equal("Raise the review budget to $8.00", raise.GetProperty("label").GetString());
+        Assert.Equal(("POST", "/v1/intake/reviews/budget", 8m), (raise.GetProperty("call").GetProperty("method").GetString(), raise.GetProperty("call").GetProperty("path").GetString(), raise.GetProperty("call").GetProperty("body").GetProperty("usd").GetDecimal()));
+        var exclude = secret.GetProperty("options").EnumerateArray().Single(o => o.GetProperty("id").GetString() == "exclude_reviews");
+        Assert.Equal("o/r", exclude.GetProperty("call").GetProperty("body").GetProperty("repository").GetString());
+        Assert.Equal(["decide", "decide"], new[] { cap, secret }.Select(i => i.GetProperty("lane").GetString()));
+        Assert.DoesNotContain("retry", secret.GetProperty("options").EnumerateArray().Select(o => o.GetProperty("id").GetString()));
+    }
+
     private static async Task<JsonElement> ItemAsync(ConsoleRig rig, string id) =>
         (await ConsoleRig.Get(rig.Owner, "/v1/inbox")).GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == id);
 
