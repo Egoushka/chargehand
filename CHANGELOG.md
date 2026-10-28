@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.5](https://github.com/Egoushka/chargehand/compare/v0.19.4...v0.19.5) (2026-10-28)
+
+
+### Features
+
+* **acp:** a .NET client for the agent client protocol, Native AOT clean ([#617](https://github.com/Egoushka/chargehand/issues/617)) ([#624](https://github.com/Egoushka/chargehand/issues/624)) ([e8ab444](https://github.com/Egoushka/chargehand/commit/e8ab444dcca05d7b84c30167bec242e3aa3bd88a))
+* **acp:** ACP agents as read-only research workers ([#618](https://github.com/Egoushka/chargehand/issues/618)) ([#633](https://github.com/Egoushka/chargehand/issues/633)) ([9c6a20d](https://github.com/Egoushka/chargehand/commit/9c6a20dd2700aa22b48e55e0dc14ca9cfed7aa31))
+* **claude-code:** a subscription's API fallback credential in the profile ([#632](https://github.com/Egoushka/chargehand/issues/632)) ([#640](https://github.com/Egoushka/chargehand/issues/640)) ([c07ac67](https://github.com/Egoushka/chargehand/commit/c07ac670eb88a1159800c0b125275fe3b01655ae))
+* **console:** Needs you cards in four parts, and Decide / Fix / Handled lanes ([#623](https://github.com/Egoushka/chargehand/issues/623)) ([0fe6dea](https://github.com/Egoushka/chargehand/commit/0fe6dea1a2982502945155482187e4cc669e474e))
+* **conversations:** conversations on the ACP runtime behind a profile switch ([#634](https://github.com/Egoushka/chargehand/issues/634)) ([#635](https://github.com/Egoushka/chargehand/issues/635)) ([d96debd](https://github.com/Egoushka/chargehand/commit/d96debd04b7264981a5b58dd39b87e93b200a50c))
+* **conversations:** the /v1/conversations routes, the server wiring and the guide ([#616](https://github.com/Egoushka/chargehand/issues/616)) ([#631](https://github.com/Egoushka/chargehand/issues/631)) ([4989ddf](https://github.com/Egoushka/chargehand/commit/4989ddf9f5fb46b6467a25511cc33e54ec26e8c2))
+* **conversations:** the conversation and event contracts, the reducer and the journal ([#616](https://github.com/Egoushka/chargehand/issues/616)) ([#626](https://github.com/Egoushka/chargehand/issues/626)) ([61fc721](https://github.com/Egoushka/chargehand/commit/61fc72183b104f454c2b73d8779f128847b73a80))
+* **conversations:** the runtime port, a fake runtime and the service with scoping and caps ([#616](https://github.com/Egoushka/chargehand/issues/616)) ([#628](https://github.com/Egoushka/chargehand/issues/628)) ([c18156a](https://github.com/Egoushka/chargehand/commit/c18156ade73aef3c4bb78af83585a3a20d2239b4))
+* **inbox:** a catalog gives every inbox item what, why and options ([#619](https://github.com/Egoushka/chargehand/issues/619)) ([9e78f49](https://github.com/Egoushka/chargehand/commit/9e78f495515cedf1c65f2bc296d1759cab17d439))
+* **inbox:** one cause one card, and an owner on every card ([#612](https://github.com/Egoushka/chargehand/issues/612)) ([#630](https://github.com/Egoushka/chargehand/issues/630)) ([05d3050](https://github.com/Egoushka/chargehand/commit/05d3050098b8c0237531bc317de4d18e806f8fa3))
+* **inbox:** options that change review policy, kept in the server and undoable ([#611](https://github.com/Egoushka/chargehand/issues/611)) ([#627](https://github.com/Egoushka/chargehand/issues/627)) ([2607e17](https://github.com/Egoushka/chargehand/commit/2607e178d7d0b8214c55c33e9af391abcfe266ea))
+
+
+### Bug Fixes
+
+* **mcp:** mcp answers initialize when the agent CLI cannot start (CHARGEHAND-306) ([#636](https://github.com/Egoushka/chargehand/issues/636)) ([b7910f8](https://github.com/Egoushka/chargehand/commit/b7910f8a45e0de1bc5576a60f5a090feaa46ce6d))
+* **sessions:** classify the 2.1.303 subscription limit as rate_limited ([#632](https://github.com/Egoushka/chargehand/issues/632)) ([#639](https://github.com/Egoushka/chargehand/issues/639)) ([43e0b64](https://github.com/Egoushka/chargehand/commit/43e0b64dd379c2642451e3dec4f41efc6b84095e))
+
 ## [0.19.4](https://github.com/Egoushka/chargehand/compare/v0.19.3...v0.19.4) (2026-10-27)
 
 
