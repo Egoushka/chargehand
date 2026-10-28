@@ -12,6 +12,8 @@ chargehand serves one MCP tool, `orchestrate`, over two transports:
 | stdio | `chargehand mcp`, started by the client | none | no port and no key; stdout carries only MCP messages, logs go to stderr |
 | Streamable HTTP | `chargehand serve`, path `/v1/mcp` | `Authorization: Bearer <key>` | the same server as the HTTP routes, see [Run the HTTP server](server.md) |
 
+[Connect your editor or agent](clients.md) has the configuration for each editor and agent that takes MCP servers.
+
 Both hosts share the tool, the tasks store and the server instructions, which tell a client on `initialize` when to call chargehand. [McpTests](../../tests/Chargehand.Tests/McpTests.cs) and [StdioMcpTests](../../tests/Chargehand.Tests/StdioMcpTests.cs) cover the tool, tasks, the question paths, the progress notification and `Prefer: wait` with the MCP SDK's own client and a scripted runtime.
 
 ## Over stdio, from a checkout

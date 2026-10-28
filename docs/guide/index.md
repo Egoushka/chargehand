@@ -53,6 +53,7 @@ Sources: [README](../../README.md#how-it-works), [ADR 0009](../adr/0009-result-c
 - [Quickstart](quickstart.md): one question from a checkout, end to end.
 - [Install with Docker Compose](install.md): the release images on one Docker host, Core only or with the runner behind a socket proxy, and a first run.
 - [Use it from an MCP client](mcp.md): the `orchestrate` tool over stdio or HTTP.
+- [Connect your editor or agent](clients.md): per-client MCP configuration for Claude Code, Claude Desktop, Cursor, VS Code, Visual Studio, JetBrains AI Assistant, Junie, Codex, Gemini CLI, Warp, Zed and Android Studio, why ChatGPT cannot connect yet, and which snippets were run.
 - [Run the HTTP server](server.md): `chargehand serve`, its routes and the container image.
 - [Web UI](web-ui.md): the operator console at `/console/` for runs, live events, results with linked citations, starting and cancelling runs and batches, and spend against an account's caps.
 - [Writing a branch](writing.md): the `code` preset, its sandbox, what it verifies and what it does not.
