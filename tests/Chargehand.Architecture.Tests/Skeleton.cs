@@ -11,6 +11,8 @@ internal static class Skeleton
         // The published wire contract (schemas, result/v1): the one project outside the skeleton new code may use.
         ["Chargehand.Contracts"] = 0,
         ["Chargehand.Kernel"] = 1,
+        // ADR 0086, decision 7: a client library that references nothing in chargehand (StandaloneLibraryTests). Layer 0: it sits below everything.
+        ["AgentClientProtocol.Net"] = 0,
         ["Chargehand.Modules.Ledger"] = 2,
         ["Chargehand.Modules.Memory"] = 2,
         ["Chargehand.Modules.Journal"] = 2,
@@ -44,6 +46,9 @@ internal static class Skeleton
         ["Chargehand.Hosts.Runner"] = 11,
         ["Chargehand.Hosts.Session"] = 11,
     };
+
+    /// <summary>Libraries meant to leave this repository: they are not modules, so the module rules on public surface do not apply to them.</summary>
+    public static readonly string[] Standalone = ["AgentClientProtocol.Net"];
 
     public static readonly string[] Folders = ["src/Shared", "src/Modules", "src/Runtimes", "src/Hosts"];
 

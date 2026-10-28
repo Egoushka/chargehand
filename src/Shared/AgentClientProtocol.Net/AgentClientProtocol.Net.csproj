@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ADR 0086, decision 7: a client for the agent client protocol (ACP) that references nothing in chargehand, so it can be
+       extracted and offered as a .NET SDK. Client side only; the agent side is Cycle B. -->
+  <PropertyGroup>
+    <RootNamespace>AgentClientProtocol</RootNamespace>
+    <IsPackable>true</IsPackable>
+    <PackageId>AgentClientProtocol.Net</PackageId>
+    <Description>A client for the Agent Client Protocol (ACP): drive Codex, Gemini CLI, Claude Code and other coding agents over stdio from .NET. Native AOT clean, source-generated System.Text.Json, no other dependencies.</Description>
+    <PackageTags>acp;agent-client-protocol;ai-agents;json-rpc;native-aot</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Egoushka/chargehand</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Egoushka/chargehand</RepositoryUrl>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- agent-checks: allow suppress-warning -- the wire records mirror the protocol schema, which documents their members; the XML file ships the comments written on the API -->
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>

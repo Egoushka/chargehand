@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!-- The client under test, and the scripted agent it talks to (started as a child process from this output folder). -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Shared\AgentClientProtocol.Net\AgentClientProtocol.Net.csproj" />
+    <ProjectReference Include="..\AgentClientProtocol.FakeAgent\AgentClientProtocol.FakeAgent.csproj" />
+  </ItemGroup>
+
+</Project>

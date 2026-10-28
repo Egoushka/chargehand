@@ -11,6 +11,7 @@
     <Project Path="src/Chargehand/Chargehand.csproj" />
   </Folder>
   <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/AgentClientProtocol.Net/AgentClientProtocol.Net.csproj" />
     <Project Path="src/Shared/Chargehand.Kernel/Chargehand.Kernel.csproj" />
   </Folder>
   <Folder Name="/src/Modules/">
@@ -45,9 +46,12 @@
     <Project Path="src/Hosts/Chargehand.Hosts.Session/Chargehand.Hosts.Session.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="samples/AcpSmoke/AcpSmoke.csproj" />
     <Project Path="samples/ContentEngineCall/ContentEngineCall.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/AgentClientProtocol.FakeAgent/AgentClientProtocol.FakeAgent.csproj" />
+    <Project Path="tests/AgentClientProtocol.Net.Tests/AgentClientProtocol.Net.Tests.csproj" />
     <Project Path="tests/Chargehand.Architecture.Tests/Chargehand.Architecture.Tests.csproj" />
     <Project Path="tests/Chargehand.Kernel.Tests/Chargehand.Kernel.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Batches.Tests/Chargehand.Modules.Batches.Tests.csproj" />
