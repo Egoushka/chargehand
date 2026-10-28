@@ -28,15 +28,8 @@ public static partial class UsageLimit
 
     private static DateTimeOffset? LocalReset(Match m, DateTimeOffset now)
     {
-        TimeZoneInfo zone;
-        try
-        {
-            zone = TimeZoneInfo.FindSystemTimeZoneById(m.Groups["zone"].Value);
-        }
-        catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException)
-        {
+        if (Zone(m.Groups["zone"].Value) is not { } zone)
             return null;
-        }
         var hour = int.Parse(m.Groups["hour"].Value, CultureInfo.InvariantCulture);
         var minute = m.Groups["minute"].Success ? int.Parse(m.Groups["minute"].Value, CultureInfo.InvariantCulture) : 0;
         if (hour is < 1 or > 12 || minute > 59)
@@ -54,6 +47,26 @@ public static partial class UsageLimit
             at = dated ? at.AddYears(1) : at.AddDays(1);
         return new DateTimeOffset(at, zone.GetUtcOffset(at)).ToUniversalTime();
     }
+
+    /// <summary>The zone by its IANA id, or by the other name of a renamed one: Claude Code prints "Europe/Kiev", which newer tzdata ships only in tzdata-legacy.</summary>
+    private static TimeZoneInfo? Zone(string id)
+    {
+        foreach (var name in Renamed.TryGetValue(id, out var other) ? [id, other] : new[] { id })
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById(name);
+            }
+            catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException)
+            {
+            }
+        return null;
+    }
+
+    private static readonly Dictionary<string, string> Renamed = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Europe/Kiev"] = "Europe/Kyiv",
+        ["Europe/Kyiv"] = "Europe/Kiev",
+    };
 
     [GeneratedRegex(@"usage[ _]limit|rate[ _]limit|(?:session|weekly) limit|too many requests|\b(?:status|http|error)\b[\s:=]*429\b", RegexOptions.IgnoreCase)]
     private static partial Regex LimitText();
