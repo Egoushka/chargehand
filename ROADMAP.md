@@ -85,7 +85,20 @@ schedule and every open pull request (0.10.0), and the App's repositories are di
 
 - · **0.9** A public verification benchmark, a demo and listings. The harness is built (ADR 0052, CHARGEHAND-206); no
   real run has been published. The 0.9 version number itself went to governed driven sessions.
-- · **1.0** `result/v1` and the extension API are declared stable. Not started.
+- · **1.0** `result/v1` and the extension API are declared stable. Not started; it follows the doors below (ADR 0086).
+
+## Doors in, doors out · ▶ (0.20–0.22, ahead of 1.0; ADR 0086)
+
+Stage 6's first three tasks, moved ahead of 1.0: chargehand becomes reachable from where work starts and drives more
+than two agents, through one steerable resource and the agent client protocol (ACP).
+
+- ▶ **0.20** Conversations and ACP ([Cycle A spec](docs/specs/2026-10-28-cycle-a-conversations-and-acp-design.md)): a
+  conversation you can stream, message, approve and cancel (`/v1/conversations`); a .NET ACP client library; research
+  workers on Codex and Gemini CLI through ACP beside Claude Code; a clients guide for MCP hosts and a VS Code agent
+  plugin. The spike (Stage 6 Task 1) is done (2026-10-27).
+- · **0.21** chargehand inside the editor: chargehand as an ACP agent (Zed, JetBrains, Neovim, Emacs), checked
+  citations as clickable locations, and an MCP App that shows a result in Claude, VS Code, ChatGPT and Cursor.
+- · **0.22** Trackers: an A2A server for Jira, Gemini Enterprise and Teams.
 
 ## Stage 6 — A client of your own · (after 1.0)
 
@@ -93,8 +106,8 @@ chargehand becomes the engine under a client the maintainer uses every day inste
 can extend. The client replaces the interface, not the agent: it talks to Claude Code, OpenCode and others through the
 agent client protocol. [Spec](docs/specs/2026-10-02-a-client-of-your-own-design.md).
 
-- · **1.1** Sessions you can steer: a session resource (start, stream, message, approve, cancel) over an agent client
-  protocol adapter, proved on one runtime. First a spike on what the protocol covers.
+- ▶ **1.1** Sessions you can steer: moved ahead of 1.0 as 0.20 (above), where the resource is named a conversation
+  because "session" means a driven session.
 - · **1.2** A web client served by `chargehand serve`, usable from a phone: list, live transcript, cost, steering.
 - · **1.3** What no vendor client has: the model picked for each message from your scored runs (with its reason and
   cost, one click to override), prompts improved before sending by a
