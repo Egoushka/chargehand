@@ -1,6 +1,6 @@
 # Needs you: every card is a decision
 
-- Status: draft for the maintainer's review. The direction (the inbox must say from the first look what to do and
+- Status: draft for the maintainer's review; Task 1 recorded as ADR 0085. The direction (the inbox must say from the first look what to do and
   which options there are, and resolve more on its own, carefully) was stated by the maintainer on 2026-10-28. Every
   decision below is the proposer's.
 - Date: 2026-10-28
