@@ -120,6 +120,84 @@ public class SandboxTests
             listener.Stop();
         }
     }
+
+    [Fact]
+    public void A_wrapped_command_is_the_argv_with_the_cut_environment_the_callers_values_and_a_private_home()
+    {
+        using var work = new TempDir();
+        var launch = new NoSandbox().Wrap(Spec(work.Path, false, "agent", "--acp") with { Env = new Dictionary<string, string> { ["AGENT_KEY"] = "k" } });
+        var home = launch.Environment["HOME"];
+
+        Assert.Equal("agent", launch.FileName);
+        Assert.Equal(["--acp"], launch.Arguments);
+        Assert.Equal("k", launch.Environment["AGENT_KEY"]);
+        Assert.Equal(home, launch.Environment["TMPDIR"]);
+        Assert.Equal(work.Path, launch.WorkingDirectory);
+        Assert.True(Directory.Exists(home));
+        launch.Dispose();
+        Assert.False(Directory.Exists(home));
+    }
+
+    [Fact]
+    public void A_value_the_caller_sets_does_not_widen_the_allowlist_for_anything_else()
+    {
+        Environment.SetEnvironmentVariable("CHARGEHAND_TEST_SECRET", "no");
+        using var work = new TempDir();
+        using var launch = new NoSandbox().Wrap(Spec(work.Path, false, "agent") with { Env = new Dictionary<string, string> { ["AGENT_KEY"] = "k" } });
+
+        Assert.DoesNotContain("CHARGEHAND_TEST_SECRET", launch.Environment.Keys);
+    }
+
+    [MacOsFact]
+    public void A_wrapped_seatbelt_command_runs_under_the_generated_profile()
+    {
+        using var work = new TempDir();
+        using var launch = new SeatbeltSandbox().Wrap(Spec(work.Path, true, "agent", "--acp") with { Env = new Dictionary<string, string> { ["AGENT_KEY"] = "k" } });
+
+        Assert.Equal("/usr/bin/sandbox-exec", launch.FileName);
+        Assert.Equal(["-p"], launch.Arguments.Take(1));
+        Assert.Contains("(allow network*)", launch.Arguments[1], StringComparison.Ordinal);
+        Assert.Equal(["--", "agent", "--acp"], launch.Arguments.Skip(2));
+        Assert.Equal("k", launch.Environment["AGENT_KEY"]);
+    }
+
+    [Fact]
+    public void A_wrapped_bubblewrap_command_sets_the_environment_inside_and_runs_the_argv_last()
+    {
+        using var work = new TempDir();
+        using var launch = new BubblewrapSandbox().Wrap(Spec(work.Path, true, "agent", "--acp") with { Env = new Dictionary<string, string> { ["AGENT_KEY"] = "k" } });
+
+        Assert.Equal("bwrap", launch.FileName);
+        Assert.Contains("--share-net", launch.Arguments);
+        var key = launch.Arguments.ToList().IndexOf("AGENT_KEY");
+        Assert.Equal("--setenv", launch.Arguments[key - 1]);
+        Assert.Equal("k", launch.Arguments[key + 1]);
+        Assert.Equal(["--", "agent", "--acp"], launch.Arguments.TakeLast(3));
+    }
+
+    [MacOsFact]
+    public async Task A_wrapped_seatbelt_process_reads_the_checkout_but_cannot_write_into_it()
+    {
+        using var dir = new TempDir();
+        var checkout = Directory.CreateDirectory(Path.Combine(dir.Path, "checkout")).FullName;
+        File.WriteAllText(Path.Combine(checkout, "a.txt"), "readable");
+        var work = Directory.CreateDirectory(Path.Combine(dir.Path, "work")).FullName;
+        using var launch = new SeatbeltSandbox().Wrap(Spec(work, false, "/bin/sh", "-c", $"cat '{checkout}/a.txt' && echo x > '{checkout}/b.txt'"));
+
+        var psi = new System.Diagnostics.ProcessStartInfo(launch.FileName) { WorkingDirectory = launch.WorkingDirectory, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var a in launch.Arguments)
+            psi.ArgumentList.Add(a);
+        psi.Environment.Clear();
+        foreach (var (k, v) in launch.Environment)
+            psi.Environment[k] = v;
+        using var process = System.Diagnostics.Process.Start(psi)!;
+        var output = await process.StandardOutput.ReadToEndAsync();
+        await process.WaitForExitAsync();
+
+        Assert.Contains("readable", output, StringComparison.Ordinal);
+        Assert.NotEqual(0, process.ExitCode);
+        Assert.False(File.Exists(Path.Combine(checkout, "b.txt")));
+    }
 }
 
 /// <summary>Runs a test only on macOS, where <c>sandbox-exec</c> exists.</summary>

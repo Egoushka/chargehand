@@ -11,12 +11,14 @@ internal static class ProcessRunner
     private static readonly string[] Allowlist = ["PATH", "LANG", "LC_ALL", "TERM"];
 
     /// <summary>The fixed allowlist of a sandboxed command's environment; HOME and TMPDIR point at its private directory.</summary>
-    internal static Dictionary<string, string> Environment(string tempDirectory, IReadOnlyList<string> passEnv)
+    internal static Dictionary<string, string> Environment(string tempDirectory, IReadOnlyList<string> passEnv, IReadOnlyDictionary<string, string>? values = null)
     {
         var env = new Dictionary<string, string>(StringComparer.Ordinal) { ["HOME"] = tempDirectory, ["TMPDIR"] = tempDirectory };
         foreach (var name in Allowlist.Concat(passEnv))
             if (System.Environment.GetEnvironmentVariable(name) is { } value)
                 env[name] = value;
+        foreach (var (name, value) in values ?? new Dictionary<string, string>())
+            env[name] = value;
         return env;
     }
 

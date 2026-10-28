@@ -37,6 +37,11 @@ public class WorkerNodeTests
         public int Interrupts { get; private set; }
         public int Compactions { get; private set; }
         public List<string> Forked { get; } = [];
+        /// <summary>ForkAsync and CompactAsync throw NotSupportedException, as a runtime whose agent advertises neither (ACP).</summary>
+        public bool Unsupported { get; set; }
+        public int CompactAttempts { get; private set; }
+        /// <summary>False as an agent that reports no token usage (IWorkerRuntime.ReportsUsage).</summary>
+        public bool ReportsUsage { get; set; } = true;
         private TaskCompletionSource _interrupted = new();
 
         /// <summary>Messages already in the session (newest first), e.g. to drive the watcher while a turn hangs.</summary>
@@ -112,12 +117,17 @@ public class WorkerNodeTests
 
         public Task<WorkerSession> ForkAsync(string sessionId, string? beforeMessageId, CancellationToken ct)
         {
+            if (Unsupported)
+                throw new NotSupportedException("this agent cannot fork");
             Forked.Add($"{sessionId}@{beforeMessageId}");
             return Task.FromResult(new WorkerSession("ses_fork", "/w/repo"));
         }
 
         public Task CompactAsync(string sessionId, CancellationToken ct)
         {
+            CompactAttempts++;
+            if (Unsupported)
+                throw new NotSupportedException("this agent cannot compact");
             Compactions++;
             return Task.CompletedTask;
         }
@@ -326,6 +336,42 @@ public class WorkerNodeTests
         Assert.Equal(["ses_base@usr_base"], rt.Forked);
         Assert.Empty(rt.Instructions);
         Assert.Equal("ses_base", r.ForkedFrom);
+    }
+
+    [Fact]
+    public async Task A_fork_the_runtime_cannot_make_falls_back_to_a_fresh_session()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { Unsupported = true };
+        var fork = new ForkPoint("ses_base", "usr_base", PromptChains.InstructionsSha256(Entries));
+        var r = await Node(rt).RunAsync(Request() with { Fork = fork }, CancellationToken.None);
+        Assert.Equal(2, rt.Instructions.Count);
+        Assert.Null(r.ForkedFrom);
+        Assert.Equal(ResultStatus.Completed, r.Contract.Status);
+    }
+
+    [Fact]
+    public async Task A_compaction_the_runtime_cannot_make_is_tried_once_and_the_turn_goes_on()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { HangOnce = true, Unsupported = true };
+        rt.Log.Add(BigCall());
+        var r = await Node(rt).RunAsync(Request(TimeSpan.FromMilliseconds(300)) with { CompactAtTokens = 1000 }, CancellationToken.None);
+        Assert.Equal(1, rt.CompactAttempts);
+        Assert.NotEqual(ErrorCode.Internal, r.Contract.Error?.Code);
+    }
+
+    [Fact]
+    public async Task A_runtime_that_reports_no_usage_marks_the_result_not_recorded()
+    {
+        var rt = new FakeRuntime(Block("src/calc.py:5")) { ReportsUsage = false };
+        var r = await Node(rt).RunAsync(Request(), CancellationToken.None);
+        Assert.Contains(WorkerNode.UsageNotRecorded, r.Contract.OpenQuestions);
+    }
+
+    [Fact]
+    public async Task A_runtime_that_reports_usage_adds_no_note()
+    {
+        var r = await Node(new FakeRuntime(Block("src/calc.py:5"))).RunAsync(Request(), CancellationToken.None);
+        Assert.DoesNotContain(WorkerNode.UsageNotRecorded, r.Contract.OpenQuestions);
     }
 
     [Fact]

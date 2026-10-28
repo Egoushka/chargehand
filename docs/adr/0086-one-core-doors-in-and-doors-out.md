@@ -64,3 +64,21 @@ Option 2.
 - After Cycle B, the share of the maintainer's coding work that starts through chargehand does not rise.
 - ACP proves unable to carry approvals or usage for the agents in use.
 - An official .NET ACP SDK appears that the library should defer to.
+
+## Amendment, 2026-10-28: where the ACP runtime lives until `IWorkerRuntime` moves
+
+Decision 8 puts the ACP worker runtime in `Chargehand.Runtimes.Acp`. `IWorkerRuntime` still lives in `src/Chargehand`,
+which the skeleton rules forbid new projects to reference (ADR 0060), so the runtime is split: `Chargehand.Runtimes.Acp`
+holds what needs no old type (the pinned list, the profile block, the read-only rules, the mode choice, usage
+accounting, the agent's environment), and `src/Chargehand.Acp`, an old-style project beside `Chargehand.ClaudeCode`,
+holds the `IWorkerRuntime` adapter. The adapter folds into the new project when the interface is ported, and
+`IConversationRuntime` (Task 5) is implemented in the new project from the start.
+
+Three small changes in the old core let a runtime like this one exist: `ISandbox.Wrap` returns the confined command line
+for a child the caller keeps open, `IWorkerRuntime.ReportsUsage` and `.ResearchOnly` let the orchestrator refuse
+`runtime_uncapped` and a writing preset before anything is spent, and `WorkerNode` falls back to a fresh session when a
+runtime throws `NotSupportedException` from `ForkAsync` or `CompactAsync`, which the decision already assumed.
+
+The first probe of the pinned agents corrected the list: Codex offers `api-key` and `chat-gpt` (a login), not the
+method name first written down, and Gemini CLI offers `oauth-personal` (a login) next to `gemini-api-key`. The pinned
+`auth_method` is the only one the runtime ever calls.

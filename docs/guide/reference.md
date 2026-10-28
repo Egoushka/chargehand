@@ -171,7 +171,7 @@ A failed `result/v1` carries `error`: a fixed `code`, the `message`, `retryable`
 | `deadline_exceeded` | a node's turn was interrupted for any other reason; the deadline is the only other interrupt | yes |
 | `invalid_result` | a node's turns succeeded but left no valid result contract after the repair turn, or a writing node changed no files | no |
 | `intake_failed` | intake returned no valid Task Spec after one retry | no |
-| `invalid_request` | an unknown preset, a caller block whose sha256 does not match its text, an unknown runtime name, or both Claude Code credentials set | no |
+| `invalid_request` | an unknown preset, a caller block whose sha256 does not match its text, an unknown runtime name, both Claude Code credentials set, a writing preset on an ACP runtime, or an ACP agent that is not in `acp-agents.json` | no |
 | `sandbox_unavailable` | a writing preset ran on a machine with no `sandbox-exec` or `bwrap` and `sandbox.kind` is not `none` | no |
 | `verification_failed` | a writing node's test command still failed after the last fix round; the branch is in the result's artifacts. For a driven task: chargehand's own run of the tests in a fresh container failed, or there is no test command | no |
 | `container_unavailable` | a driven session needs a container engine and none answers (no Docker, or the runner is down), or a task's output volume cannot be moved | yes |
@@ -184,6 +184,7 @@ A failed `result/v1` carries `error`: a fixed `code`, the `message`, `retryable`
 | `tasks_incomplete` | a driven batch ended with at least one task that has no draft pull request, and was not cancelled; the result names them | no |
 | `local_only` | the repository is local-only (the profile's `delivery.local_only` or `context.delivery: "local"`) and the request asked to push, or a driven batch was asked for it | no |
 | `delivery_failed` | a local `code` run's branch could not be fetched into the repository; it is still in the run clone, and the error's action gives the command | no |
+| `runtime_uncapped` | an ACP agent that reports no token usage was asked to run under a dollar cap (every run has one), and the profile does not set `acp.allow_uncapped`; refused before anything is spent | no |
 | `merge_conflict` | a driven task that depends on several others could not start: merging their branches conflicted; the task's detail names the paths | no |
 | `internal` | anything else | no |
 
@@ -196,10 +197,11 @@ The profile is `profile/v1` JSON; `profiles/example.json` fills in most fields w
 | field | default | what it does |
 |---|---|---|
 | `schema` | required | always `profile/v1` |
-| `runtime` | unset | `opencode` or `claude_code`; wins over `CHARGEHAND_RUNTIME`. Unset, chargehand probes `PATH` |
+| `runtime` | unset | `opencode`, `claude_code` or `acp:<agent>` (an agent of `acp-agents.json`); wins over `CHARGEHAND_RUNTIME`. Unset, chargehand probes `PATH` for `claude` and `opencode`, and never for an ACP agent |
 | `secrets` | `[{ "env": true }]` | ordered secret sources, first success wins. `{ "env": true }` reads the item as an environment variable, upper-cased with `-` turned into `_`. `{ "command": [...] }` runs an argv with `{item}` substituted, no shell. It replaces `secret_store` |
 | `opencode` | unset | `url`, `password_secret`, `version` (required) and `binary`: connect to your own OpenCode server. Unset, chargehand starts one |
 | `claude_code` | unset | `version` (required; exact, or `>=X.Y.Z` for that version or newer of major X; with no block, `>=` the adapter's pin), `binary` (default `claude`), at most one of `api_key_secret` and `oauth_token_secret`, `base_url` for an Anthropic-compatible gateway, and `custom_headers_secret`: a secret holding `Name: value` header lines sent to that gateway (a virtual key); needs `base_url`, plain workers only ([ADR 0062](../adr/0062-claude-code-custom-headers-for-a-gateway.md)) |
+| `acp` | unset | `agents` (credentials by agent id: `api_key_secret`, an item name, and `base_url` for a gateway), `allow_uncapped` (default `false`) and `agents_file` (default `acp-agents.json` in the chargehand root). Read when `runtime` is `acp:<agent>`; see [ACP agents as research workers](acp.md) |
 | `inbox` | unset | `owners`: a map from a repository glob (`owner/name`, `*` matches any run of characters) to the name of the desk or person who answers for it. The first match names the owner on an inbox card; no match: the account that started it ([ADR 0085](../adr/0085-every-inbox-card-is-a-decision.md)) |
 | `worker_root` | `/var/tmp/chargehand/work` | where worker clones live; must be outside the home directory |
 | `delivery` | unset | `{local_only: [dir, ...]}` ([ADR 0069](../adr/0069-local-delivery.md)): repositories under these directories (absolute or `~/…`; `"/"` is every repository) are always delivered locally, whatever the request says. Intake may not watch one |

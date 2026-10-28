@@ -13,18 +13,16 @@ public sealed class SeatbeltSandbox(string? home = null) : ISandbox
 
     public async Task<SandboxResult> RunAsync(SandboxSpec spec, CancellationToken ct)
     {
+        using var launch = Wrap(spec);
+        return await ProcessRunner.RunAsync(launch.FileName, launch.Arguments, launch.Environment, launch.WorkingDirectory, spec.Timeout, ct);
+    }
+
+    public SandboxLaunch Wrap(SandboxSpec spec)
+    {
         var temp = Directory.CreateTempSubdirectory("chargehand-sbx-");
-        try
-        {
-            var work = CredentialPaths.Real(spec.WorkDirectory);
-            var profile = Profile(spec with { WorkDirectory = work }, _home, CredentialPaths.Real(temp.FullName));
-            return await ProcessRunner.RunAsync("/usr/bin/sandbox-exec", ["-p", profile, "--", .. spec.Argv], ProcessRunner.Environment(temp.FullName, spec.PassEnv), work,
-                spec.Timeout, ct);
-        }
-        finally
-        {
-            temp.Delete(recursive: true);
-        }
+        var work = CredentialPaths.Real(spec.WorkDirectory);
+        var profile = Profile(spec with { WorkDirectory = work }, _home, CredentialPaths.Real(temp.FullName));
+        return new SandboxLaunch("/usr/bin/sandbox-exec", ["-p", profile, "--", .. spec.Argv], ProcessRunner.Environment(temp.FullName, spec.PassEnv, spec.Env), work, temp.FullName);
     }
 
     /// <summary>The profile text. Paths must already be real paths.</summary>

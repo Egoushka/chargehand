@@ -59,6 +59,7 @@ internal static class InboxCatalog
         ["merge_conflict"] = new("could not start", "merging the branches of the tasks it depends on conflicted", true),
         ["local_only"] = new("was refused", "the repository is local-only and the request asked to push", false),
         ["delivery_failed"] = new("kept its branch in the run's clone", "the branch could not be fetched into the repository; the error's action has the command", false),
+        ["runtime_uncapped"] = new("was refused", "the agent reports no token usage, so the run's dollar cap could not hold; the profile can allow it (acp.allow_uncapped)", false),
         ["partial"] = new("stopped with part of its work", "the task ended partial, and no pull request holds the work", true, TakeOver: true),
         ["lost"] = new("lost its process", "the server stopped or restarted before it finished", true),
         ["failed"] = new("failed", "it ended without an error code; its log has the details", true),

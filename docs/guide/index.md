@@ -5,7 +5,7 @@ order: 0
 section: "Get started"
 ---
 
-chargehand turns a request into a typed Task Spec, runs it on one or more coding-agent sessions (OpenCode or Claude Code), and returns a result contract with evidence for every claim. People call it from a CLI; programs call it over HTTP or MCP.
+chargehand turns a request into a typed Task Spec, runs it on one or more coding-agent sessions (OpenCode, Claude Code, or any agent that speaks ACP for read-only research: [ACP agents](acp.md)), and returns a result contract with evidence for every claim. People call it from a CLI; programs call it over HTTP or MCP.
 
 ## The problem it solves
 
@@ -33,7 +33,7 @@ Sources: [README](../../README.md#how-it-works), [ADR 0009](../adr/0009-result-c
 
 ## What it does not do
 
-- It has no agent loop of its own. The workers are OpenCode or Claude Code sessions.
+- It has no agent loop of its own. The workers are OpenCode, Claude Code or ACP agent sessions.
 - It makes no calls to model providers. The worker runtime makes them.
 - It does not add parallelism for its own sake. A split runs when intake chooses it and the preset allows it; `default`, `review` and `draft` allow no split.
 - Its workers do not write. Every shipped preset is read-only, and a split that includes a writing subtask runs as one answer node.

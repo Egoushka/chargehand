@@ -41,6 +41,8 @@ internal static class Skeleton
         ["Chargehand.Modules.Evaluation"] = 10,
         ["Chargehand.Modules.Onboarding"] = 10,
         ["Chargehand.Modules.Watch"] = 10,
+        // ADR 0086, decision 8. The IWorkerRuntime adapter is src/Chargehand.Acp until the interface leaves src/Chargehand.
+        ["Chargehand.Runtimes.Acp"] = 10,
         ["Chargehand.Runtimes.ClaudeCode"] = 10,
         ["Chargehand.Runtimes.OpenCode"] = 10,
         ["Chargehand.Hosts.Cli"] = 11,

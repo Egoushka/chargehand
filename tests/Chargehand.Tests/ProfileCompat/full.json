@@ -244,6 +244,7 @@
     ]
   },
   "delivery": null,
+  "acp": null,
   "inbox": null,
   "roots": [
     "/srv/chargehand/work"

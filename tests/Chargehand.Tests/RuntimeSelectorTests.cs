@@ -38,6 +38,31 @@ public class RuntimeSelectorTests
         Assert.NotNull(e.Action);
     }
 
+    [Theory]
+    [InlineData("acp:codex", null, "codex")]
+    [InlineData(null, "acp:gemini", "gemini")]
+    [InlineData("acp:codex", "acp:gemini", "codex")]
+    public void An_acp_runtime_is_named_with_its_agent(string? profile, string? environment, string agent)
+    {
+        Assert.Equal(RuntimeKind.Acp, RuntimeSelector.Select(profile, environment, _ => throw new InvalidOperationException("PATH should not be probed")));
+        Assert.Equal(agent, RuntimeSelector.AcpAgent(profile, environment));
+    }
+
+    [Fact]
+    public void The_profile_wins_over_the_environment_whichever_kind_each_names()
+    {
+        Assert.Equal(RuntimeKind.ClaudeCode, RuntimeSelector.Select("claude_code", "acp:codex", None));
+        Assert.Null(RuntimeSelector.AcpAgent("claude_code", "acp:codex"));
+    }
+
+    [Fact]
+    public void An_acp_runtime_without_an_agent_is_an_invalid_request()
+    {
+        var e = Assert.Throws<ChargehandException>(() => RuntimeSelector.Select("acp:", null, None));
+        Assert.Equal(ErrorCode.InvalidRequest, e.Code);
+        Assert.Contains("acp:<agent>", e.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Exactly_one_known_cli_on_path_is_selected() =>
         Assert.Equal(RuntimeKind.ClaudeCode, RuntimeSelector.Select(null, null, binary => binary == "claude"));

@@ -258,6 +258,7 @@
   "automation": null,
   "preset_services": null,
   "delivery": null,
+  "acp": null,
   "inbox": null,
   "roots": [
     "/srv/chargehand/work",

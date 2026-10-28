@@ -18,6 +18,7 @@ using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
 using Chargehand.Runtime;
+using Chargehand.Runtimes.Acp.Api;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Runtimes.OpenCode.Api;
 using Chargehand.Sandbox;
@@ -56,6 +57,7 @@ public sealed record Profile(
     AutomationSettings? Automation = null,
     IReadOnlyDictionary<string, IReadOnlyList<ServiceUse>>? PresetServices = null,
     DeliverySettings? Delivery = null,
+    AcpSettings? Acp = null,
     InboxSettings? Inbox = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
@@ -81,6 +83,7 @@ public sealed record Profile(
     /// nor CHARGEHAND_RUNTIME does (ADR 0032).</summary>
     public IReadOnlyList<RuntimeKind> RuntimeBlocks =>
         [.. Opencode is null ? [] : new[] { RuntimeKind.Opencode }, .. ClaudeCode is null ? [] : new[] { RuntimeKind.ClaudeCode }];
+    // The acp block is not a runtime block: it only holds credentials, and a request names its agent (acp:<agent>).
 
     /// <summary>The CLI's default when the profile names no repository_roots (ADR 0028): worker_root and the directory
     /// chargehand was launched in, the user's own choice at their shell. serve never calls this; explicit roots win.</summary>
@@ -101,7 +104,7 @@ public sealed record Profile(
         TypeInfoResolver = JsonTypeInfoResolver.Combine(LedgerSettingsJsonContext.Default, AccountsSettingsJsonContext.Default,
             MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, HandoverSettingsJsonContext.Default, IntakeSettingsJsonContext.Default,
             BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default, SessionsSettingsJsonContext.Default, TasksSettingsJsonContext.Default,
-            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, ProfileJsonContext.Default),
+            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, ProfileJsonContext.Default),
     };
 
     /// <summary>Owner-visible defaults (this record's own default values) when the file does not exist.</summary>

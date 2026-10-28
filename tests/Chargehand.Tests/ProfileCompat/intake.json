@@ -126,6 +126,7 @@
   },
   "preset_services": null,
   "delivery": null,
+  "acp": null,
   "inbox": null,
   "roots": [
     "/var/tmp/chargehand/work"

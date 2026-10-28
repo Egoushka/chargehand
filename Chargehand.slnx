@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Chargehand.Acp/Chargehand.Acp.csproj" />
     <Project Path="src/Chargehand.Automation/Chargehand.Automation.csproj" />
     <Project Path="src/Chargehand.Cli/Chargehand.Cli.csproj" />
     <Project Path="src/Chargehand.ClaudeCode/Chargehand.ClaudeCode.csproj" />
@@ -37,6 +38,7 @@
     <Project Path="src/Modules/Chargehand.Modules.Watch/Chargehand.Modules.Watch.csproj" />
   </Folder>
   <Folder Name="/src/Runtimes/">
+    <Project Path="src/Runtimes/Chargehand.Runtimes.Acp/Chargehand.Runtimes.Acp.csproj" />
     <Project Path="src/Runtimes/Chargehand.Runtimes.ClaudeCode/Chargehand.Runtimes.ClaudeCode.csproj" />
     <Project Path="src/Runtimes/Chargehand.Runtimes.OpenCode/Chargehand.Runtimes.OpenCode.csproj" />
   </Folder>
@@ -68,6 +70,7 @@
     <Project Path="tests/Chargehand.Modules.Runners.Tests/Chargehand.Modules.Runners.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Sessions.Tests/Chargehand.Modules.Sessions.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Tasks.Tests/Chargehand.Modules.Tasks.Tests.csproj" />
+    <Project Path="tests/Chargehand.Runtimes.Acp.Tests/Chargehand.Runtimes.Acp.Tests.csproj" />
     <Project Path="tests/Chargehand.Tests/Chargehand.Tests.csproj" />
   </Folder>
 </Solution>

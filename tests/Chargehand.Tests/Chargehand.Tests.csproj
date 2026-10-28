@@ -18,7 +18,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Chargehand.Contracts\Chargehand.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Chargehand\Chargehand.csproj" />
+    <ProjectReference Include="..\..\src\Chargehand.Acp\Chargehand.Acp.csproj" />
     <ProjectReference Include="..\..\src\Chargehand.Automation\Chargehand.Automation.csproj" />
+    <ProjectReference Include="..\AgentClientProtocol.FakeAgent\AgentClientProtocol.FakeAgent.csproj" />
     <ProjectReference Include="..\..\src\Chargehand.Driven\Chargehand.Driven.csproj" />
     <ProjectReference Include="..\..\src\Chargehand.ClaudeCode\Chargehand.ClaudeCode.csproj" />
     <ProjectReference Include="..\..\src\Chargehand.Mcp\Chargehand.Mcp.csproj" />

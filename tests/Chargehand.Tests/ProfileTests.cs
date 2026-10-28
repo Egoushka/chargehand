@@ -10,6 +10,7 @@ using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Tasks.Api;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
+using Chargehand.Runtimes.Acp.Api;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Runtimes.OpenCode.Api;
 
@@ -32,6 +33,34 @@ public class ProfileTests
         Assert.Null(profile.Prices);
         Assert.Null(profile.Secrets);
         Assert.Equal(1.00m, profile.RunCapUsd);
+    }
+
+    [Fact]
+    public void The_acp_block_loads_an_agents_key_secret_and_gateway_and_whether_uncapped_runs_are_allowed()
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("local.json", """
+            {"schema":"profile/v1","runtime":"acp:codex",
+             "acp":{"allow_uncapped":true,"agents_file":"/etc/acp-agents.json","agents":{"codex":{"api_key_secret":"openai-key","base_url":"https://gateway.example/v1"},"gemini":{"api_key_secret":"gemini-key"}}}}
+            """);
+
+        var profile = Profile.Load(path);
+
+        Assert.True(profile.Acp!.AllowUncapped);
+        Assert.Equal("/etc/acp-agents.json", profile.Acp.AgentsFile);
+        Assert.Equal(new AcpAgentCredential("openai-key", "https://gateway.example/v1"), profile.Acp.CredentialFor("codex"));
+        Assert.Equal(new AcpAgentCredential("gemini-key"), profile.Acp.CredentialFor("gemini"));
+        Assert.Null(profile.Acp.CredentialFor("copilot"));
+        Assert.Empty(profile.RuntimeBlocks);
+    }
+
+    [Fact]
+    public void Without_an_acp_block_uncapped_runs_are_not_allowed()
+    {
+        using var dir = new TempDir();
+
+        Assert.Null(Profile.Load(dir.Write("local.json", """{"schema":"profile/v1"}""")).Acp);
+        Assert.False(new AcpSettings().AllowUncapped);
     }
 
     [Fact]
