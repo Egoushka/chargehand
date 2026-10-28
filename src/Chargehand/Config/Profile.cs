@@ -54,7 +54,8 @@ public sealed record Profile(
     int MaxParallelNodes = 2,
     AutomationSettings? Automation = null,
     IReadOnlyDictionary<string, IReadOnlyList<ServiceUse>>? PresetServices = null,
-    DeliverySettings? Delivery = null)
+    DeliverySettings? Delivery = null,
+    InboxSettings? Inbox = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
@@ -389,6 +390,24 @@ public sealed record PromptEnhancerSettings(string Server, int? DeadlineMs = nul
         if (EffectiveDeadlineMs is < MinDeadlineMs or > MaxDeadlineMs)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"prompt_enhancer.deadline_ms must be {MinDeadlineMs} to {MaxDeadlineMs}",
                 "Fix deadline_ms in the profile.");
+    }
+}
+
+/// <summary>ADR 0085. Who an inbox card belongs to.</summary>
+/// <param name="Owners">A repository glob (<c>*</c> matches any run of characters, case-insensitive; matched against <c>owner/name</c>) to the name of the desk or person that answers for it. The first match in the file's order wins.</param>
+public sealed record InboxSettings(IReadOnlyDictionary<string, string>? Owners = null)
+{
+    /// <summary>The owner of <paramref name="repository"/> (a path or <c>owner/name</c>); null when no glob matches.</summary>
+    public string? OwnerOf(string? repository)
+    {
+        if (repository is null || Owners is null)
+            return null;
+        var parts = repository.TrimEnd('/').Split('/');
+        var name = parts.Length > 2 ? string.Join('/', parts[^2..]) : repository;
+        foreach (var (glob, owner) in Owners)
+            if (System.Text.RegularExpressions.Regex.IsMatch(name, "^" + System.Text.RegularExpressions.Regex.Escape(glob).Replace("\\*", ".*") + "$", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+                return owner;
+        return null;
     }
 }
 

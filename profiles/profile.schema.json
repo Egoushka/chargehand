@@ -139,6 +139,14 @@
         "env": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Names of environment variables passed to the command besides PATH, LANG, LC_ALL and TERM." }
       }
     },
+    "inbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The Needs you inbox (ADR 0085).",
+      "properties": {
+        "owners": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 }, "description": "Repository glob (owner/name, * matches any run of characters) to the name of the desk or person who answers for it; a card shows it. The first match wins. No match: the account's name." }
+      }
+    },
     "delivery": {
       "type": "object",
       "additionalProperties": false,

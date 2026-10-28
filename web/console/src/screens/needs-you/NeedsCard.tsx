@@ -124,9 +124,9 @@ function Decision({
       <Title id={headingId}>{item.what ?? item.title}</Title>
       {item.why ? <div className="card__why">{item.why}</div> : null}
       {item.kind === 'question' ? <Question item={item} answerRef={answerRef} asked /> : null}
-      {item.repository ? (
+      {item.owner ? (
         <div className="card__note">
-          Owner: <span title={item.repository}>{baseName(item.repository)}</span>
+          Owner: <span title={item.repository ?? undefined}>{item.owner}</span>
         </div>
       ) : null}
       {item.kind !== 'pull_request' ? (

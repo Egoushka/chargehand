@@ -143,6 +143,7 @@ describe('decision cards (ADR 0085)', () => {
     ]);
     expect(failure.getByText('Goal').closest('details')?.open).toBe(false);
     expect(failure.getByText('Owner:')).toBeTruthy();
+    expect(failure.getByText('payments desk')).toBeTruthy();
     // The code shows only in the collapsed goal, under the cause in words.
     expect(failure.getByText('verification_failed').closest('details')).toBeTruthy();
   });

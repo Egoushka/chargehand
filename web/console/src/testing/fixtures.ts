@@ -306,6 +306,7 @@ export function decisionInbox(now = Date.now()): InboxBody {
     {
       ...failure,
       lane: 'fix',
+      owner: 'payments desk',
       what: 'A task on example/payments-api failed its tests',
       why: 'chargehand ran the tests in a fresh container and they failed, or the repository has no test command',
       options: [
