@@ -134,7 +134,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                     await RoundsAsync(name, starter, ct);
                 }
                 if (settings.ReviewPulls)
-                    await _reviews.StartAsync(name, repository, _checkouts, starter, ct);
+                    await _reviews.StartAsync(name, repository, _checkouts, starter, Sources, ct);
                 Withdraw(name);
             }
             catch (IntakeException e)

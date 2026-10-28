@@ -151,6 +151,14 @@ export interface IntakeSourcesBody {
   discover: boolean;
   sources: IntakeSourceBody[];
   not_recorded?: string[] | null;
+  /** The owner's review policy (ADR 0085); absent from an older server. */
+  reviews?: ReviewPolicy | null;
+}
+
+/** Repositories left out of reviews, and the budget of one review when it is above the preset's. */
+export interface ReviewPolicy {
+  excluded: string[];
+  budget_usd: number | null;
 }
 
 export const intakeSourcesQuery = () =>
@@ -182,5 +190,26 @@ export function useSetIntakeSource() {
   return useMutation({
     mutationFn: setIntakeSource,
     onSuccess: (body) => queryClient.setQueryData(intakeSourcesQuery().queryKey, body),
+  });
+}
+
+/** A policy change: put a repository back into reviews, or clear the review budget. */
+export type PolicyChange = { kind: 'include'; repository: string } | { kind: 'budget'; usd: null };
+
+/** `POST /v1/intake/reviews/include` or `/budget`; the policy is read again afterwards. */
+export function useReviewPolicy() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (change: PolicyChange) => {
+      const reply =
+        change.kind === 'include'
+          ? await call('/v1/intake/reviews/include', {
+              method: 'POST',
+              body: { repository: change.repository },
+            })
+          : await call('/v1/intake/reviews/budget', { method: 'POST', body: { usd: change.usd } });
+      if (!reply.ok) throw new ApiError(reply.status, problems(reply));
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: intakeSourcesQuery().queryKey }),
   });
 }

@@ -33,7 +33,9 @@ internal sealed class IntakeService(GitHubIntake intake, RunService runs, Accoun
 /// forecast over its cap holds the start too. Every refusal is retried later by intake and schedules alike.</summary>
 internal sealed class RunServiceStarter(RunService runs, AccountSettings? account = null) : IBatchStarter
 {
-    public async Task<BatchStart> StartAsync(RunRequest request, CancellationToken ct)
+    public Task<BatchStart> StartAsync(RunRequest request, CancellationToken ct) => StartAsync(request, false, ct);
+
+    public async Task<BatchStart> StartAsync(RunRequest request, bool budgetIsCap, CancellationToken ct)
     {
         if (runs.Halted)
             return new BatchStart(null, RunService.HaltedMessage);
@@ -53,6 +55,6 @@ internal sealed class RunServiceStarter(RunService runs, AccountSettings? accoun
                     $"account '{account.Name}': the budget of ${wanted:0.00} does not fit beside the ${runs.ReservedUsd(account.Name):0.00} reserved by its running work; waiting for it to finish"));
             (request, actor) = (admitted, account.Name);
         }
-        return runs.Start(request, actor: actor) is { } run ? new BatchStart(run.Id) : new BatchStart(null, $"{RunService.MaxUnfinished} runs are unfinished");
+        return runs.Start(request, actor: actor, budgetIsCap: budgetIsCap) is { } run ? new BatchStart(run.Id) : new BatchStart(null, $"{RunService.MaxUnfinished} runs are unfinished");
     }
 }

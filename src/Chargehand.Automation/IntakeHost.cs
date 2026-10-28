@@ -91,6 +91,9 @@ public sealed record BatchStart(string? RunId, string? Refusal = null);
 public interface IBatchStarter
 {
     Task<BatchStart> StartAsync(RunRequest request, CancellationToken ct);
+
+    /// <summary>As <see cref="StartAsync(RunRequest, CancellationToken)"/>; with <paramref name="budgetIsCap"/> the request's budget replaces the preset's per-run cap (the owner raised it, ADR 0085). A starter that cannot lift a cap starts it as asked.</summary>
+    Task<BatchStart> StartAsync(RunRequest request, bool budgetIsCap, CancellationToken ct) => StartAsync(request, ct);
 }
 
 /// <summary>The commit a triggered batch works from.</summary>

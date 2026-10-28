@@ -70,6 +70,34 @@ public class PullReviewTests
     }
 
     [Fact]
+    public async Task A_repository_the_owner_left_out_of_reviews_is_skipped_until_it_is_put_back()
+    {
+        using var rig = new IntakeRig(On());
+        rig.Intake.Sources.SetReviews(IntakeRig.Repo, false);
+        rig.OpenPull(5, Sha);
+        await rig.Poll();
+        Assert.Empty(rig.Starter.Started);
+
+        rig.Intake.Sources.SetReviews(IntakeRig.Repo, true);
+        await rig.Poll();
+        Assert.Single(rig.Starter.Started);
+    }
+
+    [Fact]
+    public async Task A_review_budget_the_owner_set_is_the_requests_budget_and_marks_it_as_the_cap()
+    {
+        using var rig = new IntakeRig(On());
+        rig.OpenPull(5, Sha);
+        await rig.Poll();
+        rig.OpenPull(6, Sha2);
+        rig.Intake.Sources.SetReviewBudget(2.5m);
+        await rig.Poll();
+
+        Assert.Equal([null, 2.5m], rig.Starter.Started.Select(r => r.Context.BudgetUsd));
+        Assert.Equal([false, true], rig.Starter.BudgetIsCap);
+    }
+
+    [Fact]
     public async Task A_diff_over_60000_characters_is_cut_with_a_marker_line()
     {
         using var rig = new IntakeRig(On());

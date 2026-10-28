@@ -54,8 +54,9 @@ public sealed class Orchestrator(
     /// <param name="cancelledByCaller">True once the caller cancelled this run on purpose (not a shutdown): the run then ends as a failed result with
     /// <c>cancelled</c> and is recorded, instead of the cancellation escaping.</param>
     /// <param name="actor">The account that started the run (ADR 0050); on the start record, the run record and the result.</param>
+    /// <param name="budgetIsCap">Server-internal, never read from a request (ADR 0085): the owner set this budget, so it replaces the preset's and the profile's per-run cap, and the input-token budget grows by the same ratio.</param>
     public async Task<ResultContract> RunAsync(RunRequest request, CancellationToken ct, string? runId = null, Action<RunStatus>? progress = null,
-        string? parentRunId = null, Func<bool>? cancelledByCaller = null, string? actor = null)
+        string? parentRunId = null, Func<bool>? cancelledByCaller = null, string? actor = null, bool budgetIsCap = false)
     {
         var started = DateTimeOffset.UtcNow;
         runId ??= RunIds.New();
@@ -163,7 +164,7 @@ public sealed class Orchestrator(
                         [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
                     _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
                         $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
-                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, local, ct),
+                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, local, ct, budgetIsCap),
                 };
             }
         }
@@ -293,7 +294,7 @@ public sealed class Orchestrator(
     /// <summary>Runs the plan's nodes (one for answer) and returns the node's contract, or the merged one for a split.</summary>
     private async Task<ResultContract> Execute(RunRequest request, TaskSpec spec, IReadOnlyList<PlanNode> plan, string kindName, NodeKind kind, string? workerModel,
         IReadOnlyList<(string Key, string Value)> instructions, PromptChain chain, IReadOnlyList<PromptBlock> callerBlocks, string runId, string traceId,
-        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, IWorkerRuntime worker, bool local, CancellationToken ct)
+        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, IWorkerRuntime worker, bool local, CancellationToken ct, bool budgetIsCap = false)
     {
         var (directory, commit, repository, excluded) = kind.Checkout
             ? await Checkout(request.Context.Repository!, kind, refuseDenied: false, ct)
@@ -311,7 +312,9 @@ public sealed class Orchestrator(
         VerifyPlan? verifyPlan = null;
         var attempts = 0;
         // ponytail: the run cap is split evenly across nodes up front; share the remainder dynamically if nodes vary a lot.
-        var cap = new[] { profile.RunCapUsd / plan.Count, kind.Budget.MaxUsd, (request.Context.BudgetUsd ?? decimal.MaxValue) / plan.Count }.Min();
+        var presetCap = Math.Min(profile.RunCapUsd / plan.Count, kind.Budget.MaxUsd);
+        var cap = budgetIsCap && request.Context.BudgetUsd is { } owned ? owned / plan.Count : Math.Min(presetCap, (request.Context.BudgetUsd ?? decimal.MaxValue) / plan.Count);
+        var maxInputTokens = cap > presetCap && presetCap > 0 ? (long)Math.Min(long.MaxValue / 2, kind.Budget.MaxInputTokens * (double)(cap / presetCap)) : kind.Budget.MaxInputTokens;
         // The id is quoted: rendered as "[id]", a model cited "[id]" as the locator, which no input id matches.
         var inputText = string.Join("\n", (request.Inputs ?? []).Select(i => $"- id \"{i.Id}\" ({i.Kind}): {i.Text}{(i.SourceUrl is null ? "" : $" <{i.SourceUrl}>")}"));
         var prices = new PriceTable(profile.Prices ?? new Dictionary<string, ModelPrice>());
@@ -334,7 +337,7 @@ public sealed class Orchestrator(
                 new NodeSpec(directory, kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { [IRunCleanup.RunMetadataKey] = runId, ["chargehand.node"] = node.Id }, granted),
                 instructions, TaskText(request, spec, commit, changeNote, inputText, callerBlocks, node, plan.Count, upstream) + facts + ServiceCitationNote(granted) + ExcludedNote(excluded), chain, directory, commit,
                 (request.Inputs ?? []).Select(i => i.Id).ToHashSet(), inputText, cap, TimeSpan.FromMinutes(15),
-                kind.Budget.MaxInputTokens, kind.Compaction?.TriggerTokens, fork,
+                maxInputTokens, kind.Compaction?.TriggerTokens, fork,
                 workspace is null ? null : async (_, token) =>
                 {
                     // Run on a copy of what would be committed: what the tests write stays out of the branch. Resolved on each

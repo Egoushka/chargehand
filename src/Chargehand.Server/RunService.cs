@@ -198,7 +198,8 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
     /// <summary>Queues a run, or returns null when <see cref="MaxUnfinished"/> top-level runs are unfinished (a run with <paramref name="chargeTo"/> is never refused).</summary>
     /// <param name="chargeTo">The parent run whose token started this one: it runs on the child gate and its cost goes to that run's ledger.</param>
     /// <param name="actor">The account that started it (ADR 0050); on the run's records, result and events.</param>
-    public RunHandle? Start(RunRequest request, string? parentRunId = null, string? chargeTo = null, string? actor = null)
+    /// <param name="budgetIsCap">The owner set the request's budget as the cap, lifting the preset's per-run cap (ADR 0085); admission still clamps it to the account.</param>
+    public RunHandle? Start(RunRequest request, string? parentRunId = null, string? chargeTo = null, string? actor = null, bool budgetIsCap = false)
     {
         // ponytail: count-then-add is not atomic; two racing calls can exceed the bound by one.
         if (chargeTo is null && _runs.Values.Count(r => !r.IsChild) >= MaxUnfinished)
@@ -206,7 +207,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         var run = new RunHandle(RunIds.New(), stopping) { IsChild = chargeTo is not null, ParentRunId = parentRunId, Actor = actor, IsBatch = request.Driven is not null, ReservedUsd = Reserve(request) };
         _runs[run.Id] = run;
         run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
-        Track(() => Execute(run, request, parentRunId, chargeTo));
+        Track(() => Execute(run, request, parentRunId, chargeTo, budgetIsCap: budgetIsCap));
         return run;
     }
 
@@ -268,7 +269,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
         }
     }
 
-    private async Task Execute(RunHandle run, RunRequest request, string? parentRunId, string? chargeTo, OpenBatch? resume = null)
+    private async Task Execute(RunHandle run, RunRequest request, string? parentRunId, string? chargeTo, OpenBatch? resume = null, bool budgetIsCap = false)
     {
         var gate = chargeTo is null ? _gate : _childGate;
         try
@@ -279,7 +280,7 @@ public sealed class RunService(Orchestrator orchestrator, string presetsDirector
                 // A batch holds one slot of the main gate and schedules its own tasks (ADR 0039); without a driven setup the orchestrator refuses the request.
                 var result = request.Driven is not null && driven is not null
                     ? await driven.RunAsync(request, run.Id, g => MintToken(g, run.Actor), run.Token, run.Publish, () => run.CancelledByCaller, resume, run.Actor)
-                    : await orchestrator.RunAsync(request, run.Token, run.Id, run.Publish, parentRunId, () => run.CancelledByCaller, run.Actor);
+                    : await orchestrator.RunAsync(request, run.Token, run.Id, run.Publish, parentRunId, () => run.CancelledByCaller, run.Actor, budgetIsCap);
                 if (chargeTo is not null)
                     Ledger.Charge(chargeTo, result.Usage.Usd ?? 0, result.Usage.Input + result.Usage.Output);
                 if (CredentialHealth.Rejected(result.Error?.Message))

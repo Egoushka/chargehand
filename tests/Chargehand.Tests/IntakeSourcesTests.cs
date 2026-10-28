@@ -190,4 +190,25 @@ public class IntakeSourcesTests
         Assert.False(listed.GetProperty("configured").GetBoolean());
         Assert.Equal(HttpStatusCode.Conflict, (await server.Http.PutAsJsonAsync("/v1/intake/sources", new { sources = new[] { new { repository = IntakeRig.Repo, enabled = false } } })).StatusCode);
     }
+
+    [Fact]
+    public void The_review_policy_is_kept_beside_the_switches_and_a_new_process_reads_it()
+    {
+        using var dir = new TempDir();
+        var path = Path.Combine(dir.Path, "sources.json");
+        var sources = IntakeSources.Load(path);
+
+        Assert.True(sources.SetReviews(Other, false));
+        Assert.False(sources.SetReviews(Other, false));
+        Assert.True(sources.SetReviewBudget(3m));
+        Assert.True(sources.Set("octo/off", false));
+
+        var again = IntakeSources.Load(path);
+        Assert.Equal([Other], again.ReviewsOff);
+        Assert.False(again.ReviewsOn(Other));
+        Assert.Equal(3m, again.ReviewBudgetUsd);
+        Assert.False(again.IsOn("octo/off"));
+        Assert.True(again.SetReviewBudget(null));
+        Assert.Null(IntakeSources.Load(path).ReviewBudgetUsd);
+    }
 }

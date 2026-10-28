@@ -26,9 +26,12 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
 
     private static string Key(string repository, int number, string sha) => $"{repository}#{number.ToString(CultureInfo.InvariantCulture)}@{sha}";
 
-    /// <summary>Starts a review for each pull request whose head commit has none. No free slot or a busy server leaves the rest for a later poll.</summary>
-    public async Task StartAsync(string name, AutomationRepository repository, CheckoutSources checkouts, IBatchStarter starter, CancellationToken ct)
+    /// <summary>Starts a review for each pull request whose head commit has none. No free slot or a busy server leaves the rest for a later poll. A repository the owner left out of reviews (<paramref name="policy"/>) is skipped,
+    /// and its pull requests are reviewed once it is put back.</summary>
+    public async Task StartAsync(string name, AutomationRepository repository, CheckoutSources checkouts, IBatchStarter starter, IntakeSources policy, CancellationToken ct)
     {
+        if (!policy.ReviewsOn(name))
+            return;
         foreach (var pull in await host.OpenPullsAsync(name, ct))
         {
             if (pull.Draft || pull.Author.EndsWith("[bot]", StringComparison.OrdinalIgnoreCase) || pull.HeadSha.Length < 7 || state.Reviewed.Contains(Key(name, pull.Number, pull.HeadSha)))
@@ -37,7 +40,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
                 return;
             try
             {
-                if (!await TryStartAsync(name, repository, pull, checkouts, starter, ct))
+                if (!await TryStartAsync(name, repository, pull, checkouts, starter, policy, ct))
                     return;
             }
             catch (IntakeException e)
@@ -48,7 +51,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
     }
 
     /// <summary>False when the server refused the run: the rest wait for the next poll.</summary>
-    private async Task<bool> TryStartAsync(string name, AutomationRepository repository, ReviewablePull pull, CheckoutSources checkouts, IBatchStarter starter, CancellationToken ct)
+    private async Task<bool> TryStartAsync(string name, AutomationRepository repository, ReviewablePull pull, CheckoutSources checkouts, IBatchStarter starter, IntakeSources policy, CancellationToken ct)
     {
         var key = Key(name, pull.Number, pull.HeadSha);
         if (await HasCommentAsync(name, pull.Number, pull.HeadSha, ct))
@@ -76,9 +79,10 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
             Settle(key);
             return true;
         }
-        var request = new RunRequest("request/v1", $"Review pull request {name}#{pull.Number.ToString(CultureInfo.InvariantCulture)}.", new RequestContext(false, Preset, Repository: source),
+        var budget = policy.ReviewBudgetUsd;
+        var request = new RunRequest("request/v1", $"Review pull request {name}#{pull.Number.ToString(CultureInfo.InvariantCulture)}.", new RequestContext(false, Preset, BudgetUsd: budget, Repository: source),
             [new CallerInput("goal", "goal", IntakeGoal.Pull(pull.Title, pull.Body)), new CallerInput("diff", "diff", Cut(diff)), new CallerInput("tests", "test-output", "not run by chargehand; see the pull request's checks")]);
-        var started = await starter.StartAsync(request, ct);
+        var started = await starter.StartAsync(request, budget is not null, ct);
         if (started.RunId is not { } run)
         {
             warn($"intake: {name}#{pull.Number}: the server did not start the review: {started.Refusal}");
