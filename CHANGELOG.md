@@ -5,6 +5,32 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.4](https://github.com/Egoushka/chargehand/compare/v0.19.3...v0.19.4) (2026-10-27)
+
+
+### Features
+
+* **accounts:** admission reserves the budget of running work and the next start's forecast (CHARGEHAND-575) ([#595](https://github.com/Egoushka/chargehand/issues/595)) ([099ed56](https://github.com/Egoushka/chargehand/commit/099ed562229b7f1f1375906932488758cc845bee))
+* **accounts:** dollar caps count API-billed usage only (CHARGEHAND-580) ([#594](https://github.com/Egoushka/chargehand/issues/594)) ([4ab4a53](https://github.com/Egoushka/chargehand/commit/4ab4a53785baaedf659a5db4d7fe348ec4b47d84))
+* **cli:** chargehand takeover puts a stalled task's branch and handoff in a local worktree (CHARGEHAND-443) ([#592](https://github.com/Egoushka/chargehand/issues/592)) ([e0d5a82](https://github.com/Egoushka/chargehand/commit/e0d5a821850c2605c37d77ab2df52d55df30dbbb))
+* **console:** flight recorder on the task page (CHARGEHAND-444) ([#596](https://github.com/Egoushka/chargehand/issues/596)) ([eacee72](https://github.com/Egoushka/chargehand/commit/eacee72845eb9638b77f0e7eaa95c8df04915299))
+* **driven:** a gateway budget refusal halts starts, a rate limit shrinks the pool (CHARGEHAND-578) ([#585](https://github.com/Egoushka/chargehand/issues/585)) ([16256c1](https://github.com/Egoushka/chargehand/commit/16256c176771db3a44335c4e94b76a5e7879e01b))
+* **driven:** under mise the repository's CI verifies and the driver runs the declared check (CHARGEHAND-303) ([#591](https://github.com/Egoushka/chargehand/issues/591)) ([1117a1c](https://github.com/Egoushka/chargehand/commit/1117a1c7864bc564f7b727970aff781dcbb7a2c8))
+* **economics:** dollars per merged pull request per repository and preset ([#588](https://github.com/Egoushka/chargehand/issues/588)) ([72558e1](https://github.com/Egoushka/chargehand/commit/72558e1cda85c2ba85c7d6d75846b1c628613ce5))
+* **intake:** a reported rate-limit pause warns, and holds starts when subscription_block is on ([#598](https://github.com/Egoushka/chargehand/issues/598)) ([#604](https://github.com/Egoushka/chargehand/issues/604)) ([be64a30](https://github.com/Egoushka/chargehand/commit/be64a30c28647cb724ca541013e7b1fe6e06d337))
+* **intake:** a start-rate breaker and a per-repository failure breaker pause new starts ([#598](https://github.com/Egoushka/chargehand/issues/598)) ([#605](https://github.com/Egoushka/chargehand/issues/605)) ([95c2544](https://github.com/Egoushka/chargehand/commit/95c254416b30afcdb11535c549dc7a756c1332c2))
+* **intake:** new starts wait while pull requests chargehand opened await review ([#598](https://github.com/Egoushka/chargehand/issues/598)) ([#603](https://github.com/Egoushka/chargehand/issues/603)) ([be4e521](https://github.com/Egoushka/chargehand/commit/be4e521d351c1991159c2fc41fb9f7331f9a594b))
+* **oversight:** pre-flight forecast for a task; history budgets from 5 tasks (CHARGEHAND-438) ([#583](https://github.com/Egoushka/chargehand/issues/583)) ([c96d76a](https://github.com/Egoushka/chargehand/commit/c96d76a3de494349dac0b1af9dbbc06b08a3a055))
+* **sessions:** a mise session image and per-repository home volume behind driven.environment (CHARGEHAND-302) ([#465](https://github.com/Egoushka/chargehand/issues/465)) ([a6d9944](https://github.com/Egoushka/chargehand/commit/a6d9944b21887fd071522560f748a5661b329953))
+
+
+### Bug Fixes
+
+* **driven:** a task that fails after opening its pull request keeps its run id (CHARGEHAND-579) ([#589](https://github.com/Egoushka/chargehand/issues/589)) ([980c292](https://github.com/Egoushka/chargehand/commit/980c29240d09b0f2369b583451acf3476919834a))
+* **intake:** bound starts by money and slots and queue waiting triggers (CHARGEHAND-297) ([#582](https://github.com/Egoushka/chargehand/issues/582)) ([f724179](https://github.com/Egoushka/chargehand/commit/f7241797764551451bc4d7244c9ae4bccf4b8da4))
+* **intake:** start an issue's run a restart lost again, once, from the waiting queue (CHARGEHAND-557) ([#590](https://github.com/Egoushka/chargehand/issues/590)) ([3f16bdc](https://github.com/Egoushka/chargehand/commit/3f16bdcb8110257915090f9f7a7a2c91e613b71a))
+* **intake:** the review backlog counts running tasks, so a freed place admits one item ([#598](https://github.com/Egoushka/chargehand/issues/598)) ([#606](https://github.com/Egoushka/chargehand/issues/606)) ([3a861ae](https://github.com/Egoushka/chargehand/commit/3a861aece829d01066bcd2144535a44227a5a137))
+
 ## [0.19.3](https://github.com/Egoushka/chargehand/compare/v0.19.2...v0.19.3) (2026-10-26)
 
 
