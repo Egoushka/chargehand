@@ -5,7 +5,8 @@ namespace Chargehand.Server;
 /// <summary>One inbox item a person dismissed (ADR 0064).</summary>
 /// <param name="Shown">The id of the item as the inbox showed it: a collapsed failure stands for several, and undoing it restores them all.</param>
 /// <param name="By">The account that dismissed it; null: the owner.</param>
-public sealed record InboxDismissal(DateTimeOffset At, string Shown, string? By);
+/// <param name="Kept">Not a dismissal: a person undid what a rule resolved (ADR 0085), so the rules leave the item open.</param>
+public sealed record InboxDismissal(DateTimeOffset At, string Shown, string? By, [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] bool Kept = false);
 
 /// <summary>The inbox items people dismissed, by item id, in one JSON file beside the run log that only the server writes, whole, through a temporary file (as <c>accounts-use.json</c> and intake's
 /// state are). A file that cannot be read reads as empty, so the items come back rather than the inbox failing.</summary>
@@ -25,10 +26,25 @@ internal sealed class InboxDismissals(string path)
         lock (_lock)
         {
             var all = Load();
-            var added = ids.Where(id => all.TryAdd(id, new InboxDismissal(at, shown, by))).ToList();
+            var added = ids.Where(id => !all.TryGetValue(id, out var was) || was.Kept).ToList();
+            foreach (var id in added)
+                all[id] = new InboxDismissal(at, shown, by);
             if (added.Count > 0)
                 Save(all);
             return added;
+        }
+    }
+
+    /// <summary>Keeps <paramref name="id"/>, which a rule resolved, open; false when it was kept already.</summary>
+    public bool Keep(string id, string? by, DateTimeOffset at)
+    {
+        lock (_lock)
+        {
+            var all = Load();
+            if (!all.TryAdd(id, new InboxDismissal(at, id, by, Kept: true)))
+                return false;
+            Save(all);
+            return true;
         }
     }
 
@@ -38,7 +54,7 @@ internal sealed class InboxDismissals(string path)
         lock (_lock)
         {
             var all = Load();
-            var removed = all.Where(e => e.Key == shown || e.Value.Shown == shown).Select(e => e.Key).ToList();
+            var removed = all.Where(e => !e.Value.Kept && (e.Key == shown || e.Value.Shown == shown)).Select(e => e.Key).ToList();
             foreach (var id in removed)
                 all.Remove(id);
             if (removed.Count > 0)

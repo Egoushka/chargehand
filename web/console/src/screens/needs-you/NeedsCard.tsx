@@ -18,6 +18,7 @@ import {
   Textarea,
 } from '../../ui';
 import { targetRun, waitingFor } from './model';
+import { Options } from './Options';
 
 export interface NeedsCardProps {
   item: InboxItem;
@@ -34,6 +35,9 @@ export function NeedsCard({ item, cursor, answerRef, cardRef }: NeedsCardProps) 
   const run = targetRun(item);
   const openLabel = item.kind === 'question' && item.task_id ? 'Open task' : 'Open run';
   const heading = useId();
+  // A server since ADR 0085 says what, why and the options; the card shows those four parts.
+  const decision = Boolean(item.what && item.options);
+  const label = item.task_id ?? (item.run_id ? shortId(item.run_id) : item.title);
   return (
     <article
       ref={cardRef}
@@ -68,7 +72,9 @@ export function NeedsCard({ item, cursor, answerRef, cardRef }: NeedsCardProps) 
         </span>
       </div>
       <div className="card__body">
-        {item.kind === 'question' ? (
+        {decision ? (
+          <Decision item={item} headingId={heading} answerRef={answerRef} />
+        ) : item.kind === 'question' ? (
           <Question item={item} headingId={heading} answerRef={answerRef} />
         ) : item.kind === 'pull_request' ? (
           <PullRequest item={item} headingId={heading} />
@@ -79,10 +85,12 @@ export function NeedsCard({ item, cursor, answerRef, cardRef }: NeedsCardProps) 
           {item.task_id ?? shortId(item.run_id)}
           {item.pull_request?.number ? ` · PR ${item.pull_request.number}` : ''}
         </div>
+        {decision ? <Options item={item} label={label} /> : null}
       </div>
       <div className="card__foot">
-        {item.kind === 'pull_request' ? <PullRequestActions item={item} /> : null}
-        {run ? (
+        {!decision && item.kind === 'pull_request' ? <PullRequestActions item={item} /> : null}
+        {run &&
+        !(decision && item.options?.some((o) => o.id === 'open' && !o.url?.startsWith('http'))) ? (
           <Link
             to="/runs/$runId"
             params={{ runId: run }}
@@ -92,9 +100,47 @@ export function NeedsCard({ item, cursor, answerRef, cardRef }: NeedsCardProps) 
             {openLabel}
           </Link>
         ) : null}
-        <DismissButton item={item} />
+        {decision ? null : <DismissButton item={item} />}
       </div>
     </article>
+  );
+}
+
+/**
+ * The card in four parts (ADR 0085): what happened, why, the options (below the body), and whose it is. The task's goal
+ * moves under the card, collapsed; a question keeps its text and its answer box.
+ */
+function Decision({
+  item,
+  headingId,
+  answerRef,
+}: {
+  item: InboxItem;
+  headingId: string;
+  answerRef?: Ref<HTMLTextAreaElement>;
+}) {
+  return (
+    <>
+      <Title id={headingId}>{item.what ?? item.title}</Title>
+      {item.why ? <div className="card__why">{item.why}</div> : null}
+      {item.kind === 'question' ? <Question item={item} answerRef={answerRef} asked /> : null}
+      {item.repository ? (
+        <div className="card__note">
+          Owner: <span title={item.repository}>{baseName(item.repository)}</span>
+        </div>
+      ) : null}
+      {item.kind !== 'pull_request' ? (
+        <details className="card__goal">
+          <summary>Goal</summary>
+          <div className="card__note">{item.title}</div>
+          {item.error?.message ? (
+            <div className="card__note">
+              <span className="mono">{item.error.code}</span>: {item.error.message}
+            </div>
+          ) : null}
+        </details>
+      ) : null}
+    </>
   );
 }
 
@@ -146,10 +192,13 @@ function Question({
   item,
   headingId,
   answerRef,
+  asked = false,
 }: {
   item: InboxItem;
-  headingId: string;
+  headingId?: string;
   answerRef?: Ref<HTMLTextAreaElement>;
+  /** Under a card that says what happened: every question is a list item, and there is no title or goal line. */
+  asked?: boolean;
 }) {
   const toast = useToast();
   const answer = useAnswer();
@@ -176,17 +225,18 @@ function Question({
     );
   }
 
+  const listed = asked ? item.questions : rest;
   return (
     <>
-      <Title id={headingId}>{first ?? item.title}</Title>
-      {rest.length > 0 ? (
+      {asked ? null : <Title id={headingId ?? ''}>{first ?? item.title}</Title>}
+      {listed.length > 0 ? (
         <ul className="questions">
-          {rest.map((q) => (
+          {listed.map((q) => (
             <li key={q}>{q}</li>
           ))}
         </ul>
       ) : null}
-      {first ? <div className="card__note">Task: {item.title}</div> : null}
+      {first && !asked ? <div className="card__note">Task: {item.title}</div> : null}
       {item.answer ? (
         sent ? (
           <div className="card__sent" role="status">

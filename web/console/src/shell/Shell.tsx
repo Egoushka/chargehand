@@ -83,7 +83,8 @@ export function Shell() {
   const owner = account?.owner === true;
   const halted = overview.data?.server.halted ?? account?.halted ?? false;
   const pause = overview.data?.driven.rate_limit;
-  const waiting = inbox.data?.counts.total ?? 0;
+  // The badge counts what waits for a decision (ADR 0085); a server before it sends no decide count.
+  const waiting = inbox.data?.counts.decide ?? inbox.data?.counts.total ?? 0;
   const sessions = overview.data?.driven.sessions.running ?? 0;
 
   // A new screen takes the focus, so a keyboard or screen-reader user starts at its top, not where the last link was.
