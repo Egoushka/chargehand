@@ -651,7 +651,18 @@ async Task<int> Mcp()
     using var tracing = Tracing();
     foreach (var deprecated in profile.Automation?.Deprecations() ?? [])
         Console.Error.WriteLine($"chargehand serve: {deprecated}");
-    var (runtime, runtimeVersion) = await Connect();
+    IWorkerRuntime runtime;
+    string runtimeVersion;
+    try
+    {
+        (runtime, runtimeVersion) = await Connect();
+    }
+    catch (ChargehandException e)
+    {
+        // A client that sees the process die shows no tools and no reason; answer initialize and fail each call with the reason.
+        Console.Error.WriteLine($"chargehand mcp: {e.Message} {e.Action}");
+        (runtime, runtimeVersion) = (new UnavailableRuntime(e), "unavailable");
+    }
     var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
     using var host = ChargehandServer.CreateStdio(Path.Combine(root, "presets"), orchestrator, Console.OpenStandardInput(), Console.OpenStandardOutput());
     // The transport stops the host when the client closes stdin.
