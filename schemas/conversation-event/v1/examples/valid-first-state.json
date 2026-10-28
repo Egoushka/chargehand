@@ -1,0 +1,12 @@
+{
+  "contract_version": "conversation-event/v1",
+  "id": 1,
+  "at": "2026-10-28T09:00:00Z",
+  "type": "state",
+  "data": {
+    "state": "starting",
+    "repository": { "path": "acme/widgets", "commit": "0123456789abcdef0123456789abcdef01234567" },
+    "runtime": "acp:gemini",
+    "actor": "alice"
+  }
+}

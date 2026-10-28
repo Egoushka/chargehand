@@ -25,6 +25,8 @@ internal static class Skeleton
         // Gateway, Runners, Sessions: the container engine checks egress settings with the gateway's rules, and sessions run on the
         // engine (ADR 0060, amendment "Gateway, Runners and Sessions in order").
         ["Chargehand.Modules.Gateway"] = 4,
+        // Steerable agent conversations (ADR 0086): scoped by Accounts' principal, priced against the Ledger's spend; the ACP runtime and the hosts sit above.
+        ["Chargehand.Modules.Conversations"] = 4,
         ["Chargehand.Modules.Runners"] = 5,
         ["Chargehand.Modules.Sessions"] = 6,
         // Below Tasks, which calls the handover and integrator mid-task.

@@ -1,0 +1,7 @@
+{
+  "contract_version": "conversation-event/v1",
+  "id": 15,
+  "at": "2026-10-28T09:01:50Z",
+  "type": "approval_answered",
+  "data": { "call_id": "call-4", "decision": "allow_always" }
+}
