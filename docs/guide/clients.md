@@ -5,7 +5,7 @@ order: 4
 section: "Guides"
 ---
 
-chargehand speaks MCP (the Model Context Protocol, the way an editor or agent calls tools on another program). Every client below that supports MCP can call its three tools: `orchestrate` asks a codebase question, `result` reads a run that is still going, and `repositories` lists the checkouts the server reads ([the MCP page](mcp.md) covers the tools).
+chargehand speaks MCP (the Model Context Protocol, the way an editor or agent calls tools on another program). A client that connects can call chargehand's three tools: `orchestrate` asks a codebase question, `result` reads a run that is still going, and `repositories` lists the checkouts the server reads ([the MCP page](mcp.md) covers the tools).
 
 There are two ways to connect, and each client section says which it takes:
 
@@ -45,7 +45,7 @@ Each snippet carries one of two labels, and each section starts with one.
 claude mcp add --transport http chargehand https://chargehand.example.com/v1/mcp --header "Authorization: Bearer <your-key>"
 ```
 
-The command stores the entry in `~/.claude.json` for the current project (the default `local` scope); `--scope user` makes it available in every project and `--scope project` writes a `.mcp.json` you can commit. The header value is stored as given.
+The command stores the entry in `~/.claude.json` for the current project (the default `local` scope); `--scope user` makes it available in every project and `--scope project` writes a `.mcp.json` you can commit (the run used this scope, in a scratch directory). The header value is stored as given.
 
 **Run** (Claude Code 2.1.303, called): a project `.mcp.json` that reads the key from an environment variable, so the file can be committed. Claude Code expands `${VAR}` in `url` and `headers`.
 
