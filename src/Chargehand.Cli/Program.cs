@@ -752,6 +752,7 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
             try { profile.Secret(item); return true; }
             catch (InvalidOperationException) { return false; }
         });
+        cc.CheckApiFallback();
         var credential = (cc.ApiKeySecret, cc.OauthTokenSecret) switch
         {
             ({ } key, null) => new ClaudeCodeCredential(profile.Secret(key), Subscription: false),

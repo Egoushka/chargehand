@@ -210,7 +210,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     {
         List<string?> items =
         [
-            profile.ClaudeCode?.ApiKeySecret, profile.ClaudeCode?.OauthTokenSecret, profile.Driven?.PushSecret, profile.Driven?.Forge?.TokenSecret, profile.Http?.ApiKeySecret,
+            profile.ClaudeCode?.ApiKeySecret, profile.ClaudeCode?.OauthTokenSecret, profile.ClaudeCode?.ApiFallbackKeySecret, profile.Driven?.PushSecret, profile.Driven?.Forge?.TokenSecret, profile.Http?.ApiKeySecret,
             .. profile.Driven?.ResolvedRunners().Select(r => r.ApiKeySecret) ?? [],
             .. profile.Http?.Accounts?.Where(a => a.Name == actor).Select(a => a.Model?.ApiKeySecret) ?? [],
         ];
@@ -367,6 +367,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         CheckArm(c.Request.Driven!);
         var s = services ?? throw new ChargehandException(ErrorCode.ContainerUnavailable, "driven sessions are on, but no container engine is set up for them", "Check driven.runner in the profile, or install Docker.");
         var claude = profile.ClaudeCode ?? throw new ChargehandException(ErrorCode.InvalidRequest, "driven sessions need a claude_code block in the profile", "Add claude_code with an api_key_secret or an oauth_token_secret.");
+        claude.CheckApiFallback();
         var image = settings.Images is { Count: > 0 } images ? images[0] : throw new ChargehandException(ErrorCode.InvalidRequest, "driven.images is empty", "List the session image by digest in driven.images.");
         var (drivenPreset, kind) = PresetOf(c.Request, settings);
         // An account runs on its own key, or on the server's only where the profile lets it (ADR 0053); an API key has a dollar price, so its cap binds.
