@@ -68,6 +68,10 @@ export interface InboxItem {
   lane?: InboxLane | null;
   /** For a handled item: the rule that resolved it, or `dismissed`. */
   resolved_by?: string | null;
+  /** What failures share when one fix answers them (ADR 0085): the code, plus the repository where the cause is its own. */
+  cause_key?: string | null;
+  /** Who answers for the card: the profile's `inbox.owners` match, else the account that started it. */
+  owner?: string | null;
 }
 
 /** What left the inbox in the window without being dealt with here (ADR 0064). */
@@ -98,6 +102,8 @@ export interface InboxGroup {
   count: number;
   at: string;
   items: string[];
+  /** The cause the failures share; a group across repositories has no `repository`. */
+  cause_key?: string | null;
 }
 
 /** `inbox/v1`: what needs a person, newest first. */

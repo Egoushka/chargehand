@@ -4,7 +4,7 @@
     <!-- Versioned by schema major, independently of the orchestrator (ADR 0009). -->
     <Version>1.4.0-alpha</Version>
     <PackageId>Chargehand.Contracts</PackageId>
-    <Description>JSON Schemas request/v1, task-spec/v1, result/v1, run-status/v1 and preset/v1 for chargehand, with C# types and a validator.</Description>
+    <Description>JSON Schemas request/v1, task-spec/v1, result/v1, run-status/v1, preset/v1, conversation/v1 and conversation-event/v1 for chargehand, with C# types and a validator.</Description>
     <IsPackable>true</IsPackable>
   </PropertyGroup>
 

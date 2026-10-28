@@ -72,6 +72,14 @@ internal static class InboxCatalog
         ["partial_draft"] = "the task stopped with part of its work, so the pull request is a draft",
     };
 
+    /// <summary>Codes whose cause is the repository's own: one card per repository (ADR 0085).</summary>
+    private static readonly HashSet<string> PerRepository = new(["checkout_has_secrets", "verification_failed", "push_rejected", "merge_conflict"], StringComparer.Ordinal);
+
+    /// <summary>What failures share when one fix answers them all: the code, and the repository only where the cause is the repository's. A review's <c>cost_cap_reached</c> is the <c>review</c> preset's budget, so it is
+    /// one cause across repositories.</summary>
+    internal static string CauseKeyOf(string code, string? repository, bool review) =>
+        review && code == "cost_cap_reached" ? "cost_cap_reached:review" : PerRepository.Contains(code) ? $"{code}:{repository}" : code;
+
     /// <summary>The entry for <paramref name="code"/>; null for a code the catalog does not know.</summary>
     public static CatalogEntry? Entry(string code) => Entries.GetValueOrDefault(code);
 
@@ -141,7 +149,7 @@ internal static class InboxCatalog
         if (options.Count == 0 && (task ? $"/console/runs/{Uri.EscapeDataString(item.BatchRunId!)}/tasks/{Uri.EscapeDataString(item.TaskId!)}" : item.RunId is { } run ? $"/console/runs/{Uri.EscapeDataString(run)}" : null) is { } page)
             options.Add(new("open", task ? "Open task" : "Open run", "Opens it with its result and its log.", Url: page));
         options.Add(dismiss);
-        return item with { What = $"{Subject(c)} {entry.Verb}", Why = why, Options = options, Lane = lane };
+        return item with { What = $"{Subject(c)} {entry.Verb}", Why = why, Options = options, Lane = lane, CauseKey = CauseKeyOf(item.Reason ?? "failed", item.Repository, item.Subject == "run" && InboxRules.ReviewedPull(c.Text) is not null) };
     }
 
     /// <summary>The sentence's subject: the review's pull request, or the kind of work and its repository.</summary>

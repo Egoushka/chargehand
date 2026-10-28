@@ -172,6 +172,14 @@
         "env": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Names of environment variables passed to the command besides PATH, LANG, LC_ALL and TERM." }
       }
     },
+    "inbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The Needs you inbox (ADR 0085).",
+      "properties": {
+        "owners": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 }, "description": "Repository glob (owner/name, * matches any run of characters) to the name of the desk or person who answers for it; a card shows it. The first match wins. No match: the account's name." }
+      }
+    },
     "delivery": {
       "type": "object",
       "additionalProperties": false,
@@ -711,6 +719,15 @@
             "proxies": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "\\S" }, "description": "The proxy's addresses or host names (resolved every 30 seconds). The header counts only on a request that arrives from one of them." },
             "identities": { "type": "object", "minProperties": 1, "propertyNames": { "pattern": "@" }, "additionalProperties": { "type": "string", "minLength": 1 }, "description": "Email to account: owner or a name in http.accounts." },
             "header": { "type": "string", "minLength": 1, "default": "Remote-Email", "description": "The header that carries the email. Default Remote-Email (Pangolin's)." }
+          }
+        },
+        "conversations": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Turns on /v1/conversations (ADR 0086): a person steers an agent while it works, over the owner's and the accounts' keys. Absent: the routes are not there.",
+          "properties": {
+            "runtime": { "type": "string", "minLength": 1, "default": "fake", "description": "The runtime the server reaches agents through. `fake` is a scripted agent that echoes, for trying the API." },
+            "max_messages": { "type": "integer", "minimum": 1, "maximum": 10000, "default": 200, "description": "Messages one conversation takes before it refuses more with 429." }
           }
         }
       }

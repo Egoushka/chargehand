@@ -20,7 +20,7 @@ namespace Chargehand.Server;
 /// <param name="ResolvedBy">For a handled item: the rule that resolved it (<see cref="InboxRules"/>) or <c>dismissed</c>.</param>
 public sealed record InboxItem(string Kind, string Id, DateTimeOffset At, string? Actor, string? BatchRunId, string? TaskId, string? RunId, string? Repository, string Title,
     IReadOnlyList<string> Questions, AnswerHint? Answer, PullRequestBody? PullRequest, ErrorBody? Error, string? Reason, string? Subject, int Count = 1, string? What = null, string? Why = null,
-    IReadOnlyList<InboxOption>? Options = null, string? Lane = null, string? ResolvedBy = null);
+    IReadOnlyList<InboxOption>? Options = null, string? Lane = null, string? ResolvedBy = null, string? CauseKey = null, string? Owner = null);
 
 /// <param name="Decide">Open items in the Decide lane: what the console's badge counts (ADR 0085).</param>
 public sealed record InboxCounts(int Questions, int PullRequests, int Failures, int Total, int Decide = 0);
@@ -39,7 +39,7 @@ public sealed record InboxResolved(int Superseded, int Infrastructure, int Conti
 /// <param name="Count">The failures it stands for: the sum of its items' <c>count</c>.</param>
 /// <param name="At">When the newest failure in it happened.</param>
 /// <param name="Items">Its item ids, newest first; with a <c>limit</c> some may not be in <c>items</c>.</param>
-public sealed record InboxGroup(string Id, string Kind, string? Repository, string? Reason, int Count, DateTimeOffset At, IReadOnlyList<string> Items);
+public sealed record InboxGroup(string Id, string Kind, string? Repository, string? Reason, int Count, DateTimeOffset At, IReadOnlyList<string> Items, string? CauseKey = null);
 
 /// <summary><c>inbox/v1</c>: what needs a person, newest first.</summary>
 /// <param name="Handled">What a rule resolved or a person dismissed in the window, newest first, up to the <c>limit</c>: each with <c>resolved_by</c> and an <c>undo</c> option (ADR 0085).</param>
@@ -102,27 +102,29 @@ internal static class ConsoleInbox
         // A person's Undo on what a rule resolved keeps the item open (Kept).
         var decided = candidates.Select(x => (Candidate: x, Reason: dismissed.GetValueOrDefault(x.Item.Id) is { Kept: true } ? null : rules.Resolve(x) ?? (dismissed.ContainsKey(x.Item.Id) ? Dismissed : null)))
             .ToList();
+        // Who answers for the card: the profile's inbox.owners glob for its repository, else the account that started it (ADR 0085).
+        InboxItem Owned(InboxItem item) => item with { Owner = c.Profile?.Inbox?.OwnerOf(item.Repository) ?? item.Actor };
         // Identical open failures fold into the newest; every other item is its own entry.
         var open = decided.Where(d => d.Reason is null).Select(d => d.Candidate)
             .GroupBy(x => x.Item.Kind == "failure" ? (x.Item.Kind, x.Item.Subject, x.Code, x.Item.Repository, x.Text) : (x.Item.Kind, x.Item.Id, null, null, ""))
             .Select(g => g.OrderByDescending(x => x.Item.At).ToList())
-            .Select(g => new InboxEntry(InboxCatalog.Describe(g[0], g[0].Item.RunId is { } run ? byRun.GetValueOrDefault(run) : null) with { Count = g.Count }, [.. g.Select(x => x.Item.Id)]))
+            .Select(g => new InboxEntry(Owned(InboxCatalog.Describe(g[0], g[0].Item.RunId is { } run ? byRun.GetValueOrDefault(run) : null)) with { Count = g.Count }, [.. g.Select(x => x.Item.Id)]))
             .OrderByDescending(e => e.Item.At).ToList();
         int Of(string reason) => decided.Count(d => d.Reason == reason);
         var resolved = new InboxResolved(Of(InboxRules.Superseded), Of(InboxRules.Infrastructure), Of(InboxRules.Continued), Of(Dismissed), open.Sum(e => e.Members.Count - 1), Of(InboxRules.PrClosed));
         var handled = decided.Where(d => d.Reason is not null).OrderByDescending(d => d.Candidate.Item.At)
-            .Select(d => InboxCatalog.Handled(InboxCatalog.Describe(d.Candidate, d.Candidate.Item.RunId is { } run ? byRun.GetValueOrDefault(run) : null), d.Reason!)).ToList();
+            .Select(d => InboxCatalog.Handled(Owned(InboxCatalog.Describe(d.Candidate, d.Candidate.Item.RunId is { } run ? byRun.GetValueOrDefault(run) : null)), d.Reason!)).ToList();
         return new InboxView(open, decided.Where(d => d.Reason is not null).ToLookup(d => d.Candidate.Item.Id, d => d.Reason!), resolved, Groups(open), handled);
     }
 
     public const string GroupPrefix = "group:";
 
-    /// <summary>Open failures with the same repository and code, two or more, newest group first.</summary>
+    /// <summary>Open failures with the same cause (<see cref="InboxCatalog.CauseKeyOf"/>), two or more, newest group first. A cause that is the repository's groups per repository; a review's budget groups across repositories (ADR 0085).</summary>
     private static List<InboxGroupEntry> Groups(IReadOnlyList<InboxEntry> open) =>
-        [.. open.Where(e => e.Item.Kind == "failure").GroupBy(e => (e.Item.Repository, e.Item.Reason)).Where(g => g.Count() > 1)
+        [.. open.Where(e => e.Item is { Kind: "failure", CauseKey: not null }).GroupBy(e => e.Item.CauseKey!).Where(g => g.Count() > 1)
             .Select(g => g.ToList())
-            .Select(g => new InboxGroupEntry(new InboxGroup($"{GroupPrefix}{g[0].Item.Reason}:{g[0].Item.Id}", "failure", g[0].Item.Repository, g[0].Item.Reason, g.Sum(e => e.Item.Count), g[0].Item.At,
-                [.. g.Select(e => e.Item.Id)]), [.. g.SelectMany(e => e.Members).Distinct(StringComparer.Ordinal)]))];
+            .Select(g => new InboxGroupEntry(new InboxGroup($"{GroupPrefix}{g[0].Item.Reason}:{g[0].Item.Id}", "failure", g.Select(e => e.Item.Repository).Distinct().Count() == 1 ? g[0].Item.Repository : null, g[0].Item.Reason, g.Sum(e => e.Item.Count), g[0].Item.At,
+                [.. g.Select(e => e.Item.Id)], g[0].Item.CauseKey), [.. g.SelectMany(e => e.Members).Distinct(StringComparer.Ordinal)]))];
 
     private static IEnumerable<InboxCandidate> Questions(RunIndex index, Principal? who, DateTimeOffset since)
     {

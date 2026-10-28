@@ -1,0 +1,13 @@
+{
+  "contract_version": "conversation-event/v1",
+  "id": 12,
+  "at": "2026-10-28T09:01:30Z",
+  "type": "tool_call",
+  "data": {
+    "call_id": "call-3",
+    "title": "Read Widget.cs",
+    "kind": "read",
+    "status": "in_progress",
+    "locations": [{ "path": "src/Widget.cs", "line": 12 }]
+  }
+}

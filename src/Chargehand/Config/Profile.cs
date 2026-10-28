@@ -7,6 +7,7 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Conversations.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
@@ -56,7 +57,8 @@ public sealed record Profile(
     AutomationSettings? Automation = null,
     IReadOnlyDictionary<string, IReadOnlyList<ServiceUse>>? PresetServices = null,
     DeliverySettings? Delivery = null,
-    AcpSettings? Acp = null)
+    AcpSettings? Acp = null,
+    InboxSettings? Inbox = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
@@ -307,9 +309,10 @@ public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecr
 /// <param name="Ui">Serve the operator console at <c>/console/</c> (ADR 0056); <c>/ui/</c> redirects to it (ADR 0072). Off by default.</param>
 /// <param name="CloudflareAccess">Sign in by the email Cloudflare Access checked, with no key (ADR 0071); null: keys only.</param>
 /// <param name="ProxySignIn">Sign in by the email a trusted single-sign-on proxy forwards, with no key (ADR 0071); null: keys only.</param>
+/// <param name="Conversations">Turns on <c>/v1/conversations</c> (ADR 0086): a person steers an agent while it works. Null: the routes are not there.</param>
 public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null,
     int MaxConcurrentRuns = 1, IReadOnlyList<AccountSettings>? Accounts = null, bool Ui = false, CloudflareAccessSettings? CloudflareAccess = null,
-    ProxySignInSettings? ProxySignIn = null)
+    ProxySignInSettings? ProxySignIn = null, ConversationSettings? Conversations = null)
 {
     /// <summary>Throws an invalid_request error naming the key when an account cannot work.</summary>
     internal void Validate()
@@ -320,6 +323,8 @@ public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string L
             throw new ChargehandException(ErrorCode.InvalidRequest, $"http.cloudflare_access: {string.Join("; ", access)}", "Fix http.cloudflare_access in the profile; docs/guide/server.md lists the keys.");
         if (ProxySignIn?.Problems(Accounts ?? []).ToList() is { Count: > 0 } proxy)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"http.proxy_sign_in: {string.Join("; ", proxy)}", "Fix http.proxy_sign_in in the profile; docs/guide/server.md lists the keys.");
+        if (Conversations?.Problems().ToList() is { Count: > 0 } conversations)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"http.conversations: {string.Join("; ", conversations)}", "Fix http.conversations in the profile; docs/guide/server.md lists the keys.");
     }
 }
 
@@ -392,6 +397,24 @@ public sealed record PromptEnhancerSettings(string Server, int? DeadlineMs = nul
         if (EffectiveDeadlineMs is < MinDeadlineMs or > MaxDeadlineMs)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"prompt_enhancer.deadline_ms must be {MinDeadlineMs} to {MaxDeadlineMs}",
                 "Fix deadline_ms in the profile.");
+    }
+}
+
+/// <summary>ADR 0085. Who an inbox card belongs to.</summary>
+/// <param name="Owners">A repository glob (<c>*</c> matches any run of characters, case-insensitive; matched against <c>owner/name</c>) to the name of the desk or person that answers for it. The first match in the file's order wins.</param>
+public sealed record InboxSettings(IReadOnlyDictionary<string, string>? Owners = null)
+{
+    /// <summary>The owner of <paramref name="repository"/> (a path or <c>owner/name</c>); null when no glob matches.</summary>
+    public string? OwnerOf(string? repository)
+    {
+        if (repository is null || Owners is null)
+            return null;
+        var parts = repository.TrimEnd('/').Split('/');
+        var name = parts.Length > 2 ? string.Join('/', parts[^2..]) : repository;
+        foreach (var (glob, owner) in Owners)
+            if (System.Text.RegularExpressions.Regex.IsMatch(name, "^" + System.Text.RegularExpressions.Regex.Escape(glob).Replace("\\*", ".*") + "$", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+                return owner;
+        return null;
     }
 }
 

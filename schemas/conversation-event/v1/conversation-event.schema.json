@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:chargehand:schema:conversation-event:v1",
+  "title": "chargehand conversation event, v1",
+  "description": "One thing that happened in a conversation: the data of each server-sent event on /v1/conversations/{id}/events, and a line of the conversation's journal. id counts from 1 within the conversation; a client that read up to N resumes with Last-Event-ID: N.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "id", "at", "type", "data"],
+  "properties": {
+    "contract_version": { "const": "conversation-event/v1" },
+    "id": { "type": "integer", "minimum": 1 },
+    "at": { "type": "string", "format": "date-time" },
+    "type": { "enum": ["state", "message_chunk", "tool_call", "tool_call_update", "approval_requested", "approval_answered", "usage", "error", "ended"] },
+    "data": { "type": "object" }
+  },
+  "allOf": [
+    { "if": { "properties": { "type": { "const": "state" } }, "required": ["type"] }, "then": { "properties": { "data": { "$ref": "#/$defs/state" } } } },
+    { "if": { "properties": { "type": { "const": "message_chunk" } }, "required": ["type"] }, "then": { "properties": { "data": { "$ref": "#/$defs/message_chunk" } } } },
+    { "if": { "properties": { "type": { "const": "tool_call" } }, "required": ["type"] }, "then": { "properties": { "data": { "$ref": "#/$defs/tool_call" } } } },
+    { "if": { "properties": { "type": { "const": "tool_call_update" } }, "required": ["type"] }, "then": { "properties": { "data": { "$ref": "#/$defs/tool_call_update" } } } },
+    { "if": { "properties": { "type": { "const": "approval_requested" } }, "required": ["type"] }, "then": { "properties": { "data": { "$ref": "#/$defs/approval_requested" } } } },
+    { "if": { "properties": { "type": { "const": "approval_answered" } }, "required": ["type"] }, "then": { "properties": { "data": { "$ref": "#/$defs/approval_answered" } } } },
+    { "if": { "properties": { "type": { "const": "usage" } }, "required": ["type"] }, "then": { "properties": { "data": { "$ref": "#/$defs/usage" } } } },
+    { "if": { "properties": { "type": { "const": "error" } }, "required": ["type"] }, "then": { "properties": { "data": { "$ref": "#/$defs/error" } } } },
+    { "if": { "properties": { "type": { "const": "ended" } }, "required": ["type"] }, "then": { "properties": { "data": { "$ref": "#/$defs/ended" } } } }
+  ],
+  "$defs": {
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "description": "Where a tool call touched a file, as ACP reports it; a client shows a citation as a location.",
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "line": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "description": "The first event also carries the conversation's start fields. How a conversation ends is the ended event.",
+      "properties": {
+        "state": { "enum": ["starting", "idle", "running"] },
+        "stop_reason": { "type": "string", "minLength": 1, "description": "With a change to idle: why the turn stopped, as the agent said (end_turn, cancelled, ...)." },
+        "repository": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "commit"],
+          "properties": { "path": { "type": "string", "minLength": 1 }, "commit": { "type": "string", "minLength": 1 } }
+        },
+        "runtime": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "preset": { "type": "string", "minLength": 1 },
+        "actor": { "type": "string", "minLength": 1 }
+      }
+    },
+    "message_chunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "text"],
+      "properties": {
+        "role": { "enum": ["user", "assistant"], "description": "user: a message the person sent, written when it reaches the agent." },
+        "text": { "type": "string" }
+      }
+    },
+    "tool_call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["call_id", "title", "kind", "status"],
+      "properties": {
+        "call_id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "kind": { "type": "string", "minLength": 1, "description": "ACP's tool kind: read, edit, delete, move, search, execute, think, fetch, switch_mode, other. An agent may send another." },
+        "status": { "type": "string", "minLength": 1, "description": "ACP's status: pending, in_progress, completed or failed." },
+        "locations": { "type": "array", "items": { "$ref": "#/$defs/location" } }
+      }
+    },
+    "tool_call_update": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["call_id"],
+      "description": "A field left out did not change.",
+      "properties": {
+        "call_id": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "locations": { "type": "array", "items": { "$ref": "#/$defs/location" } }
+      }
+    },
+    "approval_requested": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["call_id", "title", "kind"],
+      "description": "The turn waits until POST /v1/conversations/{id}/approvals/{call} answers it.",
+      "properties": {
+        "call_id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "kind": { "type": "string", "minLength": 1 },
+        "locations": { "type": "array", "items": { "$ref": "#/$defs/location" } }
+      }
+    },
+    "approval_answered": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["call_id", "decision"],
+      "properties": {
+        "call_id": { "type": "string", "minLength": 1 },
+        "decision": { "enum": ["allow_once", "reject"], "description": "Never a saved permission." }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_tokens", "output_tokens"],
+      "description": "What one turn used, as the agent reported it.",
+      "properties": {
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 },
+        "usd": { "type": "number", "minimum": 0, "description": "Absent when the agent reports no dollars." }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message", "fatal"],
+      "properties": {
+        "message": { "type": "string" },
+        "fatal": { "type": "boolean", "description": "The conversation cannot go on; an ended event with reason error follows." }
+      }
+    },
+    "ended": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "properties": {
+        "reason": { "enum": ["user", "runtime_exited", "lost", "error"], "description": "user: deleted. runtime_exited: the agent closed it. lost: the server restarted while it was open." }
+      }
+    }
+  }
+}

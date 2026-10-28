@@ -1,0 +1,7 @@
+{
+  "contract_version": "conversation-event/v1",
+  "id": 14,
+  "at": "2026-10-28T09:01:40Z",
+  "type": "approval_requested",
+  "data": { "title": "Edit Widget.cs", "kind": "edit" }
+}
