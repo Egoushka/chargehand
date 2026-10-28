@@ -100,6 +100,17 @@ than two agents, through one steerable resource and the agent client protocol (A
   citations as clickable locations, and an MCP App that shows a result in Claude, VS Code, ChatGPT and Cursor.
 - · **0.22** Trackers: an A2A server for Jira, Gemini Enterprise and Teams.
 
+## Measure, then cut · · (after Cycle A; ADR 0087)
+
+Whole configurations get numbers, and offline model calls get cheaper only where measured
+([Cycle B spec](docs/specs/2026-10-28-cycle-b-measure-then-cut-design.md)). Releases stay held until the cycle ends.
+
+- · **Replay benchmark**: `chargehand bench` replays 20 merged pull requests as tasks over arms (runtime, model, MCP set,
+  preset) and reports pass rate, a human-fix proxy, dollars per solved task and p95 wall time beside the real-work baseline.
+- · **Batch and cache for offline calls**, built only if the judges are at least 20% of a Prompt CI run's cost.
+- · **Calibrated judges**: 100 or more hand labels per judge, Cohen's kappa, and a Prompt CI check that fails when a judge
+  change drops it.
+
 ## Stage 6 — A client of your own · (after 1.0)
 
 chargehand becomes the engine under a client the maintainer uses every day instead of Claude Code's own interface, and
