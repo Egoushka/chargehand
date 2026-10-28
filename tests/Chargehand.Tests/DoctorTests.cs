@@ -376,6 +376,23 @@ public class DoctorTests
         Assert.Equal(CheckStatus.Fail, Line(await RunAsync(env, """{"schema":"profile/v1"}"""), "model credential").Status);
     }
 
+    [Theory]
+    [InlineData("""{"version":"1","oauth_token_secret":"sub","api_fallback_key_secret":"api"}""", true, CheckStatus.Ok)]
+    [InlineData("""{"version":"1","oauth_token_secret":"sub","api_fallback_key_secret":"api"}""", false, CheckStatus.Warn)]
+    [InlineData("""{"version":"1","api_key_secret":"sub","api_fallback_key_secret":"api"}""", true, CheckStatus.Fail)]
+    public async Task A_subscription_api_fallback_is_checked_beside_the_model_credential(string claude, bool resolves, CheckStatus status)
+    {
+        using var dir = new TempDir();
+        var env = new FakeEnvironment(dir);
+        env.Secrets.Add("sub");
+        if (resolves)
+            env.Secrets.Add("api");
+
+        var results = await RunAsync(env, """{"schema":"profile/v1","claude_code":""" + claude + "}");
+
+        Assert.Equal(status, Line(results, "API fallback").Status);
+    }
+
     [Fact]
     public async Task A_named_credential_item_that_does_not_resolve_fails_with_the_variable_to_set()
     {

@@ -8,9 +8,11 @@ namespace Chargehand.Runtimes.ClaudeCode.Api;
 /// neither, the CLI's own signed-in login. BaseUrl
 /// routes the workers through a gateway that speaks the Anthropic API; unset, they call Anthropic directly. CustomHeadersSecret names a
 /// secret holding header lines (<c>Name: value</c>, one per line) the workers send to that gateway as <c>ANTHROPIC_CUSTOM_HEADERS</c>: a
-/// gateway's virtual key travels in one, so the value is a model credential.</summary>
+/// gateway's virtual key travels in one, so the value is a model credential. ApiFallbackKeySecret names the second credential of a subscription (issue #632): a key
+/// billed per token that the server, its judge and driven sessions may use while the subscription is rate limited. Selection stays on the subscription until that
+/// switch ships; the key is checked and kept out of transcripts already.</summary>
 public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = null, string? OauthTokenSecret = null, string Binary = "claude",
-    string? BaseUrl = null, string? CustomHeadersSecret = null)
+    string? BaseUrl = null, string? CustomHeadersSecret = null, string? ApiFallbackKeySecret = null)
 {
     /// <summary>The CLI version the adapter's event mapping was verified against (ADR 0020).</summary>
     public const string PinnedVersion = "2.1.283";
@@ -30,6 +32,15 @@ public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = n
         if (lines.Length == 0 || lines.Any(l => l.IndexOf(':') is var i && (i < 1 || i == l.Length - 1 || l[..i].Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))))
             throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code.custom_headers_secret must hold lines of 'Name: value'", "Fix the secret's value; one header per line.");
         return string.Join('\n', lines);
+    }
+
+    /// <summary>Throws <see cref="ChargehandException"/> when <see cref="ApiFallbackKeySecret"/> is set beside <see cref="ApiKeySecret"/>: the fallback is the second credential of a
+    /// subscription (an OAuth token or the CLI's login), not of a key already billed per token.</summary>
+    public void CheckApiFallback()
+    {
+        if (ApiFallbackKeySecret is not null && ApiKeySecret is not null)
+            throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code.api_fallback_key_secret is for a subscription, but claude_code.api_key_secret is set",
+                "Remove api_fallback_key_secret, or use oauth_token_secret (or the CLI's login) as the first credential.");
     }
 
     /// <summary>The value of each header line in <paramref name="secretValue"/>: what a transcript scan looks for, since the whole line never appears verbatim in a session's output.</summary>
