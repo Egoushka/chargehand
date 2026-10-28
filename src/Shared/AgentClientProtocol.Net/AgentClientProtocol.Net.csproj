@@ -11,9 +11,6 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/Egoushka/chargehand</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Egoushka/chargehand</RepositoryUrl>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <!-- agent-checks: allow suppress-warning -- the wire records mirror the protocol schema, which documents their members; the XML file ships the comments written on the API -->
-    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
