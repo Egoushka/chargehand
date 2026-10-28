@@ -1,6 +1,6 @@
 # 0073. The inbox groups repeated failures and resolves them on the pull request's state
 
-- Status: accepted; amends 0064
+- Status: accepted; amends 0064; cause groups amended by 0085
 - Date: 2026-10-20
 
 ## Context
