@@ -552,14 +552,16 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
     /// </summary>
     internal static string ErrorText(JsonElement e)
     {
+        var status = e.TryGetProperty("api_error_status", out var s) && s.ValueKind == JsonValueKind.Number ? s.GetRawText() : null;
+        // 2.1.303's subscription limit ("You've hit your session limit · resets 4:41pm (Europe/Kiev)") names no 429; the status lets WorkerNode see a rate limit.
         if (e.TryGetProperty("result", out var result) && result.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(result.GetString()))
-            return result.GetString()!;
+            return status is null ? result.GetString()! : $"{result.GetString()} (API status {status})";
         var subtype = e.TryGetProperty("subtype", out var st) && st.ValueKind == JsonValueKind.String ? st.GetString() : null;
         var text = new StringBuilder("claude reported ").Append(subtype switch { null => "an error result", "success" => "success with is_error", _ => subtype });
         if (e.TryGetProperty("num_turns", out var n) && n.ValueKind == JsonValueKind.Number && n.TryGetInt32(out var turns))
             text.Append(CultureInfo.InvariantCulture, $" after {turns} turn{(turns == 1 ? "" : "s")}");
-        if (e.TryGetProperty("api_error_status", out var status) && status.ValueKind == JsonValueKind.Number)
-            text.Append(" (API status ").Append(status.GetRawText()).Append(')');
+        if (status is not null)
+            text.Append(" (API status ").Append(status).Append(')');
         if (e.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Array
             && errors.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(x.GetString())).Select(x => x.GetString()!).ToList() is { Count: > 0 } lines)
             text.Append(": ").Append(string.Join("; ", lines));

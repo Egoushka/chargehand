@@ -93,6 +93,9 @@ public static partial class SessionDriver
         public bool HasResult { get; private set; }
         public bool ResultIsError { get; private set; }
         public string? ResultText { get; private set; }
+
+        /// <summary>The result's <c>api_error_status</c>: Claude Code 2.1.303 sets 429 when the subscription's session or weekly limit is hit.</summary>
+        public int? ResultApiStatus { get; private set; }
         public decimal? CostUsd { get; private set; }
         public long Input => _resultIn + Open(t => t.Input);
         public long Output => _resultOut + Open(t => t.Output);
@@ -115,6 +118,7 @@ public static partial class SessionDriver
         {
             HasResult = false;
             ResultIsError = false;
+            ResultApiStatus = null;
         }
 
         private (decimal? Usd, bool Partial) Estimate()
@@ -186,6 +190,7 @@ public static partial class SessionDriver
         {
             HasResult = true;
             ResultIsError = e.TryGetProperty("is_error", out var err) && err.ValueKind == JsonValueKind.True;
+            ResultApiStatus = Int(e, "api_error_status");
             if (e.TryGetProperty("total_cost_usd", out var cost) && cost.ValueKind == JsonValueKind.Number)
                 CostUsd = (CostUsd ?? 0) + cost.GetDecimal();
             if (e.TryGetProperty("usage", out var ru) && ru.ValueKind == JsonValueKind.Object)
@@ -210,6 +215,8 @@ public static partial class SessionDriver
                 Texts.Add(r);
             }
         }
+
+        private static int? Int(JsonElement o, string name) => o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : null;
 
         private static long Long(JsonElement o, string name) => o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt64() : 0;
     }
