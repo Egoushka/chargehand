@@ -169,6 +169,7 @@ With no `repository_roots`, `serve` allows repositories under `worker_root` only
 | `GET /v1/intake`, `/v1/accounts`, `GET /v1/system` | the console's read routes about the server itself: the owner's alone (`403` for an account) |
 | `POST /v1/inbox/dismiss`, `POST /v1/inbox/restore` | [dismiss inbox items](#dismissing-inbox-items) or undo it, for the owner and for an account on its own items |
 | `POST /v1/answers/approvals` | an approvals server's signed answer to a question or partial stop ([Answers from the phone](phone-answers.md)); no key, the HMAC signature is the credential; mapped only with `automation.notify.approvals` |
+| `POST /v1/conversations`, `GET /v1/conversations/{id}`, `.../events`, `POST .../messages`, `POST .../approvals/{call}`, `DELETE /v1/conversations/{id}` | steer an agent while it works: the [conversation routes](#conversation-routes); mapped only with `http.conversations` |
 | `/v1/mcp` | MCP over Streamable HTTP, see [the MCP page](mcp.md) |
 | `/console/` | the [operator console](web-ui.md): static files, served only when `http.ui` is `true`, without a key (the page calls the routes above with one); `/ui/` redirects to it |
 
@@ -252,6 +253,30 @@ For the owner and the account that started the batch; another account gets `404`
 ### Dismissing inbox items
 
 `POST /v1/inbox/dismiss` takes items out of the inbox and `POST /v1/inbox/restore` puts them back; the body of both is `{"ids": [...]}`, 1 to 500 ids as `GET /v1/inbox` gives them (a pull request's id holds its URL, so ids are not in the path). The owner may dismiss any item; an account the items its own inbox shows, and an id it cannot see is `unknown`. Dismissing an item that stands for several identical failures dismisses them all, and restoring it restores them all. A group's `id` (from `groups`) dismisses every failure in the group, and restoring it restores them. The answer is `200` `{action, changed, ids, unchanged, unknown}`: `ids` changed now, `unchanged` were so already (safe to send twice); `404` when every id is unknown, `400` for another body, `409` when the server keeps no dismissals, `403` for a run token. Dismissals are kept by item id in `inbox/dismissed.json` beside the run log, with the time and the account; a dismissal hides the item from everyone who sees it ([ADR 0064](../adr/0064-inbox-items-resolve-on-their-own-or-are-dismissed.md)). `restore` on an item a rule resolved (the Undo of Handled) keeps it open from then on: the same file records it as `kept`, and no rule resolves it again until a person dismisses it ([ADR 0085](../adr/0085-every-inbox-card-is-a-decision.md)).
+
+## Conversation routes
+
+A conversation is an agent a person steers while it works: send a message, watch what it does, approve or reject the edit it asks for ([ADR 0086](../adr/0086-one-core-doors-in-and-doors-out.md)). It is neither a run (one question, one result) nor a driven session ([ADR 0039](../adr/0039-driven-writing-sessions.md): a container that builds a task). The routes exist only when the profile has `http.conversations` (`{}` is enough; `runtime`, default `fake`, and `max_messages`, default 200). The only runtime so far is `fake`, a scripted agent that touches nothing: it echoes a message, `approve:` makes it ask before "editing" README.md, and `hold:` keeps a turn open until the conversation ends. An agent reached through ACP comes later.
+
+The owner's key and an account's key open them. The owner sees every conversation and an account only its own; another account's is `404`, as for a run. A run token gets `403`. The account's rules for a run (repositories, open runs, dollar and token windows) apply when a conversation starts and again on each message, and `max_messages` limits one conversation; a refusal has the status and body of a refused run (`error.code`, for example `budget_exceeded` or `conversation_cap_exceeded`). Nothing in `request/v1` or `result/v1` changes.
+
+| route | answers |
+|---|---|
+| `POST /v1/conversations` | the body is `{"repository": "owner/name or a path", "commit": "7 to 40 hex digits", "runtime": "fake", "model": "...", "preset": "..."}` (the last two optional). `201` with `conversation/v1` and `Location: /v1/conversations/{id}`; `400` with `errors`; `403` or `429` for an account's refusal; `502` with `conversation_id` when the runtime did not start (the conversation is then `failed` and readable) |
+| `GET /v1/conversations/{id}` | `200` with `conversation/v1`: `state` (`starting`, `idle`, `running`, `ended`, `lost`, `failed`), `runtime`, `model`, `messages`, `queued`, `pending_approvals`, `usage`, `caps`, `last_event_id` and, once over, `ended_reason`; `404` |
+| `GET /v1/conversations/{id}/events` | server-sent events, one per event: `id:` is the event's number (from 1), `event:` its type, `data:` a `conversation-event/v1` envelope `{contract_version, id, at, type, data}`. The types are `state`, `message_chunk`, `tool_call`, `tool_call_update`, `approval_requested`, `approval_answered`, `usage`, `error` and `ended`; a tool call carries ACP's `locations` (path and line). A client that reconnects sends the last id as `Last-Event-ID` and gets every event after it, once. The stream ends when the conversation does |
+| `POST /v1/conversations/{id}/messages` | the body is `{"text": "..."}`. `202` with `{"conversation_id", "queued", "messages"}`; a message sent while a turn runs is queued and goes to the agent when the turn ends. `400` for no text, `404`, `409` when the conversation is over, `429` over a cap |
+| `POST /v1/conversations/{id}/approvals/{call}` | the body is `{"decision": "allow_once" or "reject"}`; a permission is never saved. `200` with `{"call_id", "decision"}`; `400`, `404` for an unknown call, `409` when it was answered already or the conversation is over |
+| `DELETE /v1/conversations/{id}` | cancels the running turn and ends the conversation: `200` with `conversation/v1` (`state` `ended`, `ended_reason` `user`). Doing it again is `200` |
+
+```bash
+curl -s -X POST http://127.0.0.1:4300/v1/conversations \
+  -H "Authorization: Bearer $CHARGEHAND_API_KEY" \
+  --data '{"repository": "owner/name", "commit": "0123456789abcdef0123456789abcdef01234567", "runtime": "fake"}'
+curl -sN -H "Authorization: Bearer $CHARGEHAND_API_KEY" http://127.0.0.1:4300/v1/conversations/$ID/events
+```
+
+Events are appended to `conversations/<id>.jsonl` beside the run log. A conversation still open when the server stopped, or crashed, is `lost` when the next one starts, and its stream ends with an `ended` event of reason `lost`. `ConversationRoutesTests` covers start, stream, resume, message, approve, deny, cancel and end, the scoping, the run token and the caps.
 
 ## Run tokens (driven sessions)
 
