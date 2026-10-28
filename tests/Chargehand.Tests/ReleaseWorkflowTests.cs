@@ -48,6 +48,18 @@ public sealed partial class ReleaseWorkflowTests
     }
 
     [Fact]
+    public void The_server_image_tag_becomes_an_index_too_so_docker_pull_works_on_an_arm_machine()
+    {
+        var text = string.Join('\n', Job("session-arm64"));
+
+        Assert.Contains("docker build --label \"org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY\" -t \"$SERVER_IMAGE:$VERSION-arm64\" .", text);
+        Assert.Contains("docker buildx imagetools create -t \"$SERVER_IMAGE:$VERSION\" \"$SERVER_AMD64\" \"$SERVER_ARM64\"", text);
+        Assert.Contains("server_amd64: ${{ steps.digests.outputs.server }}", string.Join('\n', Job("release")));
+        // The digest to pin is the index's, not the amd64 image's.
+        Assert.Contains("\"$SERVER_IMAGE:$VERSION\"", text[text.IndexOf("Digests to pin", StringComparison.Ordinal)..]);
+    }
+
+    [Fact]
     public void The_new_job_pins_its_actions_and_keeps_expressions_out_of_shell_commands()
     {
         var job = Job("session-arm64");

@@ -42,7 +42,7 @@ A profile with `driven.runner` is the same as `driven.runners` with one entry na
 
 ## Images by platform
 
-The release workflow publishes `chargehand-session` and `chargehand-session-jdk` for `linux/amd64` and `linux/arm64` as one multi-platform image each: the release job pushes amd64, and the `session-arm64` job builds arm64 natively on an arm64 runner (no emulation: the image runs dotnet, node and npm while it builds), then turns each tag into an index of the two and prints the index digests to pin. Releases before that one are amd64 only. Pin the index digest in `driven.images` and every runner pulls the variant for its engine.
+The release workflow publishes `chargehand` (the server), `chargehand-session`, `chargehand-session-jdk` and `chargehand-session-mise` for `linux/amd64` and `linux/arm64` as one multi-platform image each, so `docker pull` works on Apple silicon: the release job pushes amd64, and the `session-arm64` job builds arm64 natively on an arm64 runner (no emulation: the image runs dotnet, node and npm while it builds), then turns each tag into an index of the two and prints the index digests to pin. Releases before that one are amd64 only (the server image: every release up to 0.19.4). Pin the index digest in `driven.images` and every runner pulls the variant for its engine.
 
 A digest from before that, or an image built for one platform, is used as written on a runner of any platform. To start another image on a runner of another platform, map it:
 
