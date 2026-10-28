@@ -35,6 +35,7 @@
     <ProjectReference Include="..\..\src\\Modules\\Chargehand.Modules.Sessions\\Chargehand.Modules.Sessions.csproj" />
     <ProjectReference Include="..\..\src\\Modules\\Chargehand.Modules.Tasks\\Chargehand.Modules.Tasks.csproj" />
     <ProjectReference Include="..\..\src\\Modules\\Chargehand.Modules.Watch\\Chargehand.Modules.Watch.csproj" />
+    <ProjectReference Include="..\..\src\\Runtimes\\Chargehand.Runtimes.Acp\\Chargehand.Runtimes.Acp.csproj" />
     <ProjectReference Include="..\..\src\\Runtimes\\Chargehand.Runtimes.ClaudeCode\\Chargehand.Runtimes.ClaudeCode.csproj" />
     <ProjectReference Include="..\..\src\\Runtimes\\Chargehand.Runtimes.OpenCode\\Chargehand.Runtimes.OpenCode.csproj" />
     <ProjectReference Include="..\..\src\\Shared\\Chargehand.Kernel\\Chargehand.Kernel.csproj" />

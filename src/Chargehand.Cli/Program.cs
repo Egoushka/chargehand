@@ -20,6 +20,7 @@ using Chargehand.OpenCode;
 using Chargehand.Prompts;
 using Chargehand.RunLog;
 using Chargehand.Runtime;
+using Chargehand.Runtimes.Acp.Api;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Server;
 using Chargehand.Verification;
@@ -715,6 +716,14 @@ EvalCell Cell(string name) =>
 async Task<(IWorkerRuntime Runtime, string Version)> Connect()
 {
     var kind = RuntimeSelector.Select(profile.Runtime, Environment.GetEnvironmentVariable("CHARGEHAND_RUNTIME"), RuntimeSelector.OnPath, profile.RuntimeBlocks);
+    if (kind == RuntimeKind.Acp)
+    {
+        // ADR 0086: the agent comes from the pinned list, its key from a secret item, and the sandbox is chosen now so a machine without one refuses the run before it starts.
+        var agent = AcpAgentCatalog.Load(profile.Acp?.AgentsFile ?? Path.Combine(root, AcpAgentCatalog.FileName))
+            .Get(RuntimeSelector.AcpAgent(profile.Runtime, Environment.GetEnvironmentVariable("CHARGEHAND_RUNTIME"))!);
+        var acp = new Chargehand.Acp.AcpWorkerRuntime(agent, AcpLaunchEnvironment.Build(agent, profile.Acp?.CredentialFor(agent.Id), profile.Secret), Chargehand.Sandbox.SandboxSelector.Select(profile.Sandbox));
+        return (acp, acp.Version);
+    }
     if (kind == RuntimeKind.ClaudeCode)
     {
         var cc = profile.ClaudeCode ?? ClaudeCodeSettings.Detect(item =>

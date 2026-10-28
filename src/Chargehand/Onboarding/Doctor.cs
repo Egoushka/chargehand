@@ -113,6 +113,18 @@ public static partial class Doctor
             results.Add(new(CheckStatus.Fail, "runtime", e.Message, e.Action));
             return;
         }
+        if (kind == RuntimeKind.Acp)
+        {
+            var agent = RuntimeSelector.AcpAgent(profile.Runtime, env.EnvironmentVariable("CHARGEHAND_RUNTIME"))!;
+            var item = profile.Acp?.CredentialFor(agent)?.ApiKeySecret;
+            results.Add(item is null
+                ? new(CheckStatus.Fail, "model credential", $"acp:{agent} has no acp.agents.{agent}.api_key_secret: ACP agents run on an API key or a gateway's key, never a login",
+                    $"set acp.agents.{agent}.api_key_secret in the profile")
+                : env.SecretResolves(profile, item)
+                    ? new(CheckStatus.Ok, "model credential", $"acp:{agent} runtime; API key from item {item}")
+                    : Missing("model credential", item, $"acp.agents.{agent}.api_key_secret", CheckStatus.Fail));
+            return;
+        }
         if (kind == RuntimeKind.Opencode)
         {
             var set = OpenCodeProviderItems.Where(item => env.SecretResolves(profile, item)).Select(EnvName).ToList();

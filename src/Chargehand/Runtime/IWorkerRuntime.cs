@@ -12,6 +12,13 @@ public interface IWorkerRuntime
     /// <summary>Which credential pays for this runtime's calls, <c>api_key</c> or <c>subscription</c> (ADR 0082): a dollar cap counts the first only.</summary>
     string Credential => "api_key";
 
+    /// <summary>Whether this runtime reports the tokens it spends, so a dollar cap can hold. False (an ACP agent that reports none, ADR 0086 decision 10):
+    /// a run is refused <c>runtime_uncapped</c> unless the profile allows it, and its usage is marked not recorded.</summary>
+    bool ReportsUsage => true;
+
+    /// <summary>Whether this runtime runs read-only research presets only (ACP, ADR 0086 decision 8): a preset that writes is refused before anything is spent.</summary>
+    bool ResearchOnly => false;
+
     Task<WorkerSession> CreateAsync(NodeSpec spec, CancellationToken ct);
 
     /// <summary>Sets a durable instruction block. Call only before the node's first prompt (ADR 0010).</summary>

@@ -389,6 +389,24 @@ public class DoctorTests
     }
 
     [Fact]
+    public async Task An_acp_agent_needs_its_key_secret_named_in_the_profile_and_resolving()
+    {
+        using var dir = new TempDir();
+        var env = new FakeEnvironment(dir);
+
+        var unnamed = Line(await RunAsync(env, """{"schema":"profile/v1","runtime":"acp:codex"}"""), "model credential");
+        var missing = Line(await RunAsync(env, """{"schema":"profile/v1","runtime":"acp:codex","acp":{"agents":{"codex":{"api_key_secret":"openai-key"}}}}"""), "model credential");
+        env.Secrets.Add("openai-key");
+        var found = Line(await RunAsync(env, """{"schema":"profile/v1","runtime":"acp:codex","acp":{"agents":{"codex":{"api_key_secret":"openai-key"}}}}"""), "model credential");
+
+        Assert.Equal(CheckStatus.Fail, unnamed.Status);
+        Assert.Contains("acp.agents.codex.api_key_secret", unnamed.Fix);
+        Assert.Equal(CheckStatus.Fail, missing.Status);
+        Assert.Equal(CheckStatus.Ok, found.Status);
+        Assert.Contains("acp:codex", found.Message);
+    }
+
+    [Fact]
     public async Task OpenCode_with_its_own_server_looks_for_a_provider_variable_and_with_a_named_server_cannot_check()
     {
         using var dir = new TempDir();

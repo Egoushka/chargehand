@@ -11,6 +11,9 @@ public interface IRunCleanup
     /// <summary>The <see cref="NodeSpec.Metadata"/> key that holds the run's id.</summary>
     public const string RunMetadataKey = "chargehand.run";
 
+    /// <summary>True for a runtime that keeps a process per node (ACP): the orchestrator ends every run with it, not only runs with granted services.</summary>
+    bool EndsEveryRun => false;
+
     /// <summary>Releases what the run's nodes left with the runtime. Best effort, bounded in time, and safe to repeat.</summary>
     Task EndRunAsync(string runId, CancellationToken ct);
 }

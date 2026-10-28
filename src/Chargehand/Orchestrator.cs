@@ -99,6 +99,13 @@ public sealed class Orchestrator(
             credential = worker.Credential;
             var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
             var (kindName, kind) = AnswerKind(preset);
+            // An ACP agent runs research presets only, and a dollar cap holds only on counted tokens (ADR 0086, decisions 8 and 10).
+            if (kind.Writes && worker.ResearchOnly)
+                throw new ChargehandException(ErrorCode.InvalidRequest, $"preset {presetName} writes, and this runtime runs research presets only",
+                    "Use claude_code or opencode for a writing preset, or a research preset with this runtime.");
+            if (!worker.ReportsUsage && profile.Acp?.AllowUncapped != true)
+                throw new ChargehandException(ErrorCode.RuntimeUncapped, "this agent reports no token usage, so the run's dollar cap cannot hold on it",
+                    "Use a runtime that reports usage, or set acp.allow_uncapped in the profile to run it with its spend unrecorded.");
             // A writing preset without a sandbox is refused before anything is spent (ADR 0035).
             var sandbox = kind.Writes ? (sandboxFor ?? SandboxSelector.Select)(profile.Sandbox) : null;
             // A key that cannot be used stops the run before anything is spent (ADR 0036).
@@ -478,11 +485,11 @@ public sealed class Orchestrator(
         return outcome;
     }
 
-    /// <summary>A runtime that keeps a run's services with a server other runs share (OpenCode) lets them go when the run's nodes are done.
+    /// <summary>A runtime that keeps a run's services with a server other runs share (OpenCode), or a process per node (ACP), lets them go when the run's nodes are done.
     /// Best effort: a failure here is a tag on the run, never a failed run, and the caller's cancellation does not cut it short.</summary>
     private static async Task EndRun(IWorkerRuntime worker, string runId, bool hasServices, Activity? run)
     {
-        if (!hasServices || worker is not IRunCleanup cleanup)
+        if (worker is not IRunCleanup cleanup || !(hasServices || cleanup.EndsEveryRun))
             return;
         try
         {

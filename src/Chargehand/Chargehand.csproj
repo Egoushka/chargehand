@@ -22,6 +22,7 @@
     <ProjectReference Include="..\Modules\Chargehand.Modules.Runners\Chargehand.Modules.Runners.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Sessions\Chargehand.Modules.Sessions.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Tasks\Chargehand.Modules.Tasks.csproj" />
+    <ProjectReference Include="..\Runtimes\Chargehand.Runtimes.Acp\Chargehand.Runtimes.Acp.csproj" />
     <ProjectReference Include="..\Runtimes\Chargehand.Runtimes.ClaudeCode\Chargehand.Runtimes.ClaudeCode.csproj" />
     <ProjectReference Include="..\Runtimes\Chargehand.Runtimes.OpenCode\Chargehand.Runtimes.OpenCode.csproj" />
   </ItemGroup>

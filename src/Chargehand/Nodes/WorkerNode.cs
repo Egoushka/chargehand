@@ -68,8 +68,21 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
         WorkerSession session;
         var instructionsSha256 = PromptChains.InstructionsSha256(r.Instructions);
         var fork = r.Fork?.InstructionsSha256 == instructionsSha256 ? r.Fork : null;
+        WorkerSession? forked = null;
         if (fork is not null)
-            session = await runtime.ForkAsync(fork.SessionId, fork.BeforeMessageId, ct);
+        {
+            try
+            {
+                forked = await runtime.ForkAsync(fork.SessionId, fork.BeforeMessageId, ct);
+            }
+            catch (NotSupportedException)
+            {
+                // An agent that advertises no fork (ACP, ADR 0086): this node starts fresh and pays for its own prefix.
+                fork = null;
+            }
+        }
+        if (forked is not null)
+            session = forked;
         else
         {
             session = await runtime.CreateAsync(r.Spec, ct);
@@ -128,6 +141,8 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
 
         if (overBudget && contract is not null)
             contract = contract with { OpenQuestions = [.. contract.OpenQuestions, BudgetNote] };
+        if (!runtime.ReportsUsage && contract is not null)
+            contract = contract with { OpenQuestions = [.. contract.OpenQuestions, UsageNotRecorded] };
         var messages = await runtime.ReadMessagesAsync(session.Id, ct);
         var usage = Usage(messages, r.Spec.Model);
         var error = contract is null || outcome != IdleOutcome.Succeeded
@@ -143,6 +158,8 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
 
     internal const string BudgetAnswer = "You reached this node's token budget. Stop using tools and reply now with only the ```json result block, " +
         "built from what you have already read; put what you did not get to in open_questions.";
+
+    internal const string UsageNotRecorded = "Usage was not recorded: this agent reports no token counts, so the run's cost is unknown and its dollar cap did not hold.";
 
     internal const string BudgetNote = "The node reached its token budget before it finished exploring; the answer covers what it had read.";
 
@@ -178,6 +195,7 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
     private async Task<bool> Watch(string sessionId, NodeRequest r, (TaskCompletionSource<ForkPoint?> Source, string InstructionsSha256)? primed, CancellationToken ct)
     {
         string? compactedAfter = null;
+        var cannotCompact = false;
         // Set before interrupting: the turn ends when the session stops and cancels this watcher, which may still be
         // inside InterruptAsync (Claude Code waits for the process to exit).
         var overBudget = false;
@@ -200,11 +218,19 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
                     return overBudget;
                 }
                 // Steered compaction runs after the current step; the turn continues and the system prefix stays cached.
-                if (r.CompactAtTokens is { } at && calls.FirstOrDefault() is { } latest && Context(latest.Tokens!) > at
+                if (!cannotCompact && r.CompactAtTokens is { } at && calls.FirstOrDefault() is { } latest && Context(latest.Tokens!) > at
                     && messages[0].Kind != WorkerMessageKind.Compaction && compactedAfter != latest.Id)
                 {
                     compactedAfter = latest.Id;
-                    await runtime.CompactAsync(sessionId, ct);
+                    try
+                    {
+                        await runtime.CompactAsync(sessionId, ct);
+                    }
+                    catch (NotSupportedException)
+                    {
+                        // An agent that advertises no compaction (ACP): the turn goes on, and the token budget still ends it.
+                        cannotCompact = true;
+                    }
                 }
             }
         }

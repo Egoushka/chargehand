@@ -16,11 +16,11 @@
       "const": "profile/v1"
     },
     "runtime": {
-      "enum": [
-        "opencode",
-        "claude_code"
+      "anyOf": [
+        { "enum": ["opencode", "claude_code"] },
+        { "type": "string", "pattern": "^acp:.+$" }
       ],
-      "description": "Names the runtime to drive (ADR 0026); wins over CHARGEHAND_RUNTIME. Unset: the profile's only runtime block (opencode or claude_code) names it (ADR 0032); with none or both, PATH is probed for a known agent CLI — none found or more than one found is an error."
+      "description": "Names the runtime to drive (ADR 0026); wins over CHARGEHAND_RUNTIME. Unset: the profile's only runtime block (opencode or claude_code) names it (ADR 0032); with none or both, PATH is probed for a known agent CLI — none found or more than one found is an error. acp:<agent> runs read-only research presets on an agent of acp-agents.json (ADR 0086); it is never found by PATH."
     },
     "secrets": {
       "type": "array",
@@ -71,6 +71,39 @@
         "version": {
           "type": "string",
           "description": "Expected /api/info version; the adapter refuses to run on a mismatch."
+        }
+      }
+    },
+    "acp": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "ACP agents as read-only research workers (ADR 0086). Read when runtime is acp:<agent>: the key or gateway key each agent runs on, by secret item name. There is no setting for a subscription login.",
+      "properties": {
+        "allow_uncapped": {
+          "type": "boolean",
+          "description": "Run an agent that reports no token usage under a dollar cap anyway. Unset (false), such a run is refused runtime_uncapped before anything is spent."
+        },
+        "agents_file": {
+          "type": "string",
+          "description": "The pinned list of agents when it is not acp-agents.json in the chargehand root."
+        },
+        "agents": {
+          "type": "object",
+          "description": "Credentials by agent id (an id of the pinned list).",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "api_key_secret": {
+                "type": "string",
+                "description": "Secret item holding the provider's API key, or a gateway's virtual key. Never the key itself."
+              },
+              "base_url": {
+                "type": "string",
+                "description": "A gateway that speaks the agent's provider API; unset, the agent calls the provider directly."
+              }
+            }
+          }
         }
       }
     },

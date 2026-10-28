@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
+    <ProjectReference Include="..\Runtimes\Chargehand.Runtimes.Acp\Chargehand.Runtimes.Acp.csproj" />
+    <ProjectReference Include="..\Shared\AgentClientProtocol.Net\AgentClientProtocol.Net.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Chargehand.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -243,6 +243,7 @@
     ]
   },
   "delivery": null,
+  "acp": null,
   "roots": [
     "/srv/chargehand/work"
   ],

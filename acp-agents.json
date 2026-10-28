@@ -1,0 +1,34 @@
+{
+  "schema": "acp-agents/v1",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "registry_id": "codex-acp",
+      "command": "npx",
+      "args": ["-y", "@agentclientprotocol/codex-acp@2.3.0"],
+      "version": "2.3.0",
+      "api_key_env": "OPENAI_API_KEY",
+      "base_url_env": "OPENAI_BASE_URL",
+      "auth_method": "api-key",
+      "read_only_mode": "read-only",
+      "reports_usage": true,
+      "provider": "openai",
+      "env": { "NO_BROWSER": "1" }
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini CLI",
+      "registry_id": "gemini",
+      "command": "npx",
+      "args": ["-y", "@google/gemini-cli@0.66.0", "--acp"],
+      "version": "0.66.0",
+      "api_key_env": "GEMINI_API_KEY",
+      "base_url_env": "GOOGLE_GEMINI_BASE_URL",
+      "auth_method": "gemini-api-key",
+      "read_only_mode": "plan",
+      "reports_usage": true,
+      "provider": "google"
+    }
+  ]
+}

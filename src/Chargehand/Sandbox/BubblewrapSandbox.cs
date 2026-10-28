@@ -10,17 +10,15 @@ public sealed class BubblewrapSandbox(string? home = null) : ISandbox
 
     public async Task<SandboxResult> RunAsync(SandboxSpec spec, CancellationToken ct)
     {
+        using var launch = Wrap(spec);
+        return await ProcessRunner.RunAsync(launch.FileName, launch.Arguments, launch.Environment, launch.WorkingDirectory, spec.Timeout, ct);
+    }
+
+    public SandboxLaunch Wrap(SandboxSpec spec)
+    {
         var temp = Directory.CreateTempSubdirectory("chargehand-sbx-");
-        try
-        {
-            var env = ProcessRunner.Environment(temp.FullName, spec.PassEnv);
-            var args = Args(spec, CredentialPaths.Existing(_home), temp.FullName, env);
-            return await ProcessRunner.RunAsync("bwrap", args, env, spec.WorkDirectory, spec.Timeout, ct);
-        }
-        finally
-        {
-            temp.Delete(recursive: true);
-        }
+        var env = ProcessRunner.Environment(temp.FullName, spec.PassEnv, spec.Env);
+        return new SandboxLaunch("bwrap", Args(spec, CredentialPaths.Existing(_home), temp.FullName, env), env, spec.WorkDirectory, temp.FullName);
     }
 
     /// <summary>The bwrap arguments. <paramref name="credentials"/> are the existing credential paths: a directory is hidden behind an
