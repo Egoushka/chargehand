@@ -33,7 +33,7 @@ public class ModuleRuleTests
     [MemberData(nameof(Projects))]
     public void A_module_is_public_only_in_its_Api_namespace(string project)
     {
-        if (project.StartsWith("Chargehand.Hosts.", StringComparison.Ordinal) || project == "Chargehand.Kernel")
+        if (project.StartsWith("Chargehand.Hosts.", StringComparison.Ordinal) || project == "Chargehand.Kernel" || Skeleton.Standalone.Contains(project))
         {
             return;
         }

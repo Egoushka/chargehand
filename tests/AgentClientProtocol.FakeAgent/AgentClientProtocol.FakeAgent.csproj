@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A scripted ACP agent for tests: it speaks the wire protocol with plain System.Text.Json, so it is an oracle that shares no code
+       with the client library. Behaviour comes from the prompt's first word (see Program.cs). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>AgentClientProtocol.FakeAgent</RootNamespace>
+  </PropertyGroup>
+
+</Project>

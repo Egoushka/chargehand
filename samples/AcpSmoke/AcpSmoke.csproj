@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Publishes the ACP client library with Native AOT and drives it end to end (scripts/aot-smoke.sh): the binary starts itself as a tiny
+       agent. A trim or AOT warning in the library fails this publish. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Shared\AgentClientProtocol.Net\AgentClientProtocol.Net.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,5 +1,6 @@
 #!/bin/sh
-# ADR 0060: every host of the rewrite publishes as a Native AOT binary with no warnings, and the binary runs.
+# ADR 0060: every host of the rewrite publishes as a Native AOT binary with no warnings, and the binary runs. The ACP client library
+# (ADR 0086) is published and driven through samples/AcpSmoke.
 # Usage: scripts/aot-smoke.sh [rid]   (default: the machine's own). Healthy: exit 0 and one "ok" line per host.
 # Prints size and, for the HTTP hosts, startup to the first /healthz answer and resident memory after it.
 set -eu
@@ -20,6 +21,10 @@ for host in Cli Session; do
   test "$("$out/$host/Chargehand.Hosts.$host" --version)" != ""
   echo "ok $host --version"
 done
+
+# The ACP client library (ADR 0086, decision 7): a sample publishes it with Native AOT, starts itself as an agent and drives it.
+dotnet publish samples/AcpSmoke -c Release -r "$rid" -warnaserror -o "$out/AcpSmoke" -v quiet -nologo
+"$out/AcpSmoke/AcpSmoke"
 
 port=4791
 for host in Server Runner; do

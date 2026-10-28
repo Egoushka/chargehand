@@ -27,7 +27,7 @@ public class UpwardPortTests
     // Hosts are left out: the test project does not reference them, and wiring ports together is their job.
     internal static IEnumerable<(string Port, string Implementer)> UpwardPorts() =>
         from project in Skeleton.ProjectFiles().Select(Skeleton.Name)
-        where !project.StartsWith("Chargehand.Hosts.", StringComparison.Ordinal)
+        where !project.StartsWith("Chargehand.Hosts.", StringComparison.Ordinal) && !Skeleton.Standalone.Contains(project)
         let layer = Skeleton.Layers[project]
         from type in Assembly.Load(project).GetTypes()
         from port in Ports(type)
