@@ -7,7 +7,33 @@ export interface InboxCounts {
   pull_requests: number;
   failures: number;
   total: number;
+  /** Open items in the Decide lane, what the badge counts (ADR 0085). Absent from a server before it. */
+  decide?: number;
 }
+
+/** The request an option sends: always a route of the API. */
+export interface InboxCall {
+  method: string;
+  path: string;
+  body?: unknown;
+}
+
+/**
+ * A choice a card offers (ADR 0085), with its effect: `retry`, `take_over` (a `command` to copy), `answer` (the item's
+ * `answer` box), `open` (a `url`), `dismiss`, and `undo` on a handled item.
+ */
+export interface InboxOption {
+  id: string;
+  label: string;
+  effect: string;
+  estimate_usd?: number | null;
+  call?: InboxCall | null;
+  command?: string | null;
+  url?: string | null;
+}
+
+/** `decide`: a person's choice; `fix`: a failure; `handled`: a rule or a person resolved it. */
+export type InboxLane = 'decide' | 'fix' | 'handled';
 
 export type InboxKind = 'question' | 'pull_request' | 'failure';
 
@@ -34,6 +60,14 @@ export interface InboxItem {
   subject?: 'task' | 'run' | 'batch' | null;
   /** How many identical failures this item stands for (ADR 0064); it is the newest of them. Absent from a server before it: 1. */
   count?: number;
+  /** What happened, in one sentence; absent from a server before ADR 0085, as are `why`, `options` and `lane`. */
+  what?: string | null;
+  /** The cause in plain words. */
+  why?: string | null;
+  options?: InboxOption[] | null;
+  lane?: InboxLane | null;
+  /** For a handled item: the rule that resolved it, or `dismissed`. */
+  resolved_by?: string | null;
 }
 
 /** What left the inbox in the window without being dealt with here (ADR 0064). */
@@ -76,6 +110,8 @@ export interface InboxBody extends ContractMeta {
   resolved?: InboxResolved;
   /** Absent from a server before CHARGEHAND-237. */
   groups?: InboxGroup[];
+  /** What a rule resolved or a person dismissed in the window, newest first, each with Undo. Absent from a server before ADR 0085. */
+  handled?: InboxItem[];
 }
 
 export const inboxQuery = (limit = 100) =>
@@ -104,6 +140,38 @@ export async function dismissItems(ids: string[], restore = false): Promise<Dism
   });
   if (!reply.ok) throw new ApiError(reply.status, problems(reply));
   return reply.data;
+}
+
+/** Sends an option's call. Only a route of the API: a call that names anything else is refused here, whatever the server said. */
+export async function sendOption(option: InboxOption): Promise<Record<string, unknown>> {
+  const target = option.call;
+  if (
+    !target ||
+    target.method !== 'POST' ||
+    !target.path.startsWith('/v1/') ||
+    target.path.includes('..')
+  )
+    throw new ApiError(400, ['That option has no request to send.']);
+  const reply = await call<Record<string, unknown>>(target.path, {
+    method: 'POST',
+    body: target.body ?? undefined,
+  });
+  if (!reply.ok) throw new ApiError(reply.status, problems(reply));
+  return reply.data;
+}
+
+/** Sends an option and refreshes the inbox and the overview. */
+export function useOption() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (option: InboxOption) => sendOption(option),
+    onSettled: () =>
+      Promise.all(
+        ['inbox', 'overview', 'runs'].map((key) =>
+          queryClient.invalidateQueries({ queryKey: [key] }),
+        ),
+      ),
+  });
 }
 
 /** Dismisses inbox items (ADR 0064), or undoes it with `restore`. The ids are the inbox's, sent in the body: a pull request's holds its URL. */

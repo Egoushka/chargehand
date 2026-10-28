@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useDismiss, useInbox } from '../../api/inbox';
-import { formatTime } from '../../lib/format';
+import { type InboxItem, useDismiss, useInbox } from '../../api/inbox';
+import { formatDateTime, formatTime } from '../../lib/format';
 import { keysBelongElsewhere } from '../../shell/hotkeys';
 import { browserNotificationsAvailable, browserPermission } from '../../shell/notifications';
 import { updatePreferences, usePreferences } from '../../shell/preferences';
@@ -21,6 +21,8 @@ import { GroupCard } from './GroupCard';
 import {
   FILTERS,
   type Filter,
+  handledBy,
+  laneOf,
   ordered,
   resolvedNote,
   rowIds,
@@ -44,10 +46,21 @@ export function NeedsYou() {
   const cards = useRef(new Map<string, HTMLElement>());
   const answers = useRef(new Map<string, HTMLTextAreaElement>());
   const data = inbox.data;
-  const items = useMemo(
-    () => rows(ordered(data?.items ?? [], filter), data?.groups),
-    [data, filter],
-  );
+  // Decide first, then Fix (ADR 0085); the cursor walks both as one list.
+  const lanes = useMemo(() => {
+    const shown = ordered(data?.items ?? [], filter);
+    return {
+      decide: rows(
+        shown.filter((i) => laneOf(i) === 'decide'),
+        data?.groups,
+      ),
+      fix: rows(
+        shown.filter((i) => laneOf(i) === 'fix'),
+        data?.groups,
+      ),
+    };
+  }, [data, filter]);
+  const items = useMemo(() => [...lanes.decide, ...lanes.fix], [lanes]);
   const at = Math.min(cursor, Math.max(0, items.length - 1));
   const resolved = resolvedNote(data?.resolved);
 
@@ -114,6 +127,30 @@ export function NeedsYou() {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [items, at, move, navigate]);
+
+  const renderRow = (row: (typeof items)[number], index: number) => {
+    const cardRef = (el: HTMLElement | null) => {
+      if (el) cards.current.set(row.id, el);
+      else cards.current.delete(row.id);
+    };
+    return (
+      <li key={row.id}>
+        {row.type === 'group' ? (
+          <GroupCard group={row.group} items={row.items} cursor={index === at} cardRef={cardRef} />
+        ) : (
+          <NeedsCard
+            item={row.item}
+            cursor={index === at}
+            cardRef={cardRef}
+            answerRef={(el) => {
+              if (el) answers.current.set(row.id, el);
+              else answers.current.delete(row.id);
+            }}
+          />
+        )}
+      </li>
+    );
+  };
 
   return (
     <div className="screen">
@@ -204,10 +241,11 @@ export function NeedsYou() {
           />
         </div>
       ) : null}
+      {data && data.items.length === 0 ? <Handled items={data.handled ?? []} /> : null}
 
       {data && data.items.length > 0 ? (
         <div className="g2">
-          <ul className="stack list-reset" aria-label="Things that need you">
+          <div className="stack">
             {items.length === 0 ? (
               <div className="card">
                 <EmptyState
@@ -216,43 +254,77 @@ export function NeedsYou() {
                   text="Other kinds of items are waiting. Choose All to see them."
                 />
               </div>
-            ) : (
-              items.map((row, index) => {
-                const cardRef = (el: HTMLElement | null) => {
-                  if (el) cards.current.set(row.id, el);
-                  else cards.current.delete(row.id);
-                };
-                return (
-                  <li key={row.id}>
-                    {row.type === 'group' ? (
-                      <GroupCard
-                        group={row.group}
-                        items={row.items}
-                        cursor={index === at}
-                        cardRef={cardRef}
-                      />
-                    ) : (
-                      <NeedsCard
-                        item={row.item}
-                        cursor={index === at}
-                        cardRef={cardRef}
-                        answerRef={(el) => {
-                          if (el) answers.current.set(row.id, el);
-                          else answers.current.delete(row.id);
-                        }}
-                      />
-                    )}
-                  </li>
-                );
-              })
+            ) : null}
+            {(
+              [
+                ['decide', 'Decide', lanes.decide, 0],
+                ['fix', 'Fix', lanes.fix, lanes.decide.length],
+              ] as const
+            ).map(([lane, title, list, offset]) =>
+              list.length > 0 ? (
+                <section key={lane} aria-labelledby={`lane-${lane}`}>
+                  <h2 id={`lane-${lane}`} className="lane__title">
+                    {title} <span className="dim">{list.length}</span>
+                  </h2>
+                  <ul
+                    className="stack list-reset"
+                    aria-label={lane === 'decide' ? 'Things that need you' : 'Failures to fix'}
+                  >
+                    {list.map((row, n) => renderRow(row, offset + n))}
+                  </ul>
+                </section>
+              ) : null,
             )}
-          </ul>
+            <Handled items={data.handled ?? []} />
+          </div>
           <div className="stack">
             <NotifyPanel />
           </div>
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** What a rule resolved or a person dismissed in the window (ADR 0085), collapsed and not counted, each with Undo. */
+function Handled({ items }: { items: InboxItem[] }) {
+  const dismiss = useDismiss();
+  const toast = useToast();
+  if (items.length === 0) return null;
+  return (
+    <details className="card pad">
+      <summary className="lane__title">
+        Handled <span className="dim">{items.length}</span>
+      </summary>
+      <ul className="list-reset" aria-label="Handled">
+        {items.map((item) => (
+          <li key={item.id} className="handled-row">
+            <span className="handled-row__what">{item.what ?? item.title}</span>
+            <span className="dim">{handledBy(item.resolved_by)}</span>
+            <span className="dim mono" title={formatDateTime(item.at)}>
+              {formatTime(item.at)}
+            </span>
+            <Button
+              size="sm"
+              label="Undo"
+              aria-label={`Undo: put ${item.what ?? item.title} back`}
+              onClick={() =>
+                void dismiss.restore([item.id]).then(
+                  () => toast.push({ tone: 'ok', icon: 'check', title: 'Back in the inbox' }),
+                  (error: Error) =>
+                    toast.push({
+                      tone: 'danger',
+                      icon: 'alert-triangle',
+                      title: 'Not restored',
+                      body: error.message,
+                    }),
+                )
+              }
+            />
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

@@ -16,11 +16,14 @@ namespace Chargehand.Server;
 /// <param name="What">What happened, in one sentence (<see cref="InboxCatalog"/>, ADR 0085).</param>
 /// <param name="Why">The cause in plain words.</param>
 /// <param name="Options">What a person can do about it, each with its effect: only options that can succeed.</param>
+/// <param name="Lane"><c>decide</c> (a person's choice: a question, a pull request, a policy), <c>fix</c> (a failure) or <c>handled</c> (a rule or a person resolved it; in <c>handled</c> only).</param>
+/// <param name="ResolvedBy">For a handled item: the rule that resolved it (<see cref="InboxRules"/>) or <c>dismissed</c>.</param>
 public sealed record InboxItem(string Kind, string Id, DateTimeOffset At, string? Actor, string? BatchRunId, string? TaskId, string? RunId, string? Repository, string Title,
     IReadOnlyList<string> Questions, AnswerHint? Answer, PullRequestBody? PullRequest, ErrorBody? Error, string? Reason, string? Subject, int Count = 1, string? What = null, string? Why = null,
-    IReadOnlyList<InboxOption>? Options = null);
+    IReadOnlyList<InboxOption>? Options = null, string? Lane = null, string? ResolvedBy = null);
 
-public sealed record InboxCounts(int Questions, int PullRequests, int Failures, int Total);
+/// <param name="Decide">Open items in the Decide lane: what the console's badge counts (ADR 0085).</param>
+public sealed record InboxCounts(int Questions, int PullRequests, int Failures, int Total, int Decide = 0);
 
 /// <summary>What left the inbox in the window without being dealt with there (ADR 0064), counted in the items as they were before <see cref="Duplicates"/> folded any.</summary>
 /// <param name="Superseded">A later batch task or run of the same account replaced it.</param>
@@ -39,8 +42,9 @@ public sealed record InboxResolved(int Superseded, int Infrastructure, int Conti
 public sealed record InboxGroup(string Id, string Kind, string? Repository, string? Reason, int Count, DateTimeOffset At, IReadOnlyList<string> Items);
 
 /// <summary><c>inbox/v1</c>: what needs a person, newest first.</summary>
+/// <param name="Handled">What a rule resolved or a person dismissed in the window, newest first, up to the <c>limit</c>: each with <c>resolved_by</c> and an <c>undo</c> option (ADR 0085).</param>
 public sealed record InboxBody(string ContractVersion, DateTimeOffset GeneratedAt, DateTimeOffset Since, InboxCounts Counts, IReadOnlyList<InboxItem> Items, IReadOnlyList<string> NotRecorded,
-    InboxResolved Resolved, IReadOnlyList<InboxGroup>? Groups = null);
+    InboxResolved Resolved, IReadOnlyList<InboxGroup>? Groups = null, IReadOnlyList<InboxItem>? Handled = null);
 
 /// <summary>An open item and the ids of the items it stands for.</summary>
 internal sealed record InboxEntry(InboxItem Item, IReadOnlyList<string> Members);
@@ -50,7 +54,8 @@ internal sealed record InboxGroupEntry(InboxGroup Group, IReadOnlyList<string> M
 
 /// <summary>The inbox before the limit: the open entries, newest first, and why each other item left.</summary>
 /// <param name="Closed">Item id to <see cref="InboxRules"/>' reason or <c>dismissed</c>.</param>
-internal sealed record InboxView(IReadOnlyList<InboxEntry> Open, ILookup<string, string> Closed, InboxResolved Resolved, IReadOnlyList<InboxGroupEntry> Groups);
+/// <param name="Handled">The items that left, newest first, each with its reason.</param>
+internal sealed record InboxView(IReadOnlyList<InboxEntry> Open, ILookup<string, string> Closed, InboxResolved Resolved, IReadOnlyList<InboxGroupEntry> Groups, IReadOnlyList<InboxItem> Handled);
 
 /// <summary>The "needs you" inbox of the console: task questions nobody answered, pull requests chargehand will not merge, and failures. Derived from the run log and the learning records on every call:
 /// an item leaves when what it names changes (a pull request is merged or closed), when a rule of <see cref="InboxRules"/> resolves it, or when a person dismissed it (the one thing stored).</summary>
@@ -75,8 +80,10 @@ internal static class ConsoleInbox
     {
         var view = await ViewAsync(c, who, since, ct);
         var open = view.Open.Select(e => e.Item).ToList();
-        var counts = new InboxCounts(open.Count(i => i.Kind == "question"), open.Count(i => i.Kind == "pull_request"), open.Count(i => i.Kind == "failure"), open.Count);
-        return new InboxBody(Contract, c.Now, since, counts, [.. open.Take(Math.Clamp(limit, 1, 500))], NotRecorded, view.Resolved, [.. view.Groups.Select(g => g.Group)]);
+        var counts = new InboxCounts(open.Count(i => i.Kind == "question"), open.Count(i => i.Kind == "pull_request"), open.Count(i => i.Kind == "failure"), open.Count,
+            open.Count(i => i.Lane == InboxCatalog.Decide));
+        var take = Math.Clamp(limit, 1, 500);
+        return new InboxBody(Contract, c.Now, since, counts, [.. open.Take(take)], NotRecorded, view.Resolved, [.. view.Groups.Select(g => g.Group)], [.. view.Handled.Take(take)]);
     }
 
     /// <summary>Counts only, for the overview.</summary>
@@ -92,7 +99,9 @@ internal static class ConsoleInbox
         var rules = new InboxRules(index, everything);
         var dismissed = c.Dismissals?.Read() ?? new Dictionary<string, InboxDismissal>();
         var byRun = everything.GroupBy(e => e.Record.RunId, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Last().Record, StringComparer.Ordinal);
-        var decided = candidates.Select(x => (Candidate: x, Reason: rules.Resolve(x) ?? (dismissed.ContainsKey(x.Item.Id) ? Dismissed : null))).ToList();
+        // A person's Undo on what a rule resolved keeps the item open (Kept).
+        var decided = candidates.Select(x => (Candidate: x, Reason: dismissed.GetValueOrDefault(x.Item.Id) is { Kept: true } ? null : rules.Resolve(x) ?? (dismissed.ContainsKey(x.Item.Id) ? Dismissed : null)))
+            .ToList();
         // Identical open failures fold into the newest; every other item is its own entry.
         var open = decided.Where(d => d.Reason is null).Select(d => d.Candidate)
             .GroupBy(x => x.Item.Kind == "failure" ? (x.Item.Kind, x.Item.Subject, x.Code, x.Item.Repository, x.Text) : (x.Item.Kind, x.Item.Id, null, null, ""))
@@ -101,7 +110,9 @@ internal static class ConsoleInbox
             .OrderByDescending(e => e.Item.At).ToList();
         int Of(string reason) => decided.Count(d => d.Reason == reason);
         var resolved = new InboxResolved(Of(InboxRules.Superseded), Of(InboxRules.Infrastructure), Of(InboxRules.Continued), Of(Dismissed), open.Sum(e => e.Members.Count - 1), Of(InboxRules.PrClosed));
-        return new InboxView(open, decided.Where(d => d.Reason is not null).ToLookup(d => d.Candidate.Item.Id, d => d.Reason!), resolved, Groups(open));
+        var handled = decided.Where(d => d.Reason is not null).OrderByDescending(d => d.Candidate.Item.At)
+            .Select(d => InboxCatalog.Handled(InboxCatalog.Describe(d.Candidate, d.Candidate.Item.RunId is { } run ? byRun.GetValueOrDefault(run) : null), d.Reason!)).ToList();
+        return new InboxView(open, decided.Where(d => d.Reason is not null).ToLookup(d => d.Candidate.Item.Id, d => d.Reason!), resolved, Groups(open), handled);
     }
 
     public const string GroupPrefix = "group:";

@@ -26,6 +26,10 @@ internal sealed record CatalogEntry(string Verb, string Why, bool Retry, bool Ta
 /// every other reader of <c>inbox/v1</c> use the same words. <c>InboxCatalogTests</c> fails on a code with no entry.</summary>
 internal static class InboxCatalog
 {
+    public const string Decide = "decide";
+    public const string Fix = "fix";
+    public const string HandledLane = "handled";
+
     private static readonly Dictionary<string, CatalogEntry> Entries = new(StringComparer.Ordinal)
     {
         ["runtime_unavailable"] = new("could not start its agent", "the agent runtime (OpenCode or Claude Code) did not answer or could not start on the server", true),
@@ -72,7 +76,15 @@ internal static class InboxCatalog
 
     public static string? PullRequestWhy(string reason) => PullRequestReasons.GetValueOrDefault(reason);
 
-    /// <summary>The item with its <c>what</c>, <c>why</c> and <c>options</c>.</summary>
+    /// <summary>An item a rule or a person resolved, as the Handled lane lists it: its one option puts it back.</summary>
+    public static InboxItem Handled(InboxItem item, string reason) => item with
+    {
+        Lane = HandledLane,
+        ResolvedBy = reason,
+        Options = [new("undo", "Undo", "Puts it back in the inbox; a rule does not resolve it again.", Call: new InboxCall("POST", "/v1/inbox/restore", new { ids = new[] { item.Id } }))],
+    };
+
+    /// <summary>The item with its <c>what</c>, <c>why</c>, <c>options</c> and lane.</summary>
     /// <param name="learned">The task's learning record, for the spend of a retry and the budget it stopped at.</param>
     public static InboxItem Describe(InboxCandidate c, LearningRecord? learned)
     {
@@ -82,12 +94,14 @@ internal static class InboxCatalog
         {
             "question" => item with
             {
+                Lane = Decide,
                 What = $"{Subject(c)} asked a question",
                 Why = "its session cannot go on without an answer",
                 Options = [new("answer", "Answer and continue", "Starts a batch that continues the task with your answer.", Call: new InboxCall("POST", "/v1/runs")), dismiss],
             },
             "pull_request" => item with
             {
+                Lane = Decide,
                 What = $"Pull request {item.Title} waits for you",
                 Why = PullRequestWhy(item.Reason ?? "") ?? "chargehand will not merge it on its own",
                 Options = [new("open", "Open pull request", "Opens it on the forge to review and merge.", Url: item.PullRequest?.Url), dismiss],
@@ -115,7 +129,7 @@ internal static class InboxCatalog
         if (options.Count == 0 && (task ? $"/console/runs/{Uri.EscapeDataString(item.BatchRunId!)}/tasks/{Uri.EscapeDataString(item.TaskId!)}" : item.RunId is { } run ? $"/console/runs/{Uri.EscapeDataString(run)}" : null) is { } page)
             options.Add(new("open", task ? "Open task" : "Open run", "Opens it with its result and its log.", Url: page));
         options.Add(dismiss);
-        return item with { What = $"{Subject(c)} {entry.Verb}", Why = why, Options = options };
+        return item with { What = $"{Subject(c)} {entry.Verb}", Why = why, Options = options, Lane = Fix };
     }
 
     /// <summary>The sentence's subject: the review's pull request, or the kind of work and its repository.</summary>

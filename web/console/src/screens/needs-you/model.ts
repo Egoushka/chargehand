@@ -95,3 +95,26 @@ export function resolvedNote(resolved: InboxResolved | undefined): string {
   ].filter(Boolean);
   return parts.join(', ');
 }
+
+/** The lane an open item is in (ADR 0085): the server's, else a failure is Fix and the rest Decide (a server before it). */
+export function laneOf(item: InboxItem): 'decide' | 'fix' {
+  return item.lane === 'fix' || (!item.lane && item.kind === 'failure') ? 'fix' : 'decide';
+}
+
+/** Why a handled item left the inbox, in words. */
+export function handledBy(reason: string | null | undefined): string {
+  switch (reason) {
+    case 'superseded':
+      return 'A later run did the same work';
+    case 'infrastructure':
+      return 'A later run on the repository worked';
+    case 'continued':
+      return 'A batch continued it';
+    case 'pr_closed':
+      return 'Its pull request was merged or closed';
+    case 'dismissed':
+      return 'Dismissed';
+    default:
+      return reason ? `Resolved: ${reason.replace(/_/g, ' ')}` : 'Resolved';
+  }
+}

@@ -129,6 +129,32 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         expect(await seen.finish()).toEqual([]);
       });
 
+      test('Needs you: decision cards in lanes, each option a 44 px target, Handled open', async ({
+        page,
+      }) => {
+        await mockApi(page, { replies: { '/v1/inbox': { body: fx.decisionInbox(Date.now()) } } });
+        const seen = watch(page);
+        await signIn(page);
+        const nav = page.getByRole('navigation', { name: 'Main' });
+        await nav.getByRole('link', { name: /^Needs you/ }).click();
+
+        const card = page.getByRole('article', {
+          name: 'A task on example/payments-api failed its tests',
+        });
+        await expect(card).toBeVisible();
+        for (const button of await card
+          .getByRole('list', { name: /What you can do/ })
+          .getByRole('button')
+          .all())
+          expect((await button.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+        await page.getByText('Handled', { exact: false }).first().click();
+        await settle(page);
+        expect(await sidewaysScroll(page)).toBeLessThanOrEqual(0);
+        await shot(page, `needs-you-decisions-${device}-${scheme}`);
+        expect(await violations(page)).toEqual([]);
+        expect(await seen.finish()).toEqual([]);
+      });
+
       test('the palette, the shortcuts and the halt dialog are modal, named, and break no policy', async ({
         page,
       }) => {

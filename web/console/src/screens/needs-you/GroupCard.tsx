@@ -50,6 +50,7 @@ export function GroupCard({ group, items, cursor, cardRef }: GroupCardProps) {
           {group.count} failures: <span className="mono">{code}</span>
           {group.repository ? ` on ${repo}` : ''}
         </h3>
+        {newest.why ? <div className="card__why">Why: {newest.why}</div> : null}
         <div className="card__note">Newest: {newest.title}</div>
         {newest.error?.message || newest.error?.action ? (
           <div className="card__note">

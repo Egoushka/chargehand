@@ -55,6 +55,9 @@ internal static class ConsoleDismissals
                     unchanged.Add(id);
                 else if (dismiss && dismissedAs.Contains(id))
                     unchanged.Add(id);
+                // A rule resolved it (perhaps after a dismissal): Undo keeps it open against the rule (ADR 0085).
+                else if (!dismiss && view.Closed[id].Any(reason => reason != ConsoleInbox.Dismissed))
+                    (store.Remove(id).Count > 0 | store.Keep(id, who is { IsOwner: false } ? who.Name : null, c.Now) ? changed : unchanged).Add(id);
                 else if (!dismiss && (view.Closed.Contains(id) || open.ContainsKey(id) || dismissedAs.Contains(id)))
                     (store.Remove(id).Count > 0 ? changed : unchanged).Add(id);
                 else

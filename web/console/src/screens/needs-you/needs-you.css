@@ -81,3 +81,69 @@
     min-height: var(--size-touch);
   }
 }
+
+/* A decision card (ADR 0085): the cause under the sentence, the options each with its effect, the goal collapsed. */
+.card__why {
+  font-size: 14px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.card__goal summary {
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.options {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.option__effect {
+  flex: 1;
+  min-width: 12rem;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* An option is a 44 px target on every screen. */
+.option > button,
+.option > a,
+.card__goal summary {
+  min-height: var(--size-touch);
+}
+
+.card__goal summary {
+  display: flex;
+  align-items: center;
+}
+
+.lane__title {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.handled-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  min-height: var(--size-touch);
+  font-size: 13px;
+}
+
+.handled-row__what {
+  flex: 1;
+  min-width: 12rem;
+  overflow-wrap: anywhere;
+}

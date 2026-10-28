@@ -263,6 +263,97 @@ export function groupedInbox(now = Date.now()): InboxBody {
   return body;
 }
 
+/** The inbox from a server since ADR 0085: each item says what, why and its options, in a lane, and what a rule handled. */
+export function decisionInbox(now = Date.now()): InboxBody {
+  const [question, pullRequest, failure] = inboxItems(now) as [InboxItem, InboxItem, InboxItem];
+  const dismiss = (id: string) => ({
+    id: 'dismiss',
+    label: 'Dismiss',
+    effect: 'Takes it out of the inbox for everyone who sees it; Undo puts it back.',
+    call: { method: 'POST', path: '/v1/inbox/dismiss', body: { ids: [id] } },
+  });
+  const items: InboxItem[] = [
+    {
+      ...question,
+      lane: 'decide',
+      what: 'A task on example/payments-api asked a question',
+      why: 'its session cannot go on without an answer',
+      options: [
+        {
+          id: 'answer',
+          label: 'Answer and continue',
+          effect: 'Starts a batch that continues the task with your answer.',
+          call: { method: 'POST', path: '/v1/runs' },
+        },
+        dismiss(question.id),
+      ],
+    },
+    {
+      ...pullRequest,
+      lane: 'decide',
+      what: 'Pull request example/payments-api #412 waits for you',
+      why: "the repository's integrator policy is ask, so chargehand does not merge it",
+      options: [
+        {
+          id: 'open',
+          label: 'Open pull request',
+          effect: 'Opens it on the forge to review and merge.',
+          url: 'https://github.com/example/payments-api/pull/412',
+        },
+        dismiss(pullRequest.id),
+      ],
+    },
+    {
+      ...failure,
+      lane: 'fix',
+      what: 'A task on example/payments-api failed its tests',
+      why: 'chargehand ran the tests in a fresh container and they failed, or the repository has no test command',
+      options: [
+        {
+          id: 'retry',
+          label: 'Retry, ≈ $1.50',
+          effect: 'Starts a new batch of this one task, continuing its work if it kept any.',
+          estimate_usd: 1.5,
+          call: { method: 'POST', path: `/v1/batches/${BATCH_B}/tasks/t1-pii-scrub/retry` },
+        },
+        {
+          id: 'take_over',
+          label: 'Take over',
+          effect:
+            'Finish it yourself: the command checks out its branch in a worktree with a handoff note.',
+          command: `chargehand takeover ${BATCH_B}/t1-pii-scrub`,
+        },
+        dismiss(failure.id),
+      ],
+    },
+  ];
+  const body = inbox(items, now);
+  body.counts.decide = 2;
+  body.handled = [
+    {
+      ...failure,
+      id: 'failure:run-probe',
+      batch_run_id: null,
+      task_id: null,
+      run_id: 'run-probe',
+      at: iso(now, 300),
+      lane: 'handled',
+      resolved_by: 'infrastructure',
+      what: 'A run on example/payments-api could not check out its repository',
+      why: 'the path is not a git checkout, the commit is not in it, or the clone failed',
+      options: [
+        {
+          id: 'undo',
+          label: 'Undo',
+          effect: 'Puts it back in the inbox; a rule does not resolve it again.',
+          call: { method: 'POST', path: '/v1/inbox/restore', body: { ids: ['failure:run-probe'] } },
+        },
+      ],
+    },
+  ];
+  return body;
+}
+
 export function run(id: string, over: Partial<RunSummary> = {}, now = Date.now()): RunSummary {
   return {
     contract_version: 'run-summary/v1',

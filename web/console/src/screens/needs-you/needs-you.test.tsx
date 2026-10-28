@@ -5,6 +5,7 @@ import {
   BATCH_A,
   BATCH_B,
   COMMIT,
+  decisionInbox,
   groupedInbox,
   inbox,
   inboxItems,
@@ -122,6 +123,111 @@ describe('Needs you', () => {
     expect(screen.getByText('Scrub personal data from the export job')).toBeTruthy();
     fireEvent.click(within(filter).getByRole('button', { name: /All/ }));
     expect(cards()).toHaveLength(3);
+  });
+});
+
+describe('decision cards (ADR 0085)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('says what happened, why, and each option with its effect, with the goal collapsed under the card', async () => {
+    serveApi({ inbox: decisionInbox() });
+    renderConsole('/console/needs-you');
+    const failure = await findCard('A task on example/payments-api failed its tests');
+
+    expect(failure.getByText(/they failed, or the repository has no test command/)).toBeTruthy();
+    const options = within(failure.getByRole('list', { name: /What you can do/ }));
+    expect(options.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      expect.stringContaining('Retry, ≈ $1.50Starts a new batch of this one task'),
+      expect.stringContaining('Take overFinish it yourself'),
+      expect.stringContaining('DismissTakes it out of the inbox'),
+    ]);
+    expect(failure.getByText('Goal').closest('details')?.open).toBe(false);
+    expect(failure.getByText('Owner:')).toBeTruthy();
+    // The code shows only in the collapsed goal, under the cause in words.
+    expect(failure.getByText('verification_failed').closest('details')).toBeTruthy();
+  });
+
+  it('puts questions and pull requests under Decide and failures under Fix, and the badge counts Decide only', async () => {
+    serveApi({ inbox: decisionInbox() });
+    renderConsole('/console/needs-you');
+    await screen.findAllByRole('article');
+
+    const decide = within(screen.getByRole('region', { name: /^Decide/ }));
+    const fix = within(screen.getByRole('region', { name: /^Fix/ }));
+    expect(decide.getAllByRole('article')).toHaveLength(2);
+    expect(fix.getAllByRole('article').map((a) => a.getAttribute('aria-labelledby'))).toHaveLength(
+      1,
+    );
+    expect(fix.getByText('A task on example/payments-api failed its tests')).toBeTruthy();
+    const nav = screen.getByRole('navigation', { name: 'Main' });
+    expect(within(nav).getByRole('link', { name: /Needs you/ }).textContent).toContain('2');
+  });
+
+  it('retries from the card with the call the server named, and says which run it started', async () => {
+    const api = serveApi({
+      inbox: decisionInbox(),
+      replies: {
+        [`POST /v1/batches/${BATCH_B}/tasks/t1-pii-scrub/retry`]: [
+          202,
+          { action: 'retry', run_id: 'run-again-1234567890', changed: true },
+        ],
+      },
+    });
+    renderConsole('/console/needs-you');
+    const failure = await findCard('A task on example/payments-api failed its tests');
+
+    fireEvent.click(failure.getByRole('button', { name: 'Retry, ≈ $1.50 t1-pii-scrub' }));
+
+    await waitFor(() =>
+      expect(api.last(`/v1/batches/${BATCH_B}/tasks/t1-pii-scrub/retry`)?.method).toBe('POST'),
+    );
+    expect(await screen.findByText(/Retry, ≈ \$1.50: started/)).toBeTruthy();
+  });
+
+  it('shows the takeover command and copies it', async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    serveApi({ inbox: decisionInbox() });
+    renderConsole('/console/needs-you');
+    const failure = await findCard('A task on example/payments-api failed its tests');
+
+    fireEvent.click(failure.getByRole('button', { name: 'Take over' }));
+    fireEvent.click(failure.getByRole('button', { name: 'Copy the take over command' }));
+
+    expect(failure.getByText(`chargehand takeover ${BATCH_B}/t1-pii-scrub`)).toBeTruthy();
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(`chargehand takeover ${BATCH_B}/t1-pii-scrub`),
+    );
+  });
+
+  it('lists what a rule handled, with its reason in words and an Undo that restores it', async () => {
+    const api = serveApi({ inbox: decisionInbox() });
+    renderConsole('/console/needs-you');
+    await screen.findAllByRole('article');
+
+    const handled = within(screen.getByRole('list', { name: 'Handled' }));
+    expect(handled.getByText('A later run on the repository worked')).toBeTruthy();
+    fireEvent.click(
+      handled.getByRole('button', { name: /Undo: put A run on example\/payments-api/ }),
+    );
+
+    await waitFor(() =>
+      expect(api.last('/v1/inbox/restore')?.body).toEqual({ ids: ['failure:run-probe'] }),
+    );
+  });
+
+  it('will not send an option to anything but a route of the API', async () => {
+    const body = decisionInbox();
+    const retry = body.items[2]?.options?.[0];
+    if (retry?.call) retry.call.path = 'https://elsewhere.test/v1/x';
+    const api = serveApi({ inbox: body });
+    renderConsole('/console/needs-you');
+    const failure = await findCard('A task on example/payments-api failed its tests');
+
+    fireEvent.click(failure.getByRole('button', { name: 'Retry, ≈ $1.50 t1-pii-scrub' }));
+
+    expect(await screen.findByText('Retry, ≈ $1.50 refused')).toBeTruthy();
+    expect(api.calls.some((c) => c.path.includes('elsewhere'))).toBe(false);
   });
 });
 
