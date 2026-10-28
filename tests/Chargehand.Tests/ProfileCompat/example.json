@@ -209,7 +209,8 @@
     "accounts": null,
     "ui": false,
     "cloudflare_access": null,
-    "proxy_sign_in": null
+    "proxy_sign_in": null,
+    "conversations": null
   },
   "claude_code": null,
   "repository_roots": [

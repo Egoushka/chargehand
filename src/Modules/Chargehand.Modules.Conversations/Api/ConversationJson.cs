@@ -6,7 +6,7 @@ using Chargehand.Contracts;
 namespace Chargehand.Modules.Conversations.Api;
 
 /// <summary>The module's JSON without reflection (ADR 0060): snake_case names, nulls left out, enums as their wire words. A host serializes a <see cref="ConversationView"/> and a
-/// <see cref="ConversationEvent"/> with the type infos here.</summary>
+/// <see cref="ConversationEvent"/> with the type infos here, and reads a request body with the ones for the bodies.</summary>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(ConversationView))]
 [JsonSerializable(typeof(ConversationEvent))]
@@ -19,6 +19,10 @@ namespace Chargehand.Modules.Conversations.Api;
 [JsonSerializable(typeof(UsageDelta))]
 [JsonSerializable(typeof(ErrorData))]
 [JsonSerializable(typeof(EndedData))]
+[JsonSerializable(typeof(StartConversation))]
+[JsonSerializable(typeof(MessageBody))]
+[JsonSerializable(typeof(AnswerBody))]
+[JsonSerializable(typeof(MessageAccepted))]
 internal sealed partial class ConversationsJsonContext : JsonSerializerContext;
 
 public static class ConversationJson
@@ -26,6 +30,16 @@ public static class ConversationJson
     public static JsonTypeInfo<ConversationView> View => ConversationsJsonContext.Default.ConversationView;
 
     public static JsonTypeInfo<ConversationEvent> Event => ConversationsJsonContext.Default.ConversationEvent;
+
+    public static JsonTypeInfo<StartConversation> StartRequest => ConversationsJsonContext.Default.StartConversation;
+
+    public static JsonTypeInfo<MessageBody> MessageRequest => ConversationsJsonContext.Default.MessageBody;
+
+    public static JsonTypeInfo<AnswerBody> AnswerRequest => ConversationsJsonContext.Default.AnswerBody;
+
+    public static JsonTypeInfo<MessageAccepted> Accepted => ConversationsJsonContext.Default.MessageAccepted;
+
+    public static JsonTypeInfo<ApprovalAnswered> Answered => ConversationsJsonContext.Default.ApprovalAnswered;
 
     /// <summary>The event that records <paramref name="data"/> as number <paramref name="id"/>.</summary>
     public static ConversationEvent ToEvent(long id, DateTimeOffset at, ConversationEventData data)

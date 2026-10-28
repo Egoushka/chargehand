@@ -9,9 +9,11 @@ using System.Text.RegularExpressions;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Conversations.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.RunLog;
+using Chargehand.Server.Conversations;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -45,13 +47,16 @@ namespace Chargehand.Server;
 /// <param name="ProxyResolver">Resolves the proxies' names; null: DNS.</param>
 /// <param name="Probes">What <c>?deep=1</c> on <c>/v1/health</c> checks besides the intake model (CHARGEHAND-316): the runners, the GitHub App and the push token the profile configures; null: none.</param>
 /// <param name="InboxDismissalsPath">The file of the inbox's dismissals (<c>inbox/dismissed.json</c>, ADR 0064); null: nothing can be dismissed.</param>
+/// <param name="Conversations">The profile's <c>http.conversations</c> (ADR 0086); null: <c>/v1/conversations</c> is not mapped.</param>
+/// <param name="ConversationsDirectory">Where the conversations' journals live (<c>conversations/</c> beside the run log); needed with <paramref name="Conversations"/>.</param>
+/// <param name="ConversationRuntime">The runtime conversations reach agents through; null: the module's fake.</param>
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
     IReadOnlyList<string>? AllowedHosts = null, int MaxConcurrentRuns = 1, int MaxSessionCalls = 2, string? StateDirectory = null,
     IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null, bool Ui = false,
     Profile? Profile = null, Func<string, bool>? SecretPresent = null, string? IntakeStatePath = null, string? InboxDismissalsPath = null, TimeSpan? McpWait = null,
     CloudflareAccessSettings? Access = null, Func<CancellationToken, Task<string>>? AccessCerts = null,
     ProxySignInSettings? ProxySignIn = null, Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? ProxyResolver = null,
-    IReadOnlyList<DependencyProbe>? Probes = null);
+    IReadOnlyList<DependencyProbe>? Probes = null, ConversationSettings? Conversations = null, string? ConversationsDirectory = null, IConversationRuntime? ConversationRuntime = null);
 
 /// <summary>
 /// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
@@ -131,6 +136,11 @@ public static partial class ChargehandServer
                 var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
                 return new AnswerService(phone.Notifier(new ServerQuestionSource(() => new ConsoleContext(settings, runs, log, driven, new SecretPresence(settings.SecretPresent), dismissals)), settings.Clock));
             });
+        // ADR 0086: only when the profile has http.conversations. After the resumer too: an earlier process's open conversations are lost before the listener opens.
+        if (settings.Conversations is { } conversations)
+            builder.Services.AddSingleton(_ => new ConversationService(settings.ConversationRuntime ?? new FakeConversationRuntime(), settings.ConversationsDirectory
+                ?? throw new InvalidOperationException("http.conversations needs a directory for the journals"), conversations, log, settings.Clock))
+                .AddHostedService<ConversationHost>();
         // ADR 0045: reads back what became of the pull requests, only where there are learning records.
         if (driven?.Learning is not null)
             builder.Services.AddHostedService(_ => new PrOutcomeRefresher(driven));
@@ -252,6 +262,8 @@ public static partial class ChargehandServer
         }
 
         ConsoleRoutes.Map(app, settings, log, driven);
+        if (settings.Conversations is not null)
+            ConversationRoutes.Map(app);
         if (phone?.Settings.Approvals is not null)
         {
             var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
@@ -459,7 +471,7 @@ public static partial class ChargehandServer
     internal static object Problem(string message) => new { errors = new[] { message } };
 
     /// <summary>The refusal as the response: its status, the code and the window in the body, and when the window resets as Retry-After.</summary>
-    private static IResult Refused(HttpContext ctx, AccountRefusal refusal)
+    internal static IResult Refused(HttpContext ctx, AccountRefusal refusal)
     {
         if (refusal.ResetsAt is { } resets)
             ctx.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling((resets - ctx.RequestServices.GetRequiredService<RunService>().Now).TotalSeconds)).ToString(CultureInfo.InvariantCulture);

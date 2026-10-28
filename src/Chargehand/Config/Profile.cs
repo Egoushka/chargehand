@@ -7,6 +7,7 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Conversations.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
@@ -304,9 +305,10 @@ public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecr
 /// <param name="Ui">Serve the operator console at <c>/console/</c> (ADR 0056); <c>/ui/</c> redirects to it (ADR 0072). Off by default.</param>
 /// <param name="CloudflareAccess">Sign in by the email Cloudflare Access checked, with no key (ADR 0071); null: keys only.</param>
 /// <param name="ProxySignIn">Sign in by the email a trusted single-sign-on proxy forwards, with no key (ADR 0071); null: keys only.</param>
+/// <param name="Conversations">Turns on <c>/v1/conversations</c> (ADR 0086): a person steers an agent while it works. Null: the routes are not there.</param>
 public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null,
     int MaxConcurrentRuns = 1, IReadOnlyList<AccountSettings>? Accounts = null, bool Ui = false, CloudflareAccessSettings? CloudflareAccess = null,
-    ProxySignInSettings? ProxySignIn = null)
+    ProxySignInSettings? ProxySignIn = null, ConversationSettings? Conversations = null)
 {
     /// <summary>Throws an invalid_request error naming the key when an account cannot work.</summary>
     internal void Validate()
@@ -317,6 +319,8 @@ public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string L
             throw new ChargehandException(ErrorCode.InvalidRequest, $"http.cloudflare_access: {string.Join("; ", access)}", "Fix http.cloudflare_access in the profile; docs/guide/server.md lists the keys.");
         if (ProxySignIn?.Problems(Accounts ?? []).ToList() is { Count: > 0 } proxy)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"http.proxy_sign_in: {string.Join("; ", proxy)}", "Fix http.proxy_sign_in in the profile; docs/guide/server.md lists the keys.");
+        if (Conversations?.Problems().ToList() is { Count: > 0 } conversations)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"http.conversations: {string.Join("; ", conversations)}", "Fix http.conversations in the profile; docs/guide/server.md lists the keys.");
     }
 }
 

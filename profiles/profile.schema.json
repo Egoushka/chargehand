@@ -679,6 +679,15 @@
             "identities": { "type": "object", "minProperties": 1, "propertyNames": { "pattern": "@" }, "additionalProperties": { "type": "string", "minLength": 1 }, "description": "Email to account: owner or a name in http.accounts." },
             "header": { "type": "string", "minLength": 1, "default": "Remote-Email", "description": "The header that carries the email. Default Remote-Email (Pangolin's)." }
           }
+        },
+        "conversations": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Turns on /v1/conversations (ADR 0086): a person steers an agent while it works, over the owner's and the accounts' keys. Absent: the routes are not there.",
+          "properties": {
+            "runtime": { "type": "string", "minLength": 1, "default": "fake", "description": "The runtime the server reaches agents through. `fake` is a scripted agent that echoes, for trying the API." },
+            "max_messages": { "type": "integer", "minimum": 1, "maximum": 10000, "default": 200, "description": "Messages one conversation takes before it refuses more with 429." }
+          }
         }
       }
     },

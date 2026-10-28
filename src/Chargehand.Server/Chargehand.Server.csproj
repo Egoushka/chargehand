@@ -8,6 +8,7 @@
     <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
     <ProjectReference Include="..\Chargehand.Automation\Chargehand.Automation.csproj" />
     <ProjectReference Include="..\Chargehand.Driven\Chargehand.Driven.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Conversations\Chargehand.Modules.Conversations.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Economics\Chargehand.Modules.Economics.csproj" />
   </ItemGroup>
 
