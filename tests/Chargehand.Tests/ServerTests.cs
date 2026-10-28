@@ -43,6 +43,11 @@ internal sealed class TestServer : IAsyncDisposable
 
     public RunService Service => _app.Services.GetRequiredService<RunService>();
 
+    /// <summary>Every route the server maps: its HTTP method and its pattern, such as <c>/v1/batches/{id}</c>.</summary>
+    public IReadOnlyList<(string Method, string Pattern)> Routes =>
+        [.. ((Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)_app).DataSources.SelectMany(d => d.Endpoints).OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
+            .SelectMany(e => (e.Metadata.GetMetadata<Microsoft.AspNetCore.Routing.HttpMethodMetadata>()?.HttpMethods ?? []).Select(m => (m, "/" + e.RoutePattern.RawText!.TrimStart('/'))))];
+
     /// <summary>The accounts' keys, in the file the server reads.</summary>
     public AccountKeyStore Keys => new(System.IO.Path.Combine(_root.Path, "accounts.json"));
 

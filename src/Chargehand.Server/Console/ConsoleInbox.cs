@@ -13,8 +13,12 @@ namespace Chargehand.Server;
 /// <param name="Subject">For a failure: <c>task</c>, <c>run</c> or <c>batch</c>.</param>
 /// <param name="Answer">For a question: how to answer it, the body of a <c>POST /v1/runs</c> being a task with <c>continue_from</c> and <c>answers</c> (ADR 0045).</param>
 /// <param name="Count">How many identical failures this item stands for (ADR 0064): the same subject, code, repository and text; the item is the newest of them.</param>
+/// <param name="What">What happened, in one sentence (<see cref="InboxCatalog"/>, ADR 0085).</param>
+/// <param name="Why">The cause in plain words.</param>
+/// <param name="Options">What a person can do about it, each with its effect: only options that can succeed.</param>
 public sealed record InboxItem(string Kind, string Id, DateTimeOffset At, string? Actor, string? BatchRunId, string? TaskId, string? RunId, string? Repository, string Title,
-    IReadOnlyList<string> Questions, AnswerHint? Answer, PullRequestBody? PullRequest, ErrorBody? Error, string? Reason, string? Subject, int Count = 1);
+    IReadOnlyList<string> Questions, AnswerHint? Answer, PullRequestBody? PullRequest, ErrorBody? Error, string? Reason, string? Subject, int Count = 1, string? What = null, string? Why = null,
+    IReadOnlyList<InboxOption>? Options = null);
 
 public sealed record InboxCounts(int Questions, int PullRequests, int Failures, int Total);
 
@@ -87,12 +91,13 @@ internal static class ConsoleInbox
         var candidates = Questions(index, who, since).Concat(PullRequests(c, learning, since)).Concat(Failures(c, index, learning, who, since)).ToList();
         var rules = new InboxRules(index, everything);
         var dismissed = c.Dismissals?.Read() ?? new Dictionary<string, InboxDismissal>();
+        var byRun = everything.GroupBy(e => e.Record.RunId, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Last().Record, StringComparer.Ordinal);
         var decided = candidates.Select(x => (Candidate: x, Reason: rules.Resolve(x) ?? (dismissed.ContainsKey(x.Item.Id) ? Dismissed : null))).ToList();
         // Identical open failures fold into the newest; every other item is its own entry.
         var open = decided.Where(d => d.Reason is null).Select(d => d.Candidate)
             .GroupBy(x => x.Item.Kind == "failure" ? (x.Item.Kind, x.Item.Subject, x.Code, x.Item.Repository, x.Text) : (x.Item.Kind, x.Item.Id, null, null, ""))
             .Select(g => g.OrderByDescending(x => x.Item.At).ToList())
-            .Select(g => new InboxEntry(g[0].Item with { Count = g.Count }, [.. g.Select(x => x.Item.Id)]))
+            .Select(g => new InboxEntry(InboxCatalog.Describe(g[0], g[0].Item.RunId is { } run ? byRun.GetValueOrDefault(run) : null) with { Count = g.Count }, [.. g.Select(x => x.Item.Id)]))
             .OrderByDescending(e => e.Item.At).ToList();
         int Of(string reason) => decided.Count(d => d.Reason == reason);
         var resolved = new InboxResolved(Of(InboxRules.Superseded), Of(InboxRules.Infrastructure), Of(InboxRules.Continued), Of(Dismissed), open.Sum(e => e.Members.Count - 1), Of(InboxRules.PrClosed));
