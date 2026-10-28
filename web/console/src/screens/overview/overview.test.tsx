@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   accountOverview,
   BATCH_A,
@@ -251,6 +251,9 @@ describe('Overview halted and paused', () => {
   });
 
   it('shows a rate-limit pause as a banner and in the panel', async () => {
+    // A pause 15 minutes ahead would print a date, not a clock, when it falls after local midnight.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse('2026-10-14T12:00:00Z'));
     const base = overview();
     const resets = new Date(Date.now() + 15 * 60_000).toISOString();
     serveApi({
@@ -277,6 +280,7 @@ describe('Overview halted and paused', () => {
     const banner = await screen.findByText(/New starts are paused until about/);
     expect(banner.closest('.ch-banner')?.getAttribute('data-tone')).toBe('warn');
     expect(panel('Admission').getByText(/Paused until \d\d:\d\d/)).toBeTruthy();
+    vi.useRealTimers();
   });
 });
 
