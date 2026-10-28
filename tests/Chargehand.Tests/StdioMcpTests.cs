@@ -1,8 +1,10 @@
 using System.IO.Pipelines;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.RunLog;
+using Chargehand.Runtime;
 using Chargehand.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -27,9 +29,14 @@ public sealed class StdioMcpTests : IAsyncDisposable
     private IHost? _host;
     private ScriptedRuntime _runtime = new(Runs.DraftReply);
 
-    private async Task<McpClient> Start(ScriptedRuntime runtime, List<ElicitRequestParams>? asked = null)
+    private Task<McpClient> Start(ScriptedRuntime runtime, List<ElicitRequestParams>? asked = null)
     {
         _runtime = runtime;
+        return Start((IWorkerRuntime)runtime, asked);
+    }
+
+    private async Task<McpClient> Start(IWorkerRuntime runtime, List<ElicitRequestParams>? asked = null)
+    {
         var log = new JsonlRunLog(Path.Combine(_root.Path, "log.jsonl"));
         _host = ChargehandServer.CreateStdio(Repo.Path("presets"), Runs.Orchestrator(runtime, _root.Path, log),
             _toServer.Reader.AsStream(), _toClient.Writer.AsStream());
@@ -105,6 +112,20 @@ public sealed class StdioMcpTests : IAsyncDisposable
         Assert.Equal(ResultStatus.Completed, result.Status);
         Assert.Single(asked);
         Assert.Contains("- Which tone? warm", _runtime.IntakePrompts.Last(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_runtime_that_cannot_start_answers_initialize_and_fails_the_call_with_its_reason()
+    {
+        var error = new ChargehandException(ErrorCode.RuntimeUnavailable, "cannot start claude: no such file", "Install Claude Code.");
+        await using var client = await Start(new UnavailableRuntime(error));
+        Assert.Equal(3, (await client.ListToolsAsync()).Count);
+
+        var call = await client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value));
+
+        var failed = call.StructuredContent!.Value.Deserialize<ResultContract>(ContractJson.Options)!;
+        Assert.Equal(ResultStatus.Failed, failed.Status);
+        Assert.Contains("cannot start claude", failed.Summary, StringComparison.Ordinal);
     }
 
     public async ValueTask DisposeAsync()
