@@ -1,0 +1,7 @@
+{
+  "contract_version": "conversation-event/v1",
+  "id": 21,
+  "at": "2026-10-28T09:10:00Z",
+  "type": "state",
+  "data": { "state": "ended" }
+}

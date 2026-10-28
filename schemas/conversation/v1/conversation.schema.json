@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:chargehand:schema:conversation:v1",
+  "title": "chargehand conversation, v1",
+  "description": "An agent a person can message and approve while it works: the body of GET /v1/conversations/{id} and of the 201 that starts one. Its events are conversation-event/v1 on /v1/conversations/{id}/events.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "id", "state", "repository", "runtime", "created_at", "updated_at", "messages", "queued", "pending_approvals", "caps", "last_event_id"],
+  "properties": {
+    "contract_version": { "const": "conversation/v1" },
+    "id": { "type": "string", "pattern": "^conv-[a-z0-9-]{1,64}$" },
+    "state": {
+      "enum": ["starting", "idle", "running", "ended", "lost", "failed"],
+      "description": "idle: no turn runs, a message starts one. running: a turn runs, a message waits in the queue. ended, lost and failed are final: lost means the server restarted while it was open."
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "commit"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "commit": { "type": "string", "minLength": 1 }
+      }
+    },
+    "runtime": { "type": "string", "minLength": 1, "description": "The runtime that runs the agent, as the start request named it." },
+    "model": { "type": "string", "minLength": 1 },
+    "preset": { "type": "string", "minLength": 1 },
+    "actor": { "type": "string", "minLength": 1, "description": "The account that started it (ADR 0050); absent for one started from the CLI." },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time", "description": "The time of the latest event." },
+    "messages": { "type": "integer", "minimum": 0, "description": "Messages the person sent that reached the agent." },
+    "queued": { "type": "integer", "minimum": 0, "description": "Messages that wait for the running turn to end." },
+    "pending_approvals": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Call ids the agent waits on; answer each at POST /v1/conversations/{id}/approvals/{call}." },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_tokens", "output_tokens"],
+      "description": "Absent until the agent has reported usage.",
+      "properties": {
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 },
+        "usd": { "type": "number", "minimum": 0, "description": "Absent when the agent reports no dollars." }
+      }
+    },
+    "caps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_messages"],
+      "description": "The limits on this conversation. The account's own caps (ADR 0050) apply besides, and refuse a message with 429.",
+      "properties": {
+        "max_messages": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "last_event_id": { "type": "integer", "minimum": 1, "description": "The id of the latest event: read the stream after it to see what happens next." },
+    "ended_reason": { "enum": ["user", "runtime_exited", "lost", "error"], "description": "Set once the conversation is over." }
+  }
+}
