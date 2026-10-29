@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Chargehand.Contracts;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Ledger.Api;
@@ -35,13 +36,14 @@ internal sealed class FakeGitHub : IIntegrationHost
 {
     public Dictionary<int, (bool Merged, bool Closed)> Pulls { get; } = [];
 
-    public List<string> Reads { get; } = [];
+    /// <summary>Concurrent: the cost report reads pull requests in parallel.</summary>
+    public ConcurrentQueue<string> Reads { get; } = [];
 
     public Exception? Down { get; set; }
 
     public Task<PrSnapshot> GetAsync(RemoteRepository repository, int number, CancellationToken ct)
     {
-        Reads.Add($"{repository.Owner}/{repository.Name}#{number}");
+        Reads.Enqueue($"{repository.Owner}/{repository.Name}#{number}");
         if (Down is not null)
             throw Down;
         var (merged, closed) = Pulls.TryGetValue(number, out var state) ? state : throw new IntegrationException("not found");
