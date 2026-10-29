@@ -7,7 +7,8 @@ namespace Chargehand.Runtimes.ClaudeCode.Api;
 /// limited a call may go on the API fallback key if today's fallback spend (UTC day) is under <paramref name="dailyUsd"/>. The first call after the reset goes on the subscription
 /// again. A gateway's budget refusal on the fallback closes it until the next UTC day. A call is checked before it starts, so the cap can be passed by at most the calls in flight.
 /// The day's spend, the refusal and the reset outlive a restart in <paramref name="ledgerFile"/> (null: memory only).</summary>
-/// <remarks>The cap counts chargehand's own fallback spend. When the fallback key is shared, the shared cap is the gateway's budget on that key; this class sees it only as a refusal.</remarks>
+/// <remarks>Driven batches spend the fallback in their egress container, out of reach of <see cref="Spent"/> until they end (ADR 0088): <see cref="Reserve"/> sets a share of what is left
+/// aside at a batch's start and <see cref="Settle"/> replaces it with what the batch spent. The cap counts chargehand's own fallback spend. When the fallback key is shared, the shared cap is the gateway's budget on that key; this class sees it only as a refusal.</remarks>
 public sealed class ApiFallback(decimal dailyUsd, string? ledgerFile, TimeProvider? time = null)
 {
     private readonly object _lock = new();
@@ -48,6 +49,68 @@ public sealed class ApiFallback(decimal dailyUsd, string? ledgerFile, TimeProvid
         }
     }
 
+    /// <summary>Sets aside the share of today's fallback that batch <paramref name="batch"/> may spend in its egress container: what is left of the cap, less what other batches hold, divided by
+    /// the holders plus one. Because a holder takes everything unreserved (zero holders: the whole remainder), the divisor only matters when a holder's reservation is smaller than the
+    /// remainder, and the sum of all reservations never passes the cap. A batch that holds a reservation already (it resumed after a restart) gets that one back.</summary>
+    /// <returns>The allowance in dollars; 0 when the fallback is closed, spent or fully reserved, in which case nothing is held.</returns>
+    public decimal Reserve(string batch)
+    {
+        lock (_lock)
+        {
+            var l = Today();
+            if (l.Reserved is { } held && held.TryGetValue(batch, out var mine))
+                return mine;
+            if (!Open(l))
+                return 0;
+            var others = l.Reserved ?? [];
+            var unreserved = dailyUsd - l.SpentUsd - others.Values.Sum();
+            if (unreserved <= 0)
+                return 0;
+            var share = Math.Round(unreserved / (others.Count + 1), 6);
+            Save(l with { Reserved = new Dictionary<string, decimal>(others) { [batch] = share } });
+            return share;
+        }
+    }
+
+    /// <summary>A batch ended: its reservation is released and what it spent (read from its egress log) is added to today's spend. <paramref name="refused"/>: the gateway answered the
+    /// fallback with 402; <paramref name="resetsAt"/>: when the subscription's limit lifts, if the batch saw one.</summary>
+    public void Settle(string batch, decimal usd, bool refused, DateTimeOffset? resetsAt)
+    {
+        lock (_lock)
+        {
+            Release(batch);
+            if (usd > 0)
+                Save(Today() with { SpentUsd = Today().SpentUsd + usd });
+            if (refused)
+                Save(Today() with { Refused = true });
+            if (resetsAt is { } at)
+            {
+                var l = Today();
+                Save(l with { LimitedUntil = l.LimitedUntil is { } known && known > at ? known : at });
+            }
+        }
+    }
+
+    /// <summary>A batch ended and its egress log could not be read: the whole reservation counts as spent, so the cap errs low.</summary>
+    public void SettleUnreadable(string batch)
+    {
+        lock (_lock)
+        {
+            var held = Today().Reserved is { } r && r.TryGetValue(batch, out var mine) ? mine : 0;
+            Settle(batch, held, refused: false, resetsAt: null);
+        }
+    }
+
+    private void Release(string batch)
+    {
+        var l = Today();
+        if (l.Reserved is not { } held || !held.ContainsKey(batch))
+            return;
+        var rest = new Dictionary<string, decimal>(held);
+        rest.Remove(batch);
+        Save(l with { Reserved = rest.Count == 0 ? null : rest });
+    }
+
     /// <summary>The gateway refused the fallback over its budget: no more fallback today.</summary>
     public void Refused()
     {
@@ -66,7 +129,7 @@ public sealed class ApiFallback(decimal dailyUsd, string? ledgerFile, TimeProvid
 
     private bool Open(FallbackLedger l) => !l.Refused && l.SpentUsd < dailyUsd;
 
-    // A new UTC day starts at zero spend and no refusal; the subscription's reset carries over.
+    // A new UTC day starts at zero spend, no refusal and no reservations (the day's cap is new, and a batch that never settled cannot hold it); the subscription's reset carries over.
     private FallbackLedger Today()
     {
         var day = DateOnly.FromDateTime(Now.UtcDateTime);
@@ -109,8 +172,10 @@ public sealed class ApiFallback(decimal dailyUsd, string? ledgerFile, TimeProvid
 
 /// <param name="Day">The UTC day <paramref name="SpentUsd"/> and <paramref name="Refused"/> belong to.</param>
 /// <param name="LimitedUntil">When the subscription's last limit lifts; null when none was seen.</param>
-public sealed record FallbackLedger(DateOnly Day, decimal SpentUsd, bool Refused, DateTimeOffset? LimitedUntil);
+/// <param name="Reserved">Dollars set aside per running batch id (ADR 0088); null when none.</param>
+public sealed record FallbackLedger(DateOnly Day, decimal SpentUsd, bool Refused, DateTimeOffset? LimitedUntil, Dictionary<string, decimal>? Reserved = null);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(FallbackLedger))]
+[JsonSerializable(typeof(Dictionary<string, decimal>))]
 internal sealed partial class ApiFallbackJsonContext : JsonSerializerContext;
