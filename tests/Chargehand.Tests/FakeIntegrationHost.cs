@@ -33,6 +33,17 @@ internal sealed class FakeIntegrationHost : IIntegrationHost
 
     public Task<ChecksGate> ChecksGateAsync(RemoteRepository repository, string branch, CancellationToken ct) => Task.FromResult(Gate);
 
+    /// <summary>What the base branch's own head reports; null: no required checks are failing there.</summary>
+    public IReadOnlyList<CheckStatus> BaseChecks { get; set; } = [];
+
+    public Exception? BaseChecksFail { get; set; }
+
+    public Task<IReadOnlyList<CheckStatus>> BaseChecksAsync(RemoteRepository repository, string branch, CancellationToken ct)
+    {
+        Calls.Add($"base-checks {branch}");
+        return BaseChecksFail is not null ? throw BaseChecksFail : Task.FromResult(BaseChecks);
+    }
+
     public static PrSnapshot Snapshot(string head = "aaaaaaa1", bool draft = true, string status = "DRAFT", bool autoMerge = false, bool merged = false, IReadOnlyList<CheckStatus>? checks = null) =>
         new("PR_node", 7, head, "main", draft, merged, false, status, autoMerge, checks ?? [], []);
 

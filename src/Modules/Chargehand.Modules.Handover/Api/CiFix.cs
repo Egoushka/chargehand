@@ -49,6 +49,9 @@ public static partial class FixMarker
 
     public static string GaveUp(string jobsKey) => $"<!-- chargehand-ci-fix-gave-up jobs={jobsKey} -->";
 
+    /// <summary>The failing jobs also fail on the base branch's head (CHARGEHAND-669): the pull request did not cause them, so no fix session is started for them.</summary>
+    public static string BaseRed(string jobsKey) => $"<!-- chargehand-ci-fix-base-red jobs={jobsKey} -->";
+
     /// <summary>The <see cref="FixAttempt.JobsKey"/> of a review round: it is no set of failing jobs, so it never equals one.</summary>
     public const string ReviewKey = "review";
 

@@ -542,6 +542,43 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     public Task<int> RefreshPrOutcomesAsync(CancellationToken ct) =>
         learning is null ? Task.FromResult(0) : new PrOutcomeTracker(learning, ReadHost).RefreshAsync((profile.Driven?.Learning ?? new DrivenLearning()).PrDays, ct);
 
+    /// <summary>One pass that updates a pull request held only by its base branch's failing required checks, once the base turns green (CHARGEHAND-669): the integrator
+    /// (<see cref="Integrator.ActAsync"/>) acts once per task, so a pull request still open once its task has ended is otherwise never revisited. Does nothing without learning
+    /// records or a <c>driven.integrator</c> block.</summary>
+    /// <returns>The pull requests updated.</returns>
+    public async Task<int> ReconcileHeldPrsAsync(CancellationToken ct)
+    {
+        if (learning is null || (profile.Driven ?? new DrivenSettings()).Integrator is not { } integration)
+            return 0;
+        var days = (profile.Driven?.Learning ?? new DrivenLearning()).PrDays;
+        var now = DateTimeOffset.UtcNow;
+        var updated = 0;
+        foreach (var entry in await learning.ReadAsync(ct))
+            if (await ReconcileEntryAsync(entry, now, days, integration, ct))
+                updated++;
+        return updated;
+    }
+
+    /// <summary>One learning entry of <see cref="ReconcileHeldPrsAsync"/>: whether its pull request was updated.</summary>
+    private async Task<bool> ReconcileEntryAsync(LearningEntry entry, DateTimeOffset now, int days, DrivenIntegrator integration, CancellationToken ct)
+    {
+        if (entry.Record.Pr is not { } pr || now - entry.Record.At > TimeSpan.FromDays(days) || entry.PrOutcome is { } known && PrOutcomes.Resolved(known.Outcome))
+            return false;
+        if (ReadHost(pr.Remote) is not { } host)
+            return false;
+        var target = new IntegrationTarget(pr.Remote, pr.Number, "", false, "");
+        try
+        {
+            var integrator = new Integrator(new IntegratorPolicy(integration), host, integration.CiFix, forge: profile.Driven?.Forge);
+            return (await integrator.ReconcileAsync(target, _ => { }, ct)).Action == IntegrationAction.AutoMergeEnabled;
+        }
+        catch (Exception e) when (e is IntegrationException or HttpRequestException or ChargehandException || e is TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            // The forge is down, its credential is gone or the pull request is: it is read again at the next pass.
+            return false;
+        }
+    }
+
     /// <summary>What the host must have free for each task of the batch (ADR 0045, admission): the working set this repository's sessions have measured, else the profile's default, never above the
     /// container's limit. Read once per batch; without a host to ask there is no admission and nothing to read.</summary>
     private async Task<int> AdmissionRequestAsync(string repository, int limitMb, CancellationToken ct)
