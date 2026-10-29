@@ -94,6 +94,8 @@ public static class DrivenRules
                 .Select(t => $"task '{t.Id}': title must be one line of 1 to {MaxTitleLength} characters"))
             .Concat(driven.Tasks.Where(t => t.Acceptance is { Count: > MaxAcceptance }).Select(t => $"task '{t.Id}': at most {MaxAcceptance} acceptance checks"))
             .Concat(driven.Tasks.Where(t => t.Acceptance?.Any(a => string.IsNullOrWhiteSpace(a.Command)) == true).Select(t => $"task '{t.Id}': an acceptance check needs a command"))
+            .Concat(driven.Tasks.SelectMany(t => (t.Acceptance ?? []).Where(a => !string.IsNullOrWhiteSpace(a.Command) && NoOpVerify.IsNoOp(a.Command))
+                .Select(a => $"task '{t.Id}': acceptance check '{a.Command}' checks nothing (CHARGEHAND-258); name a command that can fail")))
             .Concat(driven.Tasks.Where(t => t.Answers is not null && t.ContinueFrom is null).Select(t => $"task '{t.Id}': answers need continue_from"))
             .Concat(driven.Tasks.Where(t => t.ContinueFrom is not null && (t.Goal is not null || t.Ref is not null)).Select(t => $"task '{t.Id}': continue_from takes the earlier task's goal; leave out goal and ref"))
             .Concat(driven.Tasks.Where(t => t.Answers?.Any(string.IsNullOrWhiteSpace) == true).Select(t => $"task '{t.Id}': answers must not be empty"))
@@ -164,7 +166,9 @@ public static class DrivenRules
 
     public const int MaxAcceptance = 20;
 
-    /// <summary>All problems of a request that carries <c>driven</c>: duplicate task ids and a missing <c>context.repository</c>.</summary>
+    /// <summary>All problems of a request that carries <c>driven</c>: duplicate task ids, a missing <c>context.repository</c>, and a
+    /// <c>context.verify</c> that checks nothing (CHARGEHAND-258): chargehand does not believe a caller's <c>true</c>, <c>:</c>, <c>exit 0</c>
+    /// or bare <c>echo</c>, so a driven request naming one is refused rather than silently falling back to a detected command.</summary>
     public static IReadOnlyList<string> Problems(RunRequest request)
     {
         if (request.Driven is null)
@@ -172,6 +176,8 @@ public static class DrivenRules
         var problems = Problems(request.Driven).ToList();
         if (request.Context.Repository is null)
             problems.Add("a driven request needs context.repository");
+        if (request.Context.Verify is { Count: > 0 } verify && NoOpVerify.IsNoOp(verify))
+            problems.Add($"context.verify '{string.Join(' ', verify)}' checks nothing (CHARGEHAND-258); name a command that can fail, or leave it out so chargehand works out its own");
         return problems;
     }
 }

@@ -106,6 +106,46 @@ public class DrivenContractsTests
     }
 
     [Theory]
+    [InlineData("true")]
+    [InlineData("exit 0")]
+    [InlineData(":")]
+    [InlineData("echo")]
+    [InlineData("echo all good")]
+    public void An_acceptance_check_that_checks_nothing_is_refused_by_the_rule_check(string noOp)
+    {
+        var problems = DrivenRules.Problems(new RequestDriven([new DrivenTask("t1", Goal: "g", Acceptance: [new AcceptanceCheck(noOp)])]));
+        Assert.Contains(problems, p => p == $"task 't1': acceptance check '{noOp}' checks nothing (CHARGEHAND-258); name a command that can fail");
+    }
+
+    [Fact]
+    public void An_acceptance_check_that_can_fail_is_not_refused()
+    {
+        Assert.Empty(DrivenRules.Problems(new RequestDriven([new DrivenTask("t1", Goal: "g", Acceptance: [new AcceptanceCheck("./smoke.sh"), new AcceptanceCheck("npm test && echo done"), new AcceptanceCheck("echo building && pytest")])])));
+    }
+
+    [Theory]
+    [InlineData("true")]
+    [InlineData("exit 0")]
+    [InlineData("echo")]
+    [InlineData("echo nothing to see here")]
+    public void A_context_verify_that_checks_nothing_is_refused_by_the_rule_check(string noOp)
+    {
+        var request = new RunRequest("request/v1", "t",
+            new RequestContext(false, "driven", Repository: new RepositoryRef("/r", "abcdef1"), Verify: ["sh", "-c", noOp]),
+            Driven: new RequestDriven([new DrivenTask("t1", Goal: "g")]));
+        Assert.Contains(DrivenRules.Problems(request), p => p.Contains("checks nothing") && p.Contains("CHARGEHAND-258"));
+    }
+
+    [Fact]
+    public void A_context_verify_that_can_fail_is_not_refused()
+    {
+        var request = new RunRequest("request/v1", "t",
+            new RequestContext(false, "driven", Repository: new RepositoryRef("/r", "abcdef1"), Verify: ["dotnet", "test"]),
+            Driven: new RequestDriven([new DrivenTask("t1", Goal: "g")]));
+        Assert.Empty(DrivenRules.Problems(request));
+    }
+
+    [Theory]
     [InlineData("""{"tasks":[{"id":"t1","goal":"g","answers":["a"]}]}""", false)]                                                  // answers need continue_from (a rule, not the schema)
     [InlineData("""{"tasks":[{"id":"t1","continue_from":{"run_id":"r1"}}]}""", true)]                                              // task_id missing
     [InlineData("""{"tasks":[{"id":"t1","continue_from":{"run_id":"R 1","task_id":"t1"}}]}""", true)]                              // run id shape
