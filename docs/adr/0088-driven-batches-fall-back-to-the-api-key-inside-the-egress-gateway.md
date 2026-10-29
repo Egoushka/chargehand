@@ -1,6 +1,6 @@
 # 0088. Driven batches fall back to the API key inside the egress gateway
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-29
 
 ## Context
