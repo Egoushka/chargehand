@@ -8,7 +8,10 @@ namespace Chargehand.Modules.Gateway.Api;
 /// <param name="RunId">The run the token names; null when the token was refused.</param>
 /// <param name="Tokens">Input plus output tokens this request counted; never any text.</param>
 /// <param name="Fallback">True for a call made on the fallback key (ADR 0088); <paramref name="Usd"/> is what its usage cost at the fallback's prices.</param>
-public sealed record GatewayEvent(DateTimeOffset At, string? RunId, int Status, long Tokens, string Reason, bool Fallback = false, decimal Usd = 0);
+/// <param name="TotalUsd">On a fallback call: the dollars every fallback call of this gateway has cost, this one included. With <paramref name="Calls"/>, <paramref name="Closed"/> and
+/// <paramref name="LimitedUntil"/> it makes the last fallback line a summary of the batch, so a log read from its tail still gives the total.</param>
+public sealed record GatewayEvent(DateTimeOffset At, string? RunId, int Status, long Tokens, string Reason, bool Fallback = false, decimal Usd = 0, decimal TotalUsd = 0, int Calls = 0, bool Closed = false,
+    DateTimeOffset? LimitedUntil = null);
 
 /// <summary>The model endpoint of a batch's egress container (ADR 0039, decision 9): plain HTTP on the internal network, for a session whose <c>ANTHROPIC_BASE_URL</c> points here. It
 /// accepts only a request carrying a per-run token (<see cref="ModelTokens"/>), replaces that token with the real credential, which only this process holds, and forwards the request over
@@ -301,8 +304,9 @@ public sealed partial class ModelGateway : IAsyncDisposable
 
     private void Add(string runId, long tokens) => _used.AddOrUpdate(runId, tokens, (_, total) => total + tokens);
 
-    private void Record(string? runId, int status, long tokens, string reason, bool fallback = false, decimal usd = 0) =>
-        _log?.Invoke(new GatewayEvent(_clock(), runId, status, tokens, reason, fallback, usd));
+    private void Record(string? runId, int status, long tokens, string reason, bool fallback = false, decimal usd = 0, decimal totalUsd = 0, int calls = 0, bool closed = false,
+        DateTimeOffset? limitedUntil = null) =>
+        _log?.Invoke(new GatewayEvent(_clock(), runId, status, tokens, reason, fallback, usd, totalUsd, calls, closed, limitedUntil));
 
     private static async Task Refuse(HttpListenerResponse response, int status, string type, string message)
     {

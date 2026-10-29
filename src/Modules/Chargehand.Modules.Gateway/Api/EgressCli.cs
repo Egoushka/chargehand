@@ -119,7 +119,7 @@ public static class EgressCli
         if (!fallbackValid)
             return null;
         var gateway = new ModelGateway(key, credential, options.ModelHost, log: e =>
-            error.WriteLine(JsonSerializer.Serialize(new GatewayLogLine(e.At, e.RunId, e.Status, e.Tokens, e.Reason, e.Fallback, e.Usd), GatewayJsonContext.Default.GatewayLogLine)), fallback: fallback);
+            error.WriteLine(JsonSerializer.Serialize(new GatewayLogLine(e.At, e.RunId, e.Status, e.Tokens, e.Reason, e.Fallback, e.Usd, e.TotalUsd, e.Calls, e.Closed, e.LimitedUntil), GatewayJsonContext.Default.GatewayLogLine)), fallback: fallback);
         gateway.Start(listen.Address.Equals(IPAddress.Any) ? $"http://+:{listen.Port}/" : $"http://{listen.Address}:{listen.Port}/");
         error.WriteLine($"model endpoint listening on {listen}, forwarding to {options.ModelHost}");
         return gateway;

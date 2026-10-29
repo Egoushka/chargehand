@@ -500,7 +500,9 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         Planner: new Chargehand.Modules.Batches.Api.ModelPlanner(childRun, driven.Planning?.Preset ?? "cheap"),
         Retro: new Chargehand.Modules.Batches.Api.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap"), Runners: sites,
         AppToken: AppTokens(driven) is { } appTokens ? (remote, token) => appTokens.GetAsync(remote.Owner, remote.Name, token) : null),
-        stateDirectory, learning, records);
+        stateDirectory, learning, records,
+        profile.ClaudeCode is { ApiFallbackKeySecret: not null, ApiFallbackDailyUsd: { } fallbackUsd }
+            ? ApiFallback.For(fallbackUsd, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "api-fallback.json")) : null);
 }
 
 // GitHub's API root: api.github.com, or the Enterprise host the profile's driven.forge names. The E2E switch exists for scripts/driven-e2e.sh only.
@@ -765,7 +767,7 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
         // Issue #632: the fallback's day of spend outlives a restart beside the run log, so its cap holds across them.
         var fallback = credential.Subscription && cc.ApiFallbackKeySecret is { } fallbackItem
             ? new ClaudeCodeFallback(profile.Secret(fallbackItem), cc.ApiFallbackBaseUrl is null ? null : new Uri(cc.ApiFallbackBaseUrl),
-                new ApiFallback(cc.ApiFallbackDailyUsd!.Value, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "api-fallback.json")))
+                ApiFallback.For(cc.ApiFallbackDailyUsd!.Value, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "api-fallback.json")))
             : null;
         var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct, cc.BaseUrl is null ? null : new Uri(cc.BaseUrl), headers, fallback);
         return (claude, claude.Version);

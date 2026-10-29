@@ -58,6 +58,7 @@ public class DrivenRunTests
         private readonly DrivenServices? _services;
         private readonly string? _state;
         private readonly ILearningStore? _learning;
+        private readonly ApiFallback? _fallback;
 
         public Rig(bool enabled = true, Func<string, SessionStatus>? script = null, string? mcpForward = null, string? dir = null, JsonlRunLog? log = null, FakeVolumes? volumes = null,
             string? modelUrl = null, bool apiKey = false, string? otlpUrl = null, TelemetrySettings? telemetry = null, bool durable = false, IEvidenceResolver? resolver = null,
@@ -66,17 +67,17 @@ public class DrivenRunTests
             IBatchPlanner? planner = null, IStackSeeder? stacker = null, DrivenPlanning? planning = null, ILearningStore? learning = null, DrivenLearning? learningSettings = null,
             IBatchRetro? retro = null, IRetroSink? retroSink = null, DrivenGovernor? governor = null, IBranchSeeder? brancher = null, IReadOnlyList<AccountSettings>? accounts = null,
             IHostSource? host = null, DrivenAdmission? admission = null, int maxParallel = 2, bool records = false, string? pushSecret = PushSecret,
-            Func<RemoteRepository, CancellationToken, Task<string>>? appToken = null)
+            Func<RemoteRepository, CancellationToken, Task<string>>? appToken = null, ClaudeCodeSettings? claude = null, ApiFallback? fallback = null, IReadOnlyDictionary<string, ModelPrice>? prices = null)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
             {
-                ClaudeCode = apiKey ? new ClaudeCodeSettings("2.1.283", ApiKeySecret: "gateway-key") : new ClaudeCodeSettings("2.1.283", OauthTokenSecret: "claude-code-oauth-token"),
+                ClaudeCode = claude ?? (apiKey ? new ClaudeCodeSettings("2.1.283", ApiKeySecret: "gateway-key") : new ClaudeCodeSettings("2.1.283", OauthTokenSecret: "claude-code-oauth-token")),
                 Driven = new DrivenSettings(enabled, MaxParallel: maxParallel, Admission: admission, Images: [Image], PushSecret: pushSecret,
                     Network: new DrivenNetwork(McpForward: mcpForward, ModelUrl: modelUrl, OtlpUrl: otlpUrl), Limits: limits, Integrator: integrator, Forge: forge, Planning: planning, Learning: learningSettings, Governor: governor),
                 Telemetry = telemetry,
                 Http = accounts is null ? null : new HttpSettings("api-key", Accounts: accounts),
-                Prices = new Dictionary<string, ModelPrice> { ["p/small"] = new(0.1m, 0.5m, 0.01m, 0.125m), ["provider/claude-sonnet-5-5"] = new(3m, 15m, 0.3m, 3.75m) },
+                Prices = prices ?? new Dictionary<string, ModelPrice> { ["p/small"] = new(0.1m, 0.5m, 0.01m, 0.125m), ["provider/claude-sonnet-5-5"] = new(3m, 15m, 0.3m, 3.75m) },
             };
             Volumes = volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed), outcomes);
             var services = enabled
@@ -88,7 +89,8 @@ public class DrivenRunTests
             _state = durable ? Path.Combine(Dir.Path, "batches") : null;
             _learning = learning;
             Records = records ? new BatchRecords(Path.Combine(Dir.Path, "records")) : null;
-            Run = new DrivenRun(Profile, Log, Repo.Root, services, _state, learning, Records);
+            _fallback = fallback;
+            Run = new DrivenRun(Profile, Log, Repo.Root, services, _state, learning, Records, fallback);
         }
 
         /// <summary>What the batch's events and its tasks' sessions are kept in; null: nothing is kept.</summary>
@@ -100,7 +102,7 @@ public class DrivenRunTests
         public DrivenRun Restart()
         {
             Run.Dispose();
-            return Run = new DrivenRun(Profile, Log, Repo.Root, _services, _state, _learning, Records);
+            return Run = new DrivenRun(Profile, Log, Repo.Root, _services, _state, _learning, Records, _fallback);
         }
 
         public void Dispose()
@@ -131,6 +133,97 @@ public class DrivenRunTests
 
         var host = Assert.Single(rig.Run.LearnedHosts!.Read()["o/r"]);
         Assert.Equal(("static.rust-lang.org", 1, "run-batch-l"), (host.Host, host.Refusals, host.LastBatch));
+    }
+
+    private static readonly Dictionary<string, ModelPrice> FallbackPrices = new() { ["provider/worker-model"] = new(3m, 15m, 0.3m, 3.75m) };
+
+    private static ClaudeCodeSettings WithFallback(string? baseUrl = null) =>
+        new("2.1.283", OauthTokenSecret: "claude-code-oauth-token", ApiFallbackKeySecret: "api-fallback-key", ApiFallbackBaseUrl: baseUrl, ApiFallbackDailyUsd: 10m);
+
+    private static string FallbackLine(string run, decimal usd, decimal total, int calls, bool closed = false, int status = 200) =>
+        $$"""{"at":"2026-10-29T09:05:00+00:00","model_run":"{{run}}","status":{{status}},"tokens":5,"reason":"","fallback":true,"usd":{{usd.ToString(System.Globalization.CultureInfo.InvariantCulture)}},"total_usd":{{total.ToString(System.Globalization.CultureInfo.InvariantCulture)}},"calls":{{calls}}{{(closed ? ",\"closed\":true" : "")}},"limited_until":"2026-10-29T14:00:00+00:00"}""";
+
+    [Fact]
+    public async Task A_subscription_batch_with_a_fallback_finishes_its_task_through_a_limit()
+    {
+        // The counterpart of BatchMachineTests.An_unavailable_provider_stops_the_batch_without_fallback: the limit is answered inside the egress gateway, so the session never sees it.
+        var gate = new ApiFallback(10m, null);
+        using var rig = new Rig(claude: WithFallback(), fallback: gate, prices: FallbackPrices);
+        rig.Engine.LogsOf = id => id != "egress-1" ? "" : string.Join('\n', FallbackLine(rig.Engine.Started.Single().RunId, 0.5m, 0.5m, 1), FallbackLine(rig.Engine.Started.Single().RunId, 1m, 1.5m, 2));
+
+        var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-fb", Token, default);
+        Assert.True(result.Status == ResultStatus.Completed, result.Error?.Message);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        // The egress container got the key, the host, the batch's whole share of the day's cap and the model's prices; the session got none of it.
+        var fallback = Assert.Single(rig.Engine.Egresses).Gateway!.Fallback!;
+        Assert.Equal(("value-of-api-fallback-key", "api.anthropic.com", 10m), (fallback.Credential, fallback.Host, fallback.AllowanceUsd));
+        Assert.Equal(new FallbackPrice(3m, 15m, 0.3m, 3.75m), fallback.Price);
+        Assert.DoesNotContain("value-of-api-fallback-key", rig.Engine.Started.Single().Env.Values);
+        // The result says what it cost, in total and per task, and still says how the credential was delivered.
+        var batch = JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "driven-batch").Content!).RootElement;
+        Assert.Equal("token_exchange", batch.GetProperty("credential_delivery").GetString());
+        Assert.Equal((1.5m, 2, false), (batch.GetProperty("fallback").GetProperty("usd").GetDecimal(), batch.GetProperty("fallback").GetProperty("calls").GetInt32(), batch.GetProperty("fallback").GetProperty("refused").GetBoolean()));
+        Assert.Equal(2, batch.GetProperty("tasks")[0].GetProperty("fallback").GetProperty("calls").GetInt32());
+        // The ledger holds what was spent, nothing stays reserved, and the subscription's reset is recorded.
+        var ledger = gate.Read();
+        Assert.Equal(1.5m, ledger.SpentUsd);
+        Assert.Null(ledger.Reserved);
+        Assert.Equal(DateTimeOffset.Parse("2026-10-29T14:00:00+00:00", System.Globalization.CultureInfo.InvariantCulture), ledger.LimitedUntil);
+    }
+
+    [Fact]
+    public async Task A_batch_whose_egress_log_cannot_be_read_counts_its_whole_share_as_spent()
+    {
+        var gate = new ApiFallback(10m, null);
+        using var rig = new Rig(claude: WithFallback(), fallback: gate, prices: FallbackPrices);
+        rig.Engine.LogsOf = _ => throw new ChargehandException(ErrorCode.ContainerUnavailable, "the engine could not read the log");
+
+        var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-fu", Token, default);
+
+        Assert.Equal(ResultStatus.Completed, result.Status);
+        Assert.Equal(10m, gate.Read().SpentUsd);
+        Assert.Null(gate.Read().Reserved);
+        Assert.Equal(10m, JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "driven-batch").Content!).RootElement.GetProperty("fallback").GetProperty("usd").GetDecimal());
+    }
+
+    [Fact]
+    public async Task A_gateway_refusal_on_the_fallback_closes_it_for_the_day()
+    {
+        var gate = new ApiFallback(10m, null);
+        using var rig = new Rig(claude: WithFallback(), fallback: gate, prices: FallbackPrices);
+        rig.Engine.LogsOf = id => id != "egress-1" ? "" : FallbackLine(rig.Engine.Started.Single().RunId, 0m, 0.2m, 3, closed: true, status: 402);
+
+        var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-fr", Token, default);
+
+        Assert.True(JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "driven-batch").Content!).RootElement.GetProperty("fallback").GetProperty("refused").GetBoolean());
+        Assert.True(gate.Read().Refused);
+        Assert.False(gate.UseFallback());
+    }
+
+    [Fact]
+    public async Task A_batch_without_a_fallback_in_the_profile_has_none_and_says_nothing_of_one()
+    {
+        using var plain = new Rig(fallback: new ApiFallback(10m, null), prices: FallbackPrices);
+        var plainResult = await plain.Run.RunAsync(Request("Add a retry"), "run-batch-n1", Token, default);
+        Assert.Null(Assert.Single(plain.Engine.Egresses).Gateway!.Fallback);
+        Assert.False(JsonDocument.Parse(plainResult.Artifacts.Single(a => a.Kind == "driven-batch").Content!).RootElement.TryGetProperty("fallback", out _));
+
+        // A route without the token exchange (an API key, or a key a model gateway issued) has no egress model endpoint to fall back inside, so a fallback leaves it as it is.
+        var route = new SiteRoute(null!, null, 0, null, null, [], [], "bridge", null);
+        Assert.Same(route, route.WithFallback(new GatewayFallback("k", "gateway.example.test", 1m, new FallbackPrice(1m, 1m, 1m, 1m))));
+    }
+
+    [Fact]
+    public async Task A_fallback_for_a_model_with_no_price_refuses_the_batch_at_its_start()
+    {
+        using var rig = new Rig(claude: WithFallback(), fallback: new ApiFallback(10m, null), prices: new Dictionary<string, ModelPrice> { ["p/small"] = new(0.1m, 0.5m, 0.01m, 0.125m) });
+
+        var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-np", Token, default);
+
+        Assert.Equal(ErrorCode.InvalidRequest, result.Error!.Code);
+        Assert.Contains("prices has no entry", result.Error.Message);
+        Assert.Empty(rig.Engine.Egresses);
     }
 
     [Fact]

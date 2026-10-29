@@ -286,6 +286,21 @@ public class ModelGatewayTests
     }
 
     [Fact]
+    public async Task Fallback_log_lines_carry_running_totals_and_the_reset_for_the_server_to_settle()
+    {
+        await using var rig = new Rig(LimitedSubscription(TimeSpan.FromHours(3), usage: """{"input_tokens":1000000,"output_tokens":0}"""), Fallback(allowance: 10m));
+        await (await rig.Post(Rig.Token())).Content.ReadAsStringAsync();
+        await WaitFor(() => rig.Log.Count(e => e.Fallback) == 1);
+        await (await rig.Post(Rig.Token("run-b"))).Content.ReadAsStringAsync();
+        await WaitFor(() => rig.Log.Count(e => e.Fallback) == 2);
+
+        var last = rig.Log.Where(e => e.Fallback).OrderBy(e => e.TotalUsd).Last();
+
+        Assert.Equal((6m, 2, false), (last.TotalUsd, last.Calls, last.Closed));
+        Assert.Equal(Now.AddHours(3).ToUnixTimeSeconds(), last.LimitedUntil!.Value.ToUnixTimeSeconds());
+    }
+
+    [Fact]
     public async Task Until_the_reset_new_requests_go_straight_to_the_fallback()
     {
         await using var rig = new Rig(LimitedSubscription(TimeSpan.FromHours(3), usage: """{"input_tokens":10,"output_tokens":1}"""), Fallback());
@@ -410,8 +425,16 @@ public class ModelGatewayTests
     {
         await using var rig = new Rig(fallback: Fallback());
         using var content = new StreamContent(new ChunkedZeros(65L * 1024 * 1024));
-        var response = await rig.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, rig.Url + "/v1/messages") { Content = content, Headers = { Authorization = new AuthenticationHeaderValue("Bearer", Rig.Token()) } });
-        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        // The gateway answers 413 as soon as the body passes the limit and drops the connection, so the client still writing sees either the answer or a reset.
+        try
+        {
+            var response = await rig.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, rig.Url + "/v1/messages") { Content = content, Headers = { Authorization = new AuthenticationHeaderValue("Bearer", Rig.Token()) } });
+            Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        }
+        catch (HttpRequestException)   // agent-checks: allow empty-catch -- the reset is the other legal outcome; the 413 log line below proves the refusal
+        {
+        }
+        await WaitFor(() => rig.Log.Any(e => e.Status == 413));
         Assert.Empty(rig.Upstream.Calls);
     }
 

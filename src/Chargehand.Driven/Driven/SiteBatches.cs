@@ -27,7 +27,8 @@ namespace Chargehand.Driven;
 /// <param name="Push">The credential <c>driven.push_secret</c> names; null: the GitHub App pushes (<see cref="BatchCheckout.Push"/>).</param>
 /// <param name="ModelEnvironment">The one model credential variable a session gets.</param>
 internal sealed record BatchSetup(DrivenServices Services, DrivenSettings Settings, ClaudeCodeSettings Claude, string Image, DrivenPreset Preset, string Model, AccountModel? Own, bool Priced,
-    BatchLimits Limits, PushCredential? Push, IReadOnlyDictionary<string, string> ModelEnvironment, IReadOnlyList<RunnerSite> Sites);
+    BatchLimits Limits, PushCredential? Push, IReadOnlyDictionary<string, string> ModelEnvironment, IReadOnlyList<RunnerSite> Sites,
+    FallbackSetup? Fallback = null);
 
 /// <summary>The batch's checkout, and what acts on its remote: a forge other than GitHub (one token both opens the pull request and integrates it), and the integrator (ADR 0046).</summary>
 /// <param name="Push">What pushes the branches: <c>driven.push_secret</c>, or the GitHub App's token for the remote.</param>
@@ -82,6 +83,9 @@ internal sealed record SiteRoute(RunnerSite Site, string? Forward, int Port, Dri
             forwards.Add(otlp.Forward);
         return forwards;
     }
+
+    /// <summary>The route with the batch's reserved fallback in its model endpoint (ADR 0088). Only the token exchange has one: a gateway key or an API key stays as it is.</summary>
+    public SiteRoute WithFallback(GatewayFallback fallback) => Exchange is null ? this : this with { Exchange = Exchange with { Fallback = fallback } };
 
     /// <summary>The server's gateway is for the server's credential: an account's own key goes direct to Anthropic, or to the gateway its model block names.</summary>
     private static DrivenModelRoute? ModelOf(RunnerSite site, DrivenNetwork? network, DrivenRunnerForwards? over, AccountModel? own, bool priced, int? port)
@@ -153,34 +157,46 @@ internal sealed class SiteBatches
         }
     }
 
-    /// <summary>Each runner's part removed: a network with a container still attached cannot be removed, so the services go first. Returns the hosts the sessions were refused, read from the
-    /// egress container's log before it goes (ADR 0078, decision 4).</summary>
-    public async Task<IReadOnlyList<EgressRefusal>> TeardownAsync()
+    /// <summary>Each runner's part removed: a network with a container still attached cannot be removed, so the services go first. Returns the hosts the sessions were refused and what the fallback
+    /// cost, read from the egress container's log before it goes (ADR 0078, decision 4; ADR 0088, decision 6).</summary>
+    public async Task<Teardown> TeardownAsync()
     {
         List<EgressRefusal> refused = [];
+        var spend = FallbackSpend.None;
+        var readable = true;
         foreach (var lazy in _made.Values.Where(l => l.IsValueCreated && l.Value.IsCompletedSuccessfully))
         {
             var made = lazy.Value.Result;
-            refused.AddRange(await RefusedAsync(made));
+            var (hosts, spent) = await ReadEgressAsync(made);
+            refused.AddRange(hosts);
+            if (spent is null)
+                readable = false;
+            else
+                spend = spend.Plus(spent);
             await new BatchServices(made.Site.Engine).RemoveAsync(_shared.Services, CancellationToken.None);
             await new BatchNetwork(made.Site.Engine).RemoveAsync(made.Network, CancellationToken.None);
         }
-        return refused;
+        return new Teardown(refused, readable ? spend : null);
     }
+
+    /// <param name="Refused">The hosts the sessions were refused (ADR 0078, decision 4).</param>
+    /// <param name="Spend">What the fallback cost over every runner's egress log (ADR 0088); null: a log could not be read.</param>
+    internal sealed record Teardown(IReadOnlyList<EgressRefusal> Refused, FallbackSpend? Spend);
 
     /// <summary>About 16,000 lines of the proxy's log: a batch's package installs connect hundreds of times, and a refusal early in the batch must not fall out of the tail.</summary>
     internal const int EgressLogBytes = 1024 * 1024;
 
-    /// <summary>A log that cannot be read loses a hint, never the teardown.</summary>
-    private static async Task<IReadOnlyList<EgressRefusal>> RefusedAsync(SiteBatch made)
+    /// <summary>A log that cannot be read loses a hint, never the teardown; its fallback spend is then unknown (null), and the ledger counts the whole reservation.</summary>
+    private static async Task<(IReadOnlyList<EgressRefusal> Refused, FallbackSpend? Spend)> ReadEgressAsync(SiteBatch made)
     {
         try
         {
-            return EgressRefusals.Parse(await made.Site.Engine.LogsTailAsync(made.Network.EgressContainer, EgressLogBytes, CancellationToken.None));
+            var log = await made.Site.Engine.LogsTailAsync(made.Network.EgressContainer, EgressLogBytes, CancellationToken.None);
+            return (EgressRefusals.Parse(log), FallbackSpend.Parse(log));
         }
         catch (Exception e) when (e is ChargehandException or HttpRequestException or IOException or ArgumentException)
         {
-            return [];
+            return ([], null);
         }
     }
 

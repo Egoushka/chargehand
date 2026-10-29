@@ -44,4 +44,38 @@ public sealed class ClaudeCodeApiFallbackTests
 
     [Fact]
     public void The_cli_login_takes_an_api_fallback_too() => new ClaudeCodeSettings("1", ApiFallbackKeySecret: "api", ApiFallbackDailyUsd: 6).CheckApiFallback();
+
+    [Fact]
+    public void A_fallback_needs_a_price_for_the_model_a_batch_runs()
+    {
+        var settings = new ClaudeCodeSettings("1", ApiFallbackKeySecret: "api", ApiFallbackDailyUsd: 6);
+
+        settings.CheckApiFallbackModel("m", hasPrice: true);
+        var refused = Assert.Throws<ChargehandException>(() => settings.CheckApiFallbackModel("m", hasPrice: false));
+        Assert.Equal(ErrorCode.InvalidRequest, refused.Code);
+        Assert.Contains("prices has no entry for 'm'", refused.Message);
+        new ClaudeCodeSettings("1").CheckApiFallbackModel("m", hasPrice: false);      // no fallback, nothing to price
+    }
+
+    [Theory]
+    [InlineData(null, "api.anthropic.com")]
+    [InlineData("https://gateway.example.test", "gateway.example.test")]
+    [InlineData("https://gateway.example.test/", "gateway.example.test")]
+    [InlineData("http://gateway.example.test", null)]            // the gateway forwards over TLS
+    [InlineData("https://gateway.example.test/anthropic", null)]  // and with the request's own path
+    [InlineData("https://gateway.example.test:8443", null)]
+    [InlineData("https://10.0.0.1", null)]
+    public void A_batch_falls_back_only_to_an_https_host_the_gateway_can_reach(string? baseUrl, string? host)
+    {
+        var settings = new ClaudeCodeSettings("1", OauthTokenSecret: "t", ApiFallbackKeySecret: "api", ApiFallbackBaseUrl: baseUrl, ApiFallbackDailyUsd: 6);
+        var gate = new ApiFallback(6m, null);
+
+        var setup = Chargehand.Driven.FallbackSetup.Of(settings, "m", _ => new Chargehand.Modules.Ledger.Api.ModelPrice(1m, 2m, 3m, 4m), priced: false, gate, name => $"value-of-{name}", "run-1");
+
+        Assert.Equal(host, setup?.Host);
+        if (host is not null)
+            Assert.Equal(("value-of-api", new Chargehand.Modules.Gateway.Api.FallbackPrice(1m, 2m, 3m, 4m)), (setup!.Credential, setup.Price));
+        Assert.Null(Chargehand.Driven.FallbackSetup.Of(settings, "m", _ => new Chargehand.Modules.Ledger.Api.ModelPrice(1m, 2m, 3m, 4m), priced: true, gate, n => n, "run-1"));   // an API key batch
+        Assert.Null(Chargehand.Driven.FallbackSetup.Of(settings, "m", _ => new Chargehand.Modules.Ledger.Api.ModelPrice(1m, 2m, 3m, 4m), priced: false, null, n => n, "run-1"));  // no ledger
+    }
 }

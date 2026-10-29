@@ -11,8 +11,14 @@ namespace Chargehand.Runtimes.ClaudeCode.Api;
 /// aside at a batch's start and <see cref="Settle"/> replaces it with what the batch spent. The cap counts chargehand's own fallback spend. When the fallback key is shared, the shared cap is the gateway's budget on that key; this class sees it only as a refusal.</remarks>
 public sealed class ApiFallback(decimal dailyUsd, string? ledgerFile, TimeProvider? time = null)
 {
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ApiFallback> Shared = new(StringComparer.Ordinal);
+
     private readonly object _lock = new();
     private FallbackLedger? _ledger;
+
+    /// <summary>The one gate for a ledger file in this process: worker turns and driven batches spend one cap (ADR 0088), and two gates over a file would each overwrite the other's day.</summary>
+    public static ApiFallback For(decimal dailyUsd, string ledgerFile) =>
+        Shared.GetOrAdd(Path.GetFullPath(ledgerFile), file => new ApiFallback(dailyUsd, file));
 
     public decimal DailyUsd => dailyUsd;
 

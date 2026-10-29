@@ -29,6 +29,7 @@ public sealed partial class ModelGateway
     private readonly Lock _fallbackState = new();
     private DateTimeOffset _limitedUntil = DateTimeOffset.MinValue;
     private decimal _spent;
+    private int _calls;
     private bool _closed;
     private bool _limitShapeLogged;
 
@@ -193,13 +194,19 @@ public sealed partial class ModelGateway
     private void SettleFallbackCall(string runId, HttpResponseMessage answer, UsageScanner scanner, long counted)
     {
         var usd = _fallback!.Price.Usd(scanner.Input, scanner.Output, scanner.CacheRead, scanner.CacheWrite);
+        decimal total;
+        int calls;
+        bool closed;
+        DateTimeOffset? limitedUntil;
         lock (_fallbackState)
         {
             _spent += usd;
+            _calls++;
             if (answer.StatusCode == HttpStatusCode.PaymentRequired)
                 _closed = true;
+            (total, calls, closed, limitedUntil) = (_spent, _calls, _closed, _limitedUntil == DateTimeOffset.MinValue ? null : _limitedUntil);
         }
-        Record(runId, (int)answer.StatusCode, counted, "", fallback: true, usd: usd);
+        Record(runId, (int)answer.StatusCode, counted, "", fallback: true, usd: usd, totalUsd: total, calls: calls, closed: closed, limitedUntil: limitedUntil);
     }
 
     /// <summary>Copies a header onto the replayed request. On the fallback, the one value only an OAuth token is accepted with is dropped from <c>anthropic-beta</c>.</summary>
