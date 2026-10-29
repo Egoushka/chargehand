@@ -1,3 +1,4 @@
+using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Runners.Api;
 
 namespace Chargehand.Modules.Runners.Tests;
@@ -140,6 +141,37 @@ public class BatchNetworkTests
         Assert.DoesNotContain(args, a => a.Contains("real-credential-value") || a.Contains(TokenKey));
         Assert.Equal(["CHARGEHAND_EGRESS_MODEL_CREDENTIAL=real-credential-value", $"CHARGEHAND_EGRESS_TOKEN_KEY={TokenKey}"], ContainerTemplate.EgressEnvLines(spec.Gateway!));
         Assert.DoesNotContain("--env-file", ContainerTemplate.EgressArgs(new EgressSpec("b1", Image, "chargehand-net-b1", ["api.anthropic.com"])));
+    }
+
+    [Fact]
+    public void A_fallback_travels_in_the_env_file_beside_the_credential_and_never_as_an_argument()
+    {
+        var fallback = new GatewayFallback("fallback-credential-value", "gateway.example.test", 2.5m, new FallbackPrice(3m, 15m, 0.3m, 3.75m));
+        var spec = new EgressSpec("b1", Image, "chargehand-net-b1", ["api.anthropic.com"], Gateway: new ModelGatewaySpec("real-credential-value", TokenKey, Fallback: fallback));
+
+        var lines = ContainerTemplate.EgressEnvLines(spec.Gateway!);
+
+        Assert.Contains("CHARGEHAND_EGRESS_FALLBACK_CREDENTIAL=fallback-credential-value", lines);
+        Assert.Contains("CHARGEHAND_EGRESS_FALLBACK_HOST=gateway.example.test", lines);
+        Assert.Contains("CHARGEHAND_EGRESS_FALLBACK_USD=2.5", lines);
+        Assert.Contains("CHARGEHAND_EGRESS_FALLBACK_PRICE=3,15,0.3,3.75", lines);
+        Assert.DoesNotContain(ContainerTemplate.EgressArgs(spec, "/tmp/env-file"), a => a.Contains("fallback-credential-value") || a.Contains("gateway.example.test"));
+        // What the egress process reads back is what was sent.
+        var env = lines.Select(l => l.Split('=', 2)).ToDictionary(p => p[0], p => p[1]);
+        Assert.Equal(fallback, EgressCli.FallbackFromEnvironment(n => env.GetValueOrDefault(n), TextWriter.Null, out var valid));
+        Assert.True(valid);
+    }
+
+    [Theory]
+    [InlineData("a b", "gateway.example.test", 2.5, 3)]       // whitespace in the key
+    [InlineData("k", "10.0.0.1", 2.5, 3)]                      // an address
+    [InlineData("k", "gateway.example.test", 0, 3)]            // no allowance
+    [InlineData("k", "gateway.example.test", 2.5, -1)]         // a negative price
+    public void A_bad_fallback_is_refused_before_anything_starts(string key, string host, double allowance, double input)
+    {
+        var fallback = new GatewayFallback(key, host, (decimal)allowance, new FallbackPrice((decimal)input, 15m, 0.3m, 3.75m));
+        var spec = new EgressSpec("b1", Image, "chargehand-net-b1", ["api.anthropic.com"], Gateway: new ModelGatewaySpec("real", TokenKey, Fallback: fallback));
+        Assert.Throws<ArgumentException>(() => ContainerTemplate.EgressArgs(spec, "/tmp/env-file"));
     }
 
     [Theory]

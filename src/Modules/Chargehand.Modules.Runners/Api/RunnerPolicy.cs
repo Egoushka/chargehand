@@ -10,10 +10,11 @@ namespace Chargehand.Modules.Runners.Api;
 /// <param name="SourceRoots">Directories a workspace's read-only source may be under (chargehand's checkouts). None: no workspace is prepared, because a source path names a host directory.</param>
 /// <param name="ServiceImages">Images a test service may be started from (ADR 0048), by digest. None: the runner starts no service.</param>
 /// <param name="MaxBundleBytes">The most a repository bundle the server sends may be (ADR 0058): the size of <c>source.bundle</c>, which is streamed into the output volume and never held in memory.</param>
+/// <param name="FallbackHost">The one host a model endpoint's fallback key may be sent to (ADR 0088), the profile's <c>api_fallback_base_url</c> host. None: the runner starts no model endpoint with a fallback, so a server cannot point a key at a host of its choosing.</param>
 /// <param name="Forwards">The forwards (<c>listen-port=host:port</c>) an egress container may carry: how a session calls the chargehand server back. The server names them in its request and the runner starts only these, so a server cannot point an egress container at any other host. None: an egress container carries no forward.</param>
 public sealed record RunnerPolicy(IReadOnlyList<string> Images, string EgressImage, int MaxContainers = 8, int MaxMemoryMb = 16_384, double MaxCpus = 4, int MaxPids = 1024,
     IReadOnlyList<string>? SourceRoots = null, IReadOnlyList<string>? OutsideNetworks = null, IReadOnlyList<string>? Forwards = null,
-    IReadOnlyList<string>? ServiceImages = null, long MaxBundleBytes = RunnerPolicy.DefaultMaxBundleBytes)
+    IReadOnlyList<string>? ServiceImages = null, long MaxBundleBytes = RunnerPolicy.DefaultMaxBundleBytes, string? FallbackHost = null)
 {
     public const long DefaultMaxBundleBytes = 512L * 1024 * 1024;
 

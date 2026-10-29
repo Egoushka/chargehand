@@ -4,6 +4,7 @@ using System.Text;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
+using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Server;
@@ -81,11 +82,11 @@ public class RunnerTests
         }
     }
 
-    private static async Task<Runner> Start(int maxContainers = 8, IReadOnlyList<string>? hosts = null, IReadOnlyList<string>? serviceImages = null)
+    private static async Task<Runner> Start(int maxContainers = 8, IReadOnlyList<string>? hosts = null, IReadOnlyList<string>? serviceImages = null, string? fallbackHost = null)
     {
         var engine = new FakeEngine();
         var app = RunnerServer.Create(new RunnerSettings(0, Key, new RunnerPolicy([Image], EgressImage, maxContainers, SourceRoots: ["/srv/checkouts"], OutsideNetworks: ["stack_net"], Forwards: ["4300=chargehand:4300"],
-            ServiceImages: serviceImages), AllowedHosts: hosts), engine);
+            ServiceImages: serviceImages, FallbackHost: fallbackHost), AllowedHosts: hosts), engine);
         await app.StartAsync();
         return new Runner(engine, app);
     }
@@ -432,6 +433,34 @@ public class RunnerTests
         Assert.Contains("model endpoint", refused.Message);
         Assert.DoesNotContain("real-credential", refused.Message);
         Assert.Equal("b1", r.Engine.Egress.BatchId);   // the refused request reached no engine
+    }
+
+    [Fact]
+    public async Task The_runner_accepts_only_the_profiles_fallback_host_for_the_model_endpoint()
+    {
+        var key = new string('a', 64);
+        var price = new FallbackPrice(3m, 15m, 0.3m, 3.75m);
+        ModelGatewaySpec With(string host) => new("real-credential", key, Fallback: new GatewayFallback("fallback-credential", host, 2.5m, price));
+
+        // A runner started without --fallback-host carries no fallback at all.
+        await using (var none = await Start())
+        {
+            var refusedNone = await Assert.ThrowsAsync<ChargehandException>(() => new RunnerClient(none.Http).StartEgressAsync(
+                new EgressSpec("b1", "ignored-by-runner", "chargehand-net-b1", ["api.anthropic.com"], Gateway: With("gateway.example.test")), default));
+            Assert.Contains("fallback", refusedNone.Message);
+            Assert.DoesNotContain("fallback-credential", refusedNone.Message);
+            Assert.Null(none.Engine.Egress);
+        }
+
+        await using var r = await Start(fallbackHost: "gateway.example.test");
+        var client = new RunnerClient(r.Http);
+        var refused = await Assert.ThrowsAsync<ChargehandException>(() => client.StartEgressAsync(
+            new EgressSpec("b2", "ignored-by-runner", "chargehand-net-b2", ["api.anthropic.com"], Gateway: With("evil.example")), default));
+        Assert.Contains("fallback", refused.Message);
+        Assert.Null(r.Engine.Egress);                                                             // the refused request reached no engine
+
+        await client.StartEgressAsync(new EgressSpec("b3", "ignored-by-runner", "chargehand-net-b3", ["api.anthropic.com"], Gateway: With("Gateway.Example.Test")), default);
+        Assert.Equal(With("Gateway.Example.Test"), r.Engine.Egress!.Gateway);                     // key, host, allowance and prices reach the engine whole
     }
 
     [Fact]

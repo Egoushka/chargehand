@@ -284,7 +284,12 @@ public static class RunnerServer
             // The model endpoint forwards only to the model's own host: the runner, not its caller, decides where a credential may travel.
             if (egress.Gateway is { } g && g.Host != Chargehand.Modules.Gateway.Api.EgressCli.DefaultModelHost)
                 return Refuse($"the model endpoint forwards to {Chargehand.Modules.Gateway.Api.EgressCli.DefaultModelHost} only");
-            var gateway = egress.Gateway is { } m ? new ModelGatewaySpec(m.Credential, m.TokenKey, m.Host, m.Port) : null;
+            // The same for the fallback key (ADR 0088): only the host the runner's operator named, and it must be an acceptable one.
+            if (egress.Gateway?.Fallback is { } fb && (policy.FallbackHost is not { } allowed || !string.Equals(fb.Host, allowed, StringComparison.OrdinalIgnoreCase)
+                || Chargehand.Modules.Gateway.Api.ModelGateway.RefuseHost(fb.Host) is not null))
+                return Refuse("the model endpoint's fallback goes only to the host the runner was started with (--fallback-host)");
+            var gateway = egress.Gateway is { } m ? new ModelGatewaySpec(m.Credential, m.TokenKey, m.Host, m.Port,
+                m.Fallback is { } f ? new Chargehand.Modules.Gateway.Api.GatewayFallback(f.Credential, f.Host, f.AllowanceUsd, new Chargehand.Modules.Gateway.Api.FallbackPrice(f.InputPerMtok, f.OutputPerMtok, f.CacheReadPerMtok, f.CacheWritePerMtok)) : null) : null;
             return Ok(new { id = await engine.StartEgressAsync(new EgressSpec(egress.BatchId, policy.EgressImage, egress.Network, egress.Allow, Forwards: egress.Forwards, Gateway: gateway), ct) });
         }));
 
