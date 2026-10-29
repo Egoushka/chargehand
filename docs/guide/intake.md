@@ -50,6 +50,21 @@ The goal's first line is the issue's title (the pull request's title is cut from
 
 **The queue.** A trigger that cannot start yet (no free slot, review backlog at its limit, a start the server or the account refused, a base commit that could not be read) is kept in `waiting` in the state file with why, is not marked handled, and starts at a later poll, after a restart too. `GET /v1/intake` lists it under `waiting`. Taking the label off a waiting issue, or deleting the comment, takes it out of the queue (logged `ignored: withdrawn`).
 
+**Order ([ADR 0051](../adr/0051-intake-from-github.md), issue #576).** When a poll finds more triggers ready to start than it has free slots for, it picks among them in this order, highest first, so the rest wait; enough free slots for everyone found starts them all, in the order found.
+
+1. a priority label on the issue (`priority_labels`, highest first; default `priority:high`, `priority:low`). An issue with exactly one of them ranks by it; one with none, or with more than one, ranks last, the same as a trigger with no issue to read a label from (an answer, a review round);
+2. source: a review round, then an answer, then a new issue (by a label or a mention);
+3. the issue's size label, smaller first (`size:S`, then `size:M`, then `size:L`); none, or more than one, ranks last;
+4. whichever has waited longer.
+
+A run [lost in a restart](#state) is requeued behind every trigger ranked this way, as before. The CI fixer does not compete for this queue: it runs its fix attempts directly on the branch it is already working, outside `max_concurrent`. Set the labels with:
+
+```json
+{ "automation": { "github": { "priority_labels": ["priority:high", "priority:low"] } } }
+```
+
+Leave it out for the default. A list must not be empty or repeat a name.
+
 **A run lost in a restart starts again, once.** A batch the server lost before it had state to resume from (still in the queue for a run slot, or resolving and planning its tasks; [ADR 0043](../adr/0043-driven-batches-survive-a-server-restart.md) resumes the rest) is reported lost 30 minutes after it started. When intake started it fresh from an issue, it goes into `waiting` with reason `lost` (logged `queued: lost`), behind the triggers that waited before it, and starts again with the lost run's goal when the run log still holds it, else from the issue. A second loss of that run is reported and not queued again: comment the mention to start it. A lost continuation or review round is never queued again.
 
 **Charging automated starts to an account.** `automation.account` (beside `automation.github` and `schedules`) names an account of `http.accounts` with `driven: true`. Every automated start, from GitHub or a schedule, is then admitted as that account, the way a person's request is: its credential rule, `repositories`, `max_concurrent_runs` and day and month caps apply, its budgets are clamped to what the windows have left, and the run counts in its spend. With `pause_on_forecast: true` on the account, its automated starts are held while its month forecast passes `max_usd_per_month` ([ADR 0076](../adr/0076-month-spend-forecast.md)). A refused or held start is retried at the next poll, with a line on stderr that says why. Without `automation.account`, automated starts run as the owner, with no account caps, as before.
@@ -135,6 +150,6 @@ Reviews share `max_concurrent` with the batches: a review waits while that many 
 
 ## Not covered
 
-Review summaries (the body of a submitted review) are not read, only its inline comments. A webhook instead of the poll. Issues in a repository nobody listed. Labels from a bot account. Not run against GitHub: see the ADR's UNKNOWN lists.
+Review summaries (the body of a submitted review) are not read, only its inline comments. A webhook instead of the poll. Issues in a repository nobody listed. Labels from a bot account. Not run against GitHub: see the ADR's UNKNOWN lists. There is no Plane intake to order against (removed; [ADR 0067](../adr/0067-intake-from-plane.md)); the order above covers GitHub intake, review rounds and answers only. #439's expected-value rank, which would replace the size and age tie-breaks, does not exist yet.
 
 Work that starts on a clock instead of from an issue is in [Scheduled work](schedules.md). Sending a task's question to a phone, and its answer back, is in [Answers from the phone](phone-answers.md).

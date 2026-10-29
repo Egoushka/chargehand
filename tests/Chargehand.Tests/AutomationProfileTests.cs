@@ -28,6 +28,13 @@ public class AutomationProfileTests
     }
 
     [Fact]
+    public void Priority_labels_default_to_high_then_low_and_a_profile_can_set_its_own()
+    {
+        Assert.Equal(["priority:high", "priority:low"], Load("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"]}""").Automation!.Github!.EffectivePriorityLabels);
+        Assert.Equal(["urgent", "low"], Load("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"priority_labels":["urgent","low"]}""").Automation!.Github!.EffectivePriorityLabels);
+    }
+
+    [Fact]
     public void An_empty_list_of_allowed_authors_is_valid_and_means_nothing_triggers() =>
         Assert.Empty(Load("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":[]}""").Automation!.Github!.AllowedAuthors!);
 
@@ -43,6 +50,9 @@ public class AutomationProfileTests
     [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_concurrent":0}""", "max_concurrent")]
     [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_review_rounds":4}""", "max_review_rounds")]
     [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"max_review_rounds":-1}""", "max_review_rounds")]
+    [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"priority_labels":[]}""", "priority_labels must not be empty")]
+    [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"priority_labels":["a,b"]}""", "priority_labels entry 'a,b' must be a label name")]
+    [InlineData("""{"repositories":{"octo/repo":{"path":"/p"}},"allowed_authors":["a"],"priority_labels":["p:hi","p:hi"]}""", "priority_labels must not repeat a name")]
     public void A_value_that_cannot_work_is_refused_when_the_profile_loads(string github, string problem)
     {
         var e = Assert.Throws<ChargehandException>(() => Load(github));
@@ -99,6 +109,8 @@ public class AutomationProfileTests
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}},"allowed_authors":["a"],"token":"x"}}}""", false)] // the App is driven.integrator
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":"/p"},"allowed_authors":["a"]}}}""", false)]
     [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}},"allowed_authors":["a"],"max_review_rounds":4}}}""", false)] // three rounds at most, like the CI fixer
+    [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}},"allowed_authors":["a"],"priority_labels":["priority:high","priority:low"]}}}""", true)]
+    [InlineData("""{"schema":"profile/v1","automation":{"github":{"repositories":{"o/r":{"path":"/p"}},"allowed_authors":["a"],"priority_labels":[]}}}""", false)] // minItems 1
     public void The_schema_checks_automation_github(string profile, bool valid)
     {
         using var doc = JsonDocument.Parse(profile);

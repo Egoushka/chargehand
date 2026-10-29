@@ -118,7 +118,8 @@
       "max_review_backlog": 3,
       "subscription_block": false,
       "max_starts_per_hour": 30,
-      "breaker_cooldown_minutes": 120
+      "breaker_cooldown_minutes": 120,
+      "priority_labels": null
     },
     "schedules": null,
     "account": null,
