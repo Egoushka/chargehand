@@ -134,6 +134,23 @@ public class DrivenRunTests
     }
 
     [Fact]
+    public async Task A_host_the_owner_approved_for_the_repository_is_on_its_next_batchs_allowlist()
+    {
+        using var rig = new Rig(durable: true);
+        var learned = rig.Run.LearnedHosts!;
+        learned.Record("o/r", "run-before", [new EgressRefusal("static.rust-lang.org", DateTimeOffset.UtcNow)]);
+        learned.Record("o/other", "run-before", [new EgressRefusal("proxy.golang.org", DateTimeOffset.UtcNow)]);
+        Assert.True(learned.Approve("o/r", "static.rust-lang.org", DateTimeOffset.UtcNow));
+        Assert.True(learned.Approve("o/other", "proxy.golang.org", DateTimeOffset.UtcNow));
+
+        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-a", Token, default);
+
+        var allow = Assert.Single(rig.Engine.Egresses).Allow;
+        Assert.Contains("static.rust-lang.org", allow);
+        Assert.DoesNotContain("proxy.golang.org", allow);
+    }
+
+    [Fact]
     public async Task Two_tasks_end_in_two_draft_pull_requests_each_with_its_own_result()
     {
         using var rig = new Rig(mcpForward: "chargehand-host:4300");

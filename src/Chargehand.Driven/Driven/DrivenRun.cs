@@ -358,7 +358,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var checkout = await CheckoutAsync(c, setup, ready);
         c.Span?.SetTag("chargehand.credential_delivery", routes[0].Delivery);
         var steps = _lifecycle.JournalAsync() is { } journal ? await journal : null;
-        var sites = new SiteBatches(setup, routes, checkout, c, new SiteBatches.SiteParts(log, mint, tasks, learning, records?.Tasks, steps, ControlOf(c.RunId)?.Sessions, profile));
+        var sites = new SiteBatches(setup, routes, checkout, c, new SiteBatches.SiteParts(log, mint, tasks, learning, records?.Tasks, steps, ControlOf(c.RunId)?.Sessions, profile,
+            ApprovedFor(c, setup, checkout.Checkout)));
         var (replanned, ran) = await ScheduleAsync(c, setup, ready, tasks, sites, checkout.Checkout);
         var retro = await BatchLifecycle.RetroAsync(c, settings.Learning is { Retro: true }, learning, setup.Services.Retro, setup.Services.RetroSink);
         return BatchLifecycle.Result(c, unresolved, replanned, ran, routes[0].Delivery, setup.Priced, setup.Claude.Version, plan, retro);
@@ -449,6 +450,14 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         return PushCredential.Minted(token => mint(remote, token));
     }
 
+    /// <summary>The hosts the owner approved for the batch's repository; none without a state directory.</summary>
+    private IReadOnlyList<string> ApprovedFor(BatchRunContext c, BatchSetup setup, DrivenCheckout checkout) =>
+        LearnedHosts is { } learned ? learned.ApprovedFor(RepositoryOf(c, setup, checkout)) : [];
+
+    /// <summary>How the learning records and the learned hosts name the batch's repository.</summary>
+    private static string RepositoryOf(BatchRunContext c, BatchSetup setup, DrivenCheckout checkout) =>
+        TaskRunner.RepositoryKey(RemoteRepository.Parse(checkout.RemoteUrl, setup.Settings.Forge), c.Request.Context.Repository?.Path);
+
     /// <summary>A forge other than GitHub acts with one token, both to open the pull request and to integrate it; null on GitHub.</summary>
     private static IForge? ForgeOf(BatchSetup setup, DrivenCheckout checkout, PushCredential push)
     {
@@ -467,7 +476,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     {
         if (sites.Count == 1)
             await sites.RunnerOn(sites.First);
-        var repository = TaskRunner.RepositoryKey(RemoteRepository.Parse(checkout.RemoteUrl, setup.Settings.Forge), c.Request.Context.Repository?.Path);
+        var repository = RepositoryOf(c, setup, checkout);
         try
         {
             var router = new SiteRouter(sites.RunnerOn, sites.First, setup.Settings.NamesRunners, tasks, sites.SessionsStarted, Pool is { } pool ? pool.Failed : null);

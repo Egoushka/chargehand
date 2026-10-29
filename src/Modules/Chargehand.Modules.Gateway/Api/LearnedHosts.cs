@@ -8,7 +8,8 @@ public sealed record EgressRefusal(string Host, DateTimeOffset At);
 /// <summary>A host the sessions of one repository were refused, as the owner reviews it before approving it for that repository.</summary>
 /// <param name="Refusals">Refused connections, over every batch.</param>
 /// <param name="Batches">Batches that had at least one.</param>
-public sealed record LearnedHost(string Host, int Refusals, int Batches, DateTimeOffset First, DateTimeOffset Last, string LastBatch);
+/// <param name="Approved">When the owner approved it for the repository; null: not approved. An approved host is on the allowlist of the repository's later batches.</param>
+public sealed record LearnedHost(string Host, int Refusals, int Batches, DateTimeOffset First, DateTimeOffset Last, string LastBatch, DateTimeOffset? Approved = null);
 
 public static class EgressRefusals
 {
@@ -72,10 +73,13 @@ public sealed class LearnedHosts(string path)
             {
                 var (first, last) = (group.Min(r => r.At), group.Max(r => r.At));
                 hosts[group.Key] = hosts.TryGetValue(group.Key, out var was)
-                    ? new LearnedHost(group.Key, was.Refusals + group.Count(), was.Batches + 1, first < was.First ? first : was.First, last > was.Last ? last : was.Last, batchId)
+                    ? was with { Refusals = was.Refusals + group.Count(), Batches = was.Batches + 1, First = first < was.First ? first : was.First, Last = last > was.Last ? last : was.Last, LastBatch = batchId }
                     : new LearnedHost(group.Key, group.Count(), 1, first, last, batchId);
             }
-            all[repository] = [.. hosts.Values.OrderByDescending(h => h.Last).ThenBy(h => h.Host, StringComparer.Ordinal).Take(MaxPerRepository)];
+            // Approved hosts stay whatever the cap: dropping one would take it off the repository's allowlist.
+            var approved = hosts.Values.Where(h => h.Approved is not null).ToList();
+            all[repository] = [.. approved.Concat(hosts.Values.Where(h => h.Approved is null).OrderByDescending(h => h.Last).ThenBy(h => h.Host, StringComparer.Ordinal)
+                .Take(Math.Max(0, MaxPerRepository - approved.Count))).OrderByDescending(h => h.Last).ThenBy(h => h.Host, StringComparer.Ordinal)];
             try
             {
                 Save(all);
@@ -84,6 +88,34 @@ public sealed class LearnedHosts(string path)
             {
                 // Recorded at a batch's teardown: a full disk loses a hint, not the batch's result.
             }
+        }
+    }
+
+    /// <summary>Approves <paramref name="host"/> for <paramref name="repository"/>; false when the repository's sessions were never refused it (or it is approved already). Only a refused host
+    /// can be approved: the view is for reviewing what sessions asked for, not a second allowlist.</summary>
+    public bool Approve(string repository, string host, DateTimeOffset at) => Change(repository, host, h => h.Approved is null ? h with { Approved = at } : null);
+
+    /// <summary>Takes the approval back; false when the host was not approved.</summary>
+    public bool Revoke(string repository, string host) => Change(repository, host, h => h.Approved is null ? null : h with { Approved = null });
+
+    /// <summary>The hosts approved for <paramref name="repository"/>, for its batch's allowlist.</summary>
+    public IReadOnlyList<string> ApprovedFor(string repository)
+    {
+        lock (_lock)
+            return Load().TryGetValue(repository, out var hosts) ? [.. hosts.Where(h => h.Approved is not null).Select(h => h.Host).Order(StringComparer.Ordinal)] : [];
+    }
+
+    private bool Change(string repository, string host, Func<LearnedHost, LearnedHost?> change)
+    {
+        var name = host.Trim().TrimEnd('.').ToLowerInvariant();
+        lock (_lock)
+        {
+            var all = Load();
+            if (!all.TryGetValue(repository, out var hosts) || hosts.FindIndex(h => h.Host == name) is var i && i < 0 || change(hosts[i]) is not { } changed)
+                return false;
+            hosts[i] = changed;
+            Save(all);
+            return true;
         }
     }
 

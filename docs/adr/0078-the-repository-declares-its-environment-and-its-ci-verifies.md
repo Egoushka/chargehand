@@ -135,8 +135,11 @@ volume.
 **4. Hosts are learned per repository, not listed per language.** The session's default allowlist is the preset's;
 the toolchain hosts belong to the install helper only. The egress proxy already
 writes one JSON line per connection decision to its log (`EgressCli`), which is lost with the batch's egress
-container. The server keeps the refused ones per task, the console groups them per repository, and the owner approves
-a host into `driven.services.allow["owner/repo"]`. `RepositoryDetector`'s host lists go.
+container. The server keeps the refused ones per repository, and the owner approves a host for that repository.
+`RepositoryDetector`'s host lists go. *Amended 2026-10-29:* an approval is kept by the server in its state directory
+(`learned-hosts.json`), not written into the profile: where the profile comes from a GitOps repository the server cannot
+write it, and the console approves in one step. The approved hosts join the batch's allowlist next to the preset's and
+`driven.network.allow`.
 
 **5. A devcontainer is an input later, not now.** When a repository has a `devcontainer.json` that names features
 with versions, `adopt` may read them like CI setup steps. chargehand does not build devcontainer images.

@@ -63,6 +63,41 @@ public sealed class LearnedHostsTests : IDisposable
     }
 
     [Fact]
+    public void The_owner_approves_a_refused_host_for_its_repository_only_and_can_take_it_back()
+    {
+        var store = new LearnedHosts(Path.Combine(_dir, "learned-hosts.json"));
+        store.Record("owner/repo", "batch-1", [new("static.rust-lang.org", At)]);
+
+        Assert.False(store.Approve("owner/repo", "never-refused.example.com", At));
+        Assert.False(store.Approve("owner/other", "static.rust-lang.org", At));
+        Assert.True(store.Approve("owner/repo", "Static.Rust-Lang.org", At.AddHours(1)));
+        Assert.Equal(["static.rust-lang.org"], store.ApprovedFor("owner/repo"));
+        Assert.Empty(store.ApprovedFor("owner/other"));
+        Assert.Equal(At.AddHours(1), store.Read()["owner/repo"][0].Approved);
+
+        // A later refusal of an approved host (a batch that started before the approval) keeps the approval.
+        store.Record("owner/repo", "batch-2", [new("static.rust-lang.org", At.AddHours(2))]);
+        Assert.Equal(["static.rust-lang.org"], store.ApprovedFor("owner/repo"));
+
+        Assert.True(store.Revoke("owner/repo", "static.rust-lang.org"));
+        Assert.False(store.Revoke("owner/repo", "static.rust-lang.org"));
+        Assert.Empty(store.ApprovedFor("owner/repo"));
+    }
+
+    [Fact]
+    public void An_approved_host_is_never_dropped_for_newer_refusals()
+    {
+        var store = new LearnedHosts(Path.Combine(_dir, "learned-hosts.json"));
+        store.Record("owner/repo", "batch-1", [new("old.example.com", At)]);
+        store.Approve("owner/repo", "old.example.com", At);
+        store.Record("owner/repo", "batch-2",
+            [.. Enumerable.Range(0, LearnedHosts.MaxPerRepository + 5).Select(i => new EgressRefusal($"h{i}.example.com", At.AddMinutes(i + 1)))]);
+
+        Assert.Equal(["old.example.com"], store.ApprovedFor("owner/repo"));
+        Assert.Equal(LearnedHosts.MaxPerRepository, store.Read()["owner/repo"].Count);
+    }
+
+    [Fact]
     public void A_repository_keeps_the_hosts_refused_most_recently()
     {
         var store = new LearnedHosts(Path.Combine(_dir, "learned-hosts.json"));
