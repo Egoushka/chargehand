@@ -6,7 +6,10 @@ namespace Chargehand.Modules.Gateway.Api;
 internal sealed record EgressLogLine(DateTimeOffset At, string? Run, string Host, int Port, bool Allowed, string Reason);
 
 /// <summary>One line of the model endpoint's log on stderr.</summary>
-internal sealed record GatewayLogLine(DateTimeOffset At, string? ModelRun, int Status, long Tokens, string Reason);
+/// <remarks><paramref name="Fallback"/> and <paramref name="Usd"/> are written only for a call made on the fallback key, so every other line is as it was.</remarks>
+internal sealed record GatewayLogLine(DateTimeOffset At, string? ModelRun, int Status, long Tokens, string Reason,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Fallback = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] decimal Usd = 0);
 
 /// <summary>The body of a refused model call, in the API's own error shape.</summary>
 internal sealed record GatewayError(string Type, GatewayErrorDetail Error);

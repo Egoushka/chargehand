@@ -68,4 +68,35 @@ public class EgressCliTests
         Assert.Equal(2, await EgressCli.RunAsync(["--listen", "127.0.0.1:0", "--allow", "api.anthropic.com", "--model-listen", "127.0.0.1:0"], error, default));
         Assert.Contains(EgressCli.CredentialVariable, error.ToString());
     }
+
+    private static Func<string, string?> Env(params (string Name, string Value)[] pairs) => name => pairs.FirstOrDefault(p => p.Name == name).Value;
+
+    [Fact]
+    public void The_fallback_comes_from_the_environment_all_or_nothing()
+    {
+        var env = Env((EgressCli.FallbackCredentialVariable, "k"), (EgressCli.FallbackHostVariable, "fallback.example.test"), (EgressCli.FallbackUsdVariable, "2.50"), (EgressCli.FallbackPriceVariable, "3,15,0.3,3.75"));
+        var fallback = EgressCli.FallbackFromEnvironment(env, TextWriter.Null, out var valid);
+        Assert.True(valid);
+        Assert.Equal(new GatewayFallback("k", "fallback.example.test", 2.5m, new FallbackPrice(3m, 15m, 0.3m, 3.75m)), fallback);
+
+        Assert.Null(EgressCli.FallbackFromEnvironment(Env(), TextWriter.Null, out var none));
+        Assert.True(none);
+    }
+
+    [Theory]
+    [InlineData("k", "fallback.example.test", "0", "3,15,0.3,3.75")]       // no allowance
+    [InlineData("k", "fallback.example.test", "2", "3,15,0.3")]             // three prices
+    [InlineData("k", "fallback.example.test", "2", "3,15,x,3.75")]
+    [InlineData("k", "10.0.0.1", "2", "3,15,0.3,3.75")]                      // an address
+    [InlineData("", "fallback.example.test", "2", "3,15,0.3,3.75")]         // no key
+    public void A_partly_set_or_wrong_fallback_is_refused_without_printing_a_value(string key, string host, string usd, string price)
+    {
+        var error = new StringWriter();
+        var env = Env((EgressCli.FallbackCredentialVariable, key), (EgressCli.FallbackHostVariable, host), (EgressCli.FallbackUsdVariable, usd), (EgressCli.FallbackPriceVariable, price));
+
+        Assert.Null(EgressCli.FallbackFromEnvironment(env, error, out var valid));
+
+        Assert.False(valid);
+        Assert.NotEmpty(error.ToString());
+    }
 }
