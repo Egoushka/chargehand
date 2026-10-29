@@ -5,6 +5,35 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.7](https://github.com/Egoushka/chargehand/compare/v0.19.6...v0.19.7) (2026-10-29)
+
+
+### Features
+
+* **claude-code:** the API fallback ledger reserves a batch's share (ADR 0088) ([#655](https://github.com/Egoushka/chargehand/issues/655)) ([ff0d430](https://github.com/Egoushka/chargehand/commit/ff0d4301905aa105ac1f4ca8f1c73a4369ad64e9))
+* **console:** repository cards list refused hosts with approve and revoke ([#521](https://github.com/Egoushka/chargehand/issues/521)) ([#652](https://github.com/Egoushka/chargehand/issues/652)) ([ad08c3f](https://github.com/Egoushka/chargehand/commit/ad08c3f51aee6f071940feed8ef2df8d1e67bd25))
+* **console:** the owner approves a refused host for its repository's later batches ([#521](https://github.com/Egoushka/chargehand/issues/521)) ([#651](https://github.com/Egoushka/chargehand/issues/651)) ([2bb126a](https://github.com/Egoushka/chargehand/commit/2bb126a1f3389bc9c48da4de3b3b86727ea45858))
+* **driven:** a subscription batch falls back to the API key inside its egress gateway (ADR 0088) ([#657](https://github.com/Egoushka/chargehand/issues/657)) ([20f52d2](https://github.com/Egoushka/chargehand/commit/20f52d29688d030f20fcb47066abbaf101c7d9a4))
+* **driven:** keep the hosts a batch's sessions were refused, per repository ([#521](https://github.com/Egoushka/chargehand/issues/521)) ([#650](https://github.com/Egoushka/chargehand/issues/650)) ([2e10c59](https://github.com/Egoushka/chargehand/commit/2e10c59cb25841721a04c5c0e6ee8162ded5e9ae))
+* **gateway:** replay a long subscription limit on the fallback key (ADR 0088) ([#654](https://github.com/Egoushka/chargehand/issues/654)) ([aed2b21](https://github.com/Egoushka/chargehand/commit/aed2b2183c3aec27b7e37f1d688a3daeee0b6277))
+* **gateway:** the fallback base URL keeps its port and path prefix (ADR 0088) ([#659](https://github.com/Egoushka/chargehand/issues/659)) ([18e326a](https://github.com/Egoushka/chargehand/commit/18e326a52cb4bd9571a59e762e93b0731efb3457))
+* **intake:** order waiting triggers by priority label, source, size, then age ([#677](https://github.com/Egoushka/chargehand/issues/677)) ([53a4573](https://github.com/Egoushka/chargehand/commit/53a45732d3bf9ce965733563c1f0cea6545f3908))
+* **runners:** the egress container carries a fallback key for the profile's host (ADR 0088) ([#656](https://github.com/Egoushka/chargehand/issues/656)) ([2a2e9c4](https://github.com/Egoushka/chargehand/commit/2a2e9c43768846bbbaba23e6a7fc84deca561f69))
+
+
+### Bug Fixes
+
+* **ci:** the mise spike runs by digest and from the image's shell ([#524](https://github.com/Egoushka/chargehand/issues/524)) ([#648](https://github.com/Egoushka/chargehand/issues/648)) ([5a4fd48](https://github.com/Egoushka/chargehand/commit/5a4fd481901a934410088689c8a61d5bd06694d1))
+* **claude-code:** a batch reserves half of what is unreserved of the fallback cap (ADR 0088) ([#658](https://github.com/Egoushka/chargehand/issues/658)) ([9265bc3](https://github.com/Egoushka/chargehand/commit/9265bc3cf0daf376ac71321ffcf3e34611a690e4))
+* **gateway:** response headers from the fallback leak organization and r ([#673](https://github.com/Egoushka/chargehand/issues/673)) ([a938c5b](https://github.com/Egoushka/chargehand/commit/a938c5bfef94c5ad31b947ced75ccac7174b470e))
+* **gateway:** size a buffered body from Content-Length, skip the extra ToArray copy ([#665](https://github.com/Egoushka/chargehand/issues/665)) ([6a148a3](https://github.com/Egoushka/chargehand/commit/6a148a30d61301222203f515017b963c2117350d))
+* **handover:** recover a pull request held only by its base's red checks ([#674](https://github.com/Egoushka/chargehand/issues/674)) ([ce6f8ce](https://github.com/Egoushka/chargehand/commit/ce6f8ce9fe5bb226636d5077d62c2ba33b59c5e0))
+* **intake:** the goal's first line is cut at a word like a pull request title ([#667](https://github.com/Egoushka/chargehand/issues/667)) ([#670](https://github.com/Egoushka/chargehand/issues/670)) ([4402b16](https://github.com/Egoushka/chargehand/commit/4402b16d92ad79b017ac71e9e4cc7bab30ed855e))
+* **opencode:** give provider_unavailable an action and retry it a bounded number of times ([#679](https://github.com/Egoushka/chargehand/issues/679)) ([d802155](https://github.com/Egoushka/chargehand/commit/d80215559f8add876a799d0503097b134eb68451))
+* **presets:** the design prompt asks for the ADR template's Prior art section ([#668](https://github.com/Egoushka/chargehand/issues/668)) ([37715fd](https://github.com/Egoushka/chargehand/commit/37715fd3e62939fb7bb5848af272ca304884af02))
+* **runners:** /tmp allows exec when a run has a home volume ([#524](https://github.com/Egoushka/chargehand/issues/524)) ([#646](https://github.com/Egoushka/chargehand/issues/646)) ([ecf5d8a](https://github.com/Egoushka/chargehand/commit/ecf5d8ad4416977633c57a0749d1c173f369ca16))
+* **sessions:** a session that finishes with uncommitted changes is asked once to commit them ([#666](https://github.com/Egoushka/chargehand/issues/666)) ([#671](https://github.com/Egoushka/chargehand/issues/671)) ([97df64f](https://github.com/Egoushka/chargehand/commit/97df64f90c5570965c34d418019319b79dbe783f))
+
 ## [0.19.6](https://github.com/Egoushka/chargehand/compare/v0.19.5...v0.19.6) (2026-10-29)
 
 
