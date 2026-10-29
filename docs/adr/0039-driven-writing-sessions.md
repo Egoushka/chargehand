@@ -182,7 +182,7 @@ The first task picked up by GitHub intake on a repository of Markdown and shell 
   Dollars are not measurable in that mode, so batches are bounded by a token ceiling counted from the stream, plus turns and time; the
   dollar ceiling binds only in API-key mode. Parallel sessions share one plan's limit. Whether unattended parallel server-hosted use is
   within the plan's terms is **unknown** and accepted as a risk by the maintainer; the risk is an action by the provider on the
-  account. A rate limit or sign-out ends tasks as retryable and stops the batch; a batch never switches to an API key on its own. Worker runs switch only within the API-fallback cap and budget (amendment of 2026-10-29).
+  account. A rate limit or sign-out ends tasks as retryable and stops the batch; a batch switches to the API key only inside its egress gateway, within the reserved part of the fallback cap ([ADR 0088](0088-driven-batches-fall-back-to-the-api-key-inside-the-egress-gateway.md); amendment of 2026-10-29). Worker runs switch only within the API-fallback cap and budget (amendment of 2026-10-29).
   Because the subscription token is long-lived and covers the whole plan, keeping it out of the container (the per-run token design)
   matters more here than for a limited API key; if the spike shows it cannot be kept out, the fallback delivery puts a year-long
   credential where hostile repository code runs, and the maintainer should then reconsider before enabling it.

@@ -245,7 +245,7 @@ public sealed partial class BatchLifecycle
     /// <summary>The batch's result: in request order, a task the plan split in place; tasks that did not resolve were never started.</summary>
     /// <param name="delivery">How the model credential reached the sessions, for the result.</param>
     public static ResultContract Result(BatchRunContext c, IReadOnlyList<TaskOutcome> unresolved, IReadOnlyList<ResolvedTask> ready, BatchOutcome ran, string delivery, bool priced, string claudeVersion,
-        BatchPlan? plan, BatchRetro? retro)
+        BatchPlan? plan, BatchRetro? retro, BatchFallback? fallback = null)
     {
         ArgumentNullException.ThrowIfNull(c);
         ArgumentNullException.ThrowIfNull(ran);
@@ -257,6 +257,6 @@ public sealed partial class BatchLifecycle
         c.Span?.SetTag("chargehand.driven.pr_urls", all.Select(o => o.PrUrl).OfType<string>().ToArray());
         c.Span?.SetTag("chargehand.driven.tokens", all.Sum(o => o.Tokens));
         return DrivenResult.BuildBatch(c.RunId, c.TraceId, "", new BatchOutcome(all, ran.Action, ran.Error), delivery, priced, claudeVersion,
-            cancelledByCaller: c.Ct.IsCancellationRequested && c.CancelledByCaller(), plan, retro);
+            cancelledByCaller: c.Ct.IsCancellationRequested && c.CancelledByCaller(), plan, retro, fallback);
     }
 }

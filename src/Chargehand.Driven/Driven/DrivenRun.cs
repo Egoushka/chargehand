@@ -6,6 +6,7 @@ using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Handover.Api;
+using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Research.Api;
@@ -49,7 +50,7 @@ public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Wo
 /// (<c>environment</c>).</summary>
 /// <param name="learning">Where each finished task's record is written and pull request outcomes are read back (ADR 0045); null: nothing is recorded.</param>
 /// <param name="records">Where a batch's events and its tasks' sessions, governor decisions, checks and CI fix attempts are kept for the console (CHARGEHAND-214); null: they are not.</param>
-public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory, DrivenServices? services, string? stateDirectory = null, ILearningStore? learning = null, BatchRecords? records = null) : IDisposable
+public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory, DrivenServices? services, string? stateDirectory = null, ILearningStore? learning = null, BatchRecords? records = null, ApiFallback? fallback = null) : IDisposable
 {
     /// <summary>The learning records this server keeps, for <c>GET /v1/learn</c>; null when none are kept.</summary>
     public ILearningStore? Learning => learning;
@@ -358,11 +359,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var checkout = await CheckoutAsync(c, setup, ready);
         c.Span?.SetTag("chargehand.credential_delivery", routes[0].Delivery);
         var steps = _lifecycle.JournalAsync() is { } journal ? await journal : null;
-        var sites = new SiteBatches(setup, routes, checkout, c, new SiteBatches.SiteParts(log, mint, tasks, learning, records?.Tasks, steps, ControlOf(c.RunId)?.Sessions, profile,
-            ApprovedFor(c, setup, checkout.Checkout)));
-        var (replanned, ran) = await ScheduleAsync(c, setup, ready, tasks, sites, checkout.Checkout);
+        var (replanned, ran, fallback) = await RunOnRunnersAsync(c, mint, setup, routes, ready, tasks, checkout, steps);
         var retro = await BatchLifecycle.RetroAsync(c, settings.Learning is { Retro: true }, learning, setup.Services.Retro, setup.Services.RetroSink);
-        return BatchLifecycle.Result(c, unresolved, replanned, ran, routes[0].Delivery, setup.Priced, setup.Claude.Version, plan, retro);
+        return BatchLifecycle.Result(c, unresolved, replanned, ran, routes[0].Delivery, setup.Priced, setup.Claude.Version, plan, retro, fallback);
     }
 
     /// <summary>What the profile and the services give the batch; throws for a refusal: driven sessions not set up, no <c>claude_code</c> block, no image, a preset with no driven block, no push
@@ -387,7 +386,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var credential = own?.ApiKeySecret ?? (priced ? claude.ApiKeySecret : claude.OauthTokenSecret)
             ?? throw new ChargehandException(ErrorCode.CredentialUnavailable, "claude_code names no credential", "Set api_key_secret or oauth_token_secret.");
         var modelEnvironment = new Dictionary<string, string> { [priced ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN"] = Resolve(s, credential) };
-        return new BatchSetup(s, settings, claude, image, drivenPreset, kind.Model, own, priced, limits, push, modelEnvironment, SitesOf(s));
+        var fallbackSetup = FallbackSetup.Of(claude, kind.Model, model => profile.Prices?.GetValueOrDefault(model), priced, fallback, name => Resolve(s, name), c.RunId);
+        return new BatchSetup(s, settings, claude, image, drivenPreset, kind.Model, own, priced, limits, push, modelEnvironment, SitesOf(s), fallbackSetup);
     }
 
     /// <summary>The bare arm pushes a branch nobody has tested, so it is for the benchmark only (ADR 0080).</summary>
@@ -468,11 +468,33 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             ?? throw new ChargehandException(ErrorCode.InvalidRequest, $"the remote is a {remote.Forge} project, but this server has no support for it set up", "Check driven.forge in the profile.");
     }
 
+    /// <summary>The runners' part of the batch. A subscription batch with a fallback first sets its share of the day's cap aside, as late as it can be (ADR 0088); the share is settled in
+    /// <see cref="ScheduleAsync"/>'s teardown, or given back here when the batch ended before any egress container could have spent it.</summary>
+    private async Task<(IReadOnlyList<ResolvedTask> Ready, BatchOutcome Outcome, BatchFallback? Fallback)> RunOnRunnersAsync(BatchRunContext c, TaskTokenMinter mint, BatchSetup setup, IReadOnlyList<SiteRoute> routes,
+        IReadOnlyList<ResolvedTask> ready, TaskJournal? tasks, BatchCheckout checkout, DrivenJournal? steps)
+    {
+        var reservation = setup.Fallback?.Reserve(c.RunId);
+        if (reservation is { Allowance: > 0 })
+            routes = [.. routes.Select(r => r.WithFallback(reservation.Spec))];
+        try
+        {
+            var sites = new SiteBatches(setup, routes, checkout, c, new SiteBatches.SiteParts(log, mint, tasks, learning, records?.Tasks, steps, ControlOf(c.RunId)?.Sessions, profile,
+                ApprovedFor(c, setup, checkout.Checkout)));
+            var (replanned, ran) = await ScheduleAsync(c, setup, ready, tasks, sites, checkout.Checkout, reservation);
+            return (replanned, ran, reservation?.Report());
+        }
+        finally
+        {
+            if (!c.Detaching())
+                reservation?.ReleaseUnused();
+        }
+    }
+
     /// <summary>The batch's tasks run (<see cref="BatchLifecycle.ScheduleAsync"/>), with a runner's part made when its first task is placed there; with one runner, now, so a refusal ends the
     /// batch at its start. A task that stalled with no commits is then re-planned into a chain and run too (<see cref="BatchLifecycle.ReplanAsync"/>), on the same router, before the runner's
     /// part is torn down (unless the server is stopping).</summary>
     private async Task<(IReadOnlyList<ResolvedTask> Ready, BatchOutcome Outcome)> ScheduleAsync(BatchRunContext c, BatchSetup setup, IReadOnlyList<ResolvedTask> ready, TaskJournal? tasks,
-        SiteBatches sites, DrivenCheckout checkout)
+        SiteBatches sites, DrivenCheckout checkout, FallbackReservation? reservation)
     {
         if (sites.Count == 1)
             await sites.RunnerOn(sites.First);
@@ -488,8 +510,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         {
             if (!c.Detaching())
             {
-                var refused = await sites.TeardownAsync();
-                LearnedHosts?.Record(repository, c.RunId, refused);
+                var torn = await sites.TeardownAsync();
+                LearnedHosts?.Record(repository, c.RunId, torn.Refused);
+                reservation?.Settle(torn.Spend);
             }
         }
     }

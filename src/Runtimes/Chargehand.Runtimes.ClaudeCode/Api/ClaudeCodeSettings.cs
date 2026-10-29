@@ -50,6 +50,15 @@ public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = n
                 "Name the fallback key in api_fallback_key_secret, or remove them.");
     }
 
+    /// <summary>A batch falls back only with a price for the model it runs, because the egress gateway prices the fallback's tokens itself (ADR 0088, decision 4): throws when
+    /// <paramref name="hasPrice"/> is false for <paramref name="model"/>. Does nothing without an API fallback.</summary>
+    public void CheckApiFallbackModel(string model, bool hasPrice)
+    {
+        if (ApiFallbackKeySecret is not null && !hasPrice)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"claude_code.api_fallback_key_secret is set, but prices has no entry for '{model}', so a batch cannot count what the fallback costs",
+                $"Add '{model}' to prices with its input, output, cache read and cache write prices per million tokens, or remove api_fallback_key_secret.");
+    }
+
     /// <summary>The value of each header line in <paramref name="secretValue"/>: what a transcript scan looks for, since the whole line never appears verbatim in a session's output.</summary>
     public static IEnumerable<string> HeaderValues(string secretValue) =>
         secretValue.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(l => l[(l.IndexOf(':') + 1)..].Trim()).Where(v => v.Length > 0);

@@ -20,14 +20,14 @@ public static class DrivenResult
     /// <param name="CredentialDelivery">How the model credential reached the containers (<c>gateway</c>: a per-task token, the real credential only in the egress container; <c>environment</c>: the real credential in the session container's environment).</param>
     /// <param name="plan">What the planning step did (ADR 0049), as the <c>plan</c> artifact; null: it did not run.</param>
     /// <param name="retro">What the retro after the batch did (ADR 0045), as the <c>retro</c> artifact; null: retros are off.</param>
+    /// <param name="fallback">What the batch spent on the API key inside its egress gateway (ADR 0088), in the <c>driven-batch</c> artifact and per task row; null: the batch had no fallback.</param>
     public static ResultContract BuildBatch(string runId, string traceId, string description, BatchOutcome outcome, string credentialDelivery, bool priced, string claudeVersion,
-        bool cancelledByCaller = false, BatchPlan? plan = null, BatchRetro? retro = null)
+        bool cancelledByCaller = false, BatchPlan? plan = null, BatchRetro? retro = null, BatchFallback? fallback = null)
     {
         var chain = new PromptChain([], new AsSent($"claude-code/{claudeVersion}", "driven", "batch", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         // A row says which runner ran the task only when the profile names its runners (ADR 0058), so a one-runner profile's artifact is what it always was.
-        List<BatchRow> rows = [.. outcome.Tasks.Select(t => new BatchRow(t.Id, t.RunId, Snake(t.State.ToString()), t.Branch, t.PrUrl, priced ? t.Usd : null, t.Tokens,
-            t.Error is { } e ? Snake(e.ToString()) : null, t.Detail, t.Runner))];
-        var artifact = Inline("driven-batch", "application/json", new BatchArtifact(credentialDelivery, rows), BatchResultJsonContext.Default.BatchArtifact);
+        var artifact = Inline("driven-batch", "application/json", new BatchArtifact(credentialDelivery, Rows(outcome, priced, fallback),
+            fallback is null ? null : new BatchFallbackBody(fallback.Usd, fallback.Calls, fallback.Refused)), BatchResultJsonContext.Default.BatchArtifact);
         Artifact[] artifacts = [artifact, .. plan is null ? [] : new[] { Inline("plan", "application/json", plan, BatchResultJsonContext.Default.BatchPlan) },
             .. retro is null ? [] : new[] { Inline("retro", "application/json", retro, BatchResultJsonContext.Default.BatchRetro) }];
         var usage = new Usage(outcome.Tokens, 0, 0, 0, priced ? outcome.Usd : null);
@@ -54,6 +54,10 @@ public static class DrivenResult
             new ResultError(code, message, ChargehandException.Retryable(code), action));
     }
 
+    private static List<BatchRow> Rows(BatchOutcome outcome, bool priced, BatchFallback? fallback) =>
+        [.. outcome.Tasks.Select(t => new BatchRow(t.Id, t.RunId, Snake(t.State.ToString()), t.Branch, t.PrUrl, priced ? t.Usd : null, t.Tokens,
+            t.Error is { } e ? Snake(e.ToString()) : null, t.Detail, t.Runner, t.RunId is { } run ? fallback?.Tasks?.GetValueOrDefault(run) : null))];
+
     private static Artifact Inline<T>(string kind, string mediaType, T value, JsonTypeInfo<T> info)
     {
         var content = JsonSerializer.Serialize(value, info);
@@ -63,16 +67,30 @@ public static class DrivenResult
     private static string Snake(string name) => JsonNamingPolicy.SnakeCaseLower.ConvertName(name);
 }
 
+/// <summary>What a batch spent on the API key inside its egress gateway (ADR 0088), as the server settled it at teardown.</summary>
+/// <param name="Tasks">By task run id, from the lines of the log that were read; a task's share can fall short of the batch's total when the log's tail lost its early lines.</param>
+public sealed record BatchFallback(decimal Usd, int Calls, bool Refused, IReadOnlyDictionary<string, TaskFallback>? Tasks = null);
+
+/// <summary>One task's calls on the fallback key and what they cost.</summary>
+public sealed record TaskFallback(decimal Usd, int Calls);
+
 /// <summary>The <c>driven-batch</c> artifact: how the credential reached the containers, and a row per task.</summary>
-internal sealed record BatchArtifact(string CredentialDelivery, IReadOnlyList<BatchRow> Tasks);
+/// <param name="Fallback">Only when the batch had an API fallback (ADR 0088), so every other batch's artifact is what it always was.</param>
+internal sealed record BatchArtifact(string CredentialDelivery, IReadOnlyList<BatchRow> Tasks,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] BatchFallbackBody? Fallback = null);
+
+/// <summary>What the fallback cost a batch: dollars, calls, and whether the gateway's budget closed it.</summary>
+internal sealed record BatchFallbackBody(decimal Usd, int Calls, bool Refused);
 
 /// <param name="Runner">Only when the profile names its runners (ADR 0058), so a one-runner profile's row is what it always was.</param>
 internal sealed record BatchRow(string Id, string? RunId, string Status, string? Branch, string? PrUrl, decimal? Usd, long Tokens, string? ErrorCode, string? Detail,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Runner);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Runner,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TaskFallback? Fallback = null);
 
 /// <summary>The batch result's artifacts without reflection (ADR 0060): snake_case, and a null written as null, as the reflection options before it wrote them.</summary>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower, DefaultIgnoreCondition = JsonIgnoreCondition.Never)]
 [JsonSerializable(typeof(BatchArtifact))]
+[JsonSerializable(typeof(BatchFallbackBody))]
 [JsonSerializable(typeof(BatchPlan))]
 [JsonSerializable(typeof(BatchRetro))]
 internal sealed partial class BatchResultJsonContext : JsonSerializerContext;
