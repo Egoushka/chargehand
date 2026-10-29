@@ -13,8 +13,8 @@ public static class VerifyCommand
     private const long MaxWorkflowBytes = 500_000;
 
     /// <summary>A command that provably checks nothing: empty, blank, or a shell no-op such as <c>true</c>, <c>:</c> or a bare <c>echo</c>
-    /// (CHARGEHAND-431, CHARGEHAND-258). A caller that names one is not believed; chargehand works out its own command instead, or, for a
-    /// driven request, refuses it (<see cref="Contracts.DrivenRules"/>).</summary>
+    /// (CHARGEHAND-431, CHARGEHAND-258), delegating to the one definition shared with <see cref="Contracts.DrivenRules"/>, which also refuses
+    /// it outright for a driven request. A caller that names one is not believed; chargehand works out its own command instead.</summary>
     public static bool IsNoOp(IReadOnlyList<string> argv) => NoOpVerify.IsNoOp(argv);
 
     /// <summary>Null when the caller named none (or a no-op) and the directory has no recognisable test setup.</summary>
