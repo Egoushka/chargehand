@@ -82,9 +82,11 @@ token_exchange`). An API-key batch and a `gateway_key` batch are unchanged.
    cache write per million tokens). The gateway prices each fallback response from its `usage`, as `ApiFallback.Spent`
    does with `total_cost_usd`. A model with no price in `prices` gets no fallback: the batch refuses at its start, as a
    missing cap does today (`CheckApiFallback`).
-5. **The cap is a reservation.** At batch start, the server reserves an allowance from `ApiFallback`: what is left of
-   today's cap, divided by the batches that hold a reservation, plus one. The ledger records it under the batch id, so
-   two batches cannot both spend the whole remainder. In the gateway:
+5. **The cap is a reservation.** At batch start, the server reserves an allowance from `ApiFallback`: half of what is
+   still unreserved of today's cap (the cap less today's spend and less what running batches hold). The ledger records it
+   under the batch id, so reservations never pass the cap and a second concurrent batch still gets a share.
+   *Amended 2026-10-29: the first rule, remaining divided by the holders plus one, gave a second concurrent batch nothing,
+   because the first took everything unreserved.* In the gateway:
    - A fallback request is checked against the allowance before it is sent.
    - Past the allowance, the 429 goes back to the session as it does today, and the task ends `rate_limited`.
    - A fallback answer of 402 (the gateway's own budget) closes the fallback for the rest of the batch.

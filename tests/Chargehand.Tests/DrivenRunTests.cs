@@ -157,7 +157,7 @@ public class DrivenRunTests
         Assert.Equal(ResultStatus.Completed, result.Status);
         // The egress container got the key, the host, the batch's whole share of the day's cap and the model's prices; the session got none of it.
         var fallback = Assert.Single(rig.Engine.Egresses).Gateway!.Fallback!;
-        Assert.Equal(("value-of-api-fallback-key", "api.anthropic.com", 10m), (fallback.Credential, fallback.Host, fallback.AllowanceUsd));
+        Assert.Equal(("value-of-api-fallback-key", "api.anthropic.com", 5m), (fallback.Credential, fallback.Host, fallback.AllowanceUsd));   // half of the 10 dollar day
         Assert.Equal(new FallbackPrice(3m, 15m, 0.3m, 3.75m), fallback.Price);
         Assert.DoesNotContain("value-of-api-fallback-key", rig.Engine.Started.Single().Env.Values);
         // The result says what it cost, in total and per task, and still says how the credential was delivered.
@@ -182,9 +182,9 @@ public class DrivenRunTests
         var result = await rig.Run.RunAsync(Request("Add a retry"), "run-batch-fu", Token, default);
 
         Assert.Equal(ResultStatus.Completed, result.Status);
-        Assert.Equal(10m, gate.Read().SpentUsd);
+        Assert.Equal(5m, gate.Read().SpentUsd);
         Assert.Null(gate.Read().Reserved);
-        Assert.Equal(10m, JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "driven-batch").Content!).RootElement.GetProperty("fallback").GetProperty("usd").GetDecimal());
+        Assert.Equal(5m, JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "driven-batch").Content!).RootElement.GetProperty("fallback").GetProperty("usd").GetDecimal());
     }
 
     [Fact]

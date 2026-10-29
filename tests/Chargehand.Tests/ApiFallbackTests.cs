@@ -25,15 +25,13 @@ public sealed class ApiFallbackTests : IDisposable
         var gate = new ApiFallback(10m, null, _clock);
         gate.Spent(2m);
 
-        // 8 left, no holder: the first batch takes it all. The second finds nothing unreserved, so it gets no fallback rather than a share that would pass the cap together with the first.
-        Assert.Equal(8m, gate.Reserve("batch-a"));
-        Assert.Equal(0m, gate.Reserve("batch-b"));
-        Assert.Equal(["batch-a"], gate.Read().Reserved!.Keys);
+        // 8 left: the first batch reserves half of it, the second half of what is still unreserved. Reservations never pass the cap, and a later batch still gets a share.
+        Assert.Equal(4m, gate.Reserve("batch-a"));
+        Assert.Equal(2m, gate.Reserve("batch-b"));
+        Assert.Equal(["batch-a", "batch-b"], gate.Read().Reserved!.Keys);
 
         gate.Settle("batch-a", 3m, refused: false, resetsAt: null);
         Assert.Equal(5m, gate.Read().SpentUsd);
-        // The second batch starts later: 5 left and no other holder, so its share is the whole 5.
-        Assert.Equal(5m, gate.Reserve("batch-b"));
         gate.Settle("batch-b", 1.5m, refused: false, resetsAt: null);
 
         var ledger = gate.Read();
@@ -42,30 +40,40 @@ public sealed class ApiFallbackTests : IDisposable
     }
 
     [Fact]
+    public void Reservations_halve_what_is_unreserved_and_never_pass_the_cap()
+    {
+        var gate = new ApiFallback(8m, null, _clock);
+
+        Assert.Equal([4m, 2m, 1m, 0.5m], ((string[])["a", "b", "c", "d"]).Select(gate.Reserve));
+
+        Assert.True(gate.Read().Reserved!.Values.Sum() < 8m);
+    }
+
+    [Fact]
     public void An_unreadable_egress_log_counts_the_whole_reservation()
     {
         var gate = new ApiFallback(10m, null, _clock);
-        Assert.Equal(10m, gate.Reserve("batch-a"));
+        Assert.Equal(5m, gate.Reserve("batch-a"));
 
         gate.SettleUnreadable("batch-a");
 
         var ledger = gate.Read();
-        Assert.Equal(10m, ledger.SpentUsd);                                    // the cap errs low, never high
+        Assert.Equal(5m, ledger.SpentUsd);                                    // the cap errs low, never high
         Assert.True(ledger.Reserved is null or { Count: 0 });
         Assert.False(gate.UseFallback());
-        Assert.Equal(0m, gate.Reserve("batch-b"));
+        Assert.Equal(2.5m, gate.Reserve("batch-b"));
     }
 
     [Fact]
     public void A_batch_that_resumes_keeps_its_reservation_across_a_restart()
     {
         var file = Path.Combine(_dir.Path, "state", "api-fallback.json");
-        Assert.Equal(10m, new ApiFallback(10m, file, _clock).Reserve("batch-a"));
+        Assert.Equal(5m, new ApiFallback(10m, file, _clock).Reserve("batch-a"));
 
         var restarted = new ApiFallback(10m, file, _clock);
 
-        Assert.Equal(10m, restarted.Reserve("batch-a"));                       // the same batch asks again and gets what it holds, not a share of nothing
-        Assert.Equal(10m, restarted.Read().Reserved!["batch-a"]);
+        Assert.Equal(5m, restarted.Reserve("batch-a"));                       // the same batch asks again and gets what it holds, not a share of nothing
+        Assert.Equal(5m, restarted.Read().Reserved!["batch-a"]);
         restarted.Settle("batch-a", 4m, refused: false, resetsAt: null);
         Assert.Equal(4m, new ApiFallback(10m, file, _clock).Read().SpentUsd);
     }
@@ -117,6 +125,6 @@ public sealed class ApiFallbackTests : IDisposable
         _clock.Now = _clock.Now.AddDays(1);
 
         Assert.Null(gate.Read().Reserved);
-        Assert.Equal(10m, gate.Reserve("batch-b"));
+        Assert.Equal(5m, gate.Reserve("batch-b"));
     }
 }
