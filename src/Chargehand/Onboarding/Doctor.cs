@@ -160,12 +160,20 @@ public static partial class Doctor
             _ => new(CheckStatus.Warn, "model credential", "claude_code runtime; no API key or subscription token is set, so the CLI's own login is used, which doctor cannot check",
                 "run claude once and sign in, or set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN"),
         });
-        if (cc.ApiFallbackKeySecret is { } fallback)
-            results.Add(cc.ApiKeySecret is not null
-                ? new(CheckStatus.Fail, "API fallback", "claude_code.api_fallback_key_secret is for a subscription, but claude_code.api_key_secret is set", "remove one of them")
-                : env.SecretResolves(profile, fallback)
-                    ? new(CheckStatus.Ok, "API fallback", $"per-token key from item {fallback}, for when the subscription is rate limited")
-                    : Missing("API fallback", fallback, "claude_code.api_fallback_key_secret", CheckStatus.Warn));
+        if (cc.ApiFallbackKeySecret is not { } fallback)
+            return;
+        try
+        {
+            cc.CheckApiFallback();
+        }
+        catch (ChargehandException e)
+        {
+            results.Add(new(CheckStatus.Fail, "API fallback", e.Message, e.Action));
+            return;
+        }
+        results.Add(env.SecretResolves(profile, fallback)
+            ? new(CheckStatus.Ok, "API fallback", $"per-token key from item {fallback}, up to ${cc.ApiFallbackDailyUsd} a day while the subscription is rate limited")
+            : Missing("API fallback", fallback, "claude_code.api_fallback_key_secret", CheckStatus.Fail));
     }
 
     private static async Task<CheckResult> CheckServerAsync(Profile profile, HttpSettings http, IDoctorEnvironment env, CancellationToken ct)

@@ -143,7 +143,16 @@
         },
         "api_fallback_key_secret": {
           "type": "string",
-          "description": "Secret item holding a subscription's second credential: a gateway key billed per token, for the server, its judge and driven sessions while the subscription is rate limited. Only beside oauth_token_secret or the CLI's login. Nothing switches to it yet."
+          "description": "Secret item holding a subscription's second credential: a key billed per token that the server's workers and its judge use while the subscription is rate limited. Only beside oauth_token_secret or the CLI's login. Needs api_fallback_daily_usd."
+        },
+        "api_fallback_base_url": {
+          "type": "string",
+          "description": "Endpoint the fallback key goes to (ANTHROPIC_BASE_URL on a fallback turn), without custom_headers_secret. Unset: Anthropic directly."
+        },
+        "api_fallback_daily_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Most the fallback may spend per UTC day, counted from chargehand's own fallback calls. Required with api_fallback_key_secret."
         }
       },
       "not": {

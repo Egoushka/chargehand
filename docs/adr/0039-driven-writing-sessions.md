@@ -182,7 +182,7 @@ The first task picked up by GitHub intake on a repository of Markdown and shell 
   Dollars are not measurable in that mode, so batches are bounded by a token ceiling counted from the stream, plus turns and time; the
   dollar ceiling binds only in API-key mode. Parallel sessions share one plan's limit. Whether unattended parallel server-hosted use is
   within the plan's terms is **unknown** and accepted as a risk by the maintainer; the risk is an action by the provider on the
-  account. A rate limit or sign-out ends tasks as retryable and stops the batch; nothing switches to an API key on its own.
+  account. A rate limit or sign-out ends tasks as retryable and stops the batch; a batch never switches to an API key on its own. Worker runs switch only within the API-fallback cap and budget (amendment of 2026-10-29).
   Because the subscription token is long-lived and covers the whole plan, keeping it out of the container (the per-run token design)
   matters more here than for a limited API key; if the spike shows it cannot be kept out, the fallback delivery puts a year-long
   credential where hostile repository code runs, and the maintainer should then reconsider before enabling it.
@@ -195,6 +195,16 @@ The first task picked up by GitHub intake on a repository of Markdown and shell 
 - New error codes, artifact kinds, events, a list schema and three routes are additive; `Chargehand.Contracts` needs a new alpha
   version when released, and the snapshots of the 1.0 stability plan must include them.
 - Docker is required for this feature on any host. A Mac without it gets `container_unavailable` and the `code` preset still works.
+
+## Amendment, 2026-10-29: subscription first, then the API fallback (issue #632)
+
+The maintainer approved "subscription first, then API credit" on 2026-10-28 and its terms on 2026-10-29: the API key is a fallback used only while the subscription is
+rate limited, within a hard daily dollar cap enforced by chargehand ($6 a day, shared by every consumer of the fallback key). The server's workers and its judge now switch
+only within the API-fallback cap and budget: `claude_code.api_fallback_key_secret` names a per-token key, `api_fallback_base_url` its endpoint and `api_fallback_daily_usd`
+the cap (required). A turn that the subscription's limit ends runs again on that key while the day's fallback spend is under the cap; turns stay there until the
+subscription's reset, and the first turn after it goes on the subscription again. A budget refusal from the gateway closes the fallback until the next UTC day. Chargehand
+counts only its own fallback spend: the shared cap is the gateway's budget on the shared key. Driven batches are unchanged: they still stop on a rate limit, because their
+credential reaches the session through the batch's egress design, which carries one credential per batch.
 
 ## Reopen if
 
