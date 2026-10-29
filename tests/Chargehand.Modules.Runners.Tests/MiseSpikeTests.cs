@@ -50,7 +50,7 @@ public class MiseSpikeTests
                 var install = await RunAsync(engine, new ContainerSpec($"{run}-install", Image!, RunnerNames.Work(run), RunnerNames.Out(run), "bridge", env, 4096, 4, 512,
                     ContainerTemplate.InstallCommand, Home: home, Install: true));
                 var test = await RunAsync(engine, new ContainerSpec(run, Image!, RunnerNames.Work(run), RunnerNames.Out(run), "bridge", env, 4096, 4, 512,
-                    ["sh", "-c", string.Join(' ', entry.Test)], Home: home));
+                    ["-c", string.Join(' ', entry.Test)], Home: home), shell: true);
                 rows.Add(new Row(entry.Name, pass, install.Seconds, test.Seconds, install.ExitCode != 0 ? install.ExitCode : test.ExitCode, await VolumeMbAsync(home)));
                 File.WriteAllText(Path.Combine(dir, $"{run}.log"), $"== install ({install.ExitCode})\n{install.Log}\n== test ({test.ExitCode})\n{test.Log}\n");
                 await engine.RemoveVolumeAsync(RunnerNames.Work(run), default);
@@ -63,9 +63,9 @@ public class MiseSpikeTests
         File.WriteAllText(Environment.GetEnvironmentVariable("CHARGEHAND_SPIKE_OUT") ?? Path.Combine(dir, "table.md"), table.ToString());
     }
 
-    private static async Task<(double Seconds, int ExitCode, string Log)> RunAsync(DockerCliEngine engine, ContainerSpec spec)
+    private static async Task<(double Seconds, int ExitCode, string Log)> RunAsync(DockerCliEngine engine, ContainerSpec spec, bool shell = false)
     {
-        var id = await engine.StartAsync(spec, default);
+        var id = shell ? await StartShellAsync(spec) : await engine.StartAsync(spec, default);
         var clock = Stopwatch.StartNew();
         ContainerState state;
         while ((state = await engine.InspectAsync(id, default)).Status == ContainerStatus.Running)
@@ -74,6 +74,30 @@ public class MiseSpikeTests
         var log = await engine.LogsTailAsync(id, 64 * 1024, default);
         await engine.RemoveAsync(id, default);
         return (seconds, state.ExitCode ?? -1, log);
+    }
+
+    /// <summary>The session's own container line with the image's shell as the entry point: the released image's entry point is the driver, and the test command stands in for the check the driver
+    /// runs before a push.</summary>
+    private static async Task<string> StartShellAsync(ContainerSpec spec)
+    {
+        var envFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllLines(envFile, ContainerTemplate.EnvFileLines(spec.Env));
+            var args = ContainerTemplate.RunArgs(spec, envFile).ToList();
+            args.InsertRange(args.LastIndexOf(spec.ImageDigest), ["--entrypoint", "sh"]);
+            var psi = new ProcessStartInfo("docker") { RedirectStandardOutput = true };
+            foreach (var a in args)
+                psi.ArgumentList.Add(a);
+            using var p = Process.Start(psi)!;
+            var id = (await p.StandardOutput.ReadToEndAsync()).Trim();
+            await p.WaitForExitAsync();
+            return id;
+        }
+        finally
+        {
+            File.Delete(envFile);
+        }
     }
 
     private static async Task<string> VolumeMbAsync(string volume)

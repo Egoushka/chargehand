@@ -32,7 +32,8 @@ jobs:
             IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}-session-mise:$version"
           fi
           docker pull -q "$IMAGE"
-          echo "CHARGEHAND_TEST_MISE_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          # The container template takes an image only by digest.
+          echo "CHARGEHAND_TEST_MISE_IMAGE=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")" >> "$GITHUB_ENV"
       - name: Repositories
         run: |
           echo "CHARGEHAND_SPIKE_DIR=$RUNNER_TEMP/spike" >> "$GITHUB_ENV"
