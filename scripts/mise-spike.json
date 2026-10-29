@@ -1,0 +1,44 @@
+[
+  {
+    "name": "dotnet",
+    "repository": "https://github.com/ardalis/GuardClauses",
+    "commit": "f96b823e4228252b2927cce3effa550c16b558a5",
+    "tools": { "dotnet": "8" },
+    "test": ["dotnet test test/GuardClauses.UnitTests"]
+  },
+  {
+    "name": "node",
+    "repository": "https://github.com/sindresorhus/slugify",
+    "commit": "3b17b2e84b97624a683aafaa38184bf2746fab22",
+    "tools": { "node": "22" },
+    "test": ["npm install --no-audit --no-fund && npx ava"]
+  },
+  {
+    "name": "python",
+    "repository": "https://github.com/pallets/markupsafe",
+    "commit": "4e111271b1494995708a9e878a10829b5e10c7ba",
+    "tools": { "python": "3.13" },
+    "test": ["python -m venv .venv && .venv/bin/pip install -q . pytest && .venv/bin/pytest -q"]
+  },
+  {
+    "name": "maven",
+    "repository": "https://github.com/jhy/jsoup",
+    "commit": "0c508f17a52d294aa846f4cbca312b2e65e9f94f",
+    "tools": { "java": "temurin-21", "maven": "3.9" },
+    "test": ["mvn -B -q test"]
+  },
+  {
+    "name": "go",
+    "repository": "https://github.com/spf13/cobra",
+    "commit": "adbc8813901bba65827259daa8e22ff94ec1f30e",
+    "tools": { "go": "1.24" },
+    "test": ["go test ./..."]
+  },
+  {
+    "name": "rust",
+    "repository": "https://github.com/dtolnay/itoa",
+    "commit": "1577ed901354d0d7448ac162328f9dbf5183124c",
+    "tools": { "rust": "1.90.0" },
+    "test": ["cargo test"]
+  }
+]
