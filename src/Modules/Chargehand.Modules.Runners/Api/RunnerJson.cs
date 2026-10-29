@@ -27,7 +27,11 @@ public sealed record RunnerConnect(string Container, string Network);
 public sealed record RunnerEgress(string BatchId, string Network, List<string> Allow, List<string>? Forwards = null, RunnerModelGateway? Gateway = null);
 
 /// <summary>What the egress container needs to exchange run tokens for the model credential (ADR 0039, decision 9).</summary>
-public sealed record RunnerModelGateway(string Credential, string TokenKey, string Host, int Port);
+/// <param name="Fallback">The API key a long subscription limit is replayed on (ADR 0088); the runner starts it only for the host its policy names.</param>
+public sealed record RunnerModelGateway(string Credential, string TokenKey, string Host, int Port, RunnerFallback? Fallback = null);
+
+/// <summary>The fallback of a model endpoint: the key, its host, the batch's dollar allowance and the prices per million tokens.</summary>
+public sealed record RunnerFallback(string Credential, string Host, decimal AllowanceUsd, decimal InputPerMtok, decimal OutputPerMtok, decimal CacheReadPerMtok, decimal CacheWritePerMtok);
 
 /// <summary>A workspace to prepare; the runner builds the helper's command line from <see cref="Chargehand.Modules.Runners.Api.ContainerTemplate.WorkspaceArgs"/>.</summary>
 public sealed record RunnerWorkspace(string RunId, string Image, string SourcePath, string WorkVolume, string Branch, string Commit);

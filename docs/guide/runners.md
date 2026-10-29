@@ -102,7 +102,7 @@ CHARGEHAND_RUNNER_KEY=... chargehand runner --listen <private-address>:4310 --al
   --forwards 4300=server.example.net:4300 --max-bundle-mb 512
 ```
 
-(`--outside-networks bridge` for the default network.) The runner does not need the server's checkouts, and the server does not need the runner's engine.
+(`--outside-networks bridge` for the default network.) `--fallback-host <host>` names the one host an egress container's API-key fallback may be sent to ([ADR 0088](../adr/0088-driven-batches-fall-back-to-the-api-key-inside-the-egress-gateway.md)): the host of the profile's `api_fallback_base_url`. Without it the runner starts no egress container with a fallback, and a batch on that runner stops on a subscription limit as before. The runner does not need the server's checkouts, and the server does not need the runner's engine.
 
 ## A Mac as a runner
 

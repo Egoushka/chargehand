@@ -7,13 +7,13 @@ using Chargehand.Modules.Runners.Api;
 namespace Chargehand.Server;
 
 /// <summary><c>chargehand runner --listen &lt;ip:port&gt; --images &lt;digest,...&gt; --egress-image &lt;digest&gt; [--max-containers N] [--allowed-hosts a,b]</c>:
-/// the runner service in front of the container engine (ADR 0039). <c>--max-bundle-mb</c> is the most a repository bundle the server sends may be (ADR 0058; default 512). Profile-free; the bearer key is the environment variable
+/// the runner service in front of the container engine (ADR 0039). <c>--fallback-host</c> is the one host a model endpoint's fallback key may go to (ADR 0088; none: no fallback). <c>--max-bundle-mb</c> is the most a repository bundle the server sends may be (ADR 0058; default 512). Profile-free; the bearer key is the environment variable
 /// <c>CHARGEHAND_RUNNER_KEY</c>, never an argument, so it does not show in a process listing.</summary>
 public static class RunnerCli
 {
     public const string KeyVariable = "CHARGEHAND_RUNNER_KEY";
 
-    public const string Usage = "usage: chargehand runner --listen <ip:port> --images <name@sha256:...,...> --egress-image <name@sha256:...> [--max-containers N] [--allowed-hosts a,b] [--source-roots /dir,...] [--outside-networks name,...] [--forwards listen=host:port,...] [--service-images name@sha256:...,...] [--max-bundle-mb N] [--keep-awake on|off] [--drain-on battery,lid] [--drain-file /path] [--host-source auto|proc|engine]  (key: CHARGEHAND_RUNNER_KEY)";
+    public const string Usage = "usage: chargehand runner --listen <ip:port> --images <name@sha256:...,...> --egress-image <name@sha256:...> [--max-containers N] [--allowed-hosts a,b] [--source-roots /dir,...] [--outside-networks name,...] [--forwards listen=host:port,...] [--service-images name@sha256:...,...] [--max-bundle-mb N] [--fallback-host host] [--keep-awake on|off] [--drain-on battery,lid] [--drain-file /path] [--host-source auto|proc|engine]  (key: CHARGEHAND_RUNNER_KEY)";
 
     public static RunnerSettings? Parse(IReadOnlyList<string> args, string? key, TextWriter error)
     {
@@ -30,6 +30,7 @@ public static class RunnerCli
         List<string> outside = [];
         List<string> forwards = [];
         List<string> serviceImages = [];
+        string? fallbackHost = null;
         var maxBundleMb = (int)(RunnerPolicy.DefaultMaxBundleBytes / (1024 * 1024));
         var keepAwake = false;
         var drainOn = "";
@@ -61,6 +62,9 @@ public static class RunnerCli
                     break;
                 case "--max-bundle-mb" when int.TryParse(args[i + 1], out var mb) && mb is >= 1 and <= 4096:
                     maxBundleMb = mb;
+                    break;
+                case "--fallback-host" when Chargehand.Modules.Gateway.Api.ModelGateway.RefuseHost(args[i + 1]) is null:
+                    fallbackHost = args[i + 1].Trim().TrimEnd('.').ToLowerInvariant();
                     break;
                 case "--keep-awake" when args[i + 1] is "on" or "off":
                     keepAwake = args[i + 1] == "on";
@@ -115,7 +119,7 @@ public static class RunnerCli
             error.WriteLine("note: --keep-awake does nothing here: it holds a Mac awake with caffeinate");
         if ((drain.OnBattery || drain.OnLidClosed) && !OperatingSystem.IsMacOS())
             error.WriteLine("note: --drain-on battery and lid read macOS's pmset and ioreg, so they never drain here; --drain-file works everywhere");
-        return new RunnerSettings(listen.Port, key, new RunnerPolicy(images, egress, max, SourceRoots: roots, OutsideNetworks: outside, Forwards: forwards, ServiceImages: serviceImages, MaxBundleBytes: maxBundleMb * 1024L * 1024), listen.Address.ToString(), hosts,
+        return new RunnerSettings(listen.Port, key, new RunnerPolicy(images, egress, max, SourceRoots: roots, OutsideNetworks: outside, Forwards: forwards, ServiceImages: serviceImages, MaxBundleBytes: maxBundleMb * 1024L * 1024, FallbackHost: fallbackHost), listen.Address.ToString(), hosts,
             new RunnerOptions(keepAwake, drain.Any ? drain : null, hostSource));
     }
 
@@ -161,7 +165,7 @@ public static class RunnerCli
         }
     }
 
-    private static readonly HashSet<string> KnownOptions = ["--listen", "--images", "--egress-image", "--max-containers", "--outside-networks", "--forwards", "--source-roots", "--allowed-hosts", "--service-images", "--max-bundle-mb", "--keep-awake", "--drain-on", "--drain-file", "--host-source"];
+    private static readonly HashSet<string> KnownOptions = ["--listen", "--images", "--egress-image", "--max-containers", "--outside-networks", "--forwards", "--source-roots", "--allowed-hosts", "--service-images", "--max-bundle-mb", "--fallback-host", "--keep-awake", "--drain-on", "--drain-file", "--host-source"];
 
     /// <summary>The reason first, on its own line, then the usage: the usage names every flag, so alone it does not say which argument was wrong.</summary>
     private static RunnerSettings? Fail(TextWriter error, string reason)

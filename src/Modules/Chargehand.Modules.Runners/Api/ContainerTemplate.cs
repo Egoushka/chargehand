@@ -234,13 +234,36 @@ public static partial class ContainerTemplate
             throw new ArgumentException("the model credential is empty or has whitespace or a control character", nameof(spec));
         if (Chargehand.Modules.Gateway.Api.ModelGateway.RefuseHost(gateway.Host) is { } refused)
             throw new ArgumentException($"the model host is not acceptable: {refused}", nameof(spec));
+        if (gateway.Fallback is { } fallback)
+            CheckFallback(fallback, spec);
         if (string.IsNullOrWhiteSpace(envFile) || envFile.StartsWith('-'))
             throw new ArgumentException("an egress container with a model endpoint needs an env file path", nameof(envFile));
     }
 
-    /// <summary>The egress container's env file lines: the model credential and the run-token key, for <see cref="EgressArgs"/>'s <c>--env-file</c>.</summary>
-    public static IReadOnlyList<string> EgressEnvLines(ModelGatewaySpec gateway) =>
-        [$"{Chargehand.Modules.Gateway.Api.EgressCli.CredentialVariable}={gateway.Credential}", $"{Chargehand.Modules.Gateway.Api.EgressCli.KeyVariable}={gateway.TokenKey}"];
+    private static void CheckFallback(Chargehand.Modules.Gateway.Api.GatewayFallback fallback, EgressSpec spec)
+    {
+        if (fallback.Credential.Length == 0 || fallback.Credential.Any(c => char.IsControl(c) || char.IsWhiteSpace(c)))
+            throw new ArgumentException("the fallback credential is empty or has whitespace or a control character", nameof(spec));
+        if (Chargehand.Modules.Gateway.Api.ModelGateway.RefuseHost(fallback.Host) is { } refused)
+            throw new ArgumentException($"the fallback host is not acceptable: {refused}", nameof(spec));
+        var price = fallback.Price;
+        if (fallback.AllowanceUsd <= 0 || price.InputPerMtok < 0 || price.OutputPerMtok < 0 || price.CacheReadPerMtok < 0 || price.CacheWritePerMtok < 0)
+            throw new ArgumentException("the fallback allowance must be above 0 and its prices not negative", nameof(spec));
+    }
+
+    /// <summary>The egress container's env file lines: the model credential and the run-token key (and the fallback's, ADR 0088), for <see cref="EgressArgs"/>'s <c>--env-file</c>.</summary>
+    public static IReadOnlyList<string> EgressEnvLines(ModelGatewaySpec gateway)
+    {
+        List<string> lines = [$"{Chargehand.Modules.Gateway.Api.EgressCli.CredentialVariable}={gateway.Credential}", $"{Chargehand.Modules.Gateway.Api.EgressCli.KeyVariable}={gateway.TokenKey}"];
+        if (gateway.Fallback is { } f)
+        {
+            string N(decimal d) => d.ToString("0.######", CultureInfo.InvariantCulture);
+            lines.AddRange([$"{Chargehand.Modules.Gateway.Api.EgressCli.FallbackCredentialVariable}={f.Credential}", $"{Chargehand.Modules.Gateway.Api.EgressCli.FallbackHostVariable}={f.Host}",
+                $"{Chargehand.Modules.Gateway.Api.EgressCli.FallbackUsdVariable}={N(f.AllowanceUsd)}",
+                $"{Chargehand.Modules.Gateway.Api.EgressCli.FallbackPriceVariable}={N(f.Price.InputPerMtok)},{N(f.Price.OutputPerMtok)},{N(f.Price.CacheReadPerMtok)},{N(f.Price.CacheWritePerMtok)}"]);
+        }
+        return lines;
+    }
 
     /// <summary>The env file's lines, <c>NAME=value</c>, in name order. Refuses a name outside <see cref="AllowedEnv"/> and a value
     /// with a line break or NUL (which would add a second variable).</summary>

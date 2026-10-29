@@ -51,6 +51,21 @@ public class RunnerCliTests
         }
     }
 
+    [Fact]
+    public void The_fallback_host_is_one_acceptable_host_name_and_unset_by_default()
+    {
+        string[] basic = ["--listen", "127.0.0.1:4310", "--images", Image, "--egress-image", Egress];
+
+        Assert.Null(RunnerCli.Parse(basic, key: "k", TextWriter.Null)!.Policy.FallbackHost);
+        Assert.Equal("gateway.example.test", RunnerCli.Parse([.. basic, "--fallback-host", "Gateway.Example.Test."], key: "k", TextWriter.Null)!.Policy.FallbackHost);
+        foreach (var bad in new[] { "10.0.0.1", "localhost", "a b" })
+        {
+            var error = new StringWriter();
+            Assert.Null(RunnerCli.Parse([.. basic, "--fallback-host", bad], key: "k", error));
+            Assert.Contains("--fallback-host has an invalid value", error.ToString());
+        }
+    }
+
     [Theory]
     [InlineData("--listen", "127.0.0.1:4310", "--egress-image", Egress)]                                   // no images
     [InlineData("--listen", "127.0.0.1:4310", "--images", Image)]                                          // no egress image

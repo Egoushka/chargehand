@@ -56,7 +56,9 @@ public sealed record EgressSpec(string BatchId, string Image, string Network, IR
 /// <param name="Credential">The real model credential. It lives in the egress container and nowhere else: not in a session container, not in an image, not in a log.</param>
 /// <param name="TokenKey">The batch's key for run tokens, 64 hex characters (<c>ModelTokens.NewKey</c>).</param>
 /// <param name="Host">The one host requests are forwarded to.</param>
-public sealed record ModelGatewaySpec(string Credential, string TokenKey, string Host = Chargehand.Modules.Gateway.Api.EgressCli.DefaultModelHost, int Port = ModelGatewaySpec.DefaultPort)
+/// <param name="Fallback">The API key a long subscription limit is replayed on, with its host, the batch's dollar allowance and its prices (ADR 0088); null: a limit goes back to the session. It travels in the same env file.</param>
+public sealed record ModelGatewaySpec(string Credential, string TokenKey, string Host = Chargehand.Modules.Gateway.Api.EgressCli.DefaultModelHost, int Port = ModelGatewaySpec.DefaultPort,
+    Chargehand.Modules.Gateway.Api.GatewayFallback? Fallback = null)
 {
     public const int DefaultPort = 3129;
 }
