@@ -40,6 +40,11 @@ public interface IIntegrationHost : IBranchRules, ICiHistory
     /// <summary>How many commits of <paramref name="baseBranch"/> the branch lacks.</summary>
     Task<int> BehindByAsync(RemoteRepository repository, string baseBranch, string branch, CancellationToken ct);
 
+    /// <summary>The checks on a branch's own head, by name (CHARGEHAND-669): whether a required check failing on a pull request also fails on its base, so the pull request did not cause it.
+    /// <see cref="CheckStatus.Required"/> is meaningless here (a branch, not a pull request, has no required checks of its own) and is always true. A forge that cannot read this throws.</summary>
+    Task<IReadOnlyList<CheckStatus>> BaseChecksAsync(RemoteRepository repository, string branch, CancellationToken ct) =>
+        throw new IntegrationException($"{Name} cannot read a branch's checks from here");
+
     Task UpdateBranchAsync(RemoteRepository repository, int number, string expectedHeadSha, CancellationToken ct);
 
     /// <param name="repository">The pull request's repository: the App is installed per owner, so the call needs to know whose installation to act as.</param>
@@ -134,6 +139,35 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
         catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException)
         {
             throw new IntegrationException("GitHub answered with a body that is not a comparison");
+        }
+    }
+
+    private const string RefChecksQuery = """
+        query($owner:String!,$name:String!,$qualified:String!){repository(owner:$owner,name:$name){ref(qualifiedName:$qualified){target{... on Commit{statusCheckRollup{contexts(first:100){nodes{
+          __typename
+          ... on CheckRun{name status conclusion databaseId}
+          ... on StatusContext{context state}
+        }}}}}}}}
+        """;
+
+    public async Task<IReadOnlyList<CheckStatus>> BaseChecksAsync(RemoteRepository repository, string branch, CancellationToken ct)
+    {
+        using var data = await GraphQlAsync(repository, "the base branch's checks", RefChecksQuery, new RefVariables(repository.Owner, repository.Name, $"refs/heads/{branch}"), ct);
+        try
+        {
+            var @ref = data.RootElement.GetProperty("repository").GetProperty("ref");
+            if (@ref.ValueKind != JsonValueKind.Object || @ref.GetProperty("target").GetProperty("statusCheckRollup") is not { ValueKind: JsonValueKind.Object } rollup)
+                return [];
+            var checks = new List<CheckStatus>();
+            foreach (var node in rollup.GetProperty("contexts").GetProperty("nodes").EnumerateArray())
+                checks.Add(node.GetProperty("__typename").GetString() == "CheckRun"
+                    ? new CheckStatus(node.GetProperty("name").GetString() ?? "", true, Classify(node.GetProperty("status").GetString(), node.GetProperty("conclusion").GetString()), node.GetProperty("databaseId").GetInt64())
+                    : new CheckStatus(node.GetProperty("context").GetString() ?? "", true, ClassifyStatus(node.GetProperty("state").GetString()), null));
+            return checks;
+        }
+        catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or JsonException or FormatException)
+        {
+            throw new IntegrationException("GitHub answered with a body that is not a branch's checks");
         }
     }
 
