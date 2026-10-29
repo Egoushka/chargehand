@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageReference Include="Microsoft.Coyote.Test" Version="1.7.11" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Chargehand.Modules.Batches\Chargehand.Modules.Batches.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Chargehand.Modules.Tasks\Chargehand.Modules.Tasks.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Chargehand.Modules.Research\Chargehand.Modules.Research.csproj" />
+  </ItemGroup>
+
+  <!-- The fakes the old suite runs one task on; linked rather than copied. -->
+  <ItemGroup>
+    <Compile Include="..\Chargehand.Tests\DrivenFakes.cs" Link="DrivenFakes.cs" />
+    <Compile Include="..\Chargehand.Tests\TempDir.cs" Link="TempDir.cs" />
+  </ItemGroup>
+
+  <!-- Coyote controls the scheduling only of assemblies it has rewritten. The rewrite is in place, in the output directory; dotnet-tools.json pins the tool. -->
+  <Target Name="CoyoteRewrite" AfterTargets="Build" Inputs="$(OutDir)$(TargetFileName);$(OutDir)Chargehand.Modules.Batches.dll;$(OutDir)Chargehand.Modules.Tasks.dll" Outputs="$(IntermediateOutputPath)coyote.stamp">
+    <PropertyGroup>
+      <CoyoteConfig>$(MSBuildProjectDirectory)/$(IntermediateOutputPath)rewrite.coyote.json</CoyoteConfig>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(CoyoteConfig)" Overwrite="true"
+      Lines="{ &quot;AssembliesPath&quot;: &quot;$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/$(OutDir)').Replace('\', '/'))&quot;, &quot;Assemblies&quot;: [ &quot;$(TargetFileName)&quot;, &quot;Chargehand.Modules.Batches.dll&quot;, &quot;Chargehand.Modules.Tasks.dll&quot;, &quot;Chargehand.Modules.Ledger.dll&quot;, &quot;Chargehand.Modules.Sessions.dll&quot;, &quot;Chargehand.Modules.Handover.dll&quot;, &quot;Chargehand.Modules.Runners.dll&quot; ] }" />
+    <Exec Command="dotnet tool restore" WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <Exec Command="dotnet tool run --allow-roll-forward coyote -- rewrite &quot;$(CoyoteConfig)&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <Touch Files="$(IntermediateOutputPath)coyote.stamp" AlwaysCreate="true" />
+  </Target>
+
+</Project>
