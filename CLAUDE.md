@@ -10,13 +10,13 @@ dotnet build                          # whole solution (Chargehand.slnx)
 dotnet test                           # schema tests, contract test against docs/opencode-openapi.json
 dotnet format --verify-no-changes     # lint / format check (CI runs this)
 scripts/gen-opencode-api.py <url>     # regenerate docs/opencode-api.md + spec (needs OPENCODE_SERVER_PASSWORD)
-gitleaks git --redact -v              # secret scan over history
+betterleaks git --redact -v              # secret scan over history
 scripts/opencode-serve.sh <bin> <cfg> [port]   # start the orchestrator's own OpenCode server
 dotnet run --project src/Chargehand.Cli -- run|serve|show|cache|reconcile|routes|score|eval|prompts sync|extensions check   # CLI (profiles/local.json)
 scripts/prompt-ci.sh <pr>             # Prompt CI on the owner's machine (profiles/local.eval.json, eval OpenCode server)
 ```
 
-Hooks: `lefthook install` (agent-checks, denylist + gitleaks on pre-commit, denylist +
+Hooks: `lefthook install` (agent-checks, denylist + betterleaks on pre-commit, denylist +
 Conventional Commits on commit-msg; the scripts live in `.githooks/`). Never `--no-verify`. A linked worktree has no `.private-terms` of its own; the
 hooks read the main checkout's, so don't copy it in.
 
