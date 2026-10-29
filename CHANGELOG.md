@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.6](https://github.com/Egoushka/chargehand/compare/v0.19.5...v0.19.6) (2026-10-29)
+
+
+### Features
+
+* **claude-code:** subscription first, then the API fallback within a daily cap ([#632](https://github.com/Egoushka/chargehand/issues/632)) ([#642](https://github.com/Egoushka/chargehand/issues/642)) ([b6fac94](https://github.com/Egoushka/chargehand/commit/b6fac94187ffe7a90a2c24a54675cdd0f5694906))
+
 ## [0.19.5](https://github.com/Egoushka/chargehand/compare/v0.19.4...v0.19.5) (2026-10-28)
 
 
