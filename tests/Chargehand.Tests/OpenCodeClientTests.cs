@@ -177,6 +177,14 @@ public class OpenCodeClientTests
         Assert.Equal(code, new OpenCodeException(status, "ServiceUnavailableError", message).Code);
 
     [Fact]
+    public void A_provider_unavailable_error_carries_an_action()
+    {
+        var e = new OpenCodeException(HttpStatusCode.ServiceUnavailable, "ServiceUnavailableError", "ConnectionRefused");
+        Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
+        Assert.Equal(OpenCodeException.ProviderUnavailableAction, e.Action);
+    }
+
+    [Fact]
     public void Messages_are_dispatched_on_type()
     {
         var assistant = JsonDocument.Parse("""
@@ -202,7 +210,7 @@ public class OpenCodeClientTests
     }
 
     [Fact]
-    public async Task Generate_retries_one_503_and_no_more()
+    public async Task Generate_retries_a_provider_failure_a_bounded_number_of_times()
     {
         const string Unavailable = """{"name":"ServiceUnavailableError","message":"ECONNRESET: The socket connection was closed unexpectedly."}""";
         var calls = 0;
@@ -210,10 +218,28 @@ public class OpenCodeClientTests
         Assert.Equal("ok", await c.GenerateAsync("p", "m", "hi", CancellationToken.None));
         Assert.Equal(2, calls);
 
+        // A 502 or 504 is the same code (provider_unavailable), so it is retried too.
+        var (gateway, gh) = Make((_, _) => (HttpStatusCode.BadGateway, Unavailable));
+        await Assert.ThrowsAsync<OpenCodeException>(() => gateway.GenerateAsync("p", "m", "hi", CancellationToken.None));
+        Assert.Equal(OpenCodeClient.GenerateRetryAttempts, gh.Seen.Count);
+
         var (failing, h) = Make((_, _) => (HttpStatusCode.ServiceUnavailable, Unavailable));
         var e = await Assert.ThrowsAsync<OpenCodeException>(() => failing.GenerateAsync("p", "m", "hi", CancellationToken.None));
         Assert.Equal(HttpStatusCode.ServiceUnavailable, e.Status);
-        Assert.Equal(2, h.Seen.Count);
+        Assert.Equal(OpenCodeClient.GenerateRetryAttempts, h.Seen.Count);
+        Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
+        Assert.True(e.Error.Retryable);
+        Assert.Equal(OpenCodeException.ProviderUnavailableAction, e.Action);
+    }
+
+    [Fact]
+    public async Task A_rate_limit_is_not_retried_by_generate()
+    {
+        var calls = 0;
+        var (c, _) = Make((_, _) => { calls++; return (HttpStatusCode.TooManyRequests, """{"message":"slow down"}"""); });
+        var e = await Assert.ThrowsAsync<OpenCodeException>(() => c.GenerateAsync("p", "m", "hi", CancellationToken.None));
+        Assert.Equal(ErrorCode.RateLimited, e.Code);
+        Assert.Equal(1, calls);
     }
 
     [Fact]

@@ -10,10 +10,14 @@ namespace Chargehand.OpenCode;
 
 /// <summary>An OpenCode error response: HTTP status plus the tagged error body (e.g. InstructionEntryValueTooLargeError).</summary>
 public sealed class OpenCodeException(HttpStatusCode status, string? tag, string message)
-    : ChargehandException(CodeOf(status, message), $"OpenCode {(int)status} {tag}: {message}", ActionOf(message))
+    : ChargehandException(CodeOf(status, message), $"OpenCode {(int)status} {tag}: {message}", ActionOf(CodeOf(status, message), message))
 {
     /// <summary>What to do when the gateway refuses a call over a spend budget (LiteLLM: "Budget has been exceeded!").</summary>
     public const string BudgetAction = "The model gateway refused the call over a spend budget: raise the gateway key's budget, or wait for its reset.";
+
+    /// <summary>What to do when OpenCode's 502, 503 or 504 relays a provider or gateway it cannot reach (ADR 0022). A generate call
+    /// (e.g. intake, <see cref="OpenCodeClient.GenerateAsync"/>) already retried a bounded number of times before raising this.</summary>
+    public const string ProviderUnavailableAction = "The model provider behind OpenCode is unavailable: wait for it to recover and send the request again.";
 
     public HttpStatusCode Status { get; } = status;
     public string? Tag { get; } = tag;
@@ -24,7 +28,10 @@ public sealed class OpenCodeException(HttpStatusCode status, string? tag, string
         : status is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout ? ErrorCode.ProviderUnavailable
         : ErrorCode.Internal;
 
-    private static string? ActionOf(string message) => message.Contains("budget", StringComparison.OrdinalIgnoreCase) ? BudgetAction : null;
+    private static string? ActionOf(ErrorCode code, string message) =>
+        message.Contains("budget", StringComparison.OrdinalIgnoreCase) ? BudgetAction
+        : code == ErrorCode.ProviderUnavailable ? ProviderUnavailableAction
+        : null;
 }
 
 /// <summary>Hand-written client for the adapter's operations (docs/opencode-adapter-ops.json).</summary>
@@ -109,8 +116,9 @@ public sealed class OpenCodeClient : IOpenCodeClient
         Send<JsonElement>(HttpMethod.Post, $"/api/session/{sessionId}/move", new { directory }, ct);
 
     /// <summary>
-    /// Stateless, so safe to repeat: one retry when OpenCode relays a 503 (the masking proxy's or a dropped gateway
-    /// connection, ADR 0011). Session prompts are not repeated this way; a second submit would run the turn twice.
+    /// Stateless, so safe to repeat: a bounded number of retries when OpenCode relays a provider failure (502, 503 or 504; the
+    /// masking proxy's or a dropped gateway connection, ADR 0011), so a short outage does not cost the whole run. Session prompts
+    /// are not repeated this way; a second submit would run the turn twice.
     /// </summary>
     public async Task<string> GenerateAsync(string? providerId, string? modelId, string prompt, CancellationToken ct)
     {
@@ -121,11 +129,13 @@ public sealed class OpenCodeClient : IOpenCodeClient
                 return (await Data<JsonElement>(HttpMethod.Post, "/api/experimental/generate", new { prompt, model }, ct))
                     .GetProperty("text").GetString()!;
             }
-            catch (OpenCodeException e) when (attempt == 1 && e.Status == HttpStatusCode.ServiceUnavailable)
+            catch (OpenCodeException e) when (attempt < GenerateRetryAttempts && e.Code == ErrorCode.ProviderUnavailable)
             {
                 await Task.Delay(GenerateRetryDelay, ct);
             }
     }
+
+    internal static int GenerateRetryAttempts { get; set; } = 3;
 
     internal static TimeSpan GenerateRetryDelay { get; set; } = TimeSpan.FromSeconds(1);
 
