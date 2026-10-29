@@ -107,11 +107,13 @@ public class SchemaCompatTests(ITestOutputHelper output)
 
     // A published major takes additive changes only: every schema file that shipped in the latest release tag
     // must still accept what it accepted then. New files and new vN directories are not in the tag, so they pass.
+    // Once v1.0.0 exists (stability plan, docs/plans/2026-09-30-stability-1.0.md), it joins the comparison so a
+    // later minor's tag moving on does not drop the 1.0 declaration itself as a base.
     [Fact]
     public void Published_schemas_change_only_additively_since_the_last_release()
     {
-        var tag = Git("tag", "--list", "v*", "--sort=-v:refname").Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-        if (tag is null)
+        var latest = Git("tag", "--list", "v*", "--sort=-v:refname").Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        if (latest is null)
         {
             // CI must compare against a tag: the build job checks out with fetch-depth 0 so tags are present.
             Assert.False(Environment.GetEnvironmentVariable("CI") == "true", "No v* release tag found in CI: fetch tags (checkout fetch-depth: 0).");
@@ -119,6 +121,13 @@ public class SchemaCompatTests(ITestOutputHelper output)
             return;
         }
 
+        var tags = new[] { latest, "v1.0.0" }.Distinct(StringComparer.Ordinal).Where(t => t == latest || TagExists(t));
+        foreach (var tag in tags)
+            CompareAgainstTag(tag);
+    }
+
+    private void CompareAgainstTag(string tag)
+    {
         var files = Git("ls-tree", "-r", "--name-only", tag, "--", "schemas").Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Where(f => f.EndsWith(".schema.json", StringComparison.Ordinal))
             .ToList();
@@ -140,6 +149,9 @@ public class SchemaCompatTests(ITestOutputHelper output)
         output.WriteLine($"Compared {files.Count} schema files against {tag}.");
         Assert.True(breaks.Count == 0, $"Breaking changes to published schemas since {tag} (add a new vN directory instead):\n{string.Join("\n", breaks)}");
     }
+
+    private static bool TagExists(string tag) =>
+        Git("tag", "--list", tag).Split('\n', StringSplitOptions.RemoveEmptyEntries).Contains(tag, StringComparer.Ordinal);
 
     private static string Git(params string[] args)
     {
