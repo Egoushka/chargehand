@@ -9,10 +9,10 @@ namespace Chargehand.Runtimes.ClaudeCode.Api;
 /// routes the workers through a gateway that speaks the Anthropic API; unset, they call Anthropic directly. CustomHeadersSecret names a
 /// secret holding header lines (<c>Name: value</c>, one per line) the workers send to that gateway as <c>ANTHROPIC_CUSTOM_HEADERS</c>: a
 /// gateway's virtual key travels in one, so the value is a model credential. ApiFallbackKeySecret names the second credential of a subscription (issue #632): a key
-/// billed per token that the server, its judge and driven sessions may use while the subscription is rate limited. Selection stays on the subscription until that
-/// switch ships; the key is checked and kept out of transcripts already.</summary>
+/// billed per token that the server's workers and its judge use while the subscription is rate limited (<see cref="ApiFallback"/>), sent to ApiFallbackBaseUrl (unset:
+/// Anthropic) without the custom headers, and only while today's fallback spend is under ApiFallbackDailyUsd. Driven sessions stay on the subscription.</summary>
 public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = null, string? OauthTokenSecret = null, string Binary = "claude",
-    string? BaseUrl = null, string? CustomHeadersSecret = null, string? ApiFallbackKeySecret = null)
+    string? BaseUrl = null, string? CustomHeadersSecret = null, string? ApiFallbackKeySecret = null, string? ApiFallbackBaseUrl = null, decimal? ApiFallbackDailyUsd = null)
 {
     /// <summary>The CLI version the adapter's event mapping was verified against (ADR 0020).</summary>
     public const string PinnedVersion = "2.1.283";
@@ -35,12 +35,19 @@ public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = n
     }
 
     /// <summary>Throws <see cref="ChargehandException"/> when <see cref="ApiFallbackKeySecret"/> is set beside <see cref="ApiKeySecret"/>: the fallback is the second credential of a
-    /// subscription (an OAuth token or the CLI's login), not of a key already billed per token.</summary>
+    /// subscription (an OAuth token or the CLI's login), not of a key already billed per token.
+    /// Also throws when the fallback has no positive <see cref="ApiFallbackDailyUsd"/> (the cap is required), or when the cap or <see cref="ApiFallbackBaseUrl"/> is set without the key.</summary>
     public void CheckApiFallback()
     {
         if (ApiFallbackKeySecret is not null && ApiKeySecret is not null)
             throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code.api_fallback_key_secret is for a subscription, but claude_code.api_key_secret is set",
                 "Remove api_fallback_key_secret, or use oauth_token_secret (or the CLI's login) as the first credential.");
+        if (ApiFallbackKeySecret is not null && ApiFallbackDailyUsd is not > 0)
+            throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code.api_fallback_key_secret needs claude_code.api_fallback_daily_usd above 0: the fallback is billed per token",
+                "Set api_fallback_daily_usd to the dollars a day the fallback may spend.");
+        if (ApiFallbackKeySecret is null && (ApiFallbackDailyUsd is not null || ApiFallbackBaseUrl is not null))
+            throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code.api_fallback_daily_usd and api_fallback_base_url need claude_code.api_fallback_key_secret",
+                "Name the fallback key in api_fallback_key_secret, or remove them.");
     }
 
     /// <summary>The value of each header line in <paramref name="secretValue"/>: what a transcript scan looks for, since the whole line never appears verbatim in a session's output.</summary>

@@ -762,7 +762,12 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
                 "Set one of claude_code.api_key_secret and claude_code.oauth_token_secret in the profile, not both."),
         };
         var headers = cc.CustomHeadersSecret is { } headersItem ? cc.CustomHeaders(profile.Secret(headersItem)) : null;
-        var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct, cc.BaseUrl is null ? null : new Uri(cc.BaseUrl), headers);
+        // Issue #632: the fallback's day of spend outlives a restart beside the run log, so its cap holds across them.
+        var fallback = credential.Subscription && cc.ApiFallbackKeySecret is { } fallbackItem
+            ? new ClaudeCodeFallback(profile.Secret(fallbackItem), cc.ApiFallbackBaseUrl is null ? null : new Uri(cc.ApiFallbackBaseUrl),
+                new ApiFallback(cc.ApiFallbackDailyUsd!.Value, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "api-fallback.json")))
+            : null;
+        var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct, cc.BaseUrl is null ? null : new Uri(cc.BaseUrl), headers, fallback);
         return (claude, claude.Version);
     }
     IOpenCodeClient client;

@@ -377,9 +377,10 @@ public class DoctorTests
     }
 
     [Theory]
-    [InlineData("""{"version":"1","oauth_token_secret":"sub","api_fallback_key_secret":"api"}""", true, CheckStatus.Ok)]
-    [InlineData("""{"version":"1","oauth_token_secret":"sub","api_fallback_key_secret":"api"}""", false, CheckStatus.Warn)]
-    [InlineData("""{"version":"1","api_key_secret":"sub","api_fallback_key_secret":"api"}""", true, CheckStatus.Fail)]
+    [InlineData("""{"version":"1","oauth_token_secret":"sub","api_fallback_key_secret":"api","api_fallback_daily_usd":6}""", true, CheckStatus.Ok)]
+    [InlineData("""{"version":"1","oauth_token_secret":"sub","api_fallback_key_secret":"api","api_fallback_daily_usd":6}""", false, CheckStatus.Fail)]
+    [InlineData("""{"version":"1","api_key_secret":"sub","api_fallback_key_secret":"api","api_fallback_daily_usd":6}""", true, CheckStatus.Fail)]
+    [InlineData("""{"version":"1","oauth_token_secret":"sub","api_fallback_key_secret":"api"}""", true, CheckStatus.Fail)]
     public async Task A_subscription_api_fallback_is_checked_beside_the_model_credential(string claude, bool resolves, CheckStatus status)
     {
         using var dir = new TempDir();

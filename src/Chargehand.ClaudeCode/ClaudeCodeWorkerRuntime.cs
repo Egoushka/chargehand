@@ -7,7 +7,9 @@ using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Research.Api;
+using Chargehand.Modules.Sessions.Api;
 using Chargehand.Runtime;
+using Chargehand.Runtimes.ClaudeCode.Api;
 
 namespace Chargehand.ClaudeCode;
 
@@ -19,6 +21,8 @@ namespace Chargehand.ClaudeCode;
 /// <c>claude setup-token</c> (the owner's plan limits, no per-token bill); with neither, the CLI's own login.
 /// <c>--bare</c> ignores OAuth and the keychain, so the subscription and login modes isolate with
 /// <c>--setting-sources ""</c> instead.
+/// With a <see cref="ClaudeCodeFallback"/> (issue #632) a subscription turn that ends on the subscription's rate limit runs again on the fallback key, and turns go on
+/// the fallback while the subscription stays limited and <see cref="ApiFallback"/> allows it; the first turn after the reset goes on the subscription again.
 /// Granted services (ADR 0034) reach the worker as a private <c>--mcp-config</c> file, written per turn and removed when
 /// the process exits, with <c>--allowedTools</c> naming exactly the granted tools.
 /// </summary>
@@ -34,11 +38,12 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
     private readonly ClaudeCodeCredential _credential;
     private readonly Uri? _baseUrl;
     private readonly string? _customHeaders;
+    private readonly ClaudeCodeFallback? _fallback;
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
 
-    internal ClaudeCodeWorkerRuntime(string binary, ClaudeCodeCredential credential, string version, Uri? baseUrl = null, string? customHeaders = null)
+    internal ClaudeCodeWorkerRuntime(string binary, ClaudeCodeCredential credential, string version, Uri? baseUrl = null, string? customHeaders = null, ClaudeCodeFallback? fallback = null)
     {
-        (_binary, _credential, _baseUrl, _customHeaders) = (binary, credential, baseUrl, customHeaders);
+        (_binary, _credential, _baseUrl, _customHeaders, _fallback) = (binary, credential, baseUrl, customHeaders, credential.Subscription ? fallback : null);
         Version = $"claude-code/{version}";
     }
 
@@ -53,7 +58,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
 
     /// <summary>Refuses a CLI whose version differs from the pinned one, or for a <c>&gt;=</c> pin is older or of another major. <c>claude --version</c> prints "2.1.283 (Claude Code)".</summary>
     public static async Task<ClaudeCodeWorkerRuntime> ConnectAsync(string binary, string pinnedVersion, ClaudeCodeCredential credential, CancellationToken ct,
-        Uri? baseUrl = null, string? customHeaders = null)
+        Uri? baseUrl = null, string? customHeaders = null, ClaudeCodeFallback? fallback = null)
     {
         (int Exit, string Stdout, string Stderr) run;
         try
@@ -71,9 +76,9 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         if (!Satisfies(version, pinnedVersion))
             throw new ChargehandException(ErrorCode.RuntimeVersionMismatch, $"Claude Code CLI is {version}; this adapter is pinned to {pinnedVersion}.",
                 $"Install Claude Code {pinnedVersion}, or change claude_code.version in the profile.");
-        var runtime = new ClaudeCodeWorkerRuntime(binary, credential, version, baseUrl, customHeaders);
+        var runtime = new ClaudeCodeWorkerRuntime(binary, credential, version, baseUrl, customHeaders, fallback);
         // The CLI login fails only on the first model call otherwise; `auth status` exits 1 when signed out, no call made.
-        if (credential.Secret is null && (await Exec(binary, Path.GetTempPath(), ["auth", "status"], null, ct, runtime.Env)).Exit != 0)
+        if (credential.Secret is null && (await Exec(binary, Path.GetTempPath(), ["auth", "status"], null, ct, runtime.Env(false))).Exit != 0)
             throw new ChargehandException(ErrorCode.RuntimeUnavailable, $"{binary} is not signed in and no Claude Code credential is set",
                 $"Run {binary} and sign in, or set CLAUDE_CODE_OAUTH_TOKEN (from claude setup-token) or ANTHROPIC_API_KEY.");
         SweepStaleConfigs(runtime.ConfigRoot, TimeSpan.FromDays(1));
@@ -238,15 +243,44 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
     /// </summary>
     public async Task<string> GenerateAsync(ModelRef? model, string prompt, CancellationToken ct)
     {
-        var env = new Dictionary<string, string?>(Env) { ["MAX_THINKING_TOKENS"] = "0" };
-        var (exit, stdout, stderr) = await Exec(_binary, Path.GetTempPath(),
-            [.. CommonArgs(model), "--output-format", "json", "--no-session-persistence", "--tools", "",
-                "--system-prompt", "Follow the instructions in the user message exactly."], prompt, ct, env);
-        // A failed call can exit non-zero with its reason only in the stdout result (a gateway's refusal), nothing on stderr.
-        var result = ParseResult(stdout);
-        if (result.ValueKind != JsonValueKind.Object || result.GetProperty("is_error").GetBoolean())
-            throw new InvalidOperationException($"claude -p exited {exit}: {(result.ValueKind == JsonValueKind.Object ? ErrorText(result) : stderr.Trim())}");
-        return result.GetProperty("result").GetString() ?? "";
+        var onFallback = _fallback?.Gate.UseFallback() == true;
+        while (true)
+        {
+            var env = new Dictionary<string, string?>(Env(onFallback)) { ["MAX_THINKING_TOKENS"] = "0" };
+            var (exit, stdout, stderr) = await Exec(_binary, Path.GetTempPath(),
+                [.. CommonArgs(model, onFallback), "--output-format", "json", "--no-session-persistence", "--tools", "",
+                    "--system-prompt", "Follow the instructions in the user message exactly."], prompt, ct, env);
+            // A failed call can exit non-zero with its reason only in the stdout result (a gateway's refusal), nothing on stderr.
+            var result = ParseResult(stdout);
+            var turn = result.ValueKind == JsonValueKind.Object ? TurnResult.Of(result) : null;
+            if (turn is not null && Fell(turn, onFallback))
+            {
+                onFallback = true;
+                continue;
+            }
+            if (turn is null || turn.IsError)
+                throw new InvalidOperationException($"claude -p exited {exit}: {(turn is not null ? ErrorText(result) : stderr.Trim())}");
+            return result.GetProperty("result").GetString() ?? "";
+        }
+    }
+
+    /// <summary>Tells the gate what a finished call says: a fallback call's cost or budget refusal, a subscription call's rate limit. True when the call is to run again on the
+    /// fallback.</summary>
+    private bool Fell(TurnResult turn, bool onFallback)
+    {
+        if (_fallback is not { Gate: var gate })
+            return false;
+        if (onFallback)
+        {
+            gate.Spent(turn.CostUsd);
+            if (turn.IsError && GatewayRefusal.IsBudget(turn.Text))
+                gate.Refused();
+            return false;
+        }
+        if (!turn.IsError || GatewayRefusal.IsBudget(turn.Text) || !(turn.ApiStatus == 429 || UsageLimit.Matches(turn.Text)))
+            return false;
+        var now = DateTimeOffset.UtcNow;
+        return gate.Limited(GatewayRefusal.ResetsAt(turn.Text, now) is { } at && at > now ? at : now + UsageLimit.DefaultBackoff);
     }
 
     private static JsonElement ParseResult(string stdout)
@@ -268,15 +302,25 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
     /// Only the profile decides credential and endpoint: an inherited API key would outrank the OAuth token, and an
     /// inherited base URL, auth token or header list would reroute the worker, so the variables this runtime does not set are removed.
     /// With the CLI login none is set, so an inherited one cannot switch the worker to another account.
+    /// On the fallback the key goes to its own endpoint without the subscription's headers, which carry the subscription's gateway key.
     /// </summary>
-    private IReadOnlyDictionary<string, string?> Env => new Dictionary<string, string?>
-    {
-        ["ANTHROPIC_API_KEY"] = _credential.Subscription ? null : _credential.Secret,
-        ["CLAUDE_CODE_OAUTH_TOKEN"] = _credential.Subscription ? _credential.Secret : null,
-        ["ANTHROPIC_AUTH_TOKEN"] = null,
-        ["ANTHROPIC_BASE_URL"] = _baseUrl?.ToString().TrimEnd('/'),
-        ["ANTHROPIC_CUSTOM_HEADERS"] = _customHeaders,
-    };
+    private Dictionary<string, string?> Env(bool onFallback) => onFallback && _fallback is { } f
+        ? new Dictionary<string, string?>
+        {
+            ["ANTHROPIC_API_KEY"] = f.Key,
+            ["CLAUDE_CODE_OAUTH_TOKEN"] = null,
+            ["ANTHROPIC_AUTH_TOKEN"] = null,
+            ["ANTHROPIC_BASE_URL"] = f.BaseUrl?.ToString().TrimEnd('/'),
+            ["ANTHROPIC_CUSTOM_HEADERS"] = null,
+        }
+        : new Dictionary<string, string?>
+        {
+            ["ANTHROPIC_API_KEY"] = _credential.Subscription ? null : _credential.Secret,
+            ["CLAUDE_CODE_OAUTH_TOKEN"] = _credential.Subscription ? _credential.Secret : null,
+            ["ANTHROPIC_AUTH_TOKEN"] = null,
+            ["ANTHROPIC_BASE_URL"] = _baseUrl?.ToString().TrimEnd('/'),
+            ["ANTHROPIC_CUSTOM_HEADERS"] = _customHeaders,
+        };
 
     /// <summary>
     /// <c>--bare</c> keeps the owner's hooks, plugins, CLAUDE.md, auto-memory and keychain out of the worker (the
@@ -284,9 +328,9 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
     /// prompt goes on stdin because the tool flags are variadic. A null model omits <c>--model</c>: the CLI's own
     /// default (ADR 0026).
     /// </summary>
-    private List<string> CommonArgs(ModelRef? model)
+    private List<string> CommonArgs(ModelRef? model, bool onFallback)
     {
-        List<string> args = ["-p", .. _credential.Subscription ? ["--setting-sources", ""] : new[] { "--bare" }, "--strict-mcp-config"];
+        List<string> args = ["-p", .. _credential.Subscription && !onFallback ? ["--setting-sources", ""] : new[] { "--bare" }, "--strict-mcp-config"];
         if (model is not null)
         {
             args.AddRange(["--model", model.ModelId]);
@@ -296,9 +340,10 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         return args;
     }
 
-    private Task Start(Session s, string prompt, bool compact)
+    private Task Start(Session s, string prompt, bool compact, bool? onFallback = null)
     {
-        List<string> args = [.. CommonArgs(s.Spec.Model), "--output-format", "stream-json", "--verbose", "--exclude-dynamic-system-prompt-sections"];
+        var fallback = onFallback ?? _fallback?.Gate.UseFallback() == true;
+        List<string> args = [.. CommonArgs(s.Spec.Model, fallback), "--output-format", "stream-json", "--verbose", "--exclude-dynamic-system-prompt-sections"];
         lock (s)
         {
             args.AddRange(s.Started ? ["--resume", s.Id] : ["--session-id", s.Id]);
@@ -325,10 +370,11 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
             args.AddRange(["--disallowedTools", .. disallowed]);
 
         s.Interrupted = false;
+        s.Result = null;
         Process p;
         try
         {
-            p = StartWithRetry(() => Process.Start(Psi(_binary, s.Spec.Directory, args, Env)));
+            p = StartWithRetry(() => Process.Start(Psi(_binary, s.Spec.Directory, args, Env(fallback))));
         }
         catch
         {
@@ -365,7 +411,18 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
             {
                 RemoveConfigDir(configDir);
             }
+            if (!compact && !s.Interrupted && s.Result is { } turn && Fell(turn, fallback))
+                await Again(s, prompt);
         });
+    }
+
+    /// <summary>The subscription's limit ended the turn: its failure is dropped and the same prompt runs on the fallback, resuming the session the failed turn left.</summary>
+    private Task Again(Session s, string prompt)
+    {
+        lock (s)
+            if (s.Messages.FindLastIndex(m => m.Kind == WorkerMessageKind.Idle) is var i and >= 0 && i == s.Messages.Count - 1)
+                s.Messages.RemoveAt(i);
+        return Start(s, prompt, compact: false, onFallback: true);
     }
 
     /// <summary>
@@ -517,6 +574,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
                 {
                     ReconcileOutput(s, e);
                     var isError = e.GetProperty("is_error").GetBoolean();
+                    s.Result = TurnResult.Of(e);
                     s.Messages.Add(Idle(s.Interrupted ? IdleOutcome.Interrupted : isError ? IdleOutcome.Failed : IdleOutcome.Succeeded,
                         isError ? Redact(ErrorText(e), s.Spec.Services) : null));
                 }
@@ -798,7 +856,25 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         public Dictionary<string, string> UnavailableServices { get; } = [];
         public Task? Turn { get; set; }
         public Process? Process { get; set; }
+        /// <summary>The last turn's result event, for the fallback; null until one arrives.</summary>
+        public TurnResult? Result { get; set; }
     }
+
+    /// <summary>What a result event says about the call: failed or not, its <c>api_error_status</c>, its text and what it cost.</summary>
+    internal sealed record TurnResult(bool IsError, int? ApiStatus, string? Text, decimal CostUsd)
+    {
+        public static TurnResult Of(JsonElement e) => new(
+            e.TryGetProperty("is_error", out var err) && err.ValueKind == JsonValueKind.True,
+            e.TryGetProperty("api_error_status", out var st) && st.ValueKind == JsonValueKind.Number && st.TryGetInt32(out var code) ? code : null,
+            e.TryGetProperty("result", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : null,
+            e.TryGetProperty("total_cost_usd", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetDecimal() : 0);
+    }
+}
+
+/// <summary>The fallback of a subscription runtime (issue #632): the per-token <paramref name="Key"/>, the endpoint it goes to (null: Anthropic), and the gate that says when.</summary>
+public sealed record ClaudeCodeFallback(string Key, Uri? BaseUrl, ApiFallback Gate)
+{
+    public override string ToString() => $"ClaudeCodeFallback {{ BaseUrl = {BaseUrl} }}";
 }
 
 /// <param name="Subscription">True: <paramref name="Secret"/> is a <c>claude setup-token</c> OAuth token; false: an API key.</param>
