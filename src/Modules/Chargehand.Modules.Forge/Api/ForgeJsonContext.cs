@@ -14,6 +14,7 @@ namespace Chargehand.Modules.Forge.Api;
 [JsonSerializable(typeof(PullRequestVariables))]
 [JsonSerializable(typeof(NodeVariables))]
 [JsonSerializable(typeof(AutoMergeVariables))]
+[JsonSerializable(typeof(RefVariables))]
 [JsonSerializable(typeof(MergeRequestDraft))]
 [JsonSerializable(typeof(TitleAndDescription))]
 [JsonSerializable(typeof(TitleOnly))]
@@ -44,6 +45,8 @@ internal sealed record PullRequestVariables(string Owner, string Name, int Numbe
 internal sealed record NodeVariables(string Id);
 
 internal sealed record AutoMergeVariables(string Id, string Oid, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Body = null);
+
+internal sealed record RefVariables(string Owner, string Name, string Qualified);
 
 internal sealed record MergeRequestDraft(string SourceBranch, string TargetBranch, string Title, string Description);
 

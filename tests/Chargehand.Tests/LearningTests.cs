@@ -454,6 +454,79 @@ public class LearningTests
         Assert.Equal(PrOutcomes.MergedUnchanged, Assert.Single(await stores.Store.ReadAsync(default)).PrOutcome!.Outcome);
     }
 
+    // CHARGEHAND-669: a pull request held only by its base branch's failing required checks is updated once the base turns green, after its task has ended.
+
+    private static readonly DrivenIntegrator MergeOnORepoR = new(Repositories: new Dictionary<string, string> { ["o/r"] = "merge" });
+
+    [Fact]
+    public async Task Reconcile_updates_a_held_pull_request_once_the_base_turns_green()
+    {
+        using var stores = new Stores();
+        await stores.Store.AppendAsync(Record("r1", pr: Pr(7, "aaaa"), at: DateTimeOffset.UtcNow.AddMinutes(-5)), default);
+        var host = new FakeIntegrationHost
+        {
+            Current = FakeIntegrationHost.Snapshot("aaaa", draft: false, status: "BLOCKED", autoMerge: true, checks: [new CheckStatus("build", true, CheckOutcome.Failed, 900)]),
+            BehindBy = 1,
+        };
+        using var rig = new DrivenRunTests.Rig(learning: stores.Store, integration: host, integrator: MergeOnORepoR);
+
+        Assert.Equal(1, await rig.Run.ReconcileHeldPrsAsync(default));
+        Assert.Contains(host.Calls, c => c.StartsWith("update-branch", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Reconcile_leaves_a_pull_request_alone_while_its_base_is_still_red()
+    {
+        using var stores = new Stores();
+        await stores.Store.AppendAsync(Record("r1", pr: Pr(7, "aaaa"), at: DateTimeOffset.UtcNow.AddMinutes(-5)), default);
+        var host = new FakeIntegrationHost
+        {
+            Current = FakeIntegrationHost.Snapshot("aaaa", draft: false, status: "BLOCKED", autoMerge: true, checks: [new CheckStatus("build", true, CheckOutcome.Failed, 900)]),
+            BaseChecks = [new CheckStatus("build", true, CheckOutcome.Failed, 1)],
+            BehindBy = 1,
+        };
+        using var rig = new DrivenRunTests.Rig(learning: stores.Store, integration: host, integrator: MergeOnORepoR);
+
+        Assert.Equal(0, await rig.Run.ReconcileHeldPrsAsync(default));
+        Assert.DoesNotContain(host.Calls, c => c.StartsWith("update-branch", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Reconcile_does_nothing_without_a_learning_store_or_an_integrator_block()
+    {
+        using var stores = new Stores();
+        await stores.Store.AppendAsync(Record("r1", pr: Pr(7, "aaaa"), at: DateTimeOffset.UtcNow.AddMinutes(-5)), default);
+        var host = new FakeIntegrationHost
+        {
+            Current = FakeIntegrationHost.Snapshot("aaaa", draft: false, status: "BLOCKED", autoMerge: true, checks: [new CheckStatus("build", true, CheckOutcome.Failed, 900)]),
+            BehindBy = 1,
+        };
+
+        using var noLearning = new DrivenRunTests.Rig(integration: host, integrator: MergeOnORepoR);
+        Assert.Equal(0, await noLearning.Run.ReconcileHeldPrsAsync(default));
+
+        using var noIntegrator = new DrivenRunTests.Rig(learning: stores.Store, integration: host);
+        Assert.Equal(0, await noIntegrator.Run.ReconcileHeldPrsAsync(default));
+        Assert.Empty(host.Calls);
+    }
+
+    [Fact]
+    public async Task Reconcile_skips_a_pull_request_whose_outcome_is_already_resolved()
+    {
+        using var stores = new Stores();
+        await stores.Store.AppendAsync(Record("r1", pr: Pr(7, "aaaa"), at: DateTimeOffset.UtcNow.AddMinutes(-5)), default);
+        await stores.Store.AppendAsync(new PrOutcomeRecord("r1", DateTimeOffset.UtcNow, PrOutcomes.MergedUnchanged, "aaaa"), default);
+        var host = new FakeIntegrationHost
+        {
+            Current = FakeIntegrationHost.Snapshot("aaaa", draft: false, status: "BLOCKED", autoMerge: true, checks: [new CheckStatus("build", true, CheckOutcome.Failed, 900)]),
+            BehindBy = 1,
+        };
+        using var rig = new DrivenRunTests.Rig(learning: stores.Store, integration: host, integrator: MergeOnORepoR);
+
+        Assert.Equal(0, await rig.Run.ReconcileHeldPrsAsync(default));
+        Assert.Empty(host.Calls);
+    }
+
     [Fact]
     public void Another_forge_is_read_with_the_forge_token_else_the_push_credential_and_not_at_all_without_a_builder()
     {

@@ -15,29 +15,10 @@ public enum IntegrationAction { None, Asked, AutoMergeEnabled, Merged, NeedsAtte
 /// <param name="Detail">One line for the task outcome and the run event.</param>
 public sealed record IntegrationResult(IntegrationAction Action, string Detail);
 
-/// <param name="Goal">The goal the fix session is given: the failing jobs and the ends of their logs.</param>
-public sealed record CiFixRequest(IntegrationTarget Target, int Attempt, int MaxAttempts, IReadOnlyList<FailedJob> Failures, string Goal);
-
-/// <param name="Pushed">The session's fix passed chargehand's own verification and its commits are on the pull request's branch.</param>
-public sealed record CiFixResult(bool Pushed, string Detail);
-
-/// <summary>Runs a short session on the pull request's branch and pushes what it fixed; supplied by <see cref="TaskRunner"/>, which owns the containers.</summary>
-public delegate Task<CiFixResult> CiFixSession(CiFixRequest request, CancellationToken ct);
-
-/// <summary>One look at a pull request during <see cref="Integrator.FollowAsync"/>: the checks as the forge listed them, and what the CI fixer's policy made of them.</summary>
-/// <param name="Decision"><c>wait</c>, <c>done</c>, <c>fix</c> or <c>give_up</c> (<see cref="CiFixAction"/>), or <c>merged</c> or <c>closed</c> for the look that ended the watch.</param>
-public sealed record CheckObservation(DateTimeOffset At, string HeadSha, string MergeStatus, bool IsDraft, bool AutoMerge, IReadOnlyList<CheckStatus> Checks, string Decision);
-
-/// <summary>A CI fix attempt as the integrator ran it: the failing required checks it was for, and whether its commits reached the branch.</summary>
-public sealed record CiAttemptObservation(DateTimeOffset At, int Attempt, int MaxAttempts, string JobsKey, IReadOnlyList<string> Failing, bool Pushed, string Detail);
-
-/// <summary>Told what <see cref="Integrator.FollowAsync"/> sees, so it can be kept (CHARGEHAND-214). Nothing it does depends on the callbacks.</summary>
-public sealed record IntegrationWatch(Action<CheckObservation>? Checks = null, Action<CiAttemptObservation>? Attempt = null);
-
 /// <summary>What chargehand does with a pull request after a task's handover opened it (ADR 0046), as the GitHub App (on GitLab, with the forge token), for the repositories the profile lists. <see cref="IntegrateAsync"/> brings the
 /// branch up to date, marks the draft ready and merges it by policy; <see cref="FollowAsync"/> then watches the required checks and, when one fails, has a short session fix it, within a fixed number of
 /// attempts. Nothing here merges around a rule: a merge is auto-merge (GitHub waits for the rules) or a squash of a pull request GitHub already calls mergeable, pinned to the head commit.</summary>
-public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, DrivenCiFix? ciFix = null, Func<TimeSpan, CancellationToken, Task>? delay = null, DrivenForge? forge = null)
+public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost host, DrivenCiFix? ciFix = null, Func<TimeSpan, CancellationToken, Task>? delay = null, DrivenForge? forge = null)
 {
     public static readonly TimeSpan PollEvery = TimeSpan.FromSeconds(30);
 
@@ -294,6 +275,13 @@ public sealed class Integrator(IntegratorPolicy policy, IIntegrationHost host, D
         }
         if (decision.Action != CiFixAction.Fix)
             return new(null, false);
+        // The failure may not be the pull request's at all (CHARGEHAND-669): a required job that also fails on the base branch's own head is not something a session on this branch can fix.
+        if (await BaseFailingAsync(target, pr, failing, ct) is { Count: > 0 } onBase)
+        {
+            await CommentOnceAsync(target, pr, FixMarker.BaseRed(decision.JobsKey),
+                $"chargehand is not starting a CI fix: the required check{(onBase.Count == 1 ? "" : "s")} {string.Join(", ", onBase)} also fail{(onBase.Count == 1 ? "s" : "")} on the base branch {pr.BaseBranch}, so this pull request did not cause it. chargehand will update the branch once the base's required checks pass.", ct);
+            return new(Say(report, IntegrationAction.NeedsAttention, $"CI fix skipped: the base branch's required checks are also failing ({string.Join(", ", onBase)})"), false);
+        }
         var result = await FixAsync(target, pr, failing, required, decision, fix, report, watch, ct);
         if (!result.Pushed)
             return new(Say(report, IntegrationAction.NeedsAttention, $"CI fix attempt {decision.Attempt} pushed nothing: {result.Detail}"), false);

@@ -424,4 +424,147 @@ public class CiFixTests
         Assert.Contains("could not be reached", result.Detail);
         Assert.Contains(told, t => t.Contains("3 polls in a row failed", StringComparison.Ordinal));
     }
+
+    // CHARGEHAND-669: a required job that also fails on the base branch's own head is not the pull request's fault.
+
+    [Fact]
+    public async Task A_required_job_that_also_fails_on_the_base_branch_starts_no_fix_session_and_leaves_one_comment()
+    {
+        var ci = new Ci();
+        var host = HostFor(ci);
+        host.BaseChecks = [new CheckStatus("build", true, CheckOutcome.Failed, 1)];
+
+        var result = await Make(host).FollowAsync(Target(), ci.Session(), _ => { }, default);
+
+        Assert.Equal(IntegrationAction.NeedsAttention, result.Action);
+        Assert.Empty(ci.Requests);
+        Assert.Single(host.Comments);
+        Assert.Contains("chargehand-ci-fix-base-red", host.Comments[0]);
+        Assert.Contains("base branch", result.Detail);
+        Assert.DoesNotContain(host.Calls, c => c == "log 900");
+    }
+
+    [Fact]
+    public async Task A_base_red_comment_is_left_once_however_often_the_pass_repeats()
+    {
+        var ci = new Ci();
+        var host = HostFor(ci);
+        host.BaseChecks = [new CheckStatus("build", true, CheckOutcome.Failed, 1)];
+
+        await Make(host).FollowAsync(Target(), ci.Session(), _ => { }, default);
+        await Make(host).FollowAsync(Target(), ci.Session(), _ => { }, default);
+
+        Assert.Single(host.Comments);
+    }
+
+    [Fact]
+    public async Task A_different_failing_job_than_the_base_is_still_fixed()
+    {
+        var ci = new Ci();
+        var host = HostFor(ci);
+        host.BaseChecks = [new CheckStatus("lint", true, CheckOutcome.Failed, 1)];
+        var script = host.Script!;
+        host.Script = h => h.Calls.Count(c => c == "get") >= 4 && ci.Fixes >= 1 ? script(h) with { Merged = true } : script(h);
+
+        var result = await Make(host).FollowAsync(Target(), ci.Session(), _ => { }, default);
+
+        Assert.Single(ci.Requests);
+        Assert.Equal(IntegrationAction.Merged, result.Action);
+    }
+
+    [Fact]
+    public async Task A_base_check_that_cannot_be_read_does_not_block_a_normal_fix_attempt()
+    {
+        var ci = new Ci();
+        var host = HostFor(ci);
+        host.BaseChecksFail = new IntegrationException("GitHub answered 502");
+        var script = host.Script!;
+        host.Script = h => h.Calls.Count(c => c == "get") >= 4 && ci.Fixes >= 1 ? script(h) with { Merged = true } : script(h);
+
+        var result = await Make(host).FollowAsync(Target(), ci.Session(), _ => { }, default);
+
+        Assert.Single(ci.Requests);
+        Assert.Equal(IntegrationAction.Merged, result.Action);
+    }
+
+    // CHARGEHAND-669: once the originating task has ended, a held pull request is revisited only through ReconcileAsync.
+
+    [Fact]
+    public async Task A_pull_request_held_only_by_a_red_base_is_updated_once_the_base_passes()
+    {
+        var host = new FakeIntegrationHost
+        {
+            Current = FakeIntegrationHost.Snapshot(draft: false, status: "BLOCKED", autoMerge: true, checks: [new CheckStatus("build", true, CheckOutcome.Failed, 900)]),
+            BehindBy = 1,
+        };
+
+        var result = await Make(host).ReconcileAsync(Target(), _ => { }, default);
+
+        Assert.Equal(IntegrationAction.AutoMergeEnabled, result.Action);
+        Assert.Contains(host.Calls, c => c.StartsWith("update-branch", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_pull_request_still_held_by_a_red_base_is_left_alone_by_reconcile()
+    {
+        var host = new FakeIntegrationHost
+        {
+            Current = FakeIntegrationHost.Snapshot(draft: false, status: "BLOCKED", autoMerge: true, checks: [new CheckStatus("build", true, CheckOutcome.Failed, 900)]),
+            BaseChecks = [new CheckStatus("build", true, CheckOutcome.Failed, 1)],
+            BehindBy = 1,
+        };
+
+        var result = await Make(host).ReconcileAsync(Target(), _ => { }, default);
+
+        Assert.Equal(IntegrationAction.None, result.Action);
+        Assert.DoesNotContain(host.Calls, c => c.StartsWith("update-branch", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Reconcile_updates_nothing_once_the_base_is_green_if_the_branch_is_already_level()
+    {
+        var host = new FakeIntegrationHost
+        {
+            Current = FakeIntegrationHost.Snapshot(draft: false, status: "BLOCKED", autoMerge: true, checks: [new CheckStatus("build", true, CheckOutcome.Failed, 900)]),
+            BehindBy = 0,
+        };
+
+        var result = await Make(host).ReconcileAsync(Target(), _ => { }, default);
+
+        Assert.Equal(IntegrationAction.None, result.Action);
+        Assert.DoesNotContain(host.Calls, c => c.StartsWith("update-branch", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Reconcile_leaves_a_merged_pull_request_alone()
+    {
+        var host = new FakeIntegrationHost { Current = FakeIntegrationHost.Snapshot(draft: false, merged: true, autoMerge: true) };
+
+        var result = await Make(host).ReconcileAsync(Target(), _ => { }, default);
+
+        Assert.Equal(IntegrationAction.None, result.Action);
+        Assert.DoesNotContain(host.Calls, c => c.StartsWith("update-branch", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Reconcile_leaves_a_pull_request_without_auto_merge_alone()
+    {
+        var host = new FakeIntegrationHost { Current = FakeIntegrationHost.Snapshot(draft: false, autoMerge: false) };
+
+        var result = await Make(host).ReconcileAsync(Target(), _ => { }, default);
+
+        Assert.Equal(IntegrationAction.None, result.Action);
+        Assert.DoesNotContain(host.Calls, c => c.StartsWith("update-branch", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Reconcile_leaves_a_pull_request_with_no_failing_required_check_alone()
+    {
+        var host = new FakeIntegrationHost { Current = FakeIntegrationHost.Snapshot(draft: false, autoMerge: true) };
+
+        var result = await Make(host).ReconcileAsync(Target(), _ => { }, default);
+
+        Assert.Equal(IntegrationAction.None, result.Action);
+        Assert.DoesNotContain(host.Calls, c => c.StartsWith("update-branch", StringComparison.Ordinal));
+    }
 }
