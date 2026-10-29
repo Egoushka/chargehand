@@ -6,6 +6,9 @@ pre-commit:
   jobs:
     - name: agent-checks
       run: agent-checks check --staged
+    - name: zizmor
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: zizmor --offline --no-progress {staged_files}
     # The denylist and gitleaks; the scripts stay in .githooks/.
     - name: repo-pre-commit
       run: .githooks/pre-commit
