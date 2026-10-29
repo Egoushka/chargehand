@@ -61,6 +61,8 @@ jobs:
       session_mise_amd64: ${{ steps.digests.outputs.session_mise }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Check the tag against Directory.Build.props and the changelog
         run: |
           version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
@@ -74,7 +76,10 @@ jobs:
           echo "SESSION_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-session:$version" >> "$GITHUB_ENV"
           echo "SESSION_JDK_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-session-jdk:$version" >> "$GITHUB_ENV"
           echo "SESSION_MISE_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-session-mise:$version" >> "$GITHUB_ENV"
-      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
       - run: docker build --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t "$IMAGE" .
       - run: docker push "$IMAGE"
       # The session image is built from the same checkout, so its driver and plugin match the server's version. A deployment pins both by digest (printed below).
@@ -110,6 +115,7 @@ jobs:
         if: vars.NUGET_USER != ''
         with:
           node-version-file: web/console/.nvmrc
+          package-manager-cache: false
       - name: Build the operator console
         if: vars.NUGET_USER != ''
         working-directory: web/console
@@ -143,7 +149,9 @@ jobs:
         with:
           user: ${{ vars.NUGET_USER }}
       - if: steps.pack.outputs.new == 'true'
-        run: dotnet nuget push "$RUNNER_TEMP"/nupkg/*.nupkg --api-key "${{ steps.nuget.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        env:
+          NUGET_API_KEY: ${{ steps.nuget.outputs.NUGET_API_KEY }}
+        run: dotnet nuget push "$RUNNER_TEMP"/nupkg/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
   # ADR 0058: the server and session images for linux/arm64, so a Mac (or any arm64 machine) can be a runner and `docker pull` works on Apple silicon. Built natively on an arm64 runner, not under emulation: the image runs dotnet, node and
   # npm while it builds. A job of its own after the release job, so it sits behind that job's environment approval (needs) without a second one, and an arm64 failure leaves the amd64

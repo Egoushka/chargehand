@@ -8,14 +8,13 @@ name: prompt-ci
 # one eval profile per runtime (PROMPT_CI_PROFILE_<RUNTIME>) and a default (PROMPT_CI_RUNTIME); a label
 # prompt-ci:<runtime> picks another.
 on:
-  pull_request_target:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] runs main's copy; the gate checks out the base branch (persist-credentials: false), the PR is only read through the API and by scripts/prompt-ci.sh
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
 
 permissions:
   contents: read
   issues: read
   pull-requests: read
-  statuses: write
 
 # A push, a body edit or the runtime label cancels the running gate; any other edit or label gets its own group and
 # cancels nothing.
@@ -34,6 +33,11 @@ jobs:
       (github.event.action != 'edited' || github.event.changes.body) &&
       (!github.event.label || startsWith(github.event.label.name, 'prompt-ci:'))
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      statuses: write
     outputs:
       gate: ${{ steps.classify.outputs.gate }}
       review: ${{ steps.classify.outputs.review }}
@@ -69,6 +73,7 @@ jobs:
     if: needs.classify.outputs.review == 'true'
     runs-on: ubuntu-latest
     environment: prompt-ci-review
+    permissions: {}
     steps:
       - run: echo "prompts/ and presets/ diff approved"
 
@@ -78,6 +83,11 @@ jobs:
       always() && needs.classify.outputs.gate == 'true' &&
       (needs.review.result == 'success' || needs.review.result == 'skipped')
     runs-on: [self-hosted, chargehand-eval]
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      statuses: write
     timeout-minutes: 120
     steps:
       # The base branch (main), with history for the merge base; the script fetches the pull request's head itself.
