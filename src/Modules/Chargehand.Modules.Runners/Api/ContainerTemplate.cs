@@ -60,7 +60,7 @@ public static partial class ContainerTemplate
             "--name", $"chargehand-{spec.RunId}",
             "--label", $"{RunLabel}={spec.RunId}",
             "--read-only",
-            "--tmpfs", "/tmp:rw,nosuid,size=1g",
+            "--tmpfs", TmpMount(spec),
             .. spec.Home is null ? (string[])["--tmpfs", "/home/session:rw,nosuid,size=2g,uid=10001,gid=10001"] : [],
             "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges",
@@ -82,6 +82,9 @@ public static partial class ContainerTemplate
         ];
         return args;
     }
+
+    /// <summary>With a home volume, /work and the home already run binaries, so noexec on /tmp (Docker's default) would only stop mise's rustup-init and go test's binaries.</summary>
+    private static string TmpMount(ContainerSpec spec) => spec.Home is null ? "/tmp:rw,nosuid,size=1g" : "/tmp:rw,nosuid,exec,size=1g";
 
     /// <summary>The run id of an install helper ends with this; the helper's work and out volumes are the run's own, without it.</summary>
     public const string InstallSuffix = "-install";

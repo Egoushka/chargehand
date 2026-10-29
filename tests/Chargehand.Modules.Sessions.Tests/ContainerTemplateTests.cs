@@ -366,9 +366,18 @@ public class ContainerTemplateTests
     }
 
     [Fact]
+    public void With_a_home_volume_tmp_allows_exec_so_toolchain_installers_and_go_test_run()
+    {
+        // Docker's --tmpfs is noexec by default; mise's rustup-init and go test's binaries run from /tmp.
+        Assert.Contains("/tmp:rw,nosuid,exec,size=1g", ContainerTemplate.RunArgs(Mise(), "/tmp/env-file"));
+        Assert.Contains("/tmp:rw,nosuid,exec,size=1g", ContainerTemplate.RunArgs(Install(), "/tmp/env-file"));
+    }
+
+    [Fact]
     public void Without_a_home_volume_the_line_is_what_it_was()
     {
         var args = ContainerTemplate.RunArgs(Spec(), "/tmp/env-file");
+        Assert.Contains("/tmp:rw,nosuid,size=1g", args);
         Assert.Contains("/home/session:rw,nosuid,size=2g,uid=10001,gid=10001", args);
         Assert.DoesNotContain("-e", args);
         Assert.DoesNotContain(args, a => a.Contains(".claude", StringComparison.Ordinal));
