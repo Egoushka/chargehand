@@ -1,0 +1,51 @@
+name: mise-spike
+
+# ADR 0078 step 3: per ecosystem, the install helper and the repository's own tests on the mise session image, cold and warm
+# (MiseSpikeTests). Manual only; no model runs and no secret is used. The table goes to the run summary, the logs to an artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "session-mise image to measure (default: ghcr.io/<owner>/chargehand-session-mise at the version in Directory.Build.props)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  spike:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Image
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          if [ -z "$IMAGE" ]; then
+            version=$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' Directory.Build.props)
+            IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}-session-mise:$version"
+          fi
+          docker pull -q "$IMAGE"
+          echo "CHARGEHAND_TEST_MISE_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - name: Repositories
+        run: |
+          echo "CHARGEHAND_SPIKE_DIR=$RUNNER_TEMP/spike" >> "$GITHUB_ENV"
+          scripts/mise-spike-prepare.py scripts/mise-spike.json "$RUNNER_TEMP/spike"
+      - name: Measure
+        run: dotnet test tests/Chargehand.Modules.Runners.Tests --filter "FullyQualifiedName~MiseSpikeTests"
+      - name: Table
+        if: always()
+        run: |
+          { echo "### mise spike: $CHARGEHAND_TEST_MISE_IMAGE"; cat "$CHARGEHAND_SPIKE_DIR/table.md"; } >> "$GITHUB_STEP_SUMMARY"
+          cat "$CHARGEHAND_SPIKE_DIR/table.md"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mise-spike-logs
+          path: ${{ runner.temp }}/spike/*.log

@@ -11,3 +11,9 @@ docker build -f images/session-mise/Dockerfile -t chargehand-session-mise .
 ```
 
 **Size:** 1.58 GB on disk with the driver and Claude Code (1.04 GB for the base alone; measured 2026-10-27, local build on an arm64 Mac with OrbStack), against 2.1 to 2.4 GB for `images/session`. It holds no SDK; the toolchains live in the repository's home volume.
+
+## Measure
+
+The `mise-spike` workflow (Actions, run by hand) measures ADR 0078's step 3 on a GitHub-hosted runner. For one pinned public repository per ecosystem in
+[`scripts/mise-spike.json`](../../scripts/mise-spike.json) (.NET, Node, Python, Maven, Go, Rust), it runs the install helper and the repository's own tests, cold and warm, and puts the table in the
+run's summary. The image defaults to the released one at this version; the `image` input measures another. Locally, the same harness is `MiseSpikeTests`, after `scripts/mise-spike-prepare.py`.
