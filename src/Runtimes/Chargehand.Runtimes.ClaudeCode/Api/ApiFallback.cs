@@ -55,9 +55,9 @@ public sealed class ApiFallback(decimal dailyUsd, string? ledgerFile, TimeProvid
         }
     }
 
-    /// <summary>Sets aside the share of today's fallback that batch <paramref name="batch"/> may spend in its egress container: what is left of the cap, less what other batches hold, divided by
-    /// the holders plus one. Because a holder takes everything unreserved (zero holders: the whole remainder), the divisor only matters when a holder's reservation is smaller than the
-    /// remainder, and the sum of all reservations never passes the cap. A batch that holds a reservation already (it resumed after a restart) gets that one back.</summary>
+    /// <summary>Sets aside the share of today's fallback that batch <paramref name="batch"/> may spend in its egress container: half of what is left of the cap after today's spend and what other
+    /// batches hold. Reservations therefore never pass the cap, and a batch that starts while others run still gets a share. A batch that holds a reservation already (it resumed after a restart)
+    /// gets that one back.</summary>
     /// <returns>The allowance in dollars; 0 when the fallback is closed, spent or fully reserved, in which case nothing is held.</returns>
     public decimal Reserve(string batch)
     {
@@ -72,7 +72,7 @@ public sealed class ApiFallback(decimal dailyUsd, string? ledgerFile, TimeProvid
             var unreserved = dailyUsd - l.SpentUsd - others.Values.Sum();
             if (unreserved <= 0)
                 return 0;
-            var share = Math.Round(unreserved / (others.Count + 1), 6);
+            var share = Math.Round(unreserved / 2, 6);
             Save(l with { Reserved = new Dictionary<string, decimal>(others) { [batch] = share } });
             return share;
         }
