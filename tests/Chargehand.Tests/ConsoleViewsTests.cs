@@ -25,10 +25,10 @@ public class ConsoleViewsTests
 {
     private static readonly string[] Routes =
     [
-        "/v1/overview", "/v1/inbox", "/v1/batches/run-x", "/v1/batches/run-x/tasks/t1", "/v1/batches/run-x/tasks/t1/sessions/run-s1/transcript", "/v1/pulls", "/v1/pulls/conflicts", "/v1/pulls/train", "/v1/analytics", "/v1/intake", "/v1/repositories", "/v1/accounts", "/v1/system",
+        "/v1/overview", "/v1/inbox", "/v1/batches/run-x", "/v1/batches/run-x/tasks/t1", "/v1/batches/run-x/tasks/t1/sessions/run-s1/transcript", "/v1/pulls", "/v1/pulls/conflicts", "/v1/pulls/train", "/v1/analytics", "/v1/intake", "/v1/repositories", "/v1/accounts", "/v1/system", "/v1/egress/learned",
     ];
 
-    private static readonly string[] OwnerOnly = ["/v1/intake", "/v1/accounts", "/v1/system"];
+    private static readonly string[] OwnerOnly = ["/v1/intake", "/v1/accounts", "/v1/system", "/v1/egress/learned"];
 
     private static AccountSettings Alice(string[]? repositories = null, AccountModel? model = null, decimal? usdDay = null) =>
         new("alice", usdDay, Driven: true, Repositories: repositories, Model: model, AllowServerCredential: model is null);

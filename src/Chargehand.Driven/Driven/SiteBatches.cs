@@ -107,7 +107,9 @@ internal sealed class SiteBatches
     private readonly ConcurrentDictionary<string, Lazy<Task<SiteBatch>>> _made = new(StringComparer.Ordinal);
 
     /// <summary>What a task runner takes from the server beside the batch's settings.</summary>
-    internal sealed record SiteParts(IRunLog Log, TaskTokenMinter Mint, TaskJournal? Tasks, ILearningStore? Learning, TaskRecordStore? Records, DrivenJournal? Steps, SessionStops? Stops, Profile Profile);
+    /// <param name="Approved">The hosts the owner approved for the batch's repository (ADR 0078, decision 4), added to every runner's allowlist.</param>
+    internal sealed record SiteParts(IRunLog Log, TaskTokenMinter Mint, TaskJournal? Tasks, ILearningStore? Learning, TaskRecordStore? Records, DrivenJournal? Steps, SessionStops? Stops, Profile Profile,
+        IReadOnlyList<string>? Approved = null);
 
     /// <summary>A runner's part of a batch once it exists: its network and the task runner that uses it.</summary>
     private sealed record SiteBatch(RunnerSite Site, BatchNetworkInfo Network, TaskRunner Runner);
@@ -204,9 +206,10 @@ internal sealed class SiteBatches
         var egressImage = _setup.Settings.ImageFor(_setup.Image, route.Site.Config.Platform);
         var batchNetwork = new BatchNetwork(engine);
         var forwards = route.Forwards.Count == 0 ? null : route.Forwards;
+        IReadOnlyList<string> allow = [.. route.Allow.Concat(_parts.Approved ?? []).Distinct(StringComparer.Ordinal)];
         var net = _c.Resume is null
-            ? await batchNetwork.CreateAsync(_c.RunId, egressImage, route.Allow, _c.Ct, route.Outside, forwards, route.Exchange)
-            : await batchNetwork.EnsureAsync(_c.RunId, egressImage, route.Allow, _c.Ct, route.Outside, forwards, route.Exchange);
+            ? await batchNetwork.CreateAsync(_c.RunId, egressImage, allow, _c.Ct, route.Outside, forwards, route.Exchange)
+            : await batchNetwork.EnsureAsync(_c.RunId, egressImage, allow, _c.Ct, route.Outside, forwards, route.Exchange);
         try
         {
             if (_c.Resume is null)

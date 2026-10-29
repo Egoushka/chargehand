@@ -121,6 +121,7 @@ internal static class ConsoleRoutes
 
         ConsoleActions.Map(app, Context);
         ConsoleDismissals.Map(app, Context);
+        ConsoleLearnedHosts.Map(app, Context);
 
         app.MapGet("/v1/intake", (HttpContext ctx) => OwnerOnly(ctx) ?? Json(ConsoleIntake.Build(Context(ctx))));
 
