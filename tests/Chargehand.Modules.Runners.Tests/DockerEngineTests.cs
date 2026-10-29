@@ -90,6 +90,15 @@ public class DockerEngineTests
     }
 
     [Fact]
+    public async Task A_large_byte_budget_reads_more_than_the_last_200_lines()
+    {
+        using var dir = new TempDir();
+        var (docker, log) = FakeDocker(dir, "echo line1");
+        await Engine(docker).LogsTailAsync("abc123", 1024 * 1024, default);
+        Assert.Equal(["logs --tail 16384 abc123"], File.ReadAllLines(log));
+    }
+
+    [Fact]
     public async Task Signal_remove_and_logs_pass_validated_arguments()
     {
         using var dir = new TempDir();

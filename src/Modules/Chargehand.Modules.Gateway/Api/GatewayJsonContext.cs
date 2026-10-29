@@ -18,4 +18,5 @@ internal sealed record GatewayErrorDetail(string Type, string Message);
 [JsonSerializable(typeof(EgressLogLine))]
 [JsonSerializable(typeof(GatewayLogLine))]
 [JsonSerializable(typeof(GatewayError))]
+[JsonSerializable(typeof(Dictionary<string, List<LearnedHost>>))]
 internal sealed partial class GatewayJsonContext : JsonSerializerContext;
