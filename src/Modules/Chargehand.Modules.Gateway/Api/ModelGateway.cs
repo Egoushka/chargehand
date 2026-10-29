@@ -296,10 +296,13 @@ public sealed partial class ModelGateway : IAsyncDisposable
         path.Length is > 4 and <= MaxPath && path.StartsWith("/v1/", StringComparison.Ordinal) && !path.Contains("..", StringComparison.Ordinal) && !path.Contains("//", StringComparison.Ordinal)
         && !path.Contains('#') && !path.Contains('\\') && path.All(c => c is > ' ' and < '\u007f');
 
-    /// <summary>Which upstream response headers go back: the content type, the retry hints and the API's own, never a redirect, a cookie or anything that sets state.</summary>
+    /// <summary>Which upstream response headers go back: the retry hints, the request id and the API's own rate-limit counters, never a redirect, a cookie, anything that sets state,
+    /// or an organization, workspace or routing id the upstream (or the fallback gateway) attaches (GitHub issue 663). Content type is set through the dedicated
+    /// <see cref="HttpListenerResponse"/> property instead of this allowlist, never named here; the length is set the same way on a buffered reply, and goes out chunked on a streamed
+    /// one, so it is not named here either.</summary>
     private static bool Passes(string name) =>
         name.Equals("Retry-After", StringComparison.OrdinalIgnoreCase) || name.Equals("Request-Id", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("anthropic-", StringComparison.OrdinalIgnoreCase) || name.StartsWith("x-", StringComparison.OrdinalIgnoreCase);
+        || name.StartsWith("anthropic-ratelimit-", StringComparison.OrdinalIgnoreCase);
 
     private void Add(string runId, long tokens) => _used.AddOrUpdate(runId, tokens, (_, total) => total + tokens);
 

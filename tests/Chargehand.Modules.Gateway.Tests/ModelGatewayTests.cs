@@ -130,6 +130,35 @@ public class ModelGatewayTests
     }
 
     [Fact]
+    public async Task Only_the_allowlisted_response_headers_reach_the_session()
+    {
+        await using var rig = new Rig(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"usage":{"input_tokens":1,"output_tokens":1}}""", Encoding.UTF8, "application/json") };
+            response.Headers.TryAddWithoutValidation("request-id", "req_1");
+            response.Headers.TryAddWithoutValidation("retry-after", "30");
+            response.Headers.TryAddWithoutValidation("anthropic-ratelimit-unified-remaining", "100");
+            response.Headers.TryAddWithoutValidation("anthropic-organization-id", "org_123");
+            response.Headers.TryAddWithoutValidation("anthropic-workspace-id", "ws_456");
+            response.Headers.TryAddWithoutValidation("x-routed-by", "gateway-7");
+            response.Headers.TryAddWithoutValidation("set-cookie", "a=b");
+            return response;
+        });
+
+        var response = await rig.Post(Rig.Token());
+
+        Assert.Equal("req_1", response.Headers.GetValues("request-id").Single());
+        Assert.Equal("30", response.Headers.GetValues("retry-after").Single());
+        Assert.Equal("100", response.Headers.GetValues("anthropic-ratelimit-unified-remaining").Single());
+        Assert.Equal("application/json", response.Content.Headers.ContentType!.MediaType);
+        Assert.True(response.Headers.TransferEncodingChunked);   // the non-fallback path always streams, never a Content-Length
+        Assert.False(response.Headers.Contains("anthropic-organization-id"));
+        Assert.False(response.Headers.Contains("anthropic-workspace-id"));
+        Assert.False(response.Headers.Contains("x-routed-by"));
+        Assert.False(response.Headers.Contains("set-cookie"));
+    }
+
+    [Fact]
     public async Task The_token_is_also_accepted_in_x_api_key()
     {
         await using var rig = new Rig();

@@ -117,6 +117,16 @@ public static partial class SessionDriver
         return await CommitWorkAsync(dir, reason, turns, G, subject);
     }
 
+    /// <summary>True when HEAD is still <paramref name="from"/> (no commit since the session started) and the working tree has changes git would commit.</summary>
+    private static async Task<bool> UncommittedAsync(SessionOptions options, string? from, CancellationToken ct)
+    {
+        var head = await Git(options.WorkDirectory, ["rev-parse", "--verify", "--quiet", "HEAD"], ct);
+        if ((head.Exit == 0 ? head.Stdout.Trim() : null) != from)
+            return false;
+        var status = await Git(options.WorkDirectory, ["status", "--porcelain"], ct);
+        return status.Exit == 0 && status.Stdout.Length > 0;
+    }
+
     private static string Skipped(string step, (int Exit, string Stdout, string Stderr) r) =>
         $"the working tree was not committed: git {step} {(r.Exit == GitTimedOut ? "timed out" : "failed")}";
 

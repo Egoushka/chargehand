@@ -145,6 +145,9 @@ public static partial class ChargehandServer
         // ADR 0045: reads back what became of the pull requests, only where there are learning records.
         if (driven?.Learning is not null)
             builder.Services.AddHostedService(_ => new PrOutcomeRefresher(driven));
+        // CHARGEHAND-669: updates a pull request held only by its base branch's failing required checks, once the base turns green.
+        if (driven?.Learning is not null)
+            builder.Services.AddHostedService(_ => new HeldPrReconciler(driven));
 
         var app = builder.Build();
         app.UseHostFiltering();
