@@ -319,7 +319,7 @@ public class SharedServicesTests
         public Task<ContainerState> InspectAsync(string id, CancellationToken ct) => throw new NotSupportedException();
         public Task RemoveAsync(string id, CancellationToken ct) => Task.CompletedTask;
         public Task KillAllAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct) => throw new NotSupportedException();
+        public Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct) => Task.FromResult("");
         public Task CreateVolumeAsync(string name, string runId, CancellationToken ct) => throw new NotSupportedException();
         public Task RemoveVolumeAsync(string name, CancellationToken ct) => throw new NotSupportedException();
         public Task CreateNetworkAsync(string name, string batchId, CancellationToken ct) => throw new NotSupportedException();

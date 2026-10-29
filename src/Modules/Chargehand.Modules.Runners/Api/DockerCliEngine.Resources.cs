@@ -234,7 +234,9 @@ public sealed partial class DockerCliEngine
     public async Task<string> LogsTailAsync(string id, int bytes, CancellationToken ct)
     {
         RequirePlain(id);
-        var result = await RunAsync(["logs", "--tail", "200", id], ct);
+        // About 64 bytes a line at least, so a large byte budget reads more than the last 200 lines.
+        var lines = Math.Max(200, bytes / 64).ToString(CultureInfo.InvariantCulture);
+        var result = await RunAsync(["logs", "--tail", lines, id], ct);
         var text = result.Stdout + result.Stderr;
         return text.Length <= bytes ? text : text[^bytes..];
     }

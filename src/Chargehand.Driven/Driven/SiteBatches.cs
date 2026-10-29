@@ -151,14 +151,34 @@ internal sealed class SiteBatches
         }
     }
 
-    /// <summary>Each runner's part removed: a network with a container still attached cannot be removed, so the services go first.</summary>
-    public async Task TeardownAsync()
+    /// <summary>Each runner's part removed: a network with a container still attached cannot be removed, so the services go first. Returns the hosts the sessions were refused, read from the
+    /// egress container's log before it goes (ADR 0078, decision 4).</summary>
+    public async Task<IReadOnlyList<EgressRefusal>> TeardownAsync()
     {
+        List<EgressRefusal> refused = [];
         foreach (var lazy in _made.Values.Where(l => l.IsValueCreated && l.Value.IsCompletedSuccessfully))
         {
             var made = lazy.Value.Result;
+            refused.AddRange(await RefusedAsync(made));
             await new BatchServices(made.Site.Engine).RemoveAsync(_shared.Services, CancellationToken.None);
             await new BatchNetwork(made.Site.Engine).RemoveAsync(made.Network, CancellationToken.None);
+        }
+        return refused;
+    }
+
+    /// <summary>About 16,000 lines of the proxy's log: a batch's package installs connect hundreds of times, and a refusal early in the batch must not fall out of the tail.</summary>
+    internal const int EgressLogBytes = 1024 * 1024;
+
+    /// <summary>A log that cannot be read loses a hint, never the teardown.</summary>
+    private static async Task<IReadOnlyList<EgressRefusal>> RefusedAsync(SiteBatch made)
+    {
+        try
+        {
+            return EgressRefusals.Parse(await made.Site.Engine.LogsTailAsync(made.Network.EgressContainer, EgressLogBytes, CancellationToken.None));
+        }
+        catch (Exception e) when (e is ChargehandException or HttpRequestException or IOException or ArgumentException)
+        {
+            return [];
         }
     }
 

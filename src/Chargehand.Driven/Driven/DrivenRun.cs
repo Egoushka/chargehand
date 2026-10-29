@@ -4,6 +4,7 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
@@ -55,6 +56,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     /// <summary>The batch records this server keeps for the console; null when none are kept.</summary>
     public BatchRecords? Records => records;
+
+    /// <summary>The hosts each repository's sessions were refused (ADR 0078, decision 4); null without a state directory.</summary>
+    public LearnedHosts? LearnedHosts { get; } = stateDirectory is null ? null : new LearnedHosts(Path.Combine(stateDirectory, "learned-hosts.json"));
 
     /// <summary>How often <see cref="RefreshPrOutcomesAsync"/> should run.</summary>
     public TimeSpan PrCheckEvery => TimeSpan.FromMinutes((profile.Driven?.Learning ?? new DrivenLearning()).PrCheckMinutes);
@@ -463,10 +467,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     {
         if (sites.Count == 1)
             await sites.RunnerOn(sites.First);
+        var repository = TaskRunner.RepositoryKey(RemoteRepository.Parse(checkout.RemoteUrl, setup.Settings.Forge), c.Request.Context.Repository?.Path);
         try
         {
             var router = new SiteRouter(sites.RunnerOn, sites.First, setup.Settings.NamesRunners, tasks, sites.SessionsStarted, Pool is { } pool ? pool.Failed : null);
-            var repository = TaskRunner.RepositoryKey(RemoteRepository.Parse(checkout.RemoteUrl, setup.Settings.Forge), c.Request.Context.Repository?.Path);
             var requestMb = await AdmissionRequestAsync(repository, setup.Preset.MemoryMb, c.Ct);
             var ran = await _lifecycle.ScheduleAsync(c, ready, setup.Limits, tasks, router, _admission, requestMb);
             return await _lifecycle.ReplanAsync(c, ready, ran, setup.Limits, tasks, router, _admission, requestMb, setup.Services.Planner);
@@ -474,7 +478,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         finally
         {
             if (!c.Detaching())
-                await sites.TeardownAsync();
+            {
+                var refused = await sites.TeardownAsync();
+                LearnedHosts?.Record(repository, c.RunId, refused);
+            }
         }
     }
     /// <summary>The forge to ask about a pull request's outcome (ADR 0045): on GitHub the App's host, on any other forge the forge token (<c>driven.forge.token_secret</c>, else the push credential). Null when

@@ -120,6 +120,20 @@ public class DrivenRunTests
         JsonDocument.Parse(result.Artifacts.Single(a => a.Kind == "driven-batch").Content!).RootElement.GetProperty("tasks");
 
     [Fact]
+    public async Task The_hosts_the_egress_proxy_refused_are_kept_for_the_repository_when_the_batch_ends()
+    {
+        using var rig = new Rig(durable: true);
+        rig.Engine.LogsOf = id => id != "egress-1" ? "" : string.Join('\n',
+            """{"at":"2026-10-29T09:00:00+00:00","run":"t1","host":"registry.npmjs.org","port":443,"allowed":true,"reason":""}""",
+            """{"at":"2026-10-29T09:01:00+00:00","run":"t1","host":"static.rust-lang.org","port":443,"allowed":false,"reason":"'static.rust-lang.org' is not on the allowlist"}""");
+
+        await rig.Run.RunAsync(Request("Add a retry"), "run-batch-l", Token, default);
+
+        var host = Assert.Single(rig.Run.LearnedHosts!.Read()["o/r"]);
+        Assert.Equal(("static.rust-lang.org", 1, "run-batch-l"), (host.Host, host.Refusals, host.LastBatch));
+    }
+
+    [Fact]
     public async Task Two_tasks_end_in_two_draft_pull_requests_each_with_its_own_result()
     {
         using var rig = new Rig(mcpForward: "chargehand-host:4300");
