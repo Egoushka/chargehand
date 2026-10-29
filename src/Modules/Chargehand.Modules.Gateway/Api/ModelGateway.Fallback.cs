@@ -59,20 +59,26 @@ public sealed partial class ModelGateway
     }
 
     /// <returns>The body, or null when it is larger than <see cref="MaxRequestBytes"/> (a chunked request has no length to check up front).</returns>
-    private static async Task<byte[]?> ReadBody(HttpListenerRequest request, CancellationToken ct)
+    private static Task<byte[]?> ReadBody(HttpListenerRequest request, CancellationToken ct) =>
+        ReadBody(request.InputStream, request.HasEntityBody, request.ContentLength64, ct);
+
+    /// <summary>Buffers <paramref name="input"/> up to <see cref="MaxRequestBytes"/>. Sized from <paramref name="contentLength"/> when it is known and within the limit, so the
+    /// common case (a body sent with its length, as every real client does) needs no doubling growth while writing and no extra full-size copy to return it (two maximum-size bodies
+    /// in flight at once must not multiply memory past the egress container's limit).</summary>
+    internal static async Task<byte[]?> ReadBody(Stream input, bool hasEntityBody, long contentLength, CancellationToken ct)
     {
-        if (!request.HasEntityBody)
+        if (!hasEntityBody)
             return [];
-        using var buffer = new MemoryStream();
+        using var buffer = contentLength is >= 0 and <= MaxRequestBytes ? new MemoryStream((int)contentLength) : new MemoryStream();
         var chunk = new byte[64 * 1024];
         int n;
-        while ((n = await request.InputStream.ReadAsync(chunk, ct)) > 0)
+        while ((n = await input.ReadAsync(chunk, ct)) > 0)
         {
             if (buffer.Length + n > MaxRequestBytes)
                 return null;
             buffer.Write(chunk, 0, n);
         }
-        return buffer.ToArray();
+        return buffer.TryGetBuffer(out var segment) && segment.Offset == 0 && segment.Count == segment.Array!.Length ? segment.Array : buffer.ToArray();
     }
 
     /// <summary>A request with a fallback: until a limit's reset it goes to the fallback; otherwise to the subscription, and a long limit from there is sent again on the fallback.</summary>

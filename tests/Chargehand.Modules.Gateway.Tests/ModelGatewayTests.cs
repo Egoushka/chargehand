@@ -487,6 +487,53 @@ public class ModelGatewayTests
         Assert.Empty(rig.Upstream.Calls);
     }
 
+    /// <summary>The egress container's memory must hold two bodies at the cap at once (issue #664): each is buffered once, at its own size, and relayed once.</summary>
+    [Fact]
+    public async Task Two_concurrent_maximum_size_buffered_bodies_are_each_relayed_once()
+    {
+        await using var rig = new Rig(fallback: Fallback());
+        const int max = 64 * 1024 * 1024;
+        var first = new byte[max];
+        var second = new byte[max];
+        first[0] = 1;
+        second[0] = 2;
+
+        Task<HttpResponseMessage> Send(byte[] body)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, rig.Url + "/v1/messages")
+            {
+                Content = new ByteArrayContent(body),
+                Headers = { Authorization = new AuthenticationHeaderValue("Bearer", Rig.Token()) },
+            };
+            return rig.Client.SendAsync(request);
+        }
+
+        var responses = await Task.WhenAll(Send(first), Send(second));
+
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        Assert.Equal(2, rig.Upstream.Calls.Count);
+        Assert.Equal(new long?[] { max, max }, rig.Upstream.Calls.Select(c => c.Request.Content!.Headers.ContentLength).OrderBy(l => l));
+    }
+
+    /// <summary>The fix (issue #664): a body sent with its length is buffered into a stream sized for exactly that length, so returning it needs no second, full-size copy. Before this,
+    /// <c>ReadBody</c> grew a default <see cref="MemoryStream"/> by doubling and then called <c>ToArray()</c>, briefly holding roughly three times the body in memory.</summary>
+    [Fact]
+    public async Task ReadBody_sized_from_Content_Length_needs_no_extra_full_size_copy()
+    {
+        const int size = 4 * 1024 * 1024;
+        var data = new byte[size];
+        new Random(1).NextBytes(data);
+        using var input = new MemoryStream(data, writable: false);
+
+        GC.Collect();
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var body = await ModelGateway.ReadBody(input, hasEntityBody: true, contentLength: size, CancellationToken.None);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(data, body);
+        Assert.True(allocated < size * 1.5, $"expected well under {size * 1.5} bytes allocated buffering a {size}-byte body sent with its length, got {allocated}");
+    }
+
     /// <summary>A body of unknown length, so the request goes out chunked and only reading it can tell it is too large.</summary>
     private sealed class ChunkedZeros(long length) : Stream
     {

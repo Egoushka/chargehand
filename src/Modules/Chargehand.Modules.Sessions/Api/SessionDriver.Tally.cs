@@ -38,6 +38,11 @@ public static partial class SessionDriver
     private const string ReportRequest = "You finished, but your last message has no JSON report, so chargehand cannot read what you did. Do not change any file and do not run anything. "
         + "Reply with only the final report as one fenced ```json block with \"summary\" and \"claims\", exactly as the task's instructions describe.";
 
+    /// <summary>What a finished session is told when it made no commit but left changes.</summary>
+    private const string CommitRequest = "You finished, but your changes are not committed, and chargehand hands over only the commits on your branch: uncommitted files are lost. "
+        + "Run `git status`. Commit the changes that are part of the task on the current branch as one Conventional Commit; leave scratch files and build output uncommitted. "
+        + "Change nothing else and run nothing else, then reply with the final report as one fenced ```json block, as before.";
+
     /// <summary>A report block chargehand can start from: a JSON object with a summary (the host checks the rest).</summary>
     private static bool HasSummary(string report)
     {

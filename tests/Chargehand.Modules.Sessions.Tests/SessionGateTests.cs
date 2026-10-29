@@ -68,7 +68,7 @@ public class SessionGateTests
     {
         using var w = new Workspace();
         var task = Task() with { Check = ["sh", "-c", "test -f fixed.txt"] };
-        var outcome = await SessionDriver.RunAsync(Options(w, Script(w, onResume: "touch fixed.txt"), task), default);
+        var outcome = await SessionDriver.RunAsync(Options(w, Script(w, onResume: "touch fixed.txt && git add -A && git commit -q -m 'fix: the check'"), task), default);
         Assert.Equal(SessionStatus.Completed, outcome.Status);
         Assert.Equal(2, Runs(w));
         Assert.Contains("## check: `sh -c 'test -f fixed.txt'`", File.ReadAllText(Path.Combine(w.Out, "feedback.txt")));
@@ -79,7 +79,7 @@ public class SessionGateTests
     {
         using var w = new Workspace();
         var task = Task() with { Acceptance = [new AcceptanceCheck("cat done.txt", Output: "ready")] };
-        var outcome = await SessionDriver.RunAsync(Options(w, Script(w, onResume: "echo ready > done.txt"), task), default);
+        var outcome = await SessionDriver.RunAsync(Options(w, Script(w, onResume: "echo ready > done.txt && git add -A && git commit -q -m 'fix: the criterion'"), task), default);
         Assert.Equal(SessionStatus.Completed, outcome.Status);
         Assert.Equal(2, Runs(w));
         var feedback = File.ReadAllText(Path.Combine(w.Out, "feedback.txt"));
@@ -193,6 +193,59 @@ public class SessionGateTests
         var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init, Assistant("m1", "NEEDS_INPUT:\n1. Which database?"), Result()) + $"\necho x >> '{w.Out}/runs'", Task()), default);
         Assert.Equal(SessionStatus.NeedsInput, outcome.Status);
         Assert.Equal(1, Runs(w));
+    }
+
+    [Fact]
+    public async Task A_finished_session_that_left_its_change_uncommitted_is_asked_once_to_commit_it()
+    {
+        using var w = new Workspace();
+        var script = Script(w, onResume: "git add -A && git commit -q -m 'fix: the change'", first: "echo edited > b.txt");
+        var outcome = await SessionDriver.RunAsync(Options(w, script, Task()), default);
+        Assert.Equal(SessionStatus.Completed, outcome.Status);
+        Assert.Equal(2, Runs(w));
+        Assert.Contains("not committed", File.ReadAllText(Path.Combine(w.Out, "feedback.txt")));
+        Assert.Equal("edited", w.Git("show", "chargehand/run1:b.txt").Trim());
+        Assert.Equal(1, outcome.Commits);
+    }
+
+    [Fact]
+    public async Task A_continuation_that_left_its_change_uncommitted_is_asked_although_its_seed_has_commits()
+    {
+        using var w = new Workspace(commit: false);
+        w.Git("checkout", "-q", "-b", "chargehand/run1");
+        File.WriteAllText(Path.Combine(w.Work, "b.txt"), "from the first session");
+        w.Git("add", "-A");
+        w.Git("commit", "-q", "-m", "WIP: session stopped by turn_limit after 80 turns");
+        var seed = Path.Combine(w.Dir.Path, "seed.bundle");
+        w.Git("bundle", "create", seed, "chargehand/run1", "--not", "main");
+        w.Git("checkout", "-q", "-B", "chargehand/run1", "main");
+        File.Copy(seed, Path.Combine(w.Out, "seed.bundle"));
+        var script = Script(w, onResume: "git add -A && git commit -q -m 'fix: finish it'", first: "echo finished > b.txt");
+        var outcome = await SessionDriver.RunAsync(Options(w, script, Task()), default);
+        Assert.Equal(2, Runs(w));
+        Assert.Equal("finished", w.Git("show", "chargehand/run1:b.txt").Trim());
+        Assert.Equal(2, outcome.Commits);
+    }
+
+    [Fact]
+    public async Task A_session_that_committed_its_change_is_not_asked_about_files_it_left()
+    {
+        using var w = new Workspace();
+        var first = "echo c > c.txt && git add -A && git commit -q -m 'feat: c' && echo tmp > scratch.txt";
+        var outcome = await SessionDriver.RunAsync(Options(w, Script(w, first: first), Task()), default);
+        Assert.Equal(1, Runs(w));
+        Assert.Equal("feat: c", w.Git("log", "-1", "--format=%s").Trim());
+        Assert.Contains("scratch.txt", w.Git("status", "--porcelain"));
+    }
+
+    [Fact]
+    public async Task A_session_that_still_does_not_commit_is_not_asked_again()
+    {
+        using var w = new Workspace();
+        var outcome = await SessionDriver.RunAsync(Options(w, Script(w, first: "echo edited > b.txt"), Task()), default);
+        Assert.Equal(SessionStatus.Completed, outcome.Status);
+        Assert.Equal(2, Runs(w));
+        Assert.Equal(0, outcome.Commits);
     }
 
     [Fact]
