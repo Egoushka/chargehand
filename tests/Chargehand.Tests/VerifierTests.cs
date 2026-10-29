@@ -146,6 +146,7 @@ public class VerifierTests
     [InlineData("echo all good", true)]
     [InlineData("npm test && echo done", false)]
     [InlineData("dotnet test", false)]
+    [InlineData("echo building && pytest", false)]
     public void IsNoOp_catches_true_colon_exit_0_and_a_bare_echo_but_not_a_real_check(string body, bool expected) =>
         Assert.Equal(expected, VerifyCommand.IsNoOp(["sh", "-c", body]));
 

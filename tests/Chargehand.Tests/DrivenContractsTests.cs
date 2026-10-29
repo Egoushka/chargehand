@@ -120,7 +120,7 @@ public class DrivenContractsTests
     [Fact]
     public void An_acceptance_check_that_can_fail_is_not_refused()
     {
-        Assert.Empty(DrivenRules.Problems(new RequestDriven([new DrivenTask("t1", Goal: "g", Acceptance: [new AcceptanceCheck("./smoke.sh"), new AcceptanceCheck("npm test && echo done")])])));
+        Assert.Empty(DrivenRules.Problems(new RequestDriven([new DrivenTask("t1", Goal: "g", Acceptance: [new AcceptanceCheck("./smoke.sh"), new AcceptanceCheck("npm test && echo done"), new AcceptanceCheck("echo building && pytest")])])));
     }
 
     [Theory]
