@@ -82,7 +82,7 @@
     },
     "proxy_sign_in": {
       "hosts": ["chargehand.example.internal"],
-      "proxies": ["10.0.0.5"],
+      "proxies": ["chargehand-proxy.example.internal"],
       "header": "Remote-Email",
       "identities": { "bob@example.internal": "bob" }
     },
