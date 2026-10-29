@@ -301,6 +301,26 @@ public class ModelGatewayTests
     }
 
     [Fact]
+    public async Task A_fallback_on_a_private_host_keeps_its_port_and_path_prefix_in_the_replay()
+    {
+        var fallback = new GatewayFallback(FallbackKey, "bifrost", 5m, new FallbackPrice(3m, 15m, 0.3m, 3.75m), "http://bifrost:8080/anthropic");
+        await using var rig = new Rig(request => request.RequestUri!.Host == "bifrost"
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"usage":{"input_tokens":1,"output_tokens":1}}""", Encoding.UTF8, "application/json") }
+            : LimitedSubscription(TimeSpan.FromHours(3))(request), fallback);
+
+        Assert.Equal(HttpStatusCode.OK, (await rig.Post(Rig.Token())).StatusCode);
+
+        Assert.Equal("http://bifrost:8080/anthropic/v1/messages?beta=true", rig.Upstream.Calls[1].Request.RequestUri!.ToString());
+        Assert.Equal(FallbackKey, rig.Upstream.Calls[1].Request.Headers.GetValues("x-api-key").Single());
+    }
+
+    [Theory]
+    [InlineData("http://gateway.example.test")]
+    [InlineData("https://gateway.example.test/a/../b")]
+    public void A_fallback_endpoint_that_is_not_acceptable_is_refused_at_construction(string baseUrl) =>
+        Assert.Throws<ArgumentException>(() => new ModelGateway(Key, Real, "api.example.test", fallback: new GatewayFallback(FallbackKey, new Uri(baseUrl).Host, 1m, new FallbackPrice(1m, 1m, 1m, 1m), baseUrl)));
+
+    [Fact]
     public async Task Until_the_reset_new_requests_go_straight_to_the_fallback()
     {
         await using var rig = new Rig(LimitedSubscription(TimeSpan.FromHours(3), usage: """{"input_tokens":10,"output_tokens":1}"""), Fallback());

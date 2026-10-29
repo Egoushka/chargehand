@@ -79,6 +79,15 @@ public class EgressCliTests
         Assert.True(valid);
         Assert.Equal(new GatewayFallback("k", "fallback.example.test", 2.5m, new FallbackPrice(3m, 15m, 0.3m, 3.75m)), fallback);
 
+        var withUrl = Env((EgressCli.FallbackCredentialVariable, "k"), (EgressCli.FallbackHostVariable, "bifrost"), (EgressCli.FallbackUsdVariable, "1"), (EgressCli.FallbackPriceVariable, "1,2,3,4"),
+            (EgressCli.FallbackBaseUrlVariable, "http://bifrost:8080/anthropic"));
+        Assert.Equal("http://bifrost:8080/anthropic", EgressCli.FallbackFromEnvironment(withUrl, TextWriter.Null, out var urlValid)!.BaseUrl);
+        Assert.True(urlValid);
+        // A base URL that names another host than the host variable is refused.
+        Assert.Null(EgressCli.FallbackFromEnvironment(Env((EgressCli.FallbackCredentialVariable, "k"), (EgressCli.FallbackHostVariable, "other"), (EgressCli.FallbackUsdVariable, "1"),
+            (EgressCli.FallbackPriceVariable, "1,2,3,4"), (EgressCli.FallbackBaseUrlVariable, "http://bifrost:8080")), TextWriter.Null, out var mismatch));
+        Assert.False(mismatch);
+
         Assert.Null(EgressCli.FallbackFromEnvironment(Env(), TextWriter.Null, out var none));
         Assert.True(none);
     }

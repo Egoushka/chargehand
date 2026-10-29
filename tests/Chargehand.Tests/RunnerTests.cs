@@ -461,6 +461,15 @@ public class RunnerTests
 
         await client.StartEgressAsync(new EgressSpec("b3", "ignored-by-runner", "chargehand-net-b3", ["api.anthropic.com"], Gateway: With("Gateway.Example.Test")), default);
         Assert.Equal(With("Gateway.Example.Test"), r.Engine.Egress!.Gateway);                     // key, host, allowance and prices reach the engine whole
+
+        // The runner compares the host only: a port and a path prefix ride along, and a base URL that names another host than the one sent is refused.
+        await using var inNetwork = await Start(fallbackHost: "bifrost");
+        ModelGatewaySpec Url(string host, string baseUrl) => new("real-credential", key, Fallback: new GatewayFallback("fallback-credential", host, 2.5m, price, baseUrl));
+        await new RunnerClient(inNetwork.Http).StartEgressAsync(new EgressSpec("b4", "ignored-by-runner", "chargehand-net-b4", ["api.anthropic.com"], Gateway: Url("bifrost", "http://bifrost:8080/anthropic")), default);
+        Assert.Equal("http://bifrost:8080/anthropic", inNetwork.Engine.Egress!.Gateway!.Fallback!.BaseUrl);
+        var mismatched = await Assert.ThrowsAsync<ChargehandException>(() => new RunnerClient(inNetwork.Http).StartEgressAsync(
+            new EgressSpec("b5", "ignored-by-runner", "chargehand-net-b5", ["api.anthropic.com"], Gateway: Url("bifrost", "http://evil:8080/anthropic")), default));
+        Assert.Contains("fallback", mismatched.Message);
     }
 
     [Fact]

@@ -24,6 +24,8 @@ public static class EgressCli
     /// with it so one file describes the whole batch. All four set, or none.</summary>
     public const string FallbackCredentialVariable = "CHARGEHAND_EGRESS_FALLBACK_CREDENTIAL";
     public const string FallbackHostVariable = "CHARGEHAND_EGRESS_FALLBACK_HOST";
+    /// <summary>Optional: the fallback's base URL when it is not <c>https://&lt;host&gt;</c> (a port, a path prefix, plain http to a private host).</summary>
+    public const string FallbackBaseUrlVariable = "CHARGEHAND_EGRESS_FALLBACK_BASE_URL";
     public const string FallbackUsdVariable = "CHARGEHAND_EGRESS_FALLBACK_USD";
     public const string FallbackPriceVariable = "CHARGEHAND_EGRESS_FALLBACK_PRICE";
 
@@ -135,21 +137,35 @@ public static class EgressCli
         valid = true;
         if (string.IsNullOrEmpty(credential) && string.IsNullOrEmpty(host) && string.IsNullOrEmpty(usd) && string.IsNullOrEmpty(price))
             return null;
-        var parts = price?.Split(',');
         if (string.IsNullOrEmpty(credential) || string.IsNullOrEmpty(host) || !decimal.TryParse(usd, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var allowance) || allowance <= 0
-            || parts is not { Length: 4 } || parts.Select(p => decimal.TryParse(p, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var n) && n >= 0 ? n : -1m).ToArray() is not [>= 0, >= 0, >= 0, >= 0] numbers)
+            || ParsePrice(price) is not { } parsed)
         {
             error.WriteLine($"the fallback needs {FallbackCredentialVariable}, {FallbackHostVariable}, {FallbackUsdVariable} (above 0) and {FallbackPriceVariable} (four prices per million tokens) in the environment");
             valid = false;
             return null;
         }
-        if (ModelGateway.RefuseHost(host) is { } refused)
+        var baseUrl = env(FallbackBaseUrlVariable);
+        var result = new GatewayFallback(credential, host, allowance, parsed, string.IsNullOrEmpty(baseUrl) ? null : baseUrl);
+        if (result.Endpoint(out var refused) is null)
         {
-            error.WriteLine($"{FallbackHostVariable}: {refused}");
+            error.WriteLine($"{FallbackHostVariable} / {FallbackBaseUrlVariable}: {refused}");
             valid = false;
             return null;
         }
-        return new GatewayFallback(credential, host, allowance, new FallbackPrice(numbers[0], numbers[1], numbers[2], numbers[3]));
+        return result;
+    }
+
+    /// <returns>The four prices (input, output, cache read, cache write per million tokens), or null when the text is not four non-negative numbers.</returns>
+    private static FallbackPrice? ParsePrice(string? price)
+    {
+        var parts = price?.Split(',');
+        if (parts is not { Length: 4 })
+            return null;
+        var n = new decimal[4];
+        for (var i = 0; i < 4; i++)
+            if (!decimal.TryParse(parts[i], System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out n[i]) || n[i] < 0)
+                return null;
+        return new FallbackPrice(n[0], n[1], n[2], n[3]);
     }
 
     private static async Task Run(AllowlistProxy proxy, TextWriter error, CancellationToken ct)

@@ -7,30 +7,22 @@ namespace Chargehand.Driven;
 
 /// <summary>What a subscription batch needs to fall back to the API key inside its egress gateway (ADR 0088): the key, the host it goes to, the price of the model it runs, and the ledger that
 /// holds the day's cap. The batch's own allowance is reserved from the ledger just before its egress container starts (<see cref="Reserve"/>).</summary>
-internal sealed record FallbackSetup(string Credential, string Host, FallbackPrice Price, ApiFallback Gate)
+internal sealed record FallbackSetup(string Credential, string Host, FallbackPrice Price, ApiFallback Gate, string? BaseUrl = null)
 {
-    /// <returns>The fallback of a subscription batch whose profile names one and a ledger exists for; null for any other batch, and for a base URL the gateway cannot reach (it forwards over HTTPS to a
-    /// host, with the request's own path, so an address with a path or another scheme is refused, with a line on stderr, rather than sent somewhere else).</returns>
+    /// <returns>The fallback of a subscription batch whose profile names one and a ledger exists for; null for any other batch, and for a base URL <see cref="FallbackEndpoint"/> refuses
+    /// (a line on stderr says why).</returns>
     public static FallbackSetup? Of(ClaudeCodeSettings claude, string model, ModelPriceLookup price, bool priced, ApiFallback? gate, Func<string, string> secret, string runId)
     {
         if (priced || gate is null || claude.ApiFallbackKeySecret is not { } item)
             return null;
         var found = price(model);
         claude.CheckApiFallbackModel(model, found is not null);
-        if (HostOf(claude.ApiFallbackBaseUrl) is not { } host)
+        if (FallbackEndpoint.Parse(claude.ApiFallbackBaseUrl, out var why) is not { } endpoint)
         {
-            Console.Error.WriteLine($"chargehand: batch {runId} has no API fallback: claude_code.api_fallback_base_url must be an https host with no path (the egress gateway forwards to a host)");
+            Console.Error.WriteLine($"chargehand: batch {runId} has no API fallback: claude_code.api_fallback_base_url {why}");
             return null;
         }
-        return new FallbackSetup(secret(item), host, new FallbackPrice(found!.Input, found.Output, found.CacheRead, found.CacheWrite), gate);
-    }
-
-    private static string? HostOf(string? baseUrl)
-    {
-        if (baseUrl is null)
-            return EgressCli.DefaultModelHost;
-        return Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && uri.IsDefaultPort && uri.AbsolutePath == "/" && string.IsNullOrEmpty(uri.Query)
-            && ModelGateway.RefuseHost(uri.Host) is null ? uri.Host : null;
+        return new FallbackSetup(secret(item), endpoint.Host, new FallbackPrice(found!.Input, found.Output, found.CacheRead, found.CacheWrite), gate, string.IsNullOrWhiteSpace(claude.ApiFallbackBaseUrl) ? null : endpoint.ToString());
     }
 
     /// <summary>Sets the batch's share aside; an allowance of 0 (the fallback is closed, spent or fully reserved) means the batch gets no fallback.</summary>
@@ -51,7 +43,7 @@ internal sealed class FallbackReservation(ApiFallback gate, string batch, decima
     /// <summary>What the batch spent, once settled; null before, and after an unreadable log.</summary>
     public FallbackSpend? Spent { get; private set; }
 
-    public GatewayFallback Spec => new(setup.Credential, setup.Host, allowance, setup.Price);
+    public GatewayFallback Spec => new(setup.Credential, setup.Host, allowance, setup.Price, setup.BaseUrl);
 
     /// <param name="spend">What the egress containers' logs showed; null: a log could not be read.</param>
     public void Settle(FallbackSpend? spend)

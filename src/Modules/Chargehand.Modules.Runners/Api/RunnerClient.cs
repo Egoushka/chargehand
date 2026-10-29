@@ -156,7 +156,7 @@ public sealed class RunnerClient(HttpClient http, long maxDownloadBytes = Docker
 
     public async Task<string> StartEgressAsync(EgressSpec spec, CancellationToken ct) =>
         (await Send(HttpMethod.Post, "/egress", Json(new RunnerEgress(spec.BatchId, spec.Network, [.. spec.Allow], spec.Forwards is null ? null : [.. spec.Forwards],
-            spec.Gateway is { } g ? new RunnerModelGateway(g.Credential, g.TokenKey, g.Host, g.Port, g.Fallback is { } f ? new RunnerFallback(f.Credential, f.Host, f.AllowanceUsd, f.Price.InputPerMtok, f.Price.OutputPerMtok, f.Price.CacheReadPerMtok, f.Price.CacheWritePerMtok) : null) : null), RunnerJsonContext.Default.RunnerEgress), RunnerJsonContext.Default.IdReply, ct)).Id;
+            spec.Gateway is { } g ? new RunnerModelGateway(g.Credential, g.TokenKey, g.Host, g.Port, g.Fallback is { } f ? new RunnerFallback(f.Credential, f.Host, f.AllowanceUsd, f.Price.InputPerMtok, f.Price.OutputPerMtok, f.Price.CacheReadPerMtok, f.Price.CacheWritePerMtok, f.BaseUrl) : null) : null), RunnerJsonContext.Default.RunnerEgress), RunnerJsonContext.Default.IdReply, ct)).Id;
 
     public Task ConnectNetworkAsync(string container, string network, CancellationToken ct) => Send(HttpMethod.Post, "/connect", Json(new RunnerConnect(container, network), RunnerJsonContext.Default.RunnerConnect), ct);
 

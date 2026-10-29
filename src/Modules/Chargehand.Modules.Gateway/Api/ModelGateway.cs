@@ -55,10 +55,8 @@ public sealed partial class ModelGateway : IAsyncDisposable
         {
             if (fallback.Credential.Length == 0 || fallback.Credential.Any(char.IsControl) || fallback.Credential.Any(char.IsWhiteSpace))
                 throw new ArgumentException("the fallback credential is empty or has whitespace or control characters", nameof(fallback));
-            if (RefuseHost(fallback.Host) is { } why)
-                throw new ArgumentException($"the fallback host is not acceptable: {why}", nameof(fallback));
+            _fallbackEndpoint = fallback.Endpoint(out var why) ?? throw new ArgumentException($"the fallback endpoint is not acceptable: {why}", nameof(fallback));
             _fallback = fallback;
-            _fallbackUpstream = new Uri($"https://{fallback.Host.Trim().TrimEnd('.').ToLowerInvariant()}");
         }
         if (credential.Length == 0 || credential.Any(char.IsControl) || credential.Any(char.IsWhiteSpace))
             throw new ArgumentException("the model credential is empty or has whitespace or control characters", nameof(credential));
@@ -67,7 +65,7 @@ public sealed partial class ModelGateway : IAsyncDisposable
         _key = hexKey;
         _credential = credential;
         _upstream = new Uri($"https://{upstreamHost.Trim().TrimEnd('.').ToLowerInvariant()}");
-        _client = new HttpClient(handler ?? PublicOnlyHandler(), disposeHandler: true) { Timeout = UpstreamTimeout };
+        _client = new HttpClient(handler ?? PublicOnlyHandler(_fallbackEndpoint is { AllowsPrivateAddress: true } e ? e.Host : null), disposeHandler: true) { Timeout = UpstreamTimeout };
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
         _log = log;
     }
@@ -96,7 +94,8 @@ public sealed partial class ModelGateway : IAsyncDisposable
         _accepting = Task.Run(() => AcceptLoop(_stop.Token), CancellationToken.None);
     }
 
-    private static SocketsHttpHandler PublicOnlyHandler() => new()
+    /// <param name="privateHost">The one host allowed to resolve to a private address: a fallback on plain http (ADR 0088).</param>
+    private static SocketsHttpHandler PublicOnlyHandler(string? privateHost) => new()
     {
         AllowAutoRedirect = false,
         AutomaticDecompression = DecompressionMethods.None,
@@ -105,7 +104,7 @@ public sealed partial class ModelGateway : IAsyncDisposable
         ConnectCallback = async (context, ct) =>
         {
             var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, ct);
-            if (addresses.Length == 0 || addresses.Any(a => !AllowlistMatcher.IsPublic(a)))
+            if (addresses.Length == 0 || (!string.Equals(context.DnsEndPoint.Host, privateHost, StringComparison.OrdinalIgnoreCase) && addresses.Any(a => !AllowlistMatcher.IsPublic(a))))
                 throw new HttpRequestException("the upstream name does not resolve to a public address");
             var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
             try
@@ -204,7 +203,7 @@ public sealed partial class ModelGateway : IAsyncDisposable
     /// <summary>The request to send upstream: the caller's headers except the ones never forwarded, the gateway's credential, and the body.</summary>
     private HttpRequestMessage Upstream(HttpListenerRequest request, string path, byte[]? buffered = null, bool onFallback = false)
     {
-        var upstream = new HttpRequestMessage(new HttpMethod(request.HttpMethod), new Uri(onFallback ? _fallbackUpstream! : _upstream, path));
+        var upstream = new HttpRequestMessage(new HttpMethod(request.HttpMethod), onFallback ? _fallbackEndpoint!.For(path) : new Uri(_upstream, path));
         foreach (string name in request.Headers)
             if (!NotForwarded.Contains(name) && request.Headers.GetValues(name) is { } values)
                 CopyHeader(upstream, name, values, onFallback);

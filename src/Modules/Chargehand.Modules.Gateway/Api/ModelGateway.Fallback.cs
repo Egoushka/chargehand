@@ -12,7 +12,20 @@ public sealed record FallbackPrice(decimal InputPerMtok, decimal OutputPerMtok, 
 }
 
 /// <summary>The second credential of a model endpoint (ADR 0088): an API key for <paramref name="Host"/>, the dollars the batch may spend on it, and its prices.</summary>
-public sealed record GatewayFallback(string Credential, string Host, decimal AllowanceUsd, FallbackPrice Price);
+public sealed record GatewayFallback(string Credential, string Host, decimal AllowanceUsd, FallbackPrice Price, string? BaseUrl = null)
+{
+    /// <summary>Where the key goes: <see cref="BaseUrl"/>, else <see cref="Host"/> over https. Null with <paramref name="why"/> when it is not acceptable, or when the two name different hosts.</summary>
+    public FallbackEndpoint? Endpoint(out string? why)
+    {
+        var endpoint = FallbackEndpoint.Parse(BaseUrl ?? $"https://{Host}", out why);
+        if (endpoint is not null && !string.Equals(endpoint.Host, Host.Trim().TrimEnd('.'), StringComparison.OrdinalIgnoreCase))
+        {
+            why = "the base URL names another host";
+            return null;
+        }
+        return endpoint;
+    }
+}
 
 public sealed partial class ModelGateway
 {
@@ -25,7 +38,7 @@ public sealed partial class ModelGateway
     private const int MaxLimitBody = 64 * 1024;
 
     private readonly GatewayFallback? _fallback;
-    private readonly Uri? _fallbackUpstream;
+    private readonly FallbackEndpoint? _fallbackEndpoint;
     private readonly Lock _fallbackState = new();
     private DateTimeOffset _limitedUntil = DateTimeOffset.MinValue;
     private decimal _spent;
