@@ -63,7 +63,7 @@ public static class RunnerCli
                 case "--max-bundle-mb" when int.TryParse(args[i + 1], out var mb) && mb is >= 1 and <= 4096:
                     maxBundleMb = mb;
                     break;
-                case "--fallback-host" when Chargehand.Modules.Gateway.Api.ModelGateway.RefuseHost(args[i + 1]) is null:
+                case "--fallback-host" when args[i + 1].IndexOfAny(['/', '?', '#', '@', ':']) < 0 && (Chargehand.Modules.Gateway.Api.FallbackEndpoint.Parse($"https://{args[i + 1]}", out _) is not null || Chargehand.Modules.Gateway.Api.FallbackEndpoint.Parse($"http://{args[i + 1]}", out _) is not null):
                     fallbackHost = args[i + 1].Trim().TrimEnd('.').ToLowerInvariant();
                     break;
                 case "--keep-awake" when args[i + 1] is "on" or "off":

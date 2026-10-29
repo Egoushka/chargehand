@@ -67,6 +67,7 @@ token_exchange`). An API-key batch and a `gateway_key` batch are unchanged.
    them through the same private env file as the credential. It accepts the fallback host when it passes
    `ModelGateway.RefuseHost` and equals the profile's `api_fallback_base_url` host: still one named host per
    credential, never one taken from a request.
+   *Amended 2026-10-29: the fallback's base URL keeps its port and path prefix (prepended to each replayed path), and plain http is accepted only for a single-label host name or a private or loopback address, so a container such as `http://bifrost:8080/anthropic` works; the runner compares the host only.*
 2. **When to switch.** The gateway sees the raw HTTP answer, not the CLI's result that #639 classifies, so the rule is
    about time: a 429 whose reset is more than 5 minutes away switches. Seconds-long rate limits do not; the CLI retries
    those as it does today, and switching on them would spend money for nothing. The reset comes from the response's

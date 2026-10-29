@@ -58,7 +58,8 @@ public class RunnerCliTests
 
         Assert.Null(RunnerCli.Parse(basic, key: "k", TextWriter.Null)!.Policy.FallbackHost);
         Assert.Equal("gateway.example.test", RunnerCli.Parse([.. basic, "--fallback-host", "Gateway.Example.Test."], key: "k", TextWriter.Null)!.Policy.FallbackHost);
-        foreach (var bad in new[] { "10.0.0.1", "localhost", "a b" })
+        Assert.Equal("bifrost", RunnerCli.Parse([.. basic, "--fallback-host", "bifrost"], key: "k", TextWriter.Null)!.Policy.FallbackHost);   // a container on the network, reached over plain http
+        foreach (var bad in new[] { "8.8.8.8", "a b", "host/path" })
         {
             var error = new StringWriter();
             Assert.Null(RunnerCli.Parse([.. basic, "--fallback-host", bad], key: "k", error));

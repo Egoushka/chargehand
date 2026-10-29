@@ -31,7 +31,7 @@ public sealed record RunnerEgress(string BatchId, string Network, List<string> A
 public sealed record RunnerModelGateway(string Credential, string TokenKey, string Host, int Port, RunnerFallback? Fallback = null);
 
 /// <summary>The fallback of a model endpoint: the key, its host, the batch's dollar allowance and the prices per million tokens.</summary>
-public sealed record RunnerFallback(string Credential, string Host, decimal AllowanceUsd, decimal InputPerMtok, decimal OutputPerMtok, decimal CacheReadPerMtok, decimal CacheWritePerMtok);
+public sealed record RunnerFallback(string Credential, string Host, decimal AllowanceUsd, decimal InputPerMtok, decimal OutputPerMtok, decimal CacheReadPerMtok, decimal CacheWritePerMtok, string? BaseUrl = null);
 
 /// <summary>A workspace to prepare; the runner builds the helper's command line from <see cref="Chargehand.Modules.Runners.Api.ContainerTemplate.WorkspaceArgs"/>.</summary>
 public sealed record RunnerWorkspace(string RunId, string Image, string SourcePath, string WorkVolume, string Branch, string Commit);

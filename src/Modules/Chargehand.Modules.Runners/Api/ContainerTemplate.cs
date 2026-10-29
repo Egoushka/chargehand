@@ -244,8 +244,8 @@ public static partial class ContainerTemplate
     {
         if (fallback.Credential.Length == 0 || fallback.Credential.Any(c => char.IsControl(c) || char.IsWhiteSpace(c)))
             throw new ArgumentException("the fallback credential is empty or has whitespace or a control character", nameof(spec));
-        if (Chargehand.Modules.Gateway.Api.ModelGateway.RefuseHost(fallback.Host) is { } refused)
-            throw new ArgumentException($"the fallback host is not acceptable: {refused}", nameof(spec));
+        if (fallback.Endpoint(out var refused) is null)
+            throw new ArgumentException($"the fallback endpoint is not acceptable: {refused}", nameof(spec));
         var price = fallback.Price;
         if (fallback.AllowanceUsd <= 0 || price.InputPerMtok < 0 || price.OutputPerMtok < 0 || price.CacheReadPerMtok < 0 || price.CacheWritePerMtok < 0)
             throw new ArgumentException("the fallback allowance must be above 0 and its prices not negative", nameof(spec));
@@ -261,6 +261,8 @@ public static partial class ContainerTemplate
             lines.AddRange([$"{Chargehand.Modules.Gateway.Api.EgressCli.FallbackCredentialVariable}={f.Credential}", $"{Chargehand.Modules.Gateway.Api.EgressCli.FallbackHostVariable}={f.Host}",
                 $"{Chargehand.Modules.Gateway.Api.EgressCli.FallbackUsdVariable}={N(f.AllowanceUsd)}",
                 $"{Chargehand.Modules.Gateway.Api.EgressCli.FallbackPriceVariable}={N(f.Price.InputPerMtok)},{N(f.Price.OutputPerMtok)},{N(f.Price.CacheReadPerMtok)},{N(f.Price.CacheWritePerMtok)}"]);
+            if (f.BaseUrl is { } baseUrl)
+                lines.Add($"{Chargehand.Modules.Gateway.Api.EgressCli.FallbackBaseUrlVariable}={baseUrl}");
         }
         return lines;
     }
