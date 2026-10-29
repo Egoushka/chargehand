@@ -40,6 +40,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private readonly Action<string> _info = info ?? Informed;
     private readonly Regex _mention = new($@"(?<!\w){Regex.Escape(settings.Mention)}(?![\w-])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private readonly HashSet<string> _allowed = new(settings.AllowedAuthors ?? [], StringComparer.OrdinalIgnoreCase);
+    private readonly string[] _priorityLabels = [.. settings.EffectivePriorityLabels];
     private readonly Dictionary<(string Repository, int Number), IntakePull> _pulls = [];
     private readonly CheckoutSources _checkouts = new(heads, clones, "intake", warn ?? Warned, info ?? Informed);
     private readonly PullReviews _reviews = new(settings, host, log, state, clock ?? TimeProvider.System, warn ?? Warned);
@@ -60,6 +61,52 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private DateTimeOffset _polledAt;
 
     private enum Outcome { Started, Settled, Deferred, Skipped }
+
+    /// <summary>Where a trigger ranks against the others competing for a slot this poll (issue #576): checked in this order. The CI fixer does not compete for this queue yet (it runs outside
+    /// <see cref="GitHubIntake"/>, on the branch directly); <see cref="CiFix"/> is reserved for when it does.</summary>
+    private enum TriggerSource { CiFix = 0, ReviewRound = 1, Answer = 2, NewIssue = 3 }
+
+    /// <summary>A trigger ready to attempt this poll, ranked for a free slot by priority label, then source, then size, then age (issue #576); lower in each ranks first. <see cref="Finish"/> runs
+    /// after the attempt with its outcome, for bookkeeping (a cursor, a seen time) a source needs once every trigger it found this poll is known.</summary>
+    private sealed record Candidate(string Key, TriggerSource Source, int PriorityRank, int SizeRank, DateTimeOffset Since, Func<CancellationToken, Task<Outcome>> Attempt, Action<Outcome> Finish);
+
+    private static IOrderedEnumerable<Candidate> Ranked(IEnumerable<Candidate> candidates) =>
+        candidates.OrderBy(c => c.PriorityRank).ThenBy(c => c.Source).ThenBy(c => c.SizeRank).ThenBy(c => c.Since);
+
+    /// <summary>Attempts the candidates a repository's gather found this poll. A free slot for every one of them is attempted in the order they were found: nothing waits, so nothing is ranked
+    /// against anything else. Once they outnumber the free slots, the highest-ranked go first (issue #576), so a lower one that would have slipped in first by luck of discovery order waits
+    /// instead; each is still checked for a free slot (and the other admission rules) at the moment it is tried.</summary>
+    private async Task AttemptAsync(List<Candidate> candidates, CancellationToken ct)
+    {
+        var freeSlots = settings.MaxConcurrent - state.Tasks.Count(t => t.Phase == IntakePhase.Running);
+        var ordered = candidates.Count > Math.Max(freeSlots, 0) ? (IEnumerable<Candidate>)Ranked(candidates) : candidates;
+        foreach (var candidate in ordered)
+            candidate.Finish(await candidate.Attempt(ct));
+    }
+
+    /// <summary>The rank of the one priority label an issue carries (0 = highest, from <c>automation.github.priority_labels</c>); none, or more than one, ranks lowest, the same as a trigger with
+    /// no issue labels to read (a review round, an answer).</summary>
+    private int PriorityRankOf(IReadOnlyList<string>? labels)
+    {
+        if (labels is null)
+            return _priorityLabels.Length;
+        var ranks = labels.Select(l => Array.IndexOf(_priorityLabels, l)).Where(i => i >= 0).Distinct().ToList();
+        return ranks.Count == 1 ? ranks[0] : _priorityLabels.Length;
+    }
+
+    /// <summary>The rank of an issue's size label (<c>size:S</c>, <c>size:M</c>, <c>size:L</c>, smallest first), or lowest with none or more than one.</summary>
+    private static int SizeRankOf(IReadOnlyList<string> labels) => IntakeGoal.SizeOf(labels) switch { "S" => 0, "M" => 1, "L" => 2, _ => 3 };
+
+    /// <summary>A trigger's age for the queue: when it was already waiting, else now, so triggers first found in the same poll keep the order they were found in.</summary>
+    private DateTimeOffset WaitingSince(string key) => state.Waiting.Find(w => w.Key == key) is { } waiting ? waiting.Since : _time.GetUtcNow();
+
+    /// <summary>A candidate ranked from an issue's labels: a label trigger or a comment that mentions the bot on a new issue.</summary>
+    private Candidate NewIssueCandidate(string key, IReadOnlyList<string> labels, Func<CancellationToken, Task<Outcome>> attempt, Action<Outcome> finish) =>
+        new(key, TriggerSource.NewIssue, PriorityRankOf(labels), SizeRankOf(labels), WaitingSince(key), attempt, finish);
+
+    /// <summary>A candidate with no issue labels to rank by (an answer, a review round): ranked last on priority and size, ahead only of a lower-ranked source.</summary>
+    private Candidate DefaultCandidate(string key, TriggerSource source, DateTimeOffset since, Func<CancellationToken, Task<Outcome>> attempt, Action<Outcome> finish) =>
+        new(key, source, _priorityLabels.Length, 3, since, attempt, finish);
 
     private IReadOnlyDictionary<string, WatchedRepository> _watched = Listed(settings);
 
@@ -125,14 +172,17 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             try
             {
                 await LabelAsync(name, ct);
-                await LabelTriggersAsync(name, repository, starter, ct);
-                await CommentTriggersAsync(name, repository, starter, ct);
-                await LostAsync(name, repository, starter, ct);
+                var candidates = new List<Candidate>();
+                await GatherLabelCandidatesAsync(name, repository, starter, candidates, ct);
+                await GatherCommentCandidatesAsync(name, repository, starter, candidates, ct);
                 if (settings.MaxReviewRounds > 0)
                 {
                     await ReviewCommentsAsync(name, ct);
-                    await RoundsAsync(name, starter, ct);
+                    await GatherRoundCandidatesAsync(name, starter, candidates, ct);
                 }
+                await AttemptAsync(candidates, ct);
+                state.Save(_time.GetUtcNow());
+                await LostAsync(name, repository, starter, ct);
                 if (settings.ReviewPulls)
                     await _reviews.StartAsync(name, repository, _checkouts, starter, Sources, ct);
                 Withdraw(name);
@@ -191,7 +241,9 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
 
     private bool Mentions(string body) => _mention.IsMatch(QuotedLines().Replace(body, ""));
 
-    private async Task LabelTriggersAsync(string name, AutomationRepository repository, IBatchStarter starter, CancellationToken ct)
+    /// <summary>Gathers a candidate for every labelled issue this poll is not already past, ranked for the queue; <see cref="AttemptAsync"/> tries them, highest-ranked first, once every source
+    /// has gathered (issue #576).</summary>
+    private async Task GatherLabelCandidatesAsync(string name, AutomationRepository repository, IBatchStarter starter, List<Candidate> candidates, CancellationToken ct)
     {
         foreach (var issue in await host.LabeledAsync(name, settings.Label, ct))
         {
@@ -200,62 +252,79 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                 continue;
             var applied = await host.LastLabelEventAsync(name, issue.Number, settings.Label, ct);
             var key = applied is null ? null : $"label:{seen}:{applied.Id.ToString(CultureInfo.InvariantCulture)}";
-            var outcome = Outcome.Settled;
-            if (key is not null && !state.Handled.Contains(key))
+            if (key is null || state.Handled.Contains(key))
             {
-                if (!Allowed(applied!.Actor))
+                SettleLabel(seen, issue.UpdatedAt);
+                continue;
+            }
+            if (!Allowed(applied!.Actor))
+            {
+                candidates.Add(NewIssueCandidate(key, issue.Labels, _ =>
                 {
                     state.Handled.Add(key);
                     Log(key, "ignored", "author_not_allowed", applied.Actor);
-                }
-                else
-                    outcome = await StartAsync(key, name, repository, issue, null, null, starter, ct);
+                    SettleLabel(seen, issue.UpdatedAt);
+                    return Task.FromResult(Outcome.Settled);
+                }, _ => { }));
+                continue;
             }
-            if (outcome != Outcome.Deferred)
-            {
-                state.LabelSeen[seen] = issue.UpdatedAt;
-                state.Save(_time.GetUtcNow());
-            }
+            candidates.Add(NewIssueCandidate(key, issue.Labels, ct2 => StartAsync(key, name, repository, issue, null, null, starter, ct2),
+                outcome => { if (outcome != Outcome.Deferred) SettleLabel(seen, issue.UpdatedAt); }));
         }
     }
 
-    private async Task CommentTriggersAsync(string name, AutomationRepository repository, IBatchStarter starter, CancellationToken ct)
+    private void SettleLabel(string seen, DateTimeOffset updatedAt)
+    {
+        state.LabelSeen[seen] = updatedAt;
+        state.Save(_time.GetUtcNow());
+    }
+
+    /// <summary>Gathers a candidate for every comment this poll that answers a task or mentions the bot on a new issue (issue #576); one that settles immediately (not allowed, a reply on a
+    /// pull request, no trigger at all) is bookkept here, not as a candidate.</summary>
+    private async Task GatherCommentCandidatesAsync(string name, AutomationRepository repository, IBatchStarter starter, List<Candidate> candidates, CancellationToken ct)
     {
         var now = _time.GetUtcNow();
         // The first poll of a repository starts at that moment: comments from before it are not requests.
         var cursor = state.CommentCursor.TryGetValue(name, out var stored) ? stored : now;
         var next = cursor;
         DateTimeOffset? held = null;
+        void Settle(IntakeComment comment) { if (comment.UpdatedAt > next) next = comment.UpdatedAt; }
+        void Hold(IntakeComment comment) => held = held is { } h && h < comment.UpdatedAt ? h : comment.UpdatedAt;
         foreach (var comment in (await host.CommentsSinceAsync(name, cursor, ct)).OrderBy(c => c.Id))
         {
-            var outcome = Outcome.Skipped;
             var key = $"comment:{name}:{comment.Id.ToString(CultureInfo.InvariantCulture)}";
-            if (!state.Handled.Contains(key) && !comment.Body.Contains(Marker, StringComparison.Ordinal))
-                outcome = await HandleCommentAsync(key, name, repository, comment, starter, ct);
-            if (outcome == Outcome.Deferred)
-                held = held is { } h && h < comment.UpdatedAt ? h : comment.UpdatedAt;
-            else if (comment.UpdatedAt > next)
-                next = comment.UpdatedAt;
+            if (state.Handled.Contains(key) || comment.Body.Contains(Marker, StringComparison.Ordinal))
+            {
+                Settle(comment);
+                continue;
+            }
+            var candidate = await ClassifyCommentAsync(key, name, repository, comment, starter, ct);
+            if (candidate is { } found)
+                candidates.Add(found with { Finish = outcome => { if (outcome == Outcome.Deferred) Hold(comment); else Settle(comment); } });
+            else
+                Settle(comment);
         }
         // A comment that has to wait for a slot is read again, from its own time.
         state.CommentCursor[name] = held ?? next;
         state.Save(now);
     }
 
-    private async Task<Outcome> HandleCommentAsync(string key, string name, AutomationRepository repository, IntakeComment comment, IBatchStarter starter, CancellationToken ct)
+    /// <summary>Null when the comment is not a trigger, or settles immediately (its bookkeeping is already done); otherwise a candidate ranked for the queue, an answer or a mention of the bot
+    /// on a new issue. Its <see cref="Candidate.Finish"/> is set by the caller once the comment it closes over is known.</summary>
+    private async Task<Candidate?> ClassifyCommentAsync(string key, string name, AutomationRepository repository, IntakeComment comment, IBatchStarter starter, CancellationToken ct)
     {
         var task = state.LatestFor(name, comment.IssueNumber);
         var answers = task is { Phase: IntakePhase.Asked, AskedCommentId: { } asked } && comment.Id > asked;
         if (!answers && !Mentions(comment.Body))
-            return Outcome.Skipped;
+            return null;
         if (!Allowed(comment.Author))
         {
             state.Handled.Add(key);
             Log(key, "ignored", "author_not_allowed", comment.Author);
-            return Outcome.Settled;
+            return null;
         }
         if (answers)
-            return await ContinueAsync(key, name, task!, comment, starter, ct);
+            return DefaultCandidate(key, TriggerSource.Answer, WaitingSince(key), ct2 => ContinueAsync(key, name, task!, comment, starter, ct2), _ => { });
         var issue = await host.GetAsync(name, comment.IssueNumber, ct);
         if (issue.IsPullRequest)
         {
@@ -264,9 +333,9 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                 await QueueAsync(key, new PendingReview($"c{comment.Id.ToString(CultureInfo.InvariantCulture)}", name, issue.Number, comment.Author, comment.Body, null, null, comment.UpdatedAt), true, ct);
             else
                 Log(key, "ignored", "review_rounds_off", comment.Author);
-            return Outcome.Settled;
+            return null;
         }
-        return await StartAsync(key, name, repository, issue, comment.Body, comment.Author, starter, ct);
+        return NewIssueCandidate(key, issue.Labels, ct2 => StartAsync(key, name, repository, issue, comment.Body, comment.Author, starter, ct2), _ => { });
     }
 
     /// <param name="goal">The goal of a lost run that starts again; null: made from the issue.</param>
@@ -503,14 +572,14 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
 
     /// <summary>Starts a review round for each pull request that has comments waiting (ADR 0051): one continuation of the task that opened it, with the comments as its answers. A comment waits while the
     /// branch is busy or a cap says wait; it is dropped when the pull request is closed, when its task cannot be found, when the round cap is used, or when a round already took it.</summary>
-    private async Task RoundsAsync(string name, IBatchStarter starter, CancellationToken ct)
+    private async Task GatherRoundCandidatesAsync(string name, IBatchStarter starter, List<Candidate> candidates, CancellationToken ct)
     {
         state.Pending.RemoveAll(p => _time.GetUtcNow() - p.At > PendingFor);
         foreach (var group in state.Pending.Where(p => p.Repository == name).GroupBy(p => p.Pull).ToList())
         {
             try
             {
-                await RoundAsync(name, group.Key, [.. group], starter, ct);
+                await PrepareRoundAsync(name, group.Key, [.. group], starter, candidates, ct);
             }
             catch (IntakeException e)
             {
@@ -521,7 +590,9 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         state.Save(_time.GetUtcNow());
     }
 
-    private async Task RoundAsync(string name, int number, IReadOnlyList<PendingReview> waiting, IBatchStarter starter, CancellationToken ct)
+    /// <summary>Everything about a pull request's waiting comments that does not depend on a free slot: dropped, held for later, or turned into a candidate whose <see cref="Candidate.Attempt"/>
+    /// checks for a slot and launches the round only once it is tried (issue #576).</summary>
+    private async Task PrepareRoundAsync(string name, int number, IReadOnlyList<PendingReview> waiting, IBatchStarter starter, List<Candidate> candidates, CancellationToken ct)
     {
         void Drop(IEnumerable<PendingReview> items) => state.Pending.RemoveAll(p => items.Contains(p));
         var pull = await host.GetPullAsync(name, number, ct);
@@ -560,24 +631,27 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             return;
         }
         var key = $"round:{name}#{number}:{fresh[0].Id}";
-        if (await SlotAsync(key, name, number, ct) is not null)
-            return;
-        if ((await log.ReadAsync(found.Batch, ct)).Start?.Request.Context.Repository is not { } repository)
-        {
-            await NotifyOnceAsync($"gone:{name}#{number}", name, number, $"chargehand cannot continue run `{found.Batch}`: it is no longer in the run log.", ct);
-            Drop(waiting);
-            return;
-        }
         var taken = fresh.Take(IntakeGoal.MaxRoundComments).ToList();
         var round = used.Count == 0 ? 1 : used.Max(a => a.Number) + 1;
         var taskId = $"pr-{number.ToString(CultureInfo.InvariantCulture)}";
         var task = new DrivenTask(taskId, Size: settings.BudgetClass, Answers: [.. taken.Select(t => IntakeGoal.ReviewAnswer(t.Author, t.Path, t.Line, t.Body))],
             ContinueFrom: new ContinueFrom(found.Batch, found.Task));
         var authors = string.Join(", ", taken.Select(t => t.Author).Distinct(StringComparer.OrdinalIgnoreCase).Select(a => $"@{a}"));
-        await LaunchAsync(key, name, number, repository, task, run => new IntakeTask(name, number, run, taskId, _time.GetUtcNow(), settings.BudgetClass, Branch: pull.HeadBranch, Round: round), starter,
-            run => $"{FixMarker.ReviewRound(round, taken.Select(t => t.Id))}\nchargehand is starting review round {round.ToString(CultureInfo.InvariantCulture)} of {DrivenCiFix.AttemptCap.ToString(CultureInfo.InvariantCulture)} "
-                + $"(run `{run}`) for {taken.Count.ToString(CultureInfo.InvariantCulture)} comment(s) by {authors}, on `{pull.HeadBranch}`. Rounds and CI fix attempts share the cap of {DrivenCiFix.AttemptCap.ToString(CultureInfo.InvariantCulture)} per pull request.",
-            null, () => Drop(waiting.Where(w => taken.Any(t => t.Id == w.Id) || reviewed.Contains(w.Id))), ct);
+        candidates.Add(DefaultCandidate(key, TriggerSource.ReviewRound, fresh[0].At, async ct2 =>
+        {
+            if (await SlotAsync(key, name, number, ct2) is { } held)
+                return held;
+            if ((await log.ReadAsync(found.Batch, ct2)).Start?.Request.Context.Repository is not { } repository)
+            {
+                await NotifyOnceAsync($"gone:{name}#{number}", name, number, $"chargehand cannot continue run `{found.Batch}`: it is no longer in the run log.", ct2);
+                Drop(waiting);
+                return Outcome.Settled;
+            }
+            return await LaunchAsync(key, name, number, repository, task, run => new IntakeTask(name, number, run, taskId, _time.GetUtcNow(), settings.BudgetClass, Branch: pull.HeadBranch, Round: round), starter,
+                run => $"{FixMarker.ReviewRound(round, taken.Select(t => t.Id))}\nchargehand is starting review round {round.ToString(CultureInfo.InvariantCulture)} of {DrivenCiFix.AttemptCap.ToString(CultureInfo.InvariantCulture)} "
+                    + $"(run `{run}`) for {taken.Count.ToString(CultureInfo.InvariantCulture)} comment(s) by {authors}, on `{pull.HeadBranch}`. Rounds and CI fix attempts share the cap of {DrivenCiFix.AttemptCap.ToString(CultureInfo.InvariantCulture)} per pull request.",
+                null, () => Drop(waiting.Where(w => taken.Any(t => t.Id == w.Id) || reviewed.Contains(w.Id))), ct2);
+        }, _ => { }));
     }
 
     /// <param name="Batch">The batch that holds the task's last run.</param>

@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
@@ -53,14 +54,23 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
 /// <param name="BreakerCooldownMinutes">How long a repository whose last 3 batches failed holds new starts, counted from the last failure (default 120; ADR 0084). A later success ends the streak.</param>
 /// <param name="Discover">Also watch every repository the App's installations can see, each cloned into <c>&lt;worker_root&gt;/repos/&lt;owner&gt;/&lt;repo&gt;</c> and fetched with the App's token (default false).
 /// A repository in <paramref name="Repositories"/> keeps its own checkout.</param>
+/// <param name="PriorityLabels">Label names that set a waiting trigger's place in the queue, highest first (default <c>priority:high</c>, <c>priority:low</c>; issue #576). An issue with exactly one of
+/// these labels waits ahead of one with a label later in the list, or none; one with more than one of them is not ranked by it, the same as having none. Checked before source, size and age.</param>
 public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, AutomationRepository>? Repositories = null, IReadOnlyList<string>? AllowedAuthors = null, string Label = "chargehand",
     string Mention = "@chargehand", int PollSeconds = 120, string BudgetClass = "M", long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int? MaxStartsPerDay = null, int MaxReviewRounds = 3,
-    bool ReviewPulls = false, int? MaxReviewsPerDay = null, bool Discover = false, int MaxReviewBacklog = 3, bool SubscriptionBlock = false, int MaxStartsPerHour = 30, int BreakerCooldownMinutes = 120)
+    bool ReviewPulls = false, int? MaxReviewsPerDay = null, bool Discover = false, int MaxReviewBacklog = 3, bool SubscriptionBlock = false, int MaxStartsPerHour = 30, int BreakerCooldownMinutes = 120,
+    IReadOnlyList<string>? PriorityLabels = null)
 {
     /// <summary>Where discovered repositories are cloned, under <c>worker_root</c>.</summary>
     public const string ClonesDirectory = "repos";
 
     public const int MinPollSeconds = 30;
+
+    public static readonly IReadOnlyList<string> DefaultPriorityLabels = ["priority:high", "priority:low"];
+
+    /// <summary>The priority labels this profile uses, highest first; <see cref="DefaultPriorityLabels"/> when the profile sets none.</summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> EffectivePriorityLabels => PriorityLabels ?? DefaultPriorityLabels;
 
     internal void Validate(bool drivenEnabled, DrivenIntegrator? integrator)
     {
@@ -91,6 +101,11 @@ public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, Automa
         if (!LabelName().IsMatch(Label)) yield return "label must be a label name without commas";
         if (!MentionName().IsMatch(Mention)) yield return "mention must be @ and a GitHub login";
         if (PollSeconds is < MinPollSeconds or > 3600) yield return $"poll_seconds must be {MinPollSeconds} to 3600";
+        if (PriorityLabels is { Count: 0 }) yield return "priority_labels must not be empty; leave it out for the default";
+        foreach (var label in PriorityLabels ?? [])
+            if (!LabelName().IsMatch(label)) yield return $"priority_labels entry '{label}' must be a label name without commas";
+        if (PriorityLabels is { } priority && priority.Distinct(StringComparer.Ordinal).Count() != priority.Count)
+            yield return "priority_labels must not repeat a name";
     }
 
     private IEnumerable<string> LimitProblems()
