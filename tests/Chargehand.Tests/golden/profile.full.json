@@ -1,0 +1,239 @@
+{
+  "schema": "profile/v1",
+  "runtime": "opencode",
+  "secrets": [
+    { "env": true },
+    { "command": ["pass", "show", "{item}"] }
+  ],
+  "opencode": {
+    "url": "https://opencode.chargehand.example.internal",
+    "password_secret": "chargehand-opencode-password",
+    "version": "2.0.18",
+    "binary": "opencode"
+  },
+  "claude_code": {
+    "version": ">=2.1.283",
+    "api_key_secret": "chargehand-anthropic-key",
+    "binary": "claude",
+    "base_url": "https://claude-gateway.chargehand.example.internal",
+    "custom_headers_secret": "chargehand-gateway-headers",
+    "api_fallback_key_secret": "chargehand-fallback-key",
+    "api_fallback_base_url": "https://api.anthropic.chargehand.example.internal",
+    "api_fallback_daily_usd": 25
+  },
+  "acp": {
+    "allow_uncapped": true,
+    "agents_file": "/srv/chargehand/work/acp-agents.json",
+    "agents": {
+      "example-agent": { "api_key_secret": "chargehand-agent-key", "base_url": "https://acp-gateway.chargehand.example.internal" }
+    }
+  },
+  "inbox": { "owners": { "example-owner/*": "alice" } },
+  "worker_root": "/srv/chargehand/work",
+  "delivery": { "local_only": ["/srv/chargehand/work/local-only", "~/local-example"] },
+  "repository_roots": ["/srv/chargehand/work", "/srv/chargehand/repos"],
+  "support_check": true,
+  "signing": { "key_file": "/srv/chargehand/signing-key.pem" },
+  "sandbox": { "kind": "bubblewrap", "network": false, "env": ["EXAMPLE_VAR"] },
+  "default_preset": "cheap",
+  "intake_model": "provider/intake-model",
+  "run_cap_usd": 2.5,
+  "max_parallel_nodes": 2,
+  "run_log": "/srv/chargehand/work/run-log.jsonl",
+  "telemetry": {
+    "otlp_endpoint": "https://otel.chargehand.example.internal",
+    "public_key_secret": "chargehand-telemetry-public-key",
+    "secret_key_secret": "chargehand-telemetry-secret-key",
+    "usage_on_spans": true
+  },
+  "prices": {
+    "provider/worker-model": { "input": 3, "output": 15, "cache_read": 0.3, "cache_write": 3.75 }
+  },
+  "models": {
+    "provider/worker-model": "anthropic/claude-sonnet-5",
+    "provider/small-model": "anthropic/claude-haiku-4-5"
+  },
+  "http": {
+    "api_key_secret": "chargehand-api-key",
+    "port": 4300,
+    "listen": "127.0.0.1",
+    "allowed_hosts": ["chargehand.example.internal"],
+    "max_concurrent_runs": 2,
+    "ui": true,
+    "accounts": [
+      {
+        "name": "alice",
+        "max_usd_per_day": 5,
+        "max_usd_per_month": 50,
+        "max_tokens_per_day": 100000,
+        "max_tokens_per_month": 2000000,
+        "max_concurrent_runs": 2,
+        "driven": true,
+        "repositories": ["/srv/chargehand/work/example-repo"],
+        "model": { "api_key_secret": "chargehand-alice-gateway-key", "base_url": "https://gateway.chargehand.example.internal/v1" },
+        "pause_on_forecast": true
+      },
+      { "name": "bob", "allow_server_credential": true }
+    ],
+    "cloudflare_access": {
+      "team_domain": "example-team.cloudflareaccess.com",
+      "audience": "chargehand-audience-placeholder",
+      "identities": { "alice@example.internal": "alice" }
+    },
+    "proxy_sign_in": {
+      "hosts": ["chargehand.example.internal"],
+      "proxies": ["10.0.0.5"],
+      "header": "Remote-Email",
+      "identities": { "bob@example.internal": "bob" }
+    },
+    "conversations": { "runtime": "fake", "max_messages": 200 }
+  },
+  "driven": {
+    "enabled": true,
+    "max_parallel": 3,
+    "max_parallel_total": 6,
+    "images": [
+      "chargehand-example/session@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "chargehand-example/gradle@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    ],
+    "network": {
+      "allow": ["pkg.chargehand.example.internal"],
+      "outside": "chargehand-net",
+      "mcp_forward": "chargehand-host:4300",
+      "model_url": "http://chargehand-host:4301/v1",
+      "otlp_url": "http://chargehand-host:4318"
+    },
+    "push_secret": "chargehand-push-secret",
+    "task_source": {
+      "server": "tracker",
+      "tool": "get_issue",
+      "arguments": { "id": "{ref}" },
+      "title": "fields.summary",
+      "body": "fields.description"
+    },
+    "max_session_calls": 2,
+    "limits": {
+      "max_minutes": 45,
+      "no_progress_minutes": 10,
+      "max_turns": 80,
+      "max_tokens": 200000,
+      "memory_mb": 4096,
+      "cpus": 2,
+      "pids": 512,
+      "max_continuations": 2,
+      "check_retries": 2,
+      "goal_reminder_minutes": 60,
+      "goal_reminder_turns": 40
+    },
+    "governor": {
+      "mode": "observe",
+      "budgets": { "S": 1.5, "M": 4, "L": 10 },
+      "repeat_calls": 3,
+      "repeat_failures": 2,
+      "failing_calls": 3,
+      "probe_commands": 2,
+      "no_growth_turns": 5,
+      "rewarn_turns": 10,
+      "context_tokens": 150000,
+      "checkpoint_at": 0.8,
+      "probe_patterns": ["error|timeout"],
+      "wait_patterns": ["waiting for"],
+      "history": { "min_tasks": 5, "window_days": 60, "percentile": 80 }
+    },
+    "admission": { "reserve_mb": 1024, "max_load_per_cpu": 1.5, "default_request_mb": 1536, "max_memory_pressure": 10 },
+    "integrator": {
+      "app_id": 123456,
+      "installation_id": 7654321,
+      "private_key_secret": "chargehand-github-app-key",
+      "repositories": { "example-owner/example-repo": "ask" },
+      "always_ask": ["example-owner/example-repo"],
+      "ci_fix": { "max_attempts": 3, "max_turns": 20, "max_minutes": 15, "wait_minutes": 20 }
+    },
+    "services": {
+      "caches": ["npm"],
+      "images": { "gradle": "chargehand-example/gradle@sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+      "repositories": {
+        "example-owner/example-repo": [
+          {
+            "name": "postgres",
+            "image": "chargehand-example/postgres@sha256:3333333333333333333333333333333333333333333333333333333333333333",
+            "port": 5432,
+            "memory_mb": 512,
+            "env": { "POSTGRES_PASSWORD": "placeholder" },
+            "tmpfs": ["/var/lib/postgresql/data"],
+            "note": "user and password are both test"
+          }
+        ]
+      },
+      "verify": { "example-owner/example-repo": ["make", "test"] }
+    },
+    "forge": { "kind": "gitlab", "base_url": "https://gitlab.chargehand.example.internal/api/v4", "token_secret": "chargehand-gitlab-token" },
+    "planning": { "enabled": true, "preset": "cheap" },
+    "learning": { "retro": true, "retro_preset": "cheap", "pr_days": 14, "pr_check_minutes": 60 },
+    "runners": [
+      { "name": "default", "url": "https://runner.chargehand.example.internal", "api_key_secret": "chargehand-runner-key",
+        "max_sessions": 3, "platform": "linux/amd64", "weight": 1, "reserve_mb": 512, "workspace": "shared" }
+    ],
+    "image_variants": {
+      "chargehand-example/session@sha256:0000000000000000000000000000000000000000000000000000000000000000": {
+        "linux/arm64": "chargehand-example/session-arm@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    },
+    "environment": "image"
+  },
+  "mcp_servers": {
+    "notes": {
+      "url": "https://notes.chargehand.example.internal/mcp",
+      "headers": { "Authorization": "Bearer {secret:notes-token}" }
+    },
+    "tracker": {
+      "command": ["npx", "-y", "example-tracker-mcp"],
+      "env": { "TRACKER_TOKEN": "{secret:tracker-token}" }
+    },
+    "enhancer": { "url": "https://enhancer.chargehand.example.internal/mcp" }
+  },
+  "preset_services": {
+    "cheap": [{ "server": "enhancer", "tools": ["enhance", "feedback"] }],
+    "incident": [{ "server": "notes", "tools": ["search_*"] }]
+  },
+  "prompt_enhancer": { "server": "enhancer", "deadline_ms": 1500 },
+  "memory": [
+    {
+      "name": "notes",
+      "server": "notes",
+      "namespace": "example",
+      "max_facts": 5,
+      "max_chars": 2000,
+      "max_fact_chars": 300,
+      "timeout_seconds": 4,
+      "retain": true,
+      "retain_tags": ["chargehand", "example"],
+      "local_ok": false,
+      "tools": {
+        "recall": {
+          "tool": "search",
+          "arguments": { "q": "{query}", "n": "{max_facts}", "ns": "{namespace}" },
+          "results": { "path": "data.items", "id": "key", "text": ["{title}: {body}", "summary"], "format": "json" }
+        },
+        "retain": {
+          "tool": "save",
+          "arguments": {
+            "ns": "{namespace}",
+            "text": "{text}",
+            "context": "{context}",
+            "document_id": "{document_id}",
+            "timestamp": "{timestamp}",
+            "tags": "{tags}",
+            "repository": "{repository}",
+            "commit": "{commit}",
+            "locators": "{locators}"
+          }
+        },
+        "invalidate": {
+          "tool": "forget",
+          "arguments": { "ns": "{namespace}", "id": "{id}", "reason": "{reason}" }
+        }
+      }
+    }
+  ]
+}
