@@ -151,6 +151,7 @@ public class ModelGatewayTests
         Assert.Equal("30", response.Headers.GetValues("retry-after").Single());
         Assert.Equal("100", response.Headers.GetValues("anthropic-ratelimit-unified-remaining").Single());
         Assert.Equal("application/json", response.Content.Headers.ContentType!.MediaType);
+        Assert.True(response.Headers.TransferEncodingChunked);   // the non-fallback path always streams, never a Content-Length
         Assert.False(response.Headers.Contains("anthropic-organization-id"));
         Assert.False(response.Headers.Contains("anthropic-workspace-id"));
         Assert.False(response.Headers.Contains("x-routed-by"));
