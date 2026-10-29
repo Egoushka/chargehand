@@ -34,6 +34,14 @@ public sealed class GatewayJsonContextTests
     }
 
     [Fact]
+    public void A_fallback_call_adds_two_fields_and_no_other_line_does()
+    {
+        var e = new GatewayEvent(At, "run-1", 200, 50, "", Fallback: true, Usd: 0.0123m);
+        Assert.Equal($"{{\"at\":{JsonSerializer.Serialize(At)},\"model_run\":\"run-1\",\"status\":200,\"tokens\":50,\"reason\":\"\",\"fallback\":true,\"usd\":0.0123}}",
+            JsonSerializer.Serialize(new GatewayLogLine(e.At, e.RunId, e.Status, e.Tokens, e.Reason, e.Fallback, e.Usd), GatewayJsonContext.Default.GatewayLogLine));
+    }
+
+    [Fact]
     public void A_refusal_body_is_written_as_before()
     {
         const string type = "rate_limit_error";

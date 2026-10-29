@@ -7,13 +7,15 @@ namespace Chargehand.Modules.Gateway.Api;
 
 /// <param name="RunId">The run the token names; null when the token was refused.</param>
 /// <param name="Tokens">Input plus output tokens this request counted; never any text.</param>
-public sealed record GatewayEvent(DateTimeOffset At, string? RunId, int Status, long Tokens, string Reason);
+/// <param name="Fallback">True for a call made on the fallback key (ADR 0088); <paramref name="Usd"/> is what its usage cost at the fallback's prices.</param>
+public sealed record GatewayEvent(DateTimeOffset At, string? RunId, int Status, long Tokens, string Reason, bool Fallback = false, decimal Usd = 0);
 
 /// <summary>The model endpoint of a batch's egress container (ADR 0039, decision 9): plain HTTP on the internal network, for a session whose <c>ANTHROPIC_BASE_URL</c> points here. It
 /// accepts only a request carrying a per-run token (<see cref="ModelTokens"/>), replaces that token with the real credential, which only this process holds, and forwards the request over
 /// TLS to the one configured host, following no redirect, and streams the response back. It reads the usage of each response to hold a run to its token cap. It never logs or returns a
-/// credential, a header value or any request or response text; what it logs is a run id, a status and token counts.</summary>
-public sealed class ModelGateway : IAsyncDisposable
+/// credential, a header value or any request or response text; what it logs is a run id, a status and token counts. With a <see cref="GatewayFallback"/> it also replays a long
+/// subscription limit on the fallback key (ADR 0088).</summary>
+public sealed partial class ModelGateway : IAsyncDisposable
 {
     private const int MaxRequestBytes = 64 * 1024 * 1024;
     private const int MaxPath = 2048;
@@ -43,8 +45,18 @@ public sealed class ModelGateway : IAsyncDisposable
     /// <param name="credential">The real model credential, held in this object and nowhere else.</param>
     /// <param name="upstreamHost">The one host requests go to, over HTTPS on 443; a name, never an address.</param>
     /// <param name="handler">A test's fake upstream; null: a TLS client that follows no redirect and connects only to public addresses.</param>
-    public ModelGateway(string hexKey, string credential, string upstreamHost, HttpMessageHandler? handler = null, Func<DateTimeOffset>? clock = null, Action<GatewayEvent>? log = null)
+    /// <param name="fallback">The API key a long subscription limit is replayed on; null: a limit goes back to the session.</param>
+    public ModelGateway(string hexKey, string credential, string upstreamHost, HttpMessageHandler? handler = null, Func<DateTimeOffset>? clock = null, Action<GatewayEvent>? log = null, GatewayFallback? fallback = null)
     {
+        if (fallback is not null)
+        {
+            if (fallback.Credential.Length == 0 || fallback.Credential.Any(char.IsControl) || fallback.Credential.Any(char.IsWhiteSpace))
+                throw new ArgumentException("the fallback credential is empty or has whitespace or control characters", nameof(fallback));
+            if (RefuseHost(fallback.Host) is { } why)
+                throw new ArgumentException($"the fallback host is not acceptable: {why}", nameof(fallback));
+            _fallback = fallback;
+            _fallbackUpstream = new Uri($"https://{fallback.Host.Trim().TrimEnd('.').ToLowerInvariant()}");
+        }
         if (credential.Length == 0 || credential.Any(char.IsControl) || credential.Any(char.IsWhiteSpace))
             throw new ArgumentException("the model credential is empty or has whitespace or control characters", nameof(credential));
         if (RefuseHost(upstreamHost) is { } reason)
@@ -157,6 +169,18 @@ public sealed class ModelGateway : IAsyncDisposable
             return;
         }
 
+        if (_fallback is not null)
+        {
+            if (await ReadBody(request, ct) is not { } body)
+            {
+                Record(grant.RunId, 413, 0, "request too large");
+                await Refuse(response, 413, "request_too_large", "the request is too large");
+                return;
+            }
+            await HandleBuffered(request, response, grant, path, body, ct);
+            return;
+        }
+
         using var upstream = Upstream(request, path);
 
         HttpResponseMessage answer;
@@ -175,14 +199,26 @@ public sealed class ModelGateway : IAsyncDisposable
     }
 
     /// <summary>The request to send upstream: the caller's headers except the ones never forwarded, the gateway's credential, and the body.</summary>
-    private HttpRequestMessage Upstream(HttpListenerRequest request, string path)
+    private HttpRequestMessage Upstream(HttpListenerRequest request, string path, byte[]? buffered = null, bool onFallback = false)
     {
-        var upstream = new HttpRequestMessage(new HttpMethod(request.HttpMethod), new Uri(_upstream, path));
+        var upstream = new HttpRequestMessage(new HttpMethod(request.HttpMethod), new Uri(onFallback ? _fallbackUpstream! : _upstream, path));
         foreach (string name in request.Headers)
             if (!NotForwarded.Contains(name) && request.Headers.GetValues(name) is { } values)
-                upstream.Headers.TryAddWithoutValidation(name, values);
-        upstream.Headers.TryAddWithoutValidation("Authorization", $"Bearer {_credential}");
-        if (request.HasEntityBody)
+                CopyHeader(upstream, name, values, onFallback);
+        if (onFallback)
+            upstream.Headers.TryAddWithoutValidation("x-api-key", _fallback!.Credential);
+        else
+            upstream.Headers.TryAddWithoutValidation("Authorization", $"Bearer {_credential}");
+        if (buffered is not null)
+        {
+            if (buffered.Length > 0)
+            {
+                upstream.Content = new ByteArrayContent(buffered);
+                if (request.ContentType is { } bufferedType)
+                    upstream.Content.Headers.TryAddWithoutValidation("Content-Type", bufferedType);
+            }
+        }
+        else if (request.HasEntityBody)
         {
             var content = new StreamContent(request.InputStream);
             if (request.ContentLength64 >= 0)
@@ -195,14 +231,9 @@ public sealed class ModelGateway : IAsyncDisposable
     }
 
     /// <summary>Streams the upstream answer back and counts its tokens against the run as they pass.</summary>
-    private async Task Relay(HttpResponseMessage answer, HttpListenerResponse response, string runId, CancellationToken ct)
+    private async Task Relay(HttpResponseMessage answer, HttpListenerResponse response, string runId, CancellationToken ct, bool onFallback = false)
     {
-        response.StatusCode = (int)answer.StatusCode;
-        foreach (var header in answer.Headers.Concat(answer.Content.Headers))
-            if (Passes(header.Key))
-                response.Headers.Set(header.Key, string.Join(", ", header.Value));
-        if (answer.Content.Headers.ContentType is { } type)
-            response.ContentType = type.ToString();
+        CopyResponseHead(answer, response);
         response.SendChunked = true;
         var scanner = new UsageScanner(serverSentEvents: answer.Content.Headers.ContentType?.MediaType == "text/event-stream");
         long counted = 0;
@@ -233,8 +264,21 @@ public sealed class ModelGateway : IAsyncDisposable
         }
         finally
         {
-            Record(runId, (int)answer.StatusCode, counted, "");
+            if (onFallback)
+                SettleFallbackCall(runId, answer, scanner, counted);
+            else
+                Record(runId, (int)answer.StatusCode, counted, "");
         }
+    }
+
+    private static void CopyResponseHead(HttpResponseMessage answer, HttpListenerResponse response)
+    {
+        response.StatusCode = (int)answer.StatusCode;
+        foreach (var header in answer.Headers.Concat(answer.Content.Headers))
+            if (Passes(header.Key))
+                response.Headers.Set(header.Key, string.Join(", ", header.Value));
+        if (answer.Content.Headers.ContentType is { } type)
+            response.ContentType = type.ToString();
     }
 
     private static string? TokenOf(HttpListenerRequest request)
@@ -257,7 +301,8 @@ public sealed class ModelGateway : IAsyncDisposable
 
     private void Add(string runId, long tokens) => _used.AddOrUpdate(runId, tokens, (_, total) => total + tokens);
 
-    private void Record(string? runId, int status, long tokens, string reason) => _log?.Invoke(new GatewayEvent(_clock(), runId, status, tokens, reason));
+    private void Record(string? runId, int status, long tokens, string reason, bool fallback = false, decimal usd = 0) =>
+        _log?.Invoke(new GatewayEvent(_clock(), runId, status, tokens, reason, fallback, usd));
 
     private static async Task Refuse(HttpListenerResponse response, int status, string type, string message)
     {

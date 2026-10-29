@@ -20,6 +20,13 @@ public static class EgressCli
     public const string CredentialVariable = "CHARGEHAND_EGRESS_MODEL_CREDENTIAL";
     public const string KeyVariable = "CHARGEHAND_EGRESS_TOKEN_KEY";
 
+    /// <summary>The fallback of ADR 0088, also from the env file: the key is the secret; the rest (host, dollars, <c>input,output,cache_read,cache_write</c> per million tokens) is read
+    /// with it so one file describes the whole batch. All four set, or none.</summary>
+    public const string FallbackCredentialVariable = "CHARGEHAND_EGRESS_FALLBACK_CREDENTIAL";
+    public const string FallbackHostVariable = "CHARGEHAND_EGRESS_FALLBACK_HOST";
+    public const string FallbackUsdVariable = "CHARGEHAND_EGRESS_FALLBACK_USD";
+    public const string FallbackPriceVariable = "CHARGEHAND_EGRESS_FALLBACK_PRICE";
+
     public static EgressOptions? Parse(IReadOnlyList<string> args, TextWriter error)
     {
         IPEndPoint? listen = null;
@@ -107,11 +114,42 @@ public static class EgressCli
             error.WriteLine($"the model endpoint needs {CredentialVariable} and {KeyVariable} (64 hex characters) in the environment");
             return null;
         }
+        var fallback = FallbackFromEnvironment(Environment.GetEnvironmentVariable, error, out var fallbackValid);
+        Environment.SetEnvironmentVariable(FallbackCredentialVariable, null);
+        if (!fallbackValid)
+            return null;
         var gateway = new ModelGateway(key, credential, options.ModelHost, log: e =>
-            error.WriteLine(JsonSerializer.Serialize(new GatewayLogLine(e.At, e.RunId, e.Status, e.Tokens, e.Reason), GatewayJsonContext.Default.GatewayLogLine)));
+            error.WriteLine(JsonSerializer.Serialize(new GatewayLogLine(e.At, e.RunId, e.Status, e.Tokens, e.Reason, e.Fallback, e.Usd), GatewayJsonContext.Default.GatewayLogLine)), fallback: fallback);
         gateway.Start(listen.Address.Equals(IPAddress.Any) ? $"http://+:{listen.Port}/" : $"http://{listen.Address}:{listen.Port}/");
         error.WriteLine($"model endpoint listening on {listen}, forwarding to {options.ModelHost}");
         return gateway;
+    }
+
+    /// <returns>The fallback the environment describes; null with <paramref name="valid"/> true when none is set, null with false (and a line on <paramref name="error"/>) when it is partly set or wrong. Never prints a value.</returns>
+    public static GatewayFallback? FallbackFromEnvironment(Func<string, string?> env, TextWriter error, out bool valid)
+    {
+        var credential = env(FallbackCredentialVariable);
+        var host = env(FallbackHostVariable);
+        var usd = env(FallbackUsdVariable);
+        var price = env(FallbackPriceVariable);
+        valid = true;
+        if (string.IsNullOrEmpty(credential) && string.IsNullOrEmpty(host) && string.IsNullOrEmpty(usd) && string.IsNullOrEmpty(price))
+            return null;
+        var parts = price?.Split(',');
+        if (string.IsNullOrEmpty(credential) || string.IsNullOrEmpty(host) || !decimal.TryParse(usd, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var allowance) || allowance <= 0
+            || parts is not { Length: 4 } || parts.Select(p => decimal.TryParse(p, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var n) && n >= 0 ? n : -1m).ToArray() is not [>= 0, >= 0, >= 0, >= 0] numbers)
+        {
+            error.WriteLine($"the fallback needs {FallbackCredentialVariable}, {FallbackHostVariable}, {FallbackUsdVariable} (above 0) and {FallbackPriceVariable} (four prices per million tokens) in the environment");
+            valid = false;
+            return null;
+        }
+        if (ModelGateway.RefuseHost(host) is { } refused)
+        {
+            error.WriteLine($"{FallbackHostVariable}: {refused}");
+            valid = false;
+            return null;
+        }
+        return new GatewayFallback(credential, host, allowance, new FallbackPrice(numbers[0], numbers[1], numbers[2], numbers[3]));
     }
 
     private static async Task Run(AllowlistProxy proxy, TextWriter error, CancellationToken ct)

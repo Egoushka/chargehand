@@ -49,10 +49,10 @@ public class ModelGatewayTests
         public HttpClient Client { get; } = new();
         public string Url { get; }
 
-        public Rig(Func<HttpRequestMessage, HttpResponseMessage>? answer = null)
+        public Rig(Func<HttpRequestMessage, HttpResponseMessage>? answer = null, GatewayFallback? fallback = null)
         {
             Upstream = new FakeUpstream(answer);
-            Gateway = new ModelGateway(Key, Real, "api.example.test", Upstream, () => Clock, e => { lock (_log) _log.Add(e); });
+            Gateway = new ModelGateway(Key, Real, "api.example.test", Upstream, () => Clock, e => { lock (_log) _log.Add(e); }, fallback);
             // A probed port can be taken by a parallel test before Start binds it: try another.
             for (var attempt = 1; ; attempt++)
             {
@@ -230,6 +230,212 @@ public class ModelGatewayTests
     [InlineData("a\nb")]
     public void The_credential_must_be_a_single_plain_word(string credential) =>
         Assert.Throws<ArgumentException>(() => new ModelGateway(Key, credential, "api.example.test"));
+
+    private const string FallbackKey = "FALLBACK-KEY-do-not-leak-9876543210";
+    private const string FallbackHost = "fallback.example.test";
+    private const string LimitBody = """{"type":"error","error":{"type":"rate_limit_error","message":"Claude AI usage limit reached"}}""";
+
+    private static string Epoch(TimeSpan fromNow) => (Now + fromNow).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private static GatewayFallback Fallback(decimal allowance = 5m) => new(FallbackKey, FallbackHost, allowance, new FallbackPrice(3m, 15m, 0.3m, 3.75m));
+
+    /// <summary>The subscription answers 429 with its limit and a reset <paramref name="resetsIn"/> away; the fallback answers 200 with <paramref name="usage"/>.</summary>
+    private static Func<HttpRequestMessage, HttpResponseMessage> LimitedSubscription(TimeSpan resetsIn, string usage = """{"input_tokens":1000000,"output_tokens":0}""", string limitBody = LimitBody) => request =>
+    {
+        if (request.RequestUri!.Host == FallbackHost)
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent($$"""{"id":"m","usage":{{usage}}}""", Encoding.UTF8, "application/json") };
+        var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent(limitBody, Encoding.UTF8, "application/json") };
+        limited.Headers.TryAddWithoutValidation("anthropic-ratelimit-unified-reset", Epoch(resetsIn));
+        limited.Headers.TryAddWithoutValidation("anthropic-ratelimit-unified-status", "rejected");
+        return limited;
+    };
+
+    [Fact]
+    public async Task A_subscription_limit_is_replayed_on_the_fallback_key_and_the_session_sees_200()
+    {
+        await using var rig = new Rig(LimitedSubscription(TimeSpan.FromHours(3)), Fallback());
+        var body = """{"model":"m","messages":[{"role":"user","content":"hello"}]}""";
+        using var request = new HttpRequestMessage(HttpMethod.Post, rig.Url + "/v1/messages?beta=true") { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Rig.Token());
+        request.Headers.TryAddWithoutValidation("anthropic-beta", "beta-a,oauth-2025-04-20,beta-b");
+        request.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
+
+        var response = await rig.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("\"usage\"", await response.Content.ReadAsStringAsync());
+        Assert.Equal(2, rig.Upstream.Calls.Count);
+        var (subscription, subscriptionBody, _) = rig.Upstream.Calls[0];
+        var (replay, replayBody, _) = rig.Upstream.Calls[1];
+        Assert.Equal("api.example.test", subscription.RequestUri!.Host);
+        Assert.Equal($"Bearer {Real}", subscription.Headers.Authorization!.ToString());
+        Assert.Equal(FallbackHost, replay.RequestUri!.Host);
+        Assert.Equal("/v1/messages?beta=true", replay.RequestUri.PathAndQuery);
+        Assert.Equal(body, replayBody);
+        Assert.Equal(subscriptionBody, replayBody);
+        Assert.Equal(FallbackKey, replay.Headers.GetValues("x-api-key").Single());
+        Assert.Null(replay.Headers.Authorization);
+        Assert.Equal("beta-a,beta-b", string.Join(",", replay.Headers.GetValues("anthropic-beta")).Replace(", ", ","));
+        Assert.Equal("2023-06-01", replay.Headers.GetValues("anthropic-version").Single());
+        Assert.DoesNotContain(Real, string.Join('\n', replay.Headers.Select(h => string.Join(',', h.Value))));
+        // One log line for the fallback call, priced from its usage: 1M input tokens at 3 dollars.
+        await WaitFor(() => rig.Log.Any(e => e.Fallback));
+        var line = rig.Log.Single(e => e.Fallback);
+        Assert.Equal((200, 3m), (line.Status, line.Usd));
+        Assert.Equal("run-a", line.RunId);
+    }
+
+    [Fact]
+    public async Task Until_the_reset_new_requests_go_straight_to_the_fallback()
+    {
+        await using var rig = new Rig(LimitedSubscription(TimeSpan.FromHours(3), usage: """{"input_tokens":10,"output_tokens":1}"""), Fallback());
+        await (await rig.Post(Rig.Token())).Content.ReadAsStringAsync();
+        await (await rig.Post(Rig.Token())).Content.ReadAsStringAsync();
+
+        Assert.Equal(["api.example.test", FallbackHost, FallbackHost], rig.Upstream.Calls.Select(c => c.Request.RequestUri!.Host));
+    }
+
+    [Fact]
+    public async Task After_the_reset_the_first_request_goes_on_the_subscription()
+    {
+        var limited = true;
+        await using var rig = new Rig(request => limited || request.RequestUri!.Host == FallbackHost
+            ? LimitedSubscription(TimeSpan.FromHours(3), usage: """{"input_tokens":10,"output_tokens":1}""")(request)
+            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"usage":{"input_tokens":1,"output_tokens":1}}""", Encoding.UTF8, "application/json") }, Fallback());
+        await (await rig.Post(Rig.Token(minutes: 600))).Content.ReadAsStringAsync();
+        limited = false;
+        rig.Clock = Now.AddHours(3).AddSeconds(1);
+        var response = await rig.Post(Rig.Token(minutes: 600));
+        await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("api.example.test", rig.Upstream.Calls[^1].Request.RequestUri!.Host);
+        Assert.Equal(3, rig.Upstream.Calls.Count);
+    }
+
+    [Theory]
+    [InlineData(300)]
+    [InlineData(30)]
+    public async Task A_short_limit_is_not_replayed_because_the_client_retries_it_itself(int seconds)
+    {
+        await using var rig = new Rig(LimitedSubscription(TimeSpan.FromSeconds(seconds)), Fallback());
+        var response = await rig.Post(Rig.Token());
+        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+        Assert.Equal(LimitBody, await response.Content.ReadAsStringAsync());
+        Assert.Single(rig.Upstream.Calls);
+    }
+
+    [Fact]
+    public async Task A_limit_with_no_reset_is_replayed_only_when_its_body_names_the_usage_limit()
+    {
+        static Func<HttpRequestMessage, HttpResponseMessage> NoReset(string body) => request => request.RequestUri!.Host == FallbackHost
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"usage":{"input_tokens":1,"output_tokens":1}}""", Encoding.UTF8, "application/json") }
+            : new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+
+        await using (var usage = new Rig(NoReset(LimitBody), Fallback()))
+            Assert.Equal(HttpStatusCode.OK, (await usage.Post(Rig.Token())).StatusCode);
+        await using var perMinute = new Rig(NoReset("""{"error":{"type":"rate_limit_error","message":"requests per minute exceeded"}}"""), Fallback());
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await perMinute.Post(Rig.Token())).StatusCode);
+        Assert.Single(perMinute.Upstream.Calls);
+    }
+
+    [Theory]
+    [InlineData(402, """{"error":{"type":"budget_error","message":"budget has been exceeded"}}""")]
+    [InlineData(429, """{"error":{"type":"rate_limit_error","message":"usage limit reached: the key budget is spent"}}""")]
+    public async Task A_budget_refusal_is_passed_through_and_never_replayed(int status, string body)
+    {
+        await using var rig = new Rig(request =>
+        {
+            var refused = new HttpResponseMessage((HttpStatusCode)status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+            refused.Headers.TryAddWithoutValidation("anthropic-ratelimit-unified-reset", Epoch(TimeSpan.FromHours(3)));
+            return refused;
+        }, Fallback());
+
+        var response = await rig.Post(Rig.Token());
+
+        Assert.Equal(status, (int)response.StatusCode);
+        Assert.Equal(body, await response.Content.ReadAsStringAsync());
+        Assert.Single(rig.Upstream.Calls);
+    }
+
+    [Fact]
+    public async Task Past_the_allowance_the_limit_reaches_the_session()
+    {
+        // 1M input tokens cost 3 dollars; the allowance is 2, so the first replay passes it.
+        await using var rig = new Rig(LimitedSubscription(TimeSpan.FromHours(3)), Fallback(allowance: 2m));
+        Assert.Equal(HttpStatusCode.OK, (await rig.Post(Rig.Token())).StatusCode);
+        await WaitFor(() => rig.Log.Any(e => e.Fallback));
+
+        var limited = await rig.Post(Rig.Token());
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.Equal(LimitBody, await limited.Content.ReadAsStringAsync());
+        Assert.Equal(1, rig.Upstream.Calls.Count(c => c.Request.RequestUri!.Host == FallbackHost));
+    }
+
+    [Fact]
+    public async Task A_402_from_the_fallback_closes_it_for_the_rest_of_the_batch()
+    {
+        await using var rig = new Rig(request => request.RequestUri!.Host == FallbackHost
+            ? new HttpResponseMessage(HttpStatusCode.PaymentRequired) { Content = new StringContent("""{"error":{"message":"budget has been exceeded"}}""", Encoding.UTF8, "application/json") }
+            : LimitedSubscription(TimeSpan.FromHours(3))(request), Fallback());
+
+        Assert.Equal(HttpStatusCode.PaymentRequired, (await rig.Post(Rig.Token())).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await rig.Post(Rig.Token())).StatusCode);
+        Assert.Equal(1, rig.Upstream.Calls.Count(c => c.Request.RequestUri!.Host == FallbackHost));
+        Assert.True(rig.Gateway.FallbackClosed);
+    }
+
+    [Fact]
+    public async Task The_first_subscription_limit_logs_its_status_and_header_names_and_never_a_value_or_the_body()
+    {
+        await using var rig = new Rig(LimitedSubscription(TimeSpan.FromHours(3)), Fallback());
+        await rig.Post(Rig.Token());
+        await rig.Post(Rig.Token(), body: """{"secret-prompt":"do not log me"}""");
+        await WaitFor(() => rig.Log.Length >= 3);
+
+        var logged = rig.Log.Where(e => e.Status == 429).ToArray();
+        var line = Assert.Single(logged);
+        Assert.Contains("anthropic-ratelimit-unified-reset", line.Reason);
+        var all = JsonSerializer.Serialize(rig.Log);
+        Assert.DoesNotContain(Epoch(TimeSpan.FromHours(3)), all);
+        Assert.DoesNotContain("usage limit reached", all);
+        Assert.DoesNotContain(FallbackKey, all);
+        Assert.DoesNotContain(Real, all);
+        Assert.DoesNotContain("do not log me", all);
+    }
+
+    [Fact]
+    public async Task A_request_over_the_buffer_limit_is_refused_when_a_fallback_is_configured()
+    {
+        await using var rig = new Rig(fallback: Fallback());
+        using var content = new StreamContent(new ChunkedZeros(65L * 1024 * 1024));
+        var response = await rig.Client.SendAsync(new HttpRequestMessage(HttpMethod.Post, rig.Url + "/v1/messages") { Content = content, Headers = { Authorization = new AuthenticationHeaderValue("Bearer", Rig.Token()) } });
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        Assert.Empty(rig.Upstream.Calls);
+    }
+
+    /// <summary>A body of unknown length, so the request goes out chunked and only reading it can tell it is too large.</summary>
+    private sealed class ChunkedZeros(long length) : Stream
+    {
+        private long _left = length;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var n = (int)Math.Min(count, _left);
+            Array.Clear(buffer, offset, n);
+            _left -= n;
+            return n;
+        }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
 
     private static async Task WaitFor(Func<bool> condition)
     {

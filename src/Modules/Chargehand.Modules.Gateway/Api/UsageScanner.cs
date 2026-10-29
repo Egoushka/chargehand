@@ -15,9 +15,20 @@ public sealed class UsageScanner(bool serverSentEvents)
     private bool _skipping;
     private long _input;
     private long _output;
+    private long _cacheRead;
+    private long _cacheWrite;
 
     /// <summary>Input plus output tokens seen so far in this response.</summary>
     public long Tokens => _input + _output;
+
+    public long Input => _input;
+    public long Output => _output;
+
+    /// <summary>Tokens read from the prompt cache, billed at the cache-read price and not counted in <see cref="Tokens"/>.</summary>
+    public long CacheRead => _cacheRead;
+
+    /// <summary>Tokens written to the prompt cache, billed at the cache-write price and not counted in <see cref="Tokens"/>.</summary>
+    public long CacheWrite => _cacheWrite;
 
     public void Feed(ReadOnlySpan<byte> chunk)
     {
@@ -107,6 +118,10 @@ public sealed class UsageScanner(bool serverSentEvents)
             _input = i;
         if (Integer(usage, "output_tokens") is { } o)
             _output = o;
+        if (Integer(usage, "cache_read_input_tokens") is { } r && (replaceInput || r > _cacheRead))
+            _cacheRead = r;
+        if (Integer(usage, "cache_creation_input_tokens") is { } w && (replaceInput || w > _cacheWrite))
+            _cacheWrite = w;
     }
 
     private static long? Integer(JsonElement usage, string name) =>
