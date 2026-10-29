@@ -50,11 +50,22 @@ At p90 a CCX33 holds about 11 sessions by memory (32 GB less 2 GB for the OS and
 
 - Query: "How do CI or agent-runner systems start ephemeral cloud machines when jobs are queued and delete them when idle,
   with a cost cap?"
-- Coverage: miss (the base held nothing that matched).
-- Facts: none yet. Two chargehand research runs were sent to fill it, on `philips-labs/terraform-aws-github-runner`
-  (3355ae0, scale-up on queued jobs, scale-down of idle runners on AWS) and `Cyclenerd/hcloud-github-runner` (a7f862a, one
-  Hetzner Cloud server per job); their results go to `prior_art_ingest` and their fact ids are added here before this ADR is
-  accepted.
+- Coverage: miss (the base held nothing that matched). The two chargehand research runs failed with `checkout_invalid`
+  (neither repository is checked out on the server), so a research agent read both at the pinned commits instead; its
+  notes, with file and line evidence per claim, are not yet in the prior-art base (`prior_art_ingest` with format `notes`
+  is the follow-up).
+- Facts: `philips-labs/terraform-aws-github-runner` at 3355ae0 and `Cyclenerd/hcloud-github-runner` at a7f862a.
+  - Both start one machine per queued job, name it uniquely, and join cloud and CI by that name; both retry a create only
+    on typed capacity errors.
+  - Philips has a single-writer create queue (so a count-then-create cap is safe), a count cap that requeues on refusal, a
+    5-minute reconcile that re-reads "busy" before it deletes, and a two-pass tag-based sweep for orphans. It caps count
+    only, never money, and its sweep misses servers in non-running states.
+  - hcloud has no cap, no idle logic and no sweeper; its labels are never queried, and its registration token sits in
+    `user_data`. Neither repository uses Hetzner's per-started-hour billing.
+  - Taken into this ADR: single-writer creates, re-check before create and before delete, the two-pass sweep (extended to
+    all states and to a hard max-age), typed-error retry (extended to the next location and type, with backoff), and a money
+    cap. Not taken: a queue service; the pool lives in the server process.
+  - Notes: `research/orchestrator/prior-art/2026-10-29-elastic-runners.md` (private research folder).
 
 ## Options
 
@@ -129,8 +140,11 @@ Option 4. The provider sits behind an interface; Hetzner Cloud is the first impl
    same way regardless. `Retire` removes it from placement and keeps it known for tasks that continue on it ("A task stays
    on its runner"): it is not deleted while any task placed on it has not finished. A task of a deleted server can only be
    one whose runner died, and it fails `container_unavailable` as a vanished runner does today.
-8. **Sweep.** At server start and every 5 minutes the pool lists the provider's servers with label
-   `chargehand-pool=<pool>`. One the ledger does not know, or one the ledger marked deleted, is deleted. One the ledger
+8. **Sweep.** One writer creates servers at a time. Every server carries labels `chargehand-pool=<pool>` and
+   `chargehand-expires=<unix time of create + max_hours>`. At server start and every 5 minutes the pool lists the provider's
+   servers with that pool label in every state (starting, running, off). A server past its `chargehand-expires` is deleted
+   whatever else is true. One the ledger does not know, or one the ledger marked deleted, is labelled `chargehand-orphan` on
+   the first pass and deleted on the next, so a create that is still being written to the ledger is not deleted. One the ledger
    knows but the provider does not is closed in the ledger. Restart: elastic runners in the ledger that still exist are added
    back to `RunnerPool` before batches resume, so a resumed task finds its runner.
 9. **Doctor and console.** `chargehand doctor` checks the token item, that the network and firewall exist, and the month's
@@ -155,7 +169,8 @@ documented responses (no network in tests), except the last.
 - `ElasticPoolTests.An_idle_server_is_drained_and_deleted_before_its_billed_hour_ends`
 - `ElasticPoolTests.A_server_with_an_unfinished_task_is_not_deleted`
 - `ElasticPoolTests.A_server_past_max_hours_is_drained_and_deleted`
-- `ElasticSweepTests.A_labelled_server_the_ledger_does_not_know_is_deleted`
+- `ElasticSweepTests.A_labelled_server_the_ledger_does_not_know_is_labelled_orphan_then_deleted_on_the_next_pass`
+- `ElasticSweepTests.A_server_past_its_expires_label_is_deleted_in_any_state`
 - `ElasticSweepTests.A_creating_record_with_no_server_is_closed`
 - `ElasticSweepTests.After_a_restart_the_ledgers_live_servers_rejoin_the_pool_before_batches_resume`
 - `RunnerPoolTests.A_runner_added_at_run_time_takes_a_waiting_task`
