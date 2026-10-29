@@ -24,11 +24,11 @@ project's license.
 ## Setup
 
 ```bash
-lefthook install                           # commit hooks: agent-checks, denylist, gitleaks
+lefthook install                           # commit hooks: agent-checks, denylist, betterleaks
 cp .private-terms.example .private-terms   # then list your own private terms
 ```
 
-The `pre-commit` hook needs [gitleaks](https://github.com/gitleaks/gitleaks) and blocks commits
+The `pre-commit` hook needs [betterleaks](https://betterleaks.com) and blocks commits
 that match `.private-terms`. Don't bypass it with `--no-verify`. In a linked worktree the hooks use the main
 checkout's `.private-terms`; there is nothing to copy.
 
