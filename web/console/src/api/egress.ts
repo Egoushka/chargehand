@@ -1,5 +1,6 @@
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import { ApiError, call, getJson, problems } from './client';
+import { meQuery } from './queries';
 
 /** A host the sessions of one repository were refused, which listing it would have let through. */
 export interface LearnedHostBody {
@@ -26,8 +27,11 @@ export const learnedHostsQuery = () =>
     queryFn: ({ signal }) => getJson<LearnedHostsBody>('/v1/egress/learned', signal),
   });
 
-/** An account gets 403, and a server with no driven batches 409: the query fails and the view shows nothing. */
-export const useLearnedHosts = () => useQuery(learnedHostsQuery());
+/** Asked for the owner only (an account would get 403); a server with no driven batches answers 409, and the view shows nothing. */
+export const useLearnedHosts = () => {
+  const me = useQuery(meQuery());
+  return useQuery({ ...learnedHostsQuery(), enabled: me.data?.owner === true });
+};
 
 export interface LearnedHostChange {
   repository: string;

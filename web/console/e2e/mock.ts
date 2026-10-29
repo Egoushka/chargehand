@@ -78,6 +78,8 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
         });
       case '/v1/repositories':
         return route.fulfill({ json: st.repositories(now) });
+      case '/v1/egress/learned':
+        return route.fulfill({ json: { repositories: [] } });
       case '/v1/learn':
         // Start a batch and Learning read the same route and want different invented records: `insight` picks Learning's.
         return route.fulfill({
