@@ -120,6 +120,8 @@ public class VerifierTests
     [InlineData("/bin/true")]
     [InlineData(":")]
     [InlineData("")]
+    [InlineData("echo")]
+    [InlineData("echo all good")]
     public void A_no_op_requested_command_is_refused_and_falls_back_to_detection(string noOp)
     {
         using var dir = new TempDir();
@@ -135,6 +137,17 @@ public class VerifierTests
         using var dir = new TempDir();
         Assert.Null(VerifyCommand.Resolve(["true"], dir.Path));
     }
+
+    [Theory]
+    [InlineData("true", true)]
+    [InlineData(":", true)]
+    [InlineData("exit 0", true)]
+    [InlineData("echo", true)]
+    [InlineData("echo all good", true)]
+    [InlineData("npm test && echo done", false)]
+    [InlineData("dotnet test", false)]
+    public void IsNoOp_catches_true_colon_exit_0_and_a_bare_echo_but_not_a_real_check(string body, bool expected) =>
+        Assert.Equal(expected, VerifyCommand.IsNoOp(["sh", "-c", body]));
 
     [Fact]
     public void A_non_empty_requested_command_still_wins_over_detection()

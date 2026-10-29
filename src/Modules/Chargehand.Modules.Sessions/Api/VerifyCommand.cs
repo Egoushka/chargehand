@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Chargehand.Contracts;
 using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Modules.Sessions.Api;
@@ -9,14 +10,12 @@ public sealed record VerifyPlan(IReadOnlyList<string> Argv, string Source);
 /// <summary>The command that verifies a writing node's change (ADR 0035): the request's, else the repository's own test command.</summary>
 public static class VerifyCommand
 {
-    private static readonly string[] NoOpBodies = ["true", "/bin/true", "/usr/bin/true", ":", "exit 0"];
-
     private const long MaxWorkflowBytes = 500_000;
 
-    /// <summary>A command that provably checks nothing: empty, blank, or a shell no-op such as <c>true</c> or <c>:</c> (CHARGEHAND-431). A caller
-    /// that names one is not believed; chargehand works out its own command instead.</summary>
-    public static bool IsNoOp(IReadOnlyList<string> argv) =>
-        argv.Count == 0 || argv.All(a => a.Trim().Length == 0) || NoOpBodies.Contains(argv[^1].Trim(), StringComparer.Ordinal);
+    /// <summary>A command that provably checks nothing: empty, blank, or a shell no-op such as <c>true</c>, <c>:</c> or a bare <c>echo</c>
+    /// (CHARGEHAND-431, CHARGEHAND-258). A caller that names one is not believed; chargehand works out its own command instead, or, for a
+    /// driven request, refuses it (<see cref="Contracts.DrivenRules"/>).</summary>
+    public static bool IsNoOp(IReadOnlyList<string> argv) => NoOpVerify.IsNoOp(argv);
 
     /// <summary>Null when the caller named none (or a no-op) and the directory has no recognisable test setup.</summary>
     public static VerifyPlan? Resolve(IReadOnlyList<string>? requested, string directory) =>
