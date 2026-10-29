@@ -112,6 +112,18 @@ public static partial class SessionDriver
             await DriveAsync(resume((session, ReportRequest)), start, DateTimeOffset.UtcNow, ct);
         }
 
+        /// <summary>A finished session that made no commit of its own but left changes is asked once to commit them: the handover takes only the branch's commits, so its files
+        /// would be lost. The session decides what belongs to the task; its scratch files stay out (issue #666).</summary>
+        public async Task CommitAsync(string? start, string? from, Func<(string SessionId, string Prompt), ProcessStartInfo> resume, CancellationToken ct)
+        {
+            if (_task.Bare || _checksFailed || !Finished() || _tally.SessionId is not { } session || detector.Check(DateTimeOffset.UtcNow) is StallReason.WallClock
+                || !await UncommittedAsync(options, from, ct))
+                return;
+            detector.Touch(DateTimeOffset.UtcNow);
+            _tally.NewProcess();
+            await DriveAsync(resume((session, CommitRequest)), start, DateTimeOffset.UtcNow, ct);
+        }
+
         private bool Finished() => _stoppedBy.Cause is null && _tally.HasResult && !_tally.ResultIsError && Extract(_tally).Questions.Count == 0;
 
         private void Remind()

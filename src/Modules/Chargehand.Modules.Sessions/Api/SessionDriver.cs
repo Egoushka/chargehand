@@ -92,6 +92,8 @@ public static partial class SessionDriver
         // The commit the workspace starts at: what "commits made" is counted from, whether or not a seed moves the branch past it.
         var start = (await Git(options.WorkDirectory, ["rev-parse", "--verify", "--quiet", "HEAD"], ct)) is { Exit: 0 } head ? head.Stdout.Trim() : null;
         await SeedAsync(options, ct);
+        // The head the session itself starts from, after a seed: still there at the end means the session made no commit.
+        var from = (await Git(options.WorkDirectory, ["rev-parse", "--verify", "--quiet", "HEAD"], ct)) is { Exit: 0 } seeded ? seeded.Stdout.Trim() : null;
         var scratch = Directory.CreateTempSubdirectory("chargehand-session-");
         try
         {
@@ -116,6 +118,7 @@ public static partial class SessionDriver
 
             await run.DriveAsync(StartInfo(options, files, null), start, started, ct);
             var checks = await run.GateAsync(rules, start, resume => StartInfo(options, files, resume), ct);
+            await run.CommitAsync(start, from, resume => StartInfo(options, files, resume), ct);
             await run.ReportAsync(start, resume => StartInfo(options, files, resume), ct);
             return await run.FinishAsync(start, checks, ct);
         }

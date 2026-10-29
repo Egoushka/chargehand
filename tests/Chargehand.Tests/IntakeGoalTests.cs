@@ -1,5 +1,6 @@
 using Chargehand.Automation;
 using Chargehand.Contracts;
+using Chargehand.Modules.Handover.Api;
 
 namespace Chargehand.Tests;
 
@@ -14,10 +15,19 @@ public class IntakeGoalTests
         var goal = IntakeGoal.Issue("octo/repo", Issue("A very long title " + new string('x', 200) + "\nsecond line"), null, null);
 
         var first = goal.Split('\n')[0];
-        Assert.Equal(IntakeGoal.MaxFirstLine, first.Length - " [cut]".Length);
-        Assert.StartsWith("A very long title", first);
+        Assert.Equal("A very long title", first);
+        Assert.True(first.Length <= IntakeGoal.MaxFirstLine);
         Assert.Contains("Issue title: A very long title", goal);
         Assert.DoesNotContain("\nsecond line", goal.Split("\n\n")[0]);
+    }
+
+    [Fact]
+    public void A_title_over_the_limit_makes_a_pull_request_title_cut_at_a_word()
+    {
+        var goal = IntakeGoal.Issue("octo/repo", Issue("fix(gateway): two maximum-size buffered bodies would exceed the 256m egress container"), null, null);
+
+        Assert.Equal("fix(gateway): two maximum-size buffered bodies would exceed the 256m", PullRequestTitle.FromGoal(goal));
+        Assert.Contains("Issue title: fix(gateway): two maximum-size buffered bodies would exceed the 256m egress container", goal);
     }
 
     [Fact]
