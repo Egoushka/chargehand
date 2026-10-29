@@ -21,6 +21,7 @@ import {
 } from '../../ui';
 import { lastSeen, NotRecorded, Planned } from '../admin/parts';
 import { ConflictRadar } from './ConflictRadar';
+import { LearnedHosts } from './LearnedHosts';
 import { MergeTrain } from './MergeTrain';
 import {
   CHECK_LABEL,
@@ -265,6 +266,8 @@ function RepositoryCard({
         </div>
 
         {repo.readiness ? <Readiness readiness={repo.readiness} name={repo.name} /> : null}
+
+        <LearnedHosts repository={repo.repository} />
 
         <div className="row row--between">
           <div className="stack stack--tight repo-history">

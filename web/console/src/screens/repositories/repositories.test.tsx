@@ -415,3 +415,65 @@ describe('Merge train', () => {
     expect(panel.getByText('GET /v1/pulls/train')).toBeTruthy();
   });
 });
+
+describe('refused hosts', () => {
+  const learned = (approved?: string) => ({
+    repositories: [
+      {
+        repository: 'example/payments-api',
+        hosts: [
+          {
+            host: 'static.rust-lang.org',
+            refusals: 3,
+            batches: 2,
+            first: '2026-10-29T09:00:00Z',
+            last: '2026-10-29T10:00:00Z',
+            last_batch: 'run-1',
+            ...(approved ? { approved } : {}),
+          },
+        ],
+      },
+    ],
+  });
+
+  it('lists a host on its repository card only and approves it there', async () => {
+    const api = await open({
+      replies: {
+        ...history(),
+        '/v1/egress/learned': [200, learned()],
+        'POST /v1/egress/learned/approve': [
+          200,
+          {
+            repository: 'example/payments-api',
+            host: 'static.rust-lang.org',
+            approved: true,
+            changed: true,
+          },
+        ],
+      },
+    });
+    const payments = card('payments-api');
+    expect(await payments.findByText('static.rust-lang.org')).toBeTruthy();
+    expect(payments.getByText(/3 refused in 2 batches/)).toBeTruthy();
+    expect(card('web-shop').queryByText('static.rust-lang.org')).toBeNull();
+
+    fireEvent.click(
+      payments.getByRole('button', {
+        name: 'Approve static.rust-lang.org for example/payments-api',
+      }),
+    );
+    await waitFor(() =>
+      expect(api.calls.find((c) => c.path === '/v1/egress/learned/approve')?.body).toEqual({
+        repository: 'example/payments-api',
+        host: 'static.rust-lang.org',
+      }),
+    );
+  });
+
+  it('shows nothing when the list does not load (an account, or no driven batches)', async () => {
+    await open({
+      replies: { ...history(), '/v1/egress/learned': [403, { errors: ['owner only'] }] },
+    });
+    expect(screen.queryByText('Refused hosts')).toBeNull();
+  });
+});
