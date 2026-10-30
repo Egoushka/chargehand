@@ -120,6 +120,46 @@ public class SessionGateTests
     }
 
     [Fact]
+    public async Task A_branch_that_edits_ci_configuration_goes_back_to_the_session_which_reverts_it_and_completes()
+    {
+        using var w = new Workspace();
+        var first = "mkdir -p .github/workflows && echo bad > .github/workflows/ci.yml && git add -A && git commit -q -m 'feat: add a workflow'";
+        var onResume = "git rm -q -r .github/workflows && git commit -q -m 'revert: drop the workflow'";
+        var outcome = await SessionDriver.RunAsync(Options(w, Script(w, onResume: onResume, first: first), Task()), default);
+        Assert.Equal(SessionStatus.Completed, outcome.Status);
+        Assert.Equal(2, Runs(w));
+        var feedback = File.ReadAllText(Path.Combine(w.Out, "feedback.txt"));
+        Assert.Contains("## ci: `.github/workflows/ci.yml`", feedback);
+        Assert.Contains("CI configuration", feedback);
+    }
+
+    [Fact]
+    public async Task A_branch_that_keeps_editing_ci_configuration_ends_checks_failed_after_its_retries()
+    {
+        using var w = new Workspace();
+        var first = "mkdir -p .github/workflows && echo bad > .github/workflows/ci.yml && git add -A && git commit -q -m 'feat: add a workflow'";
+        var task = Task() with { CheckRetries = 0 };
+        var outcome = await SessionDriver.RunAsync(Options(w, Script(w, first: first), task), default);
+        Assert.Equal((SessionStatus.Failed, SessionDriver.ChecksFailed), (outcome.Status, outcome.Reason));
+        Assert.Equal(1, Runs(w));
+        var check = Assert.Single(outcome.Checks!);
+        Assert.Equal(("ci", false), (check.Kind, check.Passed));
+        Assert.Contains(".github/workflows/ci.yml", check.Command);
+    }
+
+    [Fact]
+    public async Task A_ci_edit_that_was_never_committed_is_still_caught_before_the_driver_s_own_commit()
+    {
+        using var w = new Workspace();
+        var first = "mkdir -p .github/workflows && echo bad > .github/workflows/ci.yml";
+        var onResume = "rm -rf .github";
+        var outcome = await SessionDriver.RunAsync(Options(w, Script(w, onResume: onResume, first: first), Task()), default);
+        Assert.Equal(SessionStatus.Completed, outcome.Status);
+        Assert.Equal(2, Runs(w));
+        Assert.Contains(".github/workflows/ci.yml", File.ReadAllText(Path.Combine(w.Out, "feedback.txt")));
+    }
+
+    [Fact]
     public async Task Without_rules_or_criteria_no_check_runs()
     {
         using var w = new Workspace();
