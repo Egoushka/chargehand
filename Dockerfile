@@ -20,7 +20,9 @@ RUN dotnet publish src/Chargehand.Cli -c Release -o /out
 FROM docker:29.6.2-cli@sha256:be132a9f282288de4afaf63379dff75711fda0147c6b72a9df44e51841402144 AS dockercli
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
-# Must match claude_code.version in the profile: the adapter refuses to run on a mismatch (ADR 0020).
+# claude_code.version in the profile must be satisfied by this: an exact string, or `>=X.Y.Z` to take X.Y.Z and
+# newer of major X without a matching profile change — prefer `>=` where this argument moves on its own schedule
+# (the adapter refuses to run otherwise, ADR 0020).
 ARG CLAUDE_CODE_VERSION=2.1.283
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git nodejs npm \
