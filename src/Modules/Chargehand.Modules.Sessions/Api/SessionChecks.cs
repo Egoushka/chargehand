@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using Chargehand.Contracts;
+using Chargehand.Kernel;
 
 namespace Chargehand.Modules.Sessions.Api;
 
@@ -43,6 +44,19 @@ public static class SessionChecks
     public static IReadOnlyList<AcceptanceCheck> All(IReadOnlyList<string> rules, IReadOnlyList<AcceptanceCheck>? acceptance) =>
         [.. rules.Select(r => new AcceptanceCheck(r)), .. acceptance ?? []];
 
+    /// <summary>The gate's result for a branch that edits CI configuration (<see cref="DiffScan.CiPaths"/>): chargehand refuses to push that (issue #527), because pushing it can
+    /// run it with the repository's secrets, so this is caught in the session's own check gate, before the handover would refuse it after the whole session ran. Empty when
+    /// <paramref name="changed"/> names no such path.</summary>
+    public static IReadOnlyList<CheckResult> CiResults(IReadOnlyList<string> changed, int attempt)
+    {
+        var ci = DiffScan.CiPaths(changed);
+        return ci.Count == 0
+            ? []
+            : [new CheckResult("ci", string.Join(", ", ci), false, null,
+                "chargehand refuses to push a branch that edits CI configuration, because pushing it could run it with the repository's secrets. Revert this file, or make the change without touching it.",
+                attempt)];
+    }
+
     /// <param name="declared">The repository's declared check as a shell command (<see cref="Shell"/>); it runs first. Null: none.</param>
     public static async Task<IReadOnlyList<CheckResult>> RunAllAsync(IReadOnlyList<string> rules, IReadOnlyList<AcceptanceCheck>? acceptance, string workDirectory, int attempt,
         IReadOnlyList<string> secrets, CancellationToken ct, TimeSpan? timeout = null, string? declared = null)
@@ -70,6 +84,11 @@ public static class SessionChecks
             .Append("Commit the fix on the same branch, then finish with the JSON report as before.\n");
         foreach (var r in results.Where(r => !r.Passed))
         {
+            if (r.Kind == "ci")
+            {
+                text.Append(CultureInfo.InvariantCulture, $"\n## ci: `{r.Command}`\n{r.OutputTail}\n");
+                continue;
+            }
             text.Append(CultureInfo.InvariantCulture, $"\n## {r.Kind}: `{r.Command}`\nexpected exit {r.ExpectedExitCode}");
             if (r.ExpectedOutput is not null)
                 text.Append(CultureInfo.InvariantCulture, $" with output containing `{r.ExpectedOutput}`");

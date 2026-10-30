@@ -28,6 +28,7 @@ Before a session's branch is handed over, the session driver runs the repository
 
 - **Rules:** `.chargehand/checks` in the repository, one shell command per line, `#` for comments. It is read at the commit the workspace started at, so a session that edits the file is still held to the rules it started with. This repository's own file runs `scripts/check-file-lines.sh 400` (the line budget of ADR 0060, without a build).
 - **Acceptance criteria:** `driven.tasks[].acceptance`, at most 20, each `{"command": "...", "exit_code": 0, "output": "..."}`. `exit_code` defaults to 0; `output`, when set, must appear in the command's stdout or stderr.
+- **CI configuration:** every round also looks at what changed since the session started, committed or not, for a path the handover below refuses (`.github/workflows`, `.gitlab-ci.yml`, ...). This runs even when the repository declares no rules, no check and the task no acceptance criteria, so the session is told to revert it and gets a turn to do so, instead of running the whole session and losing it at the handover (issue #527; the session's own prompt says not to touch those paths in the first place). It does not run for a `bare` task (no gate at all) or before the workspace's first commit.
 
 ```json
 {"id": "t1", "goal": "Add a /health endpoint that answers ok", "acceptance": [{"command": "dotnet test"}, {"command": "./scripts/smoke.sh /health", "output": "ok"}]}
