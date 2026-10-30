@@ -15,7 +15,8 @@ public partial class ChargehandException(ErrorCode code, string message, string?
 
     /// <summary>Unchanged, the same request may succeed later.</summary>
     public static bool Retryable(ErrorCode code) =>
-        code is ErrorCode.RuntimeUnavailable or ErrorCode.ProviderUnavailable or ErrorCode.RateLimited or ErrorCode.DeadlineExceeded or ErrorCode.ContainerUnavailable;
+        code is ErrorCode.RuntimeUnavailable or ErrorCode.ProviderUnavailable or ErrorCode.RateLimited or ErrorCode.DeadlineExceeded or ErrorCode.ContainerUnavailable
+            or ErrorCode.SessionStalled or ErrorCode.PrFailed;
 
     /// <summary>The error of any exception: its own code, a rate limit recognised by its text (Claude Code's), else internal.</summary>
     public static ResultError ErrorOf(Exception e) => e is ChargehandException c

@@ -158,36 +158,36 @@ Each schema under `schemas/` sits in `schemas/<name>/v<major>/`, next to valid a
 
 A failed `result/v1` carries `error`: a fixed `code`, the `message`, `retryable`, and an `action` when there is something to do. Branch on the code, not on the summary text. Keys, key aliases, bearer tokens and spend figures are redacted from messages before they reach `result/v1` or the run log.
 
-| code | raised when | retryable |
-|---|---|---|
-| `runtime_unavailable` | the OpenCode server refuses the connection or cannot start; the Claude Code binary cannot start or `--version` fails; `claude` is signed out and no credential is set; no agent CLI is on `PATH` | yes |
-| `runtime_version_mismatch` | the runtime's version differs from the pin | no |
-| `runtime_ambiguous` | more than one agent CLI is on `PATH` and nothing names one | no |
-| `provider_unavailable` | OpenCode answers 502, 503 or 504 | yes |
-| `rate_limited` | OpenCode answers 429, or an error's text is a rate limit | yes |
-| `repository_not_allowed` | the repository is outside `repository_roots`, or a worker checkout would sit under the home directory | no |
-| `checkout_invalid` | the path is not a git checkout, the commit is not in it, the clone fails, or `git ls-files` fails | no |
-| `checkout_has_secrets` | a driven session's clone tracks files the preset denies reading (a worker's clone leaves them out) | no |
-| `cost_cap_reached` | the watcher interrupted a node above its USD cap or its input-token budget | no |
-| `deadline_exceeded` | a node's turn was interrupted for any other reason; the deadline is the only other interrupt | yes |
-| `invalid_result` | a node's turns succeeded but left no valid result contract after the repair turn, or a writing node changed no files | no |
-| `intake_failed` | intake returned no valid Task Spec after one retry | no |
-| `invalid_request` | an unknown preset, a caller block whose sha256 does not match its text, an unknown runtime name, both Claude Code credentials set, a writing preset on an ACP runtime, or an ACP agent that is not in `acp-agents.json` | no |
-| `sandbox_unavailable` | a writing preset ran on a machine with no `sandbox-exec` or `bwrap` and `sandbox.kind` is not `none` | no |
-| `verification_failed` | a writing node's test command still failed after the last fix round; the branch is in the result's artifacts. For a driven task: chargehand's own run of the tests in a fresh container failed, or there is no test command | no |
-| `container_unavailable` | a driven session needs a container engine and none answers (no Docker, or the runner is down), or a task's output volume cannot be moved | yes |
-| `credential_unavailable` | a driven batch has no model credential, or no push credential: neither `driven.push_secret` nor a GitHub App (`driven.integrator`) installed on the repository | no |
-| `session_failed` | a driven session made no usable branch, or chargehand refused it: nothing changed, a secret-shaped diff, a change to CI configuration | no |
-| `session_stalled` | a driven session ended on no progress, a repeated tool call, too many turns or its wall clock | yes |
-| `push_rejected` | the remote refused `chargehand/<run>`, or the remote is not an https or ssh URL | no |
-| `pr_failed` | the branch was pushed but the draft pull request did not open; the result names the branch | yes |
-| `cancelled` | a run or a driven batch was cancelled (`POST /v1/runs/{id}/cancel` or `POST /v1/halt`); nothing more is pushed | no |
-| `tasks_incomplete` | a driven batch ended with at least one task that has no draft pull request, and was not cancelled; the result names them | no |
-| `local_only` | the repository is local-only (the profile's `delivery.local_only` or `context.delivery: "local"`) and the request asked to push, or a driven batch was asked for it | no |
-| `delivery_failed` | a local `code` run's branch could not be fetched into the repository; it is still in the run clone, and the error's action gives the command | no |
-| `runtime_uncapped` | an ACP agent that reports no token usage was asked to run under a dollar cap (every run has one), and the profile does not set `acp.allow_uncapped`; refused before anything is spent | no |
-| `merge_conflict` | a driven task that depends on several others could not start: merging their branches conflicted; the task's detail names the paths | no |
-| `internal` | anything else | no |
+| code | raised when | action | retryable |
+|---|---|---|---|
+| `runtime_unavailable` | the OpenCode server refuses the connection or cannot start; the Claude Code binary cannot start or `--version` fails; `claude` is signed out and no credential is set; no agent CLI is on `PATH` | start the runtime or install the agent CLI by hand, then retry | yes |
+| `runtime_version_mismatch` | the runtime's version differs from the pin | install the pinned version, or change the profile's version field | no |
+| `runtime_ambiguous` | more than one agent CLI is on `PATH` and nothing names one | name the runtime in the profile or `CHARGEHAND_RUNTIME` | no |
+| `provider_unavailable` | OpenCode answers 502, 503 or 504 | retry once the provider answers again | yes |
+| `rate_limited` | OpenCode answers 429, or an error's text is a rate limit | retry once the limit lifts, or map the preset to a model with more headroom | yes |
+| `repository_not_allowed` | the repository is outside `repository_roots`, or a worker checkout would sit under the home directory | add the repository to `repository_roots`, or move `worker_root` outside the home directory | no |
+| `checkout_invalid` | the path is not a git checkout, the commit is not in it, the clone fails, or `git ls-files` fails | fix the path or commit, or delete the checkout under `worker_root/.checkouts` and retry | no |
+| `checkout_has_secrets` | a driven session's clone tracks files the preset denies reading (a worker's clone leaves them out) | delete the checkout under `worker_root/.checkouts` and retry | no |
+| `cost_cap_reached` | the watcher interrupted a node above its USD cap or its input-token budget | raise `context.budget_usd`, or ask a narrower question so the worker reads less | no |
+| `deadline_exceeded` | a node's turn was interrupted for any other reason; the deadline is the only other interrupt | retry, or ask a narrower question; a node stops after its deadline | yes |
+| `invalid_result` | a node's turns succeeded but left no valid result contract after the repair turn, or a writing node changed no files | retry; read the worker's last message with `chargehand show <run>` if it repeats | no |
+| `intake_failed` | intake returned no valid Task Spec after one retry | retry, or set the profile's `intake_model` to a stronger model | no |
+| `invalid_request` | an unknown preset, a caller block whose sha256 does not match its text, an unknown runtime name, both Claude Code credentials set, a writing preset on an ACP runtime, or an ACP agent that is not in `acp-agents.json` | fix the field the message names in the request or profile, then send it again | no |
+| `sandbox_unavailable` | a writing preset ran on a machine with no `sandbox-exec` or `bwrap` and `sandbox.kind` is not `none` | install the sandbox, or set `sandbox.kind` to `none` to accept running unconfined | no |
+| `verification_failed` | a writing node's test command still failed after the last fix round; the branch is in the result's artifacts. For a driven task: chargehand's own run of the tests in a fresh container failed, or there is no test command | fix the change or the tests, or name a test command, then send it again | no |
+| `container_unavailable` | a driven session needs a container engine and none answers (no Docker, or the runner is down), or a task's output volume cannot be moved | check `driven.runner` in the profile, or install Docker | yes |
+| `credential_unavailable` | a driven batch has no model credential, or no push credential: neither `driven.push_secret` nor a GitHub App (`driven.integrator`) installed on the repository | set the missing credential in the profile, or install the GitHub App on the repository | no |
+| `session_failed` | a driven session made no usable branch, or chargehand refused it: nothing changed, a secret-shaped diff, a change to CI configuration | read the session log (the session-log artifact), then send the task again | no |
+| `session_stalled` | a driven session ended on no progress, a repeated tool call, too many turns or its wall clock | send the task again with a narrower goal, or raise the driven preset's limits | yes |
+| `push_rejected` | the remote refused `chargehand/<run>`, or the remote is not an https or ssh URL | check the push credential, and that the branch name is free | no |
+| `pr_failed` | the branch was pushed but the draft pull request did not open; the result names the branch | open the pull request by hand; the branch is already pushed | yes |
+| `cancelled` | a run or a driven batch was cancelled (`POST /v1/runs/{id}/cancel` or `POST /v1/halt`); nothing more is pushed | start the task again if it is still wanted; nothing was pushed | no |
+| `tasks_incomplete` | a driven batch ended with at least one task that has no draft pull request, and was not cancelled; the result names them | send the unfinished tasks again, in a new batch | no |
+| `local_only` | the repository is local-only (the profile's `delivery.local_only` or `context.delivery: "local"`) and the request asked to push, or a driven batch was asked for it | leave `context.delivery` out, or set it to `local`; the work stays on this machine | no |
+| `delivery_failed` | a local `code` run's branch could not be fetched into the repository; it is still in the run clone, and the error's action gives the command | fetch the named branch into the repository by hand | no |
+| `runtime_uncapped` | an ACP agent that reports no token usage was asked to run under a dollar cap (every run has one), and the profile does not set `acp.allow_uncapped`; refused before anything is spent | use a runtime that reports usage, or set `acp.allow_uncapped` in the profile | no |
+| `merge_conflict` | a driven task that depends on several others could not start: merging their branches conflicted; the task's detail names the paths | make the tasks change different files, or order them with `depends_on` | no |
+| `internal` | anything else | read the message; `chargehand show <run>` prints the session | no |
 
 Over HTTP, a request the server refuses before a run exists stays a `400` with `errors` ([ADR 0022](../adr/0022-error-codes-in-result-v1.md)).
 
