@@ -22,7 +22,9 @@ while the machine that started it is. Prompt CI already runs on a server (ADR 00
   empty: beyond loopback the `Host` check is the only guard against DNS rebinding, so it must name the server. The
   bearer key stays on every route. The port is published on a private network only.
 - **Image:** a `Dockerfile` builds `chargehand serve` with the Claude Code CLI at a pinned version (build argument
-  `CLAUDE_CODE_VERSION`, which must match `claude_code.version`), git for worker clones (ADR 0023), `prompts/` and
+  `CLAUDE_CODE_VERSION`, which `claude_code.version` must be satisfied by: an exact string, or `>=X.Y.Z` to take
+  X.Y.Z and newer of major X without a matching profile change — the form a deployment should use when something
+  else bumps `CLAUDE_CODE_VERSION` on its own schedule), git for worker clones (ADR 0023), `prompts/` and
   `presets/`. It runs as a non-root user from `/app`; the profile mounts at `/config/profile.json` and uses
   `secret_store: env`, since the Keychain is macOS only. OpenCode is not in the image: a Linux build of the pinned
   2.0.16 is unverified (ADR 0025), and an OpenCode profile points `opencode.url` at a server run next to the

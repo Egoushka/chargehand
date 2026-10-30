@@ -117,7 +117,7 @@
       "properties": {
         "version": {
           "type": "string",
-          "description": "Expected `claude --version`; the adapter refuses to run on a mismatch."
+          "description": "Expected `claude --version`; the adapter refuses to run on a mismatch. An exact string matches only that version. `>=X.Y.Z` matches X.Y.Z and newer versions of major X — prefer this form when something other than this profile (a release, a scheduled dependency update) can bump the CLI's version on its own: an exact pin left behind refuses to start until it is updated too."
         },
         "api_key_secret": {
           "type": "string",

@@ -249,7 +249,7 @@ Scripts and CI read a few more:
 | `HEAD` | `scripts/prompt-ci.sh` | the commit to evaluate; default the pull request's head |
 | `PROMPT_CI_RUNTIME`, `PROMPT_CI_PROFILE_<RUNTIME>` | the eval runner | its default runtime, and one eval profile per runtime |
 | `SELF_REVIEW_PROFILE` | the eval runner, `.github/workflows/self-review.yml` | the profile for reviews of this repository's own pull requests |
-| `CLAUDE_CODE_VERSION` | Docker build argument | the Claude Code version in the image, default 2.1.283 |
+| `CLAUDE_CODE_VERSION` | Docker build argument | the Claude Code version in the image, default 2.1.283; a deployment's `claude_code.version` (above) must be satisfied by it, so pin `>=X.Y.Z` there if this argument moves on its own schedule |
 | `CHARGEHAND_E2E_MODEL_KEY`, `CHARGEHAND_E2E_IMAGE` | `scripts/driven-e2e.sh` | a capped Anthropic API key and the session image by digest; the script's other variables are listed at its top |
 | `CHARGEHAND_E2E_GITHUB_API`, `CHARGEHAND_E2E_LOCAL_REMOTE` | the CLI, for `scripts/driven-e2e.sh` only | the draft-pull-request client's base URL, and `1` to accept a `file://` remote; never set in a deployment |
 
