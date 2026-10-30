@@ -413,7 +413,7 @@ public class DrivenResultTests
         Assert.Equal(ResultStatus.Failed, result.Status);
         Assert.Equal(code, result.Error!.Code);
         Assert.Contains(reason.Replace('_', ' '), result.Error.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.False(result.Error.Retryable);
+        Assert.Equal(ChargehandException.Retryable(code), result.Error.Retryable);
         Assert.NotNull(result.Error.Action);
         AssertValid(result);
     }
