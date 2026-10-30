@@ -19,6 +19,7 @@
     <ProjectReference Include="..\Modules\Chargehand.Modules.Ledger\Chargehand.Modules.Ledger.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Memory\Chargehand.Modules.Memory.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Oversight\Chargehand.Modules.Oversight.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.PeerClones\Chargehand.Modules.PeerClones.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Research\Chargehand.Modules.Research.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Runners\Chargehand.Modules.Runners.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Sessions\Chargehand.Modules.Sessions.csproj" />

@@ -12,6 +12,7 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.PeerClones.Api;
 using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Nodes;
@@ -36,6 +37,7 @@ namespace Chargehand;
 /// <param name="publicFree">The free-model pool (ADR 0093): hands out its runtime to a run of the pool preset on a repository that qualifies, and refuses the pool preset anywhere else; null: no pool, and the default pool preset is refused.</param>
 /// <param name="runtimeFor">The runtime a run of the given account uses (ADR 0053), which throws for an account that may use no model credential; null: <paramref name="runtime"/> for every run.</param>
 /// <param name="reuseReviews">A review of the same commit and diff as a completed one of the same account returns that review (<see cref="ReviewReuse"/>, issue 448); false: every review runs.</param>
+/// <param name="peerClones">Resolves <c>gh:owner/name</c> into a shallow clone for an account with <c>public_clone</c>; null: such a path is refused like any other repository outside the roots.</param>
 public sealed class Orchestrator(
     Profile profile,
     IWorkerRuntime runtime,
@@ -49,7 +51,8 @@ public sealed class Orchestrator(
     IPromptEnhancer? enhancer = null,
     Func<string?, IWorkerRuntime>? runtimeFor = null,
     PublicFreeGate? publicFree = null,
-    bool reuseReviews = false)
+    bool reuseReviews = false,
+    IPeerCloneManager? peerClones = null)
 {
     public const string NodeKindName = "worker";
 
@@ -101,10 +104,18 @@ public sealed class Orchestrator(
         TaskAction? executed = null;
         Enhanced? enhanced = null;
         string? credential = null;
+        List<IAsyncDisposable> leases = [];
         try
         {
             if (request.Driven is not null)
                 throw new ChargehandException(ErrorCode.InvalidRequest, "a request with a driven block runs only through chargehand serve", "Send it to the server's POST /v1/runs or its MCP tool.");
+            // gh:owner/name resolves to a shallow clone before intake, so a refusal (public_clone off, too large, too little free space) costs nothing.
+            if (request.Context.Repository is { } repo && repo.Path.StartsWith("gh:", StringComparison.Ordinal))
+            {
+                var lease = await AcquirePeerCloneAsync(repo.Path["gh:".Length..], repo.Commit, actor, ct);
+                leases.Add(lease);
+                request = request with { Context = request.Context with { Repository = repo with { Path = lease.Directory } } };
+            }
             // The account's own credential, or a refusal, before anything is spent (ADR 0053).
             if (publicFree is null && presetName == new PublicFreeSettings().Preset)
                 throw new ChargehandException(ErrorCode.InvalidRequest, $"preset {presetName} is the free-model pool's, and this profile has no public_free block",
@@ -211,6 +222,12 @@ public sealed class Orchestrator(
             var error = e is OperationCanceledException ? Cancelled() : ChargehandException.ErrorOf(e);
             result = new ResultContract("result/v1", runId, "run", traceId, intakeChain, ResultStatus.Failed, error.Message, [], [], [], [error.Message], ResultConfidence.None, new Usage(0, 0, 0, 0, 0),
                 error);
+        }
+        finally
+        {
+            // A peer clone is deleted when the run ends, whatever the outcome (completed, failed or cancelled).
+            foreach (var lease in leases)
+                await lease.DisposeAsync();
         }
 
         result = ResultConfidence.Final(result) with { Actor = actor, Name = RunNames.Of(runId) };
@@ -590,6 +607,22 @@ public sealed class Orchestrator(
         new(kind, mediaType, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content))), Content: content);
 
     /// <summary>
+    /// Resolves <c>gh:owner/name</c> to a shallow clone, refusing for $0 before intake runs: the account needs
+    /// <c>public_clone</c>, and the profile needs a <c>peer_clone</c> to clone into.
+    /// </summary>
+    private async Task<IPeerCloneLease> AcquirePeerCloneAsync(string slug, string commit, string? actor, CancellationToken ct)
+    {
+        var account = actor is null ? null : profile.Http?.Accounts?.FirstOrDefault(a => a.Name == actor);
+        if (account?.PublicClone != true)
+            throw new ChargehandException(ErrorCode.RepositoryNotAllowed,
+                $"gh:{slug} is outside the profile's repository_roots, and {(actor is null ? "a run with no account" : $"account {actor}")} may not read a public repository by clone",
+                "Set public_clone: true on the account, or use a checkout under repository_roots.");
+        if (peerClones is null)
+            throw new ChargehandException(ErrorCode.RepositoryNotAllowed, "this server has no peer_clone configured", "Add peer_clone to the profile to read gh: repositories.");
+        return await peerClones.AcquireAsync(slug, commit, ct);
+    }
+
+    /// <summary>
     /// The worker reads a clone of the caller's repository at the requested commit, made under worker_root (ADR 0023):
     /// the source may sit anywhere under the profile's repository roots, the worker's directory stays outside the
     /// OpenCode user's home (ADR 0003), and the source's uncommitted and ignored files never reach the worker. A clone
@@ -601,7 +634,9 @@ public sealed class Orchestrator(
     private async Task<(string Directory, string Commit, string Repository, IReadOnlyList<string> Excluded)> Checkout(RepositoryRef repo, NodeKind kind, bool refuseDenied, CancellationToken ct)
     {
         var source = await Source(repo, ct);
-        if (!profile.Roots.Any(root => PathScope.Under(source, PathScope.RealPath(root))))
+        // A peer clone (gh:owner/name) sits under peer_clone.root, deliberately kept out of repository_roots so it never shows up in RepositoryNames.List.
+        if (!profile.Roots.Any(root => PathScope.Under(source, PathScope.RealPath(root)))
+            && !(profile.PeerClone is { } peerClone && PathScope.Under(source, PathScope.RealPath(peerClone.Root))))
             throw new ChargehandException(ErrorCode.RepositoryNotAllowed,
                 $"repository {source} is outside the profile's repository_roots ({string.Join(", ", profile.Roots)}); workers read only repositories under them",
                 $"Clone the repository under one of those roots, or add a directory that contains {source} to repository_roots (\"/\" allows any).");

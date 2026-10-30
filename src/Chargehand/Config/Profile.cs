@@ -14,6 +14,7 @@ using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.PeerClones.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
@@ -60,7 +61,8 @@ public sealed record Profile(
     AcpSettings? Acp = null,
     InboxSettings? Inbox = null,
     PublicFreeSettings? PublicFree = null,
-    bool SkipStructuredIntake = false)
+    bool SkipStructuredIntake = false,
+    PeerCloneSettings? PeerClone = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
@@ -106,7 +108,7 @@ public sealed record Profile(
         TypeInfoResolver = JsonTypeInfoResolver.Combine(LedgerSettingsJsonContext.Default, AccountsSettingsJsonContext.Default,
             MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, HandoverSettingsJsonContext.Default, IntakeSettingsJsonContext.Default,
             BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default, SessionsSettingsJsonContext.Default, TasksSettingsJsonContext.Default,
-            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, ProfileJsonContext.Default),
+            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, ProfileJsonContext.Default),
     };
 
     /// <summary>Owner-visible defaults (this record's own default values) when the file does not exist.</summary>
@@ -149,6 +151,10 @@ public sealed record Profile(
         if (profile.PublicFree?.Problems().ToList() is { Count: > 0 } poolProblems)
             throw new ChargehandException(ErrorCode.InvalidRequest, "public_free: " + string.Join("; ", poolProblems),
                 "Fix public_free in the profile; docs/adr/0093-runs-on-public-repositories-use-a-free-model-pool.md lists the fields.");
+        profile.PeerClone?.Validate();
+        if (profile.Http?.Accounts?.Any(a => a.PublicClone) == true && profile.PeerClone is null)
+            throw new ChargehandException(ErrorCode.InvalidRequest, "http.accounts: an account has public_clone: true, but the profile has no peer_clone",
+                "Add peer_clone to the profile, or set public_clone to false on the account.");
         return profile;
     }
 
