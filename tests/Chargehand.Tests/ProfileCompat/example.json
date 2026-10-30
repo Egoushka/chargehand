@@ -206,7 +206,22 @@
     "listen": "127.0.0.1",
     "allowed_hosts": null,
     "max_concurrent_runs": 1,
-    "accounts": null,
+    "accounts": [
+      {
+        "name": "peer-harvest",
+        "max_usd_per_day": null,
+        "max_usd_per_month": 20.0,
+        "max_tokens_per_day": null,
+        "max_tokens_per_month": null,
+        "max_concurrent_runs": null,
+        "driven": false,
+        "repositories": null,
+        "model": null,
+        "allow_server_credential": false,
+        "pause_on_forecast": false,
+        "public_clone": true
+      }
+    ],
     "ui": false,
     "cloudflare_access": null,
     "proxy_sign_in": null,
@@ -260,6 +275,12 @@
   "delivery": null,
   "acp": null,
   "inbox": null,
+  "peer_clone": {
+    "root": "/srv/chargehand/peer-clones",
+    "max_repository_bytes": 200000000,
+    "min_free_bytes": 5000000000,
+    "token_secret": "chargehand-peer-clone-github-token"
+  },
   "roots": [
     "/srv/chargehand/work",
     "/path/to/your/repositories"

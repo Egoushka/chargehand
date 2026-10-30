@@ -126,6 +126,7 @@
   "delivery": null,
   "acp": null,
   "inbox": null,
+  "peer_clone": null,
   "roots": [
     "/var/tmp/chargehand/work"
   ],
