@@ -304,7 +304,7 @@ docker run -p <private-ip>:4300:4300 -v <dir-with-profile.json>:/config:ro -e CH
 
 The [Dockerfile](../../Dockerfile) builds:
 
-- `chargehand serve` with the Claude Code CLI at a pinned version: build argument `CLAUDE_CODE_VERSION`, default 2.1.283. A profile's `claude_code.version` must match it.
+- `chargehand serve` with the Claude Code CLI at a pinned version: build argument `CLAUDE_CODE_VERSION`, default 2.1.283. A profile's `claude_code.version` must be satisfied by it: an exact string matches only that version, or pin `>=X.Y.Z` to match X.Y.Z and newer of major X ([reference](reference.md#profile-fields)). Prefer the `>=` form when something other than this profile (Renovate, a release) can bump `CLAUDE_CODE_VERSION` on its own schedule: an exact pin left behind refuses to start until it, too, is updated.
 - git for worker clones, with `prompts/` and `presets/` under `/app`.
 - A non-root user, working directory `/app`, `CHARGEHAND_PROFILE=/config/profile.json`, port 4300.
 - `/app/runs` for the run log, and `/srv/chargehand/work` for worker clones (the `worker_root` that `profiles/example.json` uses).

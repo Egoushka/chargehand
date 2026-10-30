@@ -7,7 +7,9 @@ COPY . .
 RUN dotnet publish src/Chargehand.Cli -c Release -o /out
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0
-# Must match claude_code.version in the profile: the adapter refuses to run on a mismatch (ADR 0020).
+# claude_code.version in the profile must be satisfied by this: an exact string, or `>=X.Y.Z` to take X.Y.Z and
+# newer of major X without a matching profile change — prefer `>=` where this argument moves on its own schedule
+# (the adapter refuses to run otherwise, ADR 0020).
 ARG CLAUDE_CODE_VERSION=2.1.283
 # Node from nodejs.org, checked against its SHASUMS256.txt: the distribution's nodejs (18) cannot run repositories that need 26 (type stripping).
 ARG NODE_VERSION=26.10.0

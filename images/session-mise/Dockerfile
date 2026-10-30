@@ -15,7 +15,9 @@ RUN case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
 
 # npm only fetches the binary for this platform; Node stays in this stage, so a repository's own Node pin is the only node on PATH.
 FROM node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS claude
-# Must match claude_code.version in the profile: the adapter refuses to run on a mismatch (ADR 0020).
+# claude_code.version in the profile must be satisfied by this: an exact string, or `>=X.Y.Z` to take X.Y.Z and
+# newer of major X without a matching profile change — prefer `>=` where this argument moves on its own schedule
+# (the adapter refuses to run otherwise, ADR 0020).
 ARG CLAUDE_CODE_VERSION=2.1.283
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cache clean --force
 
