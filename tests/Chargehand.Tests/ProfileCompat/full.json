@@ -111,7 +111,8 @@
           "oauth_token_secret": null
         },
         "allow_server_credential": false,
-        "pause_on_forecast": false
+        "pause_on_forecast": false,
+        "public_clone": false
       },
       {
         "name": "bob",
@@ -124,7 +125,8 @@
         "repositories": null,
         "model": null,
         "allow_server_credential": true,
-        "pause_on_forecast": false
+        "pause_on_forecast": false,
+        "public_clone": false
       }
     ],
     "ui": true,
@@ -246,6 +248,7 @@
   "delivery": null,
   "acp": null,
   "inbox": null,
+  "peer_clone": null,
   "roots": [
     "/srv/chargehand/work"
   ],

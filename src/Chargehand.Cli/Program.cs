@@ -15,6 +15,7 @@ using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Conversations.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.PeerClones.Api;
 using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.OpenCode;
@@ -631,7 +632,9 @@ async Task<int> Serve()
     // An account's runs use its own model credential, or are refused (ADR 0053).
     Func<string?, IWorkerRuntime>? runtimeFor = http.Accounts is { Count: > 0 } accounts
         ? new Chargehand.ClaudeCode.AccountRuntimes(runtime, new AccountCredentials(accounts), profile.Secret).For : null;
-    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer(), runtimeFor: runtimeFor);
+    using var peerClones = PeerClones();
+    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer(), runtimeFor: runtimeFor,
+        peerClones: peerClones);
     var drivenRun = DrivenRunFor(orchestrator);
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
@@ -790,6 +793,17 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
 MemoryStack? Memory() => MemoryStacks.From(profile, mcpPool);
 
 Chargehand.Enhancement.IPromptEnhancer? Enhancer() => PromptEnhancers.From(profile, mcpPool);
+
+// Resolves gh:owner/name for an account with public_clone (CHARGEHAND-683); null leaves such a path refused, as any other outside repository_roots.
+PeerCloneManager? PeerClones()
+{
+    if (profile.PeerClone is not { TokenSecret: { } tokenSecret } peerClone)
+        return null;
+    var http = new HttpClient { BaseAddress = new Uri("https://api.github.com/") };
+    var size = new GitHubRepositorySize(http, _ => Task.FromResult(profile.Secret(tokenSecret)));
+    return new PeerCloneManager(peerClone, size,
+        (slug, _) => Task.FromResult($"https://x-access-token:{profile.Secret(tokenSecret)}@github.com/{slug}.git"));
+}
 
 /// <summary>Setup mistakes before a run: <c>--preset</c> narrows the services check to one preset, <c>--probe</c> adds one real recall per memory.</summary>
 async Task<int> CheckExtensions(IReadOnlyList<string> options)

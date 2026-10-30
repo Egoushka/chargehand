@@ -554,6 +554,18 @@
       "minItems": 1,
       "description": "Directories a request's repository may sit under; the worker reads a clone of it under worker_root (ADR 0023). \"/\" allows any repository. Default: worker_root alone; the CLI's run also allows the directory it was launched in (ADR 0028)."
     },
+    "peer_clone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "token_secret"],
+      "description": "Lets an account with public_clone resolve context.repository.path = gh:owner/name to a shallow, size-checked clone outside repository_roots, deleted when the run ends.",
+      "properties": {
+        "root": { "type": "string", "minLength": 1, "description": "Where peer clones live, separate from intake's clones root. Created on first use." },
+        "max_repository_bytes": { "type": "integer", "exclusiveMinimum": 0, "default": 200000000, "description": "A repository whose GraphQL diskUsage is over this is refused before anything is cloned, at no cost. Default 200 MB." },
+        "min_free_bytes": { "type": "integer", "exclusiveMinimum": 0, "default": 5000000000, "description": "A clone is refused when root's filesystem has less free than this. A starting value; raise it for a busy cache. Default 5 GB." },
+        "token_secret": { "type": "string", "minLength": 1, "description": "Secret-store item holding a GitHub token sent as a bearer token for the size check and the clone; a public repository still needs one, since GitHub's GraphQL API takes no anonymous calls." }
+      }
+    },
     "default_preset": {
       "type": "string",
       "description": "Default: cheap (ADR 0026)."
@@ -707,7 +719,8 @@
                 }
               },
               "allow_server_credential": { "type": "boolean", "default": false, "description": "An account with no model block may spend the server's model credential. Default false: its runs are refused with model_credential_missing. The owner always uses the server's." },
-              "pause_on_forecast": { "type": "boolean", "default": false, "description": "Hold the automated starts charged to this account (automation.account) while its month forecast passes max_usd_per_month (ADR 0076). Needs max_usd_per_month. A person's own run is never held by it." }
+              "pause_on_forecast": { "type": "boolean", "default": false, "description": "Hold the automated starts charged to this account (automation.account) while its month forecast passes max_usd_per_month (ADR 0076). Needs max_usd_per_month. A person's own run is never held by it." },
+              "public_clone": { "type": "boolean", "default": false, "description": "The account may send context.repository.path as gh:owner/name for a public repository outside repositories and repository_roots: the profile's peer_clone resolves it to a shallow, size-checked clone, deleted when the run ends. Needs peer_clone in the profile." }
             },
             "dependentRequired": { "pause_on_forecast": ["max_usd_per_month"] }
           }
