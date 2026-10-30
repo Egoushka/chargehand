@@ -35,6 +35,9 @@ public static class SessionCli
         - Order: research, write, run the tests, then review; never review before the tests ran. If the goal cannot be met, still write your best attempt and run the tests, then
           finish saying why it cannot be done. Never stop after research alone and never edit a test to make it pass.
         - The working tree is already clean; do not stop for uncommitted changes.
+        - Do not edit CI configuration (.github/workflows, .github/actions, .gitlab-ci.yml, azure-pipelines.yml, .circleci, Jenkinsfile, .buildkite, bitbucket-pipelines.yml, .drone.yml):
+          chargehand refuses any branch that touches those paths, because pushing them could run them with the repository's secrets. A check before you finish catches it and sends
+          it back; reaching that costs a whole turn, so if the goal needs a CI change, say so in the final summary instead of editing those paths.
         - Do not push, do not open a pull request, do not merge: chargehand does that after it checks your branch itself.
         - Finish with one fenced ```json block: {"summary": string, "claims": [{"text": string, "evidence": [ "path:start-end" ]}], "tests": {"command": string, "exit_code": number}}.
           Each claim names the code lines it rests on. Say what you did not verify instead of guessing.
