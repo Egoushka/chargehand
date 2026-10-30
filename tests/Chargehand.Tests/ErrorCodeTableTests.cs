@@ -6,13 +6,13 @@ using Chargehand.Kernel;
 namespace Chargehand.Tests;
 
 /// <summary>Stability plan Task 5 (docs/plans/2026-09-30-stability-1.0.md): every value of <see cref="ErrorCode"/> has exactly one
-/// row in docs/guide/reference.md's "## Error codes" table, and the row's retryable column matches
-/// <see cref="ChargehandException.Retryable"/> (ADR 0022: "retryable follows from the code").</summary>
+/// row in docs/guide/reference.md's "## Error codes" table, documented with an action meaning, and the row's retryable column
+/// matches <see cref="ChargehandException.Retryable"/> (ADR 0022: "retryable follows from the code").</summary>
 public class ErrorCodeTableTests
 {
-    private sealed record ErrorCodeRow(string Code, bool Retryable);
+    private sealed record ErrorCodeRow(string Code, string Action, bool Retryable);
 
-    /// <summary>code name and the "yes"/"no" cell of every row of the "## Error codes" table, in document order.</summary>
+    /// <summary>code name, action cell and the "yes"/"no" retryable cell of every row of the "## Error codes" table, in document order.</summary>
     private static readonly IReadOnlyList<ErrorCodeRow> Rows = ReadRows();
 
     private static readonly IReadOnlyDictionary<string, ErrorCode> BySnakeName =
@@ -26,11 +26,18 @@ public class ErrorCodeTableTests
         var end = text.IndexOf("\n## ", start + 1, StringComparison.Ordinal);
         var section = text[start..(end < 0 ? text.Length : end)];
 
-        var rows = Regex.Matches(section, @"^\| `([a-z_]+)` \|.*\| (yes|no) \|\s*$", RegexOptions.Multiline)
-            .Select(m => new ErrorCodeRow(m.Groups[1].Value, m.Groups[2].Value == "yes")).ToList();
+        var rows = Regex.Matches(section, @"^\| `([a-z_]+)` \|.*\| ([^|]+) \| (yes|no) \|\s*$", RegexOptions.Multiline)
+            .Select(m => new ErrorCodeRow(m.Groups[1].Value, m.Groups[2].Value.Trim(), m.Groups[3].Value == "yes")).ToList();
         Assert.NotEmpty(rows);
         return rows;
     }
+
+    public static IEnumerable<object[]> DocumentedActions() => Rows.Select(r => new object[] { r.Code, r.Action });
+
+    [Theory]
+    [MemberData(nameof(DocumentedActions))]
+    public void Every_documented_code_has_an_action_meaning(string code, string action) =>
+        Assert.True(action.Length > 0, $"'{code}' has no action meaning in reference.md's table");
 
     [Fact]
     public void Every_error_code_the_contract_can_produce_has_exactly_one_documented_row()
