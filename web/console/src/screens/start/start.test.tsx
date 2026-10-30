@@ -282,9 +282,9 @@ describe('Start a batch: the estimate', () => {
   it('gives each task a budget from history, and says where the number came from', async () => {
     await open();
     type('Repository', REPO);
-    // M: 14 past tasks here and 12 in another repository: only pooled do they pass the minimum of 20.
+    // M: 3 past tasks here and 4 in another repository: only pooled do they pass the minimum of 5.
     expect(
-      screen.getByText(/Budget ≈ \$0\.95 · about p80 of 26 past M tasks in 2 repositories/),
+      screen.getByText(/Budget ≈ \$0\.94 · about p80 of 7 past M tasks in 2 repositories/),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'S' }));
     expect(
@@ -293,7 +293,7 @@ describe('Start a batch: the estimate', () => {
     fireEvent.click(screen.getByRole('button', { name: 'L' }));
     expect(
       screen.getByText(
-        /Budget \$10\.00 · the flat L budget; only 6 past L tasks, the server needs 20/,
+        /Budget \$10\.00 · the flat L budget; only 3 past L tasks, the server needs 5/,
       ),
     ).toBeTruthy();
   });
@@ -332,7 +332,7 @@ describe('Start a batch: the estimate', () => {
                 governor: {
                   mode: 'observe',
                   budgets: { S: 2, M: 5, L: 12 },
-                  history: { min_tasks: 5, window_days: 30, percentile: 80 },
+                  history: { min_tasks: 3, window_days: 30, percentile: 80 },
                 },
               },
             },
@@ -344,12 +344,12 @@ describe('Start a batch: the estimate', () => {
     await screen.findByText('Governor: observe, set in the profile.');
     fireEvent.click(screen.getByRole('button', { name: 'L' }));
     type('Repository', REPO);
-    // Six past L tasks pass the owner's minimum of 5.
+    // Three past L tasks pass the owner's minimum of 3.
     expect(
-      screen.getByText(/Budget ≈ \$3\.10 · p80 of 6 past L tasks in this repository/),
+      screen.getByText(/Budget ≈ \$3\.10 · p80 of 3 past L tasks in this repository/),
     ).toBeTruthy();
     expect(screen.queryByText(/are the server's defaults/)).toBeNull();
-    expect(screen.getByText(/trusted from 5 tasks/)).toBeTruthy();
+    expect(screen.getByText(/trusted from 3 tasks/)).toBeTruthy();
     expect(screen.getByText(/and runs at most 2/)).toBeTruthy();
     expect(
       within(field('Preset'))

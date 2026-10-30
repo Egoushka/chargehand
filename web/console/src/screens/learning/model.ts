@@ -39,7 +39,7 @@ export interface HistoryRule {
 }
 
 export const DEFAULT_RULE: HistoryRule = {
-  minTasks: 20,
+  minTasks: 5,
   windowDays: 60,
   percentile: 80,
   from: 'default',

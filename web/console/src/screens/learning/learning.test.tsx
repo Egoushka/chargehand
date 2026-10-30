@@ -67,7 +67,7 @@ describe('historyRule', () => {
   it('is the documented default for a key that cannot read the profile, and says so', () => {
     expect(historyRule(null)).toEqual(DEFAULT_RULE);
     expect(historyRule(system())).toEqual({
-      minTasks: 20,
+      minTasks: 5,
       windowDays: 60,
       percentile: 80,
       from: 'default',
@@ -89,16 +89,13 @@ describe('historyRule', () => {
 describe('learnRows', () => {
   it('says in words whether a group has enough priced tasks for a budget from history, and which percentile it would use', () => {
     const [enough, thin] = learnRows(
-      [
-        group({ spend_known: 45, tasks: 48 }),
-        group({ size_class: 'L', spend_known: 11, tasks: 12 }),
-      ],
+      [group({ spend_known: 45, tasks: 48 }), group({ size_class: 'L', spend_known: 3, tasks: 4 })],
       DEFAULT_RULE,
     );
     expect(enough?.enough).toBe(true);
     expect(enough?.history).toBe('p80 of 45 priced tasks');
     expect(thin?.enough).toBe(false);
-    expect(thin?.history).toBe('11 of 20 priced tasks: flat budget');
+    expect(thin?.history).toBe('3 of 5 priced tasks: flat budget');
   });
 
   it('formats the shares with their counts, and a dash for what has no denominator', () => {
@@ -285,7 +282,7 @@ describe('lessons', () => {
       DEFAULT_RULE,
     );
     expect(thin?.id).toBe('thin-history');
-    expect(thin?.text).toBe('1 of 2 repository and size groups have fewer than 20 priced tasks.');
+    expect(thin?.text).toBe('1 of 2 repository and size groups have fewer than 5 priced tasks.');
   });
 
   it('are ranked with the tasks that fail first and the history last, and a kind never fills the panel', () => {
@@ -393,7 +390,7 @@ describe('Learning', () => {
     expect(banner.textContent).toContain(
       'The documented defaults (only the owner can read the profile)',
     );
-    expect(banner.textContent).toContain('min_tasks 20, window_days 60, percentile 80');
+    expect(banner.textContent).toContain('min_tasks 5, window_days 60, percentile 80');
     first.unmount();
 
     serveApi({
@@ -506,7 +503,7 @@ describe('Learning', () => {
     expect(await screen.findByText('Nothing learned yet')).toBeTruthy();
     expect(
       screen.getByText(
-        /A size class needs 20 finished tasks in 60 days before its budget comes from history/,
+        /A size class needs 5 finished tasks in 60 days before its budget comes from history/,
       ),
     ).toBeTruthy();
     expect(screen.queryByRole('table')).toBeNull();

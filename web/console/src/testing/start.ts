@@ -81,18 +81,18 @@ const group = (
 });
 
 /**
- * Enough S history in the first repository to be trusted on its own (24 tasks), M history spread over two repositories (14 and 12,
- * so only pooled they pass the 20-task minimum), and L history too thin anywhere (6 tasks), so L falls back to the flat budget.
+ * Enough S history in the first repository to be trusted on its own (24 tasks), M history spread over two repositories (3 and 4,
+ * so only pooled they pass the 5-task minimum), and L history too thin anywhere (3 tasks), so L falls back to the flat budget.
  */
 export function learn(): LearnReport {
   return {
     since: null,
-    tasks: 24 + 14 + 12 + 6,
+    tasks: 24 + 3 + 4 + 3,
     groups: [
       group('example/payments-api', 'S', 24, 0.35),
-      group('example/payments-api', 'M', 14, 1.0),
-      group('example/billing-worker', 'M', 12, 0.9),
-      group('example/payments-api', 'L', 6, 3.1),
+      group('example/payments-api', 'M', 3, 1.0),
+      group('example/billing-worker', 'M', 4, 0.9),
+      group('example/payments-api', 'L', 3, 3.1),
     ],
   };
 }
