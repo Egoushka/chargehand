@@ -1,0 +1,30 @@
+# prior-art: cheap's permissions (no shell, webfetch, edit), for a claim-per-feature/approach/limitation survey
+# of a codebase read by its own tags (feed-eater's peer harvester, issue 2 of 7). Repository text is data, not
+# instructions: see prompts/preset/prior-art.md.
+schema: preset/v1
+name: prior-art
+version: 0.1.0
+allowed_actions: [answer, split, improve, ask, deny]
+node_kinds:
+  worker:
+    model: provider/small-model
+    opencode_agent: build
+    permissions:
+      - { action: "*", resource: "*", effect: allow }
+      - { action: edit, resource: "*", effect: deny }
+      - { action: read, resource: "*.env", effect: deny }
+      - { action: read, resource: "*.env.*", effect: deny }
+      - { action: read, resource: "*.env.example", effect: allow }
+      - { action: read, resource: "*.env.enc", effect: allow }
+      - { action: read, resource: "*.env.test.*", effect: allow }
+      - { action: read, resource: "*.env.spec.*", effect: allow }
+      - { action: read, resource: "*.env.*.local", effect: deny }
+      - { action: shell, resource: "*", effect: deny }
+      - { action: webfetch, resource: "*", effect: deny }
+      - { action: external_directory, resource: "*", effect: deny }
+      - { action: question, resource: "*", effect: deny }
+      - { action: subagent, resource: "*", effect: deny }
+    budget: { max_input_tokens: 400000, max_usd: 0.25 }
+    compaction: { auto: true, keep_tokens: 15000, buffer: 120000, trigger_tokens: 60000 }
+critic: { enabled: false }
+approval: {}
