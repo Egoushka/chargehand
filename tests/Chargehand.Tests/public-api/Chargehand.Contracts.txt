@@ -1,0 +1,413 @@
+type Chargehand.Contracts.AcceptanceCheck
+Chargehand.Contracts.AcceptanceCheck(System.String Command, System.Int32 ExitCode = default, System.String Output = default)
+Chargehand.Contracts.AcceptanceCheck.Command : System.String
+Chargehand.Contracts.AcceptanceCheck.ExitCode : System.Int32
+Chargehand.Contracts.AcceptanceCheck.Output : System.String
+type Chargehand.Contracts.Artifact
+Chargehand.Contracts.Artifact(System.String Kind, System.String MediaType, System.String Sha256, System.String Uri = default, System.String Content = default)
+Chargehand.Contracts.Artifact.Content : System.String
+Chargehand.Contracts.Artifact.Kind : System.String
+Chargehand.Contracts.Artifact.MediaType : System.String
+Chargehand.Contracts.Artifact.Sha256 : System.String
+Chargehand.Contracts.Artifact.Uri : System.String
+type Chargehand.Contracts.AsSent
+Chargehand.Contracts.AsSent(System.String OpencodeVersion, System.String Agent, System.String Model, System.String Date, System.String BasePromptVariant = default, System.String InstructionFilesSha256 = default, System.String ToolsSha256 = default)
+Chargehand.Contracts.AsSent.Agent : System.String
+Chargehand.Contracts.AsSent.BasePromptVariant : System.String
+Chargehand.Contracts.AsSent.Date : System.String
+Chargehand.Contracts.AsSent.InstructionFilesSha256 : System.String
+Chargehand.Contracts.AsSent.Model : System.String
+Chargehand.Contracts.AsSent.OpencodeVersion : System.String
+Chargehand.Contracts.AsSent.ToolsSha256 : System.String
+type Chargehand.Contracts.BlockSource
+Chargehand.Contracts.BlockSource.Caller
+Chargehand.Contracts.BlockSource.Registry
+Chargehand.Contracts.BlockSource.Runtime
+type Chargehand.Contracts.CallerInput
+Chargehand.Contracts.CallerInput(System.String Id, System.String Kind, System.String Text, System.String SourceUrl = default)
+Chargehand.Contracts.CallerInput.Id : System.String
+Chargehand.Contracts.CallerInput.Kind : System.String
+Chargehand.Contracts.CallerInput.SourceUrl : System.String
+Chargehand.Contracts.CallerInput.Text : System.String
+type Chargehand.Contracts.ChainBlock
+Chargehand.Contracts.ChainBlock(System.String Name, System.String Version, System.String Sha256, Chargehand.Contracts.BlockSource Source)
+Chargehand.Contracts.ChainBlock.Name : System.String
+Chargehand.Contracts.ChainBlock.Sha256 : System.String
+Chargehand.Contracts.ChainBlock.Source : Chargehand.Contracts.BlockSource
+Chargehand.Contracts.ChainBlock.Version : System.String
+type Chargehand.Contracts.Claim
+Chargehand.Contracts.Claim(System.String Text, System.Collections.Generic.IReadOnlyList<System.String> Evidence, System.Double Confidence, System.Nullable<Chargehand.Contracts.ClaimSupport> Support = default)
+Chargehand.Contracts.Claim.Confidence : System.Double
+Chargehand.Contracts.Claim.Evidence : System.Collections.Generic.IReadOnlyList<System.String>
+Chargehand.Contracts.Claim.Support : System.Nullable<Chargehand.Contracts.ClaimSupport>
+Chargehand.Contracts.Claim.Text : System.String
+type Chargehand.Contracts.ClaimSupport
+Chargehand.Contracts.ClaimSupport.Partial
+Chargehand.Contracts.ClaimSupport.Supported
+Chargehand.Contracts.ClaimSupport.Unchecked
+type Chargehand.Contracts.ContinueFrom
+Chargehand.Contracts.ContinueFrom(System.String RunId, System.String TaskId)
+Chargehand.Contracts.ContinueFrom.RunId : System.String
+Chargehand.Contracts.ContinueFrom.TaskId : System.String
+type Chargehand.Contracts.ContractJson
+Chargehand.Contracts.ContractJson.Options : System.Text.Json.JsonSerializerOptions
+type Chargehand.Contracts.ContractJsonContext
+Chargehand.Contracts.ContractJsonContext()
+Chargehand.Contracts.ContractJsonContext(System.Text.Json.JsonSerializerOptions options)
+Chargehand.Contracts.ContractJsonContext.AcceptanceCheck : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.AcceptanceCheck>
+Chargehand.Contracts.ContractJsonContext.Artifact : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.Artifact>
+Chargehand.Contracts.ContractJsonContext.AsSent : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.AsSent>
+Chargehand.Contracts.ContractJsonContext.BlockSource : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.BlockSource>
+Chargehand.Contracts.ContractJsonContext.Boolean : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Boolean>
+Chargehand.Contracts.ContractJsonContext.CallerInput : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.CallerInput>
+Chargehand.Contracts.ContractJsonContext.ChainBlock : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.ChainBlock>
+Chargehand.Contracts.ContractJsonContext.Claim : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.Claim>
+Chargehand.Contracts.ContractJsonContext.ClaimSupport : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.ClaimSupport>
+Chargehand.Contracts.ContractJsonContext.ContinueFrom : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.ContinueFrom>
+Chargehand.Contracts.ContractJsonContext.DateTimeOffset : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.DateTimeOffset>
+Chargehand.Contracts.ContractJsonContext.Decimal : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Decimal>
+Chargehand.Contracts.ContractJsonContext.Default : Chargehand.Contracts.ContractJsonContext
+Chargehand.Contracts.ContractJsonContext.Double : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Double>
+Chargehand.Contracts.ContractJsonContext.DrivenTask : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.DrivenTask>
+Chargehand.Contracts.ContractJsonContext.ErrorCode : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.ErrorCode>
+Chargehand.Contracts.ContractJsonContext.Estimate : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.Estimate>
+Chargehand.Contracts.ContractJsonContext.Evidence : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.Evidence>
+Chargehand.Contracts.ContractJsonContext.EvidenceKind : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.EvidenceKind>
+Chargehand.Contracts.ContractJsonContext.GetTypeInfo(System.Type type) : System.Text.Json.Serialization.Metadata.JsonTypeInfo
+Chargehand.Contracts.ContractJsonContext.IReadOnlyListAcceptanceCheck : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.AcceptanceCheck>>
+Chargehand.Contracts.ContractJsonContext.IReadOnlyListArtifact : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.Artifact>>
+Chargehand.Contracts.ContractJsonContext.IReadOnlyListCallerInput : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.CallerInput>>
+Chargehand.Contracts.ContractJsonContext.IReadOnlyListChainBlock : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.ChainBlock>>
+Chargehand.Contracts.ContractJsonContext.IReadOnlyListClaim : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.Claim>>
+Chargehand.Contracts.ContractJsonContext.IReadOnlyListDrivenTask : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.DrivenTask>>
+Chargehand.Contracts.ContractJsonContext.IReadOnlyListEvidence : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.Evidence>>
+Chargehand.Contracts.ContractJsonContext.IReadOnlyListPromptBlock : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.PromptBlock>>
+Chargehand.Contracts.ContractJsonContext.IReadOnlyListString : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Collections.Generic.IReadOnlyList<System.String>>
+Chargehand.Contracts.ContractJsonContext.Int32 : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Int32>
+Chargehand.Contracts.ContractJsonContext.Int64 : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Int64>
+Chargehand.Contracts.ContractJsonContext.JsonElement : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Text.Json.JsonElement>
+Chargehand.Contracts.ContractJsonContext.NullableBoolean : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Nullable<System.Boolean>>
+Chargehand.Contracts.ContractJsonContext.NullableClaimSupport : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Nullable<Chargehand.Contracts.ClaimSupport>>
+Chargehand.Contracts.ContractJsonContext.NullableDateTimeOffset : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Nullable<System.DateTimeOffset>>
+Chargehand.Contracts.ContractJsonContext.NullableDecimal : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Nullable<System.Decimal>>
+Chargehand.Contracts.ContractJsonContext.NullableErrorCode : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Nullable<Chargehand.Contracts.ErrorCode>>
+Chargehand.Contracts.ContractJsonContext.NullableInt32 : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Nullable<System.Int32>>
+Chargehand.Contracts.ContractJsonContext.NullableInt64 : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Nullable<System.Int64>>
+Chargehand.Contracts.ContractJsonContext.NullableJsonElement : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Nullable<System.Text.Json.JsonElement>>
+Chargehand.Contracts.ContractJsonContext.NullableResultStatus : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Nullable<Chargehand.Contracts.ResultStatus>>
+Chargehand.Contracts.ContractJsonContext.NullableRunEventKind : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Nullable<Chargehand.Contracts.RunEventKind>>
+Chargehand.Contracts.ContractJsonContext.NullableSessionStage : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.Nullable<Chargehand.Contracts.SessionStage>>
+Chargehand.Contracts.ContractJsonContext.PromptBlock : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.PromptBlock>
+Chargehand.Contracts.ContractJsonContext.PromptChain : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.PromptChain>
+Chargehand.Contracts.ContractJsonContext.RepositoryRef : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.RepositoryRef>
+Chargehand.Contracts.ContractJsonContext.RequestContext : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.RequestContext>
+Chargehand.Contracts.ContractJsonContext.RequestDriven : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.RequestDriven>
+Chargehand.Contracts.ContractJsonContext.ResultContract : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.ResultContract>
+Chargehand.Contracts.ContractJsonContext.ResultError : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.ResultError>
+Chargehand.Contracts.ContractJsonContext.ResultStatus : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.ResultStatus>
+Chargehand.Contracts.ContractJsonContext.Risk : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.Risk>
+Chargehand.Contracts.ContractJsonContext.RunEventKind : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.RunEventKind>
+Chargehand.Contracts.ContractJsonContext.RunRequest : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.RunRequest>
+Chargehand.Contracts.ContractJsonContext.RunState : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.RunState>
+Chargehand.Contracts.ContractJsonContext.RunStatus : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.RunStatus>
+Chargehand.Contracts.ContractJsonContext.RunSummary : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.RunSummary>
+Chargehand.Contracts.ContractJsonContext.SessionStage : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.SessionStage>
+Chargehand.Contracts.ContractJsonContext.SignatureBlock : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.SignatureBlock>
+Chargehand.Contracts.ContractJsonContext.String : System.Text.Json.Serialization.Metadata.JsonTypeInfo<System.String>
+Chargehand.Contracts.ContractJsonContext.TaskAction : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.TaskAction>
+Chargehand.Contracts.ContractJsonContext.TaskSpec : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.TaskSpec>
+Chargehand.Contracts.ContractJsonContext.Usage : System.Text.Json.Serialization.Metadata.JsonTypeInfo<Chargehand.Contracts.Usage>
+type Chargehand.Contracts.ContractSchemas
+Chargehand.Contracts.ContractSchemas.Conversation : System.String
+Chargehand.Contracts.ContractSchemas.ConversationEvent : System.String
+Chargehand.Contracts.ContractSchemas.Get(System.String name) : Json.Schema.JsonSchema
+Chargehand.Contracts.ContractSchemas.McpOutputText() : System.String
+Chargehand.Contracts.ContractSchemas.Preset : System.String
+Chargehand.Contracts.ContractSchemas.Request : System.String
+Chargehand.Contracts.ContractSchemas.Result : System.String
+Chargehand.Contracts.ContractSchemas.RunStatus : System.String
+Chargehand.Contracts.ContractSchemas.RunSummary : System.String
+Chargehand.Contracts.ContractSchemas.TaskSpec : System.String
+Chargehand.Contracts.ContractSchemas.Text(System.String name) : System.String
+Chargehand.Contracts.ContractSchemas.Validate(System.String name, System.Text.Json.JsonElement document) : System.Collections.Generic.IReadOnlyList<System.String>
+Chargehand.Contracts.ContractSchemas.ValidateMcpOutput(System.Text.Json.JsonElement document) : System.Collections.Generic.IReadOnlyList<System.String>
+type Chargehand.Contracts.DrivenRules
+Chargehand.Contracts.DrivenRules.Cycle(System.Collections.Generic.IReadOnlyDictionary<System.String, System.Collections.Generic.IReadOnlyList<System.String>> dependsOn) : System.Collections.Generic.IReadOnlyList<System.String>
+Chargehand.Contracts.DrivenRules.DependencyProblems(System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.DrivenTask> tasks) : System.Collections.Generic.IReadOnlyList<System.String>
+Chargehand.Contracts.DrivenRules.MaxAcceptance : System.Int32
+Chargehand.Contracts.DrivenRules.MaxMinutesCeiling : System.Int32
+Chargehand.Contracts.DrivenRules.MaxTitleLength : System.Int32
+Chargehand.Contracts.DrivenRules.MaxTurnsCeiling : System.Int32
+Chargehand.Contracts.DrivenRules.Problems(Chargehand.Contracts.RequestDriven driven) : System.Collections.Generic.IReadOnlyList<System.String>
+Chargehand.Contracts.DrivenRules.Problems(Chargehand.Contracts.RunRequest request) : System.Collections.Generic.IReadOnlyList<System.String>
+type Chargehand.Contracts.DrivenTask
+Chargehand.Contracts.DrivenTask(System.String Id, System.String Ref = default, System.String Goal = default, System.Nullable<System.Int32> MaxTurns = default, System.Nullable<System.Int32> MaxMinutes = default, System.String Size = default, System.Nullable<System.Decimal> BudgetUsd = default, System.Collections.Generic.IReadOnlyList<System.String> Answers = default, Chargehand.Contracts.ContinueFrom ContinueFrom = default, System.Collections.Generic.IReadOnlyList<System.String> DependsOn = default, System.String Title = default, System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.AcceptanceCheck> Acceptance = default)
+Chargehand.Contracts.DrivenTask.Acceptance : System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.AcceptanceCheck>
+Chargehand.Contracts.DrivenTask.Answers : System.Collections.Generic.IReadOnlyList<System.String>
+Chargehand.Contracts.DrivenTask.BudgetUsd : System.Nullable<System.Decimal>
+Chargehand.Contracts.DrivenTask.ContinueFrom : Chargehand.Contracts.ContinueFrom
+Chargehand.Contracts.DrivenTask.DependsOn : System.Collections.Generic.IReadOnlyList<System.String>
+Chargehand.Contracts.DrivenTask.Goal : System.String
+Chargehand.Contracts.DrivenTask.Id : System.String
+Chargehand.Contracts.DrivenTask.MaxMinutes : System.Nullable<System.Int32>
+Chargehand.Contracts.DrivenTask.MaxTurns : System.Nullable<System.Int32>
+Chargehand.Contracts.DrivenTask.Ref : System.String
+Chargehand.Contracts.DrivenTask.Size : System.String
+Chargehand.Contracts.DrivenTask.Title : System.String
+type Chargehand.Contracts.ErrorCode
+Chargehand.Contracts.ErrorCode.Cancelled
+Chargehand.Contracts.ErrorCode.CheckoutHasSecrets
+Chargehand.Contracts.ErrorCode.CheckoutInvalid
+Chargehand.Contracts.ErrorCode.ContainerUnavailable
+Chargehand.Contracts.ErrorCode.CostCapReached
+Chargehand.Contracts.ErrorCode.CredentialUnavailable
+Chargehand.Contracts.ErrorCode.DeadlineExceeded
+Chargehand.Contracts.ErrorCode.DeliveryFailed
+Chargehand.Contracts.ErrorCode.IntakeFailed
+Chargehand.Contracts.ErrorCode.Internal
+Chargehand.Contracts.ErrorCode.InvalidRequest
+Chargehand.Contracts.ErrorCode.InvalidResult
+Chargehand.Contracts.ErrorCode.LocalOnly
+Chargehand.Contracts.ErrorCode.MergeConflict
+Chargehand.Contracts.ErrorCode.PrFailed
+Chargehand.Contracts.ErrorCode.ProviderUnavailable
+Chargehand.Contracts.ErrorCode.PushRejected
+Chargehand.Contracts.ErrorCode.RateLimited
+Chargehand.Contracts.ErrorCode.RepositoryNotAllowed
+Chargehand.Contracts.ErrorCode.RuntimeAmbiguous
+Chargehand.Contracts.ErrorCode.RuntimeUnavailable
+Chargehand.Contracts.ErrorCode.RuntimeUncapped
+Chargehand.Contracts.ErrorCode.RuntimeVersionMismatch
+Chargehand.Contracts.ErrorCode.SandboxUnavailable
+Chargehand.Contracts.ErrorCode.SessionFailed
+Chargehand.Contracts.ErrorCode.SessionStalled
+Chargehand.Contracts.ErrorCode.TasksIncomplete
+Chargehand.Contracts.ErrorCode.VerificationFailed
+type Chargehand.Contracts.Estimate
+Chargehand.Contracts.Estimate(System.Int64 TokensLow, System.Int64 TokensHigh, System.Decimal UsdLow, System.Decimal UsdHigh, System.String Basis)
+Chargehand.Contracts.Estimate.Basis : System.String
+Chargehand.Contracts.Estimate.TokensHigh : System.Int64
+Chargehand.Contracts.Estimate.TokensLow : System.Int64
+Chargehand.Contracts.Estimate.UsdHigh : System.Decimal
+Chargehand.Contracts.Estimate.UsdLow : System.Decimal
+type Chargehand.Contracts.Evidence
+Chargehand.Contracts.Evidence(System.String Id, Chargehand.Contracts.EvidenceKind Kind, System.String Locator, System.String Commit = default, System.String Sha256 = default)
+Chargehand.Contracts.Evidence.Commit : System.String
+Chargehand.Contracts.Evidence.Id : System.String
+Chargehand.Contracts.Evidence.Kind : Chargehand.Contracts.EvidenceKind
+Chargehand.Contracts.Evidence.Locator : System.String
+Chargehand.Contracts.Evidence.Sha256 : System.String
+type Chargehand.Contracts.EvidenceKind
+Chargehand.Contracts.EvidenceKind.Commit
+Chargehand.Contracts.EvidenceKind.Diff
+Chargehand.Contracts.EvidenceKind.File
+Chargehand.Contracts.EvidenceKind.Input
+Chargehand.Contracts.EvidenceKind.SessionMessage
+Chargehand.Contracts.EvidenceKind.Url
+type Chargehand.Contracts.NoOpVerify
+Chargehand.Contracts.NoOpVerify.IsNoOp(System.Collections.Generic.IReadOnlyList<System.String> argv) : System.Boolean
+Chargehand.Contracts.NoOpVerify.IsNoOp(System.String command) : System.Boolean
+type Chargehand.Contracts.PromptBlock
+Chargehand.Contracts.PromptBlock(System.String Name, System.String Version, System.String Sha256, System.String Text)
+Chargehand.Contracts.PromptBlock.Create(System.String name, System.String version, System.String text) : Chargehand.Contracts.PromptBlock
+Chargehand.Contracts.PromptBlock.Hash(System.String text) : System.String
+Chargehand.Contracts.PromptBlock.Name : System.String
+Chargehand.Contracts.PromptBlock.Normalize(System.String text) : System.String
+Chargehand.Contracts.PromptBlock.Sha256 : System.String
+Chargehand.Contracts.PromptBlock.Text : System.String
+Chargehand.Contracts.PromptBlock.Version : System.String
+type Chargehand.Contracts.PromptChain
+Chargehand.Contracts.PromptChain(System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.ChainBlock> Blocks, Chargehand.Contracts.AsSent AsSent)
+Chargehand.Contracts.PromptChain.AsSent : Chargehand.Contracts.AsSent
+Chargehand.Contracts.PromptChain.Blocks : System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.ChainBlock>
+type Chargehand.Contracts.RepositoryRef
+Chargehand.Contracts.RepositoryRef(System.String Path, System.String Commit)
+Chargehand.Contracts.RepositoryRef.Commit : System.String
+Chargehand.Contracts.RepositoryRef.Path : System.String
+type Chargehand.Contracts.RequestContext
+Chargehand.Contracts.RequestContext(System.Boolean Interactive, System.String Preset, System.Nullable<System.Decimal> BudgetUsd = default, Chargehand.Contracts.RepositoryRef Repository = default, System.Nullable<System.Boolean> Approved = default, System.Collections.Generic.IReadOnlyList<System.String> Verify = default, System.String Delivery = default, System.Nullable<System.Boolean> Enhance = default, System.String ParentRequestId = default)
+Chargehand.Contracts.RequestContext.Approved : System.Nullable<System.Boolean>
+Chargehand.Contracts.RequestContext.BudgetUsd : System.Nullable<System.Decimal>
+Chargehand.Contracts.RequestContext.Delivery : System.String
+Chargehand.Contracts.RequestContext.Enhance : System.Nullable<System.Boolean>
+Chargehand.Contracts.RequestContext.Interactive : System.Boolean
+Chargehand.Contracts.RequestContext.ParentRequestId : System.String
+Chargehand.Contracts.RequestContext.Preset : System.String
+Chargehand.Contracts.RequestContext.Repository : Chargehand.Contracts.RepositoryRef
+Chargehand.Contracts.RequestContext.Verify : System.Collections.Generic.IReadOnlyList<System.String>
+type Chargehand.Contracts.RequestDriven
+Chargehand.Contracts.RequestDriven(System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.DrivenTask> Tasks, System.Nullable<System.Int32> MaxParallel = default, System.Nullable<System.Int64> MaxTokensTotal = default, System.Nullable<System.Decimal> MaxUsdTotal = default, System.Boolean DraftPr = default, System.Nullable<System.Boolean> Plan = default, System.Nullable<System.Boolean> Bench = default, System.String Arm = default)
+Chargehand.Contracts.RequestDriven.Arm : System.String
+Chargehand.Contracts.RequestDriven.BareArm : System.String
+Chargehand.Contracts.RequestDriven.Bench : System.Nullable<System.Boolean>
+Chargehand.Contracts.RequestDriven.ChargehandArm : System.String
+Chargehand.Contracts.RequestDriven.DraftPr : System.Boolean
+Chargehand.Contracts.RequestDriven.IsBare : System.Boolean
+Chargehand.Contracts.RequestDriven.MaxParallel : System.Nullable<System.Int32>
+Chargehand.Contracts.RequestDriven.MaxTokensTotal : System.Nullable<System.Int64>
+Chargehand.Contracts.RequestDriven.MaxUsdTotal : System.Nullable<System.Decimal>
+Chargehand.Contracts.RequestDriven.Plan : System.Nullable<System.Boolean>
+Chargehand.Contracts.RequestDriven.Tasks : System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.DrivenTask>
+type Chargehand.Contracts.ResultContract
+Chargehand.Contracts.ResultContract(System.String ContractVersion, System.String TaskId, System.String NodeId, System.String TraceId, Chargehand.Contracts.PromptChain PromptChain, Chargehand.Contracts.ResultStatus Status, System.String Summary, System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.Claim> Claims, System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.Evidence> Evidence, System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.Artifact> Artifacts, System.Collections.Generic.IReadOnlyList<System.String> OpenQuestions, System.Double Confidence, Chargehand.Contracts.Usage Usage, Chargehand.Contracts.ResultError Error = default, Chargehand.Contracts.SignatureBlock Signature = default, System.String Actor = default)
+Chargehand.Contracts.ResultContract.Actor : System.String
+Chargehand.Contracts.ResultContract.Artifacts : System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.Artifact>
+Chargehand.Contracts.ResultContract.Claims : System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.Claim>
+Chargehand.Contracts.ResultContract.Confidence : System.Double
+Chargehand.Contracts.ResultContract.ContractVersion : System.String
+Chargehand.Contracts.ResultContract.Error : Chargehand.Contracts.ResultError
+Chargehand.Contracts.ResultContract.Evidence : System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.Evidence>
+Chargehand.Contracts.ResultContract.NodeId : System.String
+Chargehand.Contracts.ResultContract.OpenQuestions : System.Collections.Generic.IReadOnlyList<System.String>
+Chargehand.Contracts.ResultContract.PromptChain : Chargehand.Contracts.PromptChain
+Chargehand.Contracts.ResultContract.Signature : Chargehand.Contracts.SignatureBlock
+Chargehand.Contracts.ResultContract.Status : Chargehand.Contracts.ResultStatus
+Chargehand.Contracts.ResultContract.Summary : System.String
+Chargehand.Contracts.ResultContract.TaskId : System.String
+Chargehand.Contracts.ResultContract.TraceId : System.String
+Chargehand.Contracts.ResultContract.Usage : Chargehand.Contracts.Usage
+type Chargehand.Contracts.ResultError
+Chargehand.Contracts.ResultError(Chargehand.Contracts.ErrorCode Code, System.String Message, System.Boolean Retryable, System.String Action = default)
+Chargehand.Contracts.ResultError.Action : System.String
+Chargehand.Contracts.ResultError.Code : Chargehand.Contracts.ErrorCode
+Chargehand.Contracts.ResultError.Message : System.String
+Chargehand.Contracts.ResultError.Retryable : System.Boolean
+type Chargehand.Contracts.ResultSignature
+Chargehand.Contracts.ResultSignature.Algorithm : System.String
+Chargehand.Contracts.ResultSignature.Canonicalize(System.Text.Json.JsonElement result) : System.String
+Chargehand.Contracts.ResultSignature.KeyId(System.Security.Cryptography.ECDsa key) : System.String
+Chargehand.Contracts.ResultSignature.Sign(Chargehand.Contracts.ResultContract result, System.Security.Cryptography.ECDsa privateKey) : Chargehand.Contracts.ResultContract
+Chargehand.Contracts.ResultSignature.Verify(System.String resultJson, System.Security.Cryptography.ECDsa publicKey) : Chargehand.Contracts.SignatureCheck
+type Chargehand.Contracts.ResultStatus
+Chargehand.Contracts.ResultStatus.Completed
+Chargehand.Contracts.ResultStatus.Denied
+Chargehand.Contracts.ResultStatus.Failed
+Chargehand.Contracts.ResultStatus.NeedsInput
+type Chargehand.Contracts.Risk
+Chargehand.Contracts.Risk.High
+Chargehand.Contracts.Risk.Low
+Chargehand.Contracts.Risk.Medium
+type Chargehand.Contracts.RunEventKind
+Chargehand.Contracts.RunEventKind.Accepted
+Chargehand.Contracts.RunEventKind.ContainerStarted
+Chargehand.Contracts.RunEventKind.Governor
+Chargehand.Contracts.RunEventKind.Intake
+Chargehand.Contracts.RunEventKind.Integrated
+Chargehand.Contracts.RunEventKind.NodeFinished
+Chargehand.Contracts.RunEventKind.NodeStarted
+Chargehand.Contracts.RunEventKind.Operator
+Chargehand.Contracts.RunEventKind.Plan
+Chargehand.Contracts.RunEventKind.PrOpened
+Chargehand.Contracts.RunEventKind.Pushed
+Chargehand.Contracts.RunEventKind.Question
+Chargehand.Contracts.RunEventKind.RunFinished
+Chargehand.Contracts.RunEventKind.SessionProgress
+Chargehand.Contracts.RunEventKind.Started
+Chargehand.Contracts.RunEventKind.TaskFinished
+Chargehand.Contracts.RunEventKind.VerifyFinished
+type Chargehand.Contracts.RunRequest
+Chargehand.Contracts.RunRequest(System.String ContractVersion, System.String Text, Chargehand.Contracts.RequestContext Context, System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.CallerInput> Inputs = default, System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.PromptBlock> CallerBlocks = default, Chargehand.Contracts.RequestDriven Driven = default)
+Chargehand.Contracts.RunRequest.CallerBlocks : System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.PromptBlock>
+Chargehand.Contracts.RunRequest.Context : Chargehand.Contracts.RequestContext
+Chargehand.Contracts.RunRequest.ContractVersion : System.String
+Chargehand.Contracts.RunRequest.Driven : Chargehand.Contracts.RequestDriven
+Chargehand.Contracts.RunRequest.Inputs : System.Collections.Generic.IReadOnlyList<Chargehand.Contracts.CallerInput>
+Chargehand.Contracts.RunRequest.Text : System.String
+type Chargehand.Contracts.RunState
+Chargehand.Contracts.RunState.Completed
+Chargehand.Contracts.RunState.Denied
+Chargehand.Contracts.RunState.Failed
+Chargehand.Contracts.RunState.Lost
+Chargehand.Contracts.RunState.NeedsInput
+Chargehand.Contracts.RunState.Queued
+Chargehand.Contracts.RunState.Running
+type Chargehand.Contracts.RunStatus
+Chargehand.Contracts.RunStatus(System.String ContractVersion, System.String RunId, Chargehand.Contracts.RunState Status, System.Nullable<Chargehand.Contracts.RunEventKind> Event = default, System.Nullable<System.DateTimeOffset> At = default, System.String Action = default, System.String ExecutedAction = default, System.Nullable<System.Int32> Nodes = default, System.String NodeId = default, System.Nullable<Chargehand.Contracts.ResultStatus> NodeStatus = default, System.Nullable<System.Decimal> Usd = default, System.String Detail = default, Chargehand.Contracts.ResultContract Result = default, System.String TaskId = default, System.String Branch = default, System.String PrUrl = default, System.Nullable<System.Decimal> UsdTotal = default, System.Nullable<System.Int32> Turns = default, System.Nullable<System.Int64> Tokens = default, System.Nullable<Chargehand.Contracts.SessionStage> Stage = default, System.Nullable<System.Decimal> UsdEstimate = default, System.Nullable<System.Int64> CacheRead = default, System.Nullable<System.Int64> CacheWrite = default, System.Nullable<System.Boolean> UsdEstimatePartial = default, System.String Actor = default, System.Nullable<System.Int32> MemoryPeakMb = default, System.String Runner = default)
+Chargehand.Contracts.RunStatus.Action : System.String
+Chargehand.Contracts.RunStatus.Actor : System.String
+Chargehand.Contracts.RunStatus.At : System.Nullable<System.DateTimeOffset>
+Chargehand.Contracts.RunStatus.Branch : System.String
+Chargehand.Contracts.RunStatus.CacheRead : System.Nullable<System.Int64>
+Chargehand.Contracts.RunStatus.CacheWrite : System.Nullable<System.Int64>
+Chargehand.Contracts.RunStatus.ContractVersion : System.String
+Chargehand.Contracts.RunStatus.Detail : System.String
+Chargehand.Contracts.RunStatus.Event : System.Nullable<Chargehand.Contracts.RunEventKind>
+Chargehand.Contracts.RunStatus.ExecutedAction : System.String
+Chargehand.Contracts.RunStatus.MemoryPeakMb : System.Nullable<System.Int32>
+Chargehand.Contracts.RunStatus.NodeId : System.String
+Chargehand.Contracts.RunStatus.NodeStatus : System.Nullable<Chargehand.Contracts.ResultStatus>
+Chargehand.Contracts.RunStatus.Nodes : System.Nullable<System.Int32>
+Chargehand.Contracts.RunStatus.Of(System.String runId, Chargehand.Contracts.RunState status, System.Nullable<Chargehand.Contracts.RunEventKind> kind = default) : Chargehand.Contracts.RunStatus
+Chargehand.Contracts.RunStatus.PrUrl : System.String
+Chargehand.Contracts.RunStatus.Result : Chargehand.Contracts.ResultContract
+Chargehand.Contracts.RunStatus.RunId : System.String
+Chargehand.Contracts.RunStatus.Runner : System.String
+Chargehand.Contracts.RunStatus.Stage : System.Nullable<Chargehand.Contracts.SessionStage>
+Chargehand.Contracts.RunStatus.StateOf(Chargehand.Contracts.ResultStatus status) : Chargehand.Contracts.RunState
+Chargehand.Contracts.RunStatus.Status : Chargehand.Contracts.RunState
+Chargehand.Contracts.RunStatus.TaskId : System.String
+Chargehand.Contracts.RunStatus.Tokens : System.Nullable<System.Int64>
+Chargehand.Contracts.RunStatus.Turns : System.Nullable<System.Int32>
+Chargehand.Contracts.RunStatus.Usd : System.Nullable<System.Decimal>
+Chargehand.Contracts.RunStatus.UsdEstimate : System.Nullable<System.Decimal>
+Chargehand.Contracts.RunStatus.UsdEstimatePartial : System.Nullable<System.Boolean>
+Chargehand.Contracts.RunStatus.UsdTotal : System.Nullable<System.Decimal>
+type Chargehand.Contracts.RunSummary
+Chargehand.Contracts.RunSummary(System.String ContractVersion, System.String RunId, Chargehand.Contracts.RunState Status, System.String Preset, System.DateTimeOffset StartedAt, System.String ParentRunId = default, System.String TaskRef = default, System.Nullable<System.DateTimeOffset> FinishedAt = default, System.Nullable<System.Decimal> Usd = default, System.String Branch = default, System.String PrUrl = default, System.Nullable<Chargehand.Contracts.ErrorCode> ErrorCode = default, System.String Actor = default, System.String Kind = default, System.String Repository = default, System.Nullable<System.Int64> Tokens = default, System.String Commit = default)
+Chargehand.Contracts.RunSummary.Actor : System.String
+Chargehand.Contracts.RunSummary.Branch : System.String
+Chargehand.Contracts.RunSummary.Commit : System.String
+Chargehand.Contracts.RunSummary.ContractVersion : System.String
+Chargehand.Contracts.RunSummary.ErrorCode : System.Nullable<Chargehand.Contracts.ErrorCode>
+Chargehand.Contracts.RunSummary.FinishedAt : System.Nullable<System.DateTimeOffset>
+Chargehand.Contracts.RunSummary.Kind : System.String
+Chargehand.Contracts.RunSummary.ParentRunId : System.String
+Chargehand.Contracts.RunSummary.PrUrl : System.String
+Chargehand.Contracts.RunSummary.Preset : System.String
+Chargehand.Contracts.RunSummary.Repository : System.String
+Chargehand.Contracts.RunSummary.RunId : System.String
+Chargehand.Contracts.RunSummary.StartedAt : System.DateTimeOffset
+Chargehand.Contracts.RunSummary.Status : Chargehand.Contracts.RunState
+Chargehand.Contracts.RunSummary.TaskRef : System.String
+Chargehand.Contracts.RunSummary.Tokens : System.Nullable<System.Int64>
+Chargehand.Contracts.RunSummary.Usd : System.Nullable<System.Decimal>
+type Chargehand.Contracts.SessionStage
+Chargehand.Contracts.SessionStage.Research
+Chargehand.Contracts.SessionStage.Review
+Chargehand.Contracts.SessionStage.Test
+Chargehand.Contracts.SessionStage.Write
+type Chargehand.Contracts.SignatureBlock
+Chargehand.Contracts.SignatureBlock(System.String Alg, System.String KeyId, System.String Value)
+Chargehand.Contracts.SignatureBlock.Alg : System.String
+Chargehand.Contracts.SignatureBlock.KeyId : System.String
+Chargehand.Contracts.SignatureBlock.Value : System.String
+type Chargehand.Contracts.SignatureCheck
+Chargehand.Contracts.SignatureCheck(System.Boolean Valid, System.String Reason)
+Chargehand.Contracts.SignatureCheck.Reason : System.String
+Chargehand.Contracts.SignatureCheck.Valid : System.Boolean
+type Chargehand.Contracts.SnakeCaseEnumConverter<TEnum>
+Chargehand.Contracts.SnakeCaseEnumConverter<TEnum>()
+type Chargehand.Contracts.TaskAction
+Chargehand.Contracts.TaskAction.Answer
+Chargehand.Contracts.TaskAction.Ask
+Chargehand.Contracts.TaskAction.Deny
+Chargehand.Contracts.TaskAction.Improve
+Chargehand.Contracts.TaskAction.Split
+type Chargehand.Contracts.TaskSpec
+Chargehand.Contracts.TaskSpec(System.String ContractVersion, System.String Id, System.String Goal, System.Collections.Generic.IReadOnlyList<System.String> Constraints, System.Collections.Generic.IReadOnlyList<System.String> AcceptanceCriteria, Chargehand.Contracts.Risk Risk, Chargehand.Contracts.Estimate Estimate, Chargehand.Contracts.TaskAction Action, System.Nullable<System.Text.Json.JsonElement> ActionDetail)
+Chargehand.Contracts.TaskSpec.AcceptanceCriteria : System.Collections.Generic.IReadOnlyList<System.String>
+Chargehand.Contracts.TaskSpec.Action : Chargehand.Contracts.TaskAction
+Chargehand.Contracts.TaskSpec.ActionDetail : System.Nullable<System.Text.Json.JsonElement>
+Chargehand.Contracts.TaskSpec.Constraints : System.Collections.Generic.IReadOnlyList<System.String>
+Chargehand.Contracts.TaskSpec.ContractVersion : System.String
+Chargehand.Contracts.TaskSpec.Estimate : Chargehand.Contracts.Estimate
+Chargehand.Contracts.TaskSpec.Goal : System.String
+Chargehand.Contracts.TaskSpec.Id : System.String
+Chargehand.Contracts.TaskSpec.Risk : Chargehand.Contracts.Risk
+type Chargehand.Contracts.Usage
+Chargehand.Contracts.Usage(System.Int64 Input, System.Int64 Output, System.Int64 CacheRead, System.Int64 CacheWrite, System.Nullable<System.Decimal> Usd)
+Chargehand.Contracts.Usage.CacheRead : System.Int64
+Chargehand.Contracts.Usage.CacheWrite : System.Int64
+Chargehand.Contracts.Usage.Input : System.Int64
+Chargehand.Contracts.Usage.Output : System.Int64
+Chargehand.Contracts.Usage.Usd : System.Nullable<System.Decimal>
