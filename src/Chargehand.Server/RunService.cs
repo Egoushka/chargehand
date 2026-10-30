@@ -357,7 +357,14 @@ public sealed class RunHandle(string id, CancellationToken stopping) : IDisposab
     public void CancelByCaller()
     {
         CancelledByCaller = true;
-        _cancel.Cancel();
+        try
+        {
+            _cancel.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The run finished and disposed its token between Halt's (or Cancel's) snapshot and this call: nothing left to cancel.
+        }
     }
 
     public void Dispose() => _cancel.Dispose();
