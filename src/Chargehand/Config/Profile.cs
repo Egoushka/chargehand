@@ -159,6 +159,10 @@ public sealed record Profile(
     public string? ResolveModel(string model) =>
         Models?.GetValueOrDefault(model) ?? (model.StartsWith(PlaceholderProvider, StringComparison.Ordinal) ? null : model);
 
+    /// <summary>The price of the id a model resolves to, else of the model as written (a <c>prices</c> entry may name a placeholder).</summary>
+    public ModelPrice? PriceOf(string model) =>
+        (ResolveModel(model) is { } id ? Prices?.GetValueOrDefault(id) : null) ?? Prices?.GetValueOrDefault(model);
+
     /// <summary>Tries each source in order; the first that resolves the item wins (ADR 0026). Default with no profile: env only.
     /// A command source that outruns <see cref="CommandTimeout"/> is killed and counts as not resolving (ADR 0034).</summary>
     public string Secret(string item)

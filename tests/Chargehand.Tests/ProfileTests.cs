@@ -236,6 +236,19 @@ public class ProfileTests
     }
 
     [Fact]
+    public void A_placeholder_model_is_priced_by_the_id_it_maps_to()
+    {
+        var price = new ModelPrice(2m, 10m, 0.2m, 4m);
+        var profile = new Profile("profile/v1", Models: new Dictionary<string, string> { ["provider/worker-model"] = "anthropic/sonnet" },
+            Prices: new Dictionary<string, ModelPrice> { ["anthropic/sonnet"] = price });
+
+        Assert.Equal(price, profile.PriceOf("provider/worker-model"));
+        Assert.Equal(price, profile.PriceOf("anthropic/sonnet"));
+        Assert.Null(profile.PriceOf("provider/small-model"));
+        Assert.Null(new Profile("profile/v1").PriceOf("anthropic/sonnet"));
+    }
+
+    [Fact]
     public async Task With_no_models_map_the_worker_gets_no_model_and_the_chain_says_auto()
     {
         using var root = new TempDir();

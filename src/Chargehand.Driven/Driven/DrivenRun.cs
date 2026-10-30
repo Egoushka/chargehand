@@ -386,7 +386,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var credential = own?.ApiKeySecret ?? (priced ? claude.ApiKeySecret : claude.OauthTokenSecret)
             ?? throw new ChargehandException(ErrorCode.CredentialUnavailable, "claude_code names no credential", "Set api_key_secret or oauth_token_secret.");
         var modelEnvironment = new Dictionary<string, string> { [priced ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN"] = Resolve(s, credential) };
-        var fallbackSetup = FallbackSetup.Of(claude, kind.Model, model => profile.Prices?.GetValueOrDefault(model), priced, fallback, name => Resolve(s, name), c.RunId);
+        var fallbackSetup = FallbackSetup.Of(claude, kind.Model, profile.PriceOf, priced, fallback, name => Resolve(s, name), c.RunId);
         return new BatchSetup(s, settings, claude, image, drivenPreset, kind.Model, own, priced, limits, push, modelEnvironment, SitesOf(s), fallbackSetup);
     }
 
