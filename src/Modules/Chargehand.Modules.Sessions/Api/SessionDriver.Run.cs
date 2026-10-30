@@ -72,19 +72,26 @@ public static partial class SessionDriver
             _exitCode = _process.ExitCode;
         }
 
-        /// <summary>The check gate: while the session finished on its own, run the repository's checks and the task's criteria; a failure resumes the session with the
-        /// failure as its next turn, at most <see cref="SessionTask.CheckRetries"/> times and within the wall clock.</summary>
+        /// <summary>The check gate: while the session finished on its own, run the repository's checks and the task's criteria, and look for a CI-configuration edit
+        /// (issue #527: chargehand refuses to push one, so it is caught here, before the handover would refuse it after the whole session ran). A failure resumes the
+        /// session with the failure as its next turn, at most <see cref="SessionTask.CheckRetries"/> times and within the wall clock.</summary>
         /// <returns>The last round's results; null when none ran.</returns>
         public async Task<IReadOnlyList<CheckResult>?> GateAsync(IReadOnlyList<string> rules, string? start, Func<(string SessionId, string Prompt), ProcessStartInfo> resume,
             CancellationToken ct)
         {
             var check = _task.Check is { Count: > 0 } declared ? SessionChecks.Shell(declared) : null;
-            if (rules.Count == 0 && _task.Acceptance is not { Count: > 0 } && check is null)
+            // The bare arm takes no gate (ADR 0080); a workspace with no commit yet has nothing to diff for a CI edit either.
+            var ciAware = !_task.Bare && start is not null;
+            if (rules.Count == 0 && _task.Acceptance is not { Count: > 0 } && check is null && !ciAware)
                 return null;
             IReadOnlyList<CheckResult>? results = null;
             for (var attempt = 1; Finished(); attempt++)
             {
-                results = await SessionChecks.RunAllAsync(rules, _task.Acceptance, options.WorkDirectory, attempt, options.Secrets, ct, declared: check);
+                var ci = ciAware ? SessionChecks.CiResults(await ChangedPathsAsync(options.WorkDirectory, start!, ct), attempt) : [];
+                var others = await SessionChecks.RunAllAsync(rules, _task.Acceptance, options.WorkDirectory, attempt, options.Secrets, ct, declared: check);
+                results = [.. ci, .. others];
+                if (results.Count == 0)
+                    return null;
                 if (results.All(r => r.Passed))
                     return results;
                 if (attempt > _task.CheckRetries || _tally.SessionId is not { } session || detector.Check(DateTimeOffset.UtcNow) is StallReason.WallClock)

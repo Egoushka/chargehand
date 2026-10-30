@@ -26,6 +26,22 @@ public static partial class SessionDriver
         await govern(onDiff(lines));
     }
 
+    /// <summary>The paths changed since <paramref name="start"/>: the branch's own commits plus whatever sits uncommitted in the working tree, tracked or not. The check gate
+    /// runs before the driver's own commit (<see cref="SessionDriver.Run.CommitAsync"/>), so a CI-configuration edit must be caught here before it is committed, not only in what the
+    /// branch ends up carrying. A git call that fails leaves its half out rather than failing the gate.</summary>
+    private static async Task<IReadOnlyList<string>> ChangedPathsAsync(string work, string start, CancellationToken ct)
+    {
+        var timeout = TimeSpan.FromSeconds(20);
+        var tracked = await Git(work, ["diff", "--name-only", "-z", start], ct, timeout);
+        var untracked = await Git(work, ["ls-files", "--others", "--exclude-standard", "-z"], ct, timeout);
+        var paths = new HashSet<string>(StringComparer.Ordinal);
+        if (tracked.Exit == 0)
+            paths.UnionWith(tracked.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries));
+        if (untracked.Exit == 0)
+            paths.UnionWith(untracked.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries));
+        return [.. paths];
+    }
+
     private static async Task<bool> BundleAsync(SessionOptions options, CancellationToken ct)
     {
         var branch = options.Task.Branch;

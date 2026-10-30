@@ -77,7 +77,8 @@ public static class TaskResultBuilder
             SessionStatus.NeedsInput => draft.Result(ResultStatus.NeedsInput, "The session needs answers before it can continue.",
                 questions: s.Questions.Count > 0 ? s.Questions : ["The session asked for input but named no question."]),
             SessionStatus.Stalled => draft.Unfinished(ErrorCode.SessionStalled, $"the session was stopped: {s.Reason.Replace('_', ' ')}",
-                "Send the task again with a narrower goal, or raise the driven preset's limits (max_minutes, no_progress_minutes, max_turns). The session log is in the session-log artifact."),
+                "Send the task again with a narrower goal, or raise the driven preset's limits (max_minutes, no_progress_minutes, max_turns). The session log is in the session-log artifact.",
+                ChargehandException.Retryable(ErrorCode.SessionStalled)),
             SessionStatus.RateLimited when s.Reason == GatewayRefusal.BudgetReason => draft.Unfinished(ErrorCode.RateLimited, "the model gateway refused the session over a spend budget",
                 "No start can succeed until the budget resets; the task's branch and output are kept. Send the task again after the reset.", ChargehandException.Retryable(ErrorCode.RateLimited)),
             SessionStatus.RateLimited => draft.Unfinished(ErrorCode.RateLimited, "the session ended on a usage or rate limit",
@@ -157,7 +158,7 @@ public static class TaskResultBuilder
             handover.TestIntegrity is { } flag ? new TestIntegrityArtifact(true, flag.Reason, flag.TestPaths, flag.BuildPaths) : null);
 
     private static ResultContract Reject(ResultContract contract, ErrorCode code, string message, string action) =>
-        contract with { Status = ResultStatus.Failed, Summary = message, Confidence = 0, Error = new ResultError(code, message, false, action) };
+        contract with { Status = ResultStatus.Failed, Summary = message, Confidence = 0, Error = new ResultError(code, message, ChargehandException.Retryable(code), action) };
 
     /// <summary>The <c>changes</c> artifact: every changed path with its line counts, and the diff. It is inline, so it stays within 64 KiB: the diff goes first
     /// (<c>diff</c> null, <c>diff_truncated</c> true), then paths from the end; <c>files_total</c> keeps the real count.</summary>
