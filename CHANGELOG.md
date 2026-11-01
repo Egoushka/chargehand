@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.10](https://github.com/Egoushka/chargehand/compare/v0.19.9...v0.19.10) (2026-11-01)
+
+
+### Features
+
+* **contracts:** friendly names for runs ([#704](https://github.com/Egoushka/chargehand/issues/704)) ([0de6661](https://github.com/Egoushka/chargehand/commit/0de6661f2f8dc66959255e56388967ae0b90d822))
+
+
+### Bug Fixes
+
+* **handover:** never merge or auto-merge a pull request that adds a database migration ([#703](https://github.com/Egoushka/chargehand/issues/703)) ([06a8c5f](https://github.com/Egoushka/chargehand/commit/06a8c5f0754393bf14727cbb3f158479e160ca90))
+
 ## [0.19.9](https://github.com/Egoushka/chargehand/compare/v0.19.8...v0.19.9) (2026-10-30)
 
 
