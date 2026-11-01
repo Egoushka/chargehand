@@ -77,7 +77,6 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
             var pr = await host.GetAsync(target.Repository, target.Number, ct);
             if (pr.Merged || pr.Closed)
                 return Say(report, IntegrationAction.None, pr.Merged ? "the pull request is already merged" : "the pull request is closed");
-            // A migration waits for its owner whatever the policy; a pull request whose files cannot be read is not merged either (IntegrationException below).
             string? migration;
             (mode, migration) = await MigrationModeAsync(target, mode, ct);
             // Auto-merge waits only for required checks: without one, a merge would land before CI runs (CHARGEHAND-244).
@@ -105,7 +104,7 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
         }
     }
 
-    /// <summary>A pull request that changes a migration is asked about, never merged, on a repository that would merge; the migration's path says why.</summary>
+    /// <summary>A pull request that changes a migration is asked about, never merged, on a repository that would merge; the migration's path says why. Files that cannot be read stop the integration.</summary>
     private async Task<(IntegrationMode Mode, string? Migration)> MigrationModeAsync(IntegrationTarget target, IntegrationMode mode, CancellationToken ct)
     {
         if (mode != IntegrationMode.Merge)

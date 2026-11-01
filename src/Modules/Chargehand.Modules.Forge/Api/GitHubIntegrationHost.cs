@@ -75,6 +75,7 @@ public interface IIntegrationHost : IBranchRules, ICiHistory
 /// The token comes from <see cref="IInstallationTokens"/> and is redacted from every message.</summary>
 public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallationTokens tokens) : IIntegrationHost
 {
+    private const int FilesPerPage = 100;
     private const string StateQuery = """
         query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){
           id number state isDraft merged headRefOid baseRefName mergeStateStatus autoMergeRequest{enabledAt}
@@ -188,8 +189,7 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
                 foreach (var file in files)
                 {
                     paths.Add(file.GetProperty("filename").GetString() ?? "");
-                    if (file.TryGetProperty("previous_filename", out var old) && old.ValueKind == JsonValueKind.String)
-                        paths.Add(old.GetString()!);
+                    if (file.TryGetProperty("previous_filename", out var old) && old.ValueKind == JsonValueKind.String) paths.Add(old.GetString()!);
                 }
                 if (files.Count < FilesPerPage)
                     return paths;
@@ -200,8 +200,6 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
             }
         }
     }
-
-    private const int FilesPerPage = 100;
 
     public async Task UpdateBranchAsync(RemoteRepository repository, int number, string expectedHeadSha, CancellationToken ct) =>
         await RestAsync(repository, HttpMethod.Put, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/update-branch", new BranchUpdate(expectedHeadSha), "the branch update", ct);
