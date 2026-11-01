@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.9](https://github.com/Egoushka/chargehand/compare/v0.19.8...v0.19.9) (2026-10-30)
+
+
+### Features
+
+* **deploy:** add update.sh to refuse a dirty checkout, swap builds and check health ([#693](https://github.com/Egoushka/chargehand/issues/693)) ([d436e5a](https://github.com/Egoushka/chargehand/commit/d436e5af9a9f1fb324aefe2580f809c0b026861b))
+
+
+### Bug Fixes
+
+* **server:** catch ObjectDisposedException in RunHandle.CancelByCaller ([#691](https://github.com/Egoushka/chargehand/issues/691)) ([98c8cae](https://github.com/Egoushka/chargehand/commit/98c8caecde1da732ba65d13da93d7b79cf4de0a7))
+* **sessions:** catch a CI configuration edit in the check gate, before handover ([#688](https://github.com/Egoushka/chargehand/issues/688)) ([b728ae1](https://github.com/Egoushka/chargehand/commit/b728ae13c4c19f36b582b0acbdb5497cc78c6fca))
+
 ## [0.19.8](https://github.com/Egoushka/chargehand/compare/v0.19.7...v0.19.8) (2026-10-30)
 
 
