@@ -45,6 +45,10 @@ public interface IIntegrationHost : IBranchRules, ICiHistory
     Task<IReadOnlyList<CheckStatus>> BaseChecksAsync(RemoteRepository repository, string branch, CancellationToken ct) =>
         throw new IntegrationException($"{Name} cannot read a branch's checks from here");
 
+    /// <summary>Every path the pull request touches, new and old names alike. A forge that cannot list them throws, and the integrator then does not merge.</summary>
+    Task<IReadOnlyList<string>> ChangedPathsAsync(RemoteRepository repository, int number, CancellationToken ct) =>
+        throw new IntegrationException($"{Name} cannot list a pull request's files from here");
+
     Task UpdateBranchAsync(RemoteRepository repository, int number, string expectedHeadSha, CancellationToken ct);
 
     /// <param name="repository">The pull request's repository: the App is installed per owner, so the call needs to know whose installation to act as.</param>
@@ -170,6 +174,34 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
             throw new IntegrationException("GitHub answered with a body that is not a branch's checks");
         }
     }
+
+    public async Task<IReadOnlyList<string>> ChangedPathsAsync(RemoteRepository repository, int number, CancellationToken ct)
+    {
+        var paths = new List<string>();
+        for (var page = 1; ; page++)
+        {
+            var path = $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/files?per_page={FilesPerPage.ToString(CultureInfo.InvariantCulture)}&page={page.ToString(CultureInfo.InvariantCulture)}";
+            try
+            {
+                using var doc = JsonDocument.Parse(await RestAsync(repository, HttpMethod.Get, path, null, "the pull request's files", ct));
+                var files = doc.RootElement.EnumerateArray().ToList();
+                foreach (var file in files)
+                {
+                    paths.Add(file.GetProperty("filename").GetString() ?? "");
+                    if (file.TryGetProperty("previous_filename", out var old) && old.ValueKind == JsonValueKind.String)
+                        paths.Add(old.GetString()!);
+                }
+                if (files.Count < FilesPerPage)
+                    return paths;
+            }
+            catch (Exception e) when (e is JsonException or InvalidOperationException or KeyNotFoundException)
+            {
+                throw new IntegrationException("GitHub answered with a body that is not a list of files");
+            }
+        }
+    }
+
+    private const int FilesPerPage = 100;
 
     public async Task UpdateBranchAsync(RemoteRepository repository, int number, string expectedHeadSha, CancellationToken ct) =>
         await RestAsync(repository, HttpMethod.Put, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/update-branch", new BranchUpdate(expectedHeadSha), "the branch update", ct);

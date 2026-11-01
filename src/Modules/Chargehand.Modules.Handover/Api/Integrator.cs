@@ -35,6 +35,8 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
 
     private const string TestIntegrityMarker = "<!-- chargehand-integration test-integrity -->";
 
+    private const string MigrationMarker = "<!-- chargehand-integration migration -->";
+
     private const string NoChecksMarker = "<!-- chargehand-integration no-required-checks -->";
 
     private readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? ((span, ct) => Task.Delay(span, ct));
@@ -75,6 +77,9 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
             var pr = await host.GetAsync(target.Repository, target.Number, ct);
             if (pr.Merged || pr.Closed)
                 return Say(report, IntegrationAction.None, pr.Merged ? "the pull request is already merged" : "the pull request is closed");
+            // A migration waits for its owner whatever the policy; a pull request whose files cannot be read is not merged either (IntegrationException below).
+            string? migration;
+            (mode, migration) = await MigrationModeAsync(target, mode, ct);
             // Auto-merge waits only for required checks: without one, a merge would land before CI runs (CHARGEHAND-244).
             var gate = mode == IntegrationMode.Merge ? await host.ChecksGateAsync(target.Repository, pr.BaseBranch, ct) : ChecksGate.Required;
             if (gate != ChecksGate.Required)
@@ -92,12 +97,21 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
                 report("marked ready for review");
                 pr = await host.GetAsync(target.Repository, target.Number, ct);
             }
-            return mode == IntegrationMode.Ask ? await AskAsync(target, pr, gate, report, ct) : await MergeAsync(target, pr, report, ct);
+            return mode == IntegrationMode.Ask ? await AskAsync(target, pr, gate, migration, report, ct) : await MergeAsync(target, pr, report, ct);
         }
         catch (IntegrationException e)
         {
             return Say(report, IntegrationAction.Failed, $"integration stopped: {e.Message}");
         }
+    }
+
+    /// <summary>A pull request that changes a migration is asked about, never merged, on a repository that would merge; the migration's path says why.</summary>
+    private async Task<(IntegrationMode Mode, string? Migration)> MigrationModeAsync(IntegrationTarget target, IntegrationMode mode, CancellationToken ct)
+    {
+        if (mode != IntegrationMode.Merge)
+            return (mode, null);
+        var migration = MigrationPaths.Find(await host.ChangedPathsAsync(target.Repository, target.Number, ct));
+        return (migration is null ? mode : IntegrationMode.Ask, migration);
     }
 
     /// <summary>A branch behind its base brought up to date: the pull request at its new head, or the result that stops the integration.</summary>
@@ -120,8 +134,13 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
         return (null, moved);
     }
 
-    private async Task<IntegrationResult> AskAsync(IntegrationTarget target, PrSnapshot pr, ChecksGate gate, Action<string> report, CancellationToken ct)
+    private async Task<IntegrationResult> AskAsync(IntegrationTarget target, PrSnapshot pr, ChecksGate gate, string? migration, Action<string> report, CancellationToken ct)
     {
+        if (migration is not null)
+        {
+            await CommentOnceAsync(target, pr, MigrationMarker, $"chargehand marked this pull request ready but does not merge it: it adds a database migration ({migration}). The repository owner merges it.", ct);
+            return Say(report, IntegrationAction.Asked, $"marked ready; not merged because it adds a database migration ({migration})");
+        }
         if (gate != ChecksGate.Required)
         {
             var reason = gate == ChecksGate.None
@@ -289,12 +308,12 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
         return new(null, true);
     }
 
-    /// <summary>Every required check passed: ask leaves it to a person; otherwise a merge chargehand makes or cannot make ends the watch, and null waits for the host's auto-merge.</summary>
+    /// <summary>Every required check passed: ask leaves it to a person; otherwise a merge chargehand makes or cannot make, or a pull request left for a person, ends the watch, and null waits for the host's auto-merge.</summary>
     private async Task<IntegrationResult?> DoneAsync(IntegrationTarget target, PrSnapshot pr, IntegrationMode mode, Action<string> report, Action<string>? headMoved, CancellationToken ct)
     {
         if (mode == IntegrationMode.Ask)
             return Say(report, IntegrationAction.Asked, "required checks passed; left for a person to merge");
-        if (!pr.AutoMerge && await IntegrateAsync(target, report, ct, headMoved) is { Action: IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.NeedsAttention } done)
+        if (!pr.AutoMerge && await IntegrateAsync(target, report, ct, headMoved) is { Action: IntegrationAction.Asked or IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.NeedsAttention } done)
             return done;
         return null;
     }

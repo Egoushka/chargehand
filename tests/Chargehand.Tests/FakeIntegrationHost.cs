@@ -47,6 +47,14 @@ internal sealed class FakeIntegrationHost : IIntegrationHost
     public static PrSnapshot Snapshot(string head = "aaaaaaa1", bool draft = true, string status = "DRAFT", bool autoMerge = false, bool merged = false, IReadOnlyList<CheckStatus>? checks = null) =>
         new("PR_node", 7, head, "main", draft, merged, false, status, autoMerge, checks ?? [], []);
 
+    /// <summary>The paths the pull request changes; not in <see cref="Calls"/>, like the checks gate.</summary>
+    public IReadOnlyList<string> ChangedPaths { get; set; } = ["src/App.cs"];
+
+    public Exception? ChangedPathsFail { get; set; }
+
+    public Task<IReadOnlyList<string>> ChangedPathsAsync(RemoteRepository repository, int number, CancellationToken ct) =>
+        ChangedPathsFail is not null ? throw ChangedPathsFail : Task.FromResult(ChangedPaths);
+
     public Task<PrSnapshot> GetAsync(RemoteRepository repository, int number, CancellationToken ct)
     {
         Calls.Add("get");
