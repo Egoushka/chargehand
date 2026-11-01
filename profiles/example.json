@@ -24,7 +24,20 @@
   },
   "http": {
     "port": 4300,
-    "api_key_secret": "chargehand-api-key"
+    "api_key_secret": "chargehand-api-key",
+    "accounts": [
+      {
+        "name": "peer-harvest",
+        "max_usd_per_month": 20.0,
+        "public_clone": true
+      }
+    ]
+  },
+  "peer_clone": {
+    "root": "/srv/chargehand/peer-clones",
+    "max_repository_bytes": 200000000,
+    "min_free_bytes": 5000000000,
+    "token_secret": "chargehand-peer-clone-github-token"
   },
   "mcp_servers": {
     "memory-gateway": {
