@@ -525,23 +525,23 @@ describe('the budget estimate', () => {
   it('pools every repository when this one has too few, weighted by their task counts', () => {
     const estimate = estimateTask({ size: 'M', budget: '' }, learn(), rules, here);
     expect(estimate.source).toBe('all');
-    expect(estimate.n).toBe(26);
+    expect(estimate.n).toBe(7);
     expect(estimate.repositories).toBe(2);
-    expect(estimate.usd).toBeCloseTo((1.0 * 14 + 0.9 * 12) / 26, 6);
-    expect(estimate.label).toBe('about p80 of 26 past M tasks in 2 repositories');
+    expect(estimate.usd).toBeCloseTo((1.0 * 3 + 0.9 * 4) / 7, 6);
+    expect(estimate.label).toBe('about p80 of 7 past M tasks in 2 repositories');
   });
 
   it('falls back to the flat budget when history is too thin, and says why', () => {
     const estimate = estimateTask({ size: 'L', budget: '' }, learn(), rules, here);
     expect(estimate).toMatchObject({ usd: 10, source: 'flat' });
-    expect(estimate.label).toBe('the flat L budget; only 6 past L tasks, the server needs 20');
+    expect(estimate.label).toBe('the flat L budget; only 3 past L tasks, the server needs 5');
     const none = estimateTask(
       { size: 'S', budget: '' },
       { since: null, tasks: 0, groups: [] },
       rules,
       here,
     );
-    expect(none.label).toBe('the flat S budget; no past S tasks, the server needs 20');
+    expect(none.label).toBe('the flat S budget; no past S tasks, the server needs 5');
   });
 
   it('assumes M for a task with no size, and says so', () => {
