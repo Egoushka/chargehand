@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace Chargehand.Contracts;
 
-/// <summary>result/v1: what a node returns, and what a run returns to its caller. <c>Actor</c> is the account that started the run (ADR 0050); null for a CLI run.</summary>
+/// <summary>result/v1: what a node returns, and what a run returns to its caller. <c>Actor</c> is the account that started the run (ADR 0050); null for a CLI run. <c>Name</c> is the run's friendly name (<see cref="RunNames"/>); the id stays the key.</summary>
 public sealed record ResultContract(
     string ContractVersion,
     string TaskId,
@@ -19,7 +19,11 @@ public sealed record ResultContract(
     Usage Usage,
     ResultError? Error = null,
     SignatureBlock? Signature = null,
-    string? Actor = null);
+    string? Actor = null)
+{
+    /// <summary>The run's friendly name, like "Brave Capybara". A separate property, not a constructor parameter, so the published constructor keeps its shape.</summary>
+    public string? Name { get; init; }
+}
 
 [JsonConverter(typeof(SnakeCaseEnumConverter<ResultStatus>))]
 public enum ResultStatus { Completed, NeedsInput, Failed, Denied }

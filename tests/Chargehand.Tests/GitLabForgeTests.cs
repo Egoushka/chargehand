@@ -41,6 +41,7 @@ public class GitLabForgeTests
     {
         var path = request.RequestUri!.PathAndQuery;
         return path.EndsWith(Project, StringComparison.Ordinal) ? Json("""{"only_allow_merge_if_pipeline_succeeds":true}""")
+            : path.Contains("/diffs", StringComparison.Ordinal) ? Json("[]")
             : path.Contains("/jobs", StringComparison.Ordinal) ? Json(jobs ?? Jobs)
             : path.Contains("/notes", StringComparison.Ordinal) ? Json(notes ?? """[{"body":"<!-- chargehand-ci-fix attempt=1 jobs=0123456789ab -->"},{"body":"hello"}]""")
             : Json(mergeRequest ?? MergeRequest());

@@ -169,6 +169,8 @@ describe('Overview with data', () => {
   });
 
   it('lists the pull requests merged in the last 24 hours, newest first, with the time as a title', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); // the title prints the month, which moves with the real clock
+    vi.setSystemTime(Date.parse('2026-10-14T12:00:00Z'));
     serveApi({ runs: running });
     renderConsole('/console/');
     await screen.findByText('Sessions running');
@@ -177,10 +179,11 @@ describe('Overview with data', () => {
     expect(first.getAttribute('href')).toBe('https://github.com/example/payments-api/pull/409');
     expect(merges.getByRole('link', { name: 'example/web-shop #407' })).toBeTruthy();
     expect(merges.queryByRole('link', { name: 'example/payments-api #412' })).toBeNull(); // open: not a merge
-    expect(merges.getByText('1h 20m ago').getAttribute('title')).toMatch(/Oct 2026 \d\d:\d\d:\d\d/);
+    expect(merges.getByText('1h 20m ago').getAttribute('title')).toMatch(/\d{4} \d\d:\d\d:\d\d/);
     expect(merges.getAllByText(/merged by the integrator/, { selector: '.li__meta' })).toHaveLength(
       2,
     );
+    vi.useRealTimers();
   });
 });
 

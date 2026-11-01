@@ -132,6 +132,33 @@ public sealed partial class GitLabForge(HttpClient http, string token) : IForge
         }
     }
 
+    public async Task<IReadOnlyList<string>> ChangedPathsAsync(RemoteRepository repository, int number, CancellationToken ct)
+    {
+        var paths = new List<string>();
+        for (var page = 1; ; page++)
+        {
+            var path = $"{MergeRequestPath(repository, number)}/diffs?per_page={DiffsPerPage.ToString(CultureInfo.InvariantCulture)}&page={page.ToString(CultureInfo.InvariantCulture)}";
+            try
+            {
+                using var doc = JsonDocument.Parse(await RestAsync(HttpMethod.Get, path, null, "the merge request's files", ct));
+                var diffs = doc.RootElement.EnumerateArray().ToList();
+                foreach (var diff in diffs)
+                {
+                    paths.Add(diff.GetProperty("new_path").GetString() ?? "");
+                    paths.Add(diff.GetProperty("old_path").GetString() ?? "");
+                }
+                if (diffs.Count < DiffsPerPage)
+                    return paths;
+            }
+            catch (Exception e) when (e is JsonException or InvalidOperationException or KeyNotFoundException)
+            {
+                throw new IntegrationException("GitLab answered with a body that is not a list of changes");
+            }
+        }
+    }
+
+    private const int DiffsPerPage = 100;
+
     /// <summary>GitLab rebases the branch onto its target; it takes no expected head, so the head is checked first. A rebase rewrites the branch's commits.</summary>
     public async Task UpdateBranchAsync(RemoteRepository repository, int number, string expectedHeadSha, CancellationToken ct)
     {

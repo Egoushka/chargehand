@@ -25,6 +25,7 @@ export function RunCard({ run }: { run: RunSummary }) {
         >
           {shortId(run.run_id)}
         </Link>
+        {run.name ? <span className="dim">{run.name}</span> : null}
         {run.kind ? <Badge size="s" label={run.kind} /> : null}
         <span className="spacer" />
         {run.usd == null ? null : <span className="b">{formatUsd(run.usd)}</span>}

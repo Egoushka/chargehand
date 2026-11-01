@@ -29,6 +29,7 @@ public static class InterruptedRuns
     {
         var error = new ResultError(ErrorCode.Internal, Reason, true, "Start the run again if it is still wanted.");
         return new("result/v1", start.RunId, "run", start.TraceId, new PromptChain([], new AsSent("", "", "", now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))),
-            ResultStatus.Failed, Reason, [], [], [], [Reason], 0, new Usage(0, 0, 0, 0, 0), error, Actor: start.Actor);
+            ResultStatus.Failed, Reason, [], [], [], [Reason], 0, new Usage(0, 0, 0, 0, 0), error, Actor: start.Actor)
+        { Name = RunNames.Of(start.RunId) };
     }
 }

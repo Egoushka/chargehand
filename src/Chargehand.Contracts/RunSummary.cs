@@ -18,4 +18,8 @@ public sealed record RunSummary(
     string? Kind = null,
     string? Repository = null,
     long? Tokens = null,
-    string? Commit = null);
+    string? Commit = null)
+{
+    /// <summary>The run's friendly name, like "Brave Capybara"; the id stays the key.</summary>
+    public string? Name { get; init; }
+}
