@@ -85,7 +85,8 @@ public sealed class JsonlRunLog(string path) : IRunLog
         new("run-summary/v1", start.RunId, run is not null ? RunStatus.StateOf(run.Result.Status) : start.OwnerAlive() ? RunState.Running : RunState.Lost, run?.Preset ?? start.Request.Context.Preset,
             start.Started, start.ParentRunId, null, run?.Finished, run?.Result.Usage.Usd, ArtifactField(run?.Result, "branch", "branch"), ArtifactField(run?.Result, "pull-request", "url"),
             run?.Result.Error?.Code, start.Actor, start.Request.Driven is null ? "single" : "batch", start.Request.Context.Repository?.Path,
-            run is null ? null : run.Result.Usage.Input + run.Result.Usage.Output, start.Request.Context.Repository?.Commit);
+            run is null ? null : run.Result.Usage.Input + run.Result.Usage.Output, start.Request.Context.Repository?.Commit)
+        { Name = RunNames.Of(start.RunId) };
 
     public async Task<ActorSpend> SpendAsync(string actor, DateTimeOffset since, CancellationToken ct)
     {

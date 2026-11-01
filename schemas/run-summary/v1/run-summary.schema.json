@@ -19,6 +19,7 @@
     "branch": { "type": ["string", "null"] },
     "pr_url": { "type": ["string", "null"] },
     "error_code": { "type": ["string", "null"], "description": "result/v1's error.code of a failed run." },
+    "name": { "type": ["string", "null"], "minLength": 1, "description": "A friendly name for the run, like \"Brave Capybara\", derived from the run id. For people: not unique, so match on the id." },
     "actor": { "type": ["string", "null"], "description": "The account that started the run (ADR 0050); null for a run started from the CLI." },
     "kind": { "enum": ["single", "batch"], "description": "batch: a request with a driven block; single: any other." },
     "repository": { "type": ["string", "null"], "description": "context.repository.path of the request; null when it named none." },

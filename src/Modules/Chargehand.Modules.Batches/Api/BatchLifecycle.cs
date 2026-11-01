@@ -105,7 +105,7 @@ public sealed partial class BatchLifecycle(IRunLog log, string? stateDirectory =
         progress?.Invoke(RunStatus.Of(context.RunId, RunState.Running, RunEventKind.Started));
         var (result, key) = await RunBodyAsync(context, start, body);
         using (key)
-            return Detaching() ? result : await FinishAsync(context, Signed(result with { Actor = context.Actor }, key));
+            return Detaching() ? result : await FinishAsync(context, Signed(result with { Actor = context.Actor, Name = RunNames.Of(context.RunId) }, key));
     }
 
     /// <summary>The batch's events go to disk as well as to the caller, so its timeline outlives a restart (CHARGEHAND-214), and to the journal, so a client that reconnects replays them.</summary>
@@ -130,6 +130,7 @@ public sealed partial class BatchLifecycle(IRunLog log, string? stateDirectory =
             return;
         span.SetTag("langfuse.trace.name", DrivenTelemetry.RunSpan);
         span.SetTag("chargehand.run_id", start.RunId);
+        span.SetTag("chargehand.run_name", RunNames.Of(start.RunId));
         span.SetTag("chargehand.preset", start.Request.Context.Preset);
         span.SetTag("chargehand.repository", start.Request.Context.Repository?.Path);
         span.SetTag("chargehand.driven.task_count", start.Request.Driven?.Tasks.Count);

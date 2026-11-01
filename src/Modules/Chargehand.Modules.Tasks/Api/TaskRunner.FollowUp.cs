@@ -59,11 +59,11 @@ public sealed partial class TaskRunner
         var handoverRun = partial ? (best!.RunId, best.OutDirectory) : (run.RunId, run.OutDirectory);
         HandoverOutcome? handed = null;
         if (finished)
-            handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"{DrivenReport.Parse(run.ReportJson!)!.Summary}\n\nTask: {task.Id}{ContinuationNote(run.Continuation)}{GoalSection(task.Goal)}{CostReceipt.Footer(run.Total, run.Continuation)}", partial: false, run.Stack, session, ct);
+            handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"{DrivenReport.Parse(run.ReportJson!)!.Summary}\n\nRun: {RunNames.Label(run.RunId)}\nTask: {task.Id}{ContinuationNote(run.Continuation)}{GoalSection(task.Goal)}{CostReceipt.Footer(run.Total, run.Continuation)}", partial: false, run.Stack, session, ct);
         else if (partial)
         {
             await RestoreBundleAsync(handoverRun.Item1, ct);
-            handed = await HandOverAsync(task, handoverRun, run.Branch, $"[partial] {PullRequestTitle.Of(task.Title, task.Goal)}", PartialBody(task, session, run.Total, run.Continuation, run.StartFailure, ReadProgress(run.OutDirectory)), partial: true, run.Stack, run.Total, ct);
+            handed = await HandOverAsync(task, handoverRun, run.Branch, $"[partial] {PullRequestTitle.Of(task.Title, task.Goal)}", PartialBody(task, handoverRun.Item1, session, run.Total, run.Continuation, run.StartFailure, ReadProgress(run.OutDirectory)), partial: true, run.Stack, run.Total, ct);
         }
         return (partial, handoverRun, handed);
     }
@@ -75,7 +75,7 @@ public sealed partial class TaskRunner
         var handoverRun = (run.RunId, run.OutDirectory);
         if (session is not { Status: SessionStatus.Completed, BundleWritten: true, Commits: > 0 })
             return (false, handoverRun, null);
-        var handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"Task: {task.Id}", partial: false, run.Stack, session, ct, bare: true);
+        var handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"Run: {RunNames.Label(run.RunId)}\nTask: {task.Id}", partial: false, run.Stack, session, ct, bare: true);
         return (false, handoverRun, handed);
     }
 
@@ -90,7 +90,7 @@ public sealed partial class TaskRunner
         var result = await results.BuildAsync(new DrivenTaskInput(task.Id, run.RunId, run.TraceId, settings.Model, settings.ClaudeVersion, run.Total, run.ReportJson, handed, children,
             Directory.Exists(scratchClone) ? scratchClone : settings.SourcePath, settings.BaseCommit, settings.Priced,
             partial ? new KeptWork(run.Branch, run.Best!.RunId, run.Best.Commits, settings.BaseCommit) : null, Bare), record);
-        result = result with { Actor = settings.Actor };
+        result = result with { Actor = settings.Actor, Name = RunNames.Of(run.RunId) };
         result = results.Sign(result);
         await log.AppendAsync(new StartRecord(run.RunId, run.Started, run.TraceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId, ProcessBoot.Id, settings.Actor), CancellationToken.None);
         await log.AppendAsync(new RunRecord(run.RunId, run.Started, DateTimeOffset.UtcNow, settings.Request.Context.Preset, null, null, result, Actor: settings.Actor), CancellationToken.None);
@@ -293,13 +293,13 @@ public sealed partial class TaskRunner
 
     private static string Truncated(string text, int max) => text.Length <= max ? text : text[..max].TrimEnd() + "\n\n[handoff truncated]";
 
-    private static string PartialBody(ResolvedTask task, SessionOutcome last, SessionOutcome total, int continuation, string? startFailure, string? progress)
+    private static string PartialBody(ResolvedTask task, string runId, SessionOutcome last, SessionOutcome total, int continuation, string? startFailure, string? progress)
     {
         var turns = total.Turns;
         var lead = last.Status == SessionStatus.Completed
             ? $"the session ended after {turns} turns but printed no usable report, even when asked for one, so what it did is unchecked."
             : $"the session {(last.Status == SessionStatus.NeedsInput ? "stopped to ask a question" : $"was stopped by {StopReason(last).Replace('_', ' ')}")} after {turns} turns and did not finish.";
-        var body = new StringBuilder(string.Create(CultureInfo.InvariantCulture, $"Partial result: {lead} This is unfinished work, kept so it is not lost; read it before anything else.\n\nTask: {task.Id}"))
+        var body = new StringBuilder(string.Create(CultureInfo.InvariantCulture, $"Partial result: {lead} This is unfinished work, kept so it is not lost; read it before anything else.\n\nRun: {RunNames.Label(runId)}\nTask: {task.Id}"))
             .Append(ContinuationNote(continuation));
         if (last.Status == SessionStatus.NeedsInput && last.Questions.Count > 0)
             body.Append("\n\nQuestions for you:\n").AppendJoin('\n', last.Questions.Select(q => $"- {q}"));

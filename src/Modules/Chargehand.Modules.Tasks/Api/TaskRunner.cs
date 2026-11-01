@@ -190,6 +190,7 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
     private static string TraceOf(ResolvedTask task, string runId, Activity? span)
     {
         span?.SetTag("chargehand.run_id", runId);
+        span?.SetTag("chargehand.run_name", RunNames.Of(runId));
         span?.SetTag("chargehand.task.id", task.Id);
         span?.SetTag("chargehand.task.ref", task.Ref);
         return span?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
