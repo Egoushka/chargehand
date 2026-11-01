@@ -38,6 +38,8 @@ export interface RunSummary {
   repository?: string | null;
   commit?: string | null;
   tokens?: number | null;
+  /** A friendly name derived from the run id, like "Brave Capybara". For people: match on run_id. */
+  name?: string | null;
 }
 
 export interface RunList {

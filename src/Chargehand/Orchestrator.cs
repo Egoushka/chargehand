@@ -68,6 +68,7 @@ public sealed class Orchestrator(
         var traceId = run?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
         run?.SetTag("langfuse.trace.name", "chargehand.run");
         run?.SetTag("chargehand.run_id", runId);
+        run?.SetTag("chargehand.run_name", RunNames.Of(runId));
         var extensions = new ExtensionsCollector();
         await runLog.AppendAsync(new StartRecord(runId, started, traceId, request, Environment.ProcessId, parentRunId, ProcessBoot.Id, actor), ct);
         progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Started));
@@ -183,7 +184,7 @@ public sealed class Orchestrator(
                 error);
         }
 
-        result = result with { Actor = actor };
+        result = result with { Actor = actor, Name = RunNames.Of(runId) };
         if (signingKey is not null)
         {
             result = ResultSignature.Sign(result, signingKey);
@@ -298,7 +299,8 @@ public sealed class Orchestrator(
         var chain = new PromptChain([], new AsSent(opencodeVersion, "generate", profile.IntakeModel ?? "auto", now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         var error = Cancelled();
         var result = new ResultContract("result/v1", runId, "run", traceId, chain, ResultStatus.Failed, "The run was cancelled before it started.", [], [], [],
-            [error.Message], 0, new Usage(0, 0, 0, 0, 0), error, Actor: actor);
+            [error.Message], 0, new Usage(0, 0, 0, 0, 0), error, Actor: actor)
+        { Name = RunNames.Of(runId) };
         await runLog.AppendAsync(new StartRecord(runId, now, traceId, request, Environment.ProcessId, parentRunId, ProcessBoot.Id, actor), CancellationToken.None);
         await runLog.AppendAsync(new RunRecord(runId, now, now, request.Context.Preset, null, null, result, Actor: actor), CancellationToken.None);
         progress?.Invoke(RunStatus.Of(runId, RunState.Failed, RunEventKind.RunFinished) with { Result = result });

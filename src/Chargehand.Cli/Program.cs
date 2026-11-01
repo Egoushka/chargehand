@@ -407,9 +407,11 @@ async Task<int> Run()
     catch (ChargehandException e)
     {
         // The runtime refused before a run started (not running, another version): no prompt was sent, so the chain is empty.
-        result = new ResultContract("result/v1", RunIds.New(), "run", ActivityTraceId.CreateRandom().ToHexString(),
+        var failedId = RunIds.New();
+        result = new ResultContract("result/v1", failedId, "run", ActivityTraceId.CreateRandom().ToHexString(),
             new PromptChain([], new AsSent("", "", "", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))), ResultStatus.Failed, e.Message, [], [], [], [e.Message], 0,
-            new Usage(0, 0, 0, 0, 0), e.Error);
+            new Usage(0, 0, 0, 0, 0), e.Error)
+        { Name = RunNames.Of(failedId) };
     }
     tracing?.ForceFlush(10_000);
 
@@ -847,10 +849,10 @@ async Task<int> Show(string runId)
         return 1;
     }
     if (run is null && start is not null)
-        Console.WriteLine($"{start.RunId}  preset={start.Request.Context.Preset}  status={(start.OwnerAlive() ? "running" : "lost")}  started={start.Started:u}  pid={start.Pid}");
+        Console.WriteLine($"{start.RunId}  preset={start.Request.Context.Preset}  status={(start.OwnerAlive() ? "running" : "lost")}  started={start.Started:u}  pid={start.Pid}  name={RunNames.Of(start.RunId)}");
     if (run is not null)
         Console.WriteLine($"{run.RunId}  preset={run.Preset}  intake={run.IntakeAction ?? "needs_input"}  status={run.Result.Status}  " +
-                          $"{(run.Finished - run.Started).TotalSeconds:0.0}s  usd={run.Result.Usage.Usd}  claims={run.Result.Claims.Count}  open={run.Result.OpenQuestions.Count}");
+                          $"{(run.Finished - run.Started).TotalSeconds:0.0}s  usd={run.Result.Usage.Usd}  claims={run.Result.Claims.Count}  open={run.Result.OpenQuestions.Count}  name={RunNames.Of(run.RunId)}");
     foreach (var line in run?.Extensions?.Lines() ?? [])
         Console.WriteLine(line);
     Console.WriteLine("node     kind     model                       prompt   cached  cache%   out+rsn  latency     usd");

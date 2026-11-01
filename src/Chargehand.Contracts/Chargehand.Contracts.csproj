@@ -11,6 +11,7 @@
   <ItemGroup>
     <EmbeddedResource Include="..\..\schemas\*\v1\*.schema.json" LogicalName="v1/%(Filename)%(Extension)" />
     <None Include="..\..\schemas\*\v1\*.schema.json" Pack="true" PackagePath="schemas\" />
+    <InternalsVisibleTo Include="Chargehand.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -32,7 +32,10 @@ public sealed record RunStatus(
     int? MemoryPeakMb = null,
     string? Runner = null)
 {
-    public static RunStatus Of(string runId, RunState status, RunEventKind? kind = null) => new("run-status/v1", runId, status, kind, DateTimeOffset.UtcNow);
+    /// <summary>The run's friendly name, like "Brave Capybara"; the id stays the key.</summary>
+    public string? Name { get; init; }
+
+    public static RunStatus Of(string runId, RunState status, RunEventKind? kind = null) => new("run-status/v1", runId, status, kind, DateTimeOffset.UtcNow) { Name = RunNames.Of(runId) };
 
     /// <summary>The run state a finished run's result status maps to.</summary>
     public static RunState StateOf(ResultStatus status) => Enum.Parse<RunState>(status.ToString());

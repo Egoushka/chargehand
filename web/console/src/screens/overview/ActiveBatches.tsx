@@ -83,6 +83,7 @@ export function ActiveBatches() {
                 <span className="mono-b ch-trunc" title={run.run_id}>
                   {shortId(run.run_id)}
                 </span>
+                {run.name ? <span className="dim">{run.name}</span> : null}
                 <Badge
                   size="s"
                   label={baseName(run.repository)}
