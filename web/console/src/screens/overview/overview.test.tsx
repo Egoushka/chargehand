@@ -169,6 +169,8 @@ describe('Overview with data', () => {
   });
 
   it('lists the pull requests merged in the last 24 hours, newest first, with the time as a title', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); // the title prints the month, which moves with the real clock
+    vi.setSystemTime(Date.parse('2026-10-14T12:00:00Z'));
     serveApi({ runs: running });
     renderConsole('/console/');
     await screen.findByText('Sessions running');
@@ -181,6 +183,7 @@ describe('Overview with data', () => {
     expect(merges.getAllByText(/merged by the integrator/, { selector: '.li__meta' })).toHaveLength(
       2,
     );
+    vi.useRealTimers();
   });
 });
 
