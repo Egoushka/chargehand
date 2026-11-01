@@ -265,6 +265,8 @@ public class DrivenIntegrationTests
 
         public Task<int> BehindByAsync(RemoteRepository repository, string baseBranch, string branch, CancellationToken ct) => inner.BehindByAsync(repository, baseBranch, branch, ct);
 
+        public Task<IReadOnlyList<string>> ChangedPathsAsync(RemoteRepository repository, int number, CancellationToken ct) => inner.ChangedPathsAsync(repository, number, ct);
+
         public Task UpdateBranchAsync(RemoteRepository repository, int number, string expectedHeadSha, CancellationToken ct) => inner.UpdateBranchAsync(repository, number, expectedHeadSha, ct);
 
         public Task MarkReadyAsync(RemoteRepository repository, string nodeId, CancellationToken ct) => inner.MarkReadyAsync(repository, nodeId, ct);
