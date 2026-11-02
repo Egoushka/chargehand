@@ -11,8 +11,8 @@ public sealed record FallbackPrice(decimal InputPerMtok, decimal OutputPerMtok, 
         (input * InputPerMtok + output * OutputPerMtok + cacheRead * CacheReadPerMtok + cacheWrite * CacheWritePerMtok) / 1_000_000m;
 }
 
-/// <summary>The second credential of a model endpoint (ADR 0088): an API key for <paramref name="Host"/>, the dollars the batch may spend on it, and its prices.</summary>
-public sealed record GatewayFallback(string Credential, string Host, decimal AllowanceUsd, FallbackPrice Price, string? BaseUrl = null)
+/// <summary>The second credential of a model endpoint (ADR 0088): an API key for <paramref name="Host"/>, the dollars the batch may spend on it, and its prices. <paramref name="HoldPercent"/>: the share of the subscription's usage window at which calls go to the fallback until it resets; null: no hold.</summary>
+public sealed record GatewayFallback(string Credential, string Host, decimal AllowanceUsd, FallbackPrice Price, string? BaseUrl = null, decimal? HoldPercent = null)
 {
     /// <summary>Where the key goes: <see cref="BaseUrl"/>, else <see cref="Host"/> over https. Null with <paramref name="why"/> when it is not acceptable, or when the two name different hosts.</summary>
     public FallbackEndpoint? Endpoint(out string? why)
@@ -109,6 +109,7 @@ public sealed partial class ModelGateway
         {
             if (answer.StatusCode != HttpStatusCode.TooManyRequests)
             {
+                HoldOnUsage(answer, grant.RunId);
                 await Relay(answer, response, grant.RunId, ct);
                 return;
             }
@@ -123,6 +124,37 @@ public sealed partial class ModelGateway
             }
             await RelayBuffered(answer, response, text);
         }
+    }
+
+    /// <summary>The share of the subscription's usage window an answer reports (the larger of the 5-hour and 7-day utilization headers, each a fraction of 1), or null when it reports none.</summary>
+    internal static decimal? UsagePercent(HttpResponseMessage answer)
+    {
+        decimal? used = null;
+        foreach (var name in new[] { "anthropic-ratelimit-unified-5h-utilization", "anthropic-ratelimit-unified-7d-utilization" })
+        {
+            if (answer.Headers.TryGetValues(name, out var values) && decimal.TryParse(values.FirstOrDefault(), NumberStyles.Float, CultureInfo.InvariantCulture, out var fraction) && fraction >= 0)
+                used = Math.Max(used ?? 0, fraction * 100);
+        }
+        return used;
+    }
+
+    /// <summary>At or over the hold, the subscription counts as limited until its window resets, so new calls go straight to the fallback while it is open. With no fallback open the
+    /// subscription carries on: a hold is a budget, not a refusal.</summary>
+    private void HoldOnUsage(HttpResponseMessage answer, string runId)
+    {
+        if (_fallback?.HoldPercent is not { } hold || UsagePercent(answer) is not { } used || used < hold || !FallbackOpen())
+            return;
+        var now = _clock();
+        var until = ResetOf(answer, now) is { } reset && reset > now ? reset : now + UnnamedReset;
+        bool first;
+        lock (_fallbackState)
+        {
+            first = now >= _limitedUntil;
+            if (until > _limitedUntil)
+                _limitedUntil = until;
+        }
+        if (first)
+            Record(runId, (int)answer.StatusCode, 0, $"subscription at {used:0}% of its window, at or over the {hold:0.##}% hold; calls go on the fallback until its reset");
     }
 
     private async Task SendOnFallback(HttpListenerRequest request, HttpListenerResponse response, ModelGrant grant, string path, byte[] body, CancellationToken ct)

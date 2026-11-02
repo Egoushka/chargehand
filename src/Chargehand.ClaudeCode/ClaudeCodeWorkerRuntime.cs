@@ -307,7 +307,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
     private Dictionary<string, string?> Env(bool onFallback) => onFallback && _fallback is { } f
         ? new Dictionary<string, string?>
         {
-            ["ANTHROPIC_API_KEY"] = f.Key,
+            ["ANTHROPIC_API_KEY"] = f.Gate.ApiIgnored && f.IgnoreKey is { } ignoreKey ? ignoreKey : f.Key,
             ["CLAUDE_CODE_OAUTH_TOKEN"] = null,
             ["ANTHROPIC_AUTH_TOKEN"] = null,
             ["ANTHROPIC_BASE_URL"] = f.BaseUrl?.ToString().TrimEnd('/'),
@@ -872,7 +872,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
 }
 
 /// <summary>The fallback of a subscription runtime (issue #632): the per-token <paramref name="Key"/>, the endpoint it goes to (null: Anthropic), and the gate that says when.</summary>
-public sealed record ClaudeCodeFallback(string Key, Uri? BaseUrl, ApiFallback Gate)
+public sealed record ClaudeCodeFallback(string Key, Uri? BaseUrl, ApiFallback Gate, string? IgnoreKey = null)
 {
     public override string ToString() => $"ClaudeCodeFallback {{ BaseUrl = {BaseUrl} }}";
 }

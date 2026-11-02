@@ -10,9 +10,11 @@ namespace Chargehand.Runtimes.ClaudeCode.Api;
 /// secret holding header lines (<c>Name: value</c>, one per line) the workers send to that gateway as <c>ANTHROPIC_CUSTOM_HEADERS</c>: a
 /// gateway's virtual key travels in one, so the value is a model credential. ApiFallbackKeySecret names the second credential of a subscription (issue #632): a key
 /// billed per token that the server's workers and its judge use while the subscription is rate limited (<see cref="ApiFallback"/>), sent to ApiFallbackBaseUrl (unset:
-/// Anthropic) without the custom headers, and only while today's fallback spend is under ApiFallbackDailyUsd. Driven sessions stay on the subscription.</summary>
+/// Anthropic) without the custom headers, and only while today's fallback spend is under ApiFallbackDailyUsd. Driven sessions stay on the subscription. SubscriptionHoldPercent (1 to 100) is the share of the subscription's usage window at which a driven batch's gateway starts sending calls to the fallback until the window resets;
+/// ApiIgnoreKeySecret names the fallback key used while the owner's API ignore is in force (<see cref="BudgetIgnore"/>), a key without a per-key budget.</summary>
 public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = null, string? OauthTokenSecret = null, string Binary = "claude",
-    string? BaseUrl = null, string? CustomHeadersSecret = null, string? ApiFallbackKeySecret = null, string? ApiFallbackBaseUrl = null, decimal? ApiFallbackDailyUsd = null)
+    string? BaseUrl = null, string? CustomHeadersSecret = null, string? ApiFallbackKeySecret = null, string? ApiFallbackBaseUrl = null, decimal? ApiFallbackDailyUsd = null,
+    decimal? SubscriptionHoldPercent = null, string? ApiIgnoreKeySecret = null)
 {
     /// <summary>The CLI version the adapter's event mapping was verified against (ADR 0020).</summary>
     public const string PinnedVersion = "2.1.283";
@@ -45,6 +47,12 @@ public sealed record ClaudeCodeSettings(string Version, string? ApiKeySecret = n
         if (ApiFallbackKeySecret is not null && ApiFallbackDailyUsd is not > 0)
             throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code.api_fallback_key_secret needs claude_code.api_fallback_daily_usd above 0: the fallback is billed per token",
                 "Set api_fallback_daily_usd to the dollars a day the fallback may spend.");
+        if (SubscriptionHoldPercent is not null and not (> 0 and <= 100))
+            throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code.subscription_hold_percent must be above 0 and at most 100",
+                "Set it to the percentage of the usage window (90 holds at nine tenths) or remove it.");
+        if (ApiFallbackKeySecret is null && (SubscriptionHoldPercent is not null || ApiIgnoreKeySecret is not null))
+            throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code.subscription_hold_percent and api_ignore_key_secret need claude_code.api_fallback_key_secret: they act on the fallback",
+                "Set api_fallback_key_secret and api_fallback_daily_usd, or remove them.");
         if (ApiFallbackKeySecret is null && (ApiFallbackDailyUsd is not null || ApiFallbackBaseUrl is not null))
             throw new ChargehandException(ErrorCode.InvalidRequest, "claude_code.api_fallback_daily_usd and api_fallback_base_url need claude_code.api_fallback_key_secret",
                 "Name the fallback key in api_fallback_key_secret, or remove them.");

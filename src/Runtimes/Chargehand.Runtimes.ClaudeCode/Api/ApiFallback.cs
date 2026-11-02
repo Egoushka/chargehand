@@ -9,7 +9,7 @@ namespace Chargehand.Runtimes.ClaudeCode.Api;
 /// The day's spend, the refusal and the reset outlive a restart in <paramref name="ledgerFile"/> (null: memory only).</summary>
 /// <remarks>Driven batches spend the fallback in their egress container, out of reach of <see cref="Spent"/> until they end (ADR 0088): <see cref="Reserve"/> sets a share of what is left
 /// aside at a batch's start and <see cref="Settle"/> replaces it with what the batch spent. The cap counts chargehand's own fallback spend. When the fallback key is shared, the shared cap is the gateway's budget on that key; this class sees it only as a refusal.</remarks>
-public sealed class ApiFallback(decimal dailyUsd, string? ledgerFile, TimeProvider? time = null)
+public sealed class ApiFallback(decimal dailyUsd, string? ledgerFile, TimeProvider? time = null, BudgetIgnore? ignore = null)
 {
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ApiFallback> Shared = new(StringComparer.Ordinal);
 
@@ -18,9 +18,15 @@ public sealed class ApiFallback(decimal dailyUsd, string? ledgerFile, TimeProvid
 
     /// <summary>The one gate for a ledger file in this process: worker turns and driven batches spend one cap (ADR 0088), and two gates over a file would each overwrite the other's day.</summary>
     public static ApiFallback For(decimal dailyUsd, string ledgerFile) =>
-        Shared.GetOrAdd(Path.GetFullPath(ledgerFile), file => new ApiFallback(dailyUsd, file));
+        Shared.GetOrAdd(Path.GetFullPath(ledgerFile), file => new ApiFallback(dailyUsd, file, null, new BudgetIgnore(Path.GetDirectoryName(file)!)));
 
     public decimal DailyUsd => dailyUsd;
+
+    /// <summary>The owner's ignore of the API budget is in force (<see cref="BudgetIgnore.Api"/>): the daily cap and a refusal no longer close the fallback, and the override key is used.</summary>
+    public bool ApiIgnored => ignore?.Active(BudgetIgnore.Api) is not null;
+
+    /// <summary>The owner's ignore of the subscription's usage hold is in force; independent of <see cref="ApiIgnored"/>.</summary>
+    public bool SubscriptionIgnored => ignore?.Active(BudgetIgnore.Subscription) is not null;
 
     /// <summary>The next call goes on the fallback: the subscription is limited and today's fallback is open and under the cap.</summary>
     public bool UseFallback()
@@ -70,6 +76,8 @@ public sealed class ApiFallback(decimal dailyUsd, string? ledgerFile, TimeProvid
                 return 0;
             var others = l.Reserved ?? [];
             var unreserved = dailyUsd - l.SpentUsd - others.Values.Sum();
+            if (unreserved <= 0 && ApiIgnored)
+                unreserved = dailyUsd;
             if (unreserved <= 0)
                 return 0;
             var share = Math.Round(unreserved / 2, 6);
@@ -133,7 +141,16 @@ public sealed class ApiFallback(decimal dailyUsd, string? ledgerFile, TimeProvid
 
     private DateTimeOffset Now => (time ?? TimeProvider.System).GetUtcNow();
 
-    private bool Open(FallbackLedger l) => !l.Refused && l.SpentUsd < dailyUsd;
+    // The API ignore lifts this class's cap and the refusal it remembers; the gateway's own total budget is not this class's to lift.
+    private bool Open(FallbackLedger l)
+    {
+        if (!l.Refused && l.SpentUsd < dailyUsd)
+            return true;
+        if (ignore?.Active(BudgetIgnore.Api) is not { } active)
+            return false;
+        ignore.Used(active, $"fallback open past the daily cap (spent {l.SpentUsd}, refused {l.Refused})");
+        return true;
+    }
 
     // A new UTC day starts at zero spend, no refusal and no reservations (the day's cap is new, and a batch that never settled cannot hold it); the subscription's reset carries over.
     private FallbackLedger Today()
