@@ -1,7 +1,7 @@
 # Events and watches: every action recorded, any action triggerable
 
 - Status: proposed. The maintainer chose the four main options on 2026-11-02 (store, scope, first consumers, hosting
-  model; each the recommended one). No task starts before he approves this spec; Task 0 needs no code and runs first.
+  model; each the recommended one), then scopes that gate reads and hook delivery for agent messages (decision 8). No task starts before he approves this spec; Task 0 needs no code and runs first.
 - Date: 2026-11-02
 - ADR: 0090 (Task 1 writes it from the Decisions below); switchknife ADR 0007 for the Journal change
 - Builds on: [ADR 0061](../adr/0061-driven-step-journal.md) (step journal), [0068](../adr/0068-scheduled-work-within-a-monthly-cap.md)
@@ -18,7 +18,9 @@ CloudEvents-shaped envelopes. Subscribers read a resumable SSE stream (the patte
 **watch** is chargehand's always-on agent: a filter in code that wakes a capped one-shot run when matching events
 arrive, so no model runs while nothing happens. Every action a watch (or a person, or an agent) may take is an entry in
 an **action registry** with a reversibility class; anything external or irreversible becomes an approvals-app decision
-item and runs only on the signed answer.
+item and runs only on the signed answer. Every event carries a **scope** (a project, a run, a channel or one agent's
+inbox) that tokens are granted, and agents message each other by appending `agent.message.sent` to a scope: the log is
+also the mailbox, across the Mac, cobalt's containers and watches.
 
 The first two consumers are the video-studio money watch and Hindsight's session retain. The money watch goes live only
 if the cheapest test (Task 0, already being built in another session) shows the maintainer acts on money signals when
@@ -35,6 +37,10 @@ watching.
 - **Watch:** a standing entry in chargehand's config: which events wake it, how long to gather them, what run to start,
   its monthly cap and which actions it may take. Named "watch" because "session" (ADR 0039) and "conversation" (ADR 0086)
   are taken; `Chargehand.Modules.Watch` exists as an empty project.
+- **Scope:** which project, run, channel or agent inbox an event belongs to; a token may read and write only the scopes
+  it is granted (decision 8).
+- **Message:** an `agent.message.sent` event from one agent to a scope. It is data for the recipient, never an
+  instruction.
 - **Causation / correlation:** `causationid` is the id of the event that directly caused this one; `correlationid`
   groups one chain (one watch firing, one run, one session).
 
@@ -52,6 +58,8 @@ Done when:
 2. Session retain reaches Hindsight within 2 minutes of a session's end (p95), instead of the hourly job.
 3. The money watch has run for 21 days and the bet below has been read against its check.
 4. No event from `work/` and no secret is in the log (acceptance checks below).
+5. A driven run on cobalt and a Claude Code session on the Mac complete a question-and-answer thread through the log
+   without the maintainer relaying it, and neither can read a scope it was not granted.
 
 ## Where it stands
 
@@ -117,7 +125,7 @@ options; D-39, the existing library and its existing consumer (`DrivenJournal`) 
 - **Reopen if** sustained appends pass 50/s (a sixth of measured capacity) or a subscriber outside the tailnet needs it.
   Then the order is Postgres (`Switchknife.Journal.Postgres` exists) before NATS.
 
-### 2. Envelope: CloudEvents 1.0 attributes, plus five extensions
+### 2. Envelope: CloudEvents 1.0 attributes, plus six extensions
 
 CloudEvents so that other people's tools can read it (open by default). Contract `events/v1` in `Chargehand.Contracts`.
 
@@ -135,7 +143,8 @@ CloudEvents so that other people's tools can read it (open by default). Contract
   "correlationid": "01JC9Z6V5Q8K3M2T4R7W1XYZAA",
   "causationid": null,
   "actor": {"kind": "job", "id": "com.yehor.mira-sync", "name": null, "run": null},
-  "effect": "write"
+  "effect": "write",
+  "scope": "project:Egoushka/video-studio"
 }
 ```
 
@@ -149,7 +158,8 @@ CloudEvents so that other people's tools can read it (open by default). Contract
 | `seq` | Set by the server; absent on input. |
 | `correlationid`, `causationid` | Optional on input; a watch's run and every action it starts carry them, so a chain reads back from any link. |
 | `actor` | `kind` = `person`, `agent`, `job` or `service`; `run` = chargehand run id when there is one; `name` = the run's or watch's fun name (from the derivation on the open `ch-fun-names` branch). |
-| `effect` | `read`, `write`, `external` (leaves the box: a message, a publish, a payment) or `irreversible`. Scope is decision 4. |
+| `effect` | `read`, `write`, `external` (leaves the box: a message, a publish, a payment) or `irreversible`. What is recorded at all is decision 4. |
+| `scope` | `project:`, `run:`, `channel:`, `agent:` or `global`; the server fills the default when it is absent and refuses a scope outside the token's write grants (decision 8). |
 
 Server refusals: missing `id`/`source`/`type`/`time` (400); a token writing another source (403); `data` over 16 KB
 without `dataref` (413); a value matching the secret patterns chargehand's checkout scan already uses (422, the event is
@@ -159,7 +169,7 @@ not stored, the refusal is counted); anything marked or located under `work/` (4
 
 - **In:** `POST /v1/events` takes one envelope or an array of up to 500, returns the `seq` of each. Bearer token per
   source from the secret store. Tailnet only, like the rest of chargehand on cobalt.
-- **Out:** `GET /v1/events?after=<seq>&type=<glob>&source=<glob>&subject=<s>&limit=` for queries;
+- **Out:** `GET /v1/events?after=<seq>&type=<glob>&source=<glob>&scope=<glob>&subject=<s>&limit=` for queries;
   `GET /v1/events/stream?type=…` as SSE, each message's SSE id = `seq`, resumed with `Last-Event-ID`, as
   `BatchEventStream` does today.
 - **MCP:** `events` (query, the same filters, newest first, capped at 200) on chargehand's MCP endpoint, so any agent can
@@ -227,7 +237,81 @@ before the spool.
   dropped and logged (5 is a starting value; no chain today is longer than 3: event, run, action).
 - Conversations as watch bodies (context kept between firings) wait until conversations survive a restart (ADR 0086).
 
-### 7. Retention
+### 8. Scopes and agent messages (chosen 2026-11-02)
+
+The maintainer asked for scopes and for "some way for agents to basically communicate via this logger". He chose scopes
+that gate reads, and delivery into a running Claude Code session by a hook. A message is an event like any other, so
+it gets the log's ids, order, resume, retention and refusals for free, and a watch can wake on it.
+
+What exists and stays: a conversation already takes messages (`POST /v1/conversations/{id}/messages`, Cycle A); the
+desktop app's `SendMessage` reaches sessions on the same Mac only, with no record; a watch wakes on events. This decision
+adds the missing pieces: an address for every kind of agent, delivery across hosts, and a record of who told whom what.
+
+**Scope.** The sixth extension attribute, one string per event:
+
+| Scope | Holds | Default for |
+|---|---|---|
+| `project:<owner>/<repo>` | what happened in one repository | tool-call and session events from a checkout of it |
+| `run:<id>` | one chargehand run, batch or conversation, and every action it took | `RunEventKind` events |
+| `channel:<name>` | a named room; `events.channels` in the profile lists its members | nothing; set by the sender |
+| `agent:<kind>/<id>` | one agent's inbox. `kind` = `cc` (Claude Code session), `oc` (OpenCode session), `run`, `conv`, `watch` | messages addressed to one agent |
+| `global` | box-wide facts (the ntfy bridge, deploys, schedules) | anything with no narrower scope |
+
+- **Grants.** Every token in `events.tokens` lists the scope globs it may write and read, beside its `source` prefix.
+  The maintainer's Mac token reads `project:*`, `channel:*`, `agent:cc/*`, `global`. A run's token is minted when the run
+  starts, passed in its environment, and revoked when it ends: it reads and writes `run:<id>`, `agent:run/<id>`, its own
+  `project:`, and the channels its preset lists, nothing else. So a driven container can talk to its peers on the same
+  repository and cannot read another project's actions. Every token may also write `agent.message.sent` to any `agent:`
+  inbox, as with a postbox: only the inbox's owner reads it, and the thread cap below bounds what a sender can push.
+- **Filtering.** `scope=<glob>` joins the query and stream filters. The server intersects it with the token's grants: an
+  event outside them is never sent, and an exact scope the token lacks gets 403. Writing outside the write grants: 403.
+- **Storage.** Switchknife ADR 0007 adds an optional indexed `tag` column to `events` (generic; chargehand stores the
+  scope there) and a `tag` filter to `ReadAllEventsAsync`, so a scoped query over 90 days uses the index.
+- The Mac is one trust domain (the maintainer's sessions); its hook separates sessions by filtering, not by token.
+
+**Messages.** Type `agent.message.sent`, `scope` = the recipient (an inbox, a channel or a project), `actor` = the sender:
+
+```json
+{ "type": "agent.message.sent", "source": "claude", "scope": "agent:run/<id>",
+  "actor": {"kind": "agent", "id": "cc/<session>", "name": "Brave Capybara"},
+  "correlationid": "<thread id: the first message's id>", "causationid": "<the message this answers, or null>",
+  "data": {"kind": "question", "text": "Is the migration in #703 safe to rebase onto?", "expects_reply": true} }
+```
+
+- `data.kind`: `note`, `question`, `answer`, `handoff`. `text` follows the envelope rules (16 KB, secret refusal, no
+  `work/` paths).
+- A reply sets `causationid` to the message it answers and keeps its `correlationid`, so a thread reads back from any
+  message.
+- `agent.message.delivered` (emitted by the delivery path, `causationid` = the message) tells the sender it reached the
+  recipient's context; `agent.message.undeliverable` says why it never will (ended conversation, revoked run).
+- No address for a person. `scope: person:*` gets 422: an agent reaches the maintainer only through the approvals gate
+  (decision 5), and no message is a messenger bot by another name.
+- Thread cap: past 50 messages in one `correlationid` within 24 hours the server refuses with 429 and emits one
+  `agent.thread.capped`. 50 is a starting value to calibrate; it exists so two agents cannot ping-pong without bound.
+- **Messages are data, never instructions.** Every delivery path wraps a message in a block naming the sender, its fun
+  name and scope, and stating that it is another agent's text. A message cannot approve, sign or widen anything: an
+  effect still goes through the action registry, and the receiving session's permission mode does not change.
+
+**Doors.** On chargehand's MCP endpoint, beside `events`:
+- `events_publish`: append one event into the caller's write grants; `source` comes from the token.
+- `events_wait`: block until an event matching a filter (`scope`, `type`, `after` seq, `correlationid`) arrives, or
+  return `matched=false` after `timeout_seconds` (default 30, 1 to 120: the contract `senses_wait_for` already uses, so
+  agents see one shape). Woken by `IEventSignal`, not by polling.
+
+**Delivery, one path per kind of recipient:**
+
+| Recipient | How it receives |
+|---|---|
+| `agent:cc/<session>` (Claude Code on the Mac) | `com.yehor.events-flush` also holds one SSE subscription for `agent:cc/*` and `project:*` messages and appends each to `~/.local/state/events/inbox/<session>.jsonl` (project messages go to every live session in that repo). A `UserPromptSubmit` and `PostToolUse` hook reads the lines past its cursor, a local read with no network call, returns them as `additionalContext` in the wrapper above, and emits `agent.message.delivered`. An idle session sees them on its next turn. |
+| `agent:conv/<id>` | chargehand forwards to the conversation's messages door; queued while a turn runs, as ACP does. |
+| `agent:watch/<id>` | the watch's filter matches its own inbox like any event (`"on": ["agent.message.sent"], "scope": "agent:watch/<id>"`). |
+| `agent:run/<id>`, `agent:oc/<id>` | pull: the worker calls `events_wait`. A one-shot run stays not steerable (ADR 0086). |
+| `channel:<name>` | pull (`events_wait`, `events`) and watches; the hook does not push channels, so a busy room cannot flood a session. |
+
+Sessions on the same Mac keep `SendMessage` for live back-and-forth; the log adds what it lacks: another host, another
+agent kind, a watch, and a record.
+
+### 9. Retention
 
 90 days in `events.db`, then monthly JSONL files in chargehand's backup set. 90 is a starting value: at the full 25k
 calls a day and ~600 bytes each, that is ~1.4 GB, the upper bound; Task 4's count gives the real size.
@@ -261,11 +345,23 @@ now is the polling version of the money watch. Read it after 7 days: on how many
 (publish, or decide)? At 4 of 7 or more, build the watch (Tasks 6–7). Below 4, the problem is not that he cannot see
 the state; stop the money watch, and keep only the log and session retain.
 
+**Hypothesis (messages):** the maintainer relays between sessions by hand (pasting one session's finding into another,
+handing over notes folders); a mailbox that crosses hosts removes those relays. **Cheapest test, before Task 9:** count
+in the last 14 days of Mac transcripts the user turns that paste or quote another session's output, and the
+`SendMessage` calls between sessions. Under 5 relays a week, build Tasks 9–10 only after the money watch's check is read;
+at 5 or more, they follow Task 5. 5, and the 10 and 3 below, are starting values: no count of relays exists yet,
+and this test produces the first one.
+
 ## The bet: check and stop condition
 
 **Check,** read 21 days after the money watch goes live: at least 9 Shorts published (3 a week, 60% of the Mon–Fri
 cadence `mira-post` is scheduled for), at least 70% of the watch's decision items decided within 24 hours, and watch
 spend within its monthly cap (31 runs on the `cheap` preset, each capped by the preset).
+
+**Check for messages,** read 21 days after Task 10 ships: at least 10 threads that crossed hosts or agent kinds closed
+with an `answer` and no maintainer relay, and no event from a scope outside its token's grants in any reply (the grant
+audit query in Task 3's tests, run live). **Stop:** under 3 such threads in 21 days: remove the hook delivery and keep
+`events_wait` and the log.
 
 **Stop:** fewer than 3 Shorts in those 21 days or fewer than 50% of items decided: switch the money watch off and
 record why in ADR 0090. Spend reaching the cap in any month: the cap stops it on its own and the watch is reviewed. The log and
@@ -275,10 +371,10 @@ session retain stay either way, since they pay for themselves on the retain lag.
 
 0. **Cheapest test** (video-studio, the other session's work): no new code here; record the 7-day result in this spec.
 1. **Decision records:** ADR 0090 from the Decisions; switchknife ADR 0007.
-2. **Switchknife.Journal event stream** (switchknife): `ReadAllEventsAsync`, keyed idempotent append, `IEventSignal`,
-   on SQLite and Postgres; minor release tag.
+2. **Switchknife.Journal event stream** (switchknife): `ReadAllEventsAsync` with the `tag` filter, the indexed `tag`
+   column, keyed idempotent append, `IEventSignal`, on SQLite and Postgres; minor release tag.
 3. **The log in chargehand:** `events/v1` contract, `events.db`, `POST /v1/events`, query, SSE stream, the `events` MCP
-   tool, source tokens, refusals, retention. Chargehand emits its own `RunEventKind` events and `schedule.due` into it.
+   tool, source tokens with scope grants, scope defaults and filtering, refusals, retention. Chargehand emits its own `RunEventKind` events and `schedule.due` into it.
 4. **Producers:** the Claude Code hook with spool and `com.yehor.events-flush` (workspace), and the ntfy bridge
    (chargehand). The hook PR reports the effectful share of a day's tool calls.
 5. **Consumer 2:** `session-retain.py --follow` (workspace).
@@ -287,6 +383,10 @@ session retain stay either way, since they pay for themselves on the retain lag.
    (video-studio). Starts only if Task 0 passed.
 8. **Extraction review** after both consumers have run 14 days and a third is named: extract the subscriber client to
    `Switchknife.Events`, or record why not.
+9. **Agent messages** (chargehand): `agent.message.*` types, `events_publish`, `events_wait`, run tokens minted and
+   revoked with the run, the conversation bridge, the thread cap, `events.channels`.
+10. **Hook delivery** (workspace): the inbox mirror in `com.yehor.events-flush` and the `UserPromptSubmit`/`PostToolUse`
+    hook. Needs Tasks 4, 5 and 9.
 
 ## Acceptance checks
 
@@ -296,7 +396,7 @@ maintainer's server, and its output goes in the pull request with ids scrubbed.
 **Task 2 (switchknife)**
 - `EventStreamTests`: `ReadAllEventsAsync` returns events of every flow in `seq` order; a repeat append with the same
   `(flow, key)` returns the first `seq` and stores nothing; a reader awaiting `IEventSignal` wakes after the commit, never
-  before it. Same tests against `PgStepStore` with `Switchknife.Testing.Postgres`.
+  before it; a `tag` filter returns only that tag's events, and the query plan uses the `tag` index. Same tests against `PgStepStore` with `Switchknife.Testing.Postgres`.
 
 **Task 3 (log)**
 - `EventEnvelopeTests`: an envelope missing `id`, `source`, `type` or `time` gets 400; `data` over 16 KB without
@@ -306,6 +406,9 @@ maintainer's server, and its output goes in the pull request with ids scrubbed.
   rows; a token for `video-studio` writing `source: claude` gets 403.
 - `EventStreamRouteTests`: a subscriber that disconnects after event 10 and reconnects with `Last-Event-ID: 10` receives
   11 onward, none lost and none repeated; a `type` glob filters both the query and the stream.
+- `EventScopeTests`: a token granted `project:Egoushka/a` querying `scope=*` receives only that project's events, and the
+  same on the stream; an exact `scope=project:Egoushka/b` gets 403; a write outside the write grants gets 403; an event
+  sent without `scope` is stored with its default (`project:` from the checkout, else `global`).
 - `SchemaCompatTests` stays green (`events/v1` is additive to the contracts).
 - Live `events-bench`: `scripts/events-bench.sh` on cobalt appends 5,000 envelopes with a full flush and streams 2,000 at
   200/s: at least 250 appends/s and delivery p95 at most 50 ms (the Mac measured 263–281 and 14–17 ms cross-process).
@@ -335,6 +438,27 @@ maintainer's server, and its output goes in the pull request with ids scrubbed.
 - Live: 7 days of the money watch produce at most one approvals item a day (`chargehand:watch.money:<date>`), and the
   run log shows its spend.
 
+**Task 9 (messages)**
+- `AgentMessageTests`: a message to `person:*` gets 422; a reply with `causationid` set keeps the thread's
+  `correlationid`; the 51st message in one thread within 24 hours gets 429 and exactly one `agent.thread.capped` is
+  stored; a message whose `text` matches a secret pattern gets 422.
+- `RunTokenTests`: a token minted for run R reads `run:R`, `agent:run/R` and R's project and gets nothing else from
+  `scope=*`; it may send a message to `agent:cc/<S>` but reading `scope=agent:cc/<S>` gets 403; after R ends the token
+  gets 401.
+- `EventsWaitTests` (fake clock): `events_wait` returns within 1 s of a matching append and without a poll loop (the
+  signal is awaited); it returns `matched=false` at the timeout; `timeout_seconds` of 0 or 500 is clamped to 1 or 120.
+- `ConversationBridgeTests`: a message to `agent:conv/<id>` produces one queued conversation message and one
+  `agent.message.delivered`; to an ended conversation, one `agent.message.undeliverable` and no message.
+
+**Task 10 (hook delivery)**
+- Hook test (workspace `tests/`): an inbox file with 2 messages for session S and 1 for T makes the hook for S return
+  the 2 in the untrusted-message wrapper and advance its cursor; the next call returns nothing; T's message never
+  appears in S's context; a message for a repository under `work/` never reaches the inbox file (D-48). The hook makes
+  no network call (it runs with networking off in the test).
+- Live: a driven run on cobalt sends a `question` to `agent:cc/<S>`; S sees it on its next tool call and replies; the
+  run's `events_wait` returns the reply. Over 20 such threads, append to inbox-file p95 under 2 s, and
+  `agent.message.delivered` exists for each (2 s is a starting value: SSE across the tailnet plus one file append).
+
 ## Risks
 
 - **The log is the most private file on the box.** It holds what every agent did. Mitigations: tailnet only, a token
@@ -347,12 +471,20 @@ maintainer's server, and its output goes in the pull request with ids scrubbed.
   morning report.
 - **Volume surprise.** If effectful tool calls are most of the 25k a day, the log is mostly hook noise for a watch;
   type filters keep watches unaffected, retention bounds the disk.
+- **One agent steering another.** A message is text another model reads, so it is a prompt-injection path between
+  agents, and the sender may be a driven container that read hostile code. Mitigations: the untrusted wrapper, no
+  message can approve or widen anything, effects still go through the registry, and grants keep a run inside its own
+  project and channels.
+- **Chatter.** Two agents can talk without bound at model cost. The thread cap stops one thread; each run's preset cap
+  stops its spend; channels are pull-only so a busy room cannot flood a session's context.
 - **Building the bus instead of the business.** The money watch exists to restart publishing; if Task 0 fails, it is
   not built.
 
 ## Out of scope
 
-- A messenger bot of any kind. The approvals app is the only interface a watch reaches the maintainer through.
+- A messenger bot of any kind. The approvals app is the only interface a watch reaches the maintainer through, and
+  agent messages have no address for a person.
+- Replacing `SendMessage` between sessions on the same Mac, or making a one-shot run steerable (ADR 0086).
 - A model loop that runs while nothing happens.
 - Events from `work/` (D-48).
 - Replacing ntfy as the phone push, or migrating senses, chronicle, nytka or the approvals app off their own stores.
