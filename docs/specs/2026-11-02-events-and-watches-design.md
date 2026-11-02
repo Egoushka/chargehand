@@ -1,10 +1,11 @@
 # Events and watches: every action recorded, any action triggerable
 
-- Status: proposed. The maintainer chose the four main options on 2026-11-02 (store, scope, first consumers, hosting
+- Status: approved by the maintainer on 2026-11-02 with the answers in [Open choices](#open-choices) (full scope kept,
+  messages after Task 5). Before that: proposed. The maintainer chose the four main options on 2026-11-02 (store, scope, first consumers, hosting
   model; each the recommended one), then scopes that gate reads and hook delivery for agent messages (decision 8).
   Revised the same day: the video-studio money pieces are parked as ideas, so Task 0 and Task 7 (the money watch) are
   parked and the first consumers changed; see [Parked](#parked) and [Re-check after parking](#re-check-after-parking-2026-11-02).
-  The open design choices in [Open choices](#open-choices) wait for his answer. No task starts before he approves this spec.
+  His answers to the open choices are recorded below; Task 1 (ADR 0090) starts from them.
 - Date: 2026-11-02
 - ADR: 0090 (Task 1 writes it from the Decisions below); switchknife ADR 0007 for the Journal change
 - Builds on: [ADR 0061](../adr/0061-driven-step-journal.md) (step journal), [0068](../adr/0068-scheduled-work-within-a-monthly-cap.md)
@@ -430,7 +431,11 @@ or sweeps, the log's uptime is not good enough for it: fix that or drop the cons
 starting values: 20 is under half of the ~50 `hz deployed` calls a day seen in the 14-day count, enough to see a
 pattern, and the other two set the tolerance for a single stall.
 
-**Check for messages,** read 21 days after Task 10 ships, if it is built (see [Open choices](#open-choices)): at least
+**Check for the registry,** read 21 days after Task 6 ships: at least one registered action other than test fixtures was
+invoked by a real event or person and decided through the approvals gate. **Stop:** none in 21 days: remove the
+registry and the gate, keep the log. 21 days is three weekly cycles, the same read time as the other checks.
+
+**Check for messages,** read 21 days after Task 10 ships: at least
 10 threads that crossed hosts or agent kinds closed with an `answer` and no maintainer relay, and no event from a scope
 outside its token's grants in any reply (the grant audit query in Task 3's tests, run live). **Stop:** under 3 such
 threads in 21 days: remove the hook delivery and keep `events_wait` and the log.
@@ -449,14 +454,14 @@ threads in 21 days: remove the hook delivery and keep `events_wait` and the log.
 5. **Consumers:** `session-retain.py --follow` (workspace) and `hz deployed --wait` / `lab_deployed` on
    `events_wait` with the box state as fallback (homelab-gitops, cli-tools). Two pull requests, one per repository.
 6. **Action registry and gate:** `automation.actions`, `POST /v1/actions/{id}`, `act`, gate through `ApprovalsSink`.
-   No consumer yet; see [Open choices](#open-choices).
+   No consumer yet; kept by the maintainer's choice (see [Open choices](#open-choices)); stop condition in the bet.
 7. ~~**Watches and the money watch**~~ **Parked** with the money watch. The `Chargehand.Modules.Watch` engine waits for
    a consumer that is not a poll replacement.
 8. **Extraction review** after both consumers have run 14 days and a third is named: extract the subscriber client to
    `Switchknife.Events`, or record why not.
 9. **Agent messages** (chargehand): `agent.message.*` types, `events_publish`, `events_wait`, run tokens minted and
    revoked with the run, the conversation bridge, the thread cap, `events.channels`. `events_wait` itself is needed by
-   Task 5; the rest waits for [Open choices](#open-choices).
+   Task 5; the rest follows Task 6 (order: [Open choices](#open-choices)).
 10. **Hook delivery** (workspace): the inbox mirror in `com.yehor.events-flush` and the `UserPromptSubmit`/`PostToolUse`
     hook. Needs Tasks 4, 5 and 9.
 
@@ -553,8 +558,8 @@ maintainer's server, and its output goes in the pull request with ids scrubbed.
 - **Chatter.** Two agents can talk without bound at model cost. The thread cap stops one thread; each run's preset cap
   stops its spend; channels are pull-only so a busy room cannot flood a session's context.
 - **Building the bus instead of the business.** The money watch was the reason for the bus and is parked; what is left
-  has two polls that work. The mitigation is scope: build the log and the two consumers first, and add the registry,
-  watches and messages only when a named consumer asks (see [Open choices](#open-choices)).
+  has two polls that work. The maintainer kept the full scope, so the mitigation is order and stop conditions: the log
+  and two consumers first, the registry and messages after, each removed if its check (the bet) finds no consumer.
 
 ## Parked
 
@@ -585,22 +590,27 @@ Plainly: the log has two real consumers and neither is a gain beyond latency; de
 scope grants for messages) have no consumer. The tool-name filter of decision 4 keeps 88.8% of calls, so it does not
 cut noise much. Value hypotheses: the log's is "the two polls become pushes" (cheapest test: Task 5's live checks);
 the registry's, the watch's and the messages' are not testable until a consumer exists. By the "no platform without a
-consumer" rule, they should wait.
+consumer" rule, they should wait; the maintainer chose to build them anyway (see [Open choices](#open-choices)).
 
 ## Open choices
 
-Asked of the maintainer in one question on 2026-11-02; each with the recommended answer. Until answered, the spec
-stays proposed and only the recommended path is described as the plan.
+Answered by the maintainer on 2026-11-02. Each line says what he chose and where it differs from the recommendation
+this spec made (the recommendation is kept so the difference stays visible).
 
-1. **First consumers:** deploy wait and session retain. Recommended: yes; they exist, they differ in kind, and each is
-   a small change. The alternative is to wait for a consumer with a gain, which leaves the bus unbuilt.
-2. **Scope of the first build:** log, SSE, the `events` tool, producers for chargehand runs, session end and deploy,
-   and the two consumers. Defer tool-call recording, registry and gate, watch engine, and messages and hook delivery
-   until each has a named consumer. Recommended: shrink to this; the full list was sized for the money watch.
-3. **Messages (Tasks 9–10):** defer until a consumer names the cross-host case. Recommended: defer; the relay count is
-   on the threshold and the same-host case already works.
-4. **Order:** Switchknife Task 2 first (one consumer: chargehand), or chargehand-local first on a plain `events.db`.
-   Recommended: Switchknife first, because the other choice builds the log twice.
+1. **First consumers: deploy wait and session retain.** Chosen as recommended.
+2. **Scope of the first build: keep the full scope** (registry and gate, watch engine, messages and hook delivery
+   stay in the plan). *Recommended instead:* shrink to log, SSE, `events` tool, three producers and the two consumers.
+   Consequence, said plainly: Tasks 6, 8 (extraction) and 9–10 have no named consumer, and Task 7 is parked, so the
+   "abstract from two real cases" rule is overridden knowingly for the registry and messages. The guard is the stop
+   conditions in [the bet](#the-bet-check-and-stop-condition): each unconsumed part is built last and removed if no
+   consumer appears.
+3. **Messages (Tasks 9–10): build after Task 5.** *Recommended instead:* defer until a consumer names the cross-host
+   case. The relay count sat on the threshold (about 6.5 a week against the starting value of 5), so the rule above
+   allows this order.
+4. **Order: Switchknife Task 2 first.** Chosen as recommended.
+
+Build order that follows: 1 (ADR), 2 (Switchknife), 3 (log), 4 (producers), 5 (consumers), then 6 and 9–10 in that
+order, then 8. Task 7 stays parked.
 
 ## Out of scope
 
