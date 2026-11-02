@@ -7,7 +7,7 @@ namespace Chargehand.Driven;
 
 /// <summary>What a subscription batch needs to fall back to the API key inside its egress gateway (ADR 0088): the key, the host it goes to, the price of the model it runs, and the ledger that
 /// holds the day's cap. The batch's own allowance is reserved from the ledger just before its egress container starts (<see cref="Reserve"/>).</summary>
-internal sealed record FallbackSetup(string Credential, string Host, FallbackPrice Price, ApiFallback Gate, string? BaseUrl = null)
+internal sealed record FallbackSetup(string Credential, string Host, FallbackPrice Price, ApiFallback Gate, string? BaseUrl = null, string? IgnoreCredential = null, decimal? HoldPercent = null)
 {
     /// <returns>The fallback of a subscription batch whose profile names one and a ledger exists for; null for any other batch, and for a base URL <see cref="FallbackEndpoint"/> refuses
     /// (a line on stderr says why).</returns>
@@ -22,7 +22,8 @@ internal sealed record FallbackSetup(string Credential, string Host, FallbackPri
             Console.Error.WriteLine($"chargehand: batch {runId} has no API fallback: claude_code.api_fallback_base_url {why}");
             return null;
         }
-        return new FallbackSetup(secret(item), endpoint.Host, new FallbackPrice(found!.Input, found.Output, found.CacheRead, found.CacheWrite), gate, string.IsNullOrWhiteSpace(claude.ApiFallbackBaseUrl) ? null : endpoint.ToString());
+        return new FallbackSetup(secret(item), endpoint.Host, new FallbackPrice(found!.Input, found.Output, found.CacheRead, found.CacheWrite), gate, string.IsNullOrWhiteSpace(claude.ApiFallbackBaseUrl) ? null : endpoint.ToString(),
+            claude.ApiIgnoreKeySecret is { } ignoreItem ? secret(ignoreItem) : null, claude.SubscriptionHoldPercent);
     }
 
     /// <summary>Sets the batch's share aside; an allowance of 0 (the fallback is closed, spent or fully reserved) means the batch gets no fallback.</summary>
@@ -43,7 +44,9 @@ internal sealed class FallbackReservation(ApiFallback gate, string batch, decima
     /// <summary>What the batch spent, once settled; null before, and after an unreadable log.</summary>
     public FallbackSpend? Spent { get; private set; }
 
-    public GatewayFallback Spec => new(setup.Credential, setup.Host, allowance, setup.Price, setup.BaseUrl);
+    // The owner's ignores are read when the batch's gateway is built: an API ignore sends the batch's fallback on the override key, a subscription ignore starts it without the usage hold.
+    public GatewayFallback Spec => new(setup.Gate.ApiIgnored && setup.IgnoreCredential is { } key ? key : setup.Credential, setup.Host, allowance, setup.Price, setup.BaseUrl,
+        setup.Gate.SubscriptionIgnored ? null : setup.HoldPercent);
 
     /// <param name="spend">What the egress containers' logs showed; null: a log could not be read.</param>
     public void Settle(FallbackSpend? spend)

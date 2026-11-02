@@ -64,6 +64,8 @@ const string Usage = """
       takeover <batch-run>/<task> [--repo <dir>] [--remote <name>] [--worktree <dir>]
                                    a stalled driven task's pushed branch in a local worktree (<repo>/.claude/worktrees/takeover-<task>) with its
                                    handoff in .chargehand/ (handoff.json, progress.md); prints the claude command that opens a session there
+      budget status|ignore <subscription|api> --reason <why>|clear <subscription|api>
+                                   the owner's four-hour ignores of the subscription hold and of the API fallback's cap; each is separate
       reconcile <run-id>           reads gateway spend rows (JSONL) on stdin, prints own vs gateway cost
       cache <run-id>               cache report: reads, writes and hit rate per call; the first block that changed
       routes [run-log.jsonl ...]   routing report per preset, node kind and model; suggestions only
@@ -237,7 +239,7 @@ if (argv is ["doctor", .. var doctorArgs])
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Onboarding.DoctorCli.RunAsync(doctorArgs, profilePath, new Chargehand.Onboarding.SystemDoctorEnvironment(), DrivenPresetAllow(), Console.Out, Console.Error, stop.Token);
 }
-if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions" or "runs" or "accounts" or "learn" or "cost"))
+if (argv.Count == 0 || argv[0] is not ("run" or "serve" or "mcp" or "show" or "reconcile" or "cache" or "routes" or "score" or "eval" or "prompts" or "extensions" or "runs" or "accounts" or "learn" or "cost" or "budget"))
 {
     Console.Error.WriteLine(Usage);
     return 2;
@@ -285,6 +287,8 @@ switch (argv)
     case ["cost", .. var costOptions]:
         return await Chargehand.Modules.Economics.Api.CostCli.RunAsync(costOptions, runLog, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow,
             report => JsonSerializer.Serialize(report, ContractJson.Options), ct);
+    case ["budget", .. var budgetArgs]:
+        return BudgetCli.Run(budgetArgs, Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, Environment.UserName, TimeProvider.System, Console.Out, Console.Error);
     case ["reconcile", var id]:
         return await Reconcile(id);
     case ["cache", var id]:
@@ -769,7 +773,8 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
         // Issue #632: the fallback's day of spend outlives a restart beside the run log, so its cap holds across them.
         var fallback = credential.Subscription && cc.ApiFallbackKeySecret is { } fallbackItem
             ? new ClaudeCodeFallback(profile.Secret(fallbackItem), cc.ApiFallbackBaseUrl is null ? null : new Uri(cc.ApiFallbackBaseUrl),
-                ApiFallback.For(cc.ApiFallbackDailyUsd!.Value, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "api-fallback.json")))
+                ApiFallback.For(cc.ApiFallbackDailyUsd!.Value, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "api-fallback.json")),
+                cc.ApiIgnoreKeySecret is { } ignoreItem ? profile.Secret(ignoreItem) : null)
             : null;
         var claude = await ClaudeCodeWorkerRuntime.ConnectAsync(cc.Binary, cc.Version, credential, ct, cc.BaseUrl is null ? null : new Uri(cc.BaseUrl), headers, fallback);
         return (claude, claude.Version);
