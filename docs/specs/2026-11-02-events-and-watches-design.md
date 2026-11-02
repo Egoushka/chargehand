@@ -1,7 +1,11 @@
 # Events and watches: every action recorded, any action triggerable
 
-- Status: proposed. The maintainer chose the four main options on 2026-11-02 (store, scope, first consumers, hosting
-  model; each the recommended one), then scopes that gate reads and hook delivery for agent messages (decision 8). No task starts before he approves this spec; Task 0 needs no code and runs first.
+- Status: approved by the maintainer on 2026-11-02 with the answers in [Open choices](#open-choices) (full scope kept,
+  messages after Task 5). Before that: proposed. The maintainer chose the four main options on 2026-11-02 (store, scope, first consumers, hosting
+  model; each the recommended one), then scopes that gate reads and hook delivery for agent messages (decision 8).
+  Revised the same day: the video-studio money pieces are parked as ideas, so Task 0 and Task 7 (the money watch) are
+  parked and the first consumers changed; see [Parked](#parked) and [Re-check after parking](#re-check-after-parking-2026-11-02).
+  His answers to the open choices are recorded below; Task 1 (ADR 0090) starts from them.
 - Date: 2026-11-02
 - ADR: 0090 (Task 1 writes it from the Decisions below); switchknife ADR 0007 for the Journal change
 - Builds on: [ADR 0061](../adr/0061-driven-step-journal.md) (step journal), [0068](../adr/0068-scheduled-work-within-a-monthly-cap.md)
@@ -22,11 +26,12 @@ item and runs only on the signed answer. Every event carries a **scope** (a proj
 inbox) that tokens are granted, and agents message each other by appending `agent.message.sent` to a scope: the log is
 also the mailbox, across the Mac, cobalt's containers and watches.
 
-The first two consumers are the video-studio money watch and Hindsight's session retain. The money watch goes live only
-if the cheapest test (Task 0, already being built in another session) shows the maintainer acts on money signals when
-they reach him. Being critical about it: video-studio's stall is a demand problem (0 clicks, 0 sales in every funnel row
-since 2026-10-19), not a visibility problem. Events make the stall impossible to miss. They cannot make a Short worth
-watching.
+The first two consumers are Hindsight's session retain and the wait for a deploy (`hz deployed --wait`), both polling
+today. The video-studio money watch was consumer 1 and is parked: nobody builds the morning summary its cheapest test
+needed, so it cannot be tested (and video-studio's stall is a demand problem, 0 clicks and 0 sales in every funnel row
+since 2026-10-19, which events cannot fix). Being critical about what is left: both real consumers are polls that work
+today, so the log has no consumer yet whose value is proven, and the watch engine, the action registry and agent
+messages have none at all. [Re-check after parking](#re-check-after-parking-2026-11-02) says what that means for scope.
 
 ## Terms
 
@@ -56,7 +61,8 @@ Done when:
    of the maintainer's effectful agent actions (Claude Code sessions outside `work/`), chargehand runs and video-studio
    rows.
 2. Session retain reaches Hindsight within 2 minutes of a session's end (p95), instead of the hourly job.
-3. The money watch has run for 21 days and the bet below has been read against its check.
+3. `hz deployed --wait` wakes on the deploy event (`homelab.sync.finished`) instead of polling the box over ssh, and
+   returns within 5 seconds of the event.
 4. No event from `work/` and no secret is in the log (acceptance checks below).
 5. A driven run on cobalt and a Claude Code session on the Mac complete a question-and-answer thread through the log
    without the maintainer relaying it, and neither can read a scope it was not granted.
@@ -91,8 +97,11 @@ Gaps this spec closes: (1) nothing joins these by time or cause; (2) nothing out
 are the only gated action paths, each with its own registry.
 
 **Load to design for.** Claude Code transcripts under `~/.claude/projects` show 24,900 tool calls in the last 24 hours
-and 74,200 in 7 days (all projects, subagents included): about 0.3 per second on average. Effectful calls are a subset
-(share UNKNOWN until Task 4 counts them). The history ledger's busiest day had 1,281 rows.
+and 74,200 in 7 days (all projects, subagents included): about 0.3 per second on average. The history ledger's busiest day had 1,281 rows.
+Effectful share, counted 2026-11-02 over 14 days of top-level transcripts outside `work/` (49,183 tool calls): `Bash`
+74.1%, MCP tools not named like a read 10.8%, `Write` 2.1%, `Edit` 1.9%; so decision 4's filter by tool name keeps
+**88.8%** of calls, because `Bash` mixes `git status` with `git push` and the name cannot tell them apart. See
+[Re-check](#re-check-after-parking-2026-11-02).
 
 ## Decisions
 
@@ -247,7 +256,8 @@ before the spool.
 
 ### 6. Watches: always-on agents that cost nothing while idle (chosen 2026-11-02)
 
-`automation.watches.entries` in the profile, beside `automation.schedules`:
+`automation.watches.entries` in the profile, beside `automation.schedules`. The example below is the parked money
+watch, kept as an illustration of the shape; no watch has a consumer today (see [Parked](#parked)):
 
 ```json
 { "id": "money", "on": ["video.*", "schedule.due:money-daily"], "gather": "30m",
@@ -352,73 +362,106 @@ calls a day and ~600 bytes each, that is ~1.4 GB, the upper bound; Task 4's coun
 
 ## The first two consumers
 
-1. **Money watch (video-studio).** Producers: `studio` emits `video.short.published`, `video.metrics.recorded` and
-   `video.funnel.recorded` beside each `log.jsonl` row (the same data), plus `schedule.due:money-daily`. The
-   `money-watch` template reads 14 days of those events and the queue, and posts at most one decision item a day: what
-   changed in money terms, and up to 3 options (publish the next queued slug, draft a new hook, park the niche), each a
-   registered action. Validates: the watch engine, the registry, the gate, absence via the clock.
+Both exist today as polls and need only a producer and a subscriber, no watch and no registry. Evidence counted
+2026-11-02 over 14 days of top-level transcripts outside `work/`.
+
+1. **Deploy wait (homelab-gitops).** Today `hz deployed <sha> --wait` runs a loop on the box that re-reads
+   `gitops-sync`'s state every 10 s (`bin/hz` `v_deployed`: `every` defaults to 10, minimum 2) over one ssh session and
+   reconnects up to 5 times (`c_deployed`). `host/gitops-sync.sh` already writes one `history.log` line per run
+   (`<ts> <from>..<to> <outcome> deployed: … restarted: … FAILED: …`, line 146). Producer: `gitops-sync.sh` also posts
+   `homelab.sync.finished` (range, outcome, stacks; data it already holds). Consumer: `hz deployed --wait` and the
+   `lab_deployed` MCP tool call `events_wait` (or read the SSE stream) for the sha instead of looping; the box state
+   stays the fallback when chargehand is unreachable. Used: 701 `hz deployed` calls in 201 sessions (about 50 a day),
+   plus 9 `lab_deployed` calls. Validates: a producer on the host (not a container), a consumer that waits on a filter,
+   `events_wait`, tokens per source. **Value, said plainly:** it removes a loop that works and saves at most the 10 s
+   poll interval; it does not make a deploy faster (the sync runs every 5 minutes). It proves the plumbing, not a gain.
 2. **Session retain (Hindsight).** Producer: the Claude Code `SessionEnd` hook emits `claude.session.ended` (session id,
    project, bank). Consumer: `bin/session-retain.py --follow` subscribes to the SSE stream with its last `seq` in its
    state file and retains each session on arrival; the hourly job stays as the sweeper for misses and for `work/`
    sessions, which never enter the log (D-48). Validates: the SSE contract from a process outside chargehand, on the
-   Mac, across disconnects.
+   Mac, across disconnects. **Value, said plainly:** it cuts the lag of an ended session from up to an hour to 2
+   minutes. It does nothing for a decision another session needs *before* its session ends, and agents retain by hand
+   307 times in 109 sessions in the same 14 days (tool names containing `retain`), most of them mid-session; whether a
+   shorter lag after the end changes any of that is UNKNOWN.
 
-They are deliberately different kinds (a watch inside chargehand, a plain subscriber outside it), so the contract is
-shaped by both before anything is extracted. A third consumer (senses interrupt or JARVIS) decides whether the
-subscriber client becomes a `Switchknife.Events` package (Task 8).
+They are different kinds (a producer on the host with a waiting consumer, and a plain subscriber on the Mac), so the
+contract is shaped by both before anything is extracted. A third consumer decides whether the subscriber client becomes
+a `Switchknife.Events` package (Task 8); `approval-push.py` (a one-minute poll of the `ws watch` board that feeds the
+phone queue) is a candidate that exists, if session state changes are ever recorded.
 
 ## Value hypothesis and its cheapest test
 
-**Hypothesis (money):** when the funnel's state reaches the maintainer as one decision with options at the moment it
-changes, he publishes again, and publishing is the precondition for any sale. Since 2026-10-19: 0 Shorts committed, 0
-clicks, 0 sales. **Hypothesis (people):** agents that can read what other agents did stop re-asking the maintainer;
-measured as control words per session, which D-39's audit put at a third of what he types.
-
-**Cheapest test (Task 0, no event code):** the money-first morning summary another session is adding to video-studio
-now is the polling version of the money watch. Read it after 7 days: on how many days did the maintainer act on it
-(publish, or decide)? At 4 of 7 or more, build the watch (Tasks 6–7). Below 4, the problem is not that he cannot see
-the state; stop the money watch, and keep only the log and session retain.
+**Hypothesis (people):** agents that can read what other agents did stop re-asking the maintainer; measured as control
+words per session, which D-39's audit put at a third of what he types. No test has run; the log must exist first.
 
 **Hypothesis (messages):** the maintainer relays between sessions by hand (pasting one session's finding into another,
 handing over notes folders); a mailbox that crosses hosts removes those relays. **Cheapest test, before Task 9:** count
 in the last 14 days of Mac transcripts the user turns that paste or quote another session's output, and the
-`SendMessage` calls between sessions. Under 5 relays a week, build Tasks 9–10 only after the money watch's check is read;
-at 5 or more, they follow Task 5. 5, and the 10 and 3 below, are starting values: no count of relays exists yet,
-and this test produces the first one.
+`SendMessage` calls between sessions. Under 5 relays a week, build Tasks 9–10 only after a consumer asks for them; at 5
+or more, they follow Task 5. 5, and the 10 and 3 below, are starting values: no count existed before this one.
+
+**Result, run 2026-11-02 (the test needed no code).**
+
+- *Method.* A script read every top-level transcript under `~/.claude/projects` modified in the last 14 days (subagent
+  files excluded; 121 `work/` sessions skipped, D-48). Per user turn (tool results and `<system-reminder>` blocks
+  removed) it kept the maintainer's own turns (`turnOrigin: human`) and flagged those holding a `<pasted_content>` block
+  or a session id (`local_…`). It counted `SendMessage` tool calls by target and turns with `turnOrigin: peer`.
+- *Numbers.* 1,231 human turns; 97 flagged. 55 of those are auto-continuation summaries, not relays. Of the other 42, I
+  read the first 110 characters of each and judged **13 turns (8 distinct texts; range 8 to 20 depending on the doubtful
+  ones) to be relays of another session's output: about 6.5 a week (range 4 to 10)**. The rest paste terminal output,
+  mail or his own notes. Agents did far more: 1,030 `SendMessage` calls to other sessions (about 515 a week, 12 to 176 a
+  day) and 362 `peer` turns, all on the same Mac.
+- *Reading.* The count sits on the 5-a-week threshold, so the rule above does not decide it. What it shows instead:
+  relays by his hand are few and mostly handoffs pasted into a fresh session, which a mailbox would not replace (he
+  chooses what the next session reads); relays between agents are frequent and already work on one host through
+  `SendMessage`. The case for the log's messages is only what `SendMessage` cannot do: cross hosts. How often a thread
+  would cross hosts: **UNKNOWN**, because no driven run on the server has a human turn in these transcripts.
+- *Caveats.* The judgment is mine, made on 110 characters; a relay retyped in his own words ("tell the other session
+  that…") is not detected; the claude.ai chat and other apps are not in these transcripts; `work/` is excluded; one
+  machine; the 14 days include a stretch of unusually heavy multi-session work, so the rate may run high.
 
 ## The bet: check and stop condition
 
-**Check,** read 21 days after the money watch goes live: at least 9 Shorts published (3 a week, 60% of the Mon–Fri
-cadence `mira-post` is scheduled for), at least 70% of the watch's decision items decided within 24 hours, and watch
-spend within its monthly cap (31 runs on the `cheap` preset, each capped by the preset).
+The money-watch check and its stop condition are parked with the watch (see [Parked](#parked)).
 
-**Check for messages,** read 21 days after Task 10 ships: at least 10 threads that crossed hosts or agent kinds closed
-with an `answer` and no maintainer relay, and no event from a scope outside its token's grants in any reply (the grant
-audit query in Task 3's tests, run live). **Stop:** under 3 such threads in 21 days: remove the hook delivery and keep
-`events_wait` and the log.
+**Check for the log and its two consumers,** read 21 days after Task 5: `claude.session.ended` events and Hindsight
+documents agree (Task 4's live check), and `hz deployed --wait` ran on events at least 20 times with no wait that
+returned later than the old poll would have. **Stop:** if either consumer needed its fallback in more than 1 of 5 waits
+or sweeps, the log's uptime is not good enough for it: fix that or drop the consumer. The 20, the 5 and the 1 are
+starting values: 20 is under half of the ~50 `hz deployed` calls a day seen in the 14-day count, enough to see a
+pattern, and the other two set the tolerance for a single stall.
 
-**Stop:** fewer than 3 Shorts in those 21 days or fewer than 50% of items decided: switch the money watch off and
-record why in ADR 0090. Spend reaching the cap in any month: the cap stops it on its own and the watch is reviewed. The log and
-session retain stay either way, since they pay for themselves on the retain lag.
+**Check for the registry,** read 21 days after Task 6 ships: at least one registered action other than test fixtures was
+invoked by a real event or person and decided through the approvals gate. **Stop:** none in 21 days: remove the
+registry and the gate, keep the log. 21 days is three weekly cycles, the same read time as the other checks.
+
+**Check for messages,** read 21 days after Task 10 ships: at least
+10 threads that crossed hosts or agent kinds closed with an `answer` and no maintainer relay, and no event from a scope
+outside its token's grants in any reply (the grant audit query in Task 3's tests, run live). **Stop:** under 3 such
+threads in 21 days: remove the hook delivery and keep `events_wait` and the log.
 
 ## Tasks (each one pull request)
 
-0. **Cheapest test** (video-studio, the other session's work): no new code here; record the 7-day result in this spec.
+0. ~~**Cheapest test** (video-studio)~~ **Parked** with the money watch; see [Parked](#parked).
 1. **Decision records:** ADR 0090 from the Decisions; switchknife ADR 0007.
 2. **Switchknife.Journal event stream** (switchknife): `ReadAllEventsAsync` with the `tag` filter, the indexed `tag`
    column, keyed idempotent append and its batch form, `IEventSignal`, on SQLite and Postgres; minor release tag.
 3. **The log in chargehand:** `events/v1` contract, `events.db`, `POST /v1/events`, query, SSE stream, the `events` MCP
    tool, source tokens with scope grants, scope defaults and filtering, refusals, retention. Chargehand emits its own `RunEventKind` events and `schedule.due` into it.
-4. **Producers:** the Claude Code hook with spool and `com.yehor.events-flush` (workspace), and the ntfy bridge
-   (chargehand). The hook PR reports the effectful share of a day's tool calls.
-5. **Consumer 2:** `session-retain.py --follow` (workspace).
+4. **Producers:** the Claude Code hook with spool and `com.yehor.events-flush` (workspace), the ntfy bridge
+   (chargehand), and `homelab.sync.finished` posted by `gitops-sync.sh` (homelab-gitops; a producer on the host, not in
+   a container). The hook PR reports the effectful share of a day's tool calls.
+5. **Consumers:** `session-retain.py --follow` (workspace) and `hz deployed --wait` / `lab_deployed` on
+   `events_wait` with the box state as fallback (homelab-gitops, cli-tools). Two pull requests, one per repository.
 6. **Action registry and gate:** `automation.actions`, `POST /v1/actions/{id}`, `act`, gate through `ApprovalsSink`.
-7. **Watches and consumer 1:** `Chargehand.Modules.Watch` engine, `money-watch` template, the `studio` producer
-   (video-studio). Starts only if Task 0 passed.
+   No consumer yet; kept by the maintainer's choice (see [Open choices](#open-choices)); stop condition in the bet.
+7. ~~**Watches and the money watch**~~ **Parked** with the money watch. The `Chargehand.Modules.Watch` engine waits for
+   a consumer that is not a poll replacement.
 8. **Extraction review** after both consumers have run 14 days and a third is named: extract the subscriber client to
    `Switchknife.Events`, or record why not.
 9. **Agent messages** (chargehand): `agent.message.*` types, `events_publish`, `events_wait`, run tokens minted and
-   revoked with the run, the conversation bridge, the thread cap, `events.channels`.
+   revoked with the run, the conversation bridge, the thread cap, `events.channels`. `events_wait` itself is needed by
+   Task 5; the rest follows Task 6 (order: [Open choices](#open-choices)).
 10. **Hook delivery** (workspace): the inbox mirror in `com.yehor.events-flush` and the `UserPromptSubmit`/`PostToolUse`
     hook. Needs Tasks 4, 5 and 9.
 
@@ -462,20 +505,18 @@ maintainer's server, and its output goes in the pull request with ids scrubbed.
 - Live: for 20 consecutive sessions, the time from the `claude.session.ended` event to Hindsight's document `cc-<sid>`
   has p95 under 120 s; with chargehand stopped for 10 minutes, every session ended in that window is retained after it
   returns.
+- Producer test (homelab-gitops `tests/`): a fake `gitops-sync` run posts one `homelab.sync.finished` with the range,
+  the outcome and the stack names; with the post failing (chargehand down), the sync's own outcome and `history.log`
+  line are unchanged and the run does not fail or slow by more than the post's 2 s timeout.
+- Live (deploy wait): for 10 merges, `hz deployed <sha> --wait` returns within 5 seconds of the `homelab.sync.finished`
+  event for that range, and no later than the old loop would have; with chargehand stopped, the same call falls back
+  to the box state and returns the same answer. 5 s is a starting value (SSE across the tailnet plus one filter match).
 
 **Task 6 (actions)**
 - `ActionRegistryTests`: an unknown executor kind or a class outside the four fails profile load; an `external` action
   creates one approvals item and does not execute; a correctly signed approve executes it once; a bad signature gets
   403, a decision older than 10 minutes 410, a reused decision id 409; each invocation emits the six-step chain with
   linked `causationid`s.
-
-**Task 7 (watches)**
-- `WatchEngineTests` (fake clock and runtime): 5 matching events within `gather` start 1 run whose inputs hold all 5; an
-  occurrence over `max_per_month` starts nothing and emits `watch.skipped`; a restart between the events and the run
-  starts exactly one run; an event caused by the watch's own action does not wake it; a chain of depth 6 is dropped and
-  logged; a non-matching event starts nothing and makes no model call.
-- Live: 7 days of the money watch produce at most one approvals item a day (`chargehand:watch.money:<date>`), and the
-  run log shows its spend.
 
 **Task 9 (messages)**
 - `AgentMessageTests`: a message to `person:*` gets 422; a reply with `causationid` set keeps the thread's
@@ -516,8 +557,60 @@ maintainer's server, and its output goes in the pull request with ids scrubbed.
   project and channels.
 - **Chatter.** Two agents can talk without bound at model cost. The thread cap stops one thread; each run's preset cap
   stops its spend; channels are pull-only so a busy room cannot flood a session's context.
-- **Building the bus instead of the business.** The money watch exists to restart publishing; if Task 0 fails, it is
-  not built.
+- **Building the bus instead of the business.** The money watch was the reason for the bus and is parked; what is left
+  has two polls that work. The maintainer kept the full scope, so the mitigation is order and stop conditions: the log
+  and two consumers first, the registry and messages after, each removed if its check (the bet) finds no consumer.
+
+## Parked
+
+Tasks 0 and 7 and the money-watch template are parked as ideas on the maintainer's word ("let's leave it as ideas and
+continue with events"). They are the video-studio money pieces: dubbing (video-studio issue 16) and the money-first
+morning summary (issue 17, the polling version of the money watch, which was the cheapest test). Pointer: issue 17 in
+the video-studio repository. What parking leaves behind in this spec: the example watch entry in decision 6 (kept as
+an illustration, marked parked), and the `video.*` event types, which have no producer and are not built. To revive:
+the summary must exist and be read for 7 days, with the original check (4 of 7 days acted on) before Tasks 6–7 start.
+The money-watch acceptance checks (a watch produces at most one approvals item a day) went with it; `WatchEngineTests`
+come back with Task 7.
+
+## Re-check after parking (2026-11-02)
+
+The rules "abstract from two real cases, validate on a third" and "every idea carries a value hypothesis and its
+cheapest test", read against what is left. Evidence is in the sections above; counts cover the 14 days to 2026-11-02.
+
+| Part | Real consumer today | Verdict |
+|---|---|---|
+| Log, `POST`, query, SSE (Tasks 2–3) | deploy wait, session retain | Two consumers, both polls that work; value small and plain (see the consumers section) |
+| Producers: hook, ntfy bridge, `gitops-sync` (Task 4) | `claude.session.ended` and `homelab.sync.finished` feed the two consumers; tool-call rows feed none | Keep session end and sync; the tool-call recording has no consumer |
+| Action registry and gate (Task 6) | none | Rule violated: no consumer. The approvals gate for external actions exists as `ApprovalsSink` already |
+| Watch engine (Task 7) | none after parking | Rule violated; parked |
+| Agent messages, hook delivery (Tasks 9–10) | none; 6.5 hand relays a week, same-host agents already use `SendMessage` | No named consumer; only the cross-host case is new and it is UNKNOWN |
+| Extraction to `Switchknife.Events` (Task 8) | needs a third consumer | The Task 5 pair gives two; `approval-push.py` is a candidate, not a consumer |
+
+Plainly: the log has two real consumers and neither is a gain beyond latency; decisions 5 to 8 (registry, watch,
+scope grants for messages) have no consumer. The tool-name filter of decision 4 keeps 88.8% of calls, so it does not
+cut noise much. Value hypotheses: the log's is "the two polls become pushes" (cheapest test: Task 5's live checks);
+the registry's, the watch's and the messages' are not testable until a consumer exists. By the "no platform without a
+consumer" rule, they should wait; the maintainer chose to build them anyway (see [Open choices](#open-choices)).
+
+## Open choices
+
+Answered by the maintainer on 2026-11-02. Each line says what he chose and where it differs from the recommendation
+this spec made (the recommendation is kept so the difference stays visible).
+
+1. **First consumers: deploy wait and session retain.** Chosen as recommended.
+2. **Scope of the first build: keep the full scope** (registry and gate, watch engine, messages and hook delivery
+   stay in the plan). *Recommended instead:* shrink to log, SSE, `events` tool, three producers and the two consumers.
+   Consequence, said plainly: Tasks 6, 8 (extraction) and 9–10 have no named consumer, and Task 7 is parked, so the
+   "abstract from two real cases" rule is overridden knowingly for the registry and messages. The guard is the stop
+   conditions in [the bet](#the-bet-check-and-stop-condition): each unconsumed part is built last and removed if no
+   consumer appears.
+3. **Messages (Tasks 9–10): build after Task 5.** *Recommended instead:* defer until a consumer names the cross-host
+   case. The relay count sat on the threshold (about 6.5 a week against the starting value of 5), so the rule above
+   allows this order.
+4. **Order: Switchknife Task 2 first.** Chosen as recommended.
+
+Build order that follows: 1 (ADR), 2 (Switchknife), 3 (log), 4 (producers), 5 (consumers), then 6 and 9–10 in that
+order, then 8. Task 7 stays parked.
 
 ## Out of scope
 
