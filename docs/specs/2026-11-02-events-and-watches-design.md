@@ -100,8 +100,10 @@ and 74,200 in 7 days (all projects, subagents included): about 0.3 per second on
 
 Measured on the maintainer's Mac (Apple M1, 8 cores, under memory pressure), Go benchmark of 600-byte envelopes, one
 producer, one durable commit per event; delivery measured from append to a running subscriber at 200 events/s, 2,000
-events; two repetitions (ranges). Method and raw lines: appendix. Cobalt was not measured (the maintainer asked for the
-Mac); Task 2's live check measures it there.
+events; two repetitions (ranges). Then the same on the maintainer's server (the target host: 18 vCPU virtual machine, ext4
+on a virtual disk, load average 50–90 from its other services during the runs). Method and raw lines: appendix.
+
+**On the Mac** (Apple M1, 8 cores):
 
 | Option | Appends/s, OS fsync | Appends/s, full flush | Delivery p95 (full flush) | RSS over baseline | New store? |
 |---|---|---|---|---|---|
@@ -110,19 +112,51 @@ Mac); Task 2's live check measures it there.
 | Postgres + LISTEN/NOTIFY | 11,406–12,502 | 255–267 | 5.5–5.7 ms | +11 MB server | yes: a `chargehand-postgres` container |
 | NATS JetStream (embedded) | 37,634–46,951 (fsync every 2 min) | 254–288 (`sync_always`) | 4.8–8.6 ms | +16–19 MB | yes: a new service |
 
-Reading: with a real flush every option is disk-bound at ~255–290 appends/s on this disk, which is still about 850× the
-average load. Cross-process delivery for SQLite is bounded by the poll interval; inside chargehand there is no poll, since
-the appender signals the SSE streams after commit (Task 2 measures the in-process p95). Speed does not separate the
-options; D-39, the existing library and its existing consumer (`DrivenJournal`) do.
+**On the server** (Linux; one commit with `fsync` per event, two repetitions; `fsync` is the full flush there, so one column):
+
+| Option | Appends/s, one commit per event | Delivery p95 at 200/s (the log saturates, so this is queueing) | Peak RSS of the bench process |
+|---|---|---|---|
+| JSONL file + tail | 16–25 | 71–80 ms | 17 MB |
+| SQLite WAL (Journal) | 15–16 | 360–509 ms | 25–26 MB |
+| Postgres + LISTEN/NOTIFY | 25–33 | 187–294 ms | 20–76 MB, plus 101 MB server |
+| NATS JetStream (embedded), `sync_always` | 19–24 | 344–505 ms | 34 MB |
+| NATS JetStream, no sync (flush every 2 min) | 1,006–2,241 | 27 ms | 34 MB |
+
+Batching, measured on the same server with a plain append-and-`fsync` of 600-byte lines (the cost any file-backed store
+pays per commit), run twice, one `fsync` per batch:
+
+| Events per commit | Events/s | Commit p50 | Commit p95 |
+|---|---|---|---|
+| 1 | 19–28 | 7.6–16 ms | 189–261 ms |
+| 50 | 763–1,975 | 13–16 ms | 83–286 ms |
+| 500 | 3,580–5,823 | 27–50 ms | 367–689 ms |
+
+Reading:
+- **The server's disk does about 10× fewer flushes than the Mac** (15–33 per second against 255–290) and is noisy: the
+  tail is 10–50× the median, because the virtual disk is shared with the other services. Whether a quiet disk would be
+  faster is UNKNOWN; the numbers above are what the log gets in practice.
+- **One flush per event is not the design.** The average load is about 0.3 events/s, which one-commit-per-event covers
+  50–100× over, but a burst does not: a 500-event `POST`, or a Mac spool flush, would take 15–30 s. So **a batch is one
+  transaction and one flush**, on `POST /v1/events` and in the spool flush. That gives 3,580–5,823 events/s at 500 per
+  commit, about 10,000× the average load.
+- **The options are still not separated by speed.** With a real flush all four are disk-bound at the same 15–33
+  commits/s; only the unflushed NATS differs, and it trades away the durability the log exists for. Postgres is
+  ahead of SQLite by 1.6–2× under one producer, which does not pay for a container and 101 MB. D-39, the existing library and its
+  existing consumer (`DrivenJournal`) decide.
+- **Delivery.** Cross-process delivery for SQLite is bounded by the poll interval on the Mac; inside chargehand there is no
+  poll, since the appender signals the SSE streams after commit. The 200/s column above is the paced test overrunning a
+  15–33/s log, so it measures queueing, not delivery; Task 3's live check measures delivery below saturation.
 
 - File: `<data>/events.db`, separate from `journal.db`, so retention and backup are separate.
 - One writer: the chargehand server. Nothing else opens the file.
 - Switchknife change (ADR 0007, minor version): `ReadAllEventsAsync(after, limit, kindPrefix?)` across flows, an
-  idempotent append keyed by `(flow, key)` that returns the existing `seq` on a repeat, and an in-process
-  `IEventSignal` that wakes readers after commit. Same three on `PgStepStore`, so a Postgres move later is a config change.
+  idempotent append keyed by `(flow, key)` that returns the existing `seq` on a repeat, a batch form of it (up to 500
+  events, one transaction, one flush, one signal), and an in-process `IEventSignal` that wakes readers after commit. Same
+  four on `PgStepStore`, so a Postgres move later is a config change.
 - Mapping: `flow` = envelope `source`, `kind` = `type`, `key` = `id`, `payload` = the whole envelope as JSON, `seq` = the
   global order.
-- **Reopen if** sustained appends pass 50/s (a sixth of measured capacity) or a subscriber outside the tailnet needs it.
+- **Reopen if** sustained appends pass 350/s (a tenth of the lowest batched capacity measured on the server), the p95 of
+  a 500-event commit passes 1 s (above the worst measured, 689 ms), or a subscriber outside the tailnet needs it.
   Then the order is Postgres (`Switchknife.Journal.Postgres` exists) before NATS.
 
 ### 2. Envelope: CloudEvents 1.0 attributes, plus six extensions
@@ -167,8 +201,8 @@ not stored, the refusal is counted); anything marked or located under `work/` (4
 
 ### 3. Transport
 
-- **In:** `POST /v1/events` takes one envelope or an array of up to 500, returns the `seq` of each. Bearer token per
-  source from the secret store. Tailnet only, like the rest of chargehand on cobalt.
+- **In:** `POST /v1/events` takes one envelope or an array of up to 500, returns the `seq` of each; an array is one
+  transaction and one flush (Decision 1). Bearer token per source from the secret store. Tailnet only, like the rest of chargehand on cobalt.
 - **Out:** `GET /v1/events?after=<seq>&type=<glob>&source=<glob>&scope=<glob>&subject=<s>&limit=` for queries;
   `GET /v1/events/stream?type=…` as SSE, each message's SSE id = `seq`, resumed with `Last-Event-ID`, as
   `BatchEventStream` does today.
@@ -177,7 +211,7 @@ not stored, the refusal is counted); anything marked or located under `work/` (4
 - **ntfy stays the push-to-phone outlet,** not the log. Task 4's bridge copies the existing ntfy topics into the log
   so senses, alerts and approvals decisions are in it on day one without changing those producers.
 - **Mac producers** append to a local spool (`~/.local/state/events/spool.jsonl`, under 1 ms, never blocks a hook); a
-  launchd agent `com.yehor.events-flush` (KeepAlive) posts batches and keeps the spool when cobalt is unreachable. Ids
+  launchd agent `com.yehor.events-flush` (KeepAlive) posts the spool in batches of up to 500, one commit each, and keeps the spool when cobalt is unreachable. Ids
   make the replay safe.
 
 ### 4. Scope: actions with effect (chosen 2026-11-02)
@@ -372,7 +406,7 @@ session retain stay either way, since they pay for themselves on the retain lag.
 0. **Cheapest test** (video-studio, the other session's work): no new code here; record the 7-day result in this spec.
 1. **Decision records:** ADR 0090 from the Decisions; switchknife ADR 0007.
 2. **Switchknife.Journal event stream** (switchknife): `ReadAllEventsAsync` with the `tag` filter, the indexed `tag`
-   column, keyed idempotent append, `IEventSignal`, on SQLite and Postgres; minor release tag.
+   column, keyed idempotent append and its batch form, `IEventSignal`, on SQLite and Postgres; minor release tag.
 3. **The log in chargehand:** `events/v1` contract, `events.db`, `POST /v1/events`, query, SSE stream, the `events` MCP
    tool, source tokens with scope grants, scope defaults and filtering, refusals, retention. Chargehand emits its own `RunEventKind` events and `schedule.due` into it.
 4. **Producers:** the Claude Code hook with spool and `com.yehor.events-flush` (workspace), and the ntfy bridge
@@ -395,7 +429,8 @@ maintainer's server, and its output goes in the pull request with ids scrubbed.
 
 **Task 2 (switchknife)**
 - `EventStreamTests`: `ReadAllEventsAsync` returns events of every flow in `seq` order; a repeat append with the same
-  `(flow, key)` returns the first `seq` and stores nothing; a reader awaiting `IEventSignal` wakes after the commit, never
+  `(flow, key)` returns the first `seq` and stores nothing; a batch of 500 is one transaction (one signal, all or none,
+  a repeat of the batch stores nothing); a reader awaiting `IEventSignal` wakes after the commit, never
   before it; a `tag` filter returns only that tag's events, and the query plan uses the `tag` index. Same tests against `PgStepStore` with `Switchknife.Testing.Postgres`.
 
 **Task 3 (log)**
@@ -410,8 +445,12 @@ maintainer's server, and its output goes in the pull request with ids scrubbed.
   same on the stream; an exact `scope=project:Egoushka/b` gets 403; a write outside the write grants gets 403; an event
   sent without `scope` is stored with its default (`project:` from the checkout, else `global`).
 - `SchemaCompatTests` stays green (`events/v1` is additive to the contracts).
-- Live `events-bench`: `scripts/events-bench.sh` on cobalt appends 5,000 envelopes with a full flush and streams 2,000 at
-  200/s: at least 250 appends/s and delivery p95 at most 50 ms (the Mac measured 263–281 and 14–17 ms cross-process).
+- Live `events-bench`: `scripts/events-bench.sh` on cobalt, against the real server and `events.db`, with a full flush:
+  (a) 5,000 envelopes in batches of 500 reach at least 1,500 events/s with a commit p95 of at most 1 s; (b) 500 single-event
+  appends reach at least 10 appends/s; (c) 1,000 events paced at 10/s over the SSE stream arrive with a p95 of at most
+  250 ms. Reasons: the server measured 3,580–5,823 events/s at 500 per commit, 15–33 appends/s single, and 71–509 ms p95
+  when the log was saturated; each floor is below the worst measured value. The 250 ms is a starting value to calibrate
+  on the first run. The Mac measured 263–281 single appends/s and 14–17 ms cross-process.
 
 **Task 4 (producers)**
 - Hook test (workspace `tests/`): a fake `PostToolUse` for `Read` writes nothing; for `Edit` writes one spool line with
@@ -521,4 +560,32 @@ DUR=full  jsonl     append=   287 ev/s  p50= 5.11ms p95= 9.96ms p99=10.57ms rss=
 DUR=full  sqlite    append=   263 ev/s  p50=10.16ms p95=16.75ms p99=22.15ms rss=26MB
 DUR=full  pg        append=   267 ev/s  p50= 3.90ms p95= 5.71ms p99=11.90ms rss=23MB (+server 12MB)
 DUR=full  nats-sync append=   288 ev/s  p50= 3.83ms p95= 8.62ms p99=21.35ms rss=38MB
+```
+
+**On the server.** The same program built for Linux (`CGO_ENABLED=0 GOOS=linux`), run twice from a systemd slice that was
+started only while the CPU pressure of the services slice was at most 50% (it hovered at 25–55%, so every run shared the
+CPU and the disk with production load; load average 50–90). On Linux `DUR=os` and `DUR=full` are the same `fsync`
+for JSONL, SQLite and Postgres (`fsync_writethrough` is macOS-only; Postgres used its default `fdatasync`), so only the full
+run was made; NATS is measured both without sync and with `sync_always`. The program's RSS units were fixed for Linux; the
+Postgres server figure sums that user's Postgres processes. The paced stream (200/s) overruns a 15–33/s log, so its latency
+includes queueing. The batch table is a separate 40-line script: a 600-byte line repeated N times, one `write` and one
+`fsync` per batch, 60–100 commits per size, run twice.
+
+```
+-- repetition 1
+DUR=full  jsonl     append=   16 ev/s  e2e@200/s p50=  9.05ms p95= 79.65ms p99=194.09ms rss=17MB
+DUR=full  sqlite    append=   15 ev/s  e2e@200/s p50= 36.95ms p95=359.72ms p99=721.61ms rss=25MB
+DUR=full  pg        append=   33 ev/s  e2e@200/s p50= 18.07ms p95=187.17ms p99=355.22ms rss=76MB (+server 101MB)
+DUR=full  nats      append= 2241 ev/s  e2e@200/s p50=  0.46ms p95= 27.53ms p99=123.34ms rss=34MB
+DUR=full  nats-sync append=   24 ev/s  e2e@200/s p50= 37.93ms p95=505.28ms p99=990.80ms rss=34MB
+-- repetition 2
+DUR=full  jsonl     append=   25 ev/s  e2e@200/s p50=  9.15ms p95= 71.20ms p99=177.19ms rss=17MB
+DUR=full  sqlite    append=   16 ev/s  e2e@200/s p50= 65.25ms p95=508.58ms p99=853.53ms rss=26MB
+DUR=full  pg        append=   25 ev/s  e2e@200/s p50= 22.05ms p95=294.26ms p99=593.03ms rss=20MB (+server 101MB)
+DUR=full  nats      append= 1006 ev/s  e2e@200/s p50=  0.42ms p95= 27.34ms p99=110.32ms rss=34MB
+DUR=full  nats-sync append=   19 ev/s  e2e@200/s p50= 19.63ms p95=344.47ms p99=699.32ms rss=34MB
+-- batch script, run 1                       -- batch script, run 2
+batch=  1 events/s=    28 commit p50= 7.6ms p95=189.1ms   batch=  1 events/s=    19 commit p50=16.3ms p95=260.9ms
+batch= 50 events/s=  1975 commit p50=15.8ms p95= 83.1ms   batch= 50 events/s=   763 commit p50=13.1ms p95=286.0ms
+batch=500 events/s=  5823 commit p50=26.7ms p95=366.6ms   batch=500 events/s=  3580 commit p50=49.6ms p95=688.5ms
 ```
