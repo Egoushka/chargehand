@@ -279,6 +279,48 @@ public class ModelGatewayTests
         return limited;
     };
 
+    private static Func<HttpRequestMessage, HttpResponseMessage> NearlyFullSubscription(string fiveHour, string sevenDay) => request =>
+    {
+        var answer = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"id":"m","usage":{"input_tokens":10,"output_tokens":0}}""", Encoding.UTF8, "application/json") };
+        if (request.RequestUri!.Host != FallbackHost)
+        {
+            answer.Headers.TryAddWithoutValidation("anthropic-ratelimit-unified-5h-utilization", fiveHour);
+            answer.Headers.TryAddWithoutValidation("anthropic-ratelimit-unified-7d-utilization", sevenDay);
+            answer.Headers.TryAddWithoutValidation("anthropic-ratelimit-unified-reset", Epoch(TimeSpan.FromHours(2)));
+        }
+        return answer;
+    };
+
+    private static async Task<HttpStatusCode> Send(Rig rig)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, rig.Url + "/v1/messages") { Content = new StringContent("""{"model":"m","messages":[]}""", Encoding.UTF8, "application/json") };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Rig.Token());
+        return (await rig.Client.SendAsync(request)).StatusCode;
+    }
+
+    [Fact]
+    public async Task At_the_hold_the_larger_window_sends_the_next_calls_to_the_fallback()
+    {
+        await using var rig = new Rig(NearlyFullSubscription("0.50", "0.91"), Fallback() with { HoldPercent = 90m });
+        Assert.Equal(HttpStatusCode.OK, await Send(rig));
+        Assert.Equal(HttpStatusCode.OK, await Send(rig));
+        Assert.Equal(["api.example.test", FallbackHost], rig.Upstream.Calls.Select(c => c.Item1.RequestUri!.Host));
+        Assert.Contains(rig.Log, e => e.Reason.Contains("at or over the 90% hold"));
+    }
+
+    [Fact]
+    public async Task Under_the_hold_or_without_one_the_subscription_keeps_the_calls()
+    {
+        await using var under = new Rig(NearlyFullSubscription("0.50", "0.89"), Fallback() with { HoldPercent = 90m });
+        await Send(under);
+        await Send(under);
+        Assert.All(under.Upstream.Calls, c => Assert.Equal("api.example.test", c.Item1.RequestUri!.Host));
+        await using var ignored = new Rig(NearlyFullSubscription("0.99", "0.99"), Fallback());
+        await Send(ignored);
+        await Send(ignored);
+        Assert.All(ignored.Upstream.Calls, c => Assert.Equal("api.example.test", c.Item1.RequestUri!.Host));
+    }
+
     [Fact]
     public async Task A_subscription_limit_is_replayed_on_the_fallback_key_and_the_session_sees_200()
     {

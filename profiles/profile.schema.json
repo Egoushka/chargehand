@@ -153,6 +153,16 @@
           "type": "number",
           "exclusiveMinimum": 0,
           "description": "Most the fallback may spend per UTC day, counted from chargehand's own fallback calls. Required with api_fallback_key_secret."
+        },
+        "subscription_hold_percent": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "description": "Share of the subscription's usage window (the larger of its 5-hour and 7-day figures) at which a driven batch's gateway sends calls to the fallback until the window resets. Needs api_fallback_key_secret. The owner's subscription ignore lifts it."
+        },
+        "api_ignore_key_secret": {
+          "type": "string",
+          "description": "Secret item holding the fallback key used while the owner's API ignore is in force: a key without a per-key budget. Needs api_fallback_key_secret."
         }
       },
       "not": {
