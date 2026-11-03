@@ -45,7 +45,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         await expect(page.getByRole('alert')).toHaveCount(0);
         await expect(page.getByLabel('Task id')).toHaveValue('task-1');
         await expect(
-          page.getByText('about p80 of 26 past M tasks in 2 repositories').first(),
+          page.getByText('about p80 of 7 past M tasks in 2 repositories').first(),
         ).toBeVisible();
         await settle(page);
         expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe(scheme);
@@ -131,7 +131,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         await expect(page.getByText('3 tasks in a row')).toBeVisible();
         // The L history is too thin anywhere, so its budget is the flat one, and the page says so.
         await expect(
-          page.getByText(/the flat L budget; only 6 past L tasks/).first(),
+          page.getByText(/the flat L budget; only 3 past L tasks/).first(),
         ).toBeVisible();
         await settle(page);
         expect(await sidewaysScroll(page)).toBeLessThanOrEqual(0);

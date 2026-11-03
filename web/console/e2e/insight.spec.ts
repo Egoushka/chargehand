@@ -237,7 +237,7 @@ test.describe('desktop only', () => {
       .getByRole('link', { name: 'Learning' })
       .click();
     await expect(page.getByText('Nothing learned yet')).toBeVisible();
-    await expect(page.getByText(/A size class needs 20 finished tasks in 60 days/)).toBeVisible();
+    await expect(page.getByText(/A size class needs 5 finished tasks in 60 days/)).toBeVisible();
     await settle(page);
     await shot(page, 'learning-empty');
     expect(await violations(page)).toEqual([]);
