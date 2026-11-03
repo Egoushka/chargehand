@@ -731,7 +731,7 @@ export interface EstimateRules {
 }
 
 export const DEFAULT_RULES: EstimateRules = {
-  minTasks: 20,
+  minTasks: 5,
   percentile: 80,
   windowDays: 60,
   flat: DEFAULT_FLAT_BUDGETS,
