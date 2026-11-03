@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.11](https://github.com/Egoushka/chargehand/compare/v0.19.10...v0.19.11) (2026-11-03)
+
+
+### Bug Fixes
+
+* **budget:** switch on budgets from past spend after 5 tasks, not 20 ([#694](https://github.com/Egoushka/chargehand/issues/694)) ([3289eb2](https://github.com/Egoushka/chargehand/commit/3289eb261869256eba0a398740c668e985273b2f))
+* **oversight:** do not count polls of a running chargehand run as repeated calls ([#717](https://github.com/Egoushka/chargehand/issues/717)) ([fb8ccbd](https://github.com/Egoushka/chargehand/commit/fb8ccbd09a982409a2f976426d752beac8feee8e)), closes [#713](https://github.com/Egoushka/chargehand/issues/713)
+
 ## [0.19.10](https://github.com/Egoushka/chargehand/compare/v0.19.9...v0.19.10) (2026-11-02)
 
 
