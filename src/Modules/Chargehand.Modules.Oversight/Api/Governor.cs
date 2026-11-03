@@ -75,6 +75,10 @@ public sealed partial class Governor
 {
     private const int MaxValueLength = 200;
 
+    /// <summary>What chargehand's <c>result</c> tool answers while the run it reads is still going: polling it waits on purpose (issue 713), so such a result counts toward no
+    /// repeat, failure or alternation rule. Its final <c>result/v1</c> counts as any other.</summary>
+    private const string RunStatusContract = "run-status/v1";
+
     /// <summary>The stop reasons of an enforced decision, as they appear in the session outcome. The three checkpoints continue (<c>StallDetector.ContinuableReasons</c>); a
     /// spent budget does not.</summary>
     public const string CheckpointStuck = "checkpoint_stuck";
@@ -93,7 +97,7 @@ public sealed partial class Governor
     private readonly SessionGovernor _settings;
     private readonly Regex[] _probes;
     private readonly Regex[] _waits;
-    private readonly Dictionary<string, (string Action, string Describe, bool Wait)> _pending = [];
+    private readonly Dictionary<string, (string Action, string Describe, bool Wait, bool Poll)> _pending = [];
     private readonly Dictionary<string, int> _failures = [];
     private readonly Dictionary<string, int> _warned = [];
     private readonly List<string> _recent = [];
@@ -179,7 +183,7 @@ public sealed partial class Governor
         var describe = Cut(command is not null ? $"Bash: {command}" : $"{name}: {(input.ValueKind == JsonValueKind.Undefined ? "" : input.GetRawText())}");
         var wait = command is not null && _waits.Any(r => r.IsMatch(command));
         if (block.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
-            _pending[id.GetString()!] = ($"{name}|{(input.ValueKind == JsonValueKind.Undefined ? "" : input.GetRawText())}", describe, wait);
+            _pending[id.GetString()!] = ($"{name}|{(input.ValueKind == JsonValueKind.Undefined ? "" : input.GetRawText())}", describe, wait, RunPoll().IsMatch(name));
         if (command is not null)
             OnProbe(command, describe, turn, spend, now, decisions);
     }
@@ -201,6 +205,8 @@ public sealed partial class Governor
             return;
         var failed = block.TryGetProperty("is_error", out var err) && err.ValueKind == JsonValueKind.True;
         var observation = block.TryGetProperty("content", out var content) ? content.GetRawText() : "";
+        if (StillRunning(call.Poll, failed, observation))
+            return;
         var pair = $"{call.Action}\n{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(observation)))}";
 
         _pairRepeats = pair == _lastPair ? _pairRepeats + 1 : 1;
@@ -241,6 +247,9 @@ public sealed partial class Governor
             _failingInARow = 0;
         }
     }
+
+    private static bool StillRunning(bool poll, bool failed, string observation) =>
+        poll && !failed && observation.Contains(RunStatusContract, StringComparison.Ordinal);
 
     private bool OnlyProbes(string command)
     {
@@ -314,6 +323,10 @@ public sealed partial class Governor
 
     [GeneratedRegex(@"&&|\|\||;|\|")]
     private static partial Regex CommandSeparators();
+
+    /// <summary>The <c>result</c> tool of a chargehand MCP server, under whatever server name the session registered it (<c>mcp__chargehand__result</c>, a plugin's prefix, <c>-local</c>).</summary>
+    [GeneratedRegex(@"^mcp__\S*chargehand\S*__result$", RegexOptions.CultureInvariant)]
+    private static partial Regex RunPoll();
 }
 
 /// <summary>A task's budget in the dollar equivalent and where it came from.</summary>
