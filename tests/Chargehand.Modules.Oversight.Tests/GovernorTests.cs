@@ -53,6 +53,24 @@ public class GovernorTests
     }
 
     [Fact]
+    public void Polling_a_running_review_run_six_times_with_the_same_status_is_not_a_repeat()
+    {
+        var g = new Governor(new SessionGovernor(Mode: GovernorMode.Enforce));
+        const string running = "{\"contract_version\":\"run-status/v1\",\"run_id\":\"run-1\",\"status\":\"running\",\"event\":\"node_started\"}";
+        for (var i = 1; i <= 6; i++)
+            Assert.Empty(Step(g, i, Call($"r{i}", "mcp__chargehand__result", "{\"run_id\":\"run-1\"}"), Result($"r{i}", running)));
+    }
+
+    [Fact]
+    public void The_same_finished_result_read_four_times_is_still_a_repeat()
+    {
+        var g = new Governor(new SessionGovernor());
+        const string done = "{\"contract_version\":\"result/v1\",\"status\":\"completed\"}";
+        var decisions = Enumerable.Range(1, 4).SelectMany(i => Step(g, i, Call($"r{i}", "mcp__chargehand__result", "{\"run_id\":\"run-1\"}"), Result($"r{i}", done))).ToList();
+        Assert.Equal("repeated_call", Assert.Single(decisions).Signal);
+    }
+
+    [Fact]
     public void The_same_call_with_a_different_output_each_time_is_not_a_repeat()
     {
         var g = new Governor(new SessionGovernor());
