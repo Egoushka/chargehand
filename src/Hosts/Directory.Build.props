@@ -1,5 +1,6 @@
 <Project>
   <Import Project="$(MSBuildThisFileDirectory)../Skeleton.props" />
+  <Import Project="$(MSBuildThisFileDirectory)../AotToolchain.props" />
 
   <!-- Every host publishes as a Native AOT binary (scripts/aot-smoke.sh, CI job aot). -->
   <PropertyGroup>

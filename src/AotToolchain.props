@@ -1,0 +1,11 @@
+<Project>
+  <!-- GHSA-p3jp-9v83-76w9 (NU1903): the SDK bundles the Native AOT toolchain at ILCompiler 10.0.10, patched in 10.0.14. The package refuses an
+       explicit PackageReference, so the bundled version is raised here, before the SDK resolves framework references. Delete this file and its
+       two imports (src/Hosts/Directory.Build.props, samples/AcpSmoke) once the SDK pinned by global.json bundles ILCompiler 10.0.14 or later. -->
+  <Target Name="PinPatchedILCompiler" BeforeTargets="ProcessFrameworkReferences">
+    <ItemGroup>
+      <KnownILCompilerPack Update="@(KnownILCompilerPack)" ILCompilerPackVersion="10.0.14"
+                           Condition="$([MSBuild]::VersionLessThan('%(ILCompilerPackVersion)', '10.0.14')) And $([MSBuild]::VersionGreaterThanOrEquals('%(ILCompilerPackVersion)', '10.0.0'))" />
+    </ItemGroup>
+  </Target>
+</Project>
