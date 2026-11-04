@@ -7,6 +7,7 @@ import { browserNotificationsAvailable, browserPermission } from '../../shell/no
 import { updatePreferences, usePreferences } from '../../shell/preferences';
 import { useShell } from '../../shell/ShellContext';
 import { useToast } from '../../shell/toasts';
+import { useIsPhone } from '../../shell/useIsPhone';
 import {
   Button,
   buttonClass,
@@ -44,6 +45,7 @@ export function NeedsYou() {
   const dismiss = useDismiss();
   const toast = useToast();
   const navigate = useNavigate();
+  const phone = useIsPhone();
   const [filter, setFilter] = useState<Filter>('all');
   const [cursor, setCursor] = useState(0);
   const cards = useRef(new Map<string, HTMLElement>());
@@ -179,6 +181,7 @@ export function NeedsYou() {
           ) : null}
           <Segmented
             label="Filter"
+            touch={phone}
             value={filter}
             onValueChange={(next) => {
               setFilter(next);
