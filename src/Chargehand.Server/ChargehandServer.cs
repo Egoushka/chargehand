@@ -53,7 +53,7 @@ namespace Chargehand.Server;
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
     IReadOnlyList<string>? AllowedHosts = null, int MaxConcurrentRuns = 1, int MaxSessionCalls = 2, string? StateDirectory = null,
     IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null, bool Ui = false,
-    Profile? Profile = null, Func<string, bool>? SecretPresent = null, string? IntakeStatePath = null, string? InboxDismissalsPath = null, string? DailyWarningPath = null, TimeSpan? McpWait = null,
+    Profile? Profile = null, Func<string, bool>? SecretPresent = null, string? IntakeStatePath = null, string? InboxDismissalsPath = null, string? DailyWarningPath = null, string? RunApprovalPath = null, TimeSpan? McpWait = null,
     CloudflareAccessSettings? Access = null, Func<CancellationToken, Task<string>>? AccessCerts = null,
     ProxySignInSettings? ProxySignIn = null, Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? ProxyResolver = null,
     IReadOnlyList<DependencyProbe>? Probes = null, ConversationSettings? Conversations = null, string? ConversationsDirectory = null, IConversationRuntime? ConversationRuntime = null);
@@ -106,7 +106,7 @@ public static partial class ChargehandServer
         // The owner hears of a paused or resumed model credential where scheduled results go (automation.schedules.notify_url), else on the phone (automation.notify.ntfy_url).
         var notify = CredentialAlert.Notify(settings.Profile?.Automation);
         AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory, driven, settings.MaxConcurrentRuns, settings.MaxSessionCalls, settings.StateDirectory, log, settings.Clock,
-                settings.Accounts, notify)
+                settings.Accounts, notify, new RunApprovalGate(settings.RunApprovalPath))
             // Hybrid: 2026-07-28 clients run stateless (tasks, input_required results); initialize clients get a session.
             .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients);
 
@@ -251,6 +251,8 @@ public static partial class ChargehandServer
                 var admitted = await runs.AdmitAsync(who, request, ctx.RequestAborted);
                 if (admitted.Refusal is { } refusal)
                     return Refused(ctx, refusal);
+                if (await runs.ApprovalAsync(who, request, admitted.Request, ctx.RequestAborted) is { } held)
+                    return Refused(ctx, held);
                 request = admitted.Request;
             }
             if (runs.Start(request, parent, parent, who?.Name) is not { } run)
@@ -276,6 +278,7 @@ public static partial class ChargehandServer
         ConsoleSources.Map(app, settings, intake);
         ConsoleLimits.Map(app, intake);
         ConsoleDailyWarning.Map(app, settings, log, new DailyWarningLimit(settings.DailyWarningPath));
+        ConsoleRunApproval.Map(app);
 
         foreach (var path in new[] { "/v1/accounts/me", IdentityPath })
             app.MapGet(path, async (HttpContext ctx, RunService runs) =>
@@ -429,17 +432,20 @@ public static partial class ChargehandServer
     {
         var builder = Host.CreateEmptyApplicationBuilder(new());
         builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace).SetMinimumLevel(LogLevel.Warning);
-        AddOrchestrate(builder.Services, orchestrator, presetsDirectory).WithStreamServerTransport(input, output);
+        // Over stdio there is no console to answer in, so nothing is held for approval.
+        var approvals = new RunApprovalGate(null);
+        approvals.Limit.Set(null);
+        AddOrchestrate(builder.Services, orchestrator, presetsDirectory, approvals: approvals).WithStreamServerTransport(input, output);
         return builder.Build();
     }
 
     /// <summary>What both hosts share: the run service, the tool, the tasks store and the instructions.</summary>
     private static IMcpServerBuilder AddOrchestrate(IServiceCollection services, Orchestrator orchestrator, string presetsDirectory, Chargehand.Driven.DrivenRun? driven = null,
         int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null, IRunLog? log = null, TimeProvider? clock = null,
-        IReadOnlyList<AccountSettings>? accounts = null, Func<string, string, CancellationToken, Task>? notify = null)
+        IReadOnlyList<AccountSettings>? accounts = null, Func<string, string, CancellationToken, Task>? notify = null, RunApprovalGate? approvals = null)
     {
         services.AddSingleton(sp => new RunService(orchestrator, presetsDirectory,
-            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping, driven, maxConcurrentRuns, maxSessionCalls, stateDirectory, log, clock, accounts, notify));
+            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping, driven, maxConcurrentRuns, maxSessionCalls, stateDirectory, log, clock, accounts, notify, approvals));
         return services.AddMcpServer(o =>
             {
                 o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" };

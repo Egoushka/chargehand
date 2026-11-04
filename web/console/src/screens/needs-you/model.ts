@@ -4,18 +4,19 @@ export type Filter = 'all' | InboxKind;
 
 export const FILTERS: Array<{ id: Filter; label: string }> = [
   { id: 'all', label: 'All' },
+  { id: 'approval', label: 'Spend' },
   { id: 'question', label: 'Questions' },
   { id: 'pull_request', label: 'PRs' },
   { id: 'failure', label: 'Failures' },
 ];
 
-const ORDER: Record<InboxKind, number> = { question: 0, pull_request: 1, failure: 2 };
+const ORDER: Record<InboxKind, number> = { approval: 0, question: 1, pull_request: 2, failure: 3 };
 
 /** A pull request that waited this long for a person is stale (run data of 27 Sep to 22 Oct: six waited 124 to 142 hours). */
 export const STALE_AFTER_HOURS = 48;
 
 /**
- * Questions first (they block a task), then pull requests, then failures; newest first within each. The PRs filter lists
+ * Runs held for a spend approval first (they block a whole run), then questions (they block a task), then pull requests, then failures; newest first within each. The PRs filter lists
  * the longest-waiting first: those are the merges to do before anything else.
  */
 export function ordered(items: InboxItem[], filter: Filter): InboxItem[] {
@@ -78,11 +79,18 @@ export function rowItems(list: Row[]): number {
   return list.reduce((n, row) => n + (row.type === 'group' ? row.group.items.length : 1), 0);
 }
 
-type Counts = { questions: number; pull_requests: number; failures: number; total: number };
+type Counts = {
+  questions: number;
+  pull_requests: number;
+  failures: number;
+  total: number;
+  approvals?: number;
+};
 
 /** How many cards a filter tab holds. */
 export function filterCount(counts: Counts, filter: string): number {
   if (filter === 'all') return counts.total;
+  if (filter === 'approval') return counts.approvals ?? 0;
   if (filter === 'question') return counts.questions;
   return filter === 'pull_request' ? counts.pull_requests : counts.failures;
 }
@@ -91,7 +99,8 @@ export function summary(counts: Counts): string {
   if (counts.total === 0) return 'All clear';
   const n = (count: number, one: string, many = `${one}s`) =>
     `${count} ${count === 1 ? one : many}`;
-  return `${n(counts.questions, 'question')}, ${n(counts.pull_requests, 'PR')} to merge, ${n(counts.failures, 'failure')}`;
+  const held = counts.approvals ? `${n(counts.approvals, 'run')} to approve, ` : '';
+  return `${held}${n(counts.questions, 'question')}, ${n(counts.pull_requests, 'PR')} to merge, ${n(counts.failures, 'failure')}`;
 }
 
 /** What the PR waits for, in words. */

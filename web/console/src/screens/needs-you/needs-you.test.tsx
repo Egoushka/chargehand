@@ -15,6 +15,7 @@ import {
 import { renderConsole } from '../../testing/render';
 import { serveApi } from '../../testing/server';
 import {
+  filterCount,
   ordered,
   resolvedNote,
   rowIds,
@@ -657,12 +658,13 @@ describe('Notify me', () => {
       (screen.getByRole('switch', { name: 'Batch finishes' }) as HTMLInputElement).checked,
     ).toBe(false);
     expect(JSON.parse(localStorage.getItem('chargehand.console') ?? '{}').notify).toEqual({
+      approval: true,
       question: true,
       pull_request: true,
       batch: false,
       failure: true,
     });
-    expect(screen.getAllByRole('switch')).toHaveLength(4);
+    expect(screen.getAllByRole('switch')).toHaveLength(5);
   });
 
   it('asks the browser once, from the click, and turns browser notifications on when it agrees', async () => {
@@ -713,6 +715,30 @@ describe('Needs you model', () => {
       '1 question, 2 PRs to merge, 0 failures',
     );
     expect(summary({ questions: 0, pull_requests: 0, failures: 0, total: 0 })).toBe('All clear');
+  });
+
+  it('puts a run held for spend approval first and counts it in its own tab', () => {
+    const [q, pr, f] = inboxItems();
+    const held = {
+      ...q,
+      kind: 'approval',
+      id: 'approval:ab12',
+      task_id: null,
+      batch_run_id: null,
+      usd: 8,
+      at: new Date(0).toISOString(),
+    };
+    expect(ordered([f, pr, q, held] as never, 'all')[0]).toBe(held);
+    expect(ordered([f, pr, q, held] as never, 'approval')).toEqual([held]);
+    expect(
+      filterCount(
+        { questions: 1, pull_requests: 0, failures: 0, total: 2, approvals: 1 },
+        'approval',
+      ),
+    ).toBe(1);
+    expect(summary({ questions: 1, pull_requests: 0, failures: 0, total: 3, approvals: 2 })).toBe(
+      '2 runs to approve, 1 question, 0 PRs to merge, 0 failures',
+    );
   });
 
   it('says what a pull request waits for', () => {

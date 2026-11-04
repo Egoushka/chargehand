@@ -102,9 +102,9 @@ function NeedsRow({ item }: { item: InboxItem }) {
           {item.task_id ?? item.run_id ?? ''} · {formatTime(item.at)}
         </div>
       </div>
-      {item.kind === 'question' ? (
+      {item.kind === 'question' || item.kind === 'approval' ? (
         <Link to="/needs-you" className={buttonClass({ variant: 'primary', size: 'sm' })}>
-          Answer
+          {item.kind === 'question' ? 'Answer' : 'Review'}
         </Link>
       ) : item.kind === 'pull_request' && url ? (
         <a

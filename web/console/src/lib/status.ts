@@ -138,14 +138,15 @@ export function taskStatus(state: string): Status {
 }
 
 export interface InboxLike {
-  kind: 'question' | 'pull_request' | 'failure';
+  kind: 'question' | 'pull_request' | 'failure' | 'approval';
   reason?: string | null;
   error?: { code: string } | null;
 }
 
-/** The word for one inbox item: a question, a pull request that waits (`partial` for a kept-work draft), or a failure. */
+/** The word for one inbox item: a question, a run held for approval (`asked`), a pull request that waits (`partial` for a kept-work draft), or a failure. */
 export function inboxStatus(item: InboxLike): Status {
   if (item.kind === 'question') return 'question';
+  if (item.kind === 'approval') return 'asked';
   if (item.kind === 'pull_request') return item.reason === 'partial_draft' ? 'partial' : 'asked';
   if (item.reason === 'lost') return 'lost';
   if (item.reason === 'partial') return 'partial';

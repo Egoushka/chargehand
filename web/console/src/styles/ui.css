@@ -619,6 +619,11 @@
     overflow-x: auto;
   }
 
+  .screen__actions {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .screen {
     gap: var(--space-4);
     padding: var(--space-4) var(--space-4) var(--space-8);

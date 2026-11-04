@@ -22,6 +22,9 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
     private readonly ConcurrentDictionary<string, string> _directories = new();
     private int _ids;
 
+    /// <summary>The credential kind the runtime reports: <c>api_key</c> is priced, <c>subscription</c> is not (ADR 0082).</summary>
+    public string Credential { get; set; } = "api_key";
+
     /// <summary>Called at the start of each turn with the session's directory and the turn's number (1-based), as a worker that edits files would.</summary>
     public Action<string, int>? OnTurn { get; set; }
 

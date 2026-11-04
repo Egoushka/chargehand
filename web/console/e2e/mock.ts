@@ -146,6 +146,17 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
                 resets_at: new Date(now + 3_600_000).toISOString(),
               },
             });
+      case '/v1/limits/run-approval':
+        return options.account
+          ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })
+          : route.fulfill({
+              json: {
+                contract_version: 'run-approval/v1',
+                limit_usd: 5,
+                default_usd: 5,
+                pending: 0,
+              },
+            });
       case '/v1/accounts':
         return options.account
           ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })

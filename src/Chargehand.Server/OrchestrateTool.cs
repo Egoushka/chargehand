@@ -126,6 +126,8 @@ public static class OrchestrateTool
             var admitted = await runs.AdmitAsync(who, request, ct);
             if (admitted.Refusal is { } refusal)
                 throw new McpException($"{refusal.Code}: {refusal.Message}");
+            if (await runs.ApprovalAsync(who, request, admitted.Request, ct) is { } held)
+                throw new McpException($"{held.Code}: {held.Message}");
             request = admitted.Request;
         }
         var run = runs.Start(request, parentRunId, chargeTo, who?.Name) ?? throw new McpException($"{RunService.MaxUnfinished} runs are unfinished; retry later");

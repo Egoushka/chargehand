@@ -200,7 +200,7 @@ export function recentMerges(
 
 /** The needs-you panel shows the newest of each; questions first, as the screen does. */
 export function inboxPreview(items: InboxItem[], limit = 6): InboxItem[] {
-  const order = { question: 0, pull_request: 1, failure: 2 } as const;
+  const order = { approval: 0, question: 1, pull_request: 2, failure: 3 } as const;
   return [...items]
     .sort((a, b) => order[a.kind] - order[b.kind] || b.at.localeCompare(a.at))
     .slice(0, limit);

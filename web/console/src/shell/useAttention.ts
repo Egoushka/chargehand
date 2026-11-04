@@ -22,6 +22,19 @@ interface Notice {
 function inboxNotice(item: InboxItem, go: (to: string) => void): Notice {
   const task = item.task_id ?? shortId(item.run_id);
   const where = baseName(item.repository);
+  if (item.kind === 'approval') {
+    return {
+      kind: 'approval',
+      key: item.id,
+      toast: {
+        tone: 'accent',
+        icon: 'help',
+        title: `A run on ${where} waits for your approval`,
+        body: `${item.what ?? item.title}. It has not started.`,
+        actions: [{ label: 'Review', onSelect: () => go('/needs-you') }],
+      },
+    };
+  }
   if (item.kind === 'question') {
     return {
       kind: 'question',

@@ -40,8 +40,10 @@ internal sealed class RunServiceStarter(RunService runs, AccountSettings? accoun
         if (runs.Halted)
             return new BatchStart(null, RunService.HaltedMessage);
         var actor = Principal.Owner.Name;
+        var asked = request;
         // Admitted without an account too: a paused credential refuses the start there as well, and intake retries it.
-        var (admitted, refusal) = await runs.AdmitAsync(account is null ? null : new Principal(account.Name, account), request, ct);
+        var who = account is null ? null : new Principal(account.Name, account);
+        var (admitted, refusal) = await runs.AdmitAsync(who, request, ct);
         if (refusal is not null)
             return new BatchStart(null, account is null ? refusal.Message : $"account '{account.Name}': {refusal.Message}");
         if (account is not null)
@@ -55,6 +57,9 @@ internal sealed class RunServiceStarter(RunService runs, AccountSettings? accoun
                     $"account '{account.Name}': the budget of ${wanted:0.00} does not fit beside the ${runs.ReservedUsd(account.Name):0.00} reserved by its running work; waiting for it to finish"));
             (request, actor) = (admitted, account.Name);
         }
+        // Over the owner's per-run threshold the start waits in the inbox (ADR 0092); intake asks again at its next poll and finds the answer.
+        if (await runs.ApprovalAsync(who, asked, admitted, ct) is { } held)
+            return new BatchStart(null, account is null ? held.Message : $"account '{account.Name}': {held.Message}");
         return runs.Start(request, actor: actor, budgetIsCap: budgetIsCap) is { } run ? new BatchStart(run.Id) : new BatchStart(null, $"{RunService.MaxUnfinished} runs are unfinished");
     }
 }
