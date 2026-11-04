@@ -9,6 +9,8 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
+  <Import Project="..\..\src\AotToolchain.props" />
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Shared\AgentClientProtocol.Net\AgentClientProtocol.Net.csproj" />
   </ItemGroup>
