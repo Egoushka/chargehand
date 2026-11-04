@@ -27,7 +27,7 @@ public sealed class PublicFreeGate(Profile profile, PublicFreePool pool, Func<IW
 
     public async Task<PoolDecision> DecideAsync(RunRequest request, CancellationToken ct)
     {
-        var (forge, path) = Identify(request.Context.Repository?.Path);
+        var (forge, path) = await IdentifyAsync(request.Context.Repository?.Path, ct);
         return await pool.DecideAsync(request.Context.Preset, forge, path, request.Driven is not null, ct);
     }
 
@@ -37,7 +37,7 @@ public sealed class PublicFreeGate(Profile profile, PublicFreePool pool, Func<IW
     {
         if (!string.Equals(preset, Preset, StringComparison.Ordinal))
             return null;
-        var (forge, path) = Identify(given);
+        var (forge, path) = await IdentifyAsync(given, ct);
         var decision = await pool.DecideAsync(preset, forge, path, driven: false, ct);
         return decision.Choice == PoolChoice.Pool
             ? _runtime.Value
@@ -45,8 +45,9 @@ public sealed class PublicFreeGate(Profile profile, PublicFreePool pool, Func<IW
                 "Run it on another preset; the pool is for repositories GitHub reports as public.");
     }
 
-    /// <summary>The forge name and path of the known checkout <paramref name="given"/> names: a path of a known checkout, or a name <see cref="RepositoryNames"/> resolves. Null, null for any other.</summary>
-    private (string? Forge, string? Path) Identify(string? given)
+    /// <summary>The forge name and path of the known checkout <paramref name="given"/> names: a path of a known checkout, or a name <see cref="RepositoryNames"/> resolves. The forge name is kept only when
+    /// the checkout's own <c>origin</c> names the same repository; otherwise it is null (fail closed).</summary>
+    private async Task<(string? Forge, string? Path)> IdentifyAsync(string? given, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(given))
             return (null, null);
@@ -54,6 +55,10 @@ public sealed class PublicFreeGate(Profile profile, PublicFreePool pool, Func<IW
         var direct = Path.IsPathRooted(given) ? Path.TrimEndingDirectorySeparator(Path.GetFullPath(given)) : null;
         var match = known.FirstOrDefault(k => direct is not null && string.Equals(k.Path, direct, StringComparison.Ordinal))
             ?? (RepositoryNames.Resolve(given, known) is { } resolved ? known.FirstOrDefault(k => k.Path == resolved) : null);
-        return (match?.Forge, match?.Path);
+        if (match?.Forge is not { } forge)
+            return (null, match?.Path);
+        // The mapping is a claim: a private clone in a folder named like a public repository, or a renamed repository whose old name is public now, must not borrow its answer.
+        var origin = await RepositoryNames.OriginForgeAsync(match.Path, ct);
+        return (string.Equals(origin, forge, StringComparison.OrdinalIgnoreCase) ? forge : null, match.Path);
     }
 }

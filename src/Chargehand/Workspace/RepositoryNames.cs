@@ -91,6 +91,11 @@ public static partial class RepositoryNames
         }));
     }
 
+    /// <summary>The <c>owner/name</c> the checkout's own <c>origin</c> remote names, read from git; null when there is no origin or it is not a plain GitHub URL. A forge name from the profile or a clone
+    /// folder is a claim about the checkout, this is what the checkout says about itself.</summary>
+    public static async Task<string?> OriginForgeAsync(string path, CancellationToken ct) =>
+        await Git(path, ct, "remote", "get-url", "origin") is { } url && ForgeUrl().IsMatch(url.Trim()) ? Normalize(url) : null;
+
     /// <summary><c>owner/name</c> from a GitHub URL; otherwise the value without a trailing slash, <c>.git</c> directory or <c>.git</c> suffix.</summary>
     internal static string Normalize(string given)
     {

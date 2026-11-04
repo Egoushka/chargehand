@@ -13,9 +13,11 @@ public class PublicFreeRuntimeTests
 
     private sealed record Rig(Orchestrator Orchestrator, ScriptedRuntime Server, ScriptedRuntime Pool, RepositoryRef Repo, RunRequest Request);
 
-    private static Rig Build(TempDir root, IRepositoryVisibility visibility, string preset)
+    private static Rig Build(TempDir root, IRepositoryVisibility visibility, string preset, string? origin = $"https://github.com/{Forge}.git")
     {
         var repo = Runs.GitRepo(root.Path);
+        if (origin is not null)
+            Runs.SetOrigin(repo, origin);
         var settings = PublicFreePoolTests.Settings;
         var profile = Runs.Profile(root.Path) with
         {
@@ -48,6 +50,35 @@ public class PublicFreeRuntimeTests
         Assert.Equal(ErrorCode.RepositoryNotAllowed, result.Error?.Code);
         Assert.Empty(rig.Pool.Created);
         Assert.Empty(rig.Server.Created);
+    }
+
+    [Theory]
+    [InlineData("https://github.com/owner/private-thing.git")]
+    [InlineData("git@github.com:someone/else.git")]
+    [InlineData("https://example.test/owner/open.git")]
+    [InlineData(null)]
+    public async Task AMappedNameThatTheCheckoutsOriginDoesNotMatchNeverGetsThePool(string? origin)
+    {
+        using var root = new TempDir();
+        var rig = Build(root, new PublicFreePoolTests.FakeVisibility(_ => RepositoryVisibility.Public), "public-free", origin);
+
+        var result = await rig.Orchestrator.RunAsync(rig.Request, CancellationToken.None);
+
+        Assert.Equal(ErrorCode.RepositoryNotAllowed, result.Error?.Code);
+        Assert.Empty(rig.Pool.Created);
+        Assert.Empty(rig.Server.Created);
+    }
+
+    [Fact]
+    public async Task AnOriginThatNamesTheSameRepositoryInAnotherCaseOrFormStillQualifies()
+    {
+        using var root = new TempDir();
+        var rig = Build(root, new PublicFreePoolTests.FakeVisibility(_ => RepositoryVisibility.Public), "public-free", "git@github.com:Owner/Open.git");
+
+        var result = await rig.Orchestrator.RunAsync(rig.Request, CancellationToken.None);
+
+        Assert.True(result.Status != ResultStatus.Failed, $"{result.Error?.Code}: {result.Summary}");
+        Assert.Single(rig.Pool.Created);
     }
 
     [Fact]
