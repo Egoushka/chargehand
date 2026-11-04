@@ -14,7 +14,16 @@ import {
 } from '../../testing/fixtures';
 import { renderConsole } from '../../testing/render';
 import { serveApi } from '../../testing/server';
-import { ordered, resolvedNote, rowIds, rows, summary, waitingFor } from './model';
+import {
+  ordered,
+  resolvedNote,
+  rowIds,
+  rows,
+  staleFor,
+  stalePulls,
+  summary,
+  waitingFor,
+} from './model';
 
 const cards = () => screen.getAllByRole('article');
 const findCard = async (name: RegExp | string) =>
@@ -710,5 +719,55 @@ describe('Needs you model', () => {
     expect(waitingFor('policy_ask')).toMatch(/Policy is ask/);
     expect(waitingFor('test_integrity')).toMatch(/test files or build files/);
     expect(waitingFor('partial_draft')).toMatch(/\[partial\] draft/);
+  });
+});
+
+describe('Needs you: pull requests that wait', () => {
+  const HOUR = 3_600_000;
+  const waiting = (hours: number, id = 'pr-old') => {
+    const [, pr] = inboxItems();
+    if (!pr) throw new Error('fixture has no pull request');
+    return { ...pr, id, at: new Date(Date.now() - hours * HOUR).toISOString() };
+  };
+
+  it('calls a pull request stale after 48 hours, and nothing else', () => {
+    const [question, , failure] = inboxItems();
+    const now = Date.now();
+    expect(staleFor(waiting(47), now)).toBeNull();
+    expect(staleFor(waiting(130), now)).toBeGreaterThan(129 * 3600);
+    expect(question && staleFor({ ...question, at: waiting(130).at }, now)).toBeNull();
+    expect(failure && staleFor({ ...failure, at: waiting(130).at }, now)).toBeNull();
+    expect(stalePulls([waiting(60, 'a'), waiting(130, 'b'), waiting(3, 'c')], now).count).toBe(2);
+    expect(stalePulls([], now)).toEqual({ count: 0, longest: 0 });
+  });
+
+  it('lists the longest-waiting pull request first under the PRs filter, and newest first elsewhere', () => {
+    const items = [waiting(60, 'a'), waiting(130, 'b'), waiting(3, 'c')];
+    expect(ordered(items, 'pull_request').map((i) => i.id)).toEqual(['b', 'a', 'c']);
+    expect(ordered(items, 'all').map((i) => i.id)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('says how many wait and for how long, marks each card, and the button lists them longest first', async () => {
+    serveApi({ inbox: inbox([...inboxItems(), waiting(130, 'pr-old'), waiting(60, 'pr-mid')]) });
+    renderConsole('/console/needs-you');
+    await screen.findAllByRole('article');
+
+    const notice = screen.getByRole('status');
+    expect(notice.textContent).toContain('2 pull requests have waited for you more than 48 hours');
+    expect(notice.textContent).toContain('the longest 5d 10h');
+    expect(screen.getAllByText(/^waiting \d/)).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show PRs, longest waiting first' }));
+    expect(screen.queryByRole('button', { name: 'Show PRs, longest waiting first' })).toBeNull();
+    const badges = screen.getAllByText(/^waiting \d/).map((b) => b.textContent);
+    expect(badges).toEqual(['waiting 5d 10h', 'waiting 2d 12h']);
+  });
+
+  it('says nothing when no pull request has waited that long', async () => {
+    serveApi();
+    renderConsole('/console/needs-you');
+    await screen.findAllByRole('article');
+    expect(screen.queryByText(/have waited for you/)).toBeNull();
+    expect(screen.queryByText(/^waiting \d/)).toBeNull();
   });
 });

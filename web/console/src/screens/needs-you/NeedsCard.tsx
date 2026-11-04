@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router';
 import { type Ref, useId, useState } from 'react';
 import { useAnswer } from '../../api/answer';
 import { type InboxItem, useDismiss } from '../../api/inbox';
-import { baseName, formatDateTime, formatTime, shortId } from '../../lib/format';
+import { baseName, formatDateTime, formatDuration, formatTime, shortId } from '../../lib/format';
 import { inboxStatus } from '../../lib/status';
 import { safeHttpUrl } from '../../lib/url';
 import { useToast } from '../../shell/toasts';
@@ -17,7 +17,7 @@ import {
   StatusPill,
   Textarea,
 } from '../../ui';
-import { targetRun, waitingFor } from './model';
+import { staleFor, targetRun, waitingFor } from './model';
 import { Options } from './Options';
 
 export interface NeedsCardProps {
@@ -38,6 +38,7 @@ export function NeedsCard({ item, cursor, answerRef, cardRef }: NeedsCardProps) 
   // A server since ADR 0085 says what, why and the options; the card shows those four parts.
   const decision = Boolean(item.what && item.options);
   const label = item.task_id ?? (item.run_id ? shortId(item.run_id) : item.title);
+  const stale = staleFor(item, Date.now());
   return (
     <article
       ref={cardRef}
@@ -58,6 +59,14 @@ export function NeedsCard({ item, cursor, answerRef, cardRef }: NeedsCardProps) 
         ) : null}
         {item.pull_request?.test_integrity_flagged ? (
           <Badge size="s" tone="warn" label="test-integrity flagged" />
+        ) : null}
+        {stale !== null ? (
+          <Badge
+            size="s"
+            tone="warn"
+            label={`waiting ${formatDuration(stale)}`}
+            title="This pull request has waited for you more than 48 hours"
+          />
         ) : null}
         {(item.count ?? 1) > 1 ? (
           <Badge

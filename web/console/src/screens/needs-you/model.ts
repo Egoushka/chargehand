@@ -11,11 +11,37 @@ export const FILTERS: Array<{ id: Filter; label: string }> = [
 
 const ORDER: Record<InboxKind, number> = { question: 0, pull_request: 1, failure: 2 };
 
-/** Questions first (they block a task), then pull requests, then failures; newest first within each. */
+/** A pull request that waited this long for a person is stale (run data of 27 Sep to 22 Oct: six waited 124 to 142 hours). */
+export const STALE_AFTER_HOURS = 48;
+
+/**
+ * Questions first (they block a task), then pull requests, then failures; newest first within each. The PRs filter lists
+ * the longest-waiting first: those are the merges to do before anything else.
+ */
 export function ordered(items: InboxItem[], filter: Filter): InboxItem[] {
+  const oldestFirst = filter === 'pull_request' ? -1 : 1;
   return items
     .filter((item) => filter === 'all' || item.kind === filter)
-    .sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || b.at.localeCompare(a.at));
+    .sort(
+      (a, b) =>
+        ORDER[a.kind] - ORDER[b.kind] ||
+        (a.kind === 'pull_request'
+          ? oldestFirst * b.at.localeCompare(a.at)
+          : b.at.localeCompare(a.at)),
+    );
+}
+
+/** Seconds an open pull request has waited for a person, when that is past `STALE_AFTER_HOURS`; else null. */
+export function staleFor(item: InboxItem, now: number): number | null {
+  if (item.kind !== 'pull_request' || laneOf(item) !== 'decide') return null;
+  const seconds = (now - new Date(item.at).getTime()) / 1000;
+  return Number.isFinite(seconds) && seconds >= STALE_AFTER_HOURS * 3600 ? seconds : null;
+}
+
+/** The stale pull requests among `items`, and how long the longest waited. */
+export function stalePulls(items: InboxItem[], now: number): { count: number; longest: number } {
+  const waits = items.map((item) => staleFor(item, now)).filter((w): w is number => w !== null);
+  return { count: waits.length, longest: Math.max(0, ...waits) };
 }
 
 /** A card of the list: one item, or a group of failures with the same repository and code and its items here, newest first. */
@@ -52,12 +78,16 @@ export function rowItems(list: Row[]): number {
   return list.reduce((n, row) => n + (row.type === 'group' ? row.group.items.length : 1), 0);
 }
 
-export function summary(counts: {
-  questions: number;
-  pull_requests: number;
-  failures: number;
-  total: number;
-}): string {
+type Counts = { questions: number; pull_requests: number; failures: number; total: number };
+
+/** How many cards a filter tab holds. */
+export function filterCount(counts: Counts, filter: string): number {
+  if (filter === 'all') return counts.total;
+  if (filter === 'question') return counts.questions;
+  return filter === 'pull_request' ? counts.pull_requests : counts.failures;
+}
+
+export function summary(counts: Counts): string {
   if (counts.total === 0) return 'All clear';
   const n = (count: number, one: string, many = `${one}s`) =>
     `${count} ${count === 1 ? one : many}`;
