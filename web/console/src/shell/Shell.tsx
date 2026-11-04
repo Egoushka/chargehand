@@ -7,6 +7,7 @@ import {
   useRouterState,
 } from '@tanstack/react-router';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useDailyWarning } from '../api/daily-warning';
 import { useInbox } from '../api/inbox';
 import { signOut } from '../api/key';
 import { useOverview } from '../api/overview';
@@ -83,6 +84,7 @@ export function Shell() {
   const owner = account?.owner === true;
   const halted = overview.data?.server.halted ?? account?.halted ?? false;
   const pause = overview.data?.driven.rate_limit;
+  const dailyWarning = useDailyWarning(owner).data;
   // The badge counts what waits for a decision (ADR 0085); a server before it sends no decide count.
   const waiting = inbox.data?.counts.decide ?? inbox.data?.counts.total ?? 0;
   const sessions = overview.data?.driven.sessions.running ?? 0;
@@ -395,6 +397,16 @@ export function Shell() {
               >
                 {lastPause ? `The model reported a usage limit at ${formatTime(lastPause)}. ` : ''}
                 Running tasks go on; queued tasks wait.
+              </Banner>
+            ) : null}
+            {dailyWarning?.exceeded && dailyWarning.limit_usd != null ? (
+              <Banner
+                tone="warn"
+                icon="alert-triangle"
+                title={`Today's spend ${formatUsd(dailyWarning.spent_usd)} passed the daily warning of ${formatUsd(dailyWarning.limit_usd)}`}
+              >
+                Runs are not refused. The limit resets with the UTC day and can be changed on the
+                Accounts screen.
               </Banner>
             ) : null}
             {offer ? (
