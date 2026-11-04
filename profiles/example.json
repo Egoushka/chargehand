@@ -98,6 +98,7 @@
   "public_free": {
     "api_key_secret": "chargehand-public-free-key",
     "base_url": "https://gateway.example/anthropic",
+    "github_token_secret": "chargehand-github-read-token",
     "replaces": ["cheap"],
     "intake_model": "provider/free-model"
   },

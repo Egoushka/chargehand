@@ -367,7 +367,8 @@ public sealed class Orchestrator(
         var modelLabel = workerModel ?? "auto";
         // Recalled facts go in the prompt text, after the task (ADR 0007 order; ADR 0010 keeps instructions fixed, so
         // siblings still fork). The chain records them as one runtime block per source that contributed.
-        var stack = local ? memory?.LocalOnly() : memory;
+        // A pool run sends its prompt to free providers: facts retained from other repositories stay out of it, and its claims stay out of memory (ADR 0093).
+        var stack = local ? memory?.LocalOnly() : publicFree?.Owns(worker) == true ? null : memory;
         var recall = await Recall(stack, request.Text, run, extensions, ct);
         var facts = recall.Prompt;
         chain = chain with { Blocks = [.. chain.Blocks, .. recall.Blocks] };

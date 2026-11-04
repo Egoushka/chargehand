@@ -166,24 +166,34 @@ public class GitHubRepositoryVisibilityTests
     [Fact]
     public async Task OnlyPublicAndNotPrivateIsPublic()
     {
-        Assert.Equal(RepositoryVisibility.Public, await Lookup(Json(HttpStatusCode.OK, """{"visibility":"public","private":false}""")));
-        Assert.Equal(RepositoryVisibility.Private, await Lookup(Json(HttpStatusCode.OK, """{"visibility":"private","private":true}""")));
-        Assert.Equal(RepositoryVisibility.Internal, await Lookup(Json(HttpStatusCode.OK, """{"visibility":"internal","private":true}""")));
+        Assert.Equal(RepositoryVisibility.Public, await Lookup(Json(HttpStatusCode.OK, """{"full_name":"owner/name","visibility":"public","private":false}""")));
+        Assert.Equal(RepositoryVisibility.Private, await Lookup(Json(HttpStatusCode.OK, """{"full_name":"owner/name","visibility":"private","private":true}""")));
+        Assert.Equal(RepositoryVisibility.Internal, await Lookup(Json(HttpStatusCode.OK, """{"full_name":"owner/name","visibility":"internal","private":true}""")));
         // The two fields must agree: a public visibility on a private repository is not public.
-        Assert.Equal(RepositoryVisibility.Private, await Lookup(Json(HttpStatusCode.OK, """{"visibility":"public","private":true}""")));
-        Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(HttpStatusCode.OK, """{"visibility":"public"}""")));
-        Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(HttpStatusCode.OK, """{"private":false}""")));
+        Assert.Equal(RepositoryVisibility.Private, await Lookup(Json(HttpStatusCode.OK, """{"full_name":"owner/name","visibility":"public","private":true}""")));
+        Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(HttpStatusCode.OK, """{"full_name":"owner/name","visibility":"public"}""")));
+        Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(HttpStatusCode.OK, """{"full_name":"owner/name","private":false}""")));
+    }
+
+    [Fact]
+    public async Task ARedirectOrARenamedRepositoryIsUnknown()
+    {
+        // 301 is what GitHub answers for a renamed or transferred repository; the client that follows it reads the repository now at the new name.
+        Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(HttpStatusCode.MovedPermanently, """{"full_name":"owner/name","visibility":"public","private":false}""")));
+        Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(HttpStatusCode.OK, """{"full_name":"new-owner/name","visibility":"public","private":false}""")));
+        Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(HttpStatusCode.OK, """{"visibility":"public","private":false}""")));
+        Assert.Equal(RepositoryVisibility.Public, await Lookup(Json(HttpStatusCode.OK, """{"full_name":"Owner/Name","visibility":"public","private":false}""")));
     }
 
     [Fact]
     public async Task ErrorsAndOddAnswersAreUnknown()
     {
         foreach (var status in new[] { HttpStatusCode.NotFound, HttpStatusCode.Forbidden, HttpStatusCode.Unauthorized, HttpStatusCode.TooManyRequests, HttpStatusCode.BadGateway })
-            Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(status, """{"visibility":"public","private":false}""")));
+            Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(status, """{"full_name":"owner/name","visibility":"public","private":false}""")));
         Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(HttpStatusCode.OK, "not json")));
         Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(HttpStatusCode.OK, "[]")));
-        Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(HttpStatusCode.OK, """{"visibility":"PUBLIC ","private":false}""")));
-        Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(HttpStatusCode.OK, """{"visibility":"public","private":false}"""), forge: "../etc/passwd"));
+        Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(HttpStatusCode.OK, """{"full_name":"owner/name","visibility":"PUBLIC ","private":false}""")));
+        Assert.Equal(RepositoryVisibility.Unknown, await Lookup(Json(HttpStatusCode.OK, """{"full_name":"owner/name","visibility":"public","private":false}"""), forge: "../etc/passwd"));
         var throwing = new GitHubRepositoryVisibility(new HttpClient(new Handler(_ => throw new HttpRequestException("down"))), null);
         Assert.Equal(RepositoryVisibility.Unknown, await throwing.LookupAsync("owner/name", CancellationToken.None));
     }
@@ -191,7 +201,7 @@ public class GitHubRepositoryVisibilityTests
     [Fact]
     public async Task TheRequestNamesTheRepositoryAndCarriesTheTokenOnlyWhenOneIsGiven()
     {
-        var handler = new Handler(_ => Json(HttpStatusCode.OK, """{"visibility":"public","private":false}"""));
+        var handler = new Handler(_ => Json(HttpStatusCode.OK, """{"full_name":"owner/name","visibility":"public","private":false}"""));
         await new GitHubRepositoryVisibility(new HttpClient(handler), "tok").LookupAsync("owner/name", CancellationToken.None);
         Assert.Equal("https://api.github.com/repos/owner/name", handler.Seen!.RequestUri!.ToString());
         Assert.Equal("Bearer", handler.Seen.Headers.Authorization!.Scheme);

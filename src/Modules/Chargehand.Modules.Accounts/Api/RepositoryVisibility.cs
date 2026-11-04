@@ -13,7 +13,7 @@ public interface IRepositoryVisibility
 }
 
 /// <summary><c>GET /repos/{owner}/{name}</c> on GitHub. Public needs a 200 whose <c>visibility</c> is exactly <c>public</c> and whose <c>private</c> is <c>false</c>. A 404 is what GitHub answers for
-/// a private repository the token cannot see, so it is Unknown, not "not found".</summary>
+/// a private repository the token cannot see, so it is Unknown, not "not found". The body must also name the repository asked for.</summary>
 public sealed class GitHubRepositoryVisibility(HttpClient http, string? token) : IRepositoryVisibility
 {
     public const string ApiBase = "https://api.github.com/repos/";
@@ -30,7 +30,7 @@ public sealed class GitHubRepositoryVisibility(HttpClient http, string? token) :
             if (!string.IsNullOrEmpty(token))
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             using var response = await http.SendAsync(request, ct).ConfigureAwait(false);
-            return response.StatusCode == System.Net.HttpStatusCode.OK ? Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false)) : RepositoryVisibility.Unknown;
+            return response.StatusCode == System.Net.HttpStatusCode.OK ? Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false), forge) : RepositoryVisibility.Unknown;
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or InvalidOperationException or IOException && !ct.IsCancellationRequested)
         {
@@ -38,14 +38,16 @@ public sealed class GitHubRepositoryVisibility(HttpClient http, string? token) :
         }
     }
 
-    /// <summary>The visibility a 200 body states; Unknown for anything but an object with both fields in agreement.</summary>
-    public static RepositoryVisibility Parse(string body)
+    /// <summary>The visibility a 200 body states; Unknown for anything but an object with both fields in agreement that names <paramref name="forge"/> as its own <c>full_name</c>. A followed
+    /// redirect (a renamed or transferred repository) answers for the repository now at the new name, not for the one the checkout was cloned from, so it is Unknown.</summary>
+    public static RepositoryVisibility Parse(string body, string forge)
     {
         try
         {
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("visibility", out var visibility) || visibility.ValueKind != JsonValueKind.String
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("full_name", out var fullName) || fullName.ValueKind != JsonValueKind.String
+                || !string.Equals(fullName.GetString(), forge, StringComparison.OrdinalIgnoreCase) || !root.TryGetProperty("visibility", out var visibility) || visibility.ValueKind != JsonValueKind.String
                 || !root.TryGetProperty("private", out var isPrivate) || isPrivate.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                 return RepositoryVisibility.Unknown;
             var closed = isPrivate.ValueKind == JsonValueKind.True;

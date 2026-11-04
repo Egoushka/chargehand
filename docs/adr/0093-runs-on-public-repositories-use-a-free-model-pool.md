@@ -35,21 +35,32 @@ Option 3.
 `public-free` virtual key, never the key), `base_url` (the gateway), `preset` (default `public-free`), `replaces` (the presets whose
 runs on a public repository move to the pool; none listed: no automatic routing), `deny_path_segments` (default `["work"]`),
 `intake_model` (the free model a pool run's intake uses; a pool run never uses the profile's own `intake_model`) and `github_token_secret`
-(optional secret item for the visibility lookup; without it the lookup is unauthenticated).
+(optional secret item for the visibility lookup; without it the lookup is unauthenticated, and GitHub's unauthenticated rate limit is
+low: set it, because only a positive answer is cached and every non-public repository asks again on each run).
 Model ids are not in the block: the `public-free` preset names placeholder models that the profile's `models` map resolves, as for
-every preset. The block needs the `claude_code` runtime and is refused at startup without it. Personal values live in the gitignored
+every preset. A secret item is read through the profile's secret source; with the environment source the item `some-item` is the
+variable `SOME_ITEM` (upper case, `-` becomes `_`), so the gateway key's variable name decides the item name. A missing secret
+fails the run with a message that names the item, never the value, and the key is never logged or printed (the credential's
+`ToString` shows only whether it is a subscription). The block needs the `claude_code` runtime and is refused at startup without it. Personal values live in the gitignored
 `profiles/local.*`; `profiles/example.json` carries placeholders.
 
 **The only way in.** A repository qualifies only when all of these hold; any other outcome, including an error, does not:
 
 1. The request resolves to a checkout the server knows, and that checkout has a forge name (`owner/name`) from the server's own
    mapping (a managed clone or the GitHub intake map). The caller's text names a checkout; it never supplies the forge name.
+   The forge name is then checked against the checkout itself: its git `origin` must name the same `owner/name` (any URL form,
+   any letter case). A mapping that points at a checkout whose origin is another repository, is not on GitHub, or has no origin
+   is a mistaken mapping, and the checkout does not qualify.
 2. No directory of the checkout's path is named in `deny_path_segments`.
-3. `GET /repos/{owner}/{name}` on GitHub answers 200 with `"visibility": "public"` and `"private": false`. A 404 (what GitHub
+3. `GET /repos/{owner}/{name}` on GitHub answers 200 with `"visibility": "public"`, `"private": false` and a `full_name` equal to
+   the name asked for (a repository that was renamed or transferred answers 301 or names its new owner, and is `Unknown`: the
+   name we hold may now belong to something else). A 404 (what GitHub
    answers for a private repository the token cannot see), 403, 5xx, a timeout, an unreadable body, `private`, `internal` or any
    value we do not know is `Unknown` or its own non-public value, and does not qualify.
 
-A positive answer is remembered for 10 minutes (a starting value); no other answer is remembered.
+A positive answer is remembered for 10 minutes (a starting value); no other answer is remembered. A name that an owner later
+frees and a different public repository takes cannot be told apart by name alone; the origin check narrows it to checkouts the
+owner cloned from that name, and the rest is accepted.
 
 **What the selector does** (`PublicFreePool.Decide`, a pure function):
 
@@ -66,7 +77,8 @@ repository that does not qualify. The pool is a worker runtime over the `public_
 Anthropic credential, an account's key or the API fallback of ADR 0088. When the gateway answers that the free quota is gone (429 or
 a quota error), the run fails with the existing retryable `rate_limited` error (no new error code, so `result/v1` does not change) and says so; the caller may start
 it again later or on another preset. No fallback is possible by construction: a run's worker runtime is fixed when it starts.
-The pool is not used for driven batches (their runner has its own routing); a driven request never selects it and naming the pool
+A pool run uses no memory: it neither recalls facts (which may come from other repositories) into its prompt nor retains its
+claims, because its prompt goes to free providers. The pool is not used for driven batches (their runner has its own routing); a driven request never selects it and naming the pool
 preset in one is refused.
 
 **The console setting.** `PUT /v1/limits/public-free` takes `{"enabled": true}` or `{"enabled": false}`; `GET` reads it with
@@ -90,6 +102,14 @@ Machine-run; `scripts/check.sh` runs all of them and must exit 0 with `Passed!  
 | 6 | The Orchestrator does not attach the pool runtime to a repository that does not qualify | `PublicFreeRuntimeTests.TheKeyDoesNotReachAPrivateRepository` |
 | 7 | An exhausted pool fails with `rate_limited` and never uses another runtime | `PublicFreeRuntimeTests.ExhaustedPoolFailsWithoutFallback` |
 | 8 | The profile block names secrets, not keys, and `profiles/example.json` validates | `PublicFreeProfileTests.PublicFreeBlockIsPlaceholdersAndSecretNames` |
+| 9 | A checkout whose git origin is not the mapped forge name never gets the pool; the same name in another case or URL form does | `PublicFreeRuntimeTests.AMappedNameThatTheCheckoutsOriginDoesNotMatchNeverGetsThePool`, `AnOriginThatNamesTheSameRepositoryInAnotherCaseOrFormStillQualifies` |
+| 10 | A redirect, a renamed repository or a body without the asked-for `full_name` is `Unknown` | `GitHubRepositoryVisibilityTests.ARedirectOrARenamedRepositoryIsUnknown` |
+| 11 | Admission: a paid preset on a non-public repository stays put; the pool preset named where it may not run is refused; switch off or `work` keeps the preset | `PublicFreeServerTests` |
+| 12 | Orchestrator: switch off, unmapped checkout and `work` path never get the pool runtime | `PublicFreeRuntimeTests.APublicAnswerIsNotEnoughWhenTheSwitchIsOffTheCheckoutIsUnmappedOrUnderWork` |
+| 13 | The endpoint: default off, owner only (403 for an account key, 401 without a key), 400 for a body that is not an explicit boolean, 409 without a `public_free` block | `PublicFreeServerTests` |
+| 14 | A pool run is not held for paid-spend approval, the same run on a private repository is | `PublicFreeServerTests.APoolRunIsNotHeldForPaidSpendApprovalButTheSameRunOnAPrivateRepositoryIs` |
+| 15 | A pool run does not recall from or retain into memory | `PublicFreeRuntimeTests.APoolRunNeitherRecallsFromMemoryNorRetainsIntoIt` |
+| 16 | The credential and a missing-secret error never show the key | `PublicFreeRuntimeTests.TheCredentialAndAMissingSecretNeverShowTheKey` |
 
 ## Consequences
 
@@ -97,10 +117,11 @@ Machine-run; `scripts/check.sh` runs all of them and must exit 0 with `Passed!  
   refused when the quota is spent. The owner sees `rate_limited` and chooses.
 - A repository that is public on GitHub but sits outside the server's known checkouts, or has no forge name, uses the owner's usual
   preset. The pool is opt-in per known repository, not a guess from a URL.
-- Each new run makes one GitHub call (none within 10 minutes of a positive answer), unauthenticated unless the profile's GitHub
-  token secret is set; the unauthenticated limit is generous for this use, and hitting it means `Unknown`, so the run is not moved.
-- A repository made private moves off the pool within 10 minutes. A run already underway keeps the key until it ends; the quota is
-  free and the data was public when the run started.
+- Each new run makes one GitHub call (none within 10 minutes of a positive answer for that repository), unauthenticated unless the
+  profile's GitHub token secret is set. Hitting GitHub's rate limit means `Unknown`, so the run is not moved: the failure is safe, but
+  it silently turns the pool off, which is why the token secret is recommended.
+- A repository made private moves off the pool within 10 minutes. A run already underway keeps the key until it ends and visibility
+  is not checked again mid-run (accepted: the quota is free and the data was public when the run started).
 - Free providers may train on what they see. The pool is for public code, and `deny_path_segments` plus the GitHub answer are the
   separation; an owner who clones a private repository under a managed clone folder still gets GitHub's answer for its name.
 

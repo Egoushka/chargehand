@@ -270,7 +270,7 @@
     ],
     "deny_path_segments": null,
     "intake_model": "provider/free-model",
-    "github_token_secret": null,
+    "github_token_secret": "chargehand-github-read-token",
     "denied": [
       "work"
     ]
