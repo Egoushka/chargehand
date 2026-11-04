@@ -58,7 +58,8 @@ public sealed record Profile(
     IReadOnlyDictionary<string, IReadOnlyList<ServiceUse>>? PresetServices = null,
     DeliverySettings? Delivery = null,
     AcpSettings? Acp = null,
-    InboxSettings? Inbox = null)
+    InboxSettings? Inbox = null,
+    PublicFreeSettings? PublicFree = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
@@ -144,6 +145,9 @@ public sealed record Profile(
             throw new ChargehandException(ErrorCode.InvalidRequest, $"automation.account: '{charged}' must be an account of http.accounts with driven: true",
                 "Declare the account under http.accounts with driven: true, or leave automation.account out to run automated starts as the owner.");
         profile.Delivery?.Validate(profile.Automation);
+        if (profile.PublicFree?.Problems().ToList() is { Count: > 0 } poolProblems)
+            throw new ChargehandException(ErrorCode.InvalidRequest, "public_free: " + string.Join("; ", poolProblems),
+                "Fix public_free in the profile; docs/adr/0093-runs-on-public-repositories-use-a-free-model-pool.md lists the fields.");
         return profile;
     }
 

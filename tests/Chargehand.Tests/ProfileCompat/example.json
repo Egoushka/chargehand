@@ -48,6 +48,7 @@
     "usage_on_spans": false
   },
   "models": {
+    "provider/free-model": "provider/free-model",
     "provider/worker-model": "provider/large-model",
     "provider/small-model": "provider/small-model",
     "provider/critic-model": "provider/large-model"
@@ -260,6 +261,20 @@
   "delivery": null,
   "acp": null,
   "inbox": null,
+  "public_free": {
+    "api_key_secret": "chargehand-public-free-key",
+    "base_url": "https://gateway.example/anthropic",
+    "preset": "public-free",
+    "replaces": [
+      "cheap"
+    ],
+    "deny_path_segments": null,
+    "intake_model": "provider/free-model",
+    "github_token_secret": null,
+    "denied": [
+      "work"
+    ]
+  },
   "roots": [
     "/srv/chargehand/work",
     "/path/to/your/repositories"

@@ -16,7 +16,7 @@ public sealed partial class RunService
     /// is what it will run as, with an account's budgets cut.</summary>
     public async Task<AccountRefusal?> ApprovalAsync(Principal? who, RunRequest asked, RunRequest admitted, CancellationToken ct)
     {
-        if (Approvals.Limit.LimitUsd is not { } threshold)
+        if (Approvals.Limit.LimitUsd is not { } threshold || UsesPool(admitted))
             return null;
         var actor = who?.Name;
         if (!(admitted.Driven is not null ? driven?.Priced(actor) ?? false : orchestrator.Priced(actor)))

@@ -95,7 +95,14 @@
       "cache_write": 2.5
     }
   },
+  "public_free": {
+    "api_key_secret": "chargehand-public-free-key",
+    "base_url": "https://gateway.example/anthropic",
+    "replaces": ["cheap"],
+    "intake_model": "provider/free-model"
+  },
   "models": {
+    "provider/free-model": "provider/free-model",
     "provider/worker-model": "provider/large-model",
     "provider/small-model": "provider/small-model",
     "provider/critic-model": "provider/large-model"

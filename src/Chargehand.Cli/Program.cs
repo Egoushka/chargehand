@@ -618,6 +618,27 @@ IConversationRuntime? ConversationRuntime(ConversationSettings? conversations, O
             orchestrator.CheckoutForConversationAsync, new Chargehand.Acp.AcpSandboxLauncher(Chargehand.Sandbox.SandboxSelector.Select(profile.Sandbox)))
         : null;
 
+/// <summary>The free-model pool for public repositories (ADR 0093), or null without a <c>public_free</c> block. Its key is resolved on the first pool run; the GitHub token, if any, now.</summary>
+PublicFreeGate? PublicFree(IWorkerRuntime runtime)
+{
+    if (profile.PublicFree is not { } settings || runtime is not Chargehand.ClaudeCode.ClaudeCodeWorkerRuntime claude)
+        return null;
+    var token = settings.GithubTokenSecret is { } item ? profile.Secret(item) : null;
+    var pool = new PublicFreePool(settings, new GitHubRepositoryVisibility(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }, token),
+        new PublicFreeSwitch(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "limits", "public-free.json")), TimeProvider.System);
+    return new PublicFreeGate(profile, pool, () =>
+    {
+        try
+        {
+            return claude.WithCredential(new Chargehand.ClaudeCode.ClaudeCodeCredential(profile.Secret(settings.ApiKeySecret!), Subscription: false), new Uri(settings.BaseUrl!));
+        }
+        catch (InvalidOperationException e)
+        {
+            throw new ChargehandException(ErrorCode.CredentialUnavailable, e.Message, "Check the secret sources for public_free.api_key_secret.");
+        }
+    });
+}
+
 async Task<int> Serve()
 {
     if (profile.Http is not { } http)
@@ -637,7 +658,13 @@ async Task<int> Serve()
     // An account's runs use its own model credential, or are refused (ADR 0053).
     Func<string?, IWorkerRuntime>? runtimeFor = http.Accounts is { Count: > 0 } accounts
         ? new Chargehand.ClaudeCode.AccountRuntimes(runtime, new AccountCredentials(accounts), profile.Secret).For : null;
-    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer(), runtimeFor: runtimeFor);
+    if (profile.PublicFree is not null && runtime is not Chargehand.ClaudeCode.ClaudeCodeWorkerRuntime)
+    {
+        Console.Error.WriteLine("public_free needs the claude_code runtime: OpenCode holds its provider credentials in its own server");
+        return 2;
+    }
+    var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer(), runtimeFor: runtimeFor,
+        publicFree: PublicFree(runtime));
     var drivenRun = DrivenRunFor(orchestrator);
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
