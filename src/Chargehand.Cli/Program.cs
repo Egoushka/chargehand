@@ -630,7 +630,8 @@ PublicFreeGate? PublicFree(IWorkerRuntime runtime)
     {
         try
         {
-            return claude.WithCredential(new Chargehand.ClaudeCode.ClaudeCodeCredential(profile.Secret(settings.ApiKeySecret!), Subscription: false), new Uri(settings.BaseUrl!));
+            var key = profile.Secret(settings.ApiKeySecret!);
+            return claude.WithCredential(new Chargehand.ClaudeCode.ClaudeCodeCredential(key, Subscription: false), new Uri(settings.BaseUrl!), PublicFreeSettings.KeyHeaderLine(key), prefixProvider: true);
         }
         catch (InvalidOperationException e)
         {

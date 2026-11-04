@@ -100,10 +100,10 @@
     "base_url": "https://gateway.example/anthropic",
     "github_token_secret": "chargehand-github-read-token",
     "replaces": ["cheap"],
-    "intake_model": "provider/free-model"
+    "intake_model": "gemini-free/gemini-2.5-flash-lite"
   },
   "models": {
-    "provider/free-model": "provider/free-model",
+    "provider/free-model": "gemini-free/gemini-2.5-flash-lite",
     "provider/worker-model": "provider/large-model",
     "provider/small-model": "provider/small-model",
     "provider/critic-model": "provider/large-model"

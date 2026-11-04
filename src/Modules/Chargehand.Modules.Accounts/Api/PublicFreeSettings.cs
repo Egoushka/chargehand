@@ -14,6 +14,15 @@ public sealed record PublicFreeSettings(string? ApiKeySecret = null, string? Bas
 {
     public static readonly IReadOnlyList<string> DefaultDeniedSegments = ["work"];
 
+    /// <summary>The header the gateway reads its virtual key from (read from its config, not tested live: ADR 0093).</summary>
+    public const string KeyHeader = "x-bf-vk";
+
+    /// <summary>The header line <c>x-bf-vk: &lt;key&gt;</c> for the CLI's custom-headers variable. Throws <see cref="InvalidOperationException"/> for a key that is not one token, whose message never holds the key.</summary>
+    public static string KeyHeaderLine(string key) =>
+        key.Length == 0 || key.Any(c => char.IsWhiteSpace(c) || char.IsControl(c))
+            ? throw new InvalidOperationException("the public_free key must be a single token without whitespace")
+            : $"{KeyHeader}: {key}";
+
     public IReadOnlyList<string> Denied => DenyPathSegments is { Count: > 0 } ? DenyPathSegments : DefaultDeniedSegments;
 
     public IEnumerable<string> Problems()

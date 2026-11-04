@@ -39,19 +39,25 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
     private readonly Uri? _baseUrl;
     private readonly string? _customHeaders;
     private readonly ClaudeCodeFallback? _fallback;
+    private readonly bool _prefixProvider;
+    private readonly IReadOnlyList<string> _redactions;
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
 
-    internal ClaudeCodeWorkerRuntime(string binary, ClaudeCodeCredential credential, string version, Uri? baseUrl = null, string? customHeaders = null, ClaudeCodeFallback? fallback = null)
+    internal ClaudeCodeWorkerRuntime(string binary, ClaudeCodeCredential credential, string version, Uri? baseUrl = null, string? customHeaders = null, ClaudeCodeFallback? fallback = null, bool prefixProvider = false)
     {
-        (_binary, _credential, _baseUrl, _customHeaders, _fallback) = (binary, credential, baseUrl, customHeaders, credential.Subscription ? fallback : null);
+        (_binary, _credential, _baseUrl, _customHeaders, _fallback, _prefixProvider) = (binary, credential, baseUrl, customHeaders, credential.Subscription ? fallback : null, prefixProvider);
+        _redactions = [.. (credential.Secret is { } key ? [key] : Array.Empty<string>()).Concat(ClaudeCodeSettings.HeaderValues(customHeaders ?? "")).Where(v => v.Length >= 4)
+            .Distinct(StringComparer.Ordinal).OrderByDescending(v => v.Length)];
         Version = $"claude-code/{version}";
     }
 
     public string Version { get; }
 
-    /// <summary>A runtime of its own over the same CLI and pin but another credential and endpoint (an account's, ADR 0053): its own sessions, and no sight of this one's key.</summary>
-    public ClaudeCodeWorkerRuntime WithCredential(ClaudeCodeCredential credential, Uri? baseUrl) =>
-        new(_binary, credential, Version["claude-code/".Length..], baseUrl) { ConfigRoot = ConfigRoot };
+    /// <summary>A runtime of its own over the same CLI and pin but another credential and endpoint (an account's, ADR 0053): its own sessions, and no sight of this one's key.
+    /// <paramref name="customHeaders"/> are the gateway's header lines (<c>Name: value</c>). <paramref name="prefixProvider"/> sends a model as <c>provider/model</c> instead of the model id alone,
+    /// for a gateway that routes by the provider segment (ADR 0093).</summary>
+    public ClaudeCodeWorkerRuntime WithCredential(ClaudeCodeCredential credential, Uri? baseUrl, string? customHeaders = null, bool prefixProvider = false) =>
+        new(_binary, credential, Version["claude-code/".Length..], baseUrl, customHeaders, prefixProvider: prefixProvider) { ConfigRoot = ConfigRoot };
 
     /// <summary>Where the per-turn MCP config directories go: the system temp directory, never a session's checkout.</summary>
     internal string ConfigRoot { get; set; } = Path.GetTempPath();
@@ -116,7 +122,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
     {
         var id = Guid.NewGuid().ToString();
         var (exit, head, _) = await Exec("git", spec.Directory, ["rev-parse", "HEAD"], null, ct);
-        _sessions[id] = new Session(id, spec, exit == 0 ? head.Trim() : null);
+        _sessions[id] = new Session(id, spec, exit == 0 ? head.Trim() : null) { Redactions = _redactions };
         return new WorkerSession(id, spec.Directory);
     }
 
@@ -207,7 +213,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         {
             if (beforeMessageId is null || source.Messages.FirstOrDefault(m => m.Kind == WorkerMessageKind.User)?.Id != beforeMessageId)
                 throw new NotSupportedException("Claude Code forks only before a session's first user message");
-            fork = new Session(Guid.NewGuid().ToString(), source.Spec, source.BaseCommit);
+            fork = new Session(Guid.NewGuid().ToString(), source.Spec, source.BaseCommit) { Redactions = source.Redactions };
             foreach (var (k, v) in source.Instructions)
                 fork.Instructions[k] = v;
         }
@@ -333,7 +339,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         List<string> args = ["-p", .. _credential.Subscription && !onFallback ? ["--setting-sources", ""] : new[] { "--bare" }, "--strict-mcp-config"];
         if (model is not null)
         {
-            args.AddRange(["--model", model.ModelId]);
+            args.AddRange(["--model", _prefixProvider ? $"{model.ProviderId}/{model.ModelId}" : model.ModelId]);
             if (model.Variant is { } effort)
                 args.AddRange(["--effort", effort]);
         }
@@ -403,7 +409,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
                         s.Messages.Add(Idle(s.Interrupted ? IdleOutcome.Interrupted : IdleOutcome.Failed,
                             !s.Interrupted && p.ExitCode == WorkerKill.ExitCode
                                 ? WorkerKill.Describe(WorkerKill.Memory())
-                                : Redact($"claude exited {p.ExitCode}: {stderr.Result.Trim()}", s.Spec.Services)));
+                                : Redact($"claude exited {p.ExitCode}: {stderr.Result.Trim()}", s)));
                 s.Process = null;
                 p.Dispose();
             }
@@ -506,17 +512,17 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
     }
 
     /// <summary>
-    /// Text the CLI printed, without the exact header and environment values of the session's grants: the CLI may echo what it was
+    /// Text the CLI printed, without the exact header and environment values of the session's grants and the runtime's own key and header values: the CLI may echo what it was
     /// given, and this text reaches the run log. Values under four characters are left, as they would mangle ordinary words.
     /// </summary>
-    private static string Redact(string text, IReadOnlyList<ServiceGrant>? grants)
+    private static string Redact(string text, Session s)
     {
-        foreach (var value in (grants ?? []).SelectMany(g => g.Transport switch
+        foreach (var value in s.Redactions.Concat((s.Spec.Services ?? []).SelectMany(g => g.Transport switch
                  {
                      HttpServiceTransport http => http.Headers.Values,
                      StdioServiceTransport stdio => stdio.Env.Values,
                      _ => [],
-                 }).Where(v => v.Length >= 4).OrderByDescending(v => v.Length))
+                 }).Where(v => v.Length >= 4).OrderByDescending(v => v.Length)))
             text = text.Replace(value, "[redacted]", StringComparison.Ordinal);
         return text;
     }
@@ -576,7 +582,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
                     var isError = e.GetProperty("is_error").GetBoolean();
                     s.Result = TurnResult.Of(e);
                     s.Messages.Add(Idle(s.Interrupted ? IdleOutcome.Interrupted : isError ? IdleOutcome.Failed : IdleOutcome.Succeeded,
-                        isError ? Redact(ErrorText(e), s.Spec.Services) : null));
+                        isError ? Redact(ErrorText(e), s) : null));
                 }
                 return true;
             default:
@@ -845,6 +851,8 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         public string Id { get; } = id;
         public NodeSpec Spec { get; } = spec;
         public string? BaseCommit { get; } = baseCommit;
+        /// <summary>The runtime's own key and header values, kept out of text the CLI printed.</summary>
+        public IReadOnlyList<string> Redactions { get; init; } = [];
         /// <summary>Ordered by first set; sent as the appended system prompt on every turn so the prefix stays cached.</summary>
         public Dictionary<string, string> Instructions { get; } = [];
         /// <summary>Oldest first. Guarded by a lock on the session.</summary>

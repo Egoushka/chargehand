@@ -38,7 +38,10 @@ runs on a public repository move to the pool; none listed: no automatic routing)
 (optional secret item for the visibility lookup; without it the lookup is unauthenticated, and GitHub's unauthenticated rate limit is
 low: set it, because only a positive answer is cached and every non-public repository asks again on each run).
 Model ids are not in the block: the `public-free` preset names placeholder models that the profile's `models` map resolves, as for
-every preset. A secret item is read through the profile's secret source; with the environment source the item `some-item` is the
+every preset. A pool model id, in `models` and in `intake_model`, is `<provider>/<model>` as the gateway names it, split at the first
+slash only (`openrouter-free/google/gemma-4-26b-a4b-it:free` is provider `openrouter-free`, model `google/gemma-4-26b-a4b-it:free`),
+and the pool runtime hands the CLI the whole id, provider included, because the gateway routes by that prefix. Any other runtime
+still sends the model segment alone. A secret item is read through the profile's secret source; with the environment source the item `some-item` is the
 variable `SOME_ITEM` (upper case, `-` becomes `_`), so the gateway key's variable name decides the item name. A missing secret
 fails the run with a message that names the item, never the value, and the key is never logged or printed (the credential's
 `ToString` shows only whether it is a subscription). The block needs the `claude_code` runtime and is refused at startup without it. Personal values live in the gitignored
@@ -72,6 +75,29 @@ owner cloned from that name, and the rest is accepted.
 **Where the key attaches.** Only to a run whose preset is the pool preset, and the Orchestrator asks the same guard again when it
 chooses the run's runtime, so a run started by the CLI or by any path that skipped the server's selection cannot carry the key onto a
 repository that does not qualify. The pool is a worker runtime over the `public_free` credential, built on the first run.
+
+**The gateway (read from config, not tested live).** The facts below come from the gateway session's reading of the homelab pull
+request 215 config and the Bifrost documentation. The keys and the deploy do not exist yet, so none of it has been exercised.
+
+- Endpoint: `base_url` ends in `/anthropic`; the client appends `/v1/messages`. The profile holds the address the machine running the
+  server reaches the gateway at, so it is not written in this repository (`profiles/example.json` keeps a placeholder).
+- Key: the virtual key travels as the header `x-bf-vk: <key>`. The pool runtime sets it through the CLI's `ANTHROPIC_CUSTOM_HEADERS`
+  (the mechanism `claude_code.custom_headers_secret` already uses), from the same secret as `api_key_secret`; the CLI also sends the key
+  in its own `x-api-key`. The variable is replaced, never inherited, and the runtime keeps the key and the header value out of every
+  failure text it builds (it removes the exact values, as it does for a service grant's). A key with whitespace or a line break is refused
+  without being named, so it cannot add a header.
+  Checked: the installed CLI (2.1.303) contains the string `ANTHROPIC_CUSTOM_HEADERS`. UNKNOWN: that it sends exactly the header we set to this gateway.
+- Models: `<provider>/<model>` with the provider as the gateway names it: `gemini-free/gemini-2.5-flash-lite`,
+  `openrouter-free/google/gemma-4-26b-a4b-it:free` (tool-call support unchecked), `mistral-free/mistral-medium-latest`,
+  `cloudflare/@cf/openai/gpt-oss-20b`, `groq/openai/gpt-oss-20b`. `openrouter-free` accepts names matching `regex:.*:free$` (RE2, whole name).
+  UNKNOWN: that the CLI passes a model with slashes or `@` to the gateway unchanged.
+
+Two risks only the first live call settles:
+
+1. **Provider names register at config load.** If the custom providers (`gemini-free` and the rest) are not registered, the call goes to the
+   gateway's default provider, which may be paid.
+2. **`gemini-free` allows only `chat_completion` and stream.** A different request type arriving on `/anthropic` is refused by the gateway;
+   the infrastructure owner widens the list if so.
 
 **Free means free.** The pool has no second credential. There is no paid fallback: the `public-free` run never uses the server's
 Anthropic credential, an account's key or the API fallback of ADR 0088. When the gateway answers that the free quota is gone (429 or
@@ -110,6 +136,24 @@ Machine-run; `scripts/check.sh` runs all of them and must exit 0 with `Passed!  
 | 14 | A pool run is not held for paid-spend approval, the same run on a private repository is | `PublicFreeServerTests.APoolRunIsNotHeldForPaidSpendApprovalButTheSameRunOnAPrivateRepositoryIs` |
 | 15 | A pool run does not recall from or retain into memory | `PublicFreeRuntimeTests.APoolRunNeitherRecallsFromMemoryNorRetainsIntoIt` |
 | 16 | The credential and a missing-secret error never show the key | `PublicFreeRuntimeTests.TheCredentialAndAMissingSecretNeverShowTheKey` |
+
+Added by the gateway change (these run in `scripts/check.sh`):
+
+| # | Check | Test |
+|---|---|---|
+| 17 | A pool id with a second slash splits at the first only and resolves through the `models` map | `PublicFreeGatewayTests.A_pool_model_id_is_split_at_the_first_slash_only_and_resolves_through_the_models_map` |
+| 18 | The pool sends the whole provider-prefixed id to the CLI; another runtime sends the model alone | `PublicFreeGatewayTests.The_pool_sends_the_whole_provider_prefixed_id_to_the_cli_and_other_runtimes_send_the_model_alone` |
+| 19 | The key rides in `x-bf-vk` and replaces an inherited header list | `PublicFreeGatewayTests.The_pool_carries_its_key_in_the_x_bf_vk_header_and_replaces_an_inherited_list` |
+| 20 | Neither the key nor the header value reaches a failure text; a key that is not one token is refused without being named | `PublicFreeGatewayTests` (three failure-text and key-shape tests) |
+
+**Live acceptance (NOT DONE; needs the gateway deployed and the keys in place).** The first live call after homelab pull request 215
+deploys must show, from the gateway's own logs or usage and the run's result:
+
+- (a) a run on a public repository reaches a free provider (the one named by the model's prefix) and not the gateway's default provider;
+- (b) an `/anthropic` request type that `gemini-free` refuses comes back as a clear failed run that says the gateway refused it, and not as a silent
+  retry on another provider or a paid one. If it falls back, the pool is not free and stays off until the gateway's list is fixed.
+
+Until both hold, the switch (`PUT /v1/limits/public-free`) stays off.
 
 ## Consequences
 
