@@ -36,7 +36,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
         {
             if (pull.Draft || pull.Author.EndsWith("[bot]", StringComparison.OrdinalIgnoreCase) || pull.HeadSha.Length < 7 || state.Reviewed.Contains(Key(name, pull.Number, pull.HeadSha)))
                 continue;
-            if (Full())
+            if (Full(policy))
                 return;
             try
             {
@@ -101,7 +101,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
     }
 
     /// <summary>As many batches and reviews run as <c>max_concurrent</c> allows. Spend is bounded by the account a review is admitted as (ADR 0076).</summary>
-    private bool Full() => state.Tasks.Count(t => t.Phase == IntakePhase.Running) + state.Reviews.Count >= settings.MaxConcurrent;
+    private bool Full(IntakeSources policy) => policy.Paused || state.Tasks.Count(t => t.Phase == IntakePhase.Running) + state.Reviews.Count >= (policy.MaxConcurrent ?? settings.MaxConcurrent);
 
     private static string Cut(string diff) => diff.Length <= MaxDiff ? diff : diff[..MaxDiff] + $"\n[diff truncated at {MaxDiff.ToString(CultureInfo.InvariantCulture)} characters]";
 

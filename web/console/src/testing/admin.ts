@@ -9,6 +9,7 @@ import type {
   IntakeSourcesBody,
   IntakeTaskBody,
 } from '../api/intake';
+import type { IntakeLimitsBody, LimitsChange } from '../api/limits';
 import type { ConflictsBody, TrainsBody } from '../api/pulls';
 import type { RepositoriesBody, RepositoryBody } from '../api/repositories';
 import type { ContainerBody, SystemBody } from '../api/system';
@@ -881,5 +882,35 @@ export function train(over: Partial<TrainsBody> = {}, now = Date.now()): TrainsB
       'The order is a proposal, oldest first: the integrator does not follow it, and merges a pull request of a merge repository as soon as its own checks pass.',
     ],
     ...over,
+  };
+}
+
+/** `intake-limits/v1`: the profile's caps and no override. */
+export function intakeLimits(over: Partial<IntakeLimitsBody> = {}): IntakeLimitsBody {
+  const cap = (profile: number) => ({ profile, override: null, effective: profile });
+  return {
+    contract_version: 'intake-limits/v1',
+    configured: true,
+    max_concurrent: cap(2),
+    max_review_rounds: cap(3),
+    max_usd_total: cap(5),
+    paused: false,
+    ...over,
+  };
+}
+
+/** What `PUT /v1/intake/limits` answers: the limits with `change` applied. */
+export function limitsSet(limits: IntakeLimitsBody, change: LimitsChange): IntakeLimitsBody {
+  const cap = (old: IntakeLimitsBody['max_concurrent'], override: number | null) => ({
+    profile: old.profile,
+    override,
+    effective: override ?? old.profile,
+  });
+  return {
+    ...limits,
+    max_concurrent: cap(limits.max_concurrent, change.max_concurrent),
+    max_review_rounds: cap(limits.max_review_rounds, change.max_review_rounds),
+    max_usd_total: cap(limits.max_usd_total, change.max_usd_total),
+    paused: change.paused,
   };
 }

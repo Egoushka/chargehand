@@ -33,6 +33,7 @@ export interface Options {
 export async function mockApi(page: Page, options: Options = {}): Promise<Mock> {
   const mock: Mock = { calls: [] };
   let sources: ReturnType<typeof adm.intakeSources> | undefined;
+  let limits: ReturnType<typeof adm.intakeLimits> | undefined;
   await page.route('**/v1/**', async (route) => {
     const request = route.request();
     const { pathname } = new URL(request.url());
@@ -126,6 +127,12 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
         sources = sources ?? adm.intakeSources({}, now);
         if (request.method() === 'PUT') sources = adm.switched(sources, body);
         return route.fulfill({ json: sources });
+      case '/v1/intake/limits':
+        if (options.account)
+          return route.fulfill({ status: 403, json: { errors: ['owner only'] } });
+        limits = limits ?? adm.intakeLimits();
+        if (request.method() === 'PUT') limits = adm.limitsSet(limits, body);
+        return route.fulfill({ json: limits });
       case '/v1/limits/daily-warning':
         return options.account
           ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })

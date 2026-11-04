@@ -78,7 +78,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     /// instead; each is still checked for a free slot (and the other admission rules) at the moment it is tried.</summary>
     private async Task AttemptAsync(List<Candidate> candidates, CancellationToken ct)
     {
-        var freeSlots = settings.MaxConcurrent - state.Tasks.Count(t => t.Phase == IntakePhase.Running);
+        var freeSlots = MaxConcurrent - state.Tasks.Count(t => t.Phase == IntakePhase.Running);
         var ordered = candidates.Count > Math.Max(freeSlots, 0) ? (IEnumerable<Candidate>)Ranked(candidates) : candidates;
         foreach (var candidate in ordered)
             candidate.Finish(await candidate.Attempt(ct));
@@ -112,6 +112,14 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
 
     /// <summary>The switches of the watched repositories, which the server's <c>/v1/intake/sources</c> reads and sets.</summary>
     public IntakeSources Sources { get; } = sources ?? new IntakeSources();
+
+    /// <summary>The profile's intake settings: the defaults the owner's limits override.</summary>
+    public AutomationGitHub Profile => settings;
+
+    // The owner's overrides (Console > Settings) win over the profile; they take effect at the next poll.
+    private int MaxConcurrent => Sources.MaxConcurrent ?? settings.MaxConcurrent;
+    private int MaxReviewRounds => Sources.MaxReviewRounds ?? settings.MaxReviewRounds;
+    private decimal MaxUsdTotal => Sources.MaxUsdTotal ?? settings.MaxUsdTotal;
 
     /// <summary>Whether the App's repositories are watched as well as the profile's.</summary>
     public bool Discovers => settings.Discover && clones is not null;
@@ -175,7 +183,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                 var candidates = new List<Candidate>();
                 await GatherLabelCandidatesAsync(name, repository, starter, candidates, ct);
                 await GatherCommentCandidatesAsync(name, repository, starter, candidates, ct);
-                if (settings.MaxReviewRounds > 0)
+                if (MaxReviewRounds > 0)
                 {
                     await ReviewCommentsAsync(name, ct);
                     await GatherRoundCandidatesAsync(name, starter, candidates, ct);
@@ -329,7 +337,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         if (issue.IsPullRequest)
         {
             state.Handled.Add(key);
-            if (settings.MaxReviewRounds > 0)
+            if (MaxReviewRounds > 0)
                 await QueueAsync(key, new PendingReview($"c{comment.Id.ToString(CultureInfo.InvariantCulture)}", name, issue.Number, comment.Author, comment.Body, null, null, comment.UpdatedAt), true, ct);
             else
                 Log(key, "ignored", "review_rounds_off", comment.Author);
@@ -449,11 +457,17 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     /// <summary>Waits while every slot is taken: null when the batch may start. Spend is bounded by the account the start is admitted as (ADR 0076), not by a count of starts.</summary>
     private async Task<Outcome?> SlotAsync(string key, string name, int issue, CancellationToken ct)
     {
-        if (state.Tasks.Count(t => t.Phase == IntakePhase.Running) < settings.MaxConcurrent)
+        if (Sources.Paused)
+        {
+            _info($"intake: {key}: waiting: paused");
+            Wait(key, name, issue, "paused");
+            return Outcome.Deferred;
+        }
+        if (state.Tasks.Count(t => t.Phase == IntakePhase.Running) < MaxConcurrent)
             return null;
         _info($"intake: {key}: waiting: max_concurrent");
         Wait(key, name, issue, "max_concurrent");
-        await NotifyOnceAsync($"wait:{key}", name, issue, $"chargehand is waiting for a free slot: {settings.MaxConcurrent.ToString(CultureInfo.InvariantCulture)} triggered batches are running. This starts when one ends.", ct);
+        await NotifyOnceAsync($"wait:{key}", name, issue, $"chargehand is waiting for a free slot: {MaxConcurrent.ToString(CultureInfo.InvariantCulture)} triggered batches are running. This starts when one ends.", ct);
         return Outcome.Deferred;
     }
 
@@ -490,7 +504,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         // a reply to a round's questions, is a pull request's.
         var closes = key.StartsWith("round:", StringComparison.Ordinal) || replaces?.Round is not null ? "" : $"\n\n{IntakeGoal.Closes(issue)}";
         var request = new RunRequest("request/v1", $"Triggered from GitHub: {name}#{issue.ToString(CultureInfo.InvariantCulture)}.{closes}", new RequestContext(false, Preset, Repository: repository),
-            Driven: new RequestDriven([task], MaxParallel: 1, MaxTokensTotal: settings.MaxTokensTotal, MaxUsdTotal: settings.MaxUsdTotal));
+            Driven: new RequestDriven([task], MaxParallel: 1, MaxTokensTotal: settings.MaxTokensTotal, MaxUsdTotal: MaxUsdTotal));
         var started = await TriggeredStart.StartAsync(starter, log, state.Starting, state.Save, key, request, _time.GetUtcNow(), ct);
         if (started.RunId is not { } run)
         {
@@ -623,7 +637,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             return;
         }
         var used = FixMarker.Parse(bodies);
-        if (used.Count >= DrivenCiFix.AttemptCap || used.Count(a => a.JobsKey == FixMarker.ReviewKey) >= settings.MaxReviewRounds)
+        if (used.Count >= DrivenCiFix.AttemptCap || used.Count(a => a.JobsKey == FixMarker.ReviewKey) >= MaxReviewRounds)
         {
             await NotifyOnceAsync($"rounds:{name}#{number}", name, number,
                 $"chargehand is not starting another round for these comments: {used.Count} of {DrivenCiFix.AttemptCap} attempts on this pull request are used (CI fix attempts and review rounds count together). A person needs to take it from here.", ct);

@@ -9,6 +9,7 @@ export interface Screen {
     | '/analytics'
     | '/learning'
     | '/intake'
+    | '/settings'
     | '/repositories'
     | '/accounts'
     | '/system';
@@ -81,6 +82,14 @@ export const SCREENS: readonly Screen[] = [
     group: 'configure',
     ownerOnly: true,
     blurb: 'Issues and review comments that start runs.',
+  },
+  {
+    to: '/settings',
+    label: 'Settings',
+    icon: 'sliders',
+    group: 'configure',
+    ownerOnly: true,
+    blurb: 'Intake caps and the pause switch, without a restart.',
   },
   {
     to: '/repositories',
