@@ -67,6 +67,7 @@ export function serveApi(scenario: Scenario = {}) {
   const key = scenario.key ?? fx.LOGIN;
   const calls: Call[] = [];
   let sources: IntakeSourcesBody | undefined;
+  let dailyLimit: number | null = 15;
   const mock = vi.fn((input: string, init?: RequestInit) => {
     const [path = ''] = input.split('?');
     const headers = (init?.headers ?? {}) as Record<string, string>;
@@ -145,6 +146,20 @@ export function serveApi(scenario: Scenario = {}) {
       sources = sources ?? scenario.intakeSources ?? adm.intakeSources({}, now);
       if (method === 'PUT') sources = adm.switched(sources, body);
       return Promise.resolve(json(sources));
+    }
+    if (path === '/v1/limits/daily-warning') {
+      if (method === 'PUT') dailyLimit = (body as { usd: number | null }).usd;
+      const spent = 4.2;
+      return Promise.resolve(
+        json({
+          contract_version: 'daily-warning/v1',
+          limit_usd: dailyLimit,
+          default_usd: 15,
+          spent_usd: spent,
+          exceeded: dailyLimit != null && spent >= dailyLimit,
+          resets_at: new Date(now + 3_600_000).toISOString(),
+        }),
+      );
     }
     if (path === '/v1/repositories')
       return Promise.resolve(json(scenario.repositories ?? adm.repositories(now)));

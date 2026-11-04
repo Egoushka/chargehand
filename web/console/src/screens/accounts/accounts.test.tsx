@@ -291,10 +291,10 @@ describe('Accounts with data', () => {
     ).getByRole('button', { name: 'New key' });
     expect(newKey).toHaveProperty('disabled', true);
     expect(newKey.parentElement?.querySelector('.later')).not.toBeNull();
-    expect(panel('Limits of ci-bot').getByText('edit later')).toBeTruthy();
+    expect(panel('Limits of ci-bot').queryByText('edit later')).toBeNull();
     const editCells = within(screen.getByRole('table', { name: 'Accounts' })).getAllByText('later');
     expect(editCells).toHaveLength(5);
-    expect(screen.queryByRole('button', { name: /revoke|delete|save/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /revoke|delete/i })).toBeNull();
   });
 
   it('says a key’s last use is not recorded, with the server’s own sentence', async () => {
@@ -458,5 +458,68 @@ describe('Month forecast', () => {
     );
     expect(forecastView({ ...byName('ci-bot'), pause_on_forecast: false })?.held).toBe(false);
     expect(forecastView(byName('gateway-user'))?.automation).toBeNull();
+  });
+
+  describe('daily spend warning', () => {
+    const field = () =>
+      panel('Limits of ci-bot').getByLabelText(/Daily spend warning/) as HTMLInputElement;
+
+    it('shows the limit and today’s spend, and saves a new limit with a PUT', async () => {
+      const api = await open();
+      await waitFor(() => expect(field().value).toBe('15'));
+      expect(panel('Limits of ci-bot').getByText(/Today \$4\.20 of \$15\.00/)).toBeTruthy();
+      const save = panel('Limits of ci-bot').getByRole('button', { name: 'Save warning limit' });
+      expect(save).toHaveProperty('disabled', true);
+      fireEvent.change(field(), { target: { value: '20' } });
+      fireEvent.click(save);
+      await waitFor(() =>
+        expect(
+          api.calls.find((c) => c.method === 'PUT' && c.path === '/v1/limits/daily-warning')?.body,
+        ).toEqual({
+          usd: 20,
+        }),
+      );
+      await waitFor(() => expect(panel('Limits of ci-bot').getByText(/of \$20\.00/)).toBeTruthy());
+    });
+
+    it('sends null for an empty field and refuses a value that is not above zero', async () => {
+      const api = await open();
+      await waitFor(() => expect(field().value).toBe('15'));
+      fireEvent.change(field(), { target: { value: '0' } });
+      expect(await screen.findByRole('alert')).toBeTruthy();
+      expect(
+        panel('Limits of ci-bot').getByRole('button', { name: 'Save warning limit' }),
+      ).toHaveProperty('disabled', true);
+      fireEvent.change(field(), { target: { value: '' } });
+      fireEvent.click(
+        panel('Limits of ci-bot').getByRole('button', { name: 'Save warning limit' }),
+      );
+      await waitFor(() =>
+        expect(
+          api.calls.find((c) => c.method === 'PUT' && c.path === '/v1/limits/daily-warning')?.body,
+        ).toEqual({
+          usd: null,
+        }),
+      );
+    });
+
+    it('shows a banner once the day’s spend passes the limit', async () => {
+      await open({
+        replies: {
+          'GET /v1/limits/daily-warning': [
+            200,
+            {
+              contract_version: 'daily-warning/v1',
+              limit_usd: 15,
+              default_usd: 15,
+              spent_usd: 16.5,
+              exceeded: true,
+              resets_at: '2026-11-04T00:00:00Z',
+            },
+          ],
+        },
+      });
+      expect(await screen.findByText(/passed the daily warning of \$15\.00/)).toBeTruthy();
+    });
   });
 });
