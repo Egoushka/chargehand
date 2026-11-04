@@ -133,6 +133,19 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
         limits = limits ?? adm.intakeLimits();
         if (request.method() === 'PUT') limits = adm.limitsSet(limits, body);
         return route.fulfill({ json: limits });
+      case '/v1/limits/daily-warning':
+        return options.account
+          ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })
+          : route.fulfill({
+              json: {
+                contract_version: 'daily-warning/v1',
+                limit_usd: 15,
+                default_usd: 15,
+                spent_usd: 4.2,
+                exceeded: false,
+                resets_at: new Date(now + 3_600_000).toISOString(),
+              },
+            });
       case '/v1/accounts':
         return options.account
           ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })

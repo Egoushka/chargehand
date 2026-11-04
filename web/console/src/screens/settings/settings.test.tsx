@@ -64,6 +64,25 @@ describe('the Settings screen', () => {
     await screen.findByText('Intake is paused');
   });
 
+  it("clears the caps with 'Use the profile's values' and leaves the pause switch as it is", async () => {
+    const api = await open();
+    const concurrent = screen.getByLabelText('Triggered batches at once') as HTMLInputElement;
+    fireEvent.change(concurrent, { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('switch', { name: 'Pause intake' }));
+    fireEvent.click(screen.getByRole('button', { name: "Use the profile's values" }));
+    expect(concurrent.value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(api.calls.find((c) => c.method === 'PUT')?.body).toEqual({
+        max_concurrent: null,
+        max_review_rounds: null,
+        max_usd_total: null,
+        paused: true,
+      }),
+    );
+  });
+
   it('refuses a value out of range before asking the server', async () => {
     const api = await open();
     fireEvent.change(screen.getByLabelText('Triggered batches at once'), {

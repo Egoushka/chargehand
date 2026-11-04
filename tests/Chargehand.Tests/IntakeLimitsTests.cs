@@ -27,6 +27,50 @@ public class IntakeLimitsTests
     }
 
     [Fact]
+    public async Task An_override_of_max_usd_total_is_the_budget_of_the_batch_that_starts()
+    {
+        using var rig = new IntakeRig(Profile(2));
+        rig.Intake.Sources.SetLimits(new IntakeSources.Limits(MaxUsdTotal: 2.5m));
+        rig.Labeled(7);
+        await rig.Poll();
+
+        Assert.Equal(2.5m, Assert.Single(rig.Starter.Started).Driven!.MaxUsdTotal);
+    }
+
+    [Fact]
+    public async Task An_override_of_max_review_rounds_of_zero_turns_review_rounds_off()
+    {
+        using var rig = new IntakeRig(Profile(2) with { MaxReviewRounds = 3 });
+        rig.Intake.Sources.SetLimits(new IntakeSources.Limits(MaxReviewRounds: 0));
+        await rig.Poll();
+        rig.Labeled(7, "alice", 41);
+        await rig.Poll();
+        rig.Log.TaskRun("task-run", "run-1", "chargehand/task-run");
+        rig.Log.End("run-1", IntakeRig.Pr());
+        rig.Pull(9);
+        await rig.Poll();
+        rig.Review(9, "alice", "Fix this.");
+        await rig.Poll();
+
+        Assert.Single(rig.Starter.Started);
+        Assert.Equal(0, rig.GitHub.PullReads);
+    }
+
+    [Fact]
+    public async Task Paused_holds_a_pull_request_review_and_the_review_starts_once_it_is_switched_off()
+    {
+        using var rig = new IntakeRig(Profile(2) with { ReviewPulls = true });
+        rig.Intake.Sources.SetLimits(new IntakeSources.Limits(Paused: true));
+        rig.OpenPull(5, "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        await rig.Poll();
+        Assert.Empty(rig.Starter.Started);
+
+        rig.Intake.Sources.SetLimits(new IntakeSources.Limits());
+        await rig.Poll();
+        Assert.Single(rig.Starter.Started);
+    }
+
+    [Fact]
     public async Task Paused_holds_every_new_start_until_it_is_switched_off()
     {
         using var rig = new IntakeRig(Profile(2));

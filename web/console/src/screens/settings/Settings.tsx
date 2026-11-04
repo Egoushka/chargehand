@@ -146,10 +146,10 @@ function LimitsForm({ limits }: { limits: IntakeLimitsBody }) {
             label="Use the profile's values"
             onClick={() =>
               setDraft({
+                ...draft,
                 max_concurrent: '',
                 max_review_rounds: '',
                 max_usd_total: '',
-                paused: false,
               })
             }
           />

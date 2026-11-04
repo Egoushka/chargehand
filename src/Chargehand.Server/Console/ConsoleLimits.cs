@@ -12,7 +12,7 @@ public sealed record LimitBody<T>(T Profile, T? Override, T Effective) where T :
 public sealed record IntakeLimitsBody(string ContractVersion, bool Configured, LimitBody<int> MaxConcurrent, LimitBody<int> MaxReviewRounds, LimitBody<decimal> MaxUsdTotal, bool Paused);
 
 /// <summary>The owner's intake caps and pause switch (<c>GET</c> and <c>PUT /v1/intake/limits</c>), kept in <see cref="IntakeSources"/> and read by intake at its next poll. The profile stays the default; a
-/// <c>null</c> field in a <c>PUT</c> clears that override.</summary>
+/// <c>null</c> or absent cap in a <c>PUT</c> clears that override, and an absent <c>paused</c> is false: a <c>PUT</c> replaces all four.</summary>
 internal static class ConsoleLimits
 {
     public const string Contract = "intake-limits/v1";

@@ -33,6 +33,8 @@ PUT /v1/intake/limits
 GET /v1/intake/sources
 PUT /v1/intake/sources
 GET /v1/learn
+GET /v1/limits/daily-warning
+PUT /v1/limits/daily-warning
 DELETE /v1/mcp/
 GET /v1/mcp/
 POST /v1/mcp/
