@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { accountsQuery } from '../../api/accounts';
 import type { AccountBody } from '../../api/common';
 import { useDailyWarning, useSetDailyWarning } from '../../api/daily-warning';
+import { useRunApproval, useSetRunApproval } from '../../api/run-approval';
 import { formatDateTime, formatTime, formatUsd } from '../../lib/format';
 import { useIsPhone } from '../../shell/useIsPhone';
 import {
@@ -380,6 +381,7 @@ function LimitsPanel({ account }: { account: AccountBody }) {
       <div className="stack stack--tight">
         <KeyValue stacked items={capsRows(account)} />
         <DailyWarningField />
+        <RunApprovalField />
       </div>
     </Panel>
   );
@@ -430,6 +432,60 @@ function DailyWarningField() {
         <Button
           type="submit"
           label="Save warning limit"
+          size="sm"
+          loading={save.isPending}
+          disabled={invalid || unchanged}
+        />
+      </div>
+    </form>
+  );
+}
+
+/** The server-wide per-run approval threshold (ADR 0092): a run that may spend more waits for the owner in the inbox. Empty switches it off. */
+function RunApprovalField() {
+  const approval = useRunApproval();
+  const save = useSetRunApproval();
+  const [text, setText] = useState<string>();
+  const data = approval.data;
+  if (!data) return null;
+  const shown = text ?? (data.limit_usd == null ? '' : String(data.limit_usd));
+  const parsed = shown.trim() === '' ? null : Number(shown);
+  const invalid = parsed !== null && !(Number.isFinite(parsed) && parsed > 0);
+  const unchanged = !invalid && parsed === data.limit_usd;
+  return (
+    <form
+      className="stack stack--tight"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (invalid) return;
+        save.mutate(parsed, { onSuccess: () => setText(undefined) });
+      }}
+    >
+      <Field
+        label="Approval threshold per run (USD)"
+        hint={`${data.limit_usd == null ? 'No run is asked about' : `A run that may spend more than ${formatUsd(data.limit_usd)} waits for you in the inbox before it starts`}. Priced runs only: a subscription run never asks. Empty switches it off; the default is ${formatUsd(data.default_usd)}.${data.pending > 0 ? ` ${data.pending} waiting now.` : ''}`}
+        error={
+          invalid
+            ? 'Enter a number above 0, or leave it empty to ask about no run.'
+            : save.error?.message
+        }
+      >
+        {(control) => (
+          <Input
+            {...control}
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="any"
+            value={shown}
+            onChange={(e) => setText(e.target.value)}
+          />
+        )}
+      </Field>
+      <div>
+        <Button
+          type="submit"
+          label="Save approval threshold"
           size="sm"
           loading={save.isPending}
           disabled={invalid || unchanged}

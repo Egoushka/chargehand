@@ -21,9 +21,10 @@ namespace Chargehand.Server;
 /// </summary>
 /// <param name="accounts">The profile's accounts: which model credential each one's runs use (<see cref="CredentialHealth.KeyOf"/>).</param>
 /// <param name="notify">Posts a title and a text to the owner (the schedules' <c>notify_url</c>); null: nowhere.</param>
-public sealed class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping, DrivenRun? driven = null,
+/// <param name="approvals">The owner's approval gate for paid spend (ADR 0092); null: the threshold is the default and nothing is kept across a restart.</param>
+public sealed partial class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping, DrivenRun? driven = null,
     int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null, IRunLog? log = null, TimeProvider? clock = null,
-    IReadOnlyList<AccountSettings>? accounts = null, Func<string, string, CancellationToken, Task>? notify = null) : IDisposable, IAsyncDisposable
+    IReadOnlyList<AccountSettings>? accounts = null, Func<string, string, CancellationToken, Task>? notify = null, RunApprovalGate? approvals = null) : IDisposable, IAsyncDisposable
 {
     /// <summary>Unfinished top-level runs held at most; beyond it a new run is refused (HTTP 429). A session's research and review runs do not count: the child gate and the session count bound them.</summary>
     public const int MaxUnfinished = 10;

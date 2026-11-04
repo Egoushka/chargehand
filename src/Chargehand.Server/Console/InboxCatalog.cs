@@ -1,4 +1,5 @@
 using System.Globalization;
+using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Server;
@@ -114,6 +115,20 @@ internal static class InboxCatalog
                 What = $"Pull request {item.Title} waits for you",
                 Why = PullRequestWhy(item.Reason ?? "") ?? "chargehand will not merge it on its own",
                 Options = [new("open", "Open pull request", "Opens it on the forge to review and merge.", Url: item.PullRequest?.Url), dismiss],
+            },
+            "approval" => item with
+            {
+                Lane = Decide,
+                What = $"{(item.Actor is { } who && who != AccountSettings.Owner ? $"{who}'s run" : "A run")} may spend up to {Usd(item.Usd ?? 0)}",
+                Why = item.Reason == "forecast"
+                    ? $"the forecast of {Usd(item.Usd ?? 0)} passes the per-run approval threshold, so it has not started"
+                    : $"its budget of {Usd(item.Usd ?? 0)} passes the per-run approval threshold, so it has not started",
+                // No Dismiss: the request stays held until it is decided, and a hidden card would hide the hold.
+                Options =
+                [
+                    new("approve", "Approve", "Lets this run start the next time it is sent; one approval pays for one start.", item.Usd, new InboxCall("POST", $"/v1/approvals/{Uri.EscapeDataString(item.Id["approval:".Length..])}/approve")),
+                    new("decline", "Decline", "Refuses it once; sent again, it is asked about again.", Call: new InboxCall("POST", $"/v1/approvals/{Uri.EscapeDataString(item.Id["approval:".Length..])}/decline")),
+                ],
             },
             _ => Failure(c, learned, dismiss),
         };

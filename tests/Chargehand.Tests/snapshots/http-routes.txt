@@ -2,6 +2,8 @@ GET /v1/accounts
 GET /v1/accounts/identity
 GET /v1/accounts/me
 GET /v1/analytics
+POST /v1/approvals/{id}/approve
+POST /v1/approvals/{id}/decline
 GET /v1/batches/{id}
 GET /v1/batches/{id}/tasks/{task}
 POST /v1/batches/{id}/tasks/{task}/cancel
@@ -35,6 +37,8 @@ PUT /v1/intake/sources
 GET /v1/learn
 GET /v1/limits/daily-warning
 PUT /v1/limits/daily-warning
+GET /v1/limits/run-approval
+PUT /v1/limits/run-approval
 DELETE /v1/mcp/
 GET /v1/mcp/
 POST /v1/mcp/

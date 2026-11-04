@@ -71,6 +71,7 @@ export function serveApi(scenario: Scenario = {}) {
   let sources: IntakeSourcesBody | undefined;
   let limits: IntakeLimitsBody | undefined;
   let dailyLimit: number | null = 15;
+  let approvalLimit: number | null = 5;
   const mock = vi.fn((input: string, init?: RequestInit) => {
     const [path = ''] = input.split('?');
     const headers = (init?.headers ?? {}) as Record<string, string>;
@@ -166,6 +167,17 @@ export function serveApi(scenario: Scenario = {}) {
           spent_usd: spent,
           exceeded: dailyLimit != null && spent >= dailyLimit,
           resets_at: new Date(now + 3_600_000).toISOString(),
+        }),
+      );
+    }
+    if (path === '/v1/limits/run-approval') {
+      if (method === 'PUT') approvalLimit = (body as { usd: number | null }).usd;
+      return Promise.resolve(
+        json({
+          contract_version: 'run-approval/v1',
+          limit_usd: approvalLimit,
+          default_usd: 5,
+          pending: 0,
         }),
       );
     }

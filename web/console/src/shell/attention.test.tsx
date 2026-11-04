@@ -45,6 +45,31 @@ describe('notices', () => {
     await waitFor(() => expect(screen.queryByText('t3-memory-ttl asked a question')).toBeNull());
   });
 
+  it('says so when a run waits for spend approval, with the action that opens the inbox', async () => {
+    const held = {
+      ...question,
+      kind: 'approval',
+      id: 'approval:ab12',
+      task_id: null,
+      batch_run_id: null,
+      what: 'A run may spend up to $8.00',
+      usd: 8,
+    };
+    serveApi({ inbox: inbox([pullRequest] as never) });
+    const { client, router } = renderConsole('/console/runs');
+    await screen.findByRole('link', { name: 'Needs you, 1 waiting' });
+
+    serveApi({ inbox: inbox([held, pullRequest] as never) });
+    await settle(client, 'inbox');
+
+    expect(await screen.findByText('A run on payments-api waits for your approval')).toBeTruthy();
+    const toast = screen
+      .getByText('A run on payments-api waits for your approval')
+      .closest('.ch-toast') as HTMLElement;
+    toast.querySelector<HTMLButtonElement>('button.ch-btn--primary')?.click();
+    await waitFor(() => expect(router.state.location.pathname).toBe('/needs-you'));
+  });
+
   it('says so when a pull request is ready, and when a task fails, and says each once', async () => {
     serveApi({ inbox: inbox([question] as never) });
     const { client } = renderConsole('/console/runs');
@@ -101,7 +126,7 @@ describe('notices', () => {
 
   it('does not raise a kind the person switched off', async () => {
     updatePreferences({
-      notify: { question: false, pull_request: true, batch: true, failure: true },
+      notify: { approval: true, question: false, pull_request: true, batch: true, failure: true },
     });
     serveApi({ inbox: inbox([pullRequest] as never) });
     const { client } = renderConsole('/console/runs');

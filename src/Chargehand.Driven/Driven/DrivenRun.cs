@@ -602,6 +602,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         return choice.Mb;
     }
 
+    /// <summary>Whether a batch of <paramref name="actor"/> runs on an API key, which has a dollar price, rather than a subscription (ADR 0082).</summary>
+    public bool Priced(string? actor) => new AccountCredentials(profile.Http?.Accounts).For(actor) is not null || profile.ClaudeCode?.ApiKeySecret is not null;
+
     /// <summary>What a task about to start is expected to cost (CHARGEHAND-438), from the learning records <paramref name="sees"/> admits; without records, the flat budget.</summary>
     public async Task<TaskForecast> ForecastAsync(ForecastQuery query, Func<string?, bool> sees, CancellationToken ct)
     {

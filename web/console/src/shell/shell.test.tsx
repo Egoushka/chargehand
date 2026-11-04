@@ -435,6 +435,7 @@ describe('theme', () => {
     resetPreferences();
     expect(getPreferences()).toMatchObject({ theme: 'dark', density: 'default' });
     expect(getPreferences().notify).toEqual({
+      approval: true,
       question: true,
       pull_request: true,
       batch: false,

@@ -8,7 +8,7 @@ using Chargehand.RunLog;
 
 namespace Chargehand.Server;
 
-/// <param name="Kind"><c>question</c>, <c>pull_request</c> or <c>failure</c>.</param>
+/// <param name="Kind"><c>question</c>, <c>pull_request</c>, <c>failure</c> or <c>approval</c> (a run held for the owner's approval, ADR 0092).</param>
 /// <param name="Reason">For a pull request: <c>policy_ask</c>, <c>test_integrity</c> or <c>partial_draft</c>. For a failure: the error code, or <c>partial</c> / <c>lost</c>.</param>
 /// <param name="Subject">For a failure: <c>task</c>, <c>run</c> or <c>batch</c>.</param>
 /// <param name="Answer">For a question: how to answer it, the body of a <c>POST /v1/runs</c> being a task with <c>continue_from</c> and <c>answers</c> (ADR 0045).</param>
@@ -18,12 +18,14 @@ namespace Chargehand.Server;
 /// <param name="Options">What a person can do about it, each with its effect: only options that can succeed.</param>
 /// <param name="Lane"><c>decide</c> (a person's choice: a question, a pull request, a policy), <c>fix</c> (a failure) or <c>handled</c> (a rule or a person resolved it; in <c>handled</c> only).</param>
 /// <param name="ResolvedBy">For a handled item: the rule that resolved it (<see cref="InboxRules"/>) or <c>dismissed</c>.</param>
+/// <param name="Usd">For an approval: the most the held run may spend, and in <c>reason</c> where the figure comes from, <c>budget</c> or <c>forecast</c>.</param>
 public sealed record InboxItem(string Kind, string Id, DateTimeOffset At, string? Actor, string? BatchRunId, string? TaskId, string? RunId, string? Repository, string Title,
     IReadOnlyList<string> Questions, AnswerHint? Answer, PullRequestBody? PullRequest, ErrorBody? Error, string? Reason, string? Subject, int Count = 1, string? What = null, string? Why = null,
-    IReadOnlyList<InboxOption>? Options = null, string? Lane = null, string? ResolvedBy = null, string? CauseKey = null, string? Owner = null);
+    IReadOnlyList<InboxOption>? Options = null, string? Lane = null, string? ResolvedBy = null, string? CauseKey = null, string? Owner = null, decimal? Usd = null);
 
 /// <param name="Decide">Open items in the Decide lane: what the console's badge counts (ADR 0085).</param>
-public sealed record InboxCounts(int Questions, int PullRequests, int Failures, int Total, int Decide = 0);
+/// <param name="Approvals">Runs held for the owner's approval of their spend (ADR 0092); they are in <paramref name="Total"/> but in none of the three counts before it.</param>
+public sealed record InboxCounts(int Questions, int PullRequests, int Failures, int Total, int Decide = 0, int Approvals = 0);
 
 /// <summary>What left the inbox in the window without being dealt with there (ADR 0064), counted in the items as they were before <see cref="Duplicates"/> folded any.</summary>
 /// <param name="Superseded">A later batch task or run of the same account replaced it.</param>
@@ -81,7 +83,7 @@ internal static class ConsoleInbox
         var view = await ViewAsync(c, who, since, ct);
         var open = view.Open.Select(e => e.Item).ToList();
         var counts = new InboxCounts(open.Count(i => i.Kind == "question"), open.Count(i => i.Kind == "pull_request"), open.Count(i => i.Kind == "failure"), open.Count,
-            open.Count(i => i.Lane == InboxCatalog.Decide));
+            open.Count(i => i.Lane == InboxCatalog.Decide), open.Count(i => i.Kind == "approval"));
         var take = Math.Clamp(limit, 1, 500);
         return new InboxBody(Contract, c.Now, since, counts, [.. open.Take(take)], NotRecorded, view.Resolved, [.. view.Groups.Select(g => g.Group)], [.. view.Handled.Take(take)]);
     }
@@ -95,7 +97,7 @@ internal static class ConsoleInbox
         var index = await c.IndexAsync(ct);
         var everything = await c.LearningAsync(ct);
         var learning = everything.Where(e => Principal.Sees(who, e.Record.Actor)).ToList();
-        var candidates = Questions(index, who, since).Concat(PullRequests(c, learning, since)).Concat(Failures(c, index, learning, who, since)).ToList();
+        var candidates = Questions(index, who, since).Concat(PullRequests(c, learning, since)).Concat(Failures(c, index, learning, who, since)).Concat(Approvals(c, who, since)).ToList();
         var rules = new InboxRules(index, everything);
         var dismissed = c.Dismissals?.Read() ?? new Dictionary<string, InboxDismissal>();
         var byRun = everything.GroupBy(e => e.Record.RunId, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Last().Record, StringComparer.Ordinal);
@@ -146,6 +148,16 @@ internal static class ConsoleInbox
                 yield return new InboxCandidate(item, repository?.Path, goal, start.Started, null, [], InboxRules.AskedOf(start, taskId));
             }
         }
+    }
+
+    /// <summary>Runs held above the per-run threshold (ADR 0092). Only the owner decides them, so an account's inbox has none; they leave when decided, so no rule or dismissal applies.</summary>
+    private static IEnumerable<InboxCandidate> Approvals(ConsoleContext c, Principal? who, DateTimeOffset since)
+    {
+        if (who is { IsOwner: false })
+            yield break;
+        foreach (var held in c.Runs.Approvals.Pending().Where(a => a.At >= since))
+            yield return new InboxCandidate(new InboxItem("approval", $"approval:{held.Id}", held.At, held.Actor, null, null, null, held.Repository, Title(held.Text), [], null, null, null, held.Basis, null, Usd: held.Usd),
+                held.Repository, held.Text, held.At, null, []);
     }
 
     private static IEnumerable<InboxCandidate> PullRequests(ConsoleContext c, IReadOnlyList<LearningEntry> learning, DateTimeOffset since)

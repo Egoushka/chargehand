@@ -9,6 +9,7 @@ export type Density = 'compact' | 'default' | 'comfortable';
 
 /** The events that raise a notice; each can be switched off. */
 export interface NotifyKinds {
+  approval: boolean;
   question: boolean;
   pull_request: boolean;
   batch: boolean;
@@ -29,6 +30,7 @@ export interface Preferences {
 export const DENSITIES: readonly Density[] = ['compact', 'default', 'comfortable'];
 
 const DEFAULT_NOTIFY: NotifyKinds = {
+  approval: true,
   question: true,
   pull_request: true,
   batch: true,

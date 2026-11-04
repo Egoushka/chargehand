@@ -7,6 +7,8 @@ export interface InboxCounts {
   pull_requests: number;
   failures: number;
   total: number;
+  /** Runs held for the owner's approval of their spend (ADR 0092); in `total`, in none of the three counts above. Absent from a server before it. */
+  approvals?: number;
   /** Open items in the Decide lane, what the badge counts (ADR 0085). Absent from a server before it. */
   decide?: number;
 }
@@ -35,12 +37,13 @@ export interface InboxOption {
 /** `decide`: a person's choice; `fix`: a failure; `handled`: a rule or a person resolved it. */
 export type InboxLane = 'decide' | 'fix' | 'handled';
 
-export type InboxKind = 'question' | 'pull_request' | 'failure';
+export type InboxKind = 'question' | 'pull_request' | 'failure' | 'approval';
 
 /**
  * One thing that needs a person. `question`: a task that ended `needs_input` and no batch has continued; `answer` is the request to send.
  * `pull_request`: open and waiting (`reason` is `policy_ask`, `test_integrity` or `partial_draft`). `failure`: a failed task, run or batch
- * (`reason` is the error code, or `partial` or `lost`; `subject` is `task`, `run` or `batch`).
+ * (`reason` is the error code, or `partial` or `lost`; `subject` is `task`, `run` or `batch`). `approval`: a run held because the most it may spend
+ * (`usd`; `reason` says whether that is its `budget` or a `forecast`) passes the per-run threshold (ADR 0092); it starts once the owner approves it.
  */
 export interface InboxItem {
   kind: InboxKind;
@@ -58,6 +61,8 @@ export interface InboxItem {
   error?: ErrorBody | null;
   reason?: string | null;
   subject?: 'task' | 'run' | 'batch' | null;
+  /** For an approval: the most the held run may spend. */
+  usd?: number | null;
   /** How many identical failures this item stands for (ADR 0064); it is the newest of them. Absent from a server before it: 1. */
   count?: number;
   /** What happened, in one sentence; absent from a server before ADR 0085, as are `why`, `options` and `lane`. */

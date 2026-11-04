@@ -344,6 +344,7 @@ function NotifyPanel() {
   const available = browserNotificationsAvailable();
   const permission = browserPermission();
   const kinds = [
+    ['approval', 'Run waits for spend approval'],
     ['question', 'Task asks a question'],
     ['pull_request', 'PR is ready to merge'],
     ['batch', 'Batch finishes'],

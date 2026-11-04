@@ -521,5 +521,61 @@ describe('Month forecast', () => {
       });
       expect(await screen.findByText(/passed the daily warning of \$15\.00/)).toBeTruthy();
     });
+
+    describe('per-run approval threshold', () => {
+      const field = () =>
+        panel('Limits of ci-bot').getByLabelText(/Approval threshold per run/) as HTMLInputElement;
+      const save = () =>
+        panel('Limits of ci-bot').getByRole('button', { name: 'Save approval threshold' });
+
+      it('shows the threshold and saves a new one with a PUT', async () => {
+        const api = await open();
+        await waitFor(() => expect(field().value).toBe('5'));
+        expect(
+          panel('Limits of ci-bot').getByText(/may spend more than \$5\.00 waits for you/),
+        ).toBeTruthy();
+        expect(save()).toHaveProperty('disabled', true);
+        fireEvent.change(field(), { target: { value: '12.5' } });
+        fireEvent.click(save());
+        await waitFor(() =>
+          expect(
+            api.calls.find((c) => c.method === 'PUT' && c.path === '/v1/limits/run-approval')?.body,
+          ).toEqual({ usd: 12.5 }),
+        );
+        await waitFor(() =>
+          expect(panel('Limits of ci-bot').getByText(/may spend more than \$12\.50/)).toBeTruthy(),
+        );
+      });
+
+      it('sends null for an empty field and refuses a value that is not above zero', async () => {
+        const api = await open();
+        await waitFor(() => expect(field().value).toBe('5'));
+        fireEvent.change(field(), { target: { value: '0' } });
+        expect(await screen.findByText(/leave it empty to ask about no run/)).toBeTruthy();
+        expect(save()).toHaveProperty('disabled', true);
+        fireEvent.change(field(), { target: { value: '' } });
+        fireEvent.click(save());
+        await waitFor(() =>
+          expect(
+            api.calls.find((c) => c.method === 'PUT' && c.path === '/v1/limits/run-approval')?.body,
+          ).toEqual({ usd: null }),
+        );
+        await waitFor(() =>
+          expect(panel('Limits of ci-bot').getByText(/No run is asked about/)).toBeTruthy(),
+        );
+      });
+
+      it('says how many runs wait for the owner', async () => {
+        await open({
+          replies: {
+            'GET /v1/limits/run-approval': [
+              200,
+              { contract_version: 'run-approval/v1', limit_usd: 5, default_usd: 5, pending: 2 },
+            ],
+          },
+        });
+        expect(await screen.findByText(/2 waiting now/)).toBeTruthy();
+      });
+    });
   });
 });

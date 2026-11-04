@@ -290,6 +290,19 @@ public sealed class Orchestrator(
 
     /// <summary>Records a run that was cancelled before it started (it was queued): a start record and a failed result with <c>cancelled</c>.</summary>
     /// <summary>The checkouts this server reads (<see cref="RepositoryNames"/>) with the commit each has checked out, for the repositories tool.</summary>
+    /// <summary>Whether a run of <paramref name="actor"/> bills a priced API key, which a dollar budget binds (ADR 0082); an account that may use no credential spends nothing.</summary>
+    public bool Priced(string? actor)
+    {
+        try
+        {
+            return (runtimeFor?.Invoke(actor) ?? runtime).Credential == "api_key";
+        }
+        catch (ChargehandException)
+        {
+            return false;
+        }
+    }
+
     public Task<IReadOnlyList<RepositoryHead>> RepositoriesAsync(CancellationToken ct) => RepositoryNames.HeadsAsync(RepositoryNames.List(profile), ct);
 
     public async Task<ResultContract> RecordCancelledAsync(RunRequest request, string runId, string? parentRunId, Action<RunStatus>? progress = null, string? actor = null)
