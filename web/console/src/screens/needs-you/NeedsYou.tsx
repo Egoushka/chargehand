@@ -21,6 +21,7 @@ import { GroupCard } from './GroupCard';
 import {
   FILTERS,
   type Filter,
+  filterCount,
   handledBy,
   laneOf,
   ordered,
@@ -28,10 +29,12 @@ import {
   rowIds,
   rowItems,
   rows,
+  stalePulls,
   summary,
   targetRun,
 } from './model';
 import { NeedsCard } from './NeedsCard';
+import { StaleBanner } from './StaleBanner';
 import './needs-you.css';
 import { useNavigate } from '@tanstack/react-router';
 
@@ -61,6 +64,8 @@ export function NeedsYou() {
     };
   }, [data, filter]);
   const items = useMemo(() => [...lanes.decide, ...lanes.fix], [lanes]);
+  // The inbox refetches every 10 s, so the age needs no clock of its own.
+  const stale = useMemo(() => stalePulls(data?.items ?? [], Date.now()), [data]);
   const at = Math.min(cursor, Math.max(0, items.length - 1));
   const resolved = resolvedNote(data?.resolved);
 
@@ -184,17 +189,7 @@ export function NeedsYou() {
               label: (
                 <>
                   {f.label}{' '}
-                  <span className="dim">
-                    {data
-                      ? f.id === 'all'
-                        ? data.counts.total
-                        : f.id === 'question'
-                          ? data.counts.questions
-                          : f.id === 'pull_request'
-                            ? data.counts.pull_requests
-                            : data.counts.failures
-                      : ''}
-                  </span>
+                  <span className="dim">{data ? filterCount(data.counts, f.id) : ''}</span>
                 </>
               ),
             }))}
@@ -242,6 +237,20 @@ export function NeedsYou() {
         </div>
       ) : null}
       {data && data.items.length === 0 ? <Handled items={data.handled ?? []} /> : null}
+      {stale.count > 0 ? (
+        <StaleBanner
+          count={stale.count}
+          longest={stale.longest}
+          onShow={
+            filter === 'pull_request'
+              ? null
+              : () => {
+                  setFilter('pull_request');
+                  setCursor(0);
+                }
+          }
+        />
+      ) : null}
 
       {data && data.items.length > 0 ? (
         <div className="g2">
