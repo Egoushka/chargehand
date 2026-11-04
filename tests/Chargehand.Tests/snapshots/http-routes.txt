@@ -28,6 +28,8 @@ GET /v1/intake
 POST /v1/intake/reviews/budget
 POST /v1/intake/reviews/exclude
 POST /v1/intake/reviews/include
+GET /v1/intake/limits
+PUT /v1/intake/limits
 GET /v1/intake/sources
 PUT /v1/intake/sources
 GET /v1/learn

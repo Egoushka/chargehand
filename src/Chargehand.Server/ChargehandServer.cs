@@ -274,6 +274,7 @@ public static partial class ChargehandServer
             ConsoleAnswers.Map(app, ctx => new ConsoleContext(settings, ctx.RequestServices.GetRequiredService<RunService>(), log, driven, new SecretPresence(settings.SecretPresent), dismissals), phone);
         }
         ConsoleSources.Map(app, settings, intake);
+        ConsoleLimits.Map(app, intake);
 
         foreach (var path in new[] { "/v1/accounts/me", IdentityPath })
             app.MapGet(path, async (HttpContext ctx, RunService runs) =>

@@ -13,6 +13,7 @@ public sealed class IntakeSources
     private readonly HashSet<string> _off = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _reviewsOff = new(StringComparer.OrdinalIgnoreCase);
     private decimal? _reviewBudget;
+    private Limits _limits = new();
     private readonly Lock _lock = new();
 
     public IntakeSources()
@@ -25,9 +26,43 @@ public sealed class IntakeSources
         _off.UnionWith(stored.Off ?? []);
         _reviewsOff.UnionWith(stored.ReviewsOff ?? []);
         _reviewBudget = stored.ReviewBudgetUsd;
+        _limits = stored.Limits ?? new Limits();
     }
 
-    private sealed record Stored(List<string>? Off, List<string>? ReviewsOff = null, decimal? ReviewBudgetUsd = null);
+    private sealed record Stored(List<string>? Off, List<string>? ReviewsOff = null, decimal? ReviewBudgetUsd = null, Limits? Limits = null);
+
+    /// <summary>The owner's overrides of the profile's intake caps (null: the profile's own), and a switch that holds every new start.</summary>
+    public sealed record Limits(int? MaxConcurrent = null, int? MaxReviewRounds = null, decimal? MaxUsdTotal = null, bool Paused = false);
+
+    public Limits Current
+    {
+        get
+        {
+            lock (_lock)
+                return _limits;
+        }
+    }
+
+    public int? MaxConcurrent => Current.MaxConcurrent;
+
+    public int? MaxReviewRounds => Current.MaxReviewRounds;
+
+    public decimal? MaxUsdTotal => Current.MaxUsdTotal;
+
+    public bool Paused => Current.Paused;
+
+    /// <returns>Whether anything changed.</returns>
+    public bool SetLimits(Limits limits)
+    {
+        lock (_lock)
+        {
+            if (_limits == limits)
+                return false;
+            _limits = limits;
+            Save();
+            return true;
+        }
+    }
 
     public static IntakeSources Load(string path) =>
         new(path, File.Exists(path) ? JsonSerializer.Deserialize<Stored>(File.ReadAllText(path), Json) ?? new Stored([]) : new Stored([]));
@@ -108,7 +143,7 @@ public sealed class IntakeSources
             return;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
         var temp = $"{_path}.tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(new Stored([.. _off.Order(StringComparer.OrdinalIgnoreCase)], [.. _reviewsOff.Order(StringComparer.OrdinalIgnoreCase)], _reviewBudget), Json));
+        File.WriteAllText(temp, JsonSerializer.Serialize(new Stored([.. _off.Order(StringComparer.OrdinalIgnoreCase)], [.. _reviewsOff.Order(StringComparer.OrdinalIgnoreCase)], _reviewBudget, _limits), Json));
         File.Move(temp, _path, overwrite: true);
     }
 }
