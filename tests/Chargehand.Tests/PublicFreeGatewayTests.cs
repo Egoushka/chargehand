@@ -16,7 +16,6 @@ public sealed class PublicFreeGatewayTests : IDisposable
     public void Dispose() => _dir.Dispose();
 
     [Theory]
-    [InlineData("gemini-free/gemini-2.5-flash-lite", "gemini-free", "gemini-2.5-flash-lite")]
     [InlineData("openrouter-free/google/gemma-4-26b-a4b-it:free", "openrouter-free", "google/gemma-4-26b-a4b-it:free")]
     [InlineData("mistral-free/mistral-medium-latest", "mistral-free", "mistral-medium-latest")]
     [InlineData("cloudflare/@cf/openai/gpt-oss-20b", "cloudflare", "@cf/openai/gpt-oss-20b")]
@@ -59,7 +58,7 @@ public sealed class PublicFreeGatewayTests : IDisposable
             var rt = await ClaudeCodeWorkerRuntime.ConnectAsync(claude, "2.1.195", new ClaudeCodeCredential("other-key", false), CancellationToken.None);
             var pool = rt.WithCredential(new ClaudeCodeCredential(Key, false), new Uri("https://gateway.example/anthropic"), PublicFreeSettings.KeyHeaderLine(Key), prefixProvider: true);
 
-            await Run(pool, new ModelRef("gemini-free", "gemini-2.5-flash-lite"));
+            await Run(pool, new ModelRef("mistral-free", "mistral-medium-latest"));
         }
         finally
         {
@@ -124,7 +123,7 @@ public sealed class PublicFreeGatewayTests : IDisposable
 
     private async Task<string> RunError(ClaudeCodeWorkerRuntime rt)
     {
-        var session = await rt.CreateAsync(Spec(new ModelRef("gemini-free", "gemini-2.5-flash-lite")), CancellationToken.None);
+        var session = await rt.CreateAsync(Spec(new ModelRef("mistral-free", "mistral-medium-latest")), CancellationToken.None);
         await rt.SubmitAsync(session.Id, "hi", CancellationToken.None);
         Assert.Equal(IdleOutcome.Failed, await rt.AwaitIdleAsync(session.Id, CancellationToken.None));
         return (await rt.ReadMessagesAsync(session.Id, CancellationToken.None)).First(m => m.Kind == WorkerMessageKind.Idle).Error!;

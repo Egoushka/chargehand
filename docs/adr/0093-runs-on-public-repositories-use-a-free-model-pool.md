@@ -6,9 +6,9 @@
 ## Context
 
 The owner wants more free model credit and does not mind where the data goes as long as work stays separate (2026-11-04). Free tiers
-(Gemini, OpenRouter `:free`, Mistral, Cloudflare, Groq) may train on prompts or have unknown terms, so they are fit only for code that
-is already public. The gateway the owner runs will issue one virtual key, `public-free`, limited to those providers and to no paid
-model. This ADR is the client side: when does a run use that key, and how can it never be used for anything else.
+(OpenRouter `:free`, Mistral, Cloudflare, Groq) may train on prompts or have unknown terms, so they are fit only for code that
+is already public. The gateway the owner runs will issue one virtual key, `public-free`, limited to those providers and to no other
+model. The pool is free models plus `mistral-free` on a paid key; the gateway holds a monthly cap on that key, so a run can never spend past it. This ADR is the client side: when does a run use that key, and how can it never be used for anything else.
 
 The rule that matters is a negative one: a private repository, or one whose visibility we could not read, must never reach the pool,
 whatever the caller asks for. So the choice of the pool rests on one fact, read from GitHub by the server, and every doubt means no.
@@ -87,17 +87,15 @@ request 215 config and the Bifrost documentation. The keys and the deploy do not
   failure text it builds (it removes the exact values, as it does for a service grant's). A key with whitespace or a line break is refused
   without being named, so it cannot add a header.
   Checked: the installed CLI (2.1.303) contains the string `ANTHROPIC_CUSTOM_HEADERS`. UNKNOWN: that it sends exactly the header we set to this gateway.
-- Models: `<provider>/<model>` with the provider as the gateway names it: `gemini-free/gemini-2.5-flash-lite`,
-  `openrouter-free/google/gemma-4-26b-a4b-it:free` (tool-call support unchecked), `mistral-free/mistral-medium-latest`,
+- Models: `<provider>/<model>` with the provider as the gateway names it: `openrouter-free/google/gemma-4-26b-a4b-it:free` (tool-call support unchecked), `mistral-free/mistral-medium-latest`,
   `cloudflare/@cf/openai/gpt-oss-20b`, `groq/openai/gpt-oss-20b`. `openrouter-free` accepts names matching `regex:.*:free$` (RE2, whole name).
   UNKNOWN: that the CLI passes a model with slashes or `@` to the gateway unchanged.
+  The gateway may add providers later (a Gemini provider returns as its own pull request); the profile's `models` map is where the ids are listed.
 
-Two risks only the first live call settles:
+One risk only the first live call settles:
 
-1. **Provider names register at config load.** If the custom providers (`gemini-free` and the rest) are not registered, the call goes to the
+1. **Provider names register at config load.** If the custom providers (`openrouter-free`, `mistral-free`, `cloudflare`, `groq`) are not registered, the call goes to the
    gateway's default provider, which may be paid.
-2. **`gemini-free` allows only `chat_completion` and stream.** A different request type arriving on `/anthropic` is refused by the gateway;
-   the infrastructure owner widens the list if so.
 
 **Free means free.** The pool has no second credential. There is no paid fallback: the `public-free` run never uses the server's
 Anthropic credential, an account's key or the API fallback of ADR 0088. When the gateway answers that the free quota is gone (429 or
@@ -150,7 +148,7 @@ Added by the gateway change (these run in `scripts/check.sh`):
 deploys must show, from the gateway's own logs or usage and the run's result:
 
 - (a) a run on a public repository reaches a free provider (the one named by the model's prefix) and not the gateway's default provider;
-- (b) an `/anthropic` request type that `gemini-free` refuses comes back as a clear failed run that says the gateway refused it, and not as a silent
+- (b) an `/anthropic` request type that the gateway refuses comes back as a clear failed run that says the gateway refused it, and not as a silent
   retry on another provider or a paid one. If it falls back, the pool is not free and stays off until the gateway's list is fixed.
 
 Until both hold, the switch (`PUT /v1/limits/public-free`) stays off.
@@ -171,7 +169,7 @@ Until both hold, the switch (`PUT /v1/limits/public-free`) stays off.
 
 ## What the gateway owner must provide
 
-The virtual key `public-free` with only free models, the model ids for the `models` map, and the per-provider limits. The list is in
+The virtual key `public-free` with only the pool providers (free models, and `mistral-free` on a paid key under a monthly cap), the model ids for the `models` map, and the per-provider limits. The list is in
 the pull request.
 
 ## Reopen if
