@@ -195,6 +195,21 @@
         "env": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Names of environment variables passed to the command besides PATH, LANG, LC_ALL and TERM." }
       }
     },
+    "public_free": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_key_secret", "base_url"],
+      "description": "The free-model pool for runs on public GitHub repositories (ADR 0093). Absent: no run uses it. It needs the claude_code runtime. A run qualifies only when GitHub reports its repository as public; nothing else selects the pool.",
+      "properties": {
+        "api_key_secret": { "type": "string", "minLength": 1, "description": "The secret item holding the gateway's public-free virtual key, never the key." },
+        "base_url": { "type": "string", "format": "uri", "description": "The gateway's Anthropic-compatible base URL." },
+        "preset": { "type": "string", "default": "public-free", "description": "The preset a pool run uses; its model is a placeholder that models maps to a model of the gateway." },
+        "replaces": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Presets whose runs on a qualifying repository move to the pool preset. None listed: only a request that names the pool preset uses it." },
+        "deny_path_segments": { "type": "array", "items": { "type": "string", "minLength": 1 }, "default": ["work"], "description": "A checkout with one of these as a directory name never qualifies." },
+        "intake_model": { "type": "string", "description": "provider/model of the gateway for a pool run's intake; unset: the runtime's default. intake_model of the profile is never sent to the pool." },
+        "github_token_secret": { "type": "string", "minLength": 1, "description": "The secret item holding a GitHub token for the visibility lookup. Unset: the lookup is unauthenticated and sees only public repositories." }
+      }
+    },
     "inbox": {
       "type": "object",
       "additionalProperties": false,

@@ -279,6 +279,7 @@ public static partial class ChargehandServer
         ConsoleLimits.Map(app, intake);
         ConsoleDailyWarning.Map(app, settings, log, new DailyWarningLimit(settings.DailyWarningPath));
         ConsoleRunApproval.Map(app);
+        ConsolePublicFree.Map(app);
 
         foreach (var path in new[] { "/v1/accounts/me", IdentityPath })
             app.MapGet(path, async (HttpContext ctx, RunService runs) =>

@@ -51,6 +51,16 @@
       "min_items": 8
     },
     {
+      "name": "public-free/worker",
+      "dataset": "chargehand-public-free-worker",
+      "kind": "worker",
+      "preset": "public-free",
+      "files": ["prompts/core/worker.md", "prompts/preset/public-free.md", "presets/public-free.yaml"],
+      "quality_tolerance": 0.10,
+      "cost_tolerance": 0.30,
+      "min_items": 8
+    },
+    {
       "name": "code/writer",
       "dataset": "chargehand-code-writer",
       "kind": "worker",

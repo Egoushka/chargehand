@@ -9,6 +9,7 @@ using Chargehand.Contracts;
 using Chargehand.Enhancement;
 using Chargehand.Intake;
 using Chargehand.Kernel;
+using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.Research.Api;
@@ -32,6 +33,7 @@ namespace Chargehand;
 /// <param name="services">Resolves a preset's <c>services</c> into the grants workers get; null: a preset's services are ignored (ADR 0034).</param>
 /// <param name="sandboxFor">Picks the sandbox a writing preset's tests run in (ADR 0035); the platform's, per the profile, if null.</param>
 /// <param name="enhancer">The profile's prompt enhancer, already behind its guard, or null (ADR 0040, ADR 0041). It sees each request's text and reports the outcome; it never changes what is sent.</param>
+/// <param name="publicFree">The free-model pool (ADR 0093): hands out its runtime to a run of the pool preset on a repository that qualifies, and refuses the pool preset anywhere else; null: no pool, and the default pool preset is refused.</param>
 /// <param name="runtimeFor">The runtime a run of the given account uses (ADR 0053), which throws for an account that may use no model credential; null: <paramref name="runtime"/> for every run.</param>
 public sealed class Orchestrator(
     Profile profile,
@@ -44,9 +46,14 @@ public sealed class Orchestrator(
     IServiceResolver? services = null,
     Func<SandboxSettings?, ISandbox>? sandboxFor = null,
     IPromptEnhancer? enhancer = null,
-    Func<string?, IWorkerRuntime>? runtimeFor = null)
+    Func<string?, IWorkerRuntime>? runtimeFor = null,
+    PublicFreeGate? publicFree = null)
 {
     public const string NodeKindName = "worker";
+
+    /// <summary>The free-model pool (ADR 0093); null: the profile has no <c>public_free</c> block.</summary>
+    public PublicFreeGate? PublicFree => publicFree;
+
 
     /// <param name="runId">The id to run under (the HTTP interface hands it out before the run starts); a new one if null.</param>
     /// <param name="progress">Receives run-status/v1 events: started, intake, node started and finished, run finished.</param>
@@ -96,7 +103,12 @@ public sealed class Orchestrator(
             if (request.Driven is not null)
                 throw new ChargehandException(ErrorCode.InvalidRequest, "a request with a driven block runs only through chargehand serve", "Send it to the server's POST /v1/runs or its MCP tool.");
             // The account's own credential, or a refusal, before anything is spent (ADR 0053).
-            var worker = runtimeFor?.Invoke(actor) ?? runtime;
+            if (publicFree is null && presetName == new PublicFreeSettings().Preset)
+                throw new ChargehandException(ErrorCode.InvalidRequest, $"preset {presetName} is the free-model pool's, and this profile has no public_free block",
+                    "Use another preset, or add public_free to the profile (ADR 0093).");
+            var worker = (publicFree is null ? null : await publicFree.RuntimeAsync(presetName, request.Context.Repository?.Path, ct)) ?? runtimeFor?.Invoke(actor) ?? runtime;
+            // The pool's gateway knows its own models; the owner's intake model is never sent to it.
+            var intakeModelId = publicFree?.Owns(worker) == true ? publicFree.IntakeModel : profile.IntakeModel;
             credential = worker.Credential;
             var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
             var (kindName, kind) = AnswerKind(preset);
@@ -124,7 +136,7 @@ public sealed class Orchestrator(
             {
                 TagChain(span, intakeChain);
                 span?.SetTag("gen_ai.request.model", intakeModel);
-                intake = await new GenerateIntake(worker, ParseModel(profile.IntakeModel), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
+                intake = await new GenerateIntake(worker, ParseModel(intakeModelId), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
                 span?.SetTag("chargehand.intake.action", intake.Spec?.Action.ToString().ToLowerInvariant() ?? "needs_input");
                 foreach (var c in intake.Calls)
                     await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, intakeModel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
@@ -172,7 +184,7 @@ public sealed class Orchestrator(
                         [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
                     _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
                         $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
-                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, local, ct, budgetIsCap),
+                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, local, ct, budgetIsCap, intakeModelId),
                 };
             }
         }
@@ -327,7 +339,7 @@ public sealed class Orchestrator(
     /// <summary>Runs the plan's nodes (one for answer) and returns the node's contract, or the merged one for a split.</summary>
     private async Task<ResultContract> Execute(RunRequest request, TaskSpec spec, IReadOnlyList<PlanNode> plan, string kindName, NodeKind kind, string? workerModel,
         IReadOnlyList<(string Key, string Value)> instructions, PromptChain chain, IReadOnlyList<PromptBlock> callerBlocks, string runId, string traceId,
-        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, IWorkerRuntime worker, bool local, CancellationToken ct, bool budgetIsCap = false)
+        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, IWorkerRuntime worker, bool local, CancellationToken ct, bool budgetIsCap = false, string? intakeModelId = null)
     {
         var (directory, commit, repository, excluded) = kind.Checkout
             ? await Checkout(request.Context.Repository!, kind, refuseDenied: false, ct)
@@ -355,7 +367,8 @@ public sealed class Orchestrator(
         var modelLabel = workerModel ?? "auto";
         // Recalled facts go in the prompt text, after the task (ADR 0007 order; ADR 0010 keeps instructions fixed, so
         // siblings still fork). The chain records them as one runtime block per source that contributed.
-        var stack = local ? memory?.LocalOnly() : memory;
+        // A pool run sends its prompt to free providers: facts retained from other repositories stay out of it, and its claims stay out of memory (ADR 0093).
+        var stack = local ? memory?.LocalOnly() : publicFree?.Owns(worker) == true ? null : memory;
         var recall = await Recall(stack, request.Text, run, extensions, ct);
         var facts = recall.Prompt;
         chain = chain with { Blocks = [.. chain.Blocks, .. recall.Blocks] };
@@ -391,7 +404,7 @@ public sealed class Orchestrator(
             span?.SetTag("chargehand.node", node.Id);
             progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.NodeStarted) with { NodeId = node.Id });
             var nodeResult = await new WorkerNode(worker, prices, new GitEvidenceResolver(),
-                supportCheck: profile.SupportCheck ? (contract, scope, ct2) => SupportCheck.RunAsync(worker, ParseModel(profile.IntakeModel), contract, scope, ct2) : null).RunAsync(nodeRequest, token, primed);
+                supportCheck: profile.SupportCheck ? (contract, scope, ct2) => SupportCheck.RunAsync(worker, ParseModel(intakeModelId), contract, scope, ct2) : null).RunAsync(nodeRequest, token, primed);
             if (workspace is not null && nodeResult.Contract.Status == ResultStatus.Completed)
             {
                 var provenance = ChangeRun.ProvenanceOf(runId, $"opencode {opencodeVersion}", modelLabel, nodeResult.Calls, prices, lastCheck, attempts);

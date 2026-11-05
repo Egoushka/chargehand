@@ -7,4 +7,5 @@ namespace Chargehand.Modules.Accounts.Api;
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower, ReadCommentHandling = JsonCommentHandling.Skip,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip)]
 [JsonSerializable(typeof(IReadOnlyList<AccountSettings>))]
+[JsonSerializable(typeof(PublicFreeSettings))]
 public sealed partial class AccountsSettingsJsonContext : JsonSerializerContext;

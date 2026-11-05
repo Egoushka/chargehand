@@ -88,7 +88,11 @@ public sealed partial class RunService(Orchestrator orchestrator, string presets
     /// has left, or refused: a run underway can still overshoot a cap by its own budget.</summary>
     public async Task<(RunRequest Request, AccountRefusal? Refusal)> AdmitAsync(Principal? who, RunRequest request, CancellationToken ct)
     {
-        if (Credentials.Paused(CredentialOf(who?.Account?.Name)) is { } paused)
+        var (routed, poolRefusal, pooled) = await PoolStepAsync(request, ct);
+        if (poolRefusal is not null)
+            return (request, poolRefusal);
+        request = routed;
+        if (!pooled && Credentials.Paused(CredentialOf(who?.Account?.Name)) is { } paused)
             return (request, new("credential_paused", $"the model credential these runs use was rejected at {paused.Since:u} ({paused.Reason}); runs are admitted again once a probe succeeds",
                 StatusCodes.Status503ServiceUnavailable));
         if (who?.Account is not { } account)
