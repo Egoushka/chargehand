@@ -51,6 +51,21 @@ public class CheckoutTests
         Assert.DoesNotContain(".env.enc", e.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task A_driven_checkout_of_a_repository_named_by_folder_reads_its_remote_from_that_repository()
+    {
+        // The name is not a path here: it resolves through the repository roots, as the worker checkout does, not against the working directory.
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        Runs.SetOrigin(repo, "https://example.com/owner/repo.git");
+
+        var driven = await Runs.Orchestrator(new ScriptedRuntime(Runs.WorkerReply), root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
+            .CheckoutForDrivenAsync(repo with { Path = "repo" }, "driven", CancellationToken.None);
+
+        Assert.Equal("https://example.com/owner/repo.git", driven.RemoteUrl);
+        Assert.Equal(repo.Commit, driven.Commit);
+    }
+
     private static RepositoryRef TrackingDeniedFiles(string workerRoot)
     {
         var repo = Runs.GitRepo(workerRoot);

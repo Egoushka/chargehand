@@ -280,7 +280,7 @@ public sealed class Orchestrator(
     {
         var (_, kind) = AnswerKind(Preset.Load(Path.Combine(rootDirectory, "presets"), presetName));
         var (directory, commit, _, _) = await Checkout(repo, kind, refuseDenied: true, ct);
-        var source = Path.GetFullPath(repo.Path);
+        var source = await Source(repo, ct);
         var remote = await Git(source, ct, "config", "--get", "remote.origin.url")
             ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{repo.Path} has no remote.origin.url to push to", "Add an origin remote to the repository.");
         var head = await Git(source, ct, "symbolic-ref", "--short", "refs/remotes/origin/HEAD");
@@ -583,8 +583,7 @@ public sealed class Orchestrator(
     /// </summary>
     private async Task<(string Directory, string Commit, string Repository, IReadOnlyList<string> Excluded)> Checkout(RepositoryRef repo, NodeKind kind, bool refuseDenied, CancellationToken ct)
     {
-        // git prints the top level with symbolic links resolved, so a link under a root cannot point the worker elsewhere.
-        var source = await Git(Path.GetFullPath(repo.Path), ct, "rev-parse", "--show-toplevel") ?? await ByName(repo.Path, ct);
+        var source = await Source(repo, ct);
         if (!profile.Roots.Any(root => PathScope.Under(source, PathScope.RealPath(root))))
             throw new ChargehandException(ErrorCode.RepositoryNotAllowed,
                 $"repository {source} is outside the profile's repository_roots ({string.Join(", ", profile.Roots)}); workers read only repositories under them",
@@ -681,6 +680,11 @@ public sealed class Orchestrator(
         var source = await Git(Path.GetFullPath(path), ct, "rev-parse", "--show-toplevel") ?? Path.GetFullPath(path);
         return await workspace.LandAsync(source, ct) is { } failure ? (branch, failure) : (branch with { Repository = source }, null);
     }
+
+    /// <summary>The checkout the request's repository is: git prints the top level with symbolic links resolved, so a link under a root cannot point the worker elsewhere;
+    /// a path that is not a checkout is a name (<see cref="ByName"/>), never read against the working directory.</summary>
+    private async Task<string> Source(RepositoryRef repo, CancellationToken ct) =>
+        await Git(Path.GetFullPath(repo.Path), ct, "rev-parse", "--show-toplevel") ?? await ByName(repo.Path, ct);
 
     /// <summary>The checkout a path that is not one on this server names: <c>owner/name</c>, a GitHub URL or a folder name (<see cref="RepositoryNames"/>).
     /// Fails with every name this server knows, so a caller does not guess spellings.</summary>
