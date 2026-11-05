@@ -27,8 +27,9 @@
     <Compile Include="..\Chargehand.Tests\TempDir.cs" Link="TempDir.cs" />
   </ItemGroup>
 
-  <!-- Coyote controls the scheduling only of assemblies it has rewritten. The rewrite is in place, in the output directory; dotnet-tools.json pins the tool. -->
-  <Target Name="CoyoteRewrite" AfterTargets="Build" Inputs="$(OutDir)$(TargetFileName);$(OutDir)Chargehand.Modules.Batches.dll;$(OutDir)Chargehand.Modules.Tasks.dll" Outputs="$(IntermediateOutputPath)coyote.stamp">
+  <!-- Coyote controls the scheduling only of assemblies it has rewritten. The rewrite is in place, in the output directory; dotnet-tools.json pins the tool.
+       It runs on every build, with no stamp: the copy to the output directory skips a file only when it is unchanged, and a rewritten file is not, so each build puts the originals back. -->
+  <Target Name="CoyoteRewrite" AfterTargets="Build">
     <PropertyGroup>
       <CoyoteConfig>$(MSBuildProjectDirectory)/$(IntermediateOutputPath)rewrite.coyote.json</CoyoteConfig>
     </PropertyGroup>
@@ -36,7 +37,6 @@
       Lines="{ &quot;AssembliesPath&quot;: &quot;$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/$(OutDir)').Replace('\', '/'))&quot;, &quot;Assemblies&quot;: [ &quot;$(TargetFileName)&quot;, &quot;Chargehand.Modules.Batches.dll&quot;, &quot;Chargehand.Modules.Tasks.dll&quot;, &quot;Chargehand.Modules.Ledger.dll&quot;, &quot;Chargehand.Modules.Sessions.dll&quot;, &quot;Chargehand.Modules.Handover.dll&quot;, &quot;Chargehand.Modules.Runners.dll&quot; ] }" />
     <Exec Command="dotnet tool restore" WorkingDirectory="$(MSBuildProjectDirectory)" />
     <Exec Command="dotnet tool run --allow-roll-forward coyote -- rewrite &quot;$(CoyoteConfig)&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
-    <Touch Files="$(IntermediateOutputPath)coyote.stamp" AlwaysCreate="true" />
   </Target>
 
 </Project>
