@@ -127,6 +127,19 @@ public class GateTests
     }
 
     [Fact]
+    public void The_public_free_preset_and_its_prompts_are_gated_by_their_cell()
+    {
+        var cells = EvalCell.Load(Repo.Path("evals", "cells.json"));
+        var (affected, uncovered) = EvalRunner.Affected(cells, ["prompts/preset/public-free.md", "presets/public-free.yaml"]);
+        Assert.Equal(["public-free/worker"], affected.Select(c => c.Name));
+        Assert.Empty(uncovered);
+        // The cell's runs use the preset it gates, and the core prompt the worker is built from.
+        var cell = Assert.Single(affected);
+        Assert.Equal("public-free", cell.Preset);
+        Assert.Contains("prompts/core/worker.md", cell.Files);
+    }
+
+    [Fact]
     public void A_file_new_in_the_change_counts_as_covered_by_a_cell_the_change_adds()
     {
         var added = new EvalCell("added/worker", "chargehand-added-worker", "worker", "added", ["presets/added.yaml", "prompts/preset/added.md"], 0.1, 0.15);
@@ -176,7 +189,7 @@ public class GateTests
     public void Shipped_cells_and_example_items_load()
     {
         var cells = EvalCell.Load(Repo.Path("evals", "cells.json"));
-        Assert.Equal(["cheap/worker", "review/worker", "design/worker", "incident/worker", "release-notes/worker", "code/writer", "driven/session", "draft/draft", "intake"], cells.Select(c => c.Name));
+        Assert.Equal(["cheap/worker", "review/worker", "design/worker", "incident/worker", "release-notes/worker", "public-free/worker", "code/writer", "driven/session", "draft/draft", "intake"], cells.Select(c => c.Name));
         foreach (var file in cells.SelectMany(c => c.Files))
             Assert.True(File.Exists(Repo.Path(file)), file);
         foreach (var line in File.ReadAllLines(Repo.Path("evals", "example.jsonl")))

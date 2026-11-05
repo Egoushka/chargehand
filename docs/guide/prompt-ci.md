@@ -20,6 +20,7 @@ Changed files map to the eval cells in [evals/cells.json](../../evals/cells.json
 | `design/worker` | `design` | `prompts/preset/design.md`, `presets/design.yaml` | 0.10 | +30% |
 | `incident/worker` | `incident` | `prompts/preset/incident.md`, `presets/incident.yaml` | 0.10 | +30% |
 | `release-notes/worker` | `release-notes` | `prompts/preset/release-notes.md`, `presets/release-notes.yaml` | 0.10 | +30% |
+| `public-free/worker` | `public-free` | `prompts/core/worker.md`, `prompts/preset/public-free.md`, `presets/public-free.yaml` | 0.10 | +30% |
 | `draft/draft` | `draft` | `prompts/core/draft.md`, `prompts/preset/draft.md`, `presets/draft.yaml` | 0.10 | +15% |
 | `intake` | none | `prompts/intake/task-spec.md` | 0.10 | +15% |
 
