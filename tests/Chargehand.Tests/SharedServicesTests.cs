@@ -569,6 +569,26 @@ public class SharedServicesTests
     }
 
     [Fact]
+    public async Task A_gradle_repository_with_no_jdk_image_leaves_verification_to_ci_and_a_command_the_request_names_is_still_run()
+    {
+        using var noJdk = new BatchRig(null, "build.gradle.kts");
+        await noJdk.RunAsync();
+        Assert.True(Assert.Single(noJdk.Handover.Inputs).CiVerifies);
+
+        using var jdk = new BatchRig(Shared(), "build.gradle.kts");
+        await jdk.RunAsync();
+        Assert.False(Assert.Single(jdk.Handover.Inputs).CiVerifies);
+
+        using var named = new BatchRig(null, "build.gradle.kts");
+        await named.RunAsync(verify: ["sh", "scripts/check.sh"]);
+        Assert.False(Assert.Single(named.Handover.Inputs).CiVerifies);
+
+        using var dotnet = new BatchRig(null, "App.csproj");
+        await dotnet.RunAsync();
+        Assert.False(Assert.Single(dotnet.Handover.Inputs).CiVerifies);
+    }
+
+    [Fact]
     public async Task A_repository_without_declared_services_starts_none_and_the_caches_are_the_same_whichever_way_its_remote_is_spelled()
     {
         using var other = new BatchRig(Shared(), "App.csproj", "git@github.com:o/other.git");
