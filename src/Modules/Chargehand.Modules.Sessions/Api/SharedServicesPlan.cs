@@ -12,8 +12,9 @@ namespace Chargehand.Modules.Sessions.Api;
 /// <param name="Verify">The command the handover runs, and where it came from (<c>request</c> or <c>detected</c>); null when there is none.</param>
 /// <param name="Notes">The profile's one-line note per service name.</param>
 /// <param name="Home">The repository's home volume (<see cref="HomeVolumes.Name"/>) when the profile says <c>driven.environment: "mise"</c> (ADR 0078); null: the tmpfs. <paramref name="Caches"/> is empty then.</param>
+/// <param name="NoJdk">The command to run is Gradle's, chargehand worked it out itself, and the profile maps no image to <c>gradle</c>: the session image has no JDK, so the command cannot run there (ADR 0075).</param>
 public sealed record SharedServicesPlan(IReadOnlyList<string> Caches, IReadOnlyList<ServiceSpec> Services, IReadOnlyList<string> Ecosystems, IReadOnlyList<string>? Verify, string? VerifySource,
-    IReadOnlyDictionary<string, string>? Notes = null, string? Home = null)
+    IReadOnlyDictionary<string, string>? Notes = null, string? Home = null, bool NoJdk = false)
 {
     /// <summary>The same repository is the same key whichever way its remote is spelled, so the cache outlives a change from ssh to https.</summary>
     public static string Identity(string remoteUrl, string fallback) =>
@@ -34,8 +35,12 @@ public sealed record SharedServicesPlan(IReadOnlyList<string> Caches, IReadOnlyL
             s.Env ?? new Dictionary<string, string>(), s.Tmpfs ?? [], s.MemoryMb))];
         return new SharedServicesPlan(caches, services, [.. scan.Ecosystems.Select(e => e.Name)], verify?.Argv, verify?.Source,
             (settings?.ServicesOf(identity) ?? []).Where(s => s.Note is not null).ToDictionary(s => s.Name, s => s.Note!, StringComparer.Ordinal),
-            mise ? HomeVolumes.Name(identity) : null);
+            mise ? HomeVolumes.Name(identity) : null, NoJdk: NeedsMissingJdk(settings, verify));
     }
+
+    /// <summary>A command that chargehand detected (the request's own is believed), runs Gradle, and has no JDK image to run in.</summary>
+    private static bool NeedsMissingJdk(DrivenSharedServices? settings, VerifyPlan? verify) =>
+        verify is { Source: not "request", Argv: ["./gradlew" or "gradle", ..] } && settings?.Images?.ContainsKey("gradle") != true;
 
     private static IReadOnlyList<string> CachesOf(DrivenSharedServices? settings, string identity, bool mise) =>
         mise ? [] : [.. (settings?.Caches ?? []).Select(e => CacheVolumes.Name(e, identity))];
