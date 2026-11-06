@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
@@ -51,11 +52,11 @@ public sealed class PeerCloneManager(PeerCloneSettings settings, IPeerRepository
                 ?? throw new ChargehandException(ErrorCode.RepositoryNotAllowed, $"gh:{owner}/{name} was not found on GitHub", "Check the owner and the name.");
             if (usage > settings.MaxRepositoryBytes)
                 throw new ChargehandException(ErrorCode.RepositoryNotAllowed,
-                    $"gh:{owner}/{name} is {usage:N0} bytes, over the peer cache's {settings.MaxRepositoryBytes:N0} byte limit", "Read a smaller repository, or raise peer_clone.max_repository_bytes.");
+                    $"gh:{owner}/{name} is {usage.ToString("N0", CultureInfo.InvariantCulture)} bytes, over the peer cache's {settings.MaxRepositoryBytes.ToString("N0", CultureInfo.InvariantCulture)} byte limit", "Read a smaller repository, or raise peer_clone.max_repository_bytes.");
             var free = (freeBytesOf ?? DefaultFreeBytes)(settings.Root);
             if (free < settings.MinFreeBytes)
                 throw new ChargehandException(ErrorCode.RepositoryNotAllowed,
-                    $"the peer cache's filesystem has {free:N0} bytes free, under the {settings.MinFreeBytes:N0} byte minimum", "Free space on that filesystem, or lower peer_clone.min_free_bytes.");
+                    $"the peer cache's filesystem has {free.ToString("N0", CultureInfo.InvariantCulture)} bytes free, under the {settings.MinFreeBytes.ToString("N0", CultureInfo.InvariantCulture)} byte minimum", "Free space on that filesystem, or lower peer_clone.min_free_bytes.");
             var dir = Path.Combine(Path.GetFullPath(settings.Root), owner, $"{name}@{commit[..Math.Min(commit.Length, 12)]}");
             await CloneAsync(owner, name, commit, dir, ct);
             acquired = true;
