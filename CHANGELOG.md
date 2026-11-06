@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.12](https://github.com/Egoushka/chargehand/compare/v0.19.11...v0.19.12) (2026-11-06)
+
+
+### Features
+
+* **accounts:** runs on public repositories use a free-model pool ([#725](https://github.com/Egoushka/chargehand/issues/725)) ([41f3f70](https://github.com/Egoushka/chargehand/commit/41f3f70f825c14535fa2bcbf9a3b0600a543840c))
+* **console:** editable intake limits and a pause switch ([#720](https://github.com/Egoushka/chargehand/issues/720)) ([7e89c5b](https://github.com/Egoushka/chargehand/commit/7e89c5b40b218ddaee949becb83f2b9dcc7b2402))
+* **console:** flag pull requests that wait more than 48 hours on Needs you ([#721](https://github.com/Egoushka/chargehand/issues/721)) ([a4eb0ed](https://github.com/Egoushka/chargehand/commit/a4eb0ed2184b7db76fbb48af4c4484e99efcb952))
+* **console:** the daily dollar limit is an editable warning ([#718](https://github.com/Egoushka/chargehand/issues/718)) ([9746354](https://github.com/Egoushka/chargehand/commit/97463543b4634a0abc810addc0eadf860582d0fa))
+* **server:** a run that may spend over a threshold waits for the owner ([#722](https://github.com/Egoushka/chargehand/issues/722)) ([fbce9d4](https://github.com/Egoushka/chargehand/commit/fbce9d4591c7715b7cd81d3eacdc0f918b52d390))
+
+
+### Bug Fixes
+
+* **build:** pin Native AOT ILCompiler to 10.0.14 for NU1903 (GHSA-p3jp-9v83-76w9) ([#726](https://github.com/Egoushka/chargehand/issues/726)) ([fa5c9a2](https://github.com/Egoushka/chargehand/commit/fa5c9a2c35e0ebf55a2931eeca6596c7e6c41b31))
+* **driven:** resolve a repository given by name before reading its remote (CHARGEHAND-712) ([#729](https://github.com/Egoushka/chargehand/issues/729)) ([40a6ba7](https://github.com/Egoushka/chargehand/commit/40a6ba71807dc623c6934ebe6c2d3e571135936f))
+* **ledger:** stream the run log instead of reading it whole per console request (CHARGEHAND-672) ([#730](https://github.com/Egoushka/chargehand/issues/730)) ([a5712da](https://github.com/Egoushka/chargehand/commit/a5712daa40ede278f320c1f32c7ff8af59b498b8))
+* **test:** rewrite the Coyote assemblies on every build ([#728](https://github.com/Egoushka/chargehand/issues/728)) ([eb7e699](https://github.com/Egoushka/chargehand/commit/eb7e6990d641e07e3afe9c4fcc2b02b213e37927))
+
 ## [0.19.11](https://github.com/Egoushka/chargehand/compare/v0.19.10...v0.19.11) (2026-11-03)
 
 
