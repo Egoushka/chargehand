@@ -74,7 +74,7 @@ public sealed record BenchStats(
     double TaskWallSeconds,
     double RunWallSeconds)
 {
-    public static string OutcomeOf(TaskResult t) => Outcomes.Classify(t.Kind, t.State, t.ErrorCode, t.Acceptance);
+    public static string OutcomeOf(TaskResult t) => Outcomes.Classify(t.Kind, t.State, t.ErrorCode, t.Acceptance, t.Detail);
 
     public static BenchStats Compute(BenchResults results)
     {

@@ -411,5 +411,5 @@ public sealed class BenchRunner(IBenchWorkspace workspace, IBenchServer? server,
         AcceptanceResult? acceptance, bool asked, bool answered, bool flagged, string? flagReason) =>
         new(task.Id, repo.Name, repo.Ecosystem, task.Size, task.Kind, state, errorCode, detail, branch, prUrl, acceptance, asked, answered, flagged, flagReason,
             tally.UsdEstimate, tally.UsdEstimatePartial, tally.Tokens, tally.CacheRead, tally.CacheWrite, tally.Turns, tally.Continuations, tally.Governor, tally.WallSeconds,
-            Outcomes.Classify(task.Kind, state, errorCode, acceptance));
+            Outcomes.Classify(task.Kind, state, errorCode, acceptance, detail));
 }
