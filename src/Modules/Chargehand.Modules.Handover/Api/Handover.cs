@@ -87,6 +87,9 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
 
     /// <summary>The most of the unified diff a <see cref="ChangeSummary"/> keeps, so it fits an inline artifact (64 KiB) beside the paths.</summary>
     public const int MaxChangesDiffBytes = 32 * 1024;
+
+    /// <summary>The reason a hand-over gives when the session left no branch; the benchmark reads it as "nothing to do" on an impossible task (ADR 0052).</summary>
+    public const string NoBranchReason = "no bundle: the session made no branch";
     private static readonly TimeSpan GitTimeout = TimeSpan.FromMinutes(5);
 
     public async Task<HandoverOutcome> RunAsync(HandoverInput input, CancellationToken ct)
@@ -124,7 +127,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
     {
         var input = run.Input;
         if (!File.Exists(run.Bundle))
-            return run.Refuse("no bundle: the session made no branch", ErrorCode.SessionFailed);
+            return run.Refuse(NoBranchReason, ErrorCode.SessionFailed);
         if (!RemoteAllowed(input.RemoteUrl, input.AllowLocalRemote))
             return run.Refuse("the remote is not an https or ssh remote", ErrorCode.PushRejected);
 

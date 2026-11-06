@@ -155,4 +155,12 @@ public class BenchTelemetryTests
         AcceptanceResult? acceptance = accepted is { } a ? new AcceptanceResult(a, a ? 0 : 1, false, 1, "") : null;
         Assert.Equal(expected, Outcomes.Classify(kind, state, error, acceptance));
     }
+
+    [Theory]
+    [InlineData("impossible", "session_failed", "no bundle: the session made no branch", Outcomes.HonestStop)]
+    [InlineData("impossible", "session_failed", "the session crashed", Outcomes.Aborted)]
+    [InlineData("impossible", "rate_limited", "no bundle: the session made no branch", Outcomes.Aborted)]
+    [InlineData("change", "session_failed", "no bundle: the session made no branch", Outcomes.Failed)]
+    public void A_session_that_made_no_branch_on_an_impossible_task_stopped_honestly_because_there_was_nothing_to_do(string kind, string error, string detail, string expected) =>
+        Assert.Equal(expected, Outcomes.Classify(kind, "failed", error, null, detail));
 }
