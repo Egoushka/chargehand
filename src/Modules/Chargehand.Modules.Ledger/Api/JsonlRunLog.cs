@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -30,20 +31,22 @@ public sealed class JsonlRunLog(string path) : IRunLog
         StartRecord? start = null;
         RunRecord? run = null;
         var calls = new List<CallRecord>();
-        foreach (var node in await Lines(ct))
+        await foreach (var line in Lines(ct))
         {
-            if (node["run_id"]?.GetValue<string>() != runId)
+            using var doc = line;
+            var root = doc.RootElement;
+            if (StringOf(root, "run_id") != runId)
                 continue;
-            switch (node["type"]?.GetValue<string>())
+            switch (StringOf(root, "type"))
             {
                 case "start":
-                    start = node.Deserialize(LedgerJsonContext.Default.StartRecord);
+                    start = root.Deserialize(LedgerJsonContext.Default.StartRecord);
                     break;
                 case "run":
-                    run = node.Deserialize(LedgerJsonContext.Default.RunRecord);
+                    run = root.Deserialize(LedgerJsonContext.Default.RunRecord);
                     break;
                 case "call":
-                    calls.Add(node.Deserialize(LedgerJsonContext.Default.CallRecord)!);
+                    calls.Add(root.Deserialize(LedgerJsonContext.Default.CallRecord)!);
                     break;
             }
         }
@@ -52,8 +55,7 @@ public sealed class JsonlRunLog(string path) : IRunLog
 
     public async Task<IReadOnlyList<RunSummary>> ListAsync(RunListQuery query, CancellationToken ct)
     {
-        // ponytail: reads the whole log per call, like ReadAllAsync; index it if a list is ever polled often over a large log.
-        var data = await ReadAllAsync(ct);
+        var data = await ReadRunsAsync(ct);
         var finished = data.Runs.GroupBy(r => r.RunId).ToDictionary(g => g.Key, g => g.Last());
         var rows = new List<RunSummary>();
         foreach (var start in data.Starts.GroupBy(s => s.RunId).Select(g => g.Last()))
@@ -90,34 +92,70 @@ public sealed class JsonlRunLog(string path) : IRunLog
 
     public async Task<ActorSpend> SpendAsync(string actor, DateTimeOffset since, CancellationToken ct)
     {
-        var data = await ReadAllAsync(ct);
-        var starts = data.Starts.GroupBy(s => s.RunId).ToDictionary(g => g.Key, g => g.Last());
-        var finished = data.Runs.GroupBy(r => r.RunId).ToDictionary(g => g.Key, g => g.Last());
+        var (starts, finished, calls) = await ReadSpendRowsAsync(since, ct);
+        var callsOf = calls.ToLookup(c => c.RunId);
         // A task or call under a batch is inside the batch's usage.
-        bool InBatch(StartRecord start)
+        bool InBatch(SpendStart start)
         {
             for (var parent = start.ParentRunId; parent is not null && starts.TryGetValue(parent, out var p); parent = p.ParentRunId)
-                if (p.Request.Driven is not null)
+                if (p.Driven)
                     return true;
             return false;
         }
         var total = new SpendTotal();
-        foreach (var start in starts.Values.Where(s => s.Actor == actor && !InBatch(s)))
+        foreach (var (runId, start) in starts.Where(s => s.Value.Actor == actor && !InBatch(s.Value)))
         {
-            if (finished.TryGetValue(start.RunId, out var run))
+            if (finished.TryGetValue(runId, out var run))
             {
                 if (run.Finished < since)
                     continue;
-                total.Add(run.Result.Usage.Usd, run.Credential, run.Result.Usage.Input + run.Result.Usage.Output);
+                total.Add(run.Usd, run.Credential, run.Tokens);
             }
-            else if (start.OwnerAlive())
-                foreach (var call in data.Calls.Where(c => c.RunId == start.RunId && c.Started >= since))
+            else if (ProcessBoot.OwnerAlive(start.BootId, start.Pid))
+                foreach (var call in callsOf[runId])
                 {
-                    total.Add(call.Usd, call.Credential, call.Tokens is { } t ? t.Input + t.Output : 0);
+                    total.Add(call.Usd, call.Credential, call.Tokens);
                 }
         }
         return total.Result();
     }
+
+    /// <summary>One pass over the lines, keeping a few fields of each run: the account standing is read on every console request, so it must not hold the log's records.
+    /// Calls older than <paramref name="since"/> are not kept.</summary>
+    private async Task<(Dictionary<string, SpendStart> Starts, Dictionary<string, SpendRun> Finished, List<SpendCall> Calls)> ReadSpendRowsAsync(DateTimeOffset since, CancellationToken ct)
+    {
+        Dictionary<string, SpendStart> starts = [];
+        Dictionary<string, SpendRun> finished = [];
+        List<SpendCall> calls = [];
+        await foreach (var line in Lines(ct))
+        {
+            using var doc = line;
+            var root = doc.RootElement;
+            switch (StringOf(root, "type"))
+            {
+                case "start":
+                    var start = root.Deserialize(LedgerJsonContext.Default.StartRecord)!;
+                    starts[start.RunId] = new(start.Actor, start.ParentRunId, start.Request.Driven is not null, start.BootId, start.Pid);
+                    break;
+                case "run":
+                    var run = root.Deserialize(LedgerJsonContext.Default.RunRecord)!;
+                    finished[run.RunId] = new(run.Finished, run.Result.Usage.Usd, run.Credential, run.Result.Usage.Input + run.Result.Usage.Output);
+                    break;
+                case "call":
+                    var call = root.Deserialize(LedgerJsonContext.Default.CallRecord)!;
+                    if (call.Started >= since)
+                        calls.Add(new(call.RunId, call.Usd, call.Credential, call.Tokens is { } t ? t.Input + t.Output : 0));
+                    break;
+            }
+        }
+        return (starts, finished, calls);
+    }
+
+    private readonly record struct SpendStart(string? Actor, string? ParentRunId, bool Driven, string? BootId, int Pid);
+
+    private readonly record struct SpendRun(DateTimeOffset Finished, decimal? Usd, string? Credential, long Tokens);
+
+    private readonly record struct SpendCall(string RunId, decimal? Usd, string? Credential, long Tokens);
 
     /// <summary>Dollars count as billed only for a credential that is billed; tokens and the price-table figure count for every one.</summary>
     private sealed class SpendTotal
@@ -159,32 +197,84 @@ public sealed class JsonlRunLog(string path) : IRunLog
         List<RunRecord> runs = [];
         List<CallRecord> calls = [];
         List<ScoreRecord> scores = [];
-        foreach (var node in await Lines(ct))
-            switch (node["type"]?.GetValue<string>())
+        await foreach (var line in Lines(ct))
+        {
+            using var doc = line;
+            var root = doc.RootElement;
+            switch (StringOf(root, "type"))
             {
                 case "start":
-                    starts.Add(node.Deserialize(LedgerJsonContext.Default.StartRecord)!);
+                    starts.Add(root.Deserialize(LedgerJsonContext.Default.StartRecord)!);
                     break;
                 case "run":
-                    runs.Add(node.Deserialize(LedgerJsonContext.Default.RunRecord)!);
+                    runs.Add(root.Deserialize(LedgerJsonContext.Default.RunRecord)!);
                     break;
                 case "call":
-                    calls.Add(node.Deserialize(LedgerJsonContext.Default.CallRecord)!);
+                    calls.Add(root.Deserialize(LedgerJsonContext.Default.CallRecord)!);
                     break;
                 case "score":
-                    scores.Add(node.Deserialize(LedgerJsonContext.Default.ScoreRecord)!);
+                    scores.Add(root.Deserialize(LedgerJsonContext.Default.ScoreRecord)!);
                     break;
             }
+        }
         return new(starts, runs, calls, scores);
     }
 
-    private async Task<IEnumerable<JsonObject>> Lines(CancellationToken ct)
+    /// <summary>The latest start and run record of each run, in the order the runs first appear; calls and scores are parsed no further than their tag, so the console's run index holds a part of the log.</summary>
+    public async Task<RunLogData> ReadRunsAsync(CancellationToken ct)
+    {
+        Dictionary<string, StartRecord> starts = [];
+        Dictionary<string, RunRecord> runs = [];
+        await foreach (var line in Lines(ct))
+        {
+            using var doc = line;
+            var root = doc.RootElement;
+            switch (StringOf(root, "type"))
+            {
+                case "start":
+                    var start = root.Deserialize(LedgerJsonContext.Default.StartRecord)!;
+                    starts[start.RunId] = start;
+                    break;
+                case "run":
+                    var run = root.Deserialize(LedgerJsonContext.Default.RunRecord)!;
+                    runs[run.RunId] = run;
+                    break;
+            }
+        }
+        return new([.. starts.Values], [.. runs.Values], [], []);
+    }
+
+    private static string? StringOf(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    /// <summary>The log's complete lines, one at a time, each parsed on its own: no more than a line is in memory at once. A reader that keeps a document past the next step reads over a buffer that has moved on.</summary>
+    private async IAsyncEnumerable<JsonDocument> Lines([EnumeratorCancellation] CancellationToken ct)
     {
         if (!File.Exists(path))
-            return [];
-        var text = await File.ReadAllTextAsync(path, ct);
-        // Another process may be mid-append: only newline-terminated lines are complete.
-        return text[..(text.LastIndexOf('\n') + 1)].Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => JsonNode.Parse(l)!.AsObject());
+            yield break;
+        await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var buffer = new byte[64 * 1024];
+        var filled = 0;
+        while (true)
+        {
+            if (filled == buffer.Length)
+                Array.Resize(ref buffer, buffer.Length * 2);
+            var read = await file.ReadAsync(buffer.AsMemory(filled), ct);
+            // Another process may be mid-append: only newline-terminated lines are complete, so what follows the last newline is left.
+            if (read == 0)
+                yield break;
+            filled += read;
+            var from = 0;
+            int end;
+            while ((end = Array.IndexOf(buffer, (byte)'\n', from, filled - from)) >= 0)
+            {
+                if (end > from)
+                    yield return JsonDocument.Parse(buffer.AsMemory(from, end - from));
+                from = end + 1;
+            }
+            Buffer.BlockCopy(buffer, from, buffer, 0, filled - from);
+            filled -= from;
+        }
     }
 
     private async Task Append(string type, JsonNode node, CancellationToken ct)

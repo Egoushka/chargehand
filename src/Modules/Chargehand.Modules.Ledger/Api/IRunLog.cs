@@ -27,6 +27,13 @@ public interface IRunLog
 
     /// <summary>Every record, for the operator console's read routes (batches, inbox, analytics); a log that cannot list them says so with <see cref="NotSupportedException"/>.</summary>
     Task<RunLogData> ReadAllAsync(CancellationToken ct) => throw new NotSupportedException();
+
+    /// <summary>Only the starts and the run records, the latest of each run, for a reader that never looks at calls or scores (the console's run index): a log that streams its lines holds a small part of itself.</summary>
+    async Task<RunLogData> ReadRunsAsync(CancellationToken ct)
+    {
+        var all = await ReadAllAsync(ct);
+        return new([.. all.Starts.GroupBy(s => s.RunId).Select(g => g.Last())], [.. all.Runs.GroupBy(r => r.RunId).Select(g => g.Last())], [], []);
+    }
 }
 
 /// <summary>An account's spend in a window: finished runs by their result's usage, unfinished ones by their calls so far. A task or call of a driven batch is not counted
@@ -62,17 +69,26 @@ public sealed record RunEntry(StartRecord? Start, RunRecord? Run, IReadOnlyList<
 public sealed record StartRecord(string RunId, DateTimeOffset Started, string TraceId, RunRequest Request, int Pid, string? ParentRunId = null, string? BootId = null, string? Actor = null)
 {
     /// <summary>Whether the process that runs it still exists; without a run record, a dead owner means a lost run.</summary>
-    public bool OwnerAlive()
+    public bool OwnerAlive() => ProcessBoot.OwnerAlive(BootId, Pid);
+}
+
+/// <summary>A value that differs for every process start, so a record can tell its writer from a later process with the same pid.</summary>
+public static class ProcessBoot
+{
+    public static string Id { get; } = Guid.NewGuid().ToString("N");
+
+    /// <summary>Whether the process that wrote a record with this boot id and pid still exists.</summary>
+    internal static bool OwnerAlive(string? bootId, int pid)
     {
-        if (BootId == ProcessBoot.Id)
+        if (bootId == Id)
             return true;
         // No boot id: written before it existed, by a process that cannot be told from a later one with the same pid.
-        if (BootId is null || Pid == Environment.ProcessId)
+        if (bootId is null || pid == Environment.ProcessId)
             return false;
         // ponytail: another process's reused pid still reads as alive (a CLI run); the boot id fixes this process's own restarts.
         try
         {
-            using var p = Process.GetProcessById(Pid);
+            using var p = Process.GetProcessById(pid);
             return !p.HasExited;
         }
         catch (ArgumentException)
@@ -80,12 +96,6 @@ public sealed record StartRecord(string RunId, DateTimeOffset Started, string Tr
             return false;
         }
     }
-}
-
-/// <summary>A value that differs for every process start, so a record can tell its writer from a later process with the same pid.</summary>
-public static class ProcessBoot
-{
-    public static string Id { get; } = Guid.NewGuid().ToString("N");
 }
 
 /// <param name="Tokens">Null for calls whose usage OpenCode does not report (intake via generate).</param>

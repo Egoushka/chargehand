@@ -9,7 +9,7 @@ internal static class ConsoleCost
 {
     public static async Task<CostReport> BuildAsync(ConsoleContext c, IPullRequestStates states, Principal? who, CancellationToken ct)
     {
-        var data = await c.IndexAsync(ct);
+        var data = await c.IndexAsync(ct, withCalls: true);
         return await CostReportBuilder.BuildAsync(data.Data, states, c.Now, start => Principal.Sees(who, start.Actor), ct: ct);
     }
 

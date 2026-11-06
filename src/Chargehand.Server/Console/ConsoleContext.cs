@@ -31,13 +31,12 @@ internal sealed class ConsoleContext(ServerSettings settings, RunService runs, I
 
     public DateTimeOffset Now => runs.Now;
 
-    /// <summary>The run log, whole. A log that cannot list its records reads as empty.</summary>
-    // ponytail: reads the whole log per call, as GET /v1/runs does; index it if the console is ever polled often over a large log.
-    public async Task<RunIndex> IndexAsync(CancellationToken ct)
+    /// <summary>The run log's starts and run records, the latest of each run; with <paramref name="withCalls"/> its calls and scores too (the cost report is the one reader of them). A log that cannot list its records reads as empty.</summary>
+    public async Task<RunIndex> IndexAsync(CancellationToken ct, bool withCalls = false)
     {
         try
         {
-            return new RunIndex(await log.ReadAllAsync(ct));
+            return new RunIndex(withCalls ? await log.ReadAllAsync(ct) : await log.ReadRunsAsync(ct));
         }
         catch (NotSupportedException)
         {
