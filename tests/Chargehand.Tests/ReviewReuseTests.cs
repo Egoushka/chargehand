@@ -13,13 +13,16 @@ public class ReviewReuseTests
         new("request/v1", "Review the change against its goal.", new RequestContext(false, "review", Repository: repo),
             [new CallerInput("goal", "goal", "Make the README greet the world."), new CallerInput("diff", "diff", diff), new CallerInput("tests", "test-output", "exit 0")]);
 
+    private static Orchestrator Orchestrator(ScriptedRuntime runtime, string root) =>
+        new(Runs.Profile(root), runtime, "2.0.16", Repo.Root, new JsonlRunLog(Path.Combine(root, "log.jsonl")), new Dictionary<string, int>(), reuseReviews: true);
+
     [Fact]
     public async Task A_second_review_of_the_same_head_and_diff_returns_the_stored_review()
     {
         using var root = new TempDir();
         var repo = Runs.GitRepo(root.Path);
         var runtime = new ScriptedRuntime(Runs.WorkerReply);
-        var orchestrator = Runs.Orchestrator(runtime, root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")));
+        var orchestrator = Orchestrator(runtime, root.Path);
 
         var first = await orchestrator.RunAsync(Review(repo, Diff), CancellationToken.None);
         var second = await orchestrator.RunAsync(Review(repo, Diff), CancellationToken.None);
@@ -42,7 +45,7 @@ public class ReviewReuseTests
         using var root = new TempDir();
         var repo = Runs.GitRepo(root.Path);
         var runtime = new ScriptedRuntime(Runs.WorkerReply);
-        var orchestrator = Runs.Orchestrator(runtime, root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")));
+        var orchestrator = Orchestrator(runtime, root.Path);
 
         await orchestrator.RunAsync(Review(repo, Diff), CancellationToken.None);
         var otherDiff = await orchestrator.RunAsync(Review(repo, Diff.Replace("hello world", "hello there", StringComparison.Ordinal)), CancellationToken.None);
@@ -61,7 +64,7 @@ public class ReviewReuseTests
         var repo = Runs.GitRepo(root.Path);
         var runtime = new ScriptedRuntime(Runs.WorkerReply);
         runtime.CreateFailures.Enqueue(new InvalidOperationException("no worker"));
-        var orchestrator = Runs.Orchestrator(runtime, root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")));
+        var orchestrator = Orchestrator(runtime, root.Path);
 
         var failed = await orchestrator.RunAsync(Review(repo, Diff), CancellationToken.None);
         var second = await orchestrator.RunAsync(Review(repo, Diff), CancellationToken.None);

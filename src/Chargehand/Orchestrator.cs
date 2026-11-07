@@ -35,6 +35,7 @@ namespace Chargehand;
 /// <param name="enhancer">The profile's prompt enhancer, already behind its guard, or null (ADR 0040, ADR 0041). It sees each request's text and reports the outcome; it never changes what is sent.</param>
 /// <param name="publicFree">The free-model pool (ADR 0093): hands out its runtime to a run of the pool preset on a repository that qualifies, and refuses the pool preset anywhere else; null: no pool, and the default pool preset is refused.</param>
 /// <param name="runtimeFor">The runtime a run of the given account uses (ADR 0053), which throws for an account that may use no model credential; null: <paramref name="runtime"/> for every run.</param>
+/// <param name="reuseReviews">A review of the same commit and diff as a completed one of the same account returns that review (<see cref="ReviewReuse"/>, issue 448); false: every review runs.</param>
 public sealed class Orchestrator(
     Profile profile,
     IWorkerRuntime runtime,
@@ -47,7 +48,8 @@ public sealed class Orchestrator(
     Func<SandboxSettings?, ISandbox>? sandboxFor = null,
     IPromptEnhancer? enhancer = null,
     Func<string?, IWorkerRuntime>? runtimeFor = null,
-    PublicFreeGate? publicFree = null)
+    PublicFreeGate? publicFree = null,
+    bool reuseReviews = false)
 {
     public const string NodeKindName = "worker";
 
@@ -124,7 +126,7 @@ public sealed class Orchestrator(
             // A key that cannot be used stops the run before anything is spent (ADR 0036).
             signingKey = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
             // A completed review of the same commit and diff answers this one (issue 448); the stored result is signed and recorded as this run's.
-            if (await ReviewReuse.FindAsync(runLog, request, actor, ct) is { } stored)
+            if (reuseReviews && await ReviewReuse.FindAsync(runLog, request, actor, ct) is { } stored)
             {
                 progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Intake));
                 result = ReviewReuse.Reuse(stored, runId, traceId, request.Context.Repository!.Commit, ReviewReuse.DiffHash(request)!);
