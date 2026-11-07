@@ -51,8 +51,9 @@ internal sealed class TaskRunnerRig : IDisposable
     }
 
     /// <summary>Runs task <c>t1</c> with <paramref name="goal"/> to its outcome.</summary>
-    public Task<TaskOutcome> RunAsync(string goal, CancellationToken ct = default) =>
-        new TaskRunner(Engine, Engine, Volumes, Handover, Log, g => $"tok-{g.RunId}", Settings(goal), new DrivenTaskResults(new NoEvidenceProblems(), null, null), TimeSpan.FromMilliseconds(1))
+    public Task<TaskOutcome> RunAsync(string goal, TaskJournal? tasks = null, CancellationToken ct = default) =>
+        new TaskRunner(Engine, Engine, Volumes, Handover, Log, g => $"tok-{g.RunId}", Settings(goal), new DrivenTaskResults(new NoEvidenceProblems(), null, null), TimeSpan.FromMilliseconds(1),
+                tasks: tasks)
             .RunAsync(new ResolvedTask("t1", null, goal), new Progress<TaskUsage>(), ct);
 
     public void Dispose() => Dir.Dispose();
