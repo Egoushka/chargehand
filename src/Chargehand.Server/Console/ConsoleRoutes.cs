@@ -119,6 +119,11 @@ internal static class ConsoleRoutes
             return Json(await ConsoleRepositories.BuildAsync(Context(ctx), PrincipalHttp.Of(ctx), ctx.RequestAborted));
         });
 
+        app.MapGet("/v1/fleet", async (HttpContext ctx) =>
+        {
+            return Json(await ConsoleFleet.BuildAsync(Context(ctx), PrincipalHttp.Of(ctx), ctx.RequestAborted));
+        });
+
         ConsoleActions.Map(app, Context);
         ConsoleDismissals.Map(app, Context);
         ConsoleLearnedHosts.Map(app, Context);
