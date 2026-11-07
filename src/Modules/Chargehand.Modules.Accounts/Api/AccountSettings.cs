@@ -15,8 +15,12 @@ namespace Chargehand.Modules.Accounts.Api;
 /// <param name="AllowServerCredential">An account with no <paramref name="Model"/> may spend the server's model credential. Default false: it is refused instead.</param>
 /// <param name="PauseOnForecast">Hold the automated starts charged to this account (<c>automation.account</c>) while its month forecast passes <paramref name="MaxUsdPerMonth"/> (ADR 0076). A person's
 /// own run is never held by the forecast. Default false.</param>
+/// <param name="PublicClone">The account may send <c>context.repository.path</c> as <c>gh:owner/name</c> for a public repository outside <paramref name="Repositories"/>
+/// and <c>repository_roots</c>: the profile's <c>peer_clone</c> resolves it to a shallow, size-checked clone, deleted when the run ends. Default false: such a path is refused as any other
+/// repository outside the roots.</param>
 public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, decimal? MaxUsdPerMonth = null, long? MaxTokensPerDay = null, long? MaxTokensPerMonth = null,
-    int? MaxConcurrentRuns = null, bool Driven = false, IReadOnlyList<string>? Repositories = null, AccountModel? Model = null, bool AllowServerCredential = false, bool PauseOnForecast = false)
+    int? MaxConcurrentRuns = null, bool Driven = false, IReadOnlyList<string>? Repositories = null, AccountModel? Model = null, bool AllowServerCredential = false, bool PauseOnForecast = false,
+    bool PublicClone = false)
     : IValidatableObject
 {
     public const string Owner = "owner";
