@@ -84,6 +84,7 @@ const string Usage = """
       bench run <taskset.json> [--dry-run|--baseline] [--only <ids>] [--remote <template>] [--max-tokens <n>] [--max-usd <n>] [--out <dir>]
                                    measures driven batches on a task set of public repositories: pass rate, honest stops, spend, governor decisions
                                    (--dry-run and --baseline call no model; `chargehand bench run` alone prints its full usage)
+      bench replay import|baseline  turns merged pull requests into bench tasks and checks each task's withheld tests (no model; `chargehand bench replay` prints its usage)
       bench report <results.json> [<other.json>]
                                    renders a benchmark's results again, or compares two runs
       init [<repo path>] [--profile <out path>] [--force]
@@ -173,6 +174,12 @@ if (argv is ["verify-branch", .. var verifyBranchArgs])
 // Benchmarks (ADR 0052): a report is a file read; a run reads the profile for the images, the allowlist and the server it may reach.
 if (argv is ["bench", "report", .. var benchReportArgs])
     return Chargehand.Bench.BenchCli.Report(benchReportArgs, Console.Out, Console.Error);
+if (argv is ["bench", "replay", .. var benchReplayArgs])
+{
+    using var stop = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    return await Chargehand.Bench.ReplayCli.RunAsync(benchReplayArgs, Console.Out, Console.Error, stop.Token);
+}
 if (argv is ["bench", "run", .. var benchRunArgs])
 {
     Profile benchProfile;
