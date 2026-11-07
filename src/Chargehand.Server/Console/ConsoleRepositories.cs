@@ -73,7 +73,7 @@ internal static class ConsoleRepositories
         return new RepositoriesBody(Contract, c.Now, [.. roots.Select(r => new RootBody(r, Directory.Exists(r)))], [.. bodies.OrderBy(b => b.Path, StringComparer.Ordinal)], NotRecorded);
     }
 
-    private static IEnumerable<string> Candidates(string root)
+    internal static IEnumerable<string> Candidates(string root)
     {
         if (IsRepository(root))
             return [Path.TrimEndingDirectorySeparator(Path.GetFullPath(root))];
@@ -89,7 +89,7 @@ internal static class ConsoleRepositories
 
     private static bool IsRepository(string directory) => Directory.Exists(Path.Combine(directory, ".git")) || File.Exists(Path.Combine(directory, ".git"));
 
-    private static bool Within(string root, string path)
+    internal static bool Within(string root, string path)
     {
         var (r, p) = (Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)), Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)));
         return p == r || p.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.Ordinal);
@@ -172,7 +172,7 @@ internal static class ConsoleRepositories
         return url;
     }
 
-    private static async Task<(int ExitCode, string Output)> GitAsync(string directory, string[] args, CancellationToken ct)
+    internal static async Task<(int ExitCode, string Output)> GitAsync(string directory, string[] args, CancellationToken ct)
     {
         var psi = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
         foreach (var arg in args)
