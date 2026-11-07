@@ -166,6 +166,7 @@ With no `repository_roots`, `serve` allows repositories under `worker_root` only
 | `GET /v1/runs/{id}` | `202` with `run-status/v1` while queued or running; `200` with `result/v1` once finished; `410` when the process that ran it ended first; `404` for an unknown id |
 | `GET /v1/runs/{id}/events` | server-sent events for the run; `404` for an unknown id |
 | `GET /v1/overview`, `/v1/inbox`, `/v1/batches/{id}`, `/v1/batches/{id}/tasks/{task}`, `/v1/pulls`, `/v1/pulls/conflicts`, `/v1/pulls/train`, `/v1/analytics`, `/v1/repositories` | the [console's read routes](#console-routes): for the owner and for an account, each limited to the account's own runs and spend |
+| `POST /v1/intake/rank` | `200` with `intake-rank/v1`: the candidates sent, ranked by completion probability × priority ÷ predicted cost from the pre-flight forecast ([intake guide](intake.md)); `400` for a bad list; the owner's alone |
 | `GET /v1/intake`, `/v1/accounts`, `GET /v1/system` | the console's read routes about the server itself: the owner's alone (`403` for an account) |
 | `POST /v1/inbox/dismiss`, `POST /v1/inbox/restore` | [dismiss inbox items](#dismissing-inbox-items) or undo it, for the owner and for an account on its own items |
 | `GET /v1/egress/learned`, `POST /v1/egress/learned/approve`, `POST /v1/egress/learned/revoke` | [learned hosts](#learned-hosts): what each repository's sessions were refused, and the owner's approvals |

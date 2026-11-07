@@ -277,6 +277,7 @@ public static partial class ChargehandServer
         }
         ConsoleSources.Map(app, settings, intake);
         ConsoleLimits.Map(app, intake);
+        ConsoleRank.Map(app, settings, driven);
         ConsoleDailyWarning.Map(app, settings, log, new DailyWarningLimit(settings.DailyWarningPath));
         ConsoleRunApproval.Map(app);
         ConsolePublicFree.Map(app);
