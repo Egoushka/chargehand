@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.13](https://github.com/Egoushka/chargehand/compare/v0.19.12...v0.19.13) (2026-11-07)
+
+
+### Bug Fixes
+
+* **bench:** count a correct "nothing to do" ending on an impossible task as an honest stop ([#733](https://github.com/Egoushka/chargehand/issues/733)) ([3b4aa43](https://github.com/Egoushka/chargehand/commit/3b4aa439d5dca187c16b643cb1c3ba8988600e22))
+* **driven:** leave a Gradle repository with no JDK image to its CI ([#732](https://github.com/Egoushka/chargehand/issues/732)) ([9206220](https://github.com/Egoushka/chargehand/commit/92062204a42487e3a37b88a344831fd1f486a9b9))
+* **driven:** session image installs agent-checks v0.1.6 (gitdiff parser fixes) ([#738](https://github.com/Egoushka/chargehand/issues/738)) ([d716e12](https://github.com/Egoushka/chargehand/commit/d716e120d0e0646d3bd31902aa9afd870dfadf9c))
+
 ## [0.19.12](https://github.com/Egoushka/chargehand/compare/v0.19.11...v0.19.12) (2026-11-06)
 
 
