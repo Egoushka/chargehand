@@ -35,6 +35,7 @@ namespace Chargehand;
 /// <param name="enhancer">The profile's prompt enhancer, already behind its guard, or null (ADR 0040, ADR 0041). It sees each request's text and reports the outcome; it never changes what is sent.</param>
 /// <param name="publicFree">The free-model pool (ADR 0093): hands out its runtime to a run of the pool preset on a repository that qualifies, and refuses the pool preset anywhere else; null: no pool, and the default pool preset is refused.</param>
 /// <param name="runtimeFor">The runtime a run of the given account uses (ADR 0053), which throws for an account that may use no model credential; null: <paramref name="runtime"/> for every run.</param>
+/// <param name="reuseReviews">A review of the same commit and diff as a completed one of the same account returns that review (<see cref="ReviewReuse"/>, issue 448); false: every review runs.</param>
 public sealed class Orchestrator(
     Profile profile,
     IWorkerRuntime runtime,
@@ -47,7 +48,8 @@ public sealed class Orchestrator(
     Func<SandboxSettings?, ISandbox>? sandboxFor = null,
     IPromptEnhancer? enhancer = null,
     Func<string?, IWorkerRuntime>? runtimeFor = null,
-    PublicFreeGate? publicFree = null)
+    PublicFreeGate? publicFree = null,
+    bool reuseReviews = false)
 {
     public const string NodeKindName = "worker";
 
@@ -123,69 +125,78 @@ public sealed class Orchestrator(
             var sandbox = kind.Writes ? (sandboxFor ?? SandboxSelector.Select)(profile.Sandbox) : null;
             // A key that cannot be used stops the run before anything is spent (ADR 0036).
             signingKey = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
-            // Unset when the profile maps no real model to the preset's placeholder: the runtime uses its own default.
-            var workerModel = profile.ResolveModel(kind.Model);
-            var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
-            var local = await IsLocalAsync(request, ct);
-            run?.SetTag("chargehand.delivery", local ? DeliveryMode.Local : DeliveryMode.Push);
-            // The enhancer sends the request text to an MCP server; a local run keeps it on the machine (ADR 0069).
-            enhanced = local ? null : await Enhance(request, run, ct);
-
-            // Intake.
-            using (var span = Telemetry.Source.StartActivity("chargehand.intake"))
-            {
-                TagChain(span, intakeChain);
-                span?.SetTag("gen_ai.request.model", intakeModel);
-                intake = await new GenerateIntake(worker, ParseModel(intakeModelId), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
-                span?.SetTag("chargehand.intake.action", intake.Spec?.Action.ToString().ToLowerInvariant() ?? "needs_input");
-                foreach (var c in intake.Calls)
-                    await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, intakeModel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
-            }
-
-            var blocks = new List<(PromptBlock, BlockSource)> { (registry.Get($"core/{kindName}"), BlockSource.Registry), (registry.Get($"preset/{presetName}"), BlockSource.Registry) };
-            blocks.AddRange(callerBlocks.Select(b => (b, BlockSource.Caller)));
-            var instructions = new List<(string Key, string Value)> { ("chargehand-core", blocks[0].Item1.Text), ("chargehand-preset", blocks[1].Item1.Text) };
-            var chain = PromptChains.Build(blocks, new AsSent(opencodeVersion, kind.OpencodeAgent, workerModel ?? "auto", date,
-                BasePromptVariant: kind.OpencodeAgent,
-                InstructionFilesSha256: PromptChains.InstructionsSha256(instructions),
-                ToolsSha256: PromptChains.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules)));
-
-            if (intake.Spec is not { } spec)
+            // A completed review of the same commit and diff answers this one (issue 448); the stored result is signed and recorded as this run's.
+            if (reuseReviews && await ReviewReuse.FindAsync(runLog, request, actor, ct) is { } stored)
             {
                 progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Intake));
-                result = Stop(ResultStatus.NeedsInput, intake.NeedsInput!, [intake.NeedsInput!]);
+                result = ReviewReuse.Reuse(stored, runId, traceId, request.Context.Repository!.Commit, ReviewReuse.DiffHash(request)!);
             }
             else
             {
-                // An action the preset does not allow (Preset.Executes), or a split that fails validation, runs as one answer node.
-                executed = preset.Executes(spec.Action);
-                IReadOnlyList<PlanNode> plan = [new PlanNode(kindName, null, [])];
-                if (executed == TaskAction.Split)
+                // Unset when the profile maps no real model to the preset's placeholder: the runtime uses its own default.
+                var workerModel = profile.ResolveModel(kind.Model);
+                var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
+                var local = await IsLocalAsync(request, ct);
+                run?.SetTag("chargehand.delivery", local ? DeliveryMode.Local : DeliveryMode.Push);
+                // The enhancer sends the request text to an MCP server; a local run keeps it on the machine (ADR 0069).
+                enhanced = local ? null : await Enhance(request, run, ct);
+
+                // Intake.
+                using (var span = Telemetry.Source.StartActivity("chargehand.intake"))
                 {
-                    var (nodes, reason) = SplitPlan.From(spec);
-                    plan = nodes ?? plan;
-                    executed = nodes is null ? TaskAction.Answer : TaskAction.Split;
-                    run?.SetTag("chargehand.split.rejected", reason);
+                    TagChain(span, intakeChain);
+                    span?.SetTag("gen_ai.request.model", intakeModel);
+                    intake = await new GenerateIntake(worker, ParseModel(intakeModelId), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
+                    span?.SetTag("chargehand.intake.action", intake.Spec?.Action.ToString().ToLowerInvariant() ?? "needs_input");
+                    foreach (var c in intake.Calls)
+                        await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, intakeModel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
                 }
-                var stops = executed is TaskAction.Deny or TaskAction.Ask or TaskAction.Improve;
-                progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Intake) with
+
+                var blocks = new List<(PromptBlock, BlockSource)> { (registry.Get($"core/{kindName}"), BlockSource.Registry), (registry.Get($"preset/{presetName}"), BlockSource.Registry) };
+                blocks.AddRange(callerBlocks.Select(b => (b, BlockSource.Caller)));
+                var instructions = new List<(string Key, string Value)> { ("chargehand-core", blocks[0].Item1.Text), ("chargehand-preset", blocks[1].Item1.Text) };
+                var chain = PromptChains.Build(blocks, new AsSent(opencodeVersion, kind.OpencodeAgent, workerModel ?? "auto", date,
+                    BasePromptVariant: kind.OpencodeAgent,
+                    InstructionFilesSha256: PromptChains.InstructionsSha256(instructions),
+                    ToolsSha256: PromptChains.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules)));
+
+                if (intake.Spec is not { } spec)
                 {
-                    Action = Name(spec.Action),
-                    ExecutedAction = Name(executed.Value),
-                    Nodes = stops ? 0 : plan.Count,
-                });
-                var detail = spec.ActionDetail ?? default;
-                result = executed switch
+                    progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Intake));
+                    result = Stop(ResultStatus.NeedsInput, intake.NeedsInput!, [intake.NeedsInput!]);
+                }
+                else
                 {
-                    TaskAction.Deny => Stop(ResultStatus.Denied, detail.GetProperty("reason").GetString()!, [$"Unblock: {detail.GetProperty("unblock_condition").GetString()}"]),
-                    TaskAction.Ask => Stop(ResultStatus.NeedsInput, "Answer these questions and resend the request.", [.. detail.GetProperty("questions").EnumerateArray().Select(q => q.GetString()!)]),
-                    TaskAction.Improve => Stop(ResultStatus.NeedsInput, detail.GetProperty("improved_request").GetString()!,
-                        ["Intake proposes the improved request in summary (diff in artifacts). Resend it, or resend the original."],
-                        [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
-                    _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
-                        $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
-                    _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, local, ct, budgetIsCap, intakeModelId),
-                };
+                    // An action the preset does not allow (Preset.Executes), or a split that fails validation, runs as one answer node.
+                    executed = preset.Executes(spec.Action);
+                    IReadOnlyList<PlanNode> plan = [new PlanNode(kindName, null, [])];
+                    if (executed == TaskAction.Split)
+                    {
+                        var (nodes, reason) = SplitPlan.From(spec);
+                        plan = nodes ?? plan;
+                        executed = nodes is null ? TaskAction.Answer : TaskAction.Split;
+                        run?.SetTag("chargehand.split.rejected", reason);
+                    }
+                    var stops = executed is TaskAction.Deny or TaskAction.Ask or TaskAction.Improve;
+                    progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Intake) with
+                    {
+                        Action = Name(spec.Action),
+                        ExecutedAction = Name(executed.Value),
+                        Nodes = stops ? 0 : plan.Count,
+                    });
+                    var detail = spec.ActionDetail ?? default;
+                    result = executed switch
+                    {
+                        TaskAction.Deny => Stop(ResultStatus.Denied, detail.GetProperty("reason").GetString()!, [$"Unblock: {detail.GetProperty("unblock_condition").GetString()}"]),
+                        TaskAction.Ask => Stop(ResultStatus.NeedsInput, "Answer these questions and resend the request.", [.. detail.GetProperty("questions").EnumerateArray().Select(q => q.GetString()!)]),
+                        TaskAction.Improve => Stop(ResultStatus.NeedsInput, detail.GetProperty("improved_request").GetString()!,
+                            ["Intake proposes the improved request in summary (diff in artifacts). Resend it, or resend the original."],
+                            [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
+                        _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
+                            $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
+                        _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, local, ct, budgetIsCap, intakeModelId),
+                    };
+                }
             }
         }
         catch (Exception e) when (e is not OperationCanceledException || cancelledByCaller?.Invoke() == true)

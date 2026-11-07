@@ -174,6 +174,12 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
             }
             return await FinishAsync(task, run, progress, ct);
         }
+        catch (TaskEndedException ended)
+        {
+            // Another writer ended the task while this run still wrote to it: the run stops, its containers go with the cleanup, and the batch keeps the end the journal has (issue #508).
+            run.Ended = true;
+            return ended.Outcome;
+        }
         catch (Exception e)
         {
             Failed(task, run, e);
@@ -246,7 +252,26 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
     private bool Bare => settings.Request.Driven?.IsBare == true;
 
     /// <summary>A transition of the task's entry (<see cref="TaskMachine"/>), appended to the batch's task flow; nothing without one.</summary>
-    private Task RecordAsync(string taskId, TaskEvent e) => tasks?.RecordAsync(taskId, e) ?? Task.CompletedTask;
+    /// <exception cref="TaskEndedException">The journal refused the event because the task has already ended.</exception>
+    private async Task RecordAsync(string taskId, TaskEvent e)
+    {
+        if (tasks is null)
+            return;
+        try
+        {
+            await tasks.RecordAsync(taskId, e);
+        }
+        catch (InvalidOperationException) when (tasks.Ended(taskId) is { } ended)
+        {
+            throw new TaskEndedException(ended);
+        }
+    }
+
+    /// <summary>The task ended in the journal before this run's own end: <see cref="Outcome"/> is that end, which the run returns in place of a state machine's refusal.</summary>
+    private sealed class TaskEndedException(TaskOutcome outcome) : Exception($"task {outcome.Id} had already ended ({outcome.State.ToString().ToLowerInvariant()}: {outcome.Detail})")
+    {
+        public TaskOutcome Outcome => outcome;
+    }
 
     private static void DeleteQuietly(string directory)
     {
