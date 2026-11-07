@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Server;
 using ModelContextProtocol;
@@ -312,6 +313,50 @@ public class McpTests
 
         Assert.True(call.IsError);
         Assert.Contains("no run run-00000000-000000-000000", ((TextContentBlock)call.Content[0]).Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_run_waiting_for_a_slot_is_a_queued_answer_to_orchestrate_and_result_not_an_error()
+    {
+        var runtime = new ScriptedRuntime(Runs.DraftReply) { Hold = new() };
+        await using var s = await TestServer.StartAsync(runtime, tweak: (_, settings) => settings with { McpWait = TimeSpan.FromMilliseconds(300) });
+        await using var client = await Connect(s);
+        var args = Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value);
+        // The first run takes the only slot and stays held; the second waits for it.
+        await client.CallToolAsync(OrchestrateTool.Name, args).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        var queued = await client.CallToolAsync(OrchestrateTool.Name, args).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.NotEqual(true, queued.IsError);
+        Assert.Empty(ContractSchemas.ValidateMcpOutput(queued.StructuredContent!.Value));
+        Assert.Contains("is queued", ((TextContentBlock)queued.Content[0]).Text, StringComparison.Ordinal);
+        var status = JsonSerializer.Deserialize<RunStatus>(((TextContentBlock)queued.Content[^1]).Text, ContractJson.Options)!;
+        Assert.Equal(RunState.Queued, status.Status);
+
+        var polled = await client.CallToolAsync(ResultTool.Name, new Dictionary<string, object?> { ["run_id"] = status.RunId }).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.NotEqual(true, polled.IsError);
+        Assert.Empty(ContractSchemas.ValidateMcpOutput(polled.StructuredContent!.Value));
+        Assert.Contains("is queued", ((TextContentBlock)polled.Content[0]).Text, StringComparison.Ordinal);
+        Assert.Equal(status.RunId, JsonSerializer.Deserialize<RunStatus>(((TextContentBlock)polled.Content[^1]).Text, ContractJson.Options)!.RunId);
+    }
+
+    [Fact]
+    public async Task The_result_tool_answers_a_run_the_log_shows_running_as_a_status_and_a_lost_run_as_an_error()
+    {
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
+        await using var client = await Connect(s);
+        var trace = new string('0', 32);
+        // Not held by this process, so only the run log knows them: one whose server is alive, one whose server ended.
+        await s.Log.AppendAsync(new StartRecord("run-live", DateTimeOffset.UtcNow, trace, Runs.DraftRequest(), Environment.ProcessId, BootId: ProcessBoot.Id), CancellationToken.None);
+        await s.Log.AppendAsync(new StartRecord("run-gone", DateTimeOffset.UtcNow, trace, Runs.DraftRequest(), int.MaxValue, BootId: "earlier-boot"), CancellationToken.None);
+
+        var live = await client.CallToolAsync(ResultTool.Name, new Dictionary<string, object?> { ["run_id"] = "run-live" }).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.NotEqual(true, live.IsError);
+        Assert.Empty(ContractSchemas.ValidateMcpOutput(live.StructuredContent!.Value));
+        Assert.Equal(RunState.Running, JsonSerializer.Deserialize<RunStatus>(((TextContentBlock)live.Content[^1]).Text, ContractJson.Options)!.Status);
+
+        var gone = await client.CallToolAsync(ResultTool.Name, new Dictionary<string, object?> { ["run_id"] = "run-gone" }).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.True(gone.IsError);
+        Assert.Contains("run-gone is lost", ((TextContentBlock)gone.Content[0]).Text, StringComparison.Ordinal);
     }
 
     [Fact]
