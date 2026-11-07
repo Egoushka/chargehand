@@ -1,4 +1,5 @@
 using Chargehand.Contracts;
+using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
 using static Chargehand.Tests.DrivenFakes;
@@ -77,5 +78,29 @@ public class TaskRunnerTests
     {
         var env = new DrivenOtlpRoute("4318=collector-host:4318", "http://chargehand-driven:4318").Environment("run-1", "t1,chargehand.run_id=x", "run-2", null);
         Assert.Equal("chargehand.run_id=run-1,chargehand.task_id=t1%2Cchargehand.run_id%3Dx,chargehand.task_run_id=run-2", env["OTEL_RESOURCE_ATTRIBUTES"]);
+    }
+
+    /// <summary>Issue #508: another writer ended the task while its session was starting. The container's event is refused, and the run returns the journal's end with its container removed,
+    /// not the state machine's refusal as a failure.</summary>
+    [Fact]
+    public async Task A_task_another_writer_ended_during_its_start_returns_that_end_and_removes_its_container()
+    {
+        using var rig = new TaskRunnerRig();
+        await using var journal = await DrivenJournal.OpenAsync(rig.Dir.Path);
+        using var tasks = await TaskJournal.OpenAsync(journal, TaskRunnerRig.BatchId, [new TaskEntry("t1", null, "Add a retry")]);
+        var cancelled = new TaskOutcome("t1", TaskState.Cancelled, null, "cancelled by the operator", ErrorCode.Cancelled);
+        rig.Engine.OnStart = _ =>
+        {
+            tasks.FinishedAsync(cancelled).GetAwaiter().GetResult();
+            return null;
+        };
+
+        var outcome = await rig.RunAsync("Add a retry", tasks: tasks);
+
+        Assert.Equal(cancelled, outcome);
+        Assert.DoesNotContain("does not apply", outcome.Detail, StringComparison.Ordinal);
+        Assert.Empty(rig.Handover.Inputs);
+        Assert.Contains(rig.Engine.Calls, c => c.StartsWith("rm chargehand-", StringComparison.Ordinal));
+        Assert.Equal(cancelled, tasks.Ended("t1"));
     }
 }
