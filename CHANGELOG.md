@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.14](https://github.com/Egoushka/chargehand/compare/v0.19.13...v0.19.14) (2026-11-07)
+
+
+### Features
+
+* **bench:** replay importer turns merged pull requests into bench tasks (CHARGEHAND-740) ([#743](https://github.com/Egoushka/chargehand/issues/743)) ([0d05815](https://github.com/Egoushka/chargehand/commit/0d0581573c4819d59024abeec38f7b2514b96129))
+* **intake:** skip an issue with a live claim and start it once the claim expires ([#745](https://github.com/Egoushka/chargehand/issues/745)) ([#746](https://github.com/Egoushka/chargehand/issues/746)) ([c3e23bc](https://github.com/Egoushka/chargehand/commit/c3e23bc78d6fdc295735798257c07cc0590a05ac))
+* **server:** GET /v1/fleet returns runs, claims and open PRs with state, age and blocked_by ([#739](https://github.com/Egoushka/chargehand/issues/739)) ([#741](https://github.com/Egoushka/chargehand/issues/741)) ([bc67066](https://github.com/Egoushka/chargehand/commit/bc670669735d39bece732dfa0ffbe2bbbf4bdf05))
+
+
+### Bug Fixes
+
+* **ledger:** skip unreadable run-log lines ([#748](https://github.com/Egoushka/chargehand/issues/748)) ([a5be25b](https://github.com/Egoushka/chargehand/commit/a5be25b5391f9675fd344620d5e5f236df940f3b))
+
 ## [0.19.13](https://github.com/Egoushka/chargehand/compare/v0.19.12...v0.19.13) (2026-11-07)
 
 
