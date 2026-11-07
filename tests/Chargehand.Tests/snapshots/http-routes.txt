@@ -32,6 +32,7 @@ POST /v1/intake/reviews/exclude
 POST /v1/intake/reviews/include
 GET /v1/intake/limits
 PUT /v1/intake/limits
+POST /v1/intake/rank
 GET /v1/intake/sources
 PUT /v1/intake/sources
 GET /v1/learn
