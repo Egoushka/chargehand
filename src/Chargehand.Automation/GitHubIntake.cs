@@ -384,6 +384,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             Wait(key, name, issue.Number, "checkout", e.Message);
             return Outcome.Deferred;
         }
+        if (await ClaimAsync(key, name, source.Path, issue.Number, ct) is { } claimed)
+            return claimed;
         var size = IntakeGoal.SizeOf(issue.Labels) ?? settings.BudgetClass;
         var taskId = TaskId(issue.Number);
         goal ??= IntakeGoal.Issue(name, issue, comment, commentAuthor);
@@ -408,6 +410,19 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var task = new DrivenTask(taskId, Size: earlier.Size, Answers: [IntakeGoal.Answer(reply.Body)], ContinueFrom: new ContinueFrom(earlier.BatchRunId, earlier.TaskId));
         return await LaunchAsync(key, name, earlier.Issue, repository, task, run => earlier with { BatchRunId = run, TaskId = taskId, Started = _time.GetUtcNow(), Phase = IntakePhase.Running, AskedCommentId = null, PrUrl = null, Trigger = null },
             starter, run => $"chargehand continues with your answer: run `{run}` (task `{taskId}`), on the same branch.", earlier, null, ct);
+    }
+
+    /// <summary>Waits while someone holds a live claim on the issue (<c>ws claim</c>, <c>refs/claims/N</c>): the start is tried again on a later poll, so an expired claim frees the issue. Null when the batch may start,
+    /// which includes a claim that cannot be read.</summary>
+    private async Task<Outcome?> ClaimAsync(string key, string name, string path, int issue, CancellationToken ct)
+    {
+        if (await heads.ClaimAsync(path, issue, ct) is not { } claim || claim.ExpiresAt <= _time.GetUtcNow())
+            return null;
+        var why = $"{claim.Holder} holds a claim on this issue until {claim.ExpiresAt.UtcDateTime:yyyy-MM-dd HH:mm} UTC";
+        _info($"intake: {key}: waiting: claim: {why}");
+        Wait(key, name, issue, "claim", why);
+        await NotifyOnceAsync($"claim:{key}", name, issue, $"chargehand is waiting: {why}. It starts when the claim is released or has expired.", ct);
+        return Outcome.Deferred;
     }
 
     /// <summary>Waits while a breaker is open (ADR 0084): too many starts in the hour, or three failed batches in a row in the repository. Null when the batch may start.</summary>

@@ -195,6 +195,11 @@ internal sealed class FakeHeads : IRepositoryHeads
 {
     public string Commit { get; set; } = "abc1234def5678abc1234def5678abc1234def56";
 
+    /// <summary>The claims on issues, by issue number.</summary>
+    public Dictionary<int, IssueClaim> Claims { get; } = [];
+
+    public Task<IssueClaim?> ClaimAsync(string path, int issue, CancellationToken ct) => Task.FromResult(Claims.GetValueOrDefault(issue));
+
     /// <summary>The paths asked for a commit, in order.</summary>
     public List<string> Asked { get; } = [];
 
