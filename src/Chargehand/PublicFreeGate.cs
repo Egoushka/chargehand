@@ -54,7 +54,7 @@ public sealed class PublicFreeGate(Profile profile, PublicFreePool pool, Func<IW
         var known = RepositoryNames.List(profile);
         var direct = Path.IsPathRooted(given) ? Path.TrimEndingDirectorySeparator(Path.GetFullPath(given)) : null;
         var match = known.FirstOrDefault(k => direct is not null && string.Equals(k.Path, direct, StringComparison.Ordinal))
-            ?? (RepositoryNames.Resolve(given, known) is { } resolved ? known.FirstOrDefault(k => k.Path == resolved) : null);
+            ?? ((await RepositoryNames.ResolveAsync(given, known, ct)).Path is { } resolved ? known.FirstOrDefault(k => k.Path == resolved) : null);
         if (match?.Forge is not { } forge)
             return (null, match?.Path);
         // The mapping is a claim: a private clone in a folder named like a public repository, or a renamed repository whose old name is public now, must not borrow its answer.

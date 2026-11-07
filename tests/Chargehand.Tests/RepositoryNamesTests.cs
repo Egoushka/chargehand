@@ -76,6 +76,47 @@ public class RepositoryNamesTests
     }
 
     [Fact]
+    public void An_owner_name_does_not_resolve_to_a_folder_of_that_name_mapped_to_another_owner()
+    {
+        KnownRepository[] known = [new("react", "/a/react", "facebook/react")];
+
+        Assert.Null(RepositoryNames.Resolve("someone/react", known));
+        Assert.Equal("/a/react", RepositoryNames.Resolve("facebook/react", known));
+        Assert.Equal("/a/react", RepositoryNames.Resolve("react", known));
+    }
+
+    [Fact]
+    public async Task An_owner_name_does_not_resolve_to_a_folder_whose_origin_is_another_repository()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        Runs.SetOrigin(repo, "https://github.com/acme/repo.git");
+        var runtime = new ScriptedRuntime(Runs.WorkerReply);
+
+        var r = await Runs.Orchestrator(runtime, root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
+            .RunAsync(Runs.CheapRequest(repo with { Path = "someone/repo" }), CancellationToken.None);
+
+        Assert.Equal(ErrorCode.CheckoutInvalid, r.Error?.Code);
+        Assert.Contains("whose origin is acme/repo", r.Summary, StringComparison.Ordinal);
+        Assert.Empty(runtime.Created);
+    }
+
+    [Fact]
+    public async Task An_owner_name_resolves_to_a_folder_whose_origin_is_that_repository()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        Runs.SetOrigin(repo, "https://github.com/acme/repo.git");
+        var runtime = new ScriptedRuntime(Runs.WorkerReply);
+
+        var r = await Runs.Orchestrator(runtime, root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
+            .RunAsync(Runs.CheapRequest(repo with { Path = "Acme/repo" }), CancellationToken.None);
+
+        Assert.NotEqual(ResultStatus.Failed, r.Status);
+        Assert.Single(runtime.Created);
+    }
+
+    [Fact]
     public void Managed_clones_are_known_by_owner_and_name()
     {
         using var root = new TempDir();

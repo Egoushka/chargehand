@@ -10,6 +10,9 @@ public sealed record KnownRepository(string Name, string Path, string? Forge);
 /// <summary>A known checkout with what it has checked out now: the commit a caller pins when it has no other, and the branch.</summary>
 public sealed record RepositoryHead(string Name, string Path, string? Forge, string? Commit, string? Branch);
 
+/// <summary>The checkout a name resolves to, or null; <paramref name="Refusal"/> says why when the name matched a folder whose checkout is another repository.</summary>
+public sealed record NameResolution(string? Path, string? Refusal);
+
 /// <summary>
 /// Callers name a repository the way they know it: <c>owner/name</c>, a GitHub URL, a folder name, or a path from their own machine. A
 /// <c>context.repository.path</c> that is not a checkout on this server resolves through the profile: the GitHub intake's repository map
@@ -54,19 +57,48 @@ public static partial class RepositoryNames
         return known;
     }
 
-    /// <summary>The path <paramref name="given"/> names, or null when it names none or several.</summary>
-    public static string? Resolve(string given, IReadOnlyList<KnownRepository> known)
+    /// <summary>The path <paramref name="given"/> names, or null when it names none or several. An <c>owner/name</c> that matches only by its folder name never resolves to a
+    /// checkout whose forge name is another repository.</summary>
+    public static string? Resolve(string given, IReadOnlyList<KnownRepository> known) => Find(Normalize(given), known).Path;
+
+    /// <summary>As <see cref="Resolve"/>, and an <c>owner/name</c> that matches only by its folder name also does not resolve to a checkout whose own <c>origin</c> names another
+    /// repository: <c>someone/react</c> is not any checkout in a folder called <c>react</c>. The path, or null with why when the name and the checkout's own name differ.</summary>
+    public static async Task<NameResolution> ResolveAsync(string given, IReadOnlyList<KnownRepository> known, CancellationToken ct)
     {
         var name = Normalize(given);
+        var (path, byForge, differed) = Find(name, known);
+        if (differed is not null)
+            return new(null, $"{name} matches only the folder name of {differed.Path}, which is {differed.Forge}");
+        if (path is null || byForge || !IsOwnerName(name))
+            return new(path, null);
+        return await OriginForgeAsync(path, ct) is { } origin && !string.Equals(origin, name, StringComparison.OrdinalIgnoreCase)
+            ? new(null, $"{name} matches only the folder name of {path}, whose origin is {origin}")
+            : new(path, null);
+    }
+
+    /// <summary>The one checkout <paramref name="name"/> names and whether its forge name matched; else, when an <c>owner/name</c> matched by folder only checkouts with another forge name, the first of them.</summary>
+    private static (string? Path, bool ByForge, KnownRepository? Differed) Find(string name, IReadOnlyList<KnownRepository> known)
+    {
         if (name.Length == 0)
-            return null;
+            return (null, false, null);
         var byForge = known.Where(k => string.Equals(k.Forge, name, StringComparison.OrdinalIgnoreCase)).ToList();
         if (byForge.Count == 1)
-            return byForge[0].Path;
+            return (byForge[0].Path, true, null);
         var folder = name[(name.LastIndexOf('/') + 1)..];
         var byFolder = known.Where(k => string.Equals(k.Name, folder, StringComparison.OrdinalIgnoreCase)).ToList();
-        return byFolder.Count == 1 ? byFolder[0].Path : null;
+        if (IsOwnerName(name))
+        {
+            var differed = byFolder.Where(k => k.Forge is not null && !string.Equals(k.Forge, name, StringComparison.OrdinalIgnoreCase)).ToList();
+            byFolder = [.. byFolder.Except(differed)];
+            if (byFolder.Count == 0 && differed.Count > 0)
+                return (null, false, differed[0]);
+        }
+        return (byFolder.Count == 1 ? byFolder[0].Path : null, false, null);
     }
+
+    /// <summary>Whether <paramref name="name"/> has the shape <c>owner/name</c> rather than a path.</summary>
+    private static bool IsOwnerName(string name) =>
+        !Path.IsPathRooted(name) && !name.Contains('\\', StringComparison.Ordinal) && name.Count(c => c == '/') == 1 && !name.StartsWith('.') && !name.EndsWith('/');
 
     /// <summary>The known repositories as a caller may name them, for an error.</summary>
     public static string Describe(IReadOnlyList<KnownRepository> known) => known.Count == 0

@@ -691,8 +691,10 @@ public sealed class Orchestrator(
     private async Task<string> ByName(string given, CancellationToken ct)
     {
         var known = RepositoryNames.List(profile);
-        return (RepositoryNames.Resolve(given, known) is { } path ? await Git(path, ct, "rev-parse", "--show-toplevel") : null)
-            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{given} is not a git checkout on this server, nor the name of one it reads; known: {RepositoryNames.Describe(known)}",
+        var resolved = await RepositoryNames.ResolveAsync(given, known, ct);
+        var why = resolved.Refusal is { } refusal ? $" ({refusal})" : "";
+        return (resolved.Path is { } path ? await Git(path, ct, "rev-parse", "--show-toplevel") : null)
+            ?? throw new ChargehandException(ErrorCode.CheckoutInvalid, $"{given} is not a git checkout on this server, nor the name of one it reads{why}; known: {RepositoryNames.Describe(known)}",
                 "Set context.repository.path to one of those names (owner/name, a GitHub URL or a folder name) or to a checkout's path; the repositories tool lists them with the commit each has checked out.");
     }
 
