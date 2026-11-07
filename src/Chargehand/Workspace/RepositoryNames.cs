@@ -58,8 +58,8 @@ public static partial class RepositoryNames
     }
 
     /// <summary>The path <paramref name="given"/> names, or null when it names none or several. An <c>owner/name</c> that matches only by its folder name never resolves to a
-    /// checkout whose forge name is another repository.</summary>
-    public static string? Resolve(string given, IReadOnlyList<KnownRepository> known) => Find(Normalize(given), known).Path;
+    /// checkout whose forge name is another repository. It reads no checkout's <c>origin</c>: callers resolve with <see cref="ResolveAsync"/>.</summary>
+    internal static string? Resolve(string given, IReadOnlyList<KnownRepository> known) => Find(Normalize(given), known).Path;
 
     /// <summary>As <see cref="Resolve"/>, and an <c>owner/name</c> that matches only by its folder name also does not resolve to a checkout whose own <c>origin</c> names another
     /// repository: <c>someone/react</c> is not any checkout in a folder called <c>react</c>. The path, or null with why when the name and the checkout's own name differ.</summary>
