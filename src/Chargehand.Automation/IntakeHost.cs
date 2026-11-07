@@ -106,6 +106,9 @@ public interface IRepositoryHeads
     /// <summary>Fetches the head of pull request <paramref name="number"/> (<c>refs/pull/N/head</c>) into the checkout at <paramref name="path"/>, keeps it under <c>refs/chargehand/pull/N</c>, and returns its commit.</summary>
     /// <exception cref="IntakeException">The head could not be fetched.</exception>
     Task<string> FetchPullHeadAsync(string path, int number, CancellationToken ct);
+
+    /// <summary>The claim on issue <paramref name="issue"/> (<c>refs/claims/N</c> on the checkout's remote); null when there is none or it cannot be read. A claim is advice, not a lock: a read that fails never stops work.</summary>
+    Task<IssueClaim?> ClaimAsync(string path, int issue, CancellationToken ct) => Task.FromResult<IssueClaim?>(null);
 }
 
 /// <summary>A repository intake watches: <paramref name="Discovered"/> when it came from the App's installations and its checkout is a managed clone, else from the profile.</summary>

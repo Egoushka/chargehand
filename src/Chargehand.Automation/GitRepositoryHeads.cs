@@ -23,6 +23,21 @@ public sealed partial class GitRepositoryHeads(Action<string>? warn = null, Mana
         return await HeadAsync(path, ct) ?? throw new IntakeException($"{Path.GetFileName(Path.GetFullPath(path))} has no origin/HEAD to start from");
     }
 
+    public async Task<IssueClaim?> ClaimAsync(string path, int issue, CancellationToken ct)
+    {
+        var name = Path.GetFileName(Path.GetFullPath(path));
+        var fetch = await GitAsync(path, ["fetch", "--quiet", "--prune", "origin", "+refs/claims/*:refs/claims/*"], ct, await AuthAsync(path, ct));
+        if (fetch.ExitCode != 0)
+        {
+            warn?.Invoke($"intake: could not read the claims of {name}: {fetch.Output}");
+            return null;
+        }
+        var reference = $"refs/claims/{issue.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+        var kind = await GitAsync(path, ["cat-file", "-t", reference], ct);
+        var content = kind.ExitCode == 0 ? await GitAsync(path, ["cat-file", "-p", reference], ct) : kind;
+        return content.ExitCode == 0 ? IssueClaim.Parse(content.Output, kind.Output) : null;
+    }
+
     private bool Unwritable(string path, string output) => clones is not null && !clones.Owns(path) && CannotWrite().IsMatch(output);
 
     private static async Task<ReadOnlyCheckoutException> ReadOnlyAsync(string path, string output, string? stale, CancellationToken ct)
