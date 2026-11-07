@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -12,11 +13,16 @@ public sealed record RunLogData(IReadOnlyList<StartRecord> Starts, IReadOnlyList
 /// <summary>
 /// One JSON object per line, tagged "start", "call", "run" or "score". Local file, gitignored. Several processes append
 /// to it (CLI runs, the server, evals): an append holds an exclusive lock on "&lt;path&gt;.lock", and readers skip a last
-/// line that has no newline yet.
+/// line that has no newline yet. A line that is not JSON (NUL bytes or half a record, left by a hard stop) is skipped
+/// with one warning, which names the line and its length and never its content; the file is not changed.
 /// </summary>
-public sealed class JsonlRunLog(string path) : IRunLog
+public sealed class JsonlRunLog(string path, Action<string>? warn = null) : IRunLog
 {
     private static readonly SemaphoreSlim Gate = new(1, 1);
+
+    private readonly Action<string> _warn = warn ?? Console.Error.WriteLine;
+
+    private readonly ConcurrentDictionary<long, byte> _reported = new();
 
     public Task AppendAsync(StartRecord record, CancellationToken ct) => Append("start", JsonSerializer.SerializeToNode(record, LedgerJsonContext.Default.StartRecord)!, ct);
 
@@ -255,6 +261,7 @@ public sealed class JsonlRunLog(string path) : IRunLog
         await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.Asynchronous | FileOptions.SequentialScan);
         var buffer = new byte[64 * 1024];
         var filled = 0;
+        long number = 0;
         while (true)
         {
             if (filled == buffer.Length)
@@ -268,12 +275,28 @@ public sealed class JsonlRunLog(string path) : IRunLog
             int end;
             while ((end = Array.IndexOf(buffer, (byte)'\n', from, filled - from)) >= 0)
             {
-                if (end > from)
-                    yield return JsonDocument.Parse(buffer.AsMemory(from, end - from));
+                number++;
+                if (end > from && TryParse(buffer.AsMemory(from, end - from), number) is { } document)
+                    yield return document;
                 from = end + 1;
             }
             Buffer.BlockCopy(buffer, from, buffer, 0, filled - from);
             filled -= from;
+        }
+    }
+
+    /// <summary>The line as a document, or null (after one warning per line for the life of this log) when it is not JSON.</summary>
+    private JsonDocument? TryParse(ReadOnlyMemory<byte> line, long number)
+    {
+        try
+        {
+            return JsonDocument.Parse(line);
+        }
+        catch (JsonException)
+        {
+            if (_reported.TryAdd(number, 0))
+                _warn($"chargehand: skipped unreadable run-log line {number} ({line.Length} bytes)");
+            return null;
         }
     }
 
