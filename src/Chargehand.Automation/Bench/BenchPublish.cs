@@ -6,7 +6,8 @@ namespace Chargehand.Bench;
 
 /// <summary><c>chargehand bench publish &lt;results.json&gt;</c>: the merge rate of a replay run (merged pull requests replayed as tasks, ADR 0087) as one small JSON file a status page
 /// can read. A replayed task counts as merged when its draft pull request exists and the merged pull request's withheld tests pass on its branch. The file holds counts and
-/// rates only: no task id, repository name, goal or pull request number, because replay tasks are real work.</summary>
+/// rates only: no task id, task set or repository name (a replay set is usually named after its repository), goal or pull request number, because replay tasks are
+/// real work.</summary>
 public static class BenchPublish
 {
     public const string SchemaId = "bench-merge-rate/v1";
@@ -31,7 +32,6 @@ public static class BenchPublish
         {
             w.WriteStartObject();
             w.WriteString("schema", SchemaId);
-            w.WriteString("taskset", results.Taskset);
             w.WriteString("taskset_sha256", results.TasksetSha256);
             w.WriteString("arm", results.ArmName);
             w.WriteString("started_at", results.StartedAt);

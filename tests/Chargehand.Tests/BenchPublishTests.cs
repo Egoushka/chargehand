@@ -13,7 +13,7 @@ public class BenchPublishTests
             false, false, false, null, 0.50m, false, 1000, 0, 0, 10, 0, [], 60, "");
 
     private static BenchResults Results(int merged, int total, bool complete = true) =>
-        new(BenchResults.SchemaId, "replay", "abc123", Start, Start.AddHours(2), complete, [new RepositoryPin("private-repo", "dotnet", "https://example.com/r.git", "c1")],
+        new(BenchResults.SchemaId, "private-set", "abc123", Start, Start.AddHours(2), complete, [new RepositoryPin("private-repo", "dotnet", "https://example.com/r.git", "c1")],
             [.. Enumerable.Range(0, total).Select(i => Task(i, i < merged))]);
 
     [Fact]
@@ -33,6 +33,7 @@ public class BenchPublishTests
         Assert.StartsWith("Merge rate 45% (9/20, 95% CI ", root.GetProperty("display").GetString());
         Assert.DoesNotContain("pr-secret", json);
         Assert.DoesNotContain("private-repo", json);
+        Assert.DoesNotContain("private-set", json);
     }
 
     [Fact]
