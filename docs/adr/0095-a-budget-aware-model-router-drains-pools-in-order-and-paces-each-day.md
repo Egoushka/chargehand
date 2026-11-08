@@ -103,8 +103,9 @@ model its caller resolved. The call sites wired so far:
 
 - the orchestrator's intake model and support check (key `intake`);
 - the orchestrator's worker (key: the preset);
-- a driven batch (key: the preset, size from the batch), which also sets `CLAUDE_CODE_SUBAGENT_MODEL` so the session's
-  nested research and review calls run the same model;
+- a driven batch (key: the preset, size from the batch), asked once at its start, so a batch that no pool can take
+  waits or fails before anything is created, and again before each session of each of its tasks, which also sets
+  `CLAUDE_CODE_SUBAGENT_MODEL` so the session's nested research and review calls run the same model;
 - GitHub intake, which holds a new issue in its queue (reason `pools`) while no pool has room, instead of starting it.
 
 A run the router paid for records its pool, tier and model on the run record; spend per pool is read back from those
@@ -167,8 +168,10 @@ until the next day. The call then goes to the next eligible pool:
 
 - the orchestrator's single run starts again on the next pool when the refused try produced no artifacts, with the same run id and one run record
   (the last try's), at most as many tries as there are pools;
-- a driven batch keeps one pool for its whole run. Its refusal ends it as a retryable rate limit and marks the pool, so the next start takes the next
-  pool. While another pool can still take the batch, the refusal does not close the global start gate;
+- a driven task asks the router before each of its sessions. A session that ends on a refusal marks its pool, and the task goes on in a new session
+  on the next eligible pool, seeded from the commits so far (the stall continuation of ADR 0044, with the pool's change as its reason), at most as many
+  moves as there are pools. When every eligible pool is out, the task ends as a retryable rate limit, `[partial]` when it has commits, and the batch's
+  start gate halts until the router's `until`. While another pool can still take the batch, a refusal does not close the global start gate;
 - the router answers `wait` only when every eligible pool of the first tier that has any is out.
 
 **Data classes.** Every routed call carries the class of the data it touches, read from the repository path the run was asked about, and a lookup
@@ -186,7 +189,34 @@ and names `no_training_models` and `owner_private_repos` as the fix. An enabled 
 refused. The class is recorded on the run's route. The support check reads no repository and always runs as `restricted`; GitHub intake classifies an
 issue by its repository before it holds it.
 
-**Known gap.** A 402 in the middle of a task, after the session has produced partial work, ends the run `[partial]`. The pool is marked, so the next
-call falls through, but that task's partial work is not continued on the next pool: the retry above applies only to a try that produced nothing.
-A batch also runs all its sessions on one pool and model, so one session cannot move to another pool on its own refusal. Routing per session in the task
-runner would close both.
+**Per session (D-113).** The task runner asks the router before each session, through `ISessionRouter`, which the batch gives it. A task's sessions can
+therefore run on different pools and models, and the run record of the task (one per task, as before) carries the route of its last session in `route`
+and, when the sessions used more than one route, every route in order with what the sessions on it cost in `routes`. The router charges those costs to
+their pools, not the whole result's cost to the last pool. The batch's own run record carries no route any more: its cost is the sum of its tasks'
+records, which carry theirs. The batch's data class is the one its start classified; a session never classifies again, so restricted data reaches
+only the pools that keep it private, after a refusal as before it.
+
+What a session of a task chooses by:
+
+- the first session and the moves after a refusal use the batch's preset and its largest task's size, as the batch's start did; a task's own size
+  could choose a cheaper tier for a small task, and does not yet;
+- the CI-fix sessions of a task (ADR 0046) are routed as well: a fix session that finds every pool out ends the fix as failed, with the pull request
+  as it stands, and a task's own outcome is not changed by it;
+- a session with no commits before the refusal has nothing to continue from: the next one starts again from the base commit on the next pool, with the
+  task's goal as it was.
+
+Where the record is short of the truth, and why it is left:
+
+- a task that throws before its record is written (a cancel, a crash) has no run record, so its sessions' spend is not charged to a pool; the pools
+  warn on limits and never refuse on spend, so the cost of this is a late warning;
+- a session a restarted server takes up again keeps running on the pool it started on, but carries no route in the record, so its cost is not charged to
+  that pool. The tasks after a restart route as usual;
+- the cost of the CI-fix sessions is not in the task's run record today (ADR 0046), so it is charged to no pool either.
+- the number of moves a task has made lives in memory, so a task a restart carries on may move once more than the router has pools; each move still asks the
+  router, which answers for the pools that are out, so it ends when none can take it;
+- a restarted task cut between two sessions that finds every pool out ends retryable, without a draft for its earlier commits: the draft is made from the
+  last session's output, which the restart no longer holds.
+
+The subagents of a session (`CLAUDE_CODE_SUBAGENT_MODEL`) follow the session's own route now, set per session by the task runner. They were set once from the
+batch's route, in the environment that holds the batch's one credential: that made the environment two variables, which the runner's route (one credential,
+read as the only value) and the handover's secret scan (which was given the model's name as a secret) did not expect.
