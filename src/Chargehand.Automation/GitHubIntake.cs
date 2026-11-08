@@ -19,7 +19,7 @@ namespace Chargehand.Automation;
 /// cloned into <paramref name="clones"/>; one switched off in <paramref name="sources"/> is not read.</summary>
 public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost host, IRunLog log, IRepositoryHeads heads, IntakeState state, TimeProvider? clock = null, Action<string>? warn = null,
     IntegratorPolicy? integrator = null, IntakeSources? sources = null, ManagedClones? clones = null, Action<string>? info = null, Func<DateTimeOffset, DateTimeOffset?>? subscriptionResetsAt = null,
-    Func<DateTimeOffset, QuotaWindow?>? quotaWindow = null)
+    Func<DateTimeOffset, QuotaWindow?>? quotaWindow = null, Func<CancellationToken, Task<DateTimeOffset?>>? poolsRoomAt = null)
 {
     public const string Preset = "driven";
 
@@ -384,6 +384,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var harvested = _harvest?.Marks(issue.Labels) == true;
         if (harvested && await HarvestAsync(key, name, issue.Number, ct) is { } harvest)
             return harvest;
+        if (await PoolsAsync(key, name, issue.Number, ct) is { } broke)
+            return broke;
         if (await SlotAsync(key, name, issue.Number, ct) is { } held)
             return held;
         RepositoryRef source;
@@ -502,6 +504,18 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         _info($"intake: {key}: waiting: harvest: {why}");
         Wait(key, name, issue, "harvest", why);
         await NotifyOnceAsync($"harvest:{key}", name, issue, $"chargehand is waiting: this issue runs on subscription quota that would otherwise expire unused, so it starts near the end of a window ({why}).", ct);
+        return Outcome.Deferred;
+    }
+
+    /// <summary>Waits while the budget router has no pool with room for a batch (ADR 0095): the start is queued, not failed, and a later poll starts it. Null when it may start or the router is off.</summary>
+    private async Task<Outcome?> PoolsAsync(string key, string name, int issue, CancellationToken ct)
+    {
+        if (poolsRoomAt is null || await poolsRoomAt(ct) is not { } until)
+            return null;
+        var why = $"no budget pool has room until {until.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)}";
+        _info($"intake: {key}: waiting: pools: {why}");
+        Wait(key, name, issue, "pools", why);
+        await NotifyOnceAsync($"pools:{key}", name, issue, $"chargehand is waiting: {why}. This starts once a pool has room.", ct);
         return Outcome.Deferred;
     }
 

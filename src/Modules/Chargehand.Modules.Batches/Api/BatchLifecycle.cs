@@ -43,6 +43,7 @@ public sealed partial class BatchLifecycle(IRunLog log, string? stateDirectory =
     private readonly OpenBatches? _batches = stateDirectory is null ? null : new OpenBatches(stateDirectory, log);
 
     private readonly ConcurrentDictionary<string, RateLimitPause> _pauses = new();
+    private readonly ConcurrentDictionary<string, RunRoute> _routes = new();
 
     private readonly ConcurrentDictionary<string, (BatchControl Control, Action<RunStatus>? Publish)> _live = new(StringComparer.Ordinal);
 
@@ -73,6 +74,9 @@ public sealed partial class BatchLifecycle(IRunLog log, string? stateDirectory =
     public IReadOnlyList<OpenBatch> LiveBatches() => _batches?.Live ?? [];
 
     /// <summary>Usage or rate limits that hold new starts now, one per batch.</summary>
+    /// <summary>The pool, tier and model the budget router chose for a batch (ADR 0095), written on its run record.</summary>
+    public void Routed(string runId, RunRoute route) => _routes[runId] = route;
+
     public IReadOnlyList<RateLimitPause> RateLimitPauses(DateTimeOffset now) => [.. _pauses.Values.Where(p => p.ResetsAt > now).OrderBy(p => p.ResetsAt)];
 
     /// <summary>The batches a restart interrupted, read back from the journal and the run log (<see cref="OpenBatches.LoadAsync"/>), each with its tasks as the journal folds them. A snapshot
@@ -174,8 +178,8 @@ public sealed partial class BatchLifecycle(IRunLog log, string? stateDirectory =
         context.Span?.SetTag("chargehand.error.code", result.Error is { } failure ? JsonNamingPolicy.SnakeCaseLower.ConvertName(failure.Code.ToString()) : null);
         if (result.Status != ResultStatus.Completed)
             context.Span?.SetStatus(ActivityStatusCode.Error, result.Error?.Message);
-        await log.AppendAsync(new RunRecord(context.RunId, context.Started, DateTimeOffset.UtcNow, context.Request.Context.Preset, null, null, result, Actor: context.Actor),
-            context.CancelledByCaller() ? CancellationToken.None : context.Ct);
+        await log.AppendAsync(new RunRecord(context.RunId, context.Started, DateTimeOffset.UtcNow, context.Request.Context.Preset, null, null, result, Actor: context.Actor,
+            Route: _routes.TryRemove(context.RunId, out var route) ? route : null), context.CancelledByCaller() ? CancellationToken.None : context.Ct);
         await EndStepsAsync(context.RunId);
         _pauses.TryRemove(context.RunId, out _);
         context.Progress?.Invoke(RunStatus.Of(context.RunId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });

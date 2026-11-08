@@ -10,6 +10,7 @@ using Chargehand.Enhancement;
 using Chargehand.Intake;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Economics.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.PeerClones.Api;
@@ -36,6 +37,7 @@ namespace Chargehand;
 /// <param name="enhancer">The profile's prompt enhancer, already behind its guard, or null (ADR 0040, ADR 0041). It sees each request's text and reports the outcome; it never changes what is sent.</param>
 /// <param name="publicFree">The free-model pool (ADR 0093): hands out its runtime to a run of the pool preset on a repository that qualifies, and refuses the pool preset anywhere else; null: no pool, and the default pool preset is refused.</param>
 /// <param name="runtimeFor">The runtime a run of the given account uses (ADR 0053), which throws for an account that may use no model credential; null: <paramref name="runtime"/> for every run.</param>
+/// <param name="routing">The budget router (ADR 0095), shared with the driven batches so a pool a provider refused is out for both; null: one of this orchestrator's own, off unless the profile enables <c>pools</c>.</param>
 /// <param name="reuseReviews">A review of the same commit and diff as a completed one of the same account returns that review (<see cref="ReviewReuse"/>, issue 448); false: every review runs.</param>
 /// <param name="peerClones">Resolves <c>gh:owner/name</c> into a shallow clone for an account with <c>public_clone</c>; null: such a path is refused like any other repository outside the roots.</param>
 public sealed class Orchestrator(
@@ -52,12 +54,21 @@ public sealed class Orchestrator(
     Func<string?, IWorkerRuntime>? runtimeFor = null,
     PublicFreeGate? publicFree = null,
     bool reuseReviews = false,
-    IPeerCloneManager? peerClones = null)
+    IPeerCloneManager? peerClones = null,
+    PoolRouting? routing = null)
 {
     public const string NodeKindName = "worker";
 
+    private readonly PoolRouting _routing = routing ?? new PoolRouting(profile.Pools, runLog);
+
+    /// <summary>The router's kind for intake and the support check (ADR 0095); a worker's kind is its preset's name.</summary>
+    public const string IntakeRouteKind = "intake";
+
     /// <summary>The free-model pool (ADR 0093); null: the profile has no <c>public_free</c> block.</summary>
     public PublicFreeGate? PublicFree => publicFree;
+
+    /// <summary>The budget router this orchestrator's runs go through (ADR 0095), for the driven batches to share.</summary>
+    public PoolRouting Routing => _routing;
 
 
     /// <param name="runId">The id to run under (the HTTP interface hands it out before the run starts); a new one if null.</param>
@@ -105,6 +116,7 @@ public sealed class Orchestrator(
         Enhanced? enhanced = null;
         string? credential = null;
         List<IAsyncDisposable> leases = [];
+        RunRoute? route = null;
         try
         {
             if (request.Driven is not null)
@@ -122,7 +134,10 @@ public sealed class Orchestrator(
                     "Use another preset, or add public_free to the profile (ADR 0093).");
             var worker = (publicFree is null ? null : await publicFree.RuntimeAsync(presetName, request.Context.Repository?.Path, ct)) ?? runtimeFor?.Invoke(actor) ?? runtime;
             // The pool's gateway knows its own models; the owner's intake model is never sent to it.
-            var intakeModelId = publicFree?.Owns(worker) == true ? publicFree.IntakeModel : profile.IntakeModel;
+            var pooled = publicFree?.Owns(worker) == true;
+            // With the budget router on (ADR 0095) intake runs on the router's model; the pool's runs never go through it.
+            var intakeModelId = pooled ? publicFree!.IntakeModel : (await _routing.RouteAsync(IntakeRouteKind, null, profile.IntakeModel, ct)).Model;
+            var intakeLabel = _routing.On && !pooled ? intakeModelId ?? intakeModel : intakeModel;
             credential = worker.Credential;
             var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
             var (kindName, kind) = AnswerKind(preset);
@@ -145,8 +160,10 @@ public sealed class Orchestrator(
             }
             else
             {
-                // Unset when the profile maps no real model to the preset's placeholder: the runtime uses its own default.
-                var workerModel = profile.ResolveModel(kind.Model);
+                // Unset when the profile maps no real model to the preset's placeholder: the runtime uses its own default. The budget router, when on, names it and records who pays (ADR 0095).
+                var routed = pooled ? new Routed(profile.ResolveModel(kind.Model), null) : await _routing.RouteAsync(presetName, null, profile.ResolveModel(kind.Model), ct);
+                var workerModel = routed.Model;
+                route = routed.Route;
                 var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
                 var local = await IsLocalAsync(request, ct);
                 run?.SetTag("chargehand.delivery", local ? DeliveryMode.Local : DeliveryMode.Push);
@@ -157,7 +174,7 @@ public sealed class Orchestrator(
                 using (var span = Telemetry.Source.StartActivity("chargehand.intake"))
                 {
                     TagChain(span, intakeChain);
-                    span?.SetTag("gen_ai.request.model", intakeModel);
+                    span?.SetTag("gen_ai.request.model", intakeLabel);
                     // A structured caller's complete request skips the model call (issue 429); the deterministic checks still run.
                     var given = profile.SkipStructuredIntake ? StructuredSpec.For(request, preset, kind, runId) : null;
                     intakeSkipped = given is not null;
@@ -166,7 +183,7 @@ public sealed class Orchestrator(
                         : await new GenerateIntake(worker, ParseModel(intakeModelId), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
                     span?.SetTag("chargehand.intake.action", intake.Spec?.Action.ToString().ToLowerInvariant() ?? "needs_input");
                     foreach (var c in intake.Calls)
-                        await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, intakeModel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
+                        await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, intakeLabel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
                 }
 
                 var blocks = new List<(PromptBlock, BlockSource)> { (registry.Get($"core/{kindName}"), BlockSource.Registry), (registry.Get($"preset/{presetName}"), BlockSource.Registry) };
@@ -241,7 +258,8 @@ public sealed class Orchestrator(
         run?.SetTag("chargehand.action", executed is null ? null : Name(executed.Value));
         // A caller's cancel must not stop the record of it from being written.
         await runLog.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, presetName, intake?.Spec is null ? null : Name(intake.Spec.Action), intake?.Spec, result,
-            executed is null ? null : Name(executed.Value), extensions.ToReport(), actor, credential, intakeSkipped ? true : null), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
+            executed is null ? null : Name(executed.Value), extensions.ToReport(), actor, credential, intakeSkipped ? true : null, route), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
+        _routing.Ended(route, result.Error);
         await ReportOutcome(enhanced, result, executed);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
@@ -306,7 +324,8 @@ public sealed class Orchestrator(
     /// <summary>The support check a driven task's claims go through, or null when the profile has it off.</summary>
     /// <param name="actor">The account whose batch it is: the check's model calls go on that account's credential (ADR 0053).</param>
     public Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? DrivenSupportCheck(string? actor) =>
-        profile.SupportCheck ? (contract, scope, ct) => SupportCheck.RunAsync(runtimeFor?.Invoke(actor) ?? runtime, ParseModel(profile.IntakeModel), contract, scope, ct) : null;
+        profile.SupportCheck ? async (contract, scope, ct) => await SupportCheck.RunAsync(runtimeFor?.Invoke(actor) ?? runtime,
+            ParseModel((await _routing.RouteAsync(IntakeRouteKind, null, profile.IntakeModel, ct)).Model), contract, scope, ct) : null;
 
     /// <summary>The clone of the request's commit that driven sessions start from (the same checkout as a worker's), with the source's remote and default branch.
     /// A tracked file the preset denies reading refuses the session: it has a shell, and git reads a file whether or not it is in the working tree.</summary>

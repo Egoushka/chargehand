@@ -478,7 +478,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     // What the operator console reads about a batch (events, sessions, governor decisions, checks) sits there too, one directory per batch.
     var records = new BatchRecords(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "records"));
     if (profile.Driven is not { Enabled: true } driven)
-        return new Chargehand.Driven.DrivenRun(profile, runLog, root, null, learning: learning, records: records);
+        return new Chargehand.Driven.DrivenRun(profile, runLog, root, null, learning: learning, records: records, routing: orchestrator.Routing);
     Chargehand.Modules.Runners.Api.IContainerEngine engine;
     Chargehand.Modules.Runners.Api.IWorkspaceEngine workspace;
     Chargehand.Modules.Runners.Api.IHostSource hostSource;
@@ -528,7 +528,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         AppToken: AppTokens(driven) is { } appTokens ? (remote, token) => appTokens.GetAsync(remote.Owner, remote.Name, token) : null),
         stateDirectory, learning, records,
         profile.ClaudeCode is { ApiFallbackKeySecret: not null, ApiFallbackDailyUsd: { } fallbackUsd }
-            ? ApiFallback.For(fallbackUsd, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "api-fallback.json")) : null);
+            ? ApiFallback.For(fallbackUsd, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "api-fallback.json")) : null, orchestrator.Routing);
 }
 
 // GitHub's API root: api.github.com, or the Enterprise host the profile's driven.forge names. The E2E switch exists for scripts/driven-e2e.sh only.
@@ -564,7 +564,8 @@ Chargehand.Automation.GitHubIntake? GitHubIntake(Chargehand.Driven.DrivenRun? dr
     var clones = new Chargehand.Automation.ManagedClones(profile.ClonesRoot, tokens.GetAsync);
     return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state,
         integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "sources.json")), clones: clones,
-        subscriptionResetsAt: now => drivenRun?.RateLimitPauses(now) is { Count: > 0 } pauses ? pauses.Max(p => p.ResetsAt) : null);
+        subscriptionResetsAt: now => drivenRun?.RateLimitPauses(now) is { Count: > 0 } pauses ? pauses.Max(p => p.ResetsAt) : null,
+        poolsRoomAt: drivenRun is null ? null : ct => drivenRun.PoolsRoomAtAsync(Chargehand.Automation.GitHubIntake.Preset, ct));
 }
 
 // The managed clones a read-only checkout falls back to, fetched with the integrator App's token; null without an App, and the checkout's own commit is used.

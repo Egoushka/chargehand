@@ -129,6 +129,7 @@ public sealed record InstructionRef(string Key, string Sha256);
 /// <param name="Credential">The <see cref="CredentialKind"/> that paid for the run; null on a record from before it existed (counts as an API key).</param>
 /// <param name="ExecutedAction">What ran: intake's action, or "answer" when the preset or the split plan did not allow it.</param>
 /// <param name="IntakeSkipped">True: a structured caller's request ran on a spec built from its inputs, with no intake call (issue 429); null: intake ran as before.</param>
+/// <param name="Route">The pool, tier and model the budget router chose for the run's worker or session (ADR 0095); its cost and outcome are the result's. Null: the router is off.</param>
 public sealed record RunRecord(
     string RunId,
     DateTimeOffset Started,
@@ -141,7 +142,11 @@ public sealed record RunRecord(
     ExtensionsReport? Extensions = null,
     string? Actor = null,
     string? Credential = null,
-    bool? IntakeSkipped = null);
+    bool? IntakeSkipped = null,
+    RunRoute? Route = null);
+
+/// <summary>Who paid for a run and on what (ADR 0095): the router reads each pool's spend back from these.</summary>
+public sealed record RunRoute(string Pool, string Tier, string Model);
 
 /// <summary>What the profile's extensions did in one run, for the run log and <c>chargehand show</c> (goal 0.6). Null on a record from before it existed.</summary>
 public sealed record ExtensionsReport(IReadOnlyList<MemoryReport> Memory, IReadOnlyList<ServiceReport> Services)
