@@ -368,12 +368,14 @@
         "integrator": {
           "type": "object",
           "additionalProperties": false,
-          "dependentRequired": { "app_id": ["private_key_secret"], "installation_id": ["app_id", "private_key_secret"], "private_key_secret": ["app_id"] },
+          "dependentRequired": { "app_id": ["private_key_secret"], "installation_id": ["app_id", "private_key_secret"], "private_key_secret": ["app_id"], "app_slug": ["app_id", "bot_user_id"], "bot_user_id": ["app_slug"] },
           "description": "ADR 0046: for the repositories listed, chargehand marks a finished task's pull request ready and merges it through the repository's required checks, and has a short session fix a failing required check, acting as a GitHub App (on GitLab, with the forge token). app_id and private_key_secret are both set or both left out: a profile that integrates GitLab projects only needs none. Unset: draft pull requests only, never touched again.",
           "properties": {
             "app_id": { "type": "integer", "minimum": 1, "description": "The GitHub App's numeric id." },
             "installation_id": { "type": "integer", "minimum": 1, "description": "Optional. chargehand asks GitHub which installation of the App covers each repository's owner (an App is installed once per account or organisation). This pins one installation, for the account it belongs to, and skips the lookup for that owner's repositories; it reaches no other owner." },
             "private_key_secret": { "type": "string", "minLength": 1, "description": "Secret item holding the App's private key (PEM). Never logged, never inside a container." },
+            "app_slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "description": "The App's slug (its URL name). With bot_user_id, the commits a session made are pushed authored and committed as the App's bot, <bot_user_id>+<app_slug>[bot]@users.noreply.github.com; unset, as chargehand@localhost." },
+            "bot_user_id": { "type": "integer", "minimum": 1, "description": "The numeric id of the App's bot user (GET /users/<app_slug>[bot]), not the App's id. Set with app_slug." },
             "repositories": {
               "type": "object",
               "propertyNames": { "pattern": "^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$" },

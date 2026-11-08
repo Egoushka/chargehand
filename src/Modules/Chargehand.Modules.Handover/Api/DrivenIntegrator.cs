@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Chargehand.Kernel;
 using Microsoft.Extensions.Options;
@@ -14,9 +15,17 @@ namespace Chargehand.Modules.Handover.Api;
 /// <param name="Repositories">Per <c>owner/repo</c> (<c>group/subgroup/project</c> on GitLab): <c>merge</c> (ready, then merged through the required checks) or <c>ask</c> (ready, a comment, no merge). A repository not listed is off.</param>
 /// <param name="AlwaysAsk">Repositories that are <c>ask</c> whatever else says: this list wins, even over <c>merge</c> and over a repository not listed.</param>
 /// <param name="CiFix">The short session that fixes a failing required check; null: its defaults.</param>
+/// <param name="AppSlug">The App's slug (its URL name); with <paramref name="BotUserId"/>, the pushed commits are authored as the App's bot (<see cref="BotIdentity"/>).</param>
+/// <param name="BotUserId">The numeric id of the App's bot user (<c>GET /users/&lt;slug&gt;[bot]</c>), which is not the App's id.</param>
 public sealed partial record DrivenIntegrator(long? AppId = null, long? InstallationId = null, string? PrivateKeySecret = null, IReadOnlyDictionary<string, string>? Repositories = null,
-    IReadOnlyList<string>? AlwaysAsk = null, DrivenCiFix? CiFix = null) : IValidatableObject
+    IReadOnlyList<string>? AlwaysAsk = null, DrivenCiFix? CiFix = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? AppSlug = null, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] long? BotUserId = null) : IValidatableObject
 {
+    /// <summary>The App's bot noreply identity (<c>&lt;id&gt;+&lt;slug&gt;[bot]@users.noreply.github.com</c>) when the App, its slug and its bot user id are configured; null otherwise, and commits keep the session's own identity.</summary>
+    public CommitIdentity? BotIdentity() => AppId is not null && !string.IsNullOrWhiteSpace(AppSlug) && BotUserId is { } id
+        ? new CommitIdentity($"{AppSlug}[bot]", string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{id}+{AppSlug}[bot]@users.noreply.github.com"))
+        : null;
+
     /// <summary>Throws an invalid_request error naming the key when a value cannot work.</summary>
     public void Validate() => SettingsValidation.ThrowIfFailed(new DrivenIntegratorValidator().Validate(null, this), "driven.integrator",
         "Fix driven.integrator in the profile; docs/guide/driven.md lists the keys.");
@@ -31,7 +40,13 @@ public sealed partial record DrivenIntegrator(long? AppId = null, long? Installa
         if (AppId is null or < 1) yield return "app_id must be the App's numeric id";
         if (InstallationId is < 1) yield return "installation_id must be the installation's numeric id";
         if (string.IsNullOrWhiteSpace(PrivateKeySecret)) yield return "private_key_secret must name a secret item";
+        if (AppSlug is not null && !AppSlugPattern().IsMatch(AppSlug)) yield return "app_slug must be the App's slug (lower-case letters, digits and dashes)";
+        if (BotUserId is < 1) yield return "bot_user_id must be the App's bot user's numeric id";
+        if ((AppSlug is null) != (BotUserId is null)) yield return "app_slug and bot_user_id are both set or both left out";
     }
+
+    [GeneratedRegex(@"^[a-z0-9][a-z0-9-]*$")]
+    private static partial Regex AppSlugPattern();
 
     private IEnumerable<string> RepositoryProblems()
     {
@@ -77,3 +92,6 @@ public sealed record DrivenCiFix(int? MaxAttempts = null, int? MaxTurns = null, 
         if (WaitMinutes is < 1 or > 240) yield return "ci_fix.wait_minutes must be 1 to 240";
     }
 }
+
+/// <summary>Who the pushed commits are by: the author and the committer, dates kept.</summary>
+public sealed record CommitIdentity(string Name, string Email);
