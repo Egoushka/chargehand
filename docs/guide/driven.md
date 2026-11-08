@@ -94,7 +94,7 @@ The App needs contents and pull requests write, checks, actions and commit statu
   "ci_fix": { "max_attempts": 3, "max_turns": 20, "max_minutes": 15, "wait_minutes": 20 } } } }
 ```
 
-`app_slug` and `bot_user_id` are optional and set together: with them, the commits a session made are pushed authored and committed as the App's bot, `<bot_user_id>+<app_slug>[bot]@users.noreply.github.com`, with their dates kept, so a repository whose CI refuses a non-noreply author takes them. `bot_user_id` is the bot user's id (`GET /users/<app_slug>[bot]`), not the App's id. Left out, the commits keep the session's `chargehand@localhost`.
+`app_slug` and `bot_user_id` are optional and set together: with them, the commits a session made are pushed authored and committed as the App's bot, `<bot_user_id>+<app_slug>[bot]@users.noreply.github.com`, with their dates kept, so a repository whose CI refuses a non-noreply author takes them. `bot_user_id` is the bot user's id (the GitHub user lookup for `<app_slug>[bot]`), not the App's id. Left out, the commits keep the session's `chargehand@localhost`.
 
 `installation_id` is optional and the profile usually leaves it out. Set, it pins that installation for the account it belongs to (chargehand reads the account's login once from `GET /app/installations/{id}`), so that owner's repositories skip the lookup; it reaches no other owner, and an id GitHub does not know is ignored. Before this key was optional a profile had one `installation_id` for every repository, which is why a repository on a second account or organisation was refused with `Resource not accessible by integration`.
 

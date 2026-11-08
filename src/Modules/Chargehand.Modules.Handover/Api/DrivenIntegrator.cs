@@ -16,7 +16,7 @@ namespace Chargehand.Modules.Handover.Api;
 /// <param name="AlwaysAsk">Repositories that are <c>ask</c> whatever else says: this list wins, even over <c>merge</c> and over a repository not listed.</param>
 /// <param name="CiFix">The short session that fixes a failing required check; null: its defaults.</param>
 /// <param name="AppSlug">The App's slug (its URL name); with <paramref name="BotUserId"/>, the pushed commits are authored as the App's bot (<see cref="BotIdentity"/>).</param>
-/// <param name="BotUserId">The numeric id of the App's bot user (<c>GET /users/&lt;slug&gt;[bot]</c>), which is not the App's id.</param>
+/// <param name="BotUserId">The numeric id of the App's bot user (the GitHub user lookup for <c>&lt;slug&gt;[bot]</c>), which is not the App's id.</param>
 public sealed partial record DrivenIntegrator(long? AppId = null, long? InstallationId = null, string? PrivateKeySecret = null, IReadOnlyDictionary<string, string>? Repositories = null,
     IReadOnlyList<string>? AlwaysAsk = null, DrivenCiFix? CiFix = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? AppSlug = null, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] long? BotUserId = null) : IValidatableObject
