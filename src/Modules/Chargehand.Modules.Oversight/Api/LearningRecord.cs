@@ -16,7 +16,8 @@ public static class LearningOutcome
 }
 
 /// <summary>What a person did with a task's pull request (ADR 0045): <see cref="MergedUnchanged"/> when the head at the merge is the commit chargehand last left on the branch,
-/// <see cref="MergedEdited"/> when it is another, <see cref="Merged"/> when the record kept no commit to compare.</summary>
+/// <see cref="MergedEdited"/> when it is another, <see cref="Merged"/> when the record kept no commit to compare. <see cref="Reverted"/>: the merge was reverted later (ADR 0097); the store reads
+/// it, and nothing reads it back from the forge yet.</summary>
 public static class PrOutcomes
 {
     public const string MergedUnchanged = "merged_unchanged";
@@ -24,6 +25,7 @@ public static class PrOutcomes
     public const string Merged = "merged";
     public const string Closed = "closed";
     public const string Open = "open";
+    public const string Reverted = "reverted";
 
     public static bool Resolved(string outcome) => outcome != Open;
 

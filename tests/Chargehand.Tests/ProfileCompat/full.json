@@ -208,7 +208,8 @@
         "min_tasks": 10,
         "window_days": 60,
         "percentile": 80
-      }
+      },
+      "autonomy": null
     },
     "admission": {
       "reserve_mb": 2048,
