@@ -156,12 +156,7 @@ export async function dismissItems(ids: string[], restore = false): Promise<Dism
 /** Sends an option's call. Only a route of the API: a call that names anything else is refused here, whatever the server said. */
 export async function sendOption(option: InboxOption): Promise<Record<string, unknown>> {
   const target = option.call;
-  if (
-    !target ||
-    target.method !== 'POST' ||
-    !target.path.startsWith('/v1/') ||
-    target.path.includes('..')
-  )
+  if (target?.method !== 'POST' || !target.path.startsWith('/v1/') || target.path.includes('..'))
     throw new ApiError(400, ['That option has no request to send.']);
   const reply = await call<Record<string, unknown>>(target.path, {
     method: 'POST',
