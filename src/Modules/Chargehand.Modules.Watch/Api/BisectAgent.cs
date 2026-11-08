@@ -50,27 +50,35 @@ public static class BisectAgent
             return BisectOutcome.Failed("a ref cannot start with '-'");
         if (string.IsNullOrWhiteSpace(request.Check))
             return BisectOutcome.Failed("the check is empty");
+        var timeout = request.Timeout ?? DefaultTimeout;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        deadline.CancelAfter(request.Timeout ?? DefaultTimeout);
-        var repository = Path.GetFullPath(request.Repository);
-        var good = await ResolveAsync(repository, request.Good, deadline.Token);
-        var bad = await ResolveAsync(repository, request.Bad, deadline.Token);
-        if (good is null || bad is null)
-            return BisectOutcome.Failed($"{(good is null ? request.Good : request.Bad)} is not a commit of {repository}");
-        if ((await RunGitAsync(repository, deadline.Token, "merge-base", "--is-ancestor", good, bad)).Exit != 0)
-            return BisectOutcome.Failed($"{request.Good} is not an ancestor of {request.Bad}");
-
-        var worktree = Path.Combine(Path.GetTempPath(), "chargehand-bisect-" + Guid.NewGuid().ToString("N")[..12]);
-        var added = await RunGitAsync(repository, deadline.Token, "worktree", "add", "--detach", "--quiet", worktree, bad);
-        if (added.Exit != 0)
-            return BisectOutcome.Failed($"could not add a worktree: {added.Err.Trim()}");
+        deadline.CancelAfter(timeout);
         try
         {
-            return await BisectAsync(worktree, good, bad, request.Check, deadline.Token);
+            return await InWorktreeAsync(Path.GetFullPath(request.Repository), request, deadline.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            return BisectOutcome.Failed($"the bisection did not finish within {((int)(request.Timeout ?? DefaultTimeout).TotalSeconds).ToString(CultureInfo.InvariantCulture)} seconds");
+            return BisectOutcome.Failed($"the bisection did not finish within {timeout.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture)} seconds");
+        }
+    }
+
+    private static async Task<BisectOutcome> InWorktreeAsync(string repository, BisectRequest request, CancellationToken ct)
+    {
+        var good = await ResolveAsync(repository, request.Good, ct);
+        var bad = await ResolveAsync(repository, request.Bad, ct);
+        if (good is null || bad is null)
+            return BisectOutcome.Failed($"{(good is null ? request.Good : request.Bad)} is not a commit of {repository}");
+        if ((await RunGitAsync(repository, ct, "merge-base", "--is-ancestor", good, bad)).Exit != 0)
+            return BisectOutcome.Failed($"{request.Good} is not an ancestor of {request.Bad}");
+
+        var worktree = Path.Combine(Path.GetTempPath(), "chargehand-bisect-" + Guid.NewGuid().ToString("N")[..12]);
+        try
+        {
+            var added = await RunGitAsync(repository, ct, "worktree", "add", "--detach", "--quiet", worktree, bad);
+            if (added.Exit != 0)
+                return BisectOutcome.Failed($"could not add a worktree: {added.Err.Trim()}");
+            return await BisectAsync(worktree, good, bad, request.Check, ct);
         }
         finally
         {
