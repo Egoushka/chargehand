@@ -6,14 +6,14 @@ namespace Chargehand.Modules.Economics.Tests;
 public class ModelRouterTests
 {
     private static readonly PoolSettings Free = new("free", PoolKinds.Free, ["free/small"]);
-    private static readonly PoolSettings Donated = new("donated", PoolKinds.Fixed, ["paid/small", "paid/big"], TotalUsd: 30, Start: new DateOnly(2026, 11, 1), SpreadDays: 30);
+    private static readonly PoolSettings Bought = new("bought", PoolKinds.Fixed, ["paid/small", "paid/big"], TotalUsd: 30, Start: new DateOnly(2026, 11, 1), SpreadDays: 30);
     private static readonly PoolSettings Credit = new("credit", PoolKinds.Monthly, ["paid/small", "paid/big"], TotalUsd: 300);
     private static readonly PoolSettings Subscription = new("subscription", PoolKinds.Weekly, ["paid/big"], RefillWeekday: "sunday", RefillTime: "09:00");
 
     private static PoolsSettings Settings(params PoolSettings[] order) => new(Enabled: true, DefaultTier: "cheap",
         Tiers: [new("cheap", ["free/small", "paid/small"]), new("strong", ["paid/big"])],
         Routes: new Dictionary<string, string> { ["code"] = "cheap", ["code/L"] = "strong", ["review"] = "strong" },
-        Order: order.Length == 0 ? [Free, Donated, Credit, Subscription] : order);
+        Order: order.Length == 0 ? [Free, Credit, Subscription, Bought] : order);
 
     private static ModelRouter Router(params PoolSettings[] order) => new(Settings(order));
 
@@ -36,7 +36,7 @@ public class ModelRouterTests
     {
         var choice = Chosen(Router().Choose(0, [], At(10), new HashSet<string> { "free" }));
 
-        Assert.Equal(("donated", "paid/small"), (choice.Pool, choice.Model));
+        Assert.Equal(("credit", "paid/small"), (choice.Pool, choice.Model));
     }
 
     [Fact]
@@ -44,23 +44,35 @@ public class ModelRouterTests
     {
         var choice = Chosen(Router().Choose(1, [], At(10)));
 
-        Assert.Equal(("donated", "paid/big"), (choice.Pool, choice.Model));
+        Assert.Equal(("credit", "paid/big"), (choice.Pool, choice.Model));
     }
 
     [Fact]
-    public void An_empty_pool_falls_through_to_the_next_one()
+    public void An_empty_pool_falls_through_to_the_next_one_and_bought_credit_comes_last()
     {
-        var choice = Chosen(Router().Choose(1, [new("donated", At(2), 30)], At(10)));
+        PoolSpend[] spend = [new("credit", At(2), 300)];
 
-        Assert.Equal("credit", choice.Pool);
-        var empty = Standing(Donated, At(10), new PoolSpend("donated", At(2), 30));
+        Assert.Equal("subscription", Chosen(Router().Choose(1, spend, At(10))).Pool);
+        var last = Chosen(Router().Choose(0, spend, At(10), new HashSet<string> { "free" }));
+        Assert.Equal(("bought", "paid/small"), (last.Pool, last.Model));
+        var empty = Standing(Credit, At(10), spend);
         Assert.Equal((0m, false, "empty"), (empty.RemainingUsd, empty.HasRoom, empty.Why));
+    }
+
+    [Fact]
+    public void An_exhausted_subscription_falls_through_to_the_bought_credit()
+    {
+        PoolSpend[] spend = [new("credit", At(2), 300)];
+
+        var choice = Chosen(Router().Choose(1, spend, At(10), new HashSet<string> { "subscription" }));
+
+        Assert.Equal(("bought", "paid/big"), (choice.Pool, choice.Model));
     }
 
     [Fact]
     public void The_daily_allowance_is_the_remainder_over_the_days_left()
     {
-        var first = Standing(Donated, At(1));
+        var first = Standing(Bought, At(1));
 
         Assert.Equal((1m, 1m, 30m), (first.AllowanceUsd, first.RoomUsd, first.RemainingUsd));
         Assert.Equal(10m, Standing(Credit, At(1)).AllowanceUsd);
@@ -69,14 +81,14 @@ public class ModelRouterTests
     [Fact]
     public void A_day_that_spends_less_carries_the_rest_into_every_later_allowance()
     {
-        Assert.Equal(30m / 29, Standing(Donated, At(2)).AllowanceUsd);
-        Assert.Equal(29.5m / 29, Standing(Donated, At(2), new PoolSpend("donated", At(1), 0.5m)).AllowanceUsd);
+        Assert.Equal(30m / 29, Standing(Bought, At(2)).AllowanceUsd);
+        Assert.Equal(29.5m / 29, Standing(Bought, At(2), new PoolSpend("bought", At(1), 0.5m)).AllowanceUsd);
     }
 
     [Fact]
     public void A_day_that_overshoots_shrinks_the_later_allowances()
     {
-        var next = Standing(Donated, At(2), new PoolSpend("donated", At(1), 3));
+        var next = Standing(Bought, At(2), new PoolSpend("bought", At(1), 3));
 
         Assert.Equal(27m / 29, next.AllowanceUsd);
         Assert.True(next.AllowanceUsd < 1m);
@@ -85,23 +97,23 @@ public class ModelRouterTests
     [Fact]
     public void A_pool_whose_allowance_is_spent_today_falls_through_and_waits_for_tomorrow()
     {
-        PoolSpend[] spend = [new("donated", At(1, 10), 1)];
+        PoolSpend[] spend = [new("credit", At(1, 10), 10)];
 
-        var spent = Standing(Donated, At(1), spend);
+        var spent = Standing(Credit, At(1), spend);
         Assert.Equal((0m, false, "today's allowance is spent"), (spent.RoomUsd, spent.HasRoom, spent.Why));
-        Assert.Equal("credit", Chosen(Router().Choose(1, spend, At(1))).Pool);
+        Assert.Equal("subscription", Chosen(Router().Choose(1, spend, At(1))).Pool);
 
-        var wait = Assert.IsType<RouteWait>(Router(Donated).Choose(1, spend, At(1)));
+        var wait = Assert.IsType<RouteWait>(Router(Credit).Choose(1, spend, At(1)));
         Assert.Equal(At(2, 0), wait.Until);
-        Assert.True(Standing(Donated, At(2, 0), spend).HasRoom);
+        Assert.True(Standing(Credit, At(2, 0), spend).HasRoom);
     }
 
     [Fact]
     public void A_call_expected_to_cost_more_than_the_room_falls_through()
     {
-        var choice = Chosen(Router().Choose(1, [], At(1), estimateUsd: 2));
+        var choice = Chosen(Router().Choose(1, [], At(1), estimateUsd: 20));
 
-        Assert.Equal(("credit", 10m), (choice.Pool, choice.RoomUsd));
+        Assert.Equal(("subscription", (decimal?)null), (choice.Pool, choice.RoomUsd));
     }
 
     [Fact]
@@ -161,7 +173,7 @@ public class ModelRouterTests
     [Fact]
     public void A_fixed_pool_paces_to_its_expiry_when_that_comes_first_and_is_gone_after_it()
     {
-        var expiring = Donated with { Expires = new DateOnly(2026, 11, 5) };
+        var expiring = Bought with { Expires = new DateOnly(2026, 11, 5) };
 
         var lastDay = Standing(expiring, At(4));
         Assert.Equal((At(5, 0), 30m), (lastDay.Horizon!.Value, lastDay.AllowanceUsd));
@@ -173,7 +185,7 @@ public class ModelRouterTests
     [Fact]
     public void A_fixed_pool_has_no_room_before_its_start()
     {
-        var early = Standing(Donated, At(31, 12, 0, 10));
+        var early = Standing(Bought, At(31, 12, 0, 10));
 
         Assert.Equal((false, "not started"), (early.HasRoom, early.Why));
     }
@@ -181,7 +193,7 @@ public class ModelRouterTests
     [Fact]
     public void A_fixed_pool_past_its_spread_with_money_left_offers_all_of_it()
     {
-        var late = Standing(Donated, At(2, 12, 0, 12), new PoolSpend("donated", At(10), 20));
+        var late = Standing(Bought, At(2, 12, 0, 12), new PoolSpend("bought", At(10), 20));
 
         Assert.Equal(((DateTimeOffset?)null, (decimal?)10m, (decimal?)10m), (late.Horizon, late.AllowanceUsd, late.RoomUsd));
     }
@@ -240,7 +252,7 @@ public class ModelRouterTests
     [Fact]
     public void A_broken_block_names_each_problem()
     {
-        var broken = Settings(Donated with { SpreadDays = 0 }, Subscription with { RefillWeekday = "someday" }, Credit with { Name = "donated" }) with
+        var broken = Settings(Bought with { SpreadDays = 0 }, Subscription with { RefillWeekday = "someday" }, Credit with { Name = "bought" }) with
         {
             TimeZone = "Nowhere/Place",
             EscalateAfter = 0,
@@ -252,8 +264,8 @@ public class ModelRouterTests
 
         Assert.Contains("time_zone 'Nowhere/Place' is not a time zone this machine knows", problems);
         Assert.Contains("escalate_after must be at least 1", problems);
-        Assert.Contains("pool 'donated' is named more than once", problems);
-        Assert.Contains("pool 'donated': spread_days must be at least 1", problems);
+        Assert.Contains("pool 'bought' is named more than once", problems);
+        Assert.Contains("pool 'bought': spread_days must be at least 1", problems);
         Assert.Contains("pool 'subscription': a weekly pool needs refill_weekday, a day of the week in English", problems);
         Assert.Contains("default_tier 'missing' is not a tier", problems);
         Assert.Contains("tier 'cheap': no pool pays for any of its models", problems);

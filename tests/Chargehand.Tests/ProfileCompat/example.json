@@ -341,23 +341,6 @@
         "refill_time": "00:00"
       },
       {
-        "name": "one-off",
-        "kind": "fixed",
-        "models": [
-          "provider/small-model",
-          "provider/large-model"
-        ],
-        "total_usd": 10,
-        "quota_usd": null,
-        "daily_requests": null,
-        "start": "2026-01-01",
-        "spread_days": 30,
-        "expires": null,
-        "refill_day": 1,
-        "refill_weekday": null,
-        "refill_time": "00:00"
-      },
-      {
         "name": "credit",
         "kind": "monthly",
         "models": [
@@ -389,6 +372,23 @@
         "refill_day": 1,
         "refill_weekday": "sunday",
         "refill_time": "09:00"
+      },
+      {
+        "name": "bought",
+        "kind": "fixed",
+        "models": [
+          "provider/small-model",
+          "provider/large-model"
+        ],
+        "total_usd": 10,
+        "quota_usd": null,
+        "daily_requests": null,
+        "start": null,
+        "spread_days": null,
+        "expires": null,
+        "refill_day": 1,
+        "refill_weekday": null,
+        "refill_time": "00:00"
       }
     ]
   },

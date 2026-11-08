@@ -21,14 +21,15 @@ The owner wants model choice to be deliberate. There is to be no blanket pin or 
 the top one included, stays available. The router picks it per call, the top model when the task warrants it and a
 cheaper one when it does not.
 
-The money comes from four sources, used in this order (owner input, 2026-11-08):
+The money comes from four sources, used in this order (owner input, 2026-11-08, corrected the same day on chargehand#773):
 
 1. **Free models.** Their quotas are unknown.
-2. **A donated sum.** One-off, never refilled, no expiry given. The owner wants it spread over about 30 days.
-3. **An Anthropic credit.** Refills monthly. No refill day is given, so a calendar month is assumed.
-4. **The subscription.** Rate-limited rather than priced. It resets on Sundays at 09:00, and the timezone is not yet
+2. **An Anthropic credit.** Refills monthly. No refill day is given, so a calendar month is assumed.
+3. **The subscription.** Rate-limited rather than priced. It resets on Sundays at 09:00, and the timezone is not yet
    confirmed. Chargehand reaches it through the Claude Code runtime directly, so the gateway's spend log never sees it,
    and the router has to count this pool itself.
+4. **Bought credit.** A one-off sum, never refilled, no expiry given. Credit bought directly comes last: it is spent
+   only when the free models, the monthly credit and the subscription have no room.
 
 The amounts are in the owner's gitignored profile, not in this repository.
 
@@ -117,10 +118,12 @@ kind leaves the cheap tier.
 
 - The defect is fixed even with the router off: a driven session runs, and is priced as, the model its profile maps,
   never a CLI default.
-- Drain order is configuration. The owner's order puts the donated sum, which never expires, ahead of the monthly
-  credit, which lapses at each refill. Any part of the monthly credit left unspent at a refill is lost. The pacing
-  makes this less likely but does not rule it out. Swapping the two pools in `order` is a one-line change, to make if
-  the replay shows the credit lapsing.
+- Drain order is configuration. The owner's order spends what lapses or resets first (the monthly credit at each
+  refill, the subscription each Sunday) and keeps the bought credit, which never expires, for last. Any part of the
+  monthly credit left unspent at a refill is still lost; the pacing makes this less likely but does not rule it out.
+- An unmetered subscription always has room, so the bought credit after it is reached only for a tier the
+  subscription does not pay for, or on a day its caller marks the subscription exhausted (a rate limit). Setting
+  `quota_usd` on the subscription makes it pace like the other pools.
 - The router decides; it holds no balance. A pool that a provider refuses (a 429, or a quota) is marked exhausted by
   its caller for the day, which is how unknown free quotas show up.
 - Routing still never switches models within a node (ADR 0019). Escalation changes the tier only between a task's

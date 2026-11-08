@@ -127,9 +127,9 @@
     "routes": { "intake": "small", "research": "small", "review": "large", "code": "small", "code/L": "large" },
     "order": [
       { "name": "free", "kind": "free", "models": ["mistral-free/mistral-medium-latest"] },
-      { "name": "one-off", "kind": "fixed", "models": ["provider/small-model", "provider/large-model"], "total_usd": 10, "start": "2026-01-01", "spread_days": 30 },
       { "name": "credit", "kind": "monthly", "models": ["provider/small-model", "provider/large-model"], "total_usd": 100, "refill_day": 1 },
-      { "name": "subscription", "kind": "weekly", "models": ["provider/large-model"], "refill_weekday": "sunday", "refill_time": "09:00" }
+      { "name": "subscription", "kind": "weekly", "models": ["provider/large-model"], "refill_weekday": "sunday", "refill_time": "09:00" },
+      { "name": "bought", "kind": "fixed", "models": ["provider/small-model", "provider/large-model"], "total_usd": 10 }
     ]
   },
   "models": {
