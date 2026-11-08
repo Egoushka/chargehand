@@ -16,7 +16,9 @@ public sealed record LearningGroup(string Repository, string SizeClass, int Task
     double CompletionRate, double PartialRate, int Checkpointed, double CheckpointRate, int CheckpointedCompleted, double? CheckpointedCompletedRate, PrCounts Prs, double? MergedUnchangedRate);
 
 /// <param name="Since">Only tasks that ended at or after this; null: all.</param>
-public sealed record LearningSummary(DateTimeOffset? Since, int Tasks, IReadOnlyList<LearningGroup> Groups);
+/// <param name="BudgetRefusals">Tasks a gateway's budget refusal ended and merged pull requests per repository over 7 and 30 days before now, whatever <paramref name="Since"/> says
+/// (<see cref="Api.BudgetRefusals"/>); null where the caller did not ask for them.</param>
+public sealed record LearningSummary(DateTimeOffset? Since, int Tasks, IReadOnlyList<LearningGroup> Groups, IReadOnlyList<BudgetRefusalWindow>? BudgetRefusals = null);
 
 /// <summary>The learning records summed up per repository and size class (ADR 0045), for <c>chargehand learn report</c> and <c>GET /v1/learn</c>. Pure: the same entries give the same report.</summary>
 public static partial class LearningReport
