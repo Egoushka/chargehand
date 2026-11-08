@@ -8,6 +8,9 @@ updates:
     directory: /
     schedule: { interval: weekly }
     commit-message: { prefix: build }
+    groups:
+      modelcontextprotocol:
+        patterns: ["ModelContextProtocol*"]
   # ADR 0056: the operator console's packages. They are pinned exactly; a release must be 14 days old before a pull request proposes it.
   - package-ecosystem: npm
     directory: /web/console
