@@ -83,6 +83,23 @@ public static partial class LearningReport
         return DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var when) ? when : null;
     }
 
+    /// <summary>The median wall seconds of each phase over the last <paramref name="last"/> records that measured them (issue #781), slowest first: <c>chargehand learn phases</c>.</summary>
+    public static string RenderPhases(IReadOnlyList<LearningEntry> entries, int last)
+    {
+        var timed = entries.Select(e => e.Record).Where(r => r.Phases is not null).OrderBy(r => r.At).TakeLast(last).Select(r => r.Phases!).ToList();
+        (string Name, Func<LearningPhases, double?> Of)[] phases =
+            [("clone", p => p.CloneSeconds), ("restore", p => p.RestoreSeconds), ("model turns", p => p.ModelTurnsSeconds), ("checks", p => p.ChecksSeconds), ("handover", p => p.HandoverSeconds)];
+        var rows = phases.Select(p => (p.Name, Values: timed.Select(p.Of).OfType<double>().Select(v => (decimal)v).ToList()))
+            .Select(p => (p.Name, p.Values.Count, Median: LearningStats.Percentile(p.Values, 50), P80: LearningStats.Percentile(p.Values, 80)))
+            .OrderByDescending(p => p.Median ?? -1).ToList();
+        var sb = new StringBuilder().AppendLine("| phase | runs | median s | p80 s |").AppendLine("|---|---|---|---|");
+        foreach (var (name, count, median, p80) in rows)
+            sb.AppendLine(CultureInfo.InvariantCulture, $"| {name} | {count} | {Seconds(median)} | {Seconds(p80)} |");
+        return sb.AppendLine().AppendLine(CultureInfo.InvariantCulture, $"The last {timed.Count} runs with phase times. Nearest-rank percentiles of wall seconds.").ToString();
+    }
+
+    private static string Seconds(decimal? value) => value is { } v ? v.ToString("0.0", CultureInfo.InvariantCulture) : "-";
+
     [GeneratedRegex(@"^(\d{1,5})d$")]
     private static partial Regex Days();
 }
@@ -91,6 +108,19 @@ public static partial class LearningReport
 /// Exit 0, 2 on a usage error.</summary>
 public static class LearningCli
 {
+    /// <summary><c>chargehand learn phases [--last 30]</c>: the median wall time per run phase (issue #781). Exit 0, 2 on a usage error.</summary>
+    public static async Task<int> PhasesAsync(IReadOnlyList<string> args, ILearningStore store, TextWriter output, TextWriter error, CancellationToken ct)
+    {
+        var last = 30;
+        if (args.Count != 0 && (args is not ["--last", var n] || !int.TryParse(n, CultureInfo.InvariantCulture, out last) || last < 1))
+        {
+            error.WriteLine("usage: chargehand learn phases [--last <runs>]");
+            return 2;
+        }
+        output.Write(LearningReport.RenderPhases(await store.ReadAsync(ct), last));
+        return 0;
+    }
+
     public static async Task<int> RunAsync(IReadOnlyList<string> args, ILearningStore store, TextWriter output, TextWriter error, DateTimeOffset now, CancellationToken ct)
     {
         DateTimeOffset? since = null;

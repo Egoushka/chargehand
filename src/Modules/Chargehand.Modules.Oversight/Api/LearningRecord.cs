@@ -47,6 +47,9 @@ public sealed record LearningBudget(decimal? Usd, BudgetSource Source);
 /// <param name="Continuations">Sessions started after the first because one was stopped (ADR 0044).</param>
 public sealed record LearningSpend(decimal? UsdEstimate, bool UsdEstimatePartial, long InputTokens, long OutputTokens, long CacheReadTokens, long CacheWriteTokens, int Turns, int Continuations);
 
+/// <summary>Wall seconds a task spent per phase (issue #781): the workspace clone, the toolchain restore, the model's turns, the check gate's commands and the handover; null: not measured.</summary>
+public sealed record LearningPhases(double? CloneSeconds, double? RestoreSeconds, double? ModelTurnsSeconds, double? ChecksSeconds, double? HandoverSeconds);
+
 /// <summary>How many times the governor decided <paramref name="Action"/> on <paramref name="Signal"/> in the task, and how many of those ended a session (<c>acted</c>).</summary>
 public sealed record GovernorCount(string Signal, string Action, int Count, int Acted);
 
@@ -64,10 +67,12 @@ public sealed record LearningPr(string Url, int Number, RemoteRepository Remote,
 /// <param name="Actor">The account that started the batch (ADR 0050); null: the owner, or a batch from before accounts. An account's <c>GET /v1/learn</c> sees only its own.</param>
 /// <param name="MemoryPeakMb">The most memory any of the task's session containers used (MiB), read from its cgroup while it ran (ADR 0045, admission); null: not measured (a record from before it, or an engine that could not).</param>
 /// <param name="GoalTerms">The goal's words as hashes (<see cref="Oversight.Api.GoalTerms"/>), so the forecast can find similar tasks without the record holding the goal; null: a record from before it.</param>
+/// <param name="Phases">Wall seconds per phase (<see cref="LearningPhases"/>); null: a record from before it.</param>
 /// <param name="Bench">The batch was a benchmark run (<c>driven.bench</c>): its tasks are built to fail or run against stand-in forges, so the store leaves them out of budgets, reports and the console unless asked. Written only when true.</param>
 public sealed record LearningRecord(string BatchId, string TaskId, string RunId, DateTimeOffset At, string Repository, string SizeClass, string SizeFrom, LearningBudget Budget,
     LearningSpend Spend, string Outcome, string? StopReason, string? GovernorMode, IReadOnlyList<GovernorCount> Governor, bool TestIntegrityFlagged, LearningPr? Pr = null, string? Actor = null,
-    int? MemoryPeakMb = null, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Bench = false, IReadOnlyList<string>? GoalTerms = null)
+    int? MemoryPeakMb = null, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Bench = false, IReadOnlyList<string>? GoalTerms = null,
+    LearningPhases? Phases = null)
 {
     /// <summary>The task had at least one checkpoint decision, acted on or only logged.</summary>
     public bool Checkpointed => Governor.Any(g => g.Action == "checkpoint" && g.Count > 0);

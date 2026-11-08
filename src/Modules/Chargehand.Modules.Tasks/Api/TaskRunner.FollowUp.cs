@@ -19,7 +19,9 @@ public sealed partial class TaskRunner
 {
     private async Task<TaskOutcome> FinishAsync(ResolvedTask task, TaskRun run, IProgress<TaskUsage> progress, CancellationToken ct)
     {
+        var handingOver = Stopwatch.GetTimestamp();
         var (partial, handoverRun, handed) = await HandOverTaskAsync(task, run, ct);
+        PhasesOf(task.Id).Handover += Since(handingOver);
         if (handed?.Status is HandoverStatus.Pushed or HandoverStatus.PrFailed)
             run.Pushed = handed;
         var result = await ResultAsync(task, run, partial, handoverRun.RunId, handed, ct);

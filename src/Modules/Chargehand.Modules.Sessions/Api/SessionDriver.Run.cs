@@ -27,6 +27,7 @@ public static partial class SessionDriver
         private string? _stage;
         private int _waited;
         private decimal? _spentSoFar;
+        private readonly Stopwatch _checks = new();
 
         private async Task Govern(IReadOnlyList<GovernorDecision> made)
         {
@@ -114,8 +115,12 @@ public static partial class SessionDriver
             IReadOnlyList<CheckResult>? results = null;
             for (var attempt = 1; Finished(); attempt++)
             {
+                _checks.Start();
                 var ci = ciAware ? SessionChecks.CiResults(await ChangedPathsAsync(options.WorkDirectory, start!, ct), attempt) : [];
-                var others = await SessionChecks.RunAllAsync(rules, _task.Acceptance, options.WorkDirectory, attempt, options.Secrets, ct, declared: check);
+                // A round that goes back to the session stops at a failed declared check: it builds and tests the whole repository, so the rules after it only cost time (issue #781).
+                var others = await SessionChecks.RunAllAsync(rules, _task.Acceptance, options.WorkDirectory, attempt, options.Secrets, ct, declared: check,
+                    stopAfterFailedCheck: attempt <= _task.CheckRetries && _tally.SessionId is not null);
+                _checks.Stop();
                 results = [.. ci, .. others];
                 if (results.Count == 0)
                     return null;
@@ -252,6 +257,8 @@ public static partial class SessionDriver
             return measuring;
         }
 
+        private double? ChecksSeconds(IReadOnlyList<CheckResult>? checks) => checks is null ? null : Math.Round(_checks.Elapsed.TotalSeconds, 1);
+
         public async Task<SessionOutcome> FinishAsync(string? start, IReadOnlyList<CheckResult>? checks, CancellationToken ct)
         {
             string? governorHash = null;
@@ -277,7 +284,7 @@ public static partial class SessionDriver
             var outcome = new SessionOutcome(status, reason, detector.Turns, _tally.Input, _tally.Output, _tally.CacheRead, _tally.CostUsd, _exitCode,
                 [.. questions.Select(q => Redact(q, options.Secrets))], bundle, streamHash, _tally.CacheWrite, _tally.SessionId, _tally.Model, _tally.ModelUsage.Count == 0 ? null : _tally.ModelUsage,
                 _tally.UsdEstimate, status == SessionStatus.RateLimited ? GatewayRefusal.ResetsAt(_tally.ResultText, DateTimeOffset.UtcNow) : null, _tally.UsdEstimatePartial, commits, snapshotNote,
-                governor is null ? null : _decisions, governorHash, checks, reminder?.Gate.Sent ?? 0, _task.Bare);
+                governor is null ? null : _decisions, governorHash, checks, reminder?.Gate.Sent ?? 0, _task.Bare, ChecksSeconds(checks));
             await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "session-outcome.json"), Redact(JsonSerializer.Serialize(outcome, OutcomeJson.SessionOutcome), options.Secrets), ct);
             return outcome;
         }

@@ -76,10 +76,12 @@ public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed, Ra
 /// <param name="GovernorLogSha256">The SHA-256 of <c>governor.jsonl</c>; null when no governor ran.</param>
 /// <param name="Checks">The last run of each repository check and acceptance criterion; null when none ran (the session did not finish, or there were none).</param>
 /// <param name="GoalReminders">How many times the goal was queued for the session again (<see cref="GoalReminder"/>).</param>
+/// <param name="ChecksSeconds">Wall seconds the check gate's commands took over all its rounds (issue #781); null when none ran.</param>
 /// <param name="Bare">The session ran as the benchmark's bare arm. The host reads it back to refuse an image that predates the arm, which would have run the full session instead.</param>
 public sealed record SessionOutcome(SessionStatus Status, string Reason, int Turns, long InputTokens, long OutputTokens, long CacheReadTokens,
     decimal? CostUsd, int? ExitCode, IReadOnlyList<string> Questions, bool BundleWritten, string? StreamSha256 = null, long CacheWriteTokens = 0, string? SessionId = null,
     string? Model = null, IReadOnlyDictionary<string, TokenCounts>? ModelUsage = null, decimal? UsdEstimate = null, DateTimeOffset? RateLimitResetsAt = null, bool UsdEstimatePartial = false,
     int Commits = 0, string? SnapshotNote = null, IReadOnlyList<GovernorDecision>? Governor = null, string? GovernorLogSha256 = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<CheckResult>? Checks = null, int GoalReminders = 0,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Bare = false);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Bare = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] double? ChecksSeconds = null);

@@ -76,6 +76,18 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
     /// <summary>The most memory (MiB) any session container of a task has used, by task id; tasks of a batch run at once on one runner instance.</summary>
     private readonly ConcurrentDictionary<string, int> _memoryPeaks = new();
 
+    /// <summary>Wall seconds per phase by task id (issue #781), added up over the task's sessions.</summary>
+    private readonly ConcurrentDictionary<string, PhaseSeconds> _phases = new();
+
+    private sealed class PhaseSeconds
+    {
+        public double Clone, Restore, ModelTurns, Checks, Handover;
+    }
+
+    private PhaseSeconds PhasesOf(string taskId) => _phases.GetOrAdd(taskId, _ => new PhaseSeconds());
+
+    private static double Since(long started) => Stopwatch.GetElapsedTime(started).TotalSeconds;
+
     private sealed record BestRun(string RunId, string OutDirectory, int Commits);
 
 
