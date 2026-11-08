@@ -255,6 +255,10 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         {
             pushed = await PushAsync(input, run.Scratch, run.Commit, run.Env, run.Secrets, ct);
         }
+        catch (MergeConflictException e)
+        {
+            return run.Refuse(e.Message, ErrorCode.MergeConflict, run.Verification, run.Changed, verificationPaths: run.VerificationPaths, commit: run.Commit);
+        }
         catch (PushRejectedException e)
         {
             return run.Refuse($"the push was rejected: {e.Message}", ErrorCode.PushRejected, run.Verification, run.Changed, verificationPaths: run.VerificationPaths, commit: run.Commit);
