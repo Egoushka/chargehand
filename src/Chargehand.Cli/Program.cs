@@ -13,6 +13,7 @@ using Chargehand.Mcp;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Conversations.Api;
+using Chargehand.Modules.Events.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.PeerClones.Api;
@@ -636,6 +637,13 @@ bool SecretResolves(string item)
     }
 }
 
+/// <summary>The event log (ADR 0090) of <c>http.events</c>, in <c>events.db</c> beside the run log unless the profile names the file; each producer's token resolved from the secret store.</summary>
+EventService? EventLog(EventsSettings? events) =>
+    events is null
+        ? null
+        : new EventService(SqliteEventLog.Open(events.Database ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "events.db")),
+            [.. (events.Tokens ?? []).Select(t => (t.Grant(), profile.Secret(t.Secret)))]);
+
 /// <summary>The runtime conversations reach agents through (ADR 0086): null is the module's scripted agent; <c>acp</c> is the pinned list's agents, each on the key the profile gives it.</summary>
 IConversationRuntime? ConversationRuntime(ConversationSettings? conversations, Orchestrator orchestrator) =>
     conversations is { Runtime: "acp" }
@@ -699,7 +707,7 @@ async Task<int> Serve()
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), DailyWarningPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "limits", "daily-warning.json"), RunApprovalPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "limits", "run-approval.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn, Probes: HealthProbes(),
         Conversations: http.Conversations, ConversationsDirectory: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "conversations"),
-        ConversationRuntime: ConversationRuntime(http.Conversations, orchestrator)),
+        ConversationRuntime: ConversationRuntime(http.Conversations, orchestrator), Events: EventLog(http.Events)),
         orchestrator, runLog, drivenRun, GitHubIntake(drivenRun), Schedules(drivenRun), PhoneAnswers());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>The event log (ADR 0090): ingest, query, stream, scopes, and the threads and resume cards derived from it.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Shared\Chargehand.Kernel\Chargehand.Kernel.csproj" />
+  </ItemGroup>
+
+  <!-- The store is SQLite, as Switchknife.Journal's is; the same package that library brings. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
+  </ItemGroup>
+
+</Project>

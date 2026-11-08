@@ -819,6 +819,31 @@
             "runtime": { "type": "string", "enum": ["fake", "acp"], "default": "fake", "description": "The runtime the server reaches agents through. `fake` is a scripted agent that echoes, for trying the API. `acp` reaches the agents of acp-agents.json that acp.agents gives a key; a request names one as acp:<id>." },
             "max_messages": { "type": "integer", "minimum": 1, "maximum": 10000, "default": 200, "description": "Messages one conversation takes before it refuses more with 429." }
           }
+        },
+        "events": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Turns on the event log (ADR 0090): POST and GET /v1/events, GET /v1/events/stream (server-sent events, Last-Event-ID resumes) and GET /v1/threads with /v1/threads/{id}/card. The owner's key reads and writes everything; each token here is one producer's. Absent: the routes are not there.",
+          "properties": {
+            "database": { "type": "string", "minLength": 1, "description": "The SQLite file. Default: events.db beside the run log." },
+            "tokens": {
+              "type": "array",
+              "description": "Producers' bearer tokens, each bound to a source prefix and scope grants. A token opens /v1/events and /v1/threads and nothing else.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "secret", "source"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 1, "description": "Unique; refusals name the token by it." },
+                  "secret": { "type": "string", "minLength": 1, "description": "The secret-store item holding the token." },
+                  "source": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*(/[A-Za-z0-9._-]+)*$", "description": "The source prefix it writes: claude allows claude and claude/<instance>." },
+                  "read": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Scope globs it reads (* matches anything), e.g. project:*, channel:*, global." },
+                  "write": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Scope globs it writes. Any token may also post agent.message.sent to an agent: inbox." },
+                  "default_scope": { "type": "string", "pattern": "^(global|(project|run|channel|agent):.+)$", "description": "The scope of an event sent without one. Default: run:<actor.run> when the actor names a run, else global." }
+                }
+              }
+            }
+          }
         }
       }
     },

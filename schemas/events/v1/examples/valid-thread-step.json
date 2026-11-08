@@ -1,0 +1,19 @@
+{
+  "specversion": "1.0",
+  "id": "01JCB2W8M0R5V3T7K9Q1XYZAB",
+  "source": "claude",
+  "type": "thread.step.recorded",
+  "subject": "example-thread",
+  "time": "2026-11-08T21:14:03Z",
+  "datacontenttype": "application/json",
+  "data": {
+    "goal": "One event log a fresh session can resume work from",
+    "done": "Spec addendum merged; threads view designed",
+    "next": "Build ingest, query and the card",
+    "state": "open",
+    "refs": ["https://github.com/example/repo/pull/1"]
+  },
+  "actor": { "kind": "agent", "id": "cc/example", "name": "Brave Capybara", "run": null },
+  "effect": "write",
+  "scope": "project:example/repo"
+}
