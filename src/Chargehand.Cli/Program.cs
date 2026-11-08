@@ -89,6 +89,8 @@ const string Usage = """
       bench replay import|baseline  turns merged pull requests into bench tasks and checks each task's withheld tests (no model; `chargehand bench replay` prints its usage)
       bench report <results.json> [<other.json>]
                                    renders a benchmark's results again, or compares two runs
+      bench publish <results.json> [--out <file>] [--min-tasks <n>]
+                                   the merge rate of a finished replay run as bench-merge-rate/v1, for the website's live status
       init [<repo path>] [--profile <out path>] [--force]
                                    reads a repository's marker files, prints its ecosystems, the proposed context.verify and the
                                    package hosts the driven egress allowlist lacks, and writes a starter profile (never over a file without --force)
@@ -179,6 +181,8 @@ if (argv is ["verify-branch", .. var verifyBranchArgs])
 // Benchmarks (ADR 0052): a report is a file read; a run reads the profile for the images, the allowlist and the server it may reach.
 if (argv is ["bench", "report", .. var benchReportArgs])
     return Chargehand.Bench.BenchCli.Report(benchReportArgs, Console.Out, Console.Error);
+if (argv is ["bench", "publish", .. var benchPublishArgs])
+    return Chargehand.Bench.BenchPublish.Run(benchPublishArgs, Console.Out, Console.Error);
 if (argv is ["bench", "replay", .. var benchReplayArgs])
 {
     using var stop = new CancellationTokenSource();
