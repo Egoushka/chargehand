@@ -8,6 +8,7 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Conversations.Api;
+using Chargehand.Modules.Economics.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
@@ -62,7 +63,8 @@ public sealed record Profile(
     InboxSettings? Inbox = null,
     PublicFreeSettings? PublicFree = null,
     bool SkipStructuredIntake = false,
-    PeerCloneSettings? PeerClone = null)
+    PeerCloneSettings? PeerClone = null,
+    PoolsSettings? Pools = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
@@ -108,7 +110,7 @@ public sealed record Profile(
         TypeInfoResolver = JsonTypeInfoResolver.Combine(LedgerSettingsJsonContext.Default, AccountsSettingsJsonContext.Default,
             MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, HandoverSettingsJsonContext.Default, IntakeSettingsJsonContext.Default,
             BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default, SessionsSettingsJsonContext.Default, TasksSettingsJsonContext.Default,
-            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, ProfileJsonContext.Default),
+            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, EconomicsSettingsJsonContext.Default, ProfileJsonContext.Default),
     };
 
     /// <summary>Owner-visible defaults (this record's own default values) when the file does not exist.</summary>
@@ -155,6 +157,9 @@ public sealed record Profile(
         if (profile.Http?.Accounts?.Any(a => a.PublicClone) == true && profile.PeerClone is null)
             throw new ChargehandException(ErrorCode.InvalidRequest, "http.accounts: an account has public_clone: true, but the profile has no peer_clone",
                 "Add peer_clone to the profile, or set public_clone to false on the account.");
+        if (profile.Pools?.Problems().ToList() is { Count: > 0 } routerProblems)
+            throw new ChargehandException(ErrorCode.InvalidRequest, "pools: " + string.Join("; ", routerProblems),
+                "Fix pools in the profile; docs/adr/0095-a-budget-aware-model-router-drains-pools-in-order-and-paces-each-day.md lists the fields.");
         return profile;
     }
 

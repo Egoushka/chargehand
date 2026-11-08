@@ -204,8 +204,8 @@ public sealed partial class TaskRunner
         PhasesOf(task.Id).Restore += Since(restoring);
         // The bare arm (ADR 0080) keeps the limits and the caps, which bound its cost as they bound the other arm's, and drops everything that steers or checks the session.
         await volumes.WriteTaskAsync(runId, Bare
-            ? new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices, CheckRetries: 0, Bare: true)
-            : new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices,
+            ? new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, SessionModel(settings.Model), left.Usd, Prices: settings.Prices, CheckRetries: 0, Bare: true)
+            : new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, SessionModel(settings.Model), left.Usd, Prices: settings.Prices,
                 Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd, budget), Environment: settings.Shared?.ForSession(tools), Acceptance: task.Acceptance,
                 CheckRetries: preset.CheckRetries, ReminderMinutes: preset.GoalReminderMinutes > 0 ? preset.GoalReminderMinutes : null, ReminderTurns: preset.GoalReminderTurns,
                 Check: PrePushCheck), ct);
@@ -236,6 +236,11 @@ public sealed partial class TaskRunner
         Publish(task.Id, RunEventKind.SessionProgress, MiseInstaller.Describe(result));
         return result.Tools;
     }
+
+    /// <summary>The <c>--model</c> a session passes (ADR 0095): the model segment of the batch's <c>provider/model</c> id, as the in-process runtime sends it; null only for a placeholder no
+    /// profile mapped, which is the one case the CLI still picks its own default.</summary>
+    internal static string? SessionModel(string model) =>
+        model.StartsWith("provider/", StringComparison.Ordinal) || model.Length == 0 ? null : model.IndexOf('/', StringComparison.Ordinal) is var slash and >= 0 ? model[(slash + 1)..] : model;
 
     /// <summary>The proxy, the run id and the model credential or run token.</summary>
     private Dictionary<string, string> ModelEnvironment(string runId, int maxMinutes, (long Tokens, decimal? Usd) left, DateTimeOffset sessionStarted)

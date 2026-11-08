@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Chargehand.Config;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Economics.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
@@ -42,6 +43,7 @@ public class ProfileCompatTests
     [Theory]
     [InlineData(typeof(IReadOnlyDictionary<string, ModelPrice>), typeof(LedgerSettingsJsonContext))]
     [InlineData(typeof(IReadOnlyList<AccountSettings>), typeof(AccountsSettingsJsonContext))]
+    [InlineData(typeof(PoolsSettings), typeof(EconomicsSettingsJsonContext))]
     [InlineData(typeof(List<MemoryProviderSettings>), typeof(MemorySettingsJsonContext))]
     [InlineData(typeof(DrivenForge), typeof(ForgeSettingsJsonContext))]
     [InlineData(typeof(DrivenIntegrator), typeof(HandoverSettingsJsonContext))]

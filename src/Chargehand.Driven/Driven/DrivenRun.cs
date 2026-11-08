@@ -387,7 +387,8 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             ?? throw new ChargehandException(ErrorCode.CredentialUnavailable, "claude_code names no credential", "Set api_key_secret or oauth_token_secret.");
         var modelEnvironment = new Dictionary<string, string> { [priced ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN"] = Resolve(s, credential) };
         var fallbackSetup = FallbackSetup.Of(claude, kind.Model, profile.PriceOf, priced, fallback, name => Resolve(s, name), c.RunId);
-        return new BatchSetup(s, settings, claude, image, drivenPreset, kind.Model, own, priced, limits, push, modelEnvironment, SitesOf(s), fallbackSetup);
+        // The session names its model (ADR 0095): an unresolved placeholder would leave the CLI to pick one, and the batch would price a model that did not run.
+        return new BatchSetup(s, settings, claude, image, drivenPreset, profile.ResolveModel(kind.Model) ?? kind.Model, own, priced, limits, push, modelEnvironment, SitesOf(s), fallbackSetup);
     }
 
     /// <summary>The bare arm pushes a branch nobody has tested, so it is for the benchmark only (ADR 0080).</summary>
