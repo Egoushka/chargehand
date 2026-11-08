@@ -58,14 +58,17 @@ public static class SessionChecks
     }
 
     /// <param name="declared">The repository's declared check as a shell command (<see cref="Shell"/>); it runs first. Null: none.</param>
+    /// <param name="stopAfterFailedCheck">A failed declared check ends the round: the rules and criteria are not run.</param>
     public static async Task<IReadOnlyList<CheckResult>> RunAllAsync(IReadOnlyList<string> rules, IReadOnlyList<AcceptanceCheck>? acceptance, string workDirectory, int attempt,
-        IReadOnlyList<string> secrets, CancellationToken ct, TimeSpan? timeout = null, string? declared = null)
+        IReadOnlyList<string> secrets, CancellationToken ct, TimeSpan? timeout = null, string? declared = null, bool stopAfterFailedCheck = false)
     {
         List<CheckResult> results = [];
         if (declared is not null)
         {
             var (exit, output) = await RunAsync("/bin/sh", ["-c", declared], workDirectory, timeout ?? CheckTimeout, ct);
             results.Add(new CheckResult("check", SessionDriver.Redact(declared, secrets), exit == 0, exit, Tail(SessionDriver.Redact(output, secrets)), attempt));
+            if (exit != 0 && stopAfterFailedCheck)
+                return results;
         }
         foreach (var (check, i) in All(rules, acceptance).Select((c, i) => (c, i)))
         {

@@ -48,6 +48,7 @@ const string Usage = """
       runs replay <actions.jsonl>  prints a recorded run's tool calls and handover steps in order, read-only (ADR 0090)
       runs kill --all              removes every driven-session container and batch network by label (works with the server down)
       learn report [--since <days>d|<time>] [--include-bench]
+      learn phases [--last <runs>]  median wall seconds per run phase (clone, restore, model turns, checks, handover) over the last runs, 30 by default
                                    what finished driven tasks taught, per repository and size class: spend, completion, governor checkpoints,
                                    how their pull requests ended (reads learning.jsonl next to the run log; the server writes it)
       cost [--json]                dollars per merged pull request per repository and preset over 7 and 30 days, and the spend that left
@@ -294,6 +295,8 @@ switch (argv)
         return await Show(id);
     case ["runs", "kill", "--all"]:
         return await Chargehand.Modules.Runners.Api.RunsCli.KillAllAsync(new Chargehand.Modules.Runners.Api.DockerCliEngine(), Console.Out, Console.Error, ct);
+    case ["learn", "phases", .. var phaseOptions]:
+        return await Chargehand.Modules.Oversight.Api.LearningCli.PhasesAsync(phaseOptions, learning, Console.Out, Console.Error, ct);
     case ["learn", "report", .. var learnOptions]:
         return await Chargehand.Modules.Oversight.Api.LearningCli.RunAsync(learnOptions, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow, ct);
     case ["cost", .. var costOptions]:
