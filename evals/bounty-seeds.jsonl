@@ -1,0 +1,4 @@
+{"id":"seed-quote-length","claim":"A session_message locator that quotes a tool reply resolves only when the quotation is at least 20 characters long.","disproof":{"locator":"src/Chargehand/Verification/GitEvidenceResolver.cs:50","contains":"MinQuoteLength = 12"}}
+{"id":"seed-unknown-completion","claim":"Intake ranking treats a candidate whose forecast has no history as certain to complete, a completion probability of 1.","disproof":{"locator":"src/Modules/Chargehand.Modules.Oversight/Api/CandidateRanking.cs:20","contains":"UnknownCompletion = 0.5"}}
+{"id":"seed-claim-without-evidence","claim":"A result/v1 claim may have an empty evidence array.","disproof":{"locator":"schemas/result/v1/result.schema.json:26","contains":"\"minItems\": 1"}}
+{"id":"seed-stalled-not-retryable","claim":"An error coded session_stalled is never retryable.","disproof":{"locator":"src/Shared/Chargehand.Kernel/ChargehandException.cs:17-19","contains":"ErrorCode.SessionStalled"}}
