@@ -12,6 +12,8 @@
     <ProjectReference Include="..\Modules\Chargehand.Modules.Accounts\Chargehand.Modules.Accounts.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Batches\Chargehand.Modules.Batches.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Conversations\Chargehand.Modules.Conversations.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Economics\Chargehand.Modules.Economics.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Events\Chargehand.Modules.Events.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Forge\Chargehand.Modules.Forge.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Gateway\Chargehand.Modules.Gateway.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Handover\Chargehand.Modules.Handover.csproj" />
@@ -19,6 +21,7 @@
     <ProjectReference Include="..\Modules\Chargehand.Modules.Ledger\Chargehand.Modules.Ledger.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Memory\Chargehand.Modules.Memory.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Oversight\Chargehand.Modules.Oversight.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.PeerClones\Chargehand.Modules.PeerClones.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Research\Chargehand.Modules.Research.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Runners\Chargehand.Modules.Runners.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Sessions\Chargehand.Modules.Sessions.csproj" />

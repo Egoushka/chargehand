@@ -29,6 +29,8 @@
   "inbox": null,
   "public_free": null,
   "skip_structured_intake": false,
+  "peer_clone": null,
+  "pools": null,
   "roots": [
     "/var/tmp/chargehand/work"
   ],

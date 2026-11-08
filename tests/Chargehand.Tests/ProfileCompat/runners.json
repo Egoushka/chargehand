@@ -65,7 +65,8 @@
         "min_tasks": 5,
         "window_days": 30,
         "percentile": 90
-      }
+      },
+      "autonomy": null
     },
     "admission": {
       "reserve_mb": 0,
@@ -128,6 +129,8 @@
   "inbox": null,
   "public_free": null,
   "skip_structured_intake": false,
+  "peer_clone": null,
+  "pools": null,
   "roots": [
     "/var/tmp/chargehand/work"
   ],

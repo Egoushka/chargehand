@@ -8,12 +8,15 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Conversations.Api;
+using Chargehand.Modules.Economics.Api;
+using Chargehand.Modules.Events.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.PeerClones.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
@@ -60,7 +63,9 @@ public sealed record Profile(
     AcpSettings? Acp = null,
     InboxSettings? Inbox = null,
     PublicFreeSettings? PublicFree = null,
-    bool SkipStructuredIntake = false)
+    bool SkipStructuredIntake = false,
+    PeerCloneSettings? PeerClone = null,
+    PoolsSettings? Pools = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
@@ -106,7 +111,7 @@ public sealed record Profile(
         TypeInfoResolver = JsonTypeInfoResolver.Combine(LedgerSettingsJsonContext.Default, AccountsSettingsJsonContext.Default,
             MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, HandoverSettingsJsonContext.Default, IntakeSettingsJsonContext.Default,
             BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default, SessionsSettingsJsonContext.Default, TasksSettingsJsonContext.Default,
-            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, ProfileJsonContext.Default),
+            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, EconomicsSettingsJsonContext.Default, ProfileJsonContext.Default),
     };
 
     /// <summary>Owner-visible defaults (this record's own default values) when the file does not exist.</summary>
@@ -149,6 +154,13 @@ public sealed record Profile(
         if (profile.PublicFree?.Problems().ToList() is { Count: > 0 } poolProblems)
             throw new ChargehandException(ErrorCode.InvalidRequest, "public_free: " + string.Join("; ", poolProblems),
                 "Fix public_free in the profile; docs/adr/0093-runs-on-public-repositories-use-a-free-model-pool.md lists the fields.");
+        profile.PeerClone?.Validate();
+        if (profile.Http?.Accounts?.Any(a => a.PublicClone) == true && profile.PeerClone is null)
+            throw new ChargehandException(ErrorCode.InvalidRequest, "http.accounts: an account has public_clone: true, but the profile has no peer_clone",
+                "Add peer_clone to the profile, or set public_clone to false on the account.");
+        if (profile.Pools?.Problems().ToList() is { Count: > 0 } routerProblems)
+            throw new ChargehandException(ErrorCode.InvalidRequest, "pools: " + string.Join("; ", routerProblems),
+                "Fix pools in the profile; docs/adr/0095-a-budget-aware-model-router-drains-pools-in-order-and-paces-each-day.md lists the fields.");
         return profile;
     }
 
@@ -319,9 +331,10 @@ public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecr
 /// <param name="CloudflareAccess">Sign in by the email Cloudflare Access checked, with no key (ADR 0071); null: keys only.</param>
 /// <param name="ProxySignIn">Sign in by the email a trusted single-sign-on proxy forwards, with no key (ADR 0071); null: keys only.</param>
 /// <param name="Conversations">Turns on <c>/v1/conversations</c> (ADR 0086): a person steers an agent while it works. Null: the routes are not there.</param>
+/// <param name="Events">Turns on the event log (ADR 0090): <c>/v1/events</c>, its stream and <c>/v1/threads</c>, in <c>events.db</c> beside the run log. Null: the routes are not there.</param>
 public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null,
     int MaxConcurrentRuns = 1, IReadOnlyList<AccountSettings>? Accounts = null, bool Ui = false, CloudflareAccessSettings? CloudflareAccess = null,
-    ProxySignInSettings? ProxySignIn = null, ConversationSettings? Conversations = null)
+    ProxySignInSettings? ProxySignIn = null, ConversationSettings? Conversations = null, EventsSettings? Events = null)
 {
     /// <summary>Throws an invalid_request error naming the key when an account cannot work.</summary>
     internal void Validate()
@@ -334,6 +347,8 @@ public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string L
             throw new ChargehandException(ErrorCode.InvalidRequest, $"http.proxy_sign_in: {string.Join("; ", proxy)}", "Fix http.proxy_sign_in in the profile; docs/guide/server.md lists the keys.");
         if (Conversations?.Problems().ToList() is { Count: > 0 } conversations)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"http.conversations: {string.Join("; ", conversations)}", "Fix http.conversations in the profile; docs/guide/server.md lists the keys.");
+        if (Events?.Problems() is { Count: > 0 } events)
+            throw new ChargehandException(ErrorCode.InvalidRequest, string.Join("; ", events), "Fix http.events in the profile; docs/guide/reference.md lists the keys.");
     }
 }
 

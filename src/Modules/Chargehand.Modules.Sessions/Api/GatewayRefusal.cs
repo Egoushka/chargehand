@@ -8,7 +8,7 @@ namespace Chargehand.Modules.Sessions.Api;
 public static partial class GatewayRefusal
 {
     /// <summary>The <see cref="SessionOutcome.Reason"/> of a session that the gateway refused over a spend budget.</summary>
-    public const string BudgetReason = "budget_exhausted";
+    public const string BudgetReason = Chargehand.Modules.Oversight.Api.BudgetRefusals.StopReason;
 
     /// <summary>402, or a usage or rate limit (429) whose text names a budget.</summary>
     public static bool IsBudget(string? text) =>

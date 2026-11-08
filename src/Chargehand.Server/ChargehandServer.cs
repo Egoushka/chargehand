@@ -10,10 +10,12 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Conversations.Api;
+using Chargehand.Modules.Events.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.RunLog;
 using Chargehand.Server.Conversations;
+using Chargehand.Server.Events;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -48,6 +50,7 @@ namespace Chargehand.Server;
 /// <param name="Probes">What <c>?deep=1</c> on <c>/v1/health</c> checks besides the intake model (CHARGEHAND-316): the runners, the GitHub App and the push token the profile configures; null: none.</param>
 /// <param name="InboxDismissalsPath">The file of the inbox's dismissals (<c>inbox/dismissed.json</c>, ADR 0064); null: nothing can be dismissed.</param>
 /// <param name="Conversations">The profile's <c>http.conversations</c> (ADR 0086); null: <c>/v1/conversations</c> is not mapped.</param>
+/// <param name="Events">The event log of <c>http.events</c> (ADR 0090); null: <c>/v1/events</c> and <c>/v1/threads</c> are not mapped.</param>
 /// <param name="ConversationsDirectory">Where the conversations' journals live (<c>conversations/</c> beside the run log); needed with <paramref name="Conversations"/>.</param>
 /// <param name="ConversationRuntime">The runtime conversations reach agents through; null: the module's fake.</param>
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
@@ -56,7 +59,8 @@ public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirec
     Profile? Profile = null, Func<string, bool>? SecretPresent = null, string? IntakeStatePath = null, string? InboxDismissalsPath = null, string? DailyWarningPath = null, string? RunApprovalPath = null, TimeSpan? McpWait = null,
     CloudflareAccessSettings? Access = null, Func<CancellationToken, Task<string>>? AccessCerts = null,
     ProxySignInSettings? ProxySignIn = null, Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? ProxyResolver = null,
-    IReadOnlyList<DependencyProbe>? Probes = null, ConversationSettings? Conversations = null, string? ConversationsDirectory = null, IConversationRuntime? ConversationRuntime = null);
+    IReadOnlyList<DependencyProbe>? Probes = null, ConversationSettings? Conversations = null, string? ConversationsDirectory = null, IConversationRuntime? ConversationRuntime = null,
+    EventService? Events = null);
 
 /// <summary>
 /// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
@@ -137,6 +141,8 @@ public static partial class ChargehandServer
                 return new AnswerService(phone.Notifier(new ServerQuestionSource(() => new ConsoleContext(settings, runs, log, driven, new SecretPresence(settings.SecretPresent), dismissals)), settings.Clock));
             });
         // ADR 0086: only when the profile has http.conversations. After the resumer too: an earlier process's open conversations are lost before the listener opens.
+        if (settings.Events is { } eventLog)
+            builder.Services.AddSingleton(eventLog);
         if (settings.Conversations is { } conversations)
             builder.Services.AddSingleton(sp => new ConversationService(settings.ConversationRuntime ?? new FakeConversationRuntime(), settings.ConversationsDirectory
                 ?? throw new InvalidOperationException("http.conversations needs a directory for the journals"), conversations, log, settings.Clock,
@@ -175,6 +181,20 @@ public static partial class ChargehandServer
             if (CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(header), expected))
             {
                 Identify(ctx, Principal.Owner);
+                ctx.Items[EventRoutes.GrantKey] = EventGrant.Owner;
+                await next(ctx);
+                return;
+            }
+            // A producer's event token (http.events.tokens) opens the event log and the threads, within its grants, and nothing else.
+            if (header.StartsWith("Bearer ", StringComparison.Ordinal) && settings.Events?.Grant(header["Bearer ".Length..]) is { } grant)
+            {
+                if (!EventRoutes.Serves(ctx.Request.Path.Value ?? ""))
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    return;
+                }
+                ctx.Items[EventRoutes.GrantKey] = grant;
+                Identify(ctx, new Principal($"events:{grant.Name}"));
                 await next(ctx);
                 return;
             }
@@ -270,6 +290,8 @@ public static partial class ChargehandServer
         ConsoleRoutes.Map(app, settings, log, driven);
         if (settings.Conversations is not null)
             ConversationRoutes.Map(app);
+        if (settings.Events is not null)
+            EventRoutes.Map(app);
         if (phone?.Settings.Approvals is not null)
         {
             var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
@@ -327,7 +349,12 @@ public static partial class ChargehandServer
             var who = PrincipalHttp.Of(ctx);
             var includeBench = ctx.Request.Query.TryGetValue("bench", out var bench) && bench == "include";
             var entries = driven?.Learning is { } store ? (await store.ReadAsync(ctx.RequestAborted, includeBench)).Where(e => Principal.Sees(who, e.Record.Actor)).ToList() : [];
-            return Json(Chargehand.Modules.Oversight.Api.LearningReport.Build(entries, since), StatusCodes.Status200OK);
+            // The weekly check's figures (issue #802) ride along: budget refusals and merged pull requests over 7 and 30 days, whatever since says.
+            var report = Chargehand.Modules.Oversight.Api.LearningReport.Build(entries, since) with
+            {
+                BudgetRefusals = Chargehand.Modules.Oversight.Api.BudgetRefusals.Build(entries, DateTimeOffset.UtcNow),
+            };
+            return Json(report, StatusCodes.Status200OK);
         });
 
         // What a task is expected to cost before it starts (CHARGEHAND-438): the most similar finished tasks of the repository, else of the size class; an account's own records only.

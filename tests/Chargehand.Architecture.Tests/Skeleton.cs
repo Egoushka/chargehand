@@ -16,8 +16,12 @@ internal static class Skeleton
         ["Chargehand.Modules.Ledger"] = 2,
         ["Chargehand.Modules.Memory"] = 2,
         ["Chargehand.Modules.Journal"] = 2,
+        // The event log (ADR 0090) and the threads derived from it: on the Kernel only, so any module above may append to it later.
+        ["Chargehand.Modules.Events"] = 2,
         // driven.forge: Handover (push, pull request) and Oversight (pull-request outcomes) both read it.
         ["Chargehand.Modules.Forge"] = 2,
+        // A public repository's shallow clone (gh:owner/name), separate from anything else here.
+        ["Chargehand.Modules.PeerClones"] = 2,
         // Accounts prices a request against the account's spend, which the Ledger keeps.
         ["Chargehand.Modules.Accounts"] = 3,
         // Below Sessions, where the governor runs (ADR 0060, amendment of 2026-10-14).

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:chargehand:schema:events:v1",
+  "title": "chargehand event, v1",
+  "description": "One action recorded in the action log (ADR 0090): a CloudEvents 1.0 envelope with six extensions. A line of a run's actions.jsonl; seq is set by the server that stores it and is absent on input. Summaries and hashes only: no prompts, file contents or command output.",
+  "type": "object",
+  "required": ["specversion", "id", "source", "type", "time"],
+  "properties": {
+    "specversion": { "const": "1.0" },
+    "id": { "type": "string", "minLength": 1, "description": "Unique per source; a repeat of (source, id) is the same event." },
+    "source": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*(/[A-Za-z0-9._-]+)*$", "description": "<tool>[/<instance>], e.g. chargehand/session." },
+    "type": { "type": "string", "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+){2,}$", "description": "<domain>.<noun>.<past verb>, e.g. chargehand.tool.called." },
+    "subject": { "type": "string", "minLength": 1 },
+    "time": { "type": "string", "format": "date-time" },
+    "datacontenttype": { "type": "string", "minLength": 1 },
+    "data": { "type": "object" },
+    "dataref": { "type": "string", "minLength": 1 },
+    "seq": { "type": "integer", "minimum": 1 },
+    "correlationid": { "type": ["string", "null"] },
+    "causationid": { "type": ["string", "null"] },
+    "actor": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["person", "agent", "job", "service"] },
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": ["string", "null"] },
+        "run": { "type": ["string", "null"] }
+      }
+    },
+    "effect": { "enum": ["read", "write", "external", "irreversible"] },
+    "scope": { "type": "string", "pattern": "^(global|(project|run|channel|agent):.+)$" }
+  }
+}

@@ -60,6 +60,9 @@ public sealed partial class TaskRunner
             // An image from before the arm ignores the flag and runs the full session: say so rather than score it as the control.
             run.Session = plain with { Status = SessionStatus.Failed, Reason = "image_predates_bare_arm" };
         NoteSession(task, run, sessionEnded);
+        var phases = PhasesOf(task.Id);
+        phases.Checks += run.Session.ChecksSeconds ?? 0;
+        phases.ModelTurns += Math.Max(0, (sessionEnded - run.SessionStarted).TotalSeconds - (run.Session.ChecksSeconds ?? 0));
         // Saved after the session's events are published: a task that is Finished has published them, and a restart that reads the outcome again does not.
         await RecordAsync(task.Id, new TaskSessionRead());
         var session = run.Session;
@@ -191,14 +194,18 @@ public sealed partial class TaskRunner
     {
         var preset = settings.Preset;
         await engine.CreateVolumeAsync(RunnerNames.Out(runId), runId, ct);
+        var cloning = Stopwatch.GetTimestamp();
         await workspace.PrepareWorkspaceAsync(new WorkspaceSpec(runId, settings.Image, settings.SourcePath, RunnerNames.Work(runId), branch, settings.BaseCommit), ct);
+        PhasesOf(task.Id).Clone += Since(cloning);
         if (seed is not null)
             await volumes.WriteSeedAsync(runId, seed, ct);
+        var restoring = Stopwatch.GetTimestamp();
         var tools = settings.Mise is { } mise && settings.Shared?.Home is { } home ? await InstallToolchainAsync(task, runId, home, mise, ct) : null;
+        PhasesOf(task.Id).Restore += Since(restoring);
         // The bare arm (ADR 0080) keeps the limits and the caps, which bound its cost as they bound the other arm's, and drops everything that steers or checks the session.
         await volumes.WriteTaskAsync(runId, Bare
-            ? new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices, CheckRetries: 0, Bare: true)
-            : new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, MaxUsd: left.Usd, Prices: settings.Prices,
+            ? new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, SessionModel(settings.Model), left.Usd, Prices: settings.Prices, CheckRetries: 0, Bare: true)
+            : new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, SessionModel(settings.Model), left.Usd, Prices: settings.Prices,
                 Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd, budget), Environment: settings.Shared?.ForSession(tools), Acceptance: task.Acceptance,
                 CheckRetries: preset.CheckRetries, ReminderMinutes: preset.GoalReminderMinutes > 0 ? preset.GoalReminderMinutes : null, ReminderTurns: preset.GoalReminderTurns,
                 Check: PrePushCheck), ct);
@@ -229,6 +236,11 @@ public sealed partial class TaskRunner
         Publish(task.Id, RunEventKind.SessionProgress, MiseInstaller.Describe(result));
         return result.Tools;
     }
+
+    /// <summary>The <c>--model</c> a session passes (ADR 0095): the model segment of the batch's <c>provider/model</c> id, as the in-process runtime sends it; null only for a placeholder no
+    /// profile mapped, which is the one case the CLI still picks its own default.</summary>
+    internal static string? SessionModel(string model) =>
+        model.StartsWith("provider/", StringComparison.Ordinal) || model.Length == 0 ? null : model.IndexOf('/', StringComparison.Ordinal) is var slash and >= 0 ? model[(slash + 1)..] : model;
 
     /// <summary>The proxy, the run id and the model credential or run token.</summary>
     private Dictionary<string, string> ModelEnvironment(string runId, int maxMinutes, (long Tokens, decimal? Usd) left, DateTimeOffset sessionStarted)

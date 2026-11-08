@@ -5,6 +5,36 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.17](https://github.com/Egoushka/chargehand/compare/v0.19.16...v0.19.17) (2026-11-08)
+
+
+### Features
+
+* **bench:** measure token levers per preset over the eval cells ([#809](https://github.com/Egoushka/chargehand/issues/809)) ([a9bc60d](https://github.com/Egoushka/chargehand/commit/a9bc60dd9cf307ac9777eed3b0169e58d9b2a74c))
+* **cost:** count runs ended by a 402 and report it through cost --json and /v1/learn ([#804](https://github.com/Egoushka/chargehand/issues/804)) ([663eb63](https://github.com/Egoushka/chargehand/commit/663eb6359be42a4c7894cdb16148424a5d977f02))
+* **economics:** budget-aware model router, phase 1 (CHARGEHAND-773) ([#775](https://github.com/Egoushka/chargehand/issues/775)) ([c434b0e](https://github.com/Egoushka/chargehand/commit/c434b0e4732a0e6a23b0ac1776a35bed87388ab5))
+* **events:** event log with threads and resume cards ([#814](https://github.com/Egoushka/chargehand/issues/814)) ([903e580](https://github.com/Egoushka/chargehand/commit/903e580c79d99968eaa238d76f660467e9f58a38))
+* **events:** record driven-session tool calls and handover steps as events/v1, replay a run read-only ([#807](https://github.com/Egoushka/chargehand/issues/807)) ([85f3f1e](https://github.com/Egoushka/chargehand/commit/85f3f1e2c3aeaafa36f8cacbffed3a03d4b0d4b4))
+* **governor:** earned autonomy: rights grow with a clean record and shrink on reverts ([#806](https://github.com/Egoushka/chargehand/issues/806)) ([c7885b4](https://github.com/Egoushka/chargehand/commit/c7885b479687beec6f9841d4481a6cb5555a5e9c))
+* **governor:** quota harvester: use subscription quota that would ([#805](https://github.com/Egoushka/chargehand/issues/805)) ([223bf10](https://github.com/Egoushka/chargehand/commit/223bf10b921a1db9dc559d8b77fa99def295c031))
+* **peer-clones:** read public repositories through a shallow, size-checked clone ([#692](https://github.com/Egoushka/chargehand/issues/692)) ([fe998ee](https://github.com/Egoushka/chargehand/commit/fe998ee9da619a01df99e087b789a171c2209080))
+
+
+### Performance Improvements
+
+* **driven:** record wall time per run phase and stop a failed check round early ([#808](https://github.com/Egoushka/chargehand/issues/808)) ([05cc556](https://github.com/Egoushka/chargehand/commit/05cc55667473ee1e088a0e5622303bd26455e745))
+
+## [0.19.16](https://github.com/Egoushka/chargehand/compare/v0.19.15...v0.19.16) (2026-11-08)
+
+
+### Features
+
+* derive confidence from verified claims ([#770](https://github.com/Egoushka/chargehand/issues/770)) ([5b30e2f](https://github.com/Egoushka/chargehand/commit/5b30e2f481597eee072fdad8e552c3133e14990a))
+* **handover:** mutation-checked tests: new tests must kill mutants of the changed lines ([#800](https://github.com/Egoushka/chargehand/issues/800)) ([b28ab53](https://github.com/Egoushka/chargehand/commit/b28ab534d7a3098282395970d4ea55fecc87a27e))
+* **intake:** hold overlapping-scope starts, refuse pushing a branch that conflicts ([#737](https://github.com/Egoushka/chargehand/issues/737)) ([#765](https://github.com/Egoushka/chargehand/issues/765)) ([71c745c](https://github.com/Egoushka/chargehand/commit/71c745c7746b3486544fc295b0e428c6b5014fba))
+* **runtime:** batch-API lane for scheduled work that can wait ([#797](https://github.com/Egoushka/chargehand/issues/797)) ([34069c2](https://github.com/Egoushka/chargehand/commit/34069c2720bd16da56e789b0513eff936700831b))
+* **sessions:** wait out the subscription's rate limit and resume the session (ADR 0096) ([#801](https://github.com/Egoushka/chargehand/issues/801)) ([bd8cae2](https://github.com/Egoushka/chargehand/commit/bd8cae233fad098e0ad4de99f33a5a9899cd9d36))
+
 ## [0.19.15](https://github.com/Egoushka/chargehand/compare/v0.19.14...v0.19.15) (2026-11-08)
 
 

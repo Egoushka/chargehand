@@ -34,10 +34,11 @@ namespace Chargehand.Modules.Handover.Api;
 /// pre-push check is a filter. A repository with no CI and no check is refused unless the change is documentation only.</param>
 /// <param name="PrePushCheck">With <paramref name="CiVerifies"/>: the check the session driver ran before the push (<c>VerifyCommand.Declared</c>); null: none was declared.</param>
 /// <param name="FallbackBaseBranch">For a pull request stacked on another task's branch (ADR 0049), <paramref name="BaseBranch"/> is that branch: if the host refuses it, the pull request is opened against this one instead and says so.</param>
+/// <param name="MutationShare">Issue 788: the share of mutants of the changed lines the tests must kill, 0 to 1, checked by the handover's mutation tester; null: not checked.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
     bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false, string? FallbackBaseBranch = null, bool LocalOnly = false, Provenance? Provenance = null, bool Bare = false,
-    bool CiVerifies = false, IReadOnlyList<string>? PrePushCheck = null, CommitIdentity? Identity = null);
+    bool CiVerifies = false, IReadOnlyList<string>? PrePushCheck = null, CommitIdentity? Identity = null, double? MutationShare = null);
 
 /// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
 public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
@@ -80,7 +81,7 @@ public sealed record ChangeSummary(IReadOnlyList<FileChange> Files, string? Diff
 /// for the branch).</summary>
 /// <param name="pause">Waits between push attempts (<see cref="PushPauses"/>); tests pass one that does not.</param>
 public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pullRequests, DrivenForge? forge = null, DrivenJournal? steps = null, string? batchId = null,
-    Func<TimeSpan, CancellationToken, Task>? pause = null) : IBranchHandover
+    Func<TimeSpan, CancellationToken, Task>? pause = null, IMutationTester? mutation = null) : IBranchHandover
 {
     private readonly Func<TimeSpan, CancellationToken, Task> _pause = pause ?? ((by, ct) => Task.Delay(by, ct));
 
@@ -113,6 +114,8 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             return ciRefused;
         if (await VerifyBranchAsync(run, ct) is { } notVerified)
             return notVerified;
+        if (await MutationCheckAsync(run, ct) is { } weakTests)
+            return weakTests;
         if (await StampAsync(run, ct) is { } notStamped)
             return notStamped;
         if (await PushBranchAsync(run, ct) is { } notPushed)
@@ -234,7 +237,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             verification = new VerificationRecord(plan.Argv, plan.Source, -1, Redact($"the verification could not run: {e.Message}", run.Secrets), false, TimeSpan.Zero, false);
         }
         run.Verification = verification;
-        input.Report?.Invoke(new HandoverEvent(RunEventKind.VerifyFinished, VerifyDetail(verification)));
+        Report(input, new HandoverEvent(RunEventKind.VerifyFinished, VerifyDetail(verification)));
         if ((verification.ExitCode != 0 || verification.TimedOut) && !input.Partial)
             return run.Refuse(verification.TimedOut ? "the tests timed out in chargehand's own verification" : $"the tests failed in chargehand's own verification (exit {verification.ExitCode})", ErrorCode.VerificationFailed,
                 verification, run.Changed, verificationPaths: run.VerificationPaths, commit: run.Commit);
@@ -268,7 +271,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         {
             return run.Refuse($"no push credential: {e.Message}", ErrorCode.CredentialUnavailable, run.Verification, run.Changed, verificationPaths: run.VerificationPaths, commit: run.Commit);
         }
-        input.Report?.Invoke(new HandoverEvent(RunEventKind.Pushed, pushed.Adopted ? $"{input.Branch} was already on the remote" : $"pushed {input.Branch}"));
+        Report(input, new HandoverEvent(RunEventKind.Pushed, pushed.Adopted ? $"{input.Branch} was already on the remote" : $"pushed {input.Branch}"));
         return null;
     }
 
@@ -287,7 +290,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity, run.NoTestsRule, run.CiVerdict);
             var (pr, bodyUsed) = await OpenPullRequestAsync(input, repository, prBody, ct);
             var detail = pr.Reused && input.UpdateReused ? await UpdateReusedAsync(run, repository, pr, bodyUsed, ct) : "draft pull request opened";
-            input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, detail, pr.Url));
+            Report(input, new HandoverEvent(RunEventKind.PrOpened, detail, pr.Url));
             return new(HandoverStatus.Pushed, "", null, input.Branch, commit, pr, verification, changed, verificationPaths, [], changes, integrity);
         }
         catch (PullRequestException e)

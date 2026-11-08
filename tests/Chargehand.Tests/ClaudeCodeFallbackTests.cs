@@ -110,6 +110,7 @@ public sealed class ClaudeCodeFallbackTests : IDisposable
         File.WriteAllText(Path.Combine(_dir.Path, "limited"), "");
         var rt = await ClaudeCodeWorkerRuntime.ConnectAsync(FakeClaude(), "2.1.195", new ClaudeCodeCredential("oauth-sub", true), default,
             new Uri("http://gateway.internal/sub"), "x-bf-vk: vk-sub", gate is null ? null : new ClaudeCodeFallback("sk-api", new Uri("http://gateway.internal/api"), gate));
+        rt.QuotaWaitLimit = TimeSpan.Zero;
         var session = await rt.CreateAsync(new NodeSpec(_dir.Path, "build", null, [], new Dictionary<string, string>()), default);
         return (rt, session.Id);
     }

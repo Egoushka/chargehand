@@ -20,11 +20,14 @@ public static partial class SessionDriver
         private readonly SessionTask _task = options.Task;
         private readonly Tally _tally = new(options.Task.Prices);
         private readonly SessionTrace _trace = new();
+        private readonly SessionActions _actions = new(options.Task.RunId, options.Secrets);
         private readonly StopCause _stoppedBy = new();
         private readonly List<GovernorDecision> _decisions = [];
         private SessionUsage? _lastUsage;
         private string? _stage;
+        private int _waited;
         private decimal? _spentSoFar;
+        private readonly Stopwatch _checks = new();
 
         private async Task Govern(IReadOnlyList<GovernorDecision> made)
         {
@@ -72,6 +75,31 @@ public static partial class SessionDriver
             _exitCode = _process.ExitCode;
         }
 
+        /// <summary>Runs <paramref name="begin"/>'s process; while it ends on the subscription's rate limit and <see cref="QuotaWait"/> allows, sleeps to the reset and resumes the session (ADR 0096).
+        /// With no session id yet (the limit hit before the first message) it starts <paramref name="begin"/> again.</summary>
+        public async Task DriveWaitingAsync(Func<ProcessStartInfo> begin, Func<(string SessionId, string Prompt), ProcessStartInfo> resume, string? start, DateTimeOffset started, CancellationToken ct)
+        {
+            await DriveAsync(begin(), start, started, ct);
+            while (_stoppedBy.Cause is null && WaitFor() is { } delay)
+            {
+                _waited++;
+                await stream.WriteLineAsync($$"""{"type":"system","subtype":"quota_wait","resume_at":"{{DateTimeOffset.UtcNow + delay:O}}"}""");
+                await stream.FlushAsync(ct);
+                await (options.Delay ?? Task.Delay)(delay, ct);
+                detector.Touch(DateTimeOffset.UtcNow);
+                var session = _tally.SessionId;
+                _tally.NewProcess();
+                await DriveAsync(session is null ? begin() : resume((session, QuotaWait.ResumePrompt)), start, DateTimeOffset.UtcNow, ct);
+            }
+        }
+
+        private TimeSpan? WaitFor()
+        {
+            var now = DateTimeOffset.UtcNow;
+            var allowed = _task.QuotaWaitMinutes is { } minutes ? TimeSpan.FromMinutes(minutes) : QuotaWait.Longest;
+            return QuotaWait.Delay(_tally.HasResult && _tally.ResultIsError, _tally.ResultText, _tally.ResultApiStatus, now, _waited, TimeSpan.FromTicks(Math.Min(allowed.Ticks, detector.Remaining(now).Ticks)));
+        }
+
         /// <summary>The check gate: while the session finished on its own, run the repository's checks and the task's criteria, and look for a CI-configuration edit
         /// (issue #527: chargehand refuses to push one, so it is caught here, before the handover would refuse it after the whole session ran). A failure resumes the
         /// session with the failure as its next turn, at most <see cref="SessionTask.CheckRetries"/> times and within the wall clock.</summary>
@@ -87,8 +115,12 @@ public static partial class SessionDriver
             IReadOnlyList<CheckResult>? results = null;
             for (var attempt = 1; Finished(); attempt++)
             {
+                _checks.Start();
                 var ci = ciAware ? SessionChecks.CiResults(await ChangedPathsAsync(options.WorkDirectory, start!, ct), attempt) : [];
-                var others = await SessionChecks.RunAllAsync(rules, _task.Acceptance, options.WorkDirectory, attempt, options.Secrets, ct, declared: check);
+                // A round that goes back to the session stops at a failed declared check: it builds and tests the whole repository, so the rules after it only cost time (issue #781).
+                var others = await SessionChecks.RunAllAsync(rules, _task.Acceptance, options.WorkDirectory, attempt, options.Secrets, ct, declared: check,
+                    stopAfterFailedCheck: attempt <= _task.CheckRetries && _tally.SessionId is not null);
+                _checks.Stop();
                 results = [.. ci, .. others];
                 if (results.Count == 0)
                     return null;
@@ -102,7 +134,7 @@ public static partial class SessionDriver
                 // The checks' own time is not the session's silence.
                 detector.Touch(DateTimeOffset.UtcNow);
                 _tally.NewProcess();
-                await DriveAsync(resume((session, SessionChecks.Feedback(results, attempt, _task.CheckRetries))), start, DateTimeOffset.UtcNow, ct);
+                await DriveWaitingAsync(() => resume((session, SessionChecks.Feedback(results, attempt, _task.CheckRetries))), resume, start, DateTimeOffset.UtcNow, ct);
             }
             // A resumed session that did not finish keeps its own status.
             return results;
@@ -116,7 +148,7 @@ public static partial class SessionDriver
                 return;
             detector.Touch(DateTimeOffset.UtcNow);
             _tally.NewProcess();
-            await DriveAsync(resume((session, ReportRequest)), start, DateTimeOffset.UtcNow, ct);
+            await DriveWaitingAsync(() => resume((session, ReportRequest)), resume, start, DateTimeOffset.UtcNow, ct);
         }
 
         /// <summary>A finished session that made no commit of its own but left changes is asked once to commit them: the handover takes only the branch's commits, so its files
@@ -128,7 +160,7 @@ public static partial class SessionDriver
                 return;
             detector.Touch(DateTimeOffset.UtcNow);
             _tally.NewProcess();
-            await DriveAsync(resume((session, CommitRequest)), start, DateTimeOffset.UtcNow, ct);
+            await DriveWaitingAsync(() => resume((session, CommitRequest)), resume, start, DateTimeOffset.UtcNow, ct);
         }
 
         private bool Finished() => _stoppedBy.Cause is null && _tally.HasResult && !_tally.ResultIsError && Extract(_tally).Questions.Count == 0;
@@ -148,6 +180,19 @@ public static partial class SessionDriver
             }
         }
 
+        /// <summary>Appends the session's new tool calls to its action log (ADR 0090); a log that cannot be written does not stop the session.</summary>
+        private void Record(IReadOnlyList<Chargehand.Modules.Journal.Api.ActionEvent> calls)
+        {
+            try
+            {
+                foreach (var call in calls)
+                    Chargehand.Modules.Journal.Api.ActionLog.Append(options.OutDirectory, call);
+            }
+            catch (Exception x) when (x is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+
         public async Task ReadAsync(CancellationToken ct)
         {
             string? line;
@@ -162,6 +207,7 @@ public static partial class SessionDriver
                 detector.OnEvent(e, now);
                 _tally.Add(e);
                 _trace.OnEvent(e);
+                Record(_actions.OnEvent(e, now));
                 _stage = Adherence.StageOf(e) ?? _stage;
                 if (governor is not null)
                 {
@@ -211,6 +257,8 @@ public static partial class SessionDriver
             return measuring;
         }
 
+        private double? ChecksSeconds(IReadOnlyList<CheckResult>? checks) => checks is null ? null : Math.Round(_checks.Elapsed.TotalSeconds, 1);
+
         public async Task<SessionOutcome> FinishAsync(string? start, IReadOnlyList<CheckResult>? checks, CancellationToken ct)
         {
             string? governorHash = null;
@@ -236,7 +284,7 @@ public static partial class SessionDriver
             var outcome = new SessionOutcome(status, reason, detector.Turns, _tally.Input, _tally.Output, _tally.CacheRead, _tally.CostUsd, _exitCode,
                 [.. questions.Select(q => Redact(q, options.Secrets))], bundle, streamHash, _tally.CacheWrite, _tally.SessionId, _tally.Model, _tally.ModelUsage.Count == 0 ? null : _tally.ModelUsage,
                 _tally.UsdEstimate, status == SessionStatus.RateLimited ? GatewayRefusal.ResetsAt(_tally.ResultText, DateTimeOffset.UtcNow) : null, _tally.UsdEstimatePartial, commits, snapshotNote,
-                governor is null ? null : _decisions, governorHash, checks, reminder?.Gate.Sent ?? 0, _task.Bare);
+                governor is null ? null : _decisions, governorHash, checks, reminder?.Gate.Sent ?? 0, _task.Bare, ChecksSeconds(checks));
             await File.WriteAllTextAsync(Path.Combine(options.OutDirectory, "session-outcome.json"), Redact(JsonSerializer.Serialize(outcome, OutcomeJson.SessionOutcome), options.Secrets), ct);
             return outcome;
         }

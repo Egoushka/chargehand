@@ -1,0 +1,15 @@
+{
+  "specversion": "1.0",
+  "id": "toolu_01",
+  "source": "chargehand/session",
+  "type": "chargehand.tool.called",
+  "subject": "Edit",
+  "time": "2026-11-08T12:00:00Z",
+  "datacontenttype": "application/json",
+  "data": { "tool": "Edit", "summary": "Edit src/Foo.cs", "input_sha256": "0000000000000000000000000000000000000000000000000000000000000000" },
+  "correlationid": "run-1",
+  "causationid": null,
+  "actor": { "kind": "agent", "id": "run-1", "name": null, "run": "run-1" },
+  "effect": "write",
+  "scope": "run:run-1"
+}

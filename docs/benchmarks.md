@@ -20,6 +20,16 @@ Checked on 2026-10-13 without a model: the pins exist upstream; every acceptance
 |---|---|---|---|---|---|---|
 | none yet | | | | | | |
 
+## Token levers per preset (issue #780)
+
+Status: the harness is built (`chargehand eval levers`, [guide](guide/token-levers.md)); **no real run has been made**.
+It compares three levers, prompt language (`terse-worker-prompt`), the output and thinking budget (`effort-low`) and
+context trimming (`compact-at-30k`), per cell and preset, with tokens and pass rate for base and lever.
+
+| Run | Date | Cell | Lever | Tokens, base → lever | Pass rate, base → lever | Verdict | Keep |
+|---|---|---|---|---|---|---|---|
+| none yet | | | | | | | |
+
 ## Phase 5 exit (0.1.0)
 
 ### Content engine's call through the interface: met

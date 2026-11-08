@@ -19,7 +19,9 @@ public sealed partial class TaskRunner
 {
     private async Task<TaskOutcome> FinishAsync(ResolvedTask task, TaskRun run, IProgress<TaskUsage> progress, CancellationToken ct)
     {
+        var handingOver = Stopwatch.GetTimestamp();
         var (partial, handoverRun, handed) = await HandOverTaskAsync(task, run, ct);
+        PhasesOf(task.Id).Handover += Since(handingOver);
         if (handed?.Status is HandoverStatus.Pushed or HandoverStatus.PrFailed)
             run.Pushed = handed;
         var result = await ResultAsync(task, run, partial, handoverRun.RunId, handed, ct);
@@ -263,7 +265,8 @@ public sealed partial class TaskRunner
             Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
             Goal: task.Goal, UpdateReused: !partial && task.From?.Pushed is null, PolicyNote: stack is null && settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null,
             FallbackBaseBranch: stack?.PullRequestBase is null ? null : settings.BaseBranch,
-            Provenance: TaskProvenance.Of(task, run.RunId, spent, settings.Model, settings.ClaudeVersion), Bare: bare, CiVerifies: CiVerifies, PrePushCheck: PrePushCheck, Identity: settings.Identity), ct);
+            Provenance: TaskProvenance.Of(task, run.RunId, spent, settings.Model, settings.ClaudeVersion), Bare: bare, CiVerifies: CiVerifies, PrePushCheck: PrePushCheck, Identity: settings.Identity,
+            MutationShare: settings.Preset.MutationShare), ct);
 
     /// <summary>ADR 0078: under mise the repository's CI verifies. ADR 0075: so it does for a Gradle repository whose session image has no JDK, where the detected command could only fail.</summary>
     private bool CiVerifies => settings.Mise is not null || settings.Shared is { NoJdk: true };

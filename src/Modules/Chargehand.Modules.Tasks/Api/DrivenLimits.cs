@@ -8,13 +8,14 @@ namespace Chargehand.Modules.Tasks.Api;
 /// <param name="CheckRetries">Times a failed repository check or acceptance criterion goes back to the session before it ends <c>checks_failed</c>.</param>
 /// <param name="GoalReminderMinutes">The session is sent its goal and criteria again after this many minutes; 0: never.</param>
 /// <param name="GoalReminderTurns">Also after this many assistant messages; null: by minutes only.</param>
+/// <param name="MutationShare">Issue 788: the share of mutants of the changed C# lines the tests must kill before the handover pushes, 0 to 1; null: no mutation check.</param>
 public sealed record DrivenPreset(int MaxMinutes = 45, int NoProgressMinutes = 10, int MaxTurns = 80, long? MaxTokens = null, int MemoryMb = 4096,
-    double Cpus = 2, int Pids = 512, IReadOnlyList<string>? Allow = null, int MaxContinuations = 2, int CheckRetries = 2, int GoalReminderMinutes = 60, int? GoalReminderTurns = null);
+    double Cpus = 2, int Pids = 512, IReadOnlyList<string>? Allow = null, int MaxContinuations = 2, int CheckRetries = 2, int GoalReminderMinutes = 60, int? GoalReminderTurns = null, double? MutationShare = null);
 
 /// <summary>The preset's <c>driven</c> limits, set per server. A key left out keeps the preset's value; the preset's allowlist stays the preset's
 /// (<c>network.allow</c> adds hosts). Prompts and permissions are not here: they are what Prompt CI evaluates.</summary>
 public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes = null, int? MaxTurns = null, long? MaxTokens = null, int? MemoryMb = null,
-    double? Cpus = null, int? Pids = null, int? MaxContinuations = null, int? CheckRetries = null, int? GoalReminderMinutes = null, int? GoalReminderTurns = null) : IValidatableObject
+    double? Cpus = null, int? Pids = null, int? MaxContinuations = null, int? CheckRetries = null, int? GoalReminderMinutes = null, int? GoalReminderTurns = null, double? MutationShare = null) : IValidatableObject
 {
     public DrivenPreset Apply(DrivenPreset preset) => preset with
     {
@@ -29,6 +30,7 @@ public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes
         CheckRetries = CheckRetries ?? preset.CheckRetries,
         GoalReminderMinutes = GoalReminderMinutes ?? preset.GoalReminderMinutes,
         GoalReminderTurns = GoalReminderTurns ?? preset.GoalReminderTurns,
+        MutationShare = MutationShare ?? preset.MutationShare,
     };
 
     /// <summary>Throws an invalid_request error naming the key when a value is outside what the preset schema and the container template accept.</summary>
@@ -50,6 +52,7 @@ public sealed record DrivenLimits(int? MaxMinutes = null, int? NoProgressMinutes
         if (CheckRetries is < 0 or > 5) yield return "check_retries must be 0 to 5";
         if (GoalReminderMinutes is < 0) yield return "goal_reminder_minutes must be 0 (off) or more";
         if (GoalReminderTurns is < 1) yield return "goal_reminder_turns must be at least 1";
+        if (MutationShare is < 0 or > 1 || MutationShare is double.NaN) yield return "mutation_share must be 0 to 1";
     }
 }
 
