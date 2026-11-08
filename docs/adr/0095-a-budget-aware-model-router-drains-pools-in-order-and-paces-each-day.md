@@ -1,6 +1,6 @@
 # 0095. A budget-aware model router drains pools in order and paces each day
 
-- Status: proposed
+- Status: proposed; amended 2026-11-08 (D-113), see the last section
 - Date: 2026-11-08
 
 ## Context
@@ -145,3 +145,48 @@ kind leaves the cheap tier.
 - The replay's projected cost per merged pull request comes out above the actual cost.
 - A cheap tier fails the stop condition for most task kinds.
 - The owner gives a refill day, an expiry or a timezone that the calendar-month and UTC assumptions got wrong.
+- A provider refuses without text the router recognises (`ChargehandException.BudgetRefused`, the rate-limit rule): the pool then never leaves the order.
+
+## Amended 2026-11-08 (D-113)
+
+The first version refused a call when a pool's configured amount or daily allowance was spent. Those figures are the owner's estimates, and the
+subscription cannot be metered by chargehand at all, so refusing on them stops work the provider would still have served, while the provider's own
+refusal is the one signal that is never wrong. This section replaces the parts of Decision, Choosing and Consequences that say otherwise; the rest stands.
+
+**Order.** Pools drain in the order listed, and the order is configuration. The owner's: the subscription first, then the monthly credit of the plan's
+API account, then the credit of the other providers. Free models sit in the cheap tier ahead of the paid ones and take mechanical work.
+
+**Limits only warn.** `total_usd`, `quota_usd`, `daily_requests` and the paced daily allowance no longer remove a pool. A pool is out only when it has
+expired, has not started, or its provider refused a call on it. A pool over a limit still takes the call: its standing carries a warning (`empty`,
+`today's allowance is spent`, `today's requests are used`), `Routed.Warning` holds it, and one line `chargehand: pool '<name>': <warning>` goes to the
+operator's console for each routed call.
+
+**A provider's refusal drains the pool, and the call falls through.** A run that ends in a spent budget (a 402, "payment required", "budget has been
+exceeded") takes its pool out until the pool's next refill, or the next day when it has none. Any other rate limit (a 429, a used quota) takes it out
+until the next day. The call then goes to the next eligible pool:
+
+- the orchestrator's single run starts again on the next pool when the refused try produced no artifacts, with the same run id and one run record
+  (the last try's), at most as many tries as there are pools;
+- a driven batch keeps one pool for its whole run. Its refusal ends it as a retryable rate limit and marks the pool, so the next start takes the next
+  pool. While another pool can still take the batch, the refusal does not close the global start gate;
+- the router answers `wait` only when every eligible pool of the first tier that has any is out.
+
+**Data classes.** Every routed call carries the class of the data it touches, read from the repository path the run was asked about, and a lookup
+that fails or finds nothing is the safe class:
+
+| class | what it is | may reach |
+|---|---|---|
+| `public` | GitHub reports the repository public (the visibility lookup of ADR 0093) | any model |
+| `owner_private` | named in `pools.owner_private_repos` (`owner/name` or `owner/*`), which the owner keeps for repositories with no personal or employer data | any model |
+| `restricted` | everything else: a checkout with a directory from `pools.restricted_path_segments` in its path (default `work`), other people's words, secrets, a private repository nobody vouched for, an unknown | only the models a pool lists in `no_training_models` (`*`: all of the pool's models), those whose provider does not train on prompts through that pool |
+
+A pool that does not keep a model private is skipped for restricted data as if it did not pay for the tier. A tier with no eligible model moves the
+call one tier up, never down. With none anywhere the router answers `blocked`: the call fails with `repository_not_allowed`, is never held or retried,
+and names `no_training_models` and `owner_private_repos` as the fix. An enabled block must list `no_training_models` on some pool, or the profile is
+refused. The class is recorded on the run's route. The support check reads no repository and always runs as `restricted`; GitHub intake classifies an
+issue by its repository before it holds it.
+
+**Known gap.** A 402 in the middle of a task, after the session has produced partial work, ends the run `[partial]`. The pool is marked, so the next
+call falls through, but that task's partial work is not continued on the next pool: the retry above applies only to a try that produced nothing.
+A batch also runs all its sessions on one pool and model, so one session cannot move to another pool on its own refusal. Routing per session in the task
+runner would close both.

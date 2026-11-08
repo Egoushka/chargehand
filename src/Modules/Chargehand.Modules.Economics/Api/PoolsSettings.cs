@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace Chargehand.Modules.Economics.Api;
 
@@ -17,9 +18,10 @@ public sealed record PoolsSettings(bool Enabled = false, string TimeZone = "UTC"
 {
     /// <summary>What is wrong with the block, one line each; none for a block that is off and empty.</summary>
     public IEnumerable<string> Problems() =>
-        !Enabled && Tiers is null && Order is null && Routes is null ? [] : Shape().Concat(References());
+        !Enabled && Tiers is null && Order is null && Routes is null ? [] : Shape().Concat(DataClassProblems()).Concat(References());
 
     /// <summary>The directories that make a checkout <see cref="DataClass.Restricted"/>.</summary>
+    [JsonIgnore]
     public IReadOnlyList<string> RestrictedSegments => RestrictedPathSegments ?? ["work"];
 
     /// <summary>Whether <paramref name="forge"/> (<c>owner/name</c>) is one of <see cref="OwnerPrivateRepos"/>.</summary>
@@ -41,6 +43,10 @@ public sealed record PoolsSettings(bool Enabled = false, string TimeZone = "UTC"
         foreach (var pool in Order ?? [])
             foreach (var problem in pool.Problems())
                 yield return $"pool '{pool.Name}': {problem}";
+    }
+
+    private IEnumerable<string> DataClassProblems()
+    {
         if (Enabled && (Order ?? []).Count > 0 && !(Order ?? []).Any(p => p.NoTrainingModels is { Count: > 0 }))
             yield return "no pool lists no_training_models, so restricted data (every repository not public or named in owner_private_repos) would never run";
         foreach (var repo in OwnerPrivateRepos ?? [])

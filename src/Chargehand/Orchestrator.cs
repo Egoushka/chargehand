@@ -59,7 +59,7 @@ public sealed class Orchestrator(
 {
     public const string NodeKindName = "worker";
 
-    private readonly PoolRouting _routing = routing ?? new PoolRouting(profile.Pools, runLog);
+    private readonly PoolRouting _routing = routing ?? new PoolRouting(profile.Pools, runLog, classifier: new DataClassifier(profile, publicFree?.Pool), warn: message => Console.Error.WriteLine($"chargehand: {message}"));
 
     /// <summary>The router's kind for intake and the support check (ADR 0095); a worker's kind is its preset's name.</summary>
     public const string IntakeRouteKind = "intake";
@@ -115,136 +115,153 @@ public sealed class Orchestrator(
         TaskAction? executed = null;
         Enhanced? enhanced = null;
         string? credential = null;
-        List<IAsyncDisposable> leases = [];
         RunRoute? route = null;
-        try
+        DataClass? dataClass = null;
+        var asked = request;
+        // A provider's refusal of the pool that pays (a 402, a 429, a used quota) on a run that did no work runs it again on the next pool (ADR 0095): the same run id, at most one try per pool,
+        // and one run record, the last try's. A run that produced something is never repeated.
+        for (var attempt = 1; ; attempt++)
         {
-            if (request.Driven is not null)
-                throw new ChargehandException(ErrorCode.InvalidRequest, "a request with a driven block runs only through chargehand serve", "Send it to the server's POST /v1/runs or its MCP tool.");
-            // gh:owner/name resolves to a shallow clone before intake, so a refusal (public_clone off, too large, too little free space) costs nothing.
-            if (request.Context.Repository is { } repo && repo.Path.StartsWith("gh:", StringComparison.Ordinal))
+            request = asked;
+            intake = null;
+            intakeSkipped = false;
+            executed = null;
+            credential = null;
+            route = null;
+            List<IAsyncDisposable> leases = [];
+            try
             {
-                var lease = await AcquirePeerCloneAsync(repo.Path["gh:".Length..], repo.Commit, actor, ct);
-                leases.Add(lease);
-                request = request with { Context = request.Context with { Repository = repo with { Path = lease.Directory } } };
-            }
-            // The account's own credential, or a refusal, before anything is spent (ADR 0053).
-            if (publicFree is null && presetName == new PublicFreeSettings().Preset)
-                throw new ChargehandException(ErrorCode.InvalidRequest, $"preset {presetName} is the free-model pool's, and this profile has no public_free block",
-                    "Use another preset, or add public_free to the profile (ADR 0093).");
-            var worker = (publicFree is null ? null : await publicFree.RuntimeAsync(presetName, request.Context.Repository?.Path, ct)) ?? runtimeFor?.Invoke(actor) ?? runtime;
-            // The pool's gateway knows its own models; the owner's intake model is never sent to it.
-            var pooled = publicFree?.Owns(worker) == true;
-            // With the budget router on (ADR 0095) intake runs on the router's model; the pool's runs never go through it.
-            var intakeModelId = pooled ? publicFree!.IntakeModel : (await _routing.RouteAsync(IntakeRouteKind, null, profile.IntakeModel, ct)).Model;
-            var intakeLabel = _routing.On && !pooled ? intakeModelId ?? intakeModel : intakeModel;
-            credential = worker.Credential;
-            var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
-            var (kindName, kind) = AnswerKind(preset);
-            // An ACP agent runs research presets only, and a dollar cap holds only on counted tokens (ADR 0086, decisions 8 and 10).
-            if (kind.Writes && worker.ResearchOnly)
-                throw new ChargehandException(ErrorCode.InvalidRequest, $"preset {presetName} writes, and this runtime runs research presets only",
-                    "Use claude_code or opencode for a writing preset, or a research preset with this runtime.");
-            if (!worker.ReportsUsage && profile.Acp?.AllowUncapped != true)
-                throw new ChargehandException(ErrorCode.RuntimeUncapped, "this agent reports no token usage, so the run's dollar cap cannot hold on it",
-                    "Use a runtime that reports usage, or set acp.allow_uncapped in the profile to run it with its spend unrecorded.");
-            // A writing preset without a sandbox is refused before anything is spent (ADR 0035).
-            var sandbox = kind.Writes ? (sandboxFor ?? SandboxSelector.Select)(profile.Sandbox) : null;
-            // A key that cannot be used stops the run before anything is spent (ADR 0036).
-            signingKey = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
-            // A completed review of the same commit and diff answers this one (issue 448); the stored result is signed and recorded as this run's.
-            if (reuseReviews && await ReviewReuse.FindAsync(runLog, request, actor, ct) is { } stored)
-            {
-                progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Intake));
-                result = ReviewReuse.Reuse(stored, runId, traceId, request.Context.Repository!.Commit, ReviewReuse.DiffHash(request)!);
-            }
-            else
-            {
-                // Unset when the profile maps no real model to the preset's placeholder: the runtime uses its own default. The budget router, when on, names it and records who pays (ADR 0095).
-                var routed = pooled ? new Routed(profile.ResolveModel(kind.Model), null) : await _routing.RouteAsync(presetName, null, profile.ResolveModel(kind.Model), ct);
-                var workerModel = routed.Model;
-                route = routed.Route;
-                var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
-                var local = await IsLocalAsync(request, ct);
-                run?.SetTag("chargehand.delivery", local ? DeliveryMode.Local : DeliveryMode.Push);
-                // The enhancer sends the request text to an MCP server; a local run keeps it on the machine (ADR 0069).
-                enhanced = local ? null : await Enhance(request, run, ct);
-
-                // Intake.
-                using (var span = Telemetry.Source.StartActivity("chargehand.intake"))
+                if (request.Driven is not null)
+                    throw new ChargehandException(ErrorCode.InvalidRequest, "a request with a driven block runs only through chargehand serve", "Send it to the server's POST /v1/runs or its MCP tool.");
+                // gh:owner/name resolves to a shallow clone before intake, so a refusal (public_clone off, too large, too little free space) costs nothing.
+                if (request.Context.Repository is { } repo && repo.Path.StartsWith("gh:", StringComparison.Ordinal))
                 {
-                    TagChain(span, intakeChain);
-                    span?.SetTag("gen_ai.request.model", intakeLabel);
-                    // A structured caller's complete request skips the model call (issue 429); the deterministic checks still run.
-                    var given = profile.SkipStructuredIntake ? StructuredSpec.For(request, preset, kind, runId) : null;
-                    intakeSkipped = given is not null;
-                    span?.SetTag("chargehand.intake.skipped", intakeSkipped);
-                    intake = given is not null ? GenerateIntake.Given(request, given, kind.Checkout)
-                        : await new GenerateIntake(worker, ParseModel(intakeModelId), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
-                    span?.SetTag("chargehand.intake.action", intake.Spec?.Action.ToString().ToLowerInvariant() ?? "needs_input");
-                    foreach (var c in intake.Calls)
-                        await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, intakeLabel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
+                    var lease = await AcquirePeerCloneAsync(repo.Path["gh:".Length..], repo.Commit, actor, ct);
+                    leases.Add(lease);
+                    request = request with { Context = request.Context with { Repository = repo with { Path = lease.Directory } } };
                 }
-
-                var blocks = new List<(PromptBlock, BlockSource)> { (registry.Get($"core/{kindName}"), BlockSource.Registry), (registry.Get($"preset/{presetName}"), BlockSource.Registry) };
-                blocks.AddRange(callerBlocks.Select(b => (b, BlockSource.Caller)));
-                var instructions = new List<(string Key, string Value)> { ("chargehand-core", blocks[0].Item1.Text), ("chargehand-preset", blocks[1].Item1.Text) };
-                var chain = PromptChains.Build(blocks, new AsSent(opencodeVersion, kind.OpencodeAgent, workerModel ?? "auto", date,
-                    BasePromptVariant: kind.OpencodeAgent,
-                    InstructionFilesSha256: PromptChains.InstructionsSha256(instructions),
-                    ToolsSha256: PromptChains.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules)));
-
-                if (intake.Spec is not { } spec)
+                // The account's own credential, or a refusal, before anything is spent (ADR 0053).
+                if (publicFree is null && presetName == new PublicFreeSettings().Preset)
+                    throw new ChargehandException(ErrorCode.InvalidRequest, $"preset {presetName} is the free-model pool's, and this profile has no public_free block",
+                        "Use another preset, or add public_free to the profile (ADR 0093).");
+                var worker = (publicFree is null ? null : await publicFree.RuntimeAsync(presetName, request.Context.Repository?.Path, ct)) ?? runtimeFor?.Invoke(actor) ?? runtime;
+                // The pool's gateway knows its own models; the owner's intake model is never sent to it.
+                var pooled = publicFree?.Owns(worker) == true;
+                // With the budget router on (ADR 0095) intake runs on the router's model; the pool's runs never go through it.
+                dataClass ??= await _routing.ClassifyAsync(asked.Context.Repository?.Path, ct);
+                var intakeModelId = pooled ? publicFree!.IntakeModel : (await _routing.RouteAsync(IntakeRouteKind, null, profile.IntakeModel, dataClass.Value, ct)).Model;
+                var intakeLabel = _routing.On && !pooled ? intakeModelId ?? intakeModel : intakeModel;
+                credential = worker.Credential;
+                var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
+                var (kindName, kind) = AnswerKind(preset);
+                // An ACP agent runs research presets only, and a dollar cap holds only on counted tokens (ADR 0086, decisions 8 and 10).
+                if (kind.Writes && worker.ResearchOnly)
+                    throw new ChargehandException(ErrorCode.InvalidRequest, $"preset {presetName} writes, and this runtime runs research presets only",
+                        "Use claude_code or opencode for a writing preset, or a research preset with this runtime.");
+                if (!worker.ReportsUsage && profile.Acp?.AllowUncapped != true)
+                    throw new ChargehandException(ErrorCode.RuntimeUncapped, "this agent reports no token usage, so the run's dollar cap cannot hold on it",
+                        "Use a runtime that reports usage, or set acp.allow_uncapped in the profile to run it with its spend unrecorded.");
+                // A writing preset without a sandbox is refused before anything is spent (ADR 0035).
+                var sandbox = kind.Writes ? (sandboxFor ?? SandboxSelector.Select)(profile.Sandbox) : null;
+                // A key that cannot be used stops the run before anything is spent (ADR 0036).
+                signingKey = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
+                // A completed review of the same commit and diff answers this one (issue 448); the stored result is signed and recorded as this run's.
+                if (reuseReviews && await ReviewReuse.FindAsync(runLog, request, actor, ct) is { } stored)
                 {
                     progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Intake));
-                    result = Stop(ResultStatus.NeedsInput, intake.NeedsInput!, [intake.NeedsInput!]);
+                    result = ReviewReuse.Reuse(stored, runId, traceId, request.Context.Repository!.Commit, ReviewReuse.DiffHash(request)!);
                 }
                 else
                 {
-                    // An action the preset does not allow (Preset.Executes), or a split that fails validation, runs as one answer node.
-                    executed = preset.Executes(spec.Action);
-                    IReadOnlyList<PlanNode> plan = [new PlanNode(kindName, null, [])];
-                    if (executed == TaskAction.Split)
+                    // Unset when the profile maps no real model to the preset's placeholder: the runtime uses its own default. The budget router, when on, names it and records who pays (ADR 0095).
+                    var routed = pooled ? new Routed(profile.ResolveModel(kind.Model), null) : await _routing.RouteAsync(presetName, null, profile.ResolveModel(kind.Model), dataClass!.Value, ct);
+                    var workerModel = routed.Model;
+                    route = routed.Route;
+                    var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
+                    var local = await IsLocalAsync(request, ct);
+                    run?.SetTag("chargehand.delivery", local ? DeliveryMode.Local : DeliveryMode.Push);
+                    // The enhancer sends the request text to an MCP server; a local run keeps it on the machine (ADR 0069).
+                    enhanced = local ? null : enhanced ?? await Enhance(request, run, ct);
+
+                    // Intake.
+                    using (var span = Telemetry.Source.StartActivity("chargehand.intake"))
                     {
-                        var (nodes, reason) = SplitPlan.From(spec);
-                        plan = nodes ?? plan;
-                        executed = nodes is null ? TaskAction.Answer : TaskAction.Split;
-                        run?.SetTag("chargehand.split.rejected", reason);
+                        TagChain(span, intakeChain);
+                        span?.SetTag("gen_ai.request.model", intakeLabel);
+                        // A structured caller's complete request skips the model call (issue 429); the deterministic checks still run.
+                        var given = profile.SkipStructuredIntake ? StructuredSpec.For(request, preset, kind, runId) : null;
+                        intakeSkipped = given is not null;
+                        span?.SetTag("chargehand.intake.skipped", intakeSkipped);
+                        intake = given is not null ? GenerateIntake.Given(request, given, kind.Checkout)
+                            : await new GenerateIntake(worker, ParseModel(intakeModelId), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
+                        span?.SetTag("chargehand.intake.action", intake.Spec?.Action.ToString().ToLowerInvariant() ?? "needs_input");
+                        foreach (var c in intake.Calls)
+                            await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, intakeLabel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
                     }
-                    var stops = executed is TaskAction.Deny or TaskAction.Ask or TaskAction.Improve;
-                    progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Intake) with
+
+                    var blocks = new List<(PromptBlock, BlockSource)> { (registry.Get($"core/{kindName}"), BlockSource.Registry), (registry.Get($"preset/{presetName}"), BlockSource.Registry) };
+                    blocks.AddRange(callerBlocks.Select(b => (b, BlockSource.Caller)));
+                    var instructions = new List<(string Key, string Value)> { ("chargehand-core", blocks[0].Item1.Text), ("chargehand-preset", blocks[1].Item1.Text) };
+                    var chain = PromptChains.Build(blocks, new AsSent(opencodeVersion, kind.OpencodeAgent, workerModel ?? "auto", date,
+                        BasePromptVariant: kind.OpencodeAgent,
+                        InstructionFilesSha256: PromptChains.InstructionsSha256(instructions),
+                        ToolsSha256: PromptChains.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules)));
+
+                    if (intake.Spec is not { } spec)
                     {
-                        Action = Name(spec.Action),
-                        ExecutedAction = Name(executed.Value),
-                        Nodes = stops ? 0 : plan.Count,
-                    });
-                    var detail = spec.ActionDetail ?? default;
-                    result = executed switch
+                        progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Intake));
+                        result = Stop(ResultStatus.NeedsInput, intake.NeedsInput!, [intake.NeedsInput!]);
+                    }
+                    else
                     {
-                        TaskAction.Deny => Stop(ResultStatus.Denied, detail.GetProperty("reason").GetString()!, [$"Unblock: {detail.GetProperty("unblock_condition").GetString()}"]),
-                        TaskAction.Ask => Stop(ResultStatus.NeedsInput, "Answer these questions and resend the request.", [.. detail.GetProperty("questions").EnumerateArray().Select(q => q.GetString()!)]),
-                        TaskAction.Improve => Stop(ResultStatus.NeedsInput, detail.GetProperty("improved_request").GetString()!,
-                            ["Intake proposes the improved request in summary (diff in artifacts). Resend it, or resend the original."],
-                            [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
-                        _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
-                            $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
-                        _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, local, ct, budgetIsCap, intakeModelId),
-                    };
+                        // An action the preset does not allow (Preset.Executes), or a split that fails validation, runs as one answer node.
+                        executed = preset.Executes(spec.Action);
+                        IReadOnlyList<PlanNode> plan = [new PlanNode(kindName, null, [])];
+                        if (executed == TaskAction.Split)
+                        {
+                            var (nodes, reason) = SplitPlan.From(spec);
+                            plan = nodes ?? plan;
+                            executed = nodes is null ? TaskAction.Answer : TaskAction.Split;
+                            run?.SetTag("chargehand.split.rejected", reason);
+                        }
+                        var stops = executed is TaskAction.Deny or TaskAction.Ask or TaskAction.Improve;
+                        progress?.Invoke(RunStatus.Of(runId, RunState.Running, RunEventKind.Intake) with
+                        {
+                            Action = Name(spec.Action),
+                            ExecutedAction = Name(executed.Value),
+                            Nodes = stops ? 0 : plan.Count,
+                        });
+                        var detail = spec.ActionDetail ?? default;
+                        result = executed switch
+                        {
+                            TaskAction.Deny => Stop(ResultStatus.Denied, detail.GetProperty("reason").GetString()!, [$"Unblock: {detail.GetProperty("unblock_condition").GetString()}"]),
+                            TaskAction.Ask => Stop(ResultStatus.NeedsInput, "Answer these questions and resend the request.", [.. detail.GetProperty("questions").EnumerateArray().Select(q => q.GetString()!)]),
+                            TaskAction.Improve => Stop(ResultStatus.NeedsInput, detail.GetProperty("improved_request").GetString()!,
+                                ["Intake proposes the improved request in summary (diff in artifacts). Resend it, or resend the original."],
+                                [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
+                            _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
+                                $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
+                            _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, local, ct, budgetIsCap, intakeModelId),
+                        };
+                    }
                 }
             }
-        }
-        catch (Exception e) when (e is not OperationCanceledException || cancelledByCaller?.Invoke() == true)
-        {
-            // A run that throws (a bad checkout, an unknown preset, no valid Task Spec) still ends with a result and a run record.
-            var error = e is OperationCanceledException ? Cancelled() : ChargehandException.ErrorOf(e);
-            result = new ResultContract("result/v1", runId, "run", traceId, intakeChain, ResultStatus.Failed, error.Message, [], [], [], [error.Message], ResultConfidence.None, new Usage(0, 0, 0, 0, 0),
-                error);
-        }
-        finally
-        {
-            // A peer clone is deleted when the run ends, whatever the outcome (completed, failed or cancelled).
-            foreach (var lease in leases)
-                await lease.DisposeAsync();
+            catch (Exception e) when (e is not OperationCanceledException || cancelledByCaller?.Invoke() == true)
+            {
+                // A run that throws (a bad checkout, an unknown preset, no valid Task Spec) still ends with a result and a run record.
+                var error = e is OperationCanceledException ? Cancelled() : ChargehandException.ErrorOf(e);
+                result = new ResultContract("result/v1", runId, "run", traceId, intakeChain, ResultStatus.Failed, error.Message, [], [], [], [error.Message], ResultConfidence.None, new Usage(0, 0, 0, 0, 0),
+                    error);
+            }
+            finally
+            {
+                // A peer clone is deleted when the run ends, whatever the outcome (completed, failed or cancelled).
+                foreach (var lease in leases)
+                    await lease.DisposeAsync();
+            }
+            var refused = _routing.Ended(route, result.Error);
+            if (!refused || attempt >= Math.Max(1, _routing.Pools) || result.Artifacts.Count > 0)
+                break;
         }
 
         result = ResultConfidence.Final(result) with { Actor = actor, Name = RunNames.Of(runId) };
@@ -259,7 +276,6 @@ public sealed class Orchestrator(
         // A caller's cancel must not stop the record of it from being written.
         await runLog.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, presetName, intake?.Spec is null ? null : Name(intake.Spec.Action), intake?.Spec, result,
             executed is null ? null : Name(executed.Value), extensions.ToReport(), actor, credential, intakeSkipped ? true : null, route), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
-        _routing.Ended(route, result.Error);
         await ReportOutcome(enhanced, result, executed);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
@@ -321,11 +337,11 @@ public sealed class Orchestrator(
         }
     }
 
-    /// <summary>The support check a driven task's claims go through, or null when the profile has it off.</summary>
+    /// <summary>The support check a driven task's claims go through, or null when the profile has it off. It runs on models a pool lists as not training: the claims quote the task's code, and the check knows no repository.</summary>
     /// <param name="actor">The account whose batch it is: the check's model calls go on that account's credential (ADR 0053).</param>
     public Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>? DrivenSupportCheck(string? actor) =>
         profile.SupportCheck ? async (contract, scope, ct) => await SupportCheck.RunAsync(runtimeFor?.Invoke(actor) ?? runtime,
-            ParseModel((await _routing.RouteAsync(IntakeRouteKind, null, profile.IntakeModel, ct)).Model), contract, scope, ct) : null;
+            ParseModel((await _routing.RouteAsync(IntakeRouteKind, null, profile.IntakeModel, DataClass.Restricted, ct)).Model), contract, scope, ct) : null;
 
     /// <summary>The clone of the request's commit that driven sessions start from (the same checkout as a worker's), with the source's remote and default branch.
     /// A tracked file the preset denies reading refuses the session: it has a shell, and git reads a file whether or not it is in the working tree.</summary>

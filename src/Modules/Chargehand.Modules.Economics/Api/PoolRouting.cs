@@ -22,8 +22,9 @@ public sealed class PoolsWaitException(RouteWait wait) : ChargehandException(Err
 
 /// <summary>The budget router as the call sites use it (ADR 0095). Off by default: without an enabled <c>pools</c> block every call keeps the model its caller resolved, and nothing is read.
 /// On: each call gets the router's model, the spend per pool is read back from the run log's <see cref="RunRoute"/> records, and a pool a provider refused (a 402, a 429) is out until its refill or the next day.
-/// Limits in the settings only warn; the data class of the call decides which models may see it.</summary>
-public sealed class PoolRouting(PoolsSettings? settings, IRunLog log, TimeProvider? clock = null, IDataClassifier? classifier = null)
+/// Limits in the settings only warn, through <paramref name="warn"/>; the data class of the call decides which models may see it.</summary>
+/// <param name="warn">Told, once per routed call, that its pool is over a limit the profile set. Never told for a probe (<see cref="WaitUntilAsync"/>).</param>
+public sealed class PoolRouting(PoolsSettings? settings, IRunLog log, TimeProvider? clock = null, IDataClassifier? classifier = null, Action<string>? warn = null)
 {
     private readonly TimeProvider _time = clock ?? TimeProvider.System;
     private readonly ModelRouter? _router = settings is { Enabled: true } on ? new ModelRouter(on) : null;
@@ -44,6 +45,14 @@ public sealed class PoolRouting(PoolsSettings? settings, IRunLog log, TimeProvid
     /// <exception cref="ChargehandException"><c>repository_not_allowed</c>: no pool pays for a model that may see this data class.</exception>
     public async Task<Routed> RouteAsync(string kind, string? size, string? unrouted, DataClass dataClass, CancellationToken ct)
     {
+        var routed = await ChooseAsync(kind, size, unrouted, dataClass, ct);
+        if (routed.Warning is { } warning)
+            warn?.Invoke(warning);
+        return routed;
+    }
+
+    private async Task<Routed> ChooseAsync(string kind, string? size, string? unrouted, DataClass dataClass, CancellationToken ct)
+    {
         if (_router is null)
             return new(unrouted, null);
         var now = _time.GetUtcNow();
@@ -63,12 +72,17 @@ public sealed class PoolRouting(PoolsSettings? settings, IRunLog log, TimeProvid
     {
         try
         {
-            await RouteAsync(kind, size, null, dataClass, ct);
+            await ChooseAsync(kind, size, null, dataClass, ct);
             return null;
         }
         catch (PoolsWaitException e)
         {
             return e.Wait.Until;
+        }
+        catch (ChargehandException e) when (e.Code == ErrorCode.RepositoryNotAllowed)
+        {
+            // Waiting does not help: the call starts, and fails with the reason.
+            return null;
         }
     }
 
@@ -81,9 +95,26 @@ public sealed class PoolRouting(PoolsSettings? settings, IRunLog log, TimeProvid
         var budget = ChargehandException.BudgetRefused(error.Message);
         if (error.Code != ErrorCode.RateLimited && !budget)
             return false;
+        Refused(route, budget);
+        return true;
+    }
+
+    /// <summary>A provider refused a call on <paramref name="route"/>'s pool: the pool is out until its next refill when the budget is spent, else until the next day.</summary>
+    public void Refused(RunRoute route, bool budget)
+    {
+        if (_router is null)
+            return;
         var now = _time.GetUtcNow();
         _exhausted[route.Pool] = (budget ? _router.NextRefill(route.Pool, now) : null) ?? PoolBalance.NextDay(now, _router.Zone);
-        return true;
+    }
+
+    /// <summary>Whether some pool may take a call now. Spend never removes a pool (limits only warn), so this reads no run log and a caller that cannot await may ask; the router off: false.</summary>
+    public bool CanRoute(string kind, string? size, DataClass dataClass)
+    {
+        if (_router is null)
+            return false;
+        var now = _time.GetUtcNow();
+        return _router.Choose(_router.TierFor(kind, size), dataClass, [], now, Exhausted(now)) is RouteChoice;
     }
 
     private static string DataClassName(DataClass dataClass) => dataClass switch

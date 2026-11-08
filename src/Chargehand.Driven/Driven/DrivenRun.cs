@@ -53,10 +53,11 @@ public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Wo
 /// <param name="records">Where a batch's events and its tasks' sessions, governor decisions, checks and CI fix attempts are kept for the console (CHARGEHAND-214); null: they are not.</param>
 public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory, DrivenServices? services, string? stateDirectory = null, ILearningStore? learning = null, BatchRecords? records = null, ApiFallback? fallback = null, PoolRouting? routing = null) : IDisposable
 {
-    private readonly PoolRouting _routing = routing ?? new PoolRouting(profile.Pools, log);
+    private readonly PoolRouting _routing = routing ?? new PoolRouting(profile.Pools, log, warn: message => Console.Error.WriteLine($"chargehand: {message}"));
 
-    /// <summary>When a batch of <paramref name="preset"/> could start, for intake to queue it rather than fail it (ADR 0095): null when one may start now, or the budget router is off.</summary>
-    public Task<DateTimeOffset?> PoolsRoomAtAsync(string preset, CancellationToken ct) => _routing.WaitUntilAsync(preset, null, ct);
+    /// <summary>When a batch of <paramref name="preset"/> on <paramref name="repositoryPath"/> could start, for intake to queue it rather than fail it (ADR 0095): null when one may start now, or the budget router is off.</summary>
+    public async Task<DateTimeOffset?> PoolsRoomAtAsync(string preset, string repositoryPath, CancellationToken ct) =>
+        await _routing.WaitUntilAsync(preset, null, await _routing.ClassifyAsync(repositoryPath, ct), ct);
 
     /// <summary>The learning records this server keeps, for <c>GET /v1/learn</c>; null when none are kept.</summary>
     public ILearningStore? Learning => learning;
@@ -355,7 +356,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             ? await _lifecycle.ResolveAsync(c, options, services?.TaskSource is { } source ? source.ResolveAsync : null)
             : (BatchLifecycle.Resumed(c.Request, c.Resume.Tasks), c.Resume.Unresolved);
         var routed = await RouteAsync(c, settings, resolved);
-        var setup = SetupOf(c, settings, options, routed?.Model);
+        var setup = SetupOf(c, settings, options, routed.Routed.Model, routed.Gate(_routing, _gate));
         // One route per runner (ADR 0058): where that runner's sessions reach the server, the model and the collector, and the image for its platform. Worked out before anything is created,
         // so a setting that cannot work fails the batch at its start, whichever runner it is for.
         var routes = SiteRoute.Of(setup, setup.Priced ? null : _lifecycle.TokenKey(c.RunId));
@@ -369,28 +370,41 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var (replanned, ran, fallback) = await RunOnRunnersAsync(c, mint, setup, routes, ready, tasks, checkout, steps);
         var retro = await BatchLifecycle.RetroAsync(c, settings.Learning is { Retro: true }, learning, setup.Services.Retro, setup.Services.RetroSink);
         var result = BatchLifecycle.Result(c, unresolved, replanned, ran, routes[0].Delivery, setup.Priced, setup.Claude.Version, plan, retro, fallback);
-        _routing.Ended(routed?.Route, result.Error);
+        _routing.Ended(routed.Routed.Route, result.Error);
         return result;
     }
 
     /// <summary>The budget router's model for the batch (ADR 0095), by the preset's name and the largest task's size, recorded on the batch's run record; null with the router off, which
-    /// reads nothing and keeps every refusal in its order. A wait throws, before anything is created.</summary>
-    private async Task<Routed?> RouteAsync(BatchRunContext c, DrivenSettings settings, IReadOnlyList<ResolvedTask> tasks)
+    /// reads nothing and keeps every refusal in its order. A wait throws, before anything is created. The batch keeps this pool for its whole run: its sessions hold the model, so a refusal ends the batch
+    /// (retryable) and takes the pool out, and the next start falls through to the next pool.</summary>
+    private async Task<BatchRoute> RouteAsync(BatchRunContext c, DrivenSettings settings, IReadOnlyList<ResolvedTask> tasks)
     {
         if (!_routing.On)
-            return null;
+            return BatchRoute.None;
         var (_, kind) = PresetOf(c.Request, settings);
         var size = tasks.Select(t => t.Size ?? "M").OrderBy(z => z switch { "S" => 0, "M" => 1, _ => 2 }).LastOrDefault();
-        var routed = await _routing.RouteAsync(c.Request.Context.Preset, size, profile.ResolveModel(kind.Model) ?? kind.Model, c.Ct);
+        var dataClass = await _routing.ClassifyAsync(c.Request.Context.Repository?.Path, c.Ct);
+        var routed = await _routing.RouteAsync(c.Request.Context.Preset, size, profile.ResolveModel(kind.Model) ?? kind.Model, dataClass, c.Ct);
         if (routed.Route is { } route)
             _lifecycle.Routed(c.RunId, route);
-        return routed;
+        return new BatchRoute(routed, c.Request.Context.Preset, size, dataClass);
+    }
+
+    /// <summary>What the router chose for a batch, with what it was chosen from, so a refusal can be told to the gate.</summary>
+    private sealed record BatchRoute(Routed Routed, string Preset, string? Size, DataClass DataClass)
+    {
+        /// <summary>The router is off: the batch keeps its preset's model and the server's gate.</summary>
+        public static readonly BatchRoute None = new(new Routed(null, null), "", null, DataClass.Restricted);
+
+        /// <summary>The gate the batch's tasks report to: one that tells the pool about a refusal, or <paramref name="inner"/> with the router off.</summary>
+        public IStartGate Gate(PoolRouting routing, IStartGate inner) => Routed.Route is { } route ? new RoutedGate(inner, routing, route, Preset, Size, DataClass) : inner;
     }
 
     /// <summary>What the profile and the services give the batch; throws for a refusal: driven sessions not set up, no <c>claude_code</c> block, no image, a preset with no driven block, no push
     /// credential, or no model credential.</summary>
     /// <param name="routed">The budget router's <c>provider/model</c> (ADR 0095); null: the preset's model through the profile's <c>models</c>.</param>
-    private BatchSetup SetupOf(BatchRunContext c, DrivenSettings settings, BatchOptions options, string? routed = null)
+    /// <param name="gate">The gate the batch's tasks report refusals to.</param>
+    private BatchSetup SetupOf(BatchRunContext c, DrivenSettings settings, BatchOptions options, string? routed, IStartGate gate)
     {
         CheckArm(c.Request.Driven!);
         var s = services ?? throw new ChargehandException(ErrorCode.ContainerUnavailable, "driven sessions are on, but no container engine is set up for them", "Check driven.runner in the profile, or install Docker.");
@@ -402,7 +416,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var own = new AccountCredentials(profile.Http?.Accounts).For(c.Actor);
         var priced = own is not null || claude.ApiKeySecret is not null;
         var perTaskUsd = Math.Min(kind.Budget.MaxUsd, c.Request.Driven!.MaxUsdTotal ?? decimal.MaxValue);
-        var limits = DrivenBatch.Limits(c.Request, options, drivenPreset, perTaskUsd, priced, _global, _gate);
+        var limits = DrivenBatch.Limits(c.Request, options, drivenPreset, perTaskUsd, priced, _global, gate);
         // No push_secret: the GitHub App pushes, once the checkout says the remote is on GitHub (PushOf).
         var push = settings.PushSecret is { } pushSecret ? new PushCredential(Resolve(s, pushSecret)) : s.AppToken is not null ? null : throw new ChargehandException(ErrorCode.CredentialUnavailable,
             "driven.push_secret is not set and there is no GitHub App (driven.integrator), so nothing could be pushed",

@@ -2,13 +2,14 @@ using Chargehand.Modules.Economics.Api;
 
 namespace Chargehand.Modules.Economics.Tests;
 
-/// <summary>The model router (ADR 0095): drain order, the daily allowance with carry-over, refills and expiry, escalation. November 2026 starts on a Sunday; all times are UTC.</summary>
+/// <summary>The model router (ADR 0095): drain order, a provider's refusal as the only thing that takes a pool out, the daily allowance with carry-over as a warning, refills and expiry, escalation. November 2026 starts on a Sunday; all times are UTC.
+/// These calls run over public data, which any model may see; the data-class gate is in <see cref="DataClassRoutingTests"/>.</summary>
 public class ModelRouterTests
 {
     private static readonly PoolSettings Free = new("free", PoolKinds.Free, ["free/small"]);
     private static readonly PoolSettings Bought = new("bought", PoolKinds.Fixed, ["paid/small", "paid/big"], TotalUsd: 30, Start: new DateOnly(2026, 11, 1), SpreadDays: 30);
-    private static readonly PoolSettings Credit = new("credit", PoolKinds.Monthly, ["paid/small", "paid/big"], TotalUsd: 300);
-    private static readonly PoolSettings Subscription = new("subscription", PoolKinds.Weekly, ["paid/big"], RefillWeekday: "sunday", RefillTime: "09:00");
+    private static readonly PoolSettings Credit = new("credit", PoolKinds.Monthly, ["paid/small", "paid/big"], TotalUsd: 300, NoTrainingModels: ["*"]);
+    private static readonly PoolSettings Subscription = new("subscription", PoolKinds.Weekly, ["paid/big"], RefillWeekday: "sunday", RefillTime: "09:00", NoTrainingModels: ["*"]);
 
     private static PoolsSettings Settings(params PoolSettings[] order) => new(Enabled: true, DefaultTier: "cheap",
         Tiers: [new("cheap", ["free/small", "paid/small"]), new("strong", ["paid/big"])],
@@ -26,7 +27,7 @@ public class ModelRouterTests
     [Fact]
     public void A_cheap_task_runs_on_the_free_pool_first()
     {
-        var choice = Chosen(Router().Choose(0, [], At(10)));
+        var choice = Chosen(Router().Choose(0, DataClass.Public, [], At(10)));
 
         Assert.Equal(("free", "free/small", "cheap"), (choice.Pool, choice.Model, choice.Tier));
     }
@@ -34,7 +35,7 @@ public class ModelRouterTests
     [Fact]
     public void A_free_pool_the_provider_refused_falls_through_to_the_next_pool_and_its_model()
     {
-        var choice = Chosen(Router().Choose(0, [], At(10), new HashSet<string> { "free" }));
+        var choice = Chosen(Router().Choose(0, DataClass.Public, [], At(10), new HashSet<string> { "free" }));
 
         Assert.Equal(("credit", "paid/small"), (choice.Pool, choice.Model));
     }
@@ -42,29 +43,36 @@ public class ModelRouterTests
     [Fact]
     public void A_pool_that_does_not_pay_for_the_tier_is_skipped()
     {
-        var choice = Chosen(Router().Choose(1, [], At(10)));
+        var choice = Chosen(Router().Choose(1, DataClass.Public, [], At(10)));
 
         Assert.Equal(("credit", "paid/big"), (choice.Pool, choice.Model));
     }
 
     [Fact]
-    public void An_empty_pool_falls_through_to_the_next_one_and_bought_credit_comes_last()
+    public void A_pool_whose_balance_is_spent_only_warns_and_keeps_its_place_in_the_order()
     {
         PoolSpend[] spend = [new("credit", At(2), 300)];
 
-        Assert.Equal("subscription", Chosen(Router().Choose(1, spend, At(10))).Pool);
-        var last = Chosen(Router().Choose(0, spend, At(10), new HashSet<string> { "free" }));
-        Assert.Equal(("bought", "paid/small"), (last.Pool, last.Model));
+        var choice = Chosen(Router().Choose(1, DataClass.Public, spend, At(10)));
+
+        Assert.Equal(("credit", "empty"), (choice.Pool, choice.Warning));
         var empty = Standing(Credit, At(10), spend);
-        Assert.Equal((0m, false, "empty"), (empty.RemainingUsd, empty.HasRoom, empty.Why));
+        Assert.Equal((0m, true, "empty"), (empty.RemainingUsd, empty.HasRoom, empty.Warning));
+        Assert.Null(empty.Why);
     }
 
     [Fact]
-    public void An_exhausted_subscription_falls_through_to_the_bought_credit()
+    public void Pools_the_provider_refused_fall_through_in_order_and_bought_credit_comes_last()
     {
-        PoolSpend[] spend = [new("credit", At(2), 300)];
+        var last = Chosen(Router().Choose(0, DataClass.Public, [], At(10), new HashSet<string> { "free", "credit" }));
 
-        var choice = Chosen(Router().Choose(1, spend, At(10), new HashSet<string> { "subscription" }));
+        Assert.Equal(("bought", "paid/small"), (last.Pool, last.Model));
+    }
+
+    [Fact]
+    public void A_refused_subscription_and_credit_leave_the_bought_pool_for_the_strong_tier()
+    {
+        var choice = Chosen(Router().Choose(1, DataClass.Public, [], At(10), new HashSet<string> { "credit", "subscription" }));
 
         Assert.Equal(("bought", "paid/big"), (choice.Pool, choice.Model));
     }
@@ -95,25 +103,15 @@ public class ModelRouterTests
     }
 
     [Fact]
-    public void A_pool_whose_allowance_is_spent_today_falls_through_and_waits_for_tomorrow()
+    public void A_pool_whose_allowance_is_spent_today_still_takes_the_call_and_warns()
     {
         PoolSpend[] spend = [new("credit", At(1, 10), 10)];
 
         var spent = Standing(Credit, At(1), spend);
-        Assert.Equal((0m, false, "today's allowance is spent"), (spent.RoomUsd, spent.HasRoom, spent.Why));
-        Assert.Equal("subscription", Chosen(Router().Choose(1, spend, At(1))).Pool);
-
-        var wait = Assert.IsType<RouteWait>(Router(Credit).Choose(1, spend, At(1)));
-        Assert.Equal(At(2, 0), wait.Until);
-        Assert.True(Standing(Credit, At(2, 0), spend).HasRoom);
-    }
-
-    [Fact]
-    public void A_call_expected_to_cost_more_than_the_room_falls_through()
-    {
-        var choice = Chosen(Router().Choose(1, [], At(1), estimateUsd: 20));
-
-        Assert.Equal(("subscription", (decimal?)null), (choice.Pool, choice.RoomUsd));
+        Assert.Equal((0m, true, "today's allowance is spent"), (spent.RoomUsd, spent.HasRoom, spent.Warning));
+        var choice = Chosen(Router().Choose(1, DataClass.Public, spend, At(1)));
+        Assert.Equal(("credit", "today's allowance is spent"), (choice.Pool, choice.Warning));
+        Assert.Null(Standing(Credit, At(2, 0), spend).Warning);
     }
 
     [Fact]
@@ -123,10 +121,10 @@ public class ModelRouterTests
         PoolSpend[] spend = [new("credit", At(14), 300)];
 
         var before = Standing(late, At(14, 23, 59), spend);
-        Assert.Equal((At(15, 0, 0, 10), At(15, 0), false), (before.PeriodStart!.Value, before.Refill!.Value, before.HasRoom));
+        Assert.Equal((At(15, 0, 0, 10), At(15, 0), 0m, "empty"), (before.PeriodStart!.Value, before.Refill!.Value, before.RemainingUsd, before.Warning));
 
         var after = Standing(late, At(15, 0), spend);
-        Assert.Equal((At(15, 0), At(15, 0, 0, 12), 300m), (after.PeriodStart!.Value, after.Refill!.Value, after.RemainingUsd));
+        Assert.Equal((At(15, 0), At(15, 0, 0, 12), 300m, (string?)null), (after.PeriodStart!.Value, after.Refill!.Value, after.RemainingUsd, after.Warning));
     }
 
     [Fact]
@@ -162,12 +160,25 @@ public class ModelRouterTests
     {
         var metered = Subscription with { QuotaUsd = 7 };
         PoolSpend[] spend = [new("subscription", At(7), 7)];
+        var refused = new HashSet<string> { "subscription" };
 
-        var wait = Assert.IsType<RouteWait>(Router(metered).Choose(1, spend, At(8, 8)));
+        var wait = Assert.IsType<RouteWait>(Router(metered).Choose(1, DataClass.Public, spend, At(8, 8), refused));
 
         Assert.Equal(At(8, 9), wait.Until);
-        Assert.False(Assert.Single(wait.Standings).HasRoom);
-        Assert.True(Chosen(Router(metered).Choose(1, spend, At(8, 9))).RoomUsd > 0);
+        var standing = Assert.Single(wait.Standings);
+        Assert.Equal((false, "exhausted"), (standing.HasRoom, standing.Why));
+        Assert.True(Chosen(Router(metered).Choose(1, DataClass.Public, spend, At(8, 9))).RoomUsd > 0);
+    }
+
+    [Fact]
+    public void A_metered_pool_that_is_over_its_quota_but_not_refused_is_not_waited_on()
+    {
+        var metered = Subscription with { QuotaUsd = 7 };
+        PoolSpend[] spend = [new("subscription", At(7), 7)];
+
+        var choice = Chosen(Router(metered).Choose(1, DataClass.Public, spend, At(7, 12)));
+
+        Assert.Equal(("subscription", "empty"), (choice.Pool, choice.Warning));
     }
 
     [Fact]
@@ -199,14 +210,15 @@ public class ModelRouterTests
     }
 
     [Fact]
-    public void A_free_pool_with_a_daily_quota_stops_at_it_and_starts_again_the_next_day()
+    public void A_free_pool_with_a_daily_quota_warns_at_it_and_stops_warning_the_next_day()
     {
         var quota = Free with { DailyRequests = 2 };
         PoolSpend[] spend = [new("free", At(3, 1), 0), new("free", At(3, 2), 0)];
 
-        Assert.False(Standing(quota, At(3), spend).HasRoom);
-        Assert.True(Standing(quota, At(4), spend).HasRoom);
-        Assert.True(Standing(quota, At(3), spend[0]).HasRoom);
+        var over = Standing(quota, At(3), spend);
+        Assert.Equal((true, "today's requests are used"), (over.HasRoom, over.Warning));
+        Assert.Null(Standing(quota, At(4), spend).Warning);
+        Assert.Null(Standing(quota, At(3), spend[0]).Warning);
     }
 
     [Fact]
