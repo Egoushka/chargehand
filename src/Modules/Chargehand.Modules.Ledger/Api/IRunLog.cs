@@ -146,7 +146,8 @@ public sealed record RunRecord(
     RunRoute? Route = null);
 
 /// <summary>Who paid for a run and on what (ADR 0095): the router reads each pool's spend back from these.</summary>
-public sealed record RunRoute(string Pool, string Tier, string Model);
+/// <param name="DataClass">The class of the data the run touched (<c>public</c>, <c>owner_private</c>, <c>restricted</c>) that the router gated the model by; null on a record from before it existed.</param>
+public sealed record RunRoute(string Pool, string Tier, string Model, string? DataClass = null);
 
 /// <summary>What the profile's extensions did in one run, for the run log and <c>chargehand show</c> (goal 0.6). Null on a record from before it existed.</summary>
 public sealed record ExtensionsReport(IReadOnlyList<MemoryReport> Memory, IReadOnlyList<ServiceReport> Services)

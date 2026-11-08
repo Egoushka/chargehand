@@ -10,14 +10,16 @@ public sealed record PoolSpend(string Pool, DateTimeOffset At, decimal Usd);
 /// <param name="RemainingUsd">The period's balance less all of its spend so far; null: not metered in dollars.</param>
 /// <param name="AllowanceUsd">Today's share: the remainder at the start of today over the days left to <paramref name="Horizon"/>; null: not paced.</param>
 /// <param name="RoomUsd">What today may still spend: <paramref name="AllowanceUsd"/> less today's spend; null: unbounded.</param>
-/// <param name="HasRoom">The pool may take a call now.</param>
+/// <param name="HasRoom">The pool may take a call now: it has not expired, has started, and its provider has not refused it. A configured amount or pace never takes it away.</param>
+/// <param name="Why">Why the pool may not take a call: <c>expired</c>, <c>not started</c> or <c>exhausted</c>.</param>
+/// <param name="Warning">A configured limit the pool is over (the balance is spent, today's allowance is used, the day's requests are used). It only warns: the pool still takes calls until its provider refuses.</param>
 public sealed record PoolStanding(string Pool, DateTimeOffset? PeriodStart, DateTimeOffset? Refill, DateTimeOffset? Horizon, decimal? RemainingUsd, decimal? AllowanceUsd,
-    decimal? RoomUsd, bool HasRoom, string? Why = null);
+    decimal? RoomUsd, bool HasRoom, string? Why = null, string? Warning = null);
 
-/// <summary>A pool's period and its daily allowance with carry-over (ADR 0095): pure, the same spend and time give the same standing.</summary>
+/// <summary>A pool's period and its daily allowance with carry-over (ADR 0095): pure, the same spend and time give the same standing. The balance and the allowance are figures to warn by, never a reason to refuse a call.</summary>
 public static class PoolBalance
 {
-    public static PoolStanding Of(PoolSettings pool, IEnumerable<PoolSpend> spend, DateTimeOffset now, TimeZoneInfo zone, bool exhausted = false, decimal estimateUsd = 0)
+    public static PoolStanding Of(PoolSettings pool, IEnumerable<PoolSpend> spend, DateTimeOffset now, TimeZoneInfo zone, bool exhausted = false)
     {
         var today = DayStart(now, zone);
         var (periodStart, refill, horizon, balance) = Period(pool, now, zone);
@@ -37,14 +39,13 @@ public static class PoolBalance
         var remaining = balance.Value - before - spentToday;
         var allowance = horizon is { } end ? (balance.Value - before) / DaysLeft(today, end) : balance.Value - before;
         var room = Math.Min(allowance - spentToday, remaining);
-        var hasRoom = room > 0 && room >= estimateUsd;
-        return new(pool.Name, periodStart, refill, horizon, remaining, allowance, room, hasRoom, hasRoom ? null : remaining <= 0 ? "empty" : "today's allowance is spent");
+        return new(pool.Name, periodStart, refill, horizon, remaining, allowance, room, true, null, room > 0 ? null : remaining <= 0 ? "empty" : "today's allowance is spent");
     }
 
     private static PoolStanding Free(PoolSettings pool, int requestsToday, DateTimeOffset? periodStart)
     {
-        var hasRoom = pool.DailyRequests is not { } quota || requestsToday < quota;
-        return new(pool.Name, periodStart, null, null, null, null, null, hasRoom, hasRoom ? null : "today's requests are used");
+        var over = pool.DailyRequests is { } quota && requestsToday >= quota;
+        return new(pool.Name, periodStart, null, null, null, null, null, true, null, over ? "today's requests are used" : null);
     }
 
     /// <summary>Whole days from the start of today to <paramref name="horizon"/>, rounded up, at least one: today is a day of the period.</summary>
