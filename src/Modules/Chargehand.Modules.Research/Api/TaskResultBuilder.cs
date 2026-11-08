@@ -159,7 +159,7 @@ public static class TaskResultBuilder
             handover.TestIntegrity is { } flag ? new TestIntegrityArtifact(true, flag.Reason, flag.TestPaths, flag.BuildPaths) : null);
 
     private static ResultContract Reject(ResultContract contract, ErrorCode code, string message, string action) =>
-        contract with { Status = ResultStatus.Failed, Summary = message, Confidence = 0, Error = new ResultError(code, message, ChargehandException.Retryable(code), action) };
+        contract with { Status = ResultStatus.Failed, Summary = message, Confidence = ResultConfidence.None, Error = new ResultError(code, message, ChargehandException.Retryable(code), action) };
 
     /// <summary>The <c>changes</c> artifact: every changed path with its line counts, and the diff. It is inline, so it stays within 64 KiB: the diff goes first
     /// (<c>diff</c> null, <c>diff_truncated</c> true), then paths from the end; <c>files_total</c> keeps the real count.</summary>
@@ -227,7 +227,7 @@ public static class TaskResultBuilder
         public List<Artifact> Artifacts { get; } = [];
 
         public ResultContract Result(ResultStatus status, string summary, IReadOnlyList<Claim>? claims = null, IReadOnlyList<Evidence>? evidence = null,
-            IReadOnlyList<string>? questions = null, double confidence = 0, ResultError? error = null) =>
+            IReadOnlyList<string>? questions = null, double confidence = ResultConfidence.None, ResultError? error = null) =>
             new("result/v1", Input.RunId, "session", Input.TraceId, _chain, status, summary, claims ?? [], evidence ?? [], [.. Artifacts], questions ?? [], confidence, _usage, error);
 
         public ResultContract Failed(ErrorCode code, string message, string action, IReadOnlyList<string>? questions = null, bool retryable = false) =>

@@ -420,7 +420,7 @@ async Task<int> Run()
         // The runtime refused before a run started (not running, another version): no prompt was sent, so the chain is empty.
         var failedId = RunIds.New();
         result = new ResultContract("result/v1", failedId, "run", ActivityTraceId.CreateRandom().ToHexString(),
-            new PromptChain([], new AsSent("", "", "", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))), ResultStatus.Failed, e.Message, [], [], [], [e.Message], 0,
+            new PromptChain([], new AsSent("", "", "", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))), ResultStatus.Failed, e.Message, [], [], [], [e.Message], ResultConfidence.None,
             new Usage(0, 0, 0, 0, 0), e.Error)
         { Name = RunNames.Of(failedId) };
     }

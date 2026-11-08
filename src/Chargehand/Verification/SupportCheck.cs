@@ -8,7 +8,7 @@ namespace Chargehand.Verification;
 /// <summary>
 /// Applies the support judge's verdicts to a result (ADR 0036). Supported claims stay and say so; a partly supported claim stays at
 /// half its confidence with the reason in <c>open_questions</c>; an unsupported claim moves to <c>open_questions</c>, as an
-/// unresolved one does. It never fails a run: when the check cannot run, every claim is <c>unchecked</c> and one open question says why.
+/// unresolved one does. The result's confidence becomes the share of judged claims found supported (issue 447). It never fails a run: when the check cannot run, every claim is <c>unchecked</c> and one open question says why.
 /// </summary>
 public static class SupportCheck
 {
@@ -43,7 +43,9 @@ public static class SupportCheck
             }
         }
         var cited = claims.SelectMany(c => c.Evidence).ToHashSet();
-        return contract with { Claims = claims, Evidence = contract.Evidence.Where(e => cited.Contains(e.Id)).ToList(), OpenQuestions = questions };
+        var judged = verdicts.Count(v => v.Index >= 0 && v.Index < contract.Claims.Count);
+        var confidence = judged == 0 ? contract.Confidence : Math.Round((double)claims.Count(c => c.Support == ClaimSupport.Supported) / judged, 3);
+        return contract with { Claims = claims, Evidence = contract.Evidence.Where(e => cited.Contains(e.Id)).ToList(), OpenQuestions = questions, Confidence = confidence };
     }
 
     /// <summary>Records the hash of the cited text on each evidence entry that has none, so a reader can recompute it from the pinned commit.</summary>
