@@ -5,7 +5,8 @@ using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Modules.Economics.Api;
 
-/// <summary><c>chargehand cost [--json]</c>: dollars per merged pull request, per repository and preset over 7 and 30 days. It reads the run log and the pull request outcomes the server recorded
+/// <summary><c>chargehand cost [--json]</c>: dollars per merged pull request, per repository and preset over 7 and 30 days, and the driven tasks a gateway's budget refusal ended with the
+/// pull requests merged over the same windows. It reads the run log and the pull request outcomes the server recorded
 /// (no credential, no network), so a pull request of a run the server never tracked reads as unknown; the console asks the forge. Exit 0, 2 on a usage error.</summary>
 public static class CostCli
 {
@@ -18,8 +19,11 @@ public static class CostCli
             return 2;
         }
 
-        var states = new RecordedPullRequestStates(await learning.ReadAsync(ct));
-        var report = await CostReportBuilder.BuildAsync(await log.ReadAllAsync(ct), states, now, ct: ct);
+        var entries = await learning.ReadAsync(ct);
+        var report = await CostReportBuilder.BuildAsync(await log.ReadAllAsync(ct), new RecordedPullRequestStates(entries), now, ct: ct) with
+        {
+            BudgetRefusals = Chargehand.Modules.Oversight.Api.BudgetRefusals.Build(entries, now),
+        };
         output.Write(args.Count == 1 ? json(report) + "\n" : Render(report));
         return 0;
     }
@@ -34,6 +38,15 @@ public static class CostCli
             foreach (var r in new[] { window.Total }.Concat(window.Rows))
                 text.AppendLine(CultureInfo.InvariantCulture,
                     $"{r.Repository} | {r.Preset} | {r.Runs} | {r.Usd:F2} | {r.PullRequests} | {r.Merged} | {r.ClosedUnmerged} | {r.Open} | {r.Unknown} | {(r.UsdPerMerged is { } m ? m.ToString("F2", CultureInfo.InvariantCulture) : "-")} | {r.NoPullRequestUsd:F2} | {r.ClosedUsd:F2} | {r.WastedUsd:F2}");
+            text.AppendLine();
+        }
+
+        foreach (var window in report.BudgetRefusals ?? [])
+        {
+            text.AppendLine(CultureInfo.InvariantCulture, $"driven tasks, last {window.Days} days");
+            text.AppendLine("repository | tasks | ended by a budget refusal | merged prs");
+            foreach (var r in new[] { window.Total }.Concat(window.Repositories))
+                text.AppendLine(CultureInfo.InvariantCulture, $"{r.Repository} | {r.Tasks} | {r.BudgetRefusedTasks} | {r.MergedPrs}");
             text.AppendLine();
         }
 

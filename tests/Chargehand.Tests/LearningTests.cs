@@ -729,6 +729,32 @@ public class LearningTests
     }
 
     [Fact]
+    public async Task The_server_counts_the_tasks_a_budget_refusal_ended_over_7_and_30_days()
+    {
+        using var stores = new Stores();
+        var at = DateTimeOffset.UtcNow.AddHours(-1);
+        foreach (var run in new[] { "x1", "x2", "x3" })
+            await stores.Store.AppendAsync(Record(run, outcome: LearningOutcome.Failed, at: at) with { StopReason = GatewayRefusal.BudgetReason }, default);
+        await stores.Store.AppendAsync(Record("ok", at: at, pr: Pr(3)), default);
+        await stores.Store.AppendAsync(Record("tl", outcome: LearningOutcome.Failed, at: at), default);
+        await stores.Store.AppendAsync(new PrOutcomeRecord("ok", at, PrOutcomes.Merged, null), default);
+        DrivenRunTests.Rig? rig = null;
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), driven: (root, log) => (rig = new DrivenRunTests.Rig(dir: root, log: log, learning: stores.Store)).Run);
+        using var _ = rig;
+
+        var body = await s.Http.GetFromJsonAsync<JsonElement>("/v1/learn");
+
+        var windows = body.GetProperty("budget_refusals");
+        Assert.Equal([7, 30], windows.EnumerateArray().Select(w => w.GetProperty("days").GetInt32()));
+        foreach (var window in windows.EnumerateArray())
+        {
+            var total = window.GetProperty("total");
+            Assert.Equal((5, 3, 1), (total.GetProperty("tasks").GetInt32(), total.GetProperty("budget_refused_tasks").GetInt32(), total.GetProperty("merged_prs").GetInt32()));
+            Assert.Equal("o/r", window.GetProperty("repositories")[0].GetProperty("repository").GetString());
+        }
+    }
+
+    [Fact]
     public async Task An_accounts_key_sees_the_tasks_of_its_own_batches_only_and_the_owner_sees_all_including_those_from_before_accounts()
     {
         using var stores = new Stores();
