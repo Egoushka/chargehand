@@ -50,7 +50,7 @@ public static class DrivenResult
             code = ErrorCode.RateLimited;
         }
         var questions = outcome.Tasks.Where(t => t.State != TaskState.Completed).Select(t => $"Task {t.Id}: {Snake(t.State.ToString()).Replace('_', ' ')}: {t.Detail ?? "no detail"}").ToList();
-        return new ResultContract("result/v1", runId, "driven", traceId, chain, ResultStatus.Failed, message, [], [], artifacts, questions, 0.5, usage,
+        return new ResultContract("result/v1", runId, "driven", traceId, chain, ResultStatus.Failed, message, [], [], artifacts, questions, ResultConfidence.None, usage,
             new ResultError(code, message, ChargehandException.Retryable(code), action));
     }
 

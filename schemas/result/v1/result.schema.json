@@ -61,7 +61,7 @@
       }
     },
     "open_questions": { "type": "array", "items": { "type": "string" } },
-    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "On a completed result, the share of its claims the support check found supported, or the worker's own figure when no claim was judged. Null when the run did not complete." },
     "usage": {
       "type": "object",
       "additionalProperties": false,

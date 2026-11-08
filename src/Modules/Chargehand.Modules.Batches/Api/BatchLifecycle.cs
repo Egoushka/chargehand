@@ -162,7 +162,7 @@ public sealed partial class BatchLifecycle(IRunLog log, string? stateDirectory =
             ? new ResultError(ErrorCode.Cancelled, "the run was cancelled", false, "Start the batch again if it is still wanted; nothing was pushed.")
             : ChargehandException.ErrorOf(e);
         var chain = new PromptChain([], new AsSent($"claude-code/{claudeVersion}", "driven", "batch", context.Started.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
-        return new ResultContract("result/v1", context.RunId, "driven", context.TraceId, chain, ResultStatus.Failed, error.Message, [], [], [], [error.Message], 0, new Usage(0, 0, 0, 0, 0), error);
+        return new ResultContract("result/v1", context.RunId, "driven", context.TraceId, chain, ResultStatus.Failed, error.Message, [], [], [], [error.Message], ResultConfidence.None, new Usage(0, 0, 0, 0, 0), error);
     }
 
     private static ResultContract Signed(ResultContract result, ECDsa? key) => key is null ? result : ResultSignature.Sign(result, key);

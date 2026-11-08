@@ -92,7 +92,7 @@ public sealed class Orchestrator(
         var intakeChain = PromptChains.Build([(intakeBlock, BlockSource.Registry)], new AsSent(opencodeVersion, "generate", intakeModel, date));
 
         ResultContract Stop(ResultStatus status, string summary, IReadOnlyList<string> questions, IReadOnlyList<Artifact>? artifacts = null) =>
-            new("result/v1", runId, "intake", traceId, intakeChain, status, summary, [], [], artifacts ?? [], questions, 0, new Usage(0, 0, 0, 0, 0));
+            new("result/v1", runId, "intake", traceId, intakeChain, status, summary, [], [], artifacts ?? [], questions, ResultConfidence.None, new Usage(0, 0, 0, 0, 0));
 
         ResultContract result;
         System.Security.Cryptography.ECDsa? signingKey = null;
@@ -203,11 +203,11 @@ public sealed class Orchestrator(
         {
             // A run that throws (a bad checkout, an unknown preset, no valid Task Spec) still ends with a result and a run record.
             var error = e is OperationCanceledException ? Cancelled() : ChargehandException.ErrorOf(e);
-            result = new ResultContract("result/v1", runId, "run", traceId, intakeChain, ResultStatus.Failed, error.Message, [], [], [], [error.Message], 0, new Usage(0, 0, 0, 0, 0),
+            result = new ResultContract("result/v1", runId, "run", traceId, intakeChain, ResultStatus.Failed, error.Message, [], [], [], [error.Message], ResultConfidence.None, new Usage(0, 0, 0, 0, 0),
                 error);
         }
 
-        result = result with { Actor = actor, Name = RunNames.Of(runId) };
+        result = ResultConfidence.Final(result) with { Actor = actor, Name = RunNames.Of(runId) };
         if (signingKey is not null)
         {
             result = ResultSignature.Sign(result, signingKey);
@@ -335,7 +335,7 @@ public sealed class Orchestrator(
         var chain = new PromptChain([], new AsSent(opencodeVersion, "generate", profile.IntakeModel ?? "auto", now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         var error = Cancelled();
         var result = new ResultContract("result/v1", runId, "run", traceId, chain, ResultStatus.Failed, "The run was cancelled before it started.", [], [], [],
-            [error.Message], 0, new Usage(0, 0, 0, 0, 0), error, Actor: actor)
+            [error.Message], ResultConfidence.None, new Usage(0, 0, 0, 0, 0), error, Actor: actor)
         { Name = RunNames.Of(runId) };
         await runLog.AppendAsync(new StartRecord(runId, now, traceId, request, Environment.ProcessId, parentRunId, ProcessBoot.Id, actor), CancellationToken.None);
         await runLog.AppendAsync(new RunRecord(runId, now, now, request.Context.Preset, null, null, result, Actor: actor), CancellationToken.None);
@@ -479,7 +479,7 @@ public sealed class Orchestrator(
         }
 
         ResultContract Failed(PlanNode node, string reason) =>
-            new("result/v1", runId, node.Id, traceId, chain, ResultStatus.Failed, reason, [], [], [], [reason], 0, new Usage(0, 0, 0, 0, 0));
+            new("result/v1", runId, node.Id, traceId, chain, ResultStatus.Failed, reason, [], [], [], [reason], ResultConfidence.None, new Usage(0, 0, 0, 0, 0));
 
         IReadOnlyList<NodeOutcome> outcomes;
         try

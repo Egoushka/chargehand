@@ -1,8 +1,9 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Chargehand.Contracts;
 
-/// <summary>result/v1: what a node returns, and what a run returns to its caller. <c>Actor</c> is the account that started the run (ADR 0050); null for a CLI run. <c>Name</c> is the run's friendly name (<see cref="RunNames"/>); the id stays the key.</summary>
+/// <summary>result/v1: what a node returns, and what a run returns to its caller. <c>Confidence</c> is <see cref="double.NaN"/>, written as JSON null, on a result that did not complete (<see cref="ResultConfidence"/>). <c>Actor</c> is the account that started the run (ADR 0050); null for a CLI run. <c>Name</c> is the run's friendly name (<see cref="RunNames"/>); the id stays the key.</summary>
 public sealed record ResultContract(
     string ContractVersion,
     string TaskId,
@@ -15,7 +16,7 @@ public sealed record ResultContract(
     IReadOnlyList<Evidence> Evidence,
     IReadOnlyList<Artifact> Artifacts,
     IReadOnlyList<string> OpenQuestions,
-    double Confidence,
+    [property: JsonConverter(typeof(ConfidenceConverter))] double Confidence,
     Usage Usage,
     ResultError? Error = null,
     SignatureBlock? Signature = null,
@@ -23,6 +24,34 @@ public sealed record ResultContract(
 {
     /// <summary>The run's friendly name, like "Brave Capybara". A separate property, not a constructor parameter, so the published constructor keeps its shape.</summary>
     public string? Name { get; init; }
+}
+
+/// <summary>A result's confidence (issue 447): on a completed result, the share of its claims the support check found supported
+/// (<c>SupportCheck</c>), or the worker's own figure when no claim was judged; none on any other result, which answered nothing.
+/// The published type keeps <c>double</c>: <see cref="None"/> (NaN) is the absent value, and JSON carries it as null.</summary>
+public static class ResultConfidence
+{
+    public const double None = double.NaN;
+
+    public static ResultContract Final(ResultContract result) =>
+        result.Status == ResultStatus.Completed ? result : result with { Confidence = None };
+}
+
+/// <summary>A result's confidence as JSON: <see cref="ResultConfidence.None"/> is written as null, and null is read as it.</summary>
+public sealed class ConfidenceConverter : JsonConverter<double>
+{
+    public override bool HandleNull => true;
+
+    public override double Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.Null ? ResultConfidence.None : reader.GetDouble();
+
+    public override void Write(Utf8JsonWriter writer, double value, JsonSerializerOptions options)
+    {
+        if (double.IsNaN(value))
+            writer.WriteNullValue();
+        else
+            writer.WriteNumberValue(value);
+    }
 }
 
 [JsonConverter(typeof(SnakeCaseEnumConverter<ResultStatus>))]

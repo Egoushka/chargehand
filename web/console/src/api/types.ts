@@ -123,7 +123,8 @@ export interface RunResult {
   claims?: Claim[];
   evidence?: Evidence[];
   open_questions?: string[];
-  confidence: number;
+  /** Null when the run did not complete. */
+  confidence: number | null;
   usage: {
     input: number;
     output: number;
