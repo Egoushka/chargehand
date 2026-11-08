@@ -24,6 +24,7 @@ public static partial class SessionDriver
         private readonly List<GovernorDecision> _decisions = [];
         private SessionUsage? _lastUsage;
         private string? _stage;
+        private int _waited;
         private decimal? _spentSoFar;
 
         private async Task Govern(IReadOnlyList<GovernorDecision> made)
@@ -72,6 +73,31 @@ public static partial class SessionDriver
             _exitCode = _process.ExitCode;
         }
 
+        /// <summary>Runs <paramref name="begin"/>'s process; while it ends on the subscription's rate limit and <see cref="QuotaWait"/> allows, sleeps to the reset and resumes the session (ADR 0096).
+        /// With no session id yet (the limit hit before the first message) it starts <paramref name="begin"/> again.</summary>
+        public async Task DriveWaitingAsync(Func<ProcessStartInfo> begin, Func<(string SessionId, string Prompt), ProcessStartInfo> resume, string? start, DateTimeOffset started, CancellationToken ct)
+        {
+            await DriveAsync(begin(), start, started, ct);
+            while (_stoppedBy.Cause is null && WaitFor() is { } delay)
+            {
+                _waited++;
+                await stream.WriteLineAsync($$"""{"type":"system","subtype":"quota_wait","resume_at":"{{DateTimeOffset.UtcNow + delay:O}}"}""");
+                await stream.FlushAsync(ct);
+                await (options.Delay ?? Task.Delay)(delay, ct);
+                detector.Touch(DateTimeOffset.UtcNow);
+                var session = _tally.SessionId;
+                _tally.NewProcess();
+                await DriveAsync(session is null ? begin() : resume((session, QuotaWait.ResumePrompt)), start, DateTimeOffset.UtcNow, ct);
+            }
+        }
+
+        private TimeSpan? WaitFor()
+        {
+            var now = DateTimeOffset.UtcNow;
+            var allowed = _task.QuotaWaitMinutes is { } minutes ? TimeSpan.FromMinutes(minutes) : QuotaWait.Longest;
+            return QuotaWait.Delay(_tally.HasResult && _tally.ResultIsError, _tally.ResultText, _tally.ResultApiStatus, now, _waited, TimeSpan.FromTicks(Math.Min(allowed.Ticks, detector.Remaining(now).Ticks)));
+        }
+
         /// <summary>The check gate: while the session finished on its own, run the repository's checks and the task's criteria, and look for a CI-configuration edit
         /// (issue #527: chargehand refuses to push one, so it is caught here, before the handover would refuse it after the whole session ran). A failure resumes the
         /// session with the failure as its next turn, at most <see cref="SessionTask.CheckRetries"/> times and within the wall clock.</summary>
@@ -102,7 +128,7 @@ public static partial class SessionDriver
                 // The checks' own time is not the session's silence.
                 detector.Touch(DateTimeOffset.UtcNow);
                 _tally.NewProcess();
-                await DriveAsync(resume((session, SessionChecks.Feedback(results, attempt, _task.CheckRetries))), start, DateTimeOffset.UtcNow, ct);
+                await DriveWaitingAsync(() => resume((session, SessionChecks.Feedback(results, attempt, _task.CheckRetries))), resume, start, DateTimeOffset.UtcNow, ct);
             }
             // A resumed session that did not finish keeps its own status.
             return results;
@@ -116,7 +142,7 @@ public static partial class SessionDriver
                 return;
             detector.Touch(DateTimeOffset.UtcNow);
             _tally.NewProcess();
-            await DriveAsync(resume((session, ReportRequest)), start, DateTimeOffset.UtcNow, ct);
+            await DriveWaitingAsync(() => resume((session, ReportRequest)), resume, start, DateTimeOffset.UtcNow, ct);
         }
 
         /// <summary>A finished session that made no commit of its own but left changes is asked once to commit them: the handover takes only the branch's commits, so its files
@@ -128,7 +154,7 @@ public static partial class SessionDriver
                 return;
             detector.Touch(DateTimeOffset.UtcNow);
             _tally.NewProcess();
-            await DriveAsync(resume((session, CommitRequest)), start, DateTimeOffset.UtcNow, ct);
+            await DriveWaitingAsync(() => resume((session, CommitRequest)), resume, start, DateTimeOffset.UtcNow, ct);
         }
 
         private bool Finished() => _stoppedBy.Cause is null && _tally.HasResult && !_tally.ResultIsError && Extract(_tally).Questions.Count == 0;

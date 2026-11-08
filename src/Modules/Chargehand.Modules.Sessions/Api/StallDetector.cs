@@ -75,6 +75,9 @@ public sealed class StallDetector
         }
     }
 
+    /// <summary>What is left of the wall clock.</summary>
+    public TimeSpan Remaining(DateTimeOffset now) => _wallClock - (now - _start);
+
     public StallReason? Check(DateTimeOffset now)
     {
         if (now - _start > _wallClock)
