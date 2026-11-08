@@ -168,6 +168,14 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         s.Interrupted = true;
         try
         {
+            s.Waiting?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The wait just ended.
+        }
+        try
+        {
             s.Process?.Kill(entireProcessTree: true);
         }
         catch (InvalidOperationException)
@@ -346,7 +354,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         return args;
     }
 
-    private Task Start(Session s, string prompt, bool compact, bool? onFallback = null)
+    private Task Start(Session s, string prompt, bool compact, bool? onFallback = null, int waited = 0)
     {
         var fallback = onFallback ?? _fallback?.Gate.UseFallback() == true;
         List<string> args = [.. CommonArgs(s.Spec.Model, fallback), "--output-format", "stream-json", "--verbose", "--exclude-dynamic-system-prompt-sections"];
@@ -417,10 +425,54 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
             {
                 RemoveConfigDir(configDir);
             }
-            if (!compact && !s.Interrupted && s.Result is { } turn && Fell(turn, fallback))
+            if (compact || s.Interrupted || s.Result is not { } turn)
+                return;
+            if (Fell(turn, fallback))
                 await Again(s, prompt);
+            else if (!fallback && QuotaWait.Delay(turn.IsError, turn.Text, turn.ApiStatus, DateTimeOffset.UtcNow, waited, QuotaWaitLimit) is { } delay)
+                await WaitThenAgain(s, prompt, delay, waited);
         });
     }
+
+    /// <summary>The subscription's limit ended the turn and no fallback took it (ADR 0096): sleeps to the reset, then runs the same prompt again resuming the session. The failed turn's
+    /// <c>Idle</c> stays until then, so an interrupt during the sleep ends the turn as interrupted.</summary>
+    private async Task WaitThenAgain(Session s, string prompt, TimeSpan delay, int waited)
+    {
+        using var waiting = new CancellationTokenSource();
+        s.Waiting = waiting;
+        try
+        {
+            if (s.Interrupted)
+                waiting.Cancel();
+            await Sleep(delay, waiting.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Interrupted: the check below ends the turn.
+        }
+        finally
+        {
+            s.Waiting = null;
+        }
+        lock (s)
+            if (s.Interrupted)
+            {
+                if (s.Messages.FindLastIndex(m => m.Kind == WorkerMessageKind.Idle) is var i and >= 0 && i == s.Messages.Count - 1)
+                    s.Messages.RemoveAt(i);
+                s.Messages.Add(Idle(IdleOutcome.Interrupted, null));
+                return;
+            }
+        lock (s)
+            if (s.Messages.FindLastIndex(m => m.Kind == WorkerMessageKind.Idle) is var i and >= 0 && i == s.Messages.Count - 1)
+                s.Messages.RemoveAt(i);
+        await Start(s, prompt, compact: false, waited: waited + 1);
+    }
+
+    /// <summary>The longest one quota wait (ADR 0096); zero turns waiting off.</summary>
+    internal TimeSpan QuotaWaitLimit { get; set; } = QuotaWait.Longest;
+
+    /// <summary>How a quota wait sleeps; a test replaces it.</summary>
+    internal Func<TimeSpan, CancellationToken, Task> Sleep { get; set; } = Task.Delay;
 
     /// <summary>The subscription's limit ended the turn: its failure is dropped and the same prompt runs on the fallback, resuming the session the failed turn left.</summary>
     private Task Again(Session s, string prompt)
@@ -859,6 +911,8 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         public List<WorkerMessage> Messages { get; } = [];
         public bool Started { get; set; }
         public volatile bool Interrupted;
+        /// <summary>Set while the turn sleeps to a quota reset (ADR 0096); an interrupt cancels it.</summary>
+        public volatile CancellationTokenSource? Waiting;
         public volatile bool CompactPending;
         /// <summary>Granted servers the CLI reported as not connected, by name. Guarded by a lock on the session.</summary>
         public Dictionary<string, string> UnavailableServices { get; } = [];
