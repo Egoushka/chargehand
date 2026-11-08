@@ -58,6 +58,9 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
     public async Task<IReadOnlyList<string>> ReviewersAsync(string repository, int number, CancellationToken ct) =>
         [.. (await PagesAsync(repository, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/reviews", "the pull request's reviews", ct)).Select(r => Parse(() => Login(r, "user")))];
 
+    public async Task<IReadOnlyList<string>> PullFilesAsync(string repository, int number, CancellationToken ct) =>
+        [.. (await PagesAsync(repository, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/files", "the pull request's files", ct)).Select(f => Parse(() => Text(f, "filename") ?? ""))];
+
     public Task<string> PullDiffAsync(string repository, int number, CancellationToken ct) =>
         SendAsync(repository, HttpMethod.Get, $"{RepoPath(repository)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}", null, "the pull request's diff", DiffMedia, ct);
 

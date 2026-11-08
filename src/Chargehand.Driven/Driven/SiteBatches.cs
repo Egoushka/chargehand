@@ -260,7 +260,8 @@ internal sealed class SiteBatches
             Environment.GetEnvironmentVariable("CHARGEHAND_E2E_LOCAL_REMOTE") == "1", route.Model?.BaseUrl, route.Forward is not null || route.Model?.Forwarded == true || route.Otlp is not null, route.Otlp,
             profile.Prices, profile.Telemetry?.UsageOnSpans == true, route.Exchange?.TokenKey, settings.Governor ?? new DrivenGovernor(), _checkout.Integrator, _shared, _c.Actor,
             RemoteRepository.Parse(checkout.RemoteUrl, settings.Forge), profile.DeliveryPolicy.Forced(_c.Request.Context.Repository!.Path),
-            settings.UsesMise ? new MiseSetup(_setup.Settings.ImageFor(_setup.Image, route.Site.Config.Platform), route.Outside) : null);
+            settings.UsesMise ? new MiseSetup(_setup.Settings.ImageFor(_setup.Image, route.Site.Config.Platform), route.Outside) : null,
+            settings.Forge is not { Kind: "gitlab" } ? settings.Integrator?.BotIdentity() : null);
     }
 
     /// <summary>A runner's events: a started session is noted for the router, and when the profile names its runners each event says which one.</summary>

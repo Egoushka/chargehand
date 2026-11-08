@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.15](https://github.com/Egoushka/chargehand/compare/v0.19.14...v0.19.15) (2026-11-08)
+
+
+### Features
+
+* **intake:** rank intake candidates by expected value ([#767](https://github.com/Egoushka/chargehand/issues/767)) ([d642df4](https://github.com/Egoushka/chargehand/commit/d642df45001c426ae2a655ac2ac262ba639e1549))
+* **intake:** skip intake for structured callers behind skip_structured_intake ([#769](https://github.com/Egoushka/chargehand/issues/769)) ([bc9c00c](https://github.com/Egoushka/chargehand/commit/bc9c00c06c9f69835d9ded7a04c19287cb866c52))
+
+
+### Bug Fixes
+
+* **tasks:** a run whose task another writer ended returns that end, not the journal's refusal ([#508](https://github.com/Egoushka/chargehand/issues/508)) ([#752](https://github.com/Egoushka/chargehand/issues/752)) ([f6d0899](https://github.com/Egoushka/chargehand/commit/f6d08997f32f5d622d4d1a66eb6503d2a6c341aa))
+
 ## [0.19.14](https://github.com/Egoushka/chargehand/compare/v0.19.13...v0.19.14) (2026-11-07)
 
 
