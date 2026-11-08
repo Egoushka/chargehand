@@ -9,6 +9,7 @@ using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Conversations.Api;
 using Chargehand.Modules.Economics.Api;
+using Chargehand.Modules.Events.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
@@ -330,9 +331,10 @@ public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecr
 /// <param name="CloudflareAccess">Sign in by the email Cloudflare Access checked, with no key (ADR 0071); null: keys only.</param>
 /// <param name="ProxySignIn">Sign in by the email a trusted single-sign-on proxy forwards, with no key (ADR 0071); null: keys only.</param>
 /// <param name="Conversations">Turns on <c>/v1/conversations</c> (ADR 0086): a person steers an agent while it works. Null: the routes are not there.</param>
+/// <param name="Events">Turns on the event log (ADR 0090): <c>/v1/events</c>, its stream and <c>/v1/threads</c>, in <c>events.db</c> beside the run log. Null: the routes are not there.</param>
 public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null,
     int MaxConcurrentRuns = 1, IReadOnlyList<AccountSettings>? Accounts = null, bool Ui = false, CloudflareAccessSettings? CloudflareAccess = null,
-    ProxySignInSettings? ProxySignIn = null, ConversationSettings? Conversations = null)
+    ProxySignInSettings? ProxySignIn = null, ConversationSettings? Conversations = null, EventsSettings? Events = null)
 {
     /// <summary>Throws an invalid_request error naming the key when an account cannot work.</summary>
     internal void Validate()
@@ -345,6 +347,8 @@ public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string L
             throw new ChargehandException(ErrorCode.InvalidRequest, $"http.proxy_sign_in: {string.Join("; ", proxy)}", "Fix http.proxy_sign_in in the profile; docs/guide/server.md lists the keys.");
         if (Conversations?.Problems().ToList() is { Count: > 0 } conversations)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"http.conversations: {string.Join("; ", conversations)}", "Fix http.conversations in the profile; docs/guide/server.md lists the keys.");
+        if (Events?.Problems() is { Count: > 0 } events)
+            throw new ChargehandException(ErrorCode.InvalidRequest, string.Join("; ", events), "Fix http.events in the profile; docs/guide/reference.md lists the keys.");
     }
 }
 
