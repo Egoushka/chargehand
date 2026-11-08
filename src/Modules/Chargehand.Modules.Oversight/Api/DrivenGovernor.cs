@@ -17,9 +17,11 @@ public enum GovernorMode { Off, Observe, Enforce }
 /// <param name="Mode"><c>off</c>, <c>observe</c> (the default: decisions are logged, none acted on) or <c>enforce</c> (a checkpoint or a stop ends the session).</param>
 /// <param name="Budgets">The flat budget per size class (S, M, L) in the dollar equivalent, until enough history exists for a percentile.</param>
 /// <param name="History">When a size class has enough finished tasks, its budget is a percentile of their spend; null: the defaults of <see cref="DrivenGovernorHistory"/>.</param>
+/// <param name="Autonomy">The clean streaks that earn a repository wider rights (ADR 0097); null: the starting values of <see cref="DrivenGovernorAutonomy"/>.</param>
 public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IReadOnlyDictionary<string, decimal>? Budgets = null, int? RepeatCalls = null,
     int? RepeatFailures = null, int? FailingCalls = null, int? ProbeCommands = null, int? NoGrowthTurns = null, int? RewarnTurns = null, long? ContextTokens = null,
-    decimal? CheckpointAt = null, IReadOnlyList<string>? ProbePatterns = null, IReadOnlyList<string>? WaitPatterns = null, DrivenGovernorHistory? History = null) : IValidatableObject
+    decimal? CheckpointAt = null, IReadOnlyList<string>? ProbePatterns = null, IReadOnlyList<string>? WaitPatterns = null, DrivenGovernorHistory? History = null,
+    DrivenGovernorAutonomy? Autonomy = null) : IValidatableObject
 {
     public static IReadOnlyDictionary<string, decimal> DefaultBudgets { get; } = new Dictionary<string, decimal> { ["S"] = 1.5m, ["M"] = 4m, ["L"] = 10m };
 
@@ -42,6 +44,7 @@ public sealed record DrivenGovernor(GovernorMode Mode = GovernorMode.Observe, IR
             if (size is not ("S" or "M" or "L") || budget <= 0)
                 problems.Add($"budgets.{size} must be one of S, M, L with a value above 0");
         History?.Validate(problems);
+        Autonomy?.Validate(problems);
         foreach (var pattern in (ProbePatterns ?? []).Concat(WaitPatterns ?? []))
             try
             {

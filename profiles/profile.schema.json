@@ -354,6 +354,16 @@
                 "percentile": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Nearest-rank percentile of their spend. Default 80." }
               }
             },
+            "autonomy": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "ADR 0097's earned autonomy: a repository's clean streak is its pull requests merged unchanged since its last revert or failed check, in the last window_days days. At large_after it earns the L size class, at auto_merge_after auto-merge as well; a revert or a failed check resets the streak. A key left out keeps its starting value.",
+              "properties": {
+                "large_after": { "type": "integer", "minimum": 1, "description": "Clean streak that earns the L size class. Default 5." },
+                "auto_merge_after": { "type": "integer", "minimum": 1, "description": "Clean streak that earns auto-merge. Default 10." },
+                "window_days": { "type": "integer", "minimum": 1, "description": "How far back merges, reverts and failed checks count. Default 90." }
+              }
+            },
             "repeat_calls": { "type": "integer", "minimum": 1, "description": "Identical action and observation pairs in a row that fire repeated_call. Default 4." },
             "repeat_failures": { "type": "integer", "minimum": 1, "description": "Failures of one identical action that fire repeated_failure. Default 3." },
             "failing_calls": { "type": "integer", "minimum": 1, "description": "Failing tool calls in a row that fire failing_calls. Default 8." },
