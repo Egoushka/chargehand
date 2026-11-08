@@ -39,3 +39,9 @@ dotnet build
 dotnet test
 dotnet format --verify-no-changes
 ```
+
+Every behaviour sentence in `docs/guide` cites the code or test it rests on: a link to a file under `src/`, `tests/`,
+`schemas/` and the other code directories, or the path in backticks. `DocClaimsTests` fails on a new sentence that cites
+nothing and prints the count of uncited ones (into the job summary on CI). The sentences that cited nothing when the check
+landed are listed in `tests/Chargehand.Tests/DocClaims.uncited.txt`; that list only shrinks, so when you cite one, delete
+its line.
