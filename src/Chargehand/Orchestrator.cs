@@ -97,6 +97,7 @@ public sealed class Orchestrator(
         ResultContract result;
         System.Security.Cryptography.ECDsa? signingKey = null;
         IntakeOutcome? intake = null;
+        var intakeSkipped = false;
         TaskAction? executed = null;
         Enhanced? enhanced = null;
         string? credential = null;
@@ -146,7 +147,12 @@ public sealed class Orchestrator(
                 {
                     TagChain(span, intakeChain);
                     span?.SetTag("gen_ai.request.model", intakeModel);
-                    intake = await new GenerateIntake(worker, ParseModel(intakeModelId), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
+                    // A structured caller's complete request skips the model call (issue 429); the deterministic checks still run.
+                    var given = profile.SkipStructuredIntake ? StructuredSpec.For(request, preset, kind, runId) : null;
+                    intakeSkipped = given is not null;
+                    span?.SetTag("chargehand.intake.skipped", intakeSkipped);
+                    intake = given is not null ? GenerateIntake.Given(request, given, kind.Checkout)
+                        : await new GenerateIntake(worker, ParseModel(intakeModelId), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
                     span?.SetTag("chargehand.intake.action", intake.Spec?.Action.ToString().ToLowerInvariant() ?? "needs_input");
                     foreach (var c in intake.Calls)
                         await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, intakeModel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
@@ -218,7 +224,7 @@ public sealed class Orchestrator(
         run?.SetTag("chargehand.action", executed is null ? null : Name(executed.Value));
         // A caller's cancel must not stop the record of it from being written.
         await runLog.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, presetName, intake?.Spec is null ? null : Name(intake.Spec.Action), intake?.Spec, result,
-            executed is null ? null : Name(executed.Value), extensions.ToReport(), actor, credential), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
+            executed is null ? null : Name(executed.Value), extensions.ToReport(), actor, credential, intakeSkipped ? true : null), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
         await ReportOutcome(enhanced, result, executed);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;

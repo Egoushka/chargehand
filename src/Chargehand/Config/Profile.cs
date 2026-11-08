@@ -59,7 +59,8 @@ public sealed record Profile(
     DeliverySettings? Delivery = null,
     AcpSettings? Acp = null,
     InboxSettings? Inbox = null,
-    PublicFreeSettings? PublicFree = null)
+    PublicFreeSettings? PublicFree = null,
+    bool SkipStructuredIntake = false)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";

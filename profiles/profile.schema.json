@@ -184,6 +184,7 @@
         "key_file": { "type": "string", "minLength": 1, "description": "A P-256 private key in PEM: openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out signing-key.pem" }
       }
     },
+    "skip_structured_intake": { "type": "boolean", "description": "Default false (issue 429): a request that is not interactive, names a preset that only answers and has no approval thresholds, and carries a goal input (automation's pull request reviews) runs on a Task Spec built from that goal, without the intake model call. The routing report states the latency saved." },
     "support_check": { "type": "boolean", "description": "Default true (ADR 0036): after a node, one call on the intake model judges whether the text each claim cites supports it; unsupported claims move to open_questions and the rest carry support. false: no check, no extra call." },
     "sandbox": {
       "type": "object",

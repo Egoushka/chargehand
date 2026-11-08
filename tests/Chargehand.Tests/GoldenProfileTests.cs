@@ -42,6 +42,7 @@ public class GoldenProfileTests
         Assert.Equal(["/srv/chargehand/work/local-only", "~/local-example"], profile.Delivery!.LocalOnly);
         Assert.Equal(["/srv/chargehand/work", "/srv/chargehand/repos"], profile.RepositoryRoots);
         Assert.True(profile.SupportCheck);
+        Assert.True(profile.SkipStructuredIntake);
         Assert.Equal("/srv/chargehand/signing-key.pem", profile.Signing!.KeyFile);
         Assert.Equal(("bubblewrap", false), (profile.Sandbox!.Kind, profile.Sandbox.Network));
         Assert.Equal(["EXAMPLE_VAR"], profile.Sandbox.Env);

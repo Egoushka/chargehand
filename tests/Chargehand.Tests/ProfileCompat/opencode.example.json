@@ -28,6 +28,7 @@
   "acp": null,
   "inbox": null,
   "public_free": null,
+  "skip_structured_intake": false,
   "roots": [
     "/var/tmp/chargehand/work"
   ],
