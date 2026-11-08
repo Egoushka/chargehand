@@ -252,7 +252,8 @@
             "max_continuations": { "type": "integer", "minimum": 0, "maximum": 5, "description": "Further sessions on the same branch after one is stopped by the turn limit or the wall clock with work committed (ADR 0044). Each gets max_turns and max_minutes again; max_tokens is shared. Default 2; 0: none." },
             "check_retries": { "type": "integer", "minimum": 0, "maximum": 5, "description": "How many times a failed check is sent back to the session as its next turn before the session ends as checks_failed. Default 2; 0: none." },
             "goal_reminder_minutes": { "type": "integer", "minimum": 0, "description": "The goal and the checks are re-sent to a long session every this many minutes. Default 60; 0: off." },
-            "goal_reminder_turns": { "type": "integer", "minimum": 1, "description": "The goal and the checks are also re-sent every this many assistant messages. Absent: by minutes only." }
+            "goal_reminder_turns": { "type": "integer", "minimum": 1, "description": "The goal and the checks are also re-sent every this many assistant messages. Absent: by minutes only." },
+            "mutation_share": { "type": "number", "minimum": 0, "maximum": 1, "description": "Issue 788: before the handover pushes, the changed C# production files are mutated with Stryker.NET in the verification container, and the branch is held back unless the tests kill at least this share of the mutants (0.6 is a starting value). Absent: no mutation check." }
           }
         },
         "planning": {

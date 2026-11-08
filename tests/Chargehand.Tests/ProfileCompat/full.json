@@ -183,7 +183,8 @@
       "max_continuations": 2,
       "check_retries": null,
       "goal_reminder_minutes": null,
-      "goal_reminder_turns": null
+      "goal_reminder_turns": null,
+      "mutation_share": null
     },
     "governor": {
       "mode": "enforce",
