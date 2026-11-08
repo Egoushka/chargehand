@@ -18,7 +18,8 @@ namespace Chargehand.Automation;
 /// <see cref="IntakeState"/> before the comment about it, so a restart cannot start a trigger twice. The watched repositories are the profile's, and with <c>discover</c> every one the App can see, each
 /// cloned into <paramref name="clones"/>; one switched off in <paramref name="sources"/> is not read.</summary>
 public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost host, IRunLog log, IRepositoryHeads heads, IntakeState state, TimeProvider? clock = null, Action<string>? warn = null,
-    IntegratorPolicy? integrator = null, IntakeSources? sources = null, ManagedClones? clones = null, Action<string>? info = null, Func<DateTimeOffset, DateTimeOffset?>? subscriptionResetsAt = null)
+    IntegratorPolicy? integrator = null, IntakeSources? sources = null, ManagedClones? clones = null, Action<string>? info = null, Func<DateTimeOffset, DateTimeOffset?>? subscriptionResetsAt = null,
+    Func<DateTimeOffset, QuotaWindow?>? quotaWindow = null)
 {
     public const string Preset = "driven";
 
@@ -47,6 +48,9 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private readonly ReviewBacklog _backlog = new(settings, host, state);
     private readonly ScopeOverlap _overlap = new(host, state);
     private readonly IntakeBreakers _breakers = new(settings, state, clock ?? TimeProvider.System, warn ?? Warned);
+    private readonly QuotaHarvest? _harvest = settings.Harvest is { } harvest
+        ? new(harvest, state, quotaWindow ?? QuotaHarvest.Reported(TimeSpan.FromHours(harvest.WindowHours), subscriptionResetsAt ?? (_ => null)))
+        : null;
     private DateTimeOffset? _warnedPause;
 
     /// <summary>The waiting triggers this poll read again; one of a repository that was not is withdrawn.</summary>
@@ -68,19 +72,20 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private enum TriggerSource { CiFix = 0, ReviewRound = 1, Answer = 2, NewIssue = 3 }
 
     /// <summary>A trigger ready to attempt this poll, ranked for a free slot by priority label, then source, then size, then age (issue #576); lower in each ranks first. <see cref="Finish"/> runs
-    /// after the attempt with its outcome, for bookkeeping (a cursor, a seen time) a source needs once every trigger it found this poll is known.</summary>
-    private sealed record Candidate(string Key, TriggerSource Source, int PriorityRank, int SizeRank, DateTimeOffset Since, Func<CancellationToken, Task<Outcome>> Attempt, Action<Outcome> Finish);
+    /// after the attempt with its outcome, for bookkeeping (a cursor, a seen time) a source needs once every trigger it found this poll is known. <see cref="Harvest"/>: the quota harvester's work (issue #792).</summary>
+    private sealed record Candidate(string Key, TriggerSource Source, int PriorityRank, int SizeRank, DateTimeOffset Since, Func<CancellationToken, Task<Outcome>> Attempt, Action<Outcome> Finish,
+        bool Harvest = false);
 
     private static IOrderedEnumerable<Candidate> Ranked(IEnumerable<Candidate> candidates) =>
         candidates.OrderBy(c => c.PriorityRank).ThenBy(c => c.Source).ThenBy(c => c.SizeRank).ThenBy(c => c.Since);
 
     /// <summary>Attempts the candidates a repository's gather found this poll. A free slot for every one of them is attempted in the order they were found: nothing waits, so nothing is ranked
     /// against anything else. Once they outnumber the free slots, the highest-ranked go first (issue #576), so a lower one that would have slipped in first by luck of discovery order waits
-    /// instead; each is still checked for a free slot (and the other admission rules) at the moment it is tried.</summary>
+    /// instead; each is still checked for a free slot (and the other admission rules) at the moment it is tried. Harvest work is always ranked, so the day's harvested starts go to <c>size:S</c> first.</summary>
     private async Task AttemptAsync(List<Candidate> candidates, CancellationToken ct)
     {
         var freeSlots = MaxConcurrent - state.Tasks.Count(t => t.Phase == IntakePhase.Running);
-        var ordered = candidates.Count > Math.Max(freeSlots, 0) ? (IEnumerable<Candidate>)Ranked(candidates) : candidates;
+        var ordered = candidates.Count > Math.Max(freeSlots, 0) || candidates.Any(c => c.Harvest) ? (IEnumerable<Candidate>)Ranked(candidates) : candidates;
         foreach (var candidate in ordered)
             candidate.Finish(await candidate.Attempt(ct));
     }
@@ -103,7 +108,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
 
     /// <summary>A candidate ranked from an issue's labels: a label trigger or a comment that mentions the bot on a new issue.</summary>
     private Candidate NewIssueCandidate(string key, IReadOnlyList<string> labels, Func<CancellationToken, Task<Outcome>> attempt, Action<Outcome> finish) =>
-        new(key, TriggerSource.NewIssue, PriorityRankOf(labels), SizeRankOf(labels), WaitingSince(key), attempt, finish);
+        new(key, TriggerSource.NewIssue, PriorityRankOf(labels), SizeRankOf(labels), WaitingSince(key), attempt, finish, _harvest?.Marks(labels) == true);
 
     /// <summary>A candidate with no issue labels to rank by (an answer, a review round): ranked last on priority and size, ahead only of a lower-ranked source.</summary>
     private Candidate DefaultCandidate(string key, TriggerSource source, DateTimeOffset since, Func<CancellationToken, Task<Outcome>> attempt, Action<Outcome> finish) =>
@@ -376,6 +381,9 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             return overlapping;
         if (await SubscriptionAsync(key, name, issue.Number, ct) is { } limited)
             return limited;
+        var harvested = _harvest?.Marks(issue.Labels) == true;
+        if (harvested && await HarvestAsync(key, name, issue.Number, ct) is { } harvest)
+            return harvest;
         if (await SlotAsync(key, name, issue.Number, ct) is { } held)
             return held;
         RepositoryRef source;
@@ -394,7 +402,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var size = IntakeGoal.SizeOf(issue.Labels) ?? settings.BudgetClass;
         var taskId = TaskId(issue.Number);
         goal ??= IntakeGoal.Issue(name, issue, comment, commentAuthor);
-        return await LaunchAsync(key, name, issue.Number, source, new DrivenTask(taskId, Goal: goal, Size: size), run => new IntakeTask(name, issue.Number, run, taskId, _time.GetUtcNow(), size, Trigger: key, Scope: scope.Count == 0 ? null : scope),
+        return await LaunchAsync(key, name, issue.Number, source, new DrivenTask(taskId, Goal: goal, Size: size), run => new IntakeTask(name, issue.Number, run, taskId, _time.GetUtcNow(), size, Trigger: key, Scope: scope.Count == 0 ? null : scope,
+            Harvested: harvested),
             starter, run => $"chargehand started run `{run}` (task `{taskId}`). It works on its own branch and opens a draft pull request when it is done, or asks here if it needs an answer.", null, null, ct);
     }
 
@@ -482,6 +491,17 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         _info($"intake: {key}: waiting: subscription: {why}");
         Wait(key, name, issue, "subscription", why);
         await NotifyOnceAsync($"subscription:{key}", name, issue, $"chargehand is waiting: {why}. This starts after it resets.", ct);
+        return Outcome.Deferred;
+    }
+
+    /// <summary>Waits until the subscription window is about to reset with quota left, and while the day's harvested starts are used up (issue #792): null when the harvest work may start.</summary>
+    private async Task<Outcome?> HarvestAsync(string key, string name, int issue, CancellationToken ct)
+    {
+        if (_harvest!.Hold(_time.GetUtcNow()) is not { } why)
+            return null;
+        _info($"intake: {key}: waiting: harvest: {why}");
+        Wait(key, name, issue, "harvest", why);
+        await NotifyOnceAsync($"harvest:{key}", name, issue, $"chargehand is waiting: this issue runs on subscription quota that would otherwise expire unused, so it starts near the end of a window ({why}).", ct);
         return Outcome.Deferred;
     }
 

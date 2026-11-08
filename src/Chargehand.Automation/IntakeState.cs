@@ -15,8 +15,10 @@ public enum IntakePhase { Running, Asked, Done }
 /// <param name="FailedAt">When the batch ended without a pull request, a question or a finished round (it failed, was lost or never started the task); null otherwise. Three in a row in a repository open the failure breaker (ADR 0084).</param>
 /// <param name="Trigger">The key of the trigger that started the task fresh from its issue; null for a continuation or a round. A run a restart lost is started again from it once (issue #557).</param>
 /// <param name="Scope">The paths the issue declared on a <c>Scope:</c> line (issue #737); while the task runs, a new start whose scope overlaps them waits. Null: none declared.</param>
+/// <param name="Harvested">Started by the quota harvester (issue #792): counts toward <c>harvest.max_per_day</c>.</param>
 public sealed record IntakeTask(string Repository, int Issue, string BatchRunId, string TaskId, DateTimeOffset Started, string Size, IntakePhase Phase = IntakePhase.Running,
-    long? AskedCommentId = null, string? PrUrl = null, string? Branch = null, int? Round = null, string? Trigger = null, DateTimeOffset? FailedAt = null, IReadOnlyList<string>? Scope = null);
+    long? AskedCommentId = null, string? PrUrl = null, string? Branch = null, int? Round = null, string? Trigger = null, DateTimeOffset? FailedAt = null, IReadOnlyList<string>? Scope = null,
+    bool Harvested = false);
 
 /// <summary>A review of a pull request's head commit that is running, or finished and not yet commented (ADR 0051). The run is a plain read-only run, not a driven batch.</summary>
 public sealed record PullReview(string Repository, int Pull, string Sha, string RunId, DateTimeOffset Started);
@@ -30,7 +32,7 @@ public sealed record PendingReview(string Id, string Repository, int Pull, strin
 /// <param name="Key">The trigger's key, as <see cref="IntakeState.Handled"/> will hold it once it starts.</param>
 /// <param name="Issue">The issue, or the pull request of a review round.</param>
 /// <param name="Since">When it first waited.</param>
-/// <param name="Reason"><c>max_concurrent</c> (no free slot), <c>overlap</c> (its declared scope overlaps an open chargehand pull request or a running task, issue #737), <c>admission</c> (the server or <c>automation.account</c> refused the start, ADR 0076), <c>checkout</c> (the base commit could not be read)
+/// <param name="Reason"><c>max_concurrent</c> (no free slot), <c>overlap</c> (its declared scope overlaps an open chargehand pull request or a running task, issue #737), <c>admission</c> (the server or <c>automation.account</c> refused the start, ADR 0076), <c>checkout</c> (the base commit could not be read), <c>harvest</c> (quota harvest work that waits for the end of a subscription window, issue #792)
 /// or <c>lost</c> (a restart lost the issue's run, which starts again once; issue #557).</param>
 /// <param name="Detail">The refusal as the server gave it, for <c>admission</c> and <c>checkout</c>.</param>
 public sealed record WaitingTrigger(string Key, string Repository, int Issue, DateTimeOffset Since, string Reason, string? Detail = null);

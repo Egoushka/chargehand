@@ -119,7 +119,8 @@
       "subscription_block": false,
       "max_starts_per_hour": 30,
       "breaker_cooldown_minutes": 120,
-      "priority_labels": null
+      "priority_labels": null,
+      "harvest": null
     },
     "schedules": null,
     "account": null,
