@@ -67,6 +67,11 @@ public class ScheduleSettingsTests
     [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","template":"doc-drift"}]}""", "repository.path")]
     [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","template":"morning-report"}]}""", "needs notify_url")]
     [InlineData("""{"notify_url":"ntfy.example/topic","entries":[{"id":"a","at":"daily 04:00","template":"morning-report"}]}""", "notify_url must be")]
+    [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","goal":"x","batch":true}]}""", "batch needs automation.schedules.batch")]
+    [InlineData("""{"batch":{"base_url":"https://g.example","model":"m","key_secret":"k"},"entries":[{"id":"a","at":"daily 04:00","goal":"x","driven":true,"batch":true}]}""", "batch applies to a read-only goal")]
+    [InlineData("""{"batch":{"base_url":"https://g.example","model":"m","key_secret":"k"},"entries":[{"id":"a","at":"daily 04:00","template":"doc-drift","batch":true,"repository":{"path":"/p"}}]}""", "batch applies to a read-only goal")]
+    [InlineData("""{"batch":{"base_url":"g.example","model":"m","key_secret":"k"},"entries":[{"id":"a","at":"daily 04:00","goal":"x","batch":true}]}""", "batch.base_url must be")]
+    [InlineData("""{"batch":{"base_url":"https://g.example","model":"m","key_secret":"k","max_tokens":0},"entries":[{"id":"a","at":"daily 04:00","goal":"x","batch":true}]}""", "batch.max_tokens")]
     public void A_value_that_cannot_work_is_refused_when_the_profile_loads(string schedules, string problem)
     {
         var e = Assert.Throws<ChargehandException>(() => Load(schedules));
@@ -74,6 +79,14 @@ public class ScheduleSettingsTests
         Assert.Contains(problem, e.Message);
         Assert.Equal(ErrorCode.InvalidRequest, e.Code);
         Assert.Contains("docs/guide/intake.md", e.Action);
+    }
+
+    [Fact]
+    public void A_batch_goal_with_a_lane_loads_without_a_repository()
+    {
+        var schedules = Load("""{"batch":{"base_url":"https://g.example","model":"m","key_secret":"k"},"entries":[{"id":"a","at":"daily 04:00","goal":"x","batch":true}]}""").Automation!.Schedules!;
+        Assert.True(schedules.Entries![0].Batch);
+        Assert.Equal(ScheduleBatchLane.DefaultMaxTokens, schedules.Batch!.Tokens());
     }
 
     [Fact]

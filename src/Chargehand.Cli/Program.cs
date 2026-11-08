@@ -578,8 +578,13 @@ Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? Sch
         alerts = new Chargehand.Automation.GitHubIntakeHost(api, new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System));
     }
     var clones = ManagedClones();
+    // The batch lane (ADR 0087): the endpoint, model and key item come from the profile; the key is read at each call.
+    var batches = schedules.Batch is { } lane
+        ? new Chargehand.Automation.ScheduleBatches(lane, new Chargehand.Automation.AnthropicMessageBatches(lane.BaseUrl, () => profile.Secret(lane.KeySecret)),
+            new Chargehand.Modules.Ledger.Api.PriceTable(profile.Prices ?? new Dictionary<string, Chargehand.Modules.Ledger.Api.ModelPrice>()))
+        : null;
     return morning => new Chargehand.Automation.Scheduler(schedules, runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state, new Chargehand.Automation.HttpScheduleNotifier(), morning,
-        flakes: flakes, alerts: alerts, clones: clones);
+        flakes: flakes, alerts: alerts, clones: clones, batches: batches);
 }
 
 // What /v1/health?deep=1 asks besides the model (CHARGEHAND-316): only what the profile configures, each a read. Secrets are read when the probe runs, so an item that is not in the store yet fails that check and not the server's start.
