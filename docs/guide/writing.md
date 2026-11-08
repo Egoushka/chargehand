@@ -28,8 +28,9 @@ question "No test command found" and a confidence of at most 0.5.
 3. After its answer, chargehand exports what a commit would hold to a temporary directory and runs the test command
    there, in the sandbox. What the tests write (caches, build output) never reaches the branch. A failure goes back to
    the worker with the last 8 KiB of output, at most twice (`verify.max_fix_rounds` in the preset).
-4. Chargehand commits with the repository's hooks and signing off. Nothing is pushed or merged.
-5. With local delivery (below), the branch is then fetched into your repository.
+4. Chargehand commits with the repository's hooks and signing off. Nothing is pushed or merged unless the profile opts in
+   (below).
+5. With local delivery (below), the branch is then fetched into your repository; with `delivery.push_remote` it is pushed.
 
 The result carries three artifacts: `branch` (the clone's path, the branch, its commit and the base), `diff`
 (`base..HEAD`, at most 64 KiB) and `verification` (command, sandbox, network, exit code, attempts, output tail, and the
@@ -38,6 +39,23 @@ changed paths that look like tests or build files). Take the branch with:
 ```sh
 git fetch <clone path> chargehand/<run>/writer
 ```
+
+## Push the branch
+
+A run on a server you cannot fetch from (a VPS, say) can hand its branch over through the repository's remote instead.
+Set `delivery.push_remote` in the profile to the name of a remote of the checkout, usually `origin`. A `code` run that
+is not local then pushes `chargehand/<run>/writer` there, under that name only: never forced, never to another ref, so
+never to the default branch. The `branch` artifact adds `remote`, `remote_url` (user info removed) and `remote_ref`:
+
+```sh
+git fetch origin chargehand/<run>/writer
+```
+
+The push uses the credentials git already has for that remote on the server (a credential helper, an SSH key, a deploy
+key); chargehand adds none. Give it a credential scoped to the one repository that may push branches but cannot bypass
+the default branch's protection. A push that fails (no such remote, a refused credential, a branch of that name already
+there) fails the run `push_rejected` with the branch kept in the run clone. A local run never pushes, whatever the
+profile says. No pull request is opened.
 
 A run that is still red after the last round has status `failed`, `error.code` `verification_failed` and the same
 artifacts, so the attempt is not lost.
@@ -73,7 +91,8 @@ that points at a restored one); without either it fails in the sandbox, and the 
 - **It does not stop the worker from editing the tests.** A green branch means the command passed, not that the
   change is right. The `verification` artifact lists changed test and build paths, and the `review` preset and a
   person are the checks on the rest.
-- **It does not push, open a pull request or merge.** Local delivery only adds a branch to your repository.
+- **It does not open a pull request or merge, and pushes only when the profile opts in.** Local delivery only adds a
+  branch to your repository; `delivery.push_remote` only adds a branch to the remote.
 - **It runs one writer per run.** The preset has no `split`.
 - **It cannot use ignored files.** The tests run on tracked and new, non-ignored files only; a repository that needs
   `node_modules` or a restored `obj` from the workspace must restore inside the command.

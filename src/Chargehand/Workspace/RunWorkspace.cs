@@ -15,8 +15,10 @@ public sealed class ExportedTree(string directory) : IDisposable
     }
 }
 
-/// <param name="Repository">Where the branch lives: the run clone's path. A caller fetches from it; nothing is pushed (ADR 0035).</param>
-public sealed record BranchInfo(string Repository, string Branch, string Commit, string Base);
+/// <param name="Repository">Where the branch lives: the run clone's path. A caller fetches from it; nothing is pushed (ADR 0035) unless the profile names <c>delivery.push_remote</c>.</param>
+/// <param name="Remote">The remote the branch was pushed to, by name; null when it was not pushed.</param>
+/// <param name="RemoteUrl">That remote's push URL with any user info removed.</param>
+public sealed record BranchInfo(string Repository, string Branch, string Commit, string Base, string? Remote = null, string? RemoteUrl = null);
 
 /// <summary>
 /// A writing node's own clone (ADR 0035): made from the cached checkout of the pinned commit under
@@ -102,9 +104,22 @@ public sealed class RunWorkspace
     /// No <c>+</c>, so an existing ref is never moved; the working tree, the index and <c>HEAD</c> are not touched, and a branch name carrying the run id is new.
     /// </summary>
     /// <returns>Null when the branch landed, else what git said.</returns>
-    public async Task<string?> LandAsync(string source, CancellationToken ct)
+    public Task<string?> LandAsync(string source, CancellationToken ct) =>
+        Failure(["-C", source, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", "--", Directory, $"refs/heads/{Branch}:refs/heads/{Branch}"], "git fetch", ct);
+
+    /// <summary>
+    /// Pushes the branch to <paramref name="url"/> under its own name (issue #569): no <c>+</c> and no <c>--force</c>, so an existing ref is never moved, and only a
+    /// <c>refs/heads/chargehand/</c> ref, so the remote's default branch is never the target. The clone's hooks stay off, as for the commit.
+    /// </summary>
+    /// <returns>Null when the remote took the branch, else what git said.</returns>
+    public Task<string?> PushAsync(string url, CancellationToken ct) =>
+        Branch.StartsWith("chargehand/", StringComparison.Ordinal)
+            ? Failure(["-C", Directory, "-c", "core.hooksPath=/dev/null", "push", "--quiet", "--no-verify", "--no-follow-tags", "--", url, $"refs/heads/{Branch}:refs/heads/{Branch}"], "git push", ct)
+            : Task.FromResult<string?>($"refusing to push {Branch}: only chargehand/ branches are pushed");
+
+    private static async Task<string?> Failure(string[] args, string what, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo("git", ["-C", source, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", "--", Directory, $"refs/heads/{Branch}:refs/heads/{Branch}"])
+        var psi = new ProcessStartInfo("git", args)
         {
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -118,7 +133,7 @@ public sealed class RunWorkspace
         await p.WaitForExitAsync(ct);
         await output;
         var text = (await error).Trim();
-        return p.ExitCode == 0 ? null : text.Length == 0 ? $"git fetch exited {p.ExitCode}" : text;
+        return p.ExitCode == 0 ? null : text.Length == 0 ? $"{what} exited {p.ExitCode}" : text;
     }
 
     /// <summary><c>git diff base..HEAD</c>, cut to <see cref="MaxDiffBytes"/> with a marker (an inline artifact holds at most 64 KiB).</summary>

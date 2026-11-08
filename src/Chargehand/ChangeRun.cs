@@ -44,7 +44,7 @@ internal static class ChangeRun
     }
 
     internal static ResultContract Finish(ResultContract contract, BranchInfo? branch, string diff, VerifyOutcome? verification, int attempts, string sandboxKind,
-        bool network, IReadOnlyList<string> changedPaths, VerifyPlan? plan, string delivery = DeliveryMode.Push, string? landFailure = null)
+        bool network, IReadOnlyList<string> changedPaths, VerifyPlan? plan, string delivery = DeliveryMode.Push, string? landFailure = null, string? pushFailure = null)
     {
         if (branch is null)
             return contract with
@@ -54,9 +54,11 @@ internal static class ChangeRun
                 Error = new ResultError(ErrorCode.InvalidResult, "the worker changed no files", false,
                     "Name the change more concretely, or check the request against the repository at that commit."),
             };
+        var remoteRef = branch.Remote is null ? null : $"refs/heads/{branch.Branch}";
         var artifacts = new List<Artifact>
         {
-            Json("branch", "application/vnd.chargehand.branch+json", new { repository = branch.Repository, branch = branch.Branch, commit = branch.Commit, @base = branch.Base, delivery }),
+            Json("branch", "application/vnd.chargehand.branch+json", new { repository = branch.Repository, branch = branch.Branch, commit = branch.Commit, @base = branch.Base, delivery,
+                remote = branch.Remote, remote_url = branch.RemoteUrl, remote_ref = remoteRef }),
             Inline("diff", "text/x-diff", diff),
             Json("verification", "application/json", VerificationRecord(verification, attempts, sandboxKind, network, VerifyCommand.VerificationPaths(changedPaths, plan))),
         };
@@ -68,6 +70,14 @@ internal static class ChangeRun
                 OpenQuestions = [.. merged.OpenQuestions, $"The branch could not be fetched into the repository: {landFailure}"],
                 Error = new ResultError(ErrorCode.DeliveryFailed, $"the branch could not be fetched into the repository: {landFailure}", false,
                     $"The branch {branch.Branch} is still in {branch.Repository}; fetch it by hand: git fetch {branch.Repository} {branch.Branch}:{branch.Branch}"),
+            };
+        if (pushFailure is not null)
+            return merged with
+            {
+                Status = ResultStatus.Failed,
+                OpenQuestions = [.. merged.OpenQuestions, $"The branch could not be pushed: {pushFailure}"],
+                Error = new ResultError(ErrorCode.PushRejected, $"the branch could not be pushed: {pushFailure}", false,
+                    $"Check delivery.push_remote and the push credential git uses for it; the branch {branch.Branch} is still in {branch.Repository}."),
             };
         if (verification is null)
             return merged with

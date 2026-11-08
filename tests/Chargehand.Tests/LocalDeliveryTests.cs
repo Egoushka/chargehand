@@ -128,6 +128,81 @@ public class LocalDeliveryTests
     }
 
     [Fact]
+    public async Task A_profile_push_remote_pushes_the_run_branch_and_names_the_remote_ref()
+    {
+        using var s = Make(p => p with { Delivery = new DeliverySettings(PushRemote: "origin") });
+        var bare = Path.Combine(s.Root.Path, "remote.git");
+        Git(s.Root.Path, "init", "-q", "--bare", bare);
+        Runs.SetOrigin(s.Source, bare);
+        var (before, refsBefore) = (Untouched(s.Source.Path), Refs(s.Source.Path));
+
+        var r = await s.Orchestrator.RunAsync(Request(s.Source, null), CancellationToken.None);
+
+        Assert.Equal(ResultStatus.Completed, r.Status);
+        var branch = Branch(r);
+        var name = branch.GetProperty("branch").GetString()!;
+        Assert.Equal("push", branch.GetProperty("delivery").GetString());
+        Assert.Equal("origin", branch.GetProperty("remote").GetString());
+        Assert.Equal("refs/heads/" + name, branch.GetProperty("remote_ref").GetString());
+        Assert.Equal(branch.GetProperty("commit").GetString(), Git(bare, "rev-parse", "refs/heads/" + name));
+        Assert.Equal(["refs/heads/" + name], Refs(bare));
+        Assert.Equal(before, Untouched(s.Source.Path));
+        Assert.Equal(refsBefore, Refs(s.Source.Path));
+    }
+
+    [Fact]
+    public async Task A_push_never_moves_an_existing_remote_branch()
+    {
+        using var s = Make(p => p with { Delivery = new DeliverySettings(PushRemote: "origin") });
+        var bare = Path.Combine(s.Root.Path, "remote.git");
+        Git(s.Root.Path, "init", "-q", "--bare", bare);
+        Runs.SetOrigin(s.Source, bare);
+        Git(s.Source.Path, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "side");
+        Git(s.Source.Path, "push", "-q", bare, "HEAD:refs/heads/chargehand/run-pushed/writer");
+        var side = Git(bare, "rev-parse", "refs/heads/chargehand/run-pushed/writer");
+        Git(s.Source.Path, "reset", "-q", "--hard", s.Source.Commit);
+
+        var r = await s.Orchestrator.RunAsync(Request(s.Source, null), CancellationToken.None, runId: "run-pushed");
+
+        Assert.Equal(ResultStatus.Failed, r.Status);
+        Assert.Equal(ErrorCode.PushRejected, r.Error!.Code);
+        Assert.Equal(side, Git(bare, "rev-parse", "refs/heads/chargehand/run-pushed/writer"));
+        Assert.False(Branch(r).TryGetProperty("remote", out _));
+    }
+
+    [Fact]
+    public async Task A_local_run_does_not_push_even_with_a_push_remote()
+    {
+        using var s = Make(p => p with { Delivery = new DeliverySettings(PushRemote: "origin") });
+        var bare = Path.Combine(s.Root.Path, "remote.git");
+        Git(s.Root.Path, "init", "-q", "--bare", bare);
+        Runs.SetOrigin(s.Source, bare);
+
+        var r = await s.Orchestrator.RunAsync(Request(s.Source, "local"), CancellationToken.None);
+
+        Assert.Equal(ResultStatus.Completed, r.Status);
+        Assert.Empty(Refs(bare));
+    }
+
+    [Theory]
+    [InlineData("https://user:x@example.com/o/r.git", "https://example.com/o/r.git")]
+    [InlineData("ssh://git@example.com/o/r.git", "ssh://example.com/o/r.git")]
+    [InlineData("/srv/repo.git", "/srv/repo.git")]
+    public void A_remote_url_loses_its_user_info(string url, string expected) => Assert.Equal(expected, DeliverySettings.Redact(url));
+
+    [Theory]
+    [InlineData("--upload-pack=x")]
+    [InlineData("")]
+    [InlineData("https://example.com/r.git")]
+    public void A_push_remote_must_be_a_remote_name(string remote)
+    {
+        using var dir = new TempDir();
+        var path = dir.Write("local.json", "{\"schema\":\"profile/v1\",\"delivery\":{\"push_remote\":\"" + remote + "\"}}");
+
+        Assert.Equal(ErrorCode.InvalidRequest, Assert.Throws<ChargehandException>(() => Config.Profile.Load(path)).Code);
+    }
+
+    [Fact]
     public async Task A_local_run_asks_only_the_memory_sources_the_profile_cleared()
     {
         var cleared = new MemoryStackTests.Fake(_ => [new RecalledMemory("1", "Cleared fact.")]);

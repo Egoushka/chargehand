@@ -444,13 +444,16 @@ public sealed class Orchestrator(
                 var provenance = ChangeRun.ProvenanceOf(runId, $"opencode {opencodeVersion}", modelLabel, nodeResult.Calls, prices, lastCheck, attempts);
                 var branch = await workspace.CommitAsync(Provenance.Apply(ChangeRun.CommitMessage(nodeResult.Contract.Summary), provenance), token);
                 string? landFailure = null;
+                string? pushFailure = null;
                 if (local && branch is not null)
                     (branch, landFailure) = await LandAsync(workspace, branch, request.Context.Repository!.Path, token);
+                else if (profile.Delivery?.PushRemote is { } remote && branch is not null)
+                    (branch, pushFailure) = await PushAsync(workspace, branch, request.Context.Repository!.Path, remote, token);
                 var changed = branch is null ? [] : await workspace.ChangedPathsAsync(token);
                 var diff = branch is null ? "" : await workspace.DiffAsync(token);
                 nodeResult = nodeResult with
                 {
-                    Contract = ChangeRun.Finish(nodeResult.Contract, branch, diff, lastCheck, attempts, verifier!.SandboxKind, verifier.Network, changed, verifyPlan, local ? DeliveryMode.Local : DeliveryMode.Push, landFailure),
+                    Contract = ChangeRun.Finish(nodeResult.Contract, branch, diff, lastCheck, attempts, verifier!.SandboxKind, verifier.Network, changed, verifyPlan, local ? DeliveryMode.Local : DeliveryMode.Push, landFailure, pushFailure),
                 };
             }
             span?.SetTag("langfuse.session.id", nodeResult.SessionId);
@@ -731,6 +734,16 @@ public sealed class Orchestrator(
     {
         var source = await Git(Path.GetFullPath(path), ct, "rev-parse", "--show-toplevel") ?? Path.GetFullPath(path);
         return await workspace.LandAsync(source, ct) is { } failure ? (branch, failure) : (branch with { Repository = source }, null);
+    }
+
+    /// <summary>Pushes the run's branch to the caller's repository's remote named by <c>delivery.push_remote</c> (issue #569), with the credentials git already has for it.
+    /// The URL is read from the caller's repository, since the run clone's own origin is the cached checkout. The failure text, or null.</summary>
+    private static async Task<(BranchInfo Branch, string? Failure)> PushAsync(RunWorkspace workspace, BranchInfo branch, string path, string remote, CancellationToken ct)
+    {
+        var source = await Git(Path.GetFullPath(path), ct, "rev-parse", "--show-toplevel") ?? Path.GetFullPath(path);
+        if (await Git(source, ct, "remote", "get-url", "--push", "--", remote) is not { Length: > 0 } url)
+            return (branch, $"the repository has no remote named {remote}");
+        return await workspace.PushAsync(url, ct) is { } failure ? (branch, failure) : (branch with { Remote = remote, RemoteUrl = DeliverySettings.Redact(url) }, null);
     }
 
     /// <summary>The checkout the request's repository is: git prints the top level with symbolic links resolved, so a link under a root cannot point the worker elsewhere;
