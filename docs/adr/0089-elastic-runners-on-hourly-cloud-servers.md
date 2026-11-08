@@ -167,8 +167,8 @@ So the work is in two steps, each shipping on its own:
    that takes tasks from the next placement round; a name the pool already knows, retired or not, is refused, so a task held
    under that name is never confused with a new runner. `RunnerPool.Retire(name)` removes a runner from placement and keeps
    it known: its tasks stay on it, count against its slots and `RunnerPool.Running`, and a task a restart took up still finds
-   it. `RunnerPool.Running` is the count across every runner, retired ones included, which is what `max_parallel_total`
-   and the governor count. The maintainer's machine is a `driven.runners` entry today (ADR 0058); with `Add` it can also
+   it. `RunnerPool.Running` is the count across every runner, retired ones included; `max_parallel_total` already counts
+   every session whatever runner it is on (`DrivenRun`'s server-wide gate), so an added runner's sessions count there too. The maintainer's machine is a `driven.runners` entry today (ADR 0058); with `Add` it can also
    be registered while the server runs, by whatever calls it (the elastic pool, or a later `runners add` command).
 2. **The elastic pool** (decisions 1 to 10 above): not started.
 

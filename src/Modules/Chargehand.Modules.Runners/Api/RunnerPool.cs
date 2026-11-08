@@ -76,7 +76,7 @@ public sealed class RunnerPool : IAdmission, IDisposable
     /// <summary>Every runner the pool knows, retired ones included: a retired runner still holds the tasks placed on it.</summary>
     public IReadOnlyList<PoolSite> Sites => [.. _states.Select(s => s.Site)];
 
-    /// <summary>Sessions this server runs now across every runner, retired ones included: what <c>driven.max_parallel_total</c> and the governor count.</summary>
+    /// <summary>Sessions this server runs now across every runner, retired ones included, whatever kind of runner each is.</summary>
     public int Running => _states.Sum(s => s.Admission.Running);
 
     /// <summary>A runner joins while the server runs (ADR 0089): from the next placement round it takes tasks like any runner of the profile, judged on its own host and limits.</summary>
