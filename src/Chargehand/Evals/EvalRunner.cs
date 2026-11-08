@@ -73,6 +73,16 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
 
     public async Task<Verdict> RunAsync(EvalCell cell, IReadOnlyList<EvalItem> items, string baseRoot, string changeRoot, string name, Trade? trade, CancellationToken ct)
     {
+        var (hasBase, pairs) = await PairsAsync(cell, items, baseRoot, changeRoot, name, ct);
+        return hasBase
+            ? Gate.Decide(cell, pairs, trade)
+            : new Verdict(cell.Name, items.Count, 0, null, 0, null, false, "new cell: the change's runs are its first baseline");
+    }
+
+    /// <summary>The paired runs alone, for a caller that reads more than the gate's verdict (<see cref="LeverBench"/>).</summary>
+    public async Task<(bool HasBase, IReadOnlyList<Pair> Pairs)> PairsAsync(EvalCell cell, IReadOnlyList<EvalItem> items, string baseRoot, string changeRoot, string name,
+        CancellationToken ct)
+    {
         // A preset new in this change has nothing to compare against: the change's runs become its first baseline. That
         // holds for a whole cell and for an intake item, which keeps its own preset.
         bool InBase(string preset) => File.Exists(Path.Combine(baseRoot, "presets", preset + ".yaml"));
@@ -82,21 +92,21 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
         {
             var paired = hasBase && InBase(cell.Preset ?? item.Request.Context.Preset);
             string[] arms = !paired ? ["change"] : i % 2 == 0 ? ["base", "change"] : ["change", "base"];
-            var scored = new Dictionary<string, (double Quality, decimal? Usd)>();
+            var scored = new Dictionary<string, (double Quality, decimal? Usd, long? Tokens)>();
             foreach (var arm in arms)
                 scored[arm] = await RunArm(cell, item, arm == "base" ? baseRoot : changeRoot, $"{name}-{arm}", ct);
             if (paired)
-                pairs.Add(new Pair(item.Id, scored["base"].Quality, scored["change"].Quality, scored["base"].Usd, scored["change"].Usd));
+                pairs.Add(new Pair(item.Id, scored["base"].Quality, scored["change"].Quality, scored["base"].Usd, scored["change"].Usd,
+                    scored["base"].Tokens, scored["change"].Tokens));
         }
-        return hasBase
-            ? Gate.Decide(cell, pairs, trade)
-            : new Verdict(cell.Name, items.Count, 0, null, 0, null, false, "new cell: the change's runs are its first baseline");
+        return (hasBase, pairs);
     }
 
-    private async Task<(double Quality, decimal? Usd)> RunArm(EvalCell cell, EvalItem item, string root, string runName, CancellationToken ct)
+    private async Task<(double Quality, decimal? Usd, long? Tokens)> RunArm(EvalCell cell, EvalItem item, string root, string runName, CancellationToken ct)
     {
         string runId, traceId;
         decimal? usd = 0;
+        long? tokens = null; // intake reports no usage
         IReadOnlyDictionary<string, double> scores;
         // A gateway rate limit says nothing about the prompts: run the arm again rather than score it 0, and stop the
         // gate if the limit outlasts the retries, since a verdict over missing runs would mislead.
@@ -109,6 +119,7 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
             {
                 var result = await orchestratorFor(root).RunAsync(item.Request with { Context = item.Request.Context with { Preset = cell.Preset! } }, ct);
                 (runId, traceId, usd) = (result.TaskId, result.TraceId, result.Usage.Usd);
+                tokens = result.Usage.Input + result.Usage.Output + result.Usage.CacheRead + result.Usage.CacheWrite;
                 var facts = cell.Kind == "worker" && result.Status == ResultStatus.Completed && item.Expected.Facts is { Count: > 0 } checklist
                     ? await FactJudge.JudgeAsync(runtime, Orchestrator.ParseModel(intakeModel), result, checklist, item.Expected.Wrong ?? [], ct)
                     : null;
@@ -136,7 +147,7 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
                 await langfuse.ScoreAsync(traceId, key, value, runName, ct);
         }
         output.WriteLine(FormattableString.Invariant($"{cell.Name}  {item.Id,-34} {runName,-32} quality {scores["quality"]:0.00}  usd {usd:0.000000}  {runId}"));
-        return (scores["quality"], usd);
+        return (scores["quality"], usd, tokens);
     }
 
     /// <summary>Intake alone: one generate call under the arm's intake prompt, scored on the action it chooses.</summary>
