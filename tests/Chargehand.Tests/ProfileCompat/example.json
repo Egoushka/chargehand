@@ -275,6 +275,7 @@
       "work"
     ]
   },
+  "skip_structured_intake": false,
   "roots": [
     "/srv/chargehand/work",
     "/path/to/your/repositories"

@@ -33,6 +33,7 @@
   "delivery": { "local_only": ["/srv/chargehand/work/local-only", "~/local-example"] },
   "repository_roots": ["/srv/chargehand/work", "/srv/chargehand/repos"],
   "support_check": true,
+  "skip_structured_intake": true,
   "signing": { "key_file": "/srv/chargehand/signing-key.pem" },
   "sandbox": { "kind": "bubblewrap", "network": false, "env": ["EXAMPLE_VAR"] },
   "default_preset": "cheap",

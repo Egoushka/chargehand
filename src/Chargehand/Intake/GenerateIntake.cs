@@ -39,13 +39,8 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, Prom
 
     public async Task<IntakeOutcome> RunAsync(RunRequest request, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.Text))
-            return new(null, "The request text is empty.", []);
-        if (needsRepository && request.Context.Repository is null)
-            return new(null, "The request names no repository checkout and commit (context.repository).", []);
-        if (request.Inputs?.FirstOrDefault(i => IsDiff(i) && !IsUnifiedPatch(i.Text)) is { } notPatch)
-            return new(null, $"Input \"{notPatch.Id}\" is kind {notPatch.Kind} but its text is not a unified patch ({notPatch.Text.Length} characters, no diff --git line and no ---/+++/@@ hunk). " +
-                "Send the patch itself, as git diff prints it; a placeholder, a file path or \"see attached\" never reaches the worker.", []);
+        if (Precheck(request, needsRepository) is { } needsInput)
+            return new(null, needsInput, []);
 
         var calls = new List<IntakeCall>();
         var prompt = $"{block.Text}\nJSON Schema:\n{ContractSchemas.Text(ContractSchemas.TaskSpec)}\n\nUse id \"{runId}\".\n{RepositoryText(request.Context.Repository)}Request:\n{request.Text}\n{InputsText(request.Inputs)}";
@@ -63,6 +58,23 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, Prom
         }
         throw new ChargehandException(ErrorCode.IntakeFailed, $"intake returned no valid task-spec/v1 after one retry: {errors}",
             "Retry, or set the profile's intake_model to a stronger model.");
+    }
+
+    /// <summary>The deterministic checks, without the model call: a spec a structured caller supplied (<see cref="StructuredSpec"/>) passes them too.</summary>
+    public static IntakeOutcome Given(RunRequest request, TaskSpec spec, bool needsRepository) =>
+        Precheck(request, needsRepository) is { } needsInput ? new(null, needsInput, []) : new(spec, null, []);
+
+    /// <summary>Why the request cannot run yet, before any model call; null: it can.</summary>
+    private static string? Precheck(RunRequest request, bool needsRepository)
+    {
+        if (string.IsNullOrWhiteSpace(request.Text))
+            return "The request text is empty.";
+        if (needsRepository && request.Context.Repository is null)
+            return "The request names no repository checkout and commit (context.repository).";
+        if (request.Inputs?.FirstOrDefault(i => IsDiff(i) && !IsUnifiedPatch(i.Text)) is { } notPatch)
+            return $"Input \"{notPatch.Id}\" is kind {notPatch.Kind} but its text is not a unified patch ({notPatch.Text.Length} characters, no diff --git line and no ---/+++/@@ hunk). " +
+                "Send the patch itself, as git diff prints it; a placeholder, a file path or \"see attached\" never reaches the worker.";
+        return null;
     }
 
     /// <summary>Each input's id, kind, size and text, so intake does not ask for facts the caller sent. The text is cut per input
