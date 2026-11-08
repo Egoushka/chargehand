@@ -45,6 +45,7 @@ const string Usage = """
                                    the service in front of the container engine for driven sessions (key in CHARGEHAND_RUNNER_KEY)
       runs adherence <stream.jsonl>...
                                    whether driven sessions kept to the change skill's steps, from their stored streams
+      runs replay <actions.jsonl>  prints a recorded run's tool calls and handover steps in order, read-only (ADR 0090)
       runs kill --all              removes every driven-session container and batch network by label (works with the server down)
       learn report [--since <days>d|<time>] [--include-bench]
                                    what finished driven tasks taught, per repository and size class: spend, completion, governor checkpoints,
@@ -124,6 +125,9 @@ if (argv is ["verify", .. var verifyArgs])
 // Reads stored session streams only (ADR 0039).
 if (argv is ["runs", "adherence", .. var adherenceArgs])
     return Chargehand.Modules.Sessions.Api.AdherenceCli.Run(adherenceArgs, Console.Out, Console.Error);
+// Reads a recorded action log only and changes nothing (ADR 0090).
+if (argv is ["runs", "replay", .. var replayArgs])
+    return Chargehand.Modules.Journal.Api.ReplayCli.Run(replayArgs, Console.Out, Console.Error);
 // A client of a running server: it reads the profile only for what --url and the environment leave out.
 if (argv is ["watch" or "cancel", var watchRun, .. var watchOptions])
 {
