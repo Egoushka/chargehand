@@ -31,7 +31,7 @@ public sealed partial record DrivenIntegrator(long? AppId = null, long? Installa
         "Fix driven.integrator in the profile; docs/guide/driven.md lists the keys.");
 
     IEnumerable<ValidationResult> IValidatableObject.Validate(ValidationContext validationContext) =>
-        SettingsValidation.Results([.. AppProblems(), .. RepositoryProblems(), .. CiFix?.Problems() ?? []]);
+        SettingsValidation.Results([.. AppProblems(), .. BotProblems(), .. RepositoryProblems(), .. CiFix?.Problems() ?? []]);
 
     private IEnumerable<string> AppProblems()
     {
@@ -40,9 +40,14 @@ public sealed partial record DrivenIntegrator(long? AppId = null, long? Installa
         if (AppId is null or < 1) yield return "app_id must be the App's numeric id";
         if (InstallationId is < 1) yield return "installation_id must be the installation's numeric id";
         if (string.IsNullOrWhiteSpace(PrivateKeySecret)) yield return "private_key_secret must name a secret item";
+    }
+
+    private IEnumerable<string> BotProblems()
+    {
         if (AppSlug is not null && !AppSlugPattern().IsMatch(AppSlug)) yield return "app_slug must be the App's slug (lower-case letters, digits and dashes)";
         if (BotUserId is < 1) yield return "bot_user_id must be the App's bot user's numeric id";
         if ((AppSlug is null) != (BotUserId is null)) yield return "app_slug and bot_user_id are both set or both left out";
+        if (AppSlug is not null && AppId is null) yield return "app_slug and bot_user_id need app_id";
     }
 
     [GeneratedRegex(@"^[a-z0-9][a-z0-9-]*$")]

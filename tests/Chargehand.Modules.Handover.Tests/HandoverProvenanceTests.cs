@@ -98,6 +98,13 @@ public class HandoverProvenanceTests
     }
 
     [Fact]
+    public void A_bad_slug_is_refused_even_without_the_App()
+    {
+        var e = Assert.ThrowsAny<Exception>(() => new DrivenIntegrator(AppSlug: "Not A Slug", BotUserId: 5).Validate());
+        Assert.Contains("app_slug", e.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task With_the_App_configured_the_pushed_commits_are_by_its_bot_and_keep_their_dates()
     {
         using var f = new HandoverTests.Fixture(thenEdit: dir => File.WriteAllText(Path.Combine(dir, "more.txt"), "more\n"));
