@@ -9,9 +9,9 @@ namespace Chargehand.Automation;
 /// the server was down is therefore one run at the first wake, not one per slot. An occurrence is dealt with when it starts, when the month's cap is used, or when the entry's last run is still going;
 /// a start that fails (the server halted, the checkout will not fetch, the notification service is down) is tried again after <see cref="RetryAfter"/>. Everything it did is in <see cref="ScheduleState"/> before the next step.
 /// <paramref name="flakes"/> is the CI history the <c>flaky-tests</c> template is given; without it the template reads the test code only. <paramref name="alerts"/> reads the open alerts of
-/// <c>security-alerts</c> as the GitHub App; without it that template starts nothing.</summary>
+/// <c>security-alerts</c> as the GitHub App; without it that template starts nothing. <paramref name="batches"/> is the provider batch lane an entry with <c>batch</c> is submitted to (ADR 0087).</summary>
 public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IRepositoryHeads heads, ScheduleState state, IScheduleNotifier notifier, IMorningSource morning, TimeProvider? clock = null,
-    Action<string>? warn = null, IFlakeHistory? flakes = null, ISecurityAlerts? alerts = null, ManagedClones? clones = null)
+    Action<string>? warn = null, IFlakeHistory? flakes = null, ISecurityAlerts? alerts = null, ManagedClones? clones = null, ScheduleBatches? batches = null)
 {
     /// <summary>What a start did: a run (or the report) started and counts against the cap; nothing was due to start, yet the occurrence is dealt with; or it is tried again later.</summary>
     private enum Start { Started, Nothing, Later }
@@ -62,6 +62,7 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
     public async Task TickAsync(IBatchStarter starter, CancellationToken ct)
     {
         await ReportEndedAsync(ct);
+        await ReportBatchesAsync(ct);
         foreach (var entry in settings.Entries ?? [])
         {
             try
@@ -90,7 +91,7 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
             return;
         if (state.StartsIn(entry.Id, now) >= entry.Cap())
             Consume(entry, now, $"the cap of {entry.Cap().ToString(CultureInfo.InvariantCulture)} starts in {ScheduleState.MonthOf(now)} is used");
-        else if (state.Running.Any(r => r.Entry == entry.Id))
+        else if (state.Running.Any(r => r.Entry == entry.Id) || state.Batches.Any(b => b.Entry == entry.Id))
             Consume(entry, now, "its last run is still going");
         else if (await StartAsync(entry, last, starter, now, ct) is var start and not Start.Later)
         {
@@ -115,6 +116,8 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
             await PostAsync(MorningReport.Title(now), MorningReport.Format(await morning.ReadAsync(now - MorningReport.Window, ct)), ct);
             return Start.Started;
         }
+        if (entry.Batch)
+            return await SubmitBatchAsync(entry, now, ct);
         IReadOnlyList<SecurityAlert> taking = [];
         if (entry.Template == ScheduleTemplates.SecurityAlerts && (taking = await AlertsToTakeAsync(entry, now, ct)).Count == 0)
             return Start.Nothing;
@@ -208,6 +211,42 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
             await PostAsync(ScheduleResults.Title(run.Entry), text, ct);
         state.Running.Remove(run);
         state.Save(_time.GetUtcNow());
+    }
+
+    private async Task<Start> SubmitBatchAsync(ScheduleEntry entry, DateTimeOffset now, CancellationToken ct)
+    {
+        if (batches is null)
+        {
+            _warn($"schedules: {entry.Id}: batch needs automation.schedules.batch; skipped");
+            return Start.Nothing;
+        }
+        state.Batches.Add(await batches.SubmitAsync(entry, now, ct));
+        return Start.Started;
+    }
+
+    /// <summary>Polls each submitted batch; an ended one is posted with its cost and frees the entry for its next occurrence.</summary>
+    private async Task ReportBatchesAsync(CancellationToken ct)
+    {
+        foreach (var batch in state.Batches.ToList())
+        {
+            try
+            {
+                if (batches is null || await batches.PollAsync(batch, ct) is not { } text)
+                    continue;
+                await PostAsync(ScheduleResults.Title(batch.Entry), text, ct);
+                state.Batches.Remove(batch);
+            }
+            catch (IntakeException e)
+            {
+                _warn($"schedules: {batch.Entry}: batch {batch.BatchId}: {e.Message}");
+                var index = state.Batches.IndexOf(batch);
+                if (batch.Attempts + 1 >= MaxPostAttempts)
+                    state.Batches.RemoveAt(index);
+                else
+                    state.Batches[index] = batch with { Attempts = batch.Attempts + 1 };
+            }
+            state.Save(_time.GetUtcNow());
+        }
     }
 
     private void Retry(ScheduledRun run)

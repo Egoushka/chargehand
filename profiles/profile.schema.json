@@ -544,11 +544,24 @@
                   },
                   "max_per_month": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Starts per calendar month (UTC). Default 4; 31 for morning-report. An occurrence over it is skipped and logged." },
                   "budget_class": { "enum": ["S", "M", "L"], "description": "The governor's budget of a driven entry (ADR 0045). Default S." },
-                  "max_tasks": { "type": "integer", "minimum": 1, "maximum": 10, "description": "security-alerts only: new alerts taken per run, one task each. Default 3." }
+                  "max_tasks": { "type": "integer", "minimum": 1, "maximum": 10, "description": "security-alerts only: new alerts taken per run, one task each. Default 3." },
+                  "batch": { "type": "boolean", "default": false, "description": "With a read-only goal only: the work can wait, so the goal is one prompt sent to automation.schedules.batch at the batch rate instead of a worker run. No tools, no checkout read; the answer comes within 24 hours." }
                 }
               }
             },
-            "notify_url": { "type": "string", "pattern": "^https?://", "description": "An ntfy-style URL: the result of a read-only entry and the morning report are POSTed to it as plain text. Required by morning-report. The URL can carry a secret topic, so it is never logged." }
+            "notify_url": { "type": "string", "pattern": "^https?://", "description": "An ntfy-style URL: the result of a read-only entry and the morning report are POSTed to it as plain text. Required by morning-report. The URL can carry a secret topic, so it is never logged." },
+            "batch": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["base_url", "model", "key_secret"],
+              "description": "The provider batch endpoint (Anthropic Message Batches, /v1/messages/batches) entries with batch run on (ADR 0087). A direct call to the provider happens only when base_url names it.",
+              "properties": {
+                "base_url": { "type": "string", "pattern": "^https?://", "description": "The gateway or provider root that serves /v1/messages/batches." },
+                "model": { "type": "string", "minLength": 1, "description": "The model id the endpoint takes; its prices entry prices the batch and the live comparison." },
+                "key_secret": { "type": "string", "minLength": 1, "description": "The secret-store item of the API key." },
+                "max_tokens": { "type": "integer", "minimum": 1, "maximum": 64000, "description": "The answer's output token limit. Default 4096." }
+              }
+            }
           }
         },
         "account": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$", "description": "An account of http.accounts with driven: true that every automated start (GitHub, schedules) is charged to and admitted as (ADR 0076): its caps, budget clamps and concurrency limit apply. Absent: automated starts run as the owner, with no account caps." },

@@ -9,6 +9,8 @@ The projects under `src/Chargehand*` are the code that ships today. A rewrite ([
 ports features into `src/Shared`, `src/Modules`, `src/Runtimes` and `src/Hosts`: one project per feature module,
 references that point down the layers (`tests/Chargehand.Architecture.Tests` checks them), public types only in a
 module's `.Api` namespace, and hosts that publish with Native AOT. New code never references the old projects.
+What is left to port, in dependency order, is the
+[port checklist](docs/plans/2026-11-08-rewrite-port-checklist.md).
 
 ## Repository layout
 

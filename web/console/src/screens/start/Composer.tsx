@@ -84,7 +84,7 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 /** `tasks.2.goal` as "Task 3 goal". */
-function describe(path: string): string {
+function describePath(path: string): string {
   const task = /^tasks\.(\d+)\.(\w+)$/.exec(path);
   if (task) return `Task ${Number(task[1]) + 1} ${(task[2] ?? '').replace('_', ' ')}`;
   return FIELD_LABELS[path] ?? path;
@@ -424,7 +424,7 @@ export function Composer({
                     className="link"
                     onClick={() => focusField(issue.path, view)}
                   >
-                    {describe(issue.path)}
+                    {describePath(issue.path)}
                   </button>
                   <span className="dim">: {issue.message}</span>
                 </li>

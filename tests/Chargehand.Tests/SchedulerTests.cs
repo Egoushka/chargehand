@@ -68,9 +68,10 @@ internal sealed class ScheduleRig : IDisposable
     {
     }
 
-    public ScheduleRig(AutomationSchedules settings)
+    public ScheduleRig(AutomationSchedules settings, ScheduleBatches? batches = null)
     {
         _settings = settings;
+        _batches = batches;
         Starter = new RecordingStarter(Log);
         Scheduler = Build();
     }
@@ -101,7 +102,9 @@ internal sealed class ScheduleRig : IDisposable
 
     private ManagedClones? _clones;
 
-    private Scheduler Build() => new(_settings, Log, Heads, ScheduleState.Load(StateFile), Notifier, Morning, Time, Warnings.Add, Flakes, _alerts, _clones);
+    private readonly ScheduleBatches? _batches;
+
+    private Scheduler Build() => new(_settings, Log, Heads, ScheduleState.Load(StateFile), Notifier, Morning, Time, Warnings.Add, Flakes, _alerts, _clones, _batches);
 
     /// <summary>The managed clones read-only checkouts fall back to; the scheduler is built again on the same state.</summary>
     public void UseClones(ManagedClones clones)
