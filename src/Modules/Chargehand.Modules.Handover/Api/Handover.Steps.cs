@@ -40,6 +40,7 @@ public sealed partial class Handover
                     if (remote.ExitCode == 0 && remote.Stdout.Split('\t', 2)[0].Trim() == commit)
                         return new PushedBranch(input.Branch, commit, Adopted: true);
                 }
+                await RefuseConflictAsync(input, scratch, commit, pushEnv, token);
                 var push = await GitProcess.RunAsync(scratch, pushEnv, PushArgs(input.RemoteUrl, input.Branch), GitTimeout, token);
                 if (push.ExitCode == 0)
                     return new PushedBranch(input.Branch, commit);

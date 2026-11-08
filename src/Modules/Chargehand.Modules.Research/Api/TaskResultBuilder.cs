@@ -136,6 +136,7 @@ public static class TaskResultBuilder
     {
         ErrorCode.VerificationFailed => "Read the verification artifact (output_tail), fix the change or the tests, and send the task again. Nothing was pushed.",
         ErrorCode.PushRejected => "Check the push credential and that the branch name is free. Nothing was pushed; the bundle is kept in the run's output volume.",
+        ErrorCode.MergeConflict => "The branch conflicts with its base branch as it is now. Continue the task so it rebases onto the base, or wait for the conflicting change to settle. Nothing was pushed; the bundle is kept in the run's output volume.",
         _ => "Read the reason above and the session-log artifact, and send the task again. Nothing was pushed.",
     };
 

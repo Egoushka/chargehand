@@ -69,6 +69,9 @@ public interface IIntakeHost
     /// <summary>The logins that submitted a review (approval, change request or comment) on a pull request, in order.</summary>
     Task<IReadOnlyList<string>> ReviewersAsync(string repository, int number, CancellationToken ct);
 
+    /// <summary>The paths a pull request changes, as GitHub lists them (a rename lists its new path).</summary>
+    Task<IReadOnlyList<string>> PullFilesAsync(string repository, int number, CancellationToken ct);
+
     /// <summary>The pull request's whole diff as GitHub renders it.</summary>
     /// <exception cref="IntakeException">GitHub answered 406 or 422 when the diff is too large to render.</exception>
     Task<string> PullDiffAsync(string repository, int number, CancellationToken ct);
