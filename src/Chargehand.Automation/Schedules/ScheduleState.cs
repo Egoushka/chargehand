@@ -29,6 +29,9 @@ public sealed class ScheduleState
 
     public List<ScheduledRun> Running { get; init; } = [];
 
+    /// <summary>Batches submitted to the provider's batch endpoint (ADR 0087) and not yet seen to end.</summary>
+    public List<ScheduledBatch> Batches { get; init; } = [];
+
     /// <summary>Occurrences (<c>entry@time</c>) whose run began to start, with the time: saved before the start, so after a crash the run log tells whether the run exists (<see cref="TriggeredStart"/>).</summary>
     public Dictionary<string, DateTimeOffset> Starting { get; init; } = [];
 
@@ -51,7 +54,7 @@ public sealed class ScheduleState
         if (!File.Exists(path))
             return new ScheduleState(path);
         var state = JsonSerializer.Deserialize<ScheduleState>(File.ReadAllText(path), Json) ?? throw new InvalidDataException($"{path}: empty schedule state");
-        return new ScheduleState(path) { Handled = state.Handled ?? [], Starts = state.Starts ?? [], Running = state.Running ?? [], Starting = state.Starting ?? [], Taken = state.Taken ?? [] };
+        return new ScheduleState(path) { Handled = state.Handled ?? [], Starts = state.Starts ?? [], Running = state.Running ?? [], Batches = state.Batches ?? [], Starting = state.Starting ?? [], Taken = state.Taken ?? [] };
     }
 
     public void Save(DateTimeOffset now)
