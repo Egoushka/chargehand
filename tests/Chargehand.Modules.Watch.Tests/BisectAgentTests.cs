@@ -142,6 +142,18 @@ public sealed class BisectAgentTests : IDisposable
     }
 
     [Fact]
+    public async Task A_bisection_past_its_deadline_is_stopped_and_its_worktree_removed()
+    {
+        var (good, _, bad) = Fixture();
+
+        var outcome = await BisectAgent.RunAsync(new BisectRequest(Repo, good, bad, Check + " || sleep 60", TimeSpan.FromSeconds(2)), default);
+
+        Assert.False(outcome.Found);
+        Assert.Contains("did not finish within 2 seconds", outcome.Problem, StringComparison.Ordinal);
+        Assert.Single(Git("worktree", "list", "--porcelain").Split('\n'), l => l.StartsWith("worktree ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_ref_that_is_not_a_commit_or_looks_like_an_option_is_refused()
     {
         var (good, _, _) = Fixture();

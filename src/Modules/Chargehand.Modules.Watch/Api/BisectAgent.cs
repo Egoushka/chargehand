@@ -70,7 +70,7 @@ public static class BisectAgent
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            return BisectOutcome.Failed($"the bisection did not finish within {(request.Timeout ?? DefaultTimeout).TotalMinutes.ToString(CultureInfo.InvariantCulture)} minutes");
+            return BisectOutcome.Failed($"the bisection did not finish within {((int)(request.Timeout ?? DefaultTimeout).TotalSeconds).ToString(CultureInfo.InvariantCulture)} seconds");
         }
         finally
         {
