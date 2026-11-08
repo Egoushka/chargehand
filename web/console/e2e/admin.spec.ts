@@ -141,7 +141,7 @@ for (const [device, viewport] of Object.entries(SIZES)) {
         await shot(page, `accounts-unfunded-${device}-${scheme}`);
         expect(await violations(page)).toEqual([]);
         // A key's value never reaches the page: only labels and public ids.
-        expect(await page.locator('body').innerText()).not.toMatch(/chk1\.[a-z0-9]+\.[a-z0-9]+/);
+        expect(await page.locator('body').textContent()).not.toMatch(/chk1\.[a-z0-9]+\.[a-z0-9]+/);
         expect(await seen.finish()).toEqual([]);
       });
 
