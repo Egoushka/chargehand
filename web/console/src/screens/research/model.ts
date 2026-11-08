@@ -128,7 +128,8 @@ export function supportedCount(claims: readonly Claim[]): string {
   return `${claims.filter((c) => c.support === 'supported').length} of ${claims.length}`;
 }
 
-export const confidenceText = (value: number | null): string => (value === null ? 'none' : value.toFixed(2));
+export const confidenceText = (value: number | null): string =>
+  value === null ? 'none' : value.toFixed(2);
 
 // The repository's web address is typed once and kept in this browser, by the repository's path. It is not a secret.
 const WEB_KEY = 'chargehand.console.repoweb';
