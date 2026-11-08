@@ -45,6 +45,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private readonly CheckoutSources _checkouts = new(heads, clones, "intake", warn ?? Warned, info ?? Informed);
     private readonly PullReviews _reviews = new(settings, host, log, state, clock ?? TimeProvider.System, warn ?? Warned);
     private readonly ReviewBacklog _backlog = new(settings, host, state);
+    private readonly ScopeOverlap _overlap = new(host, state);
     private readonly IntakeBreakers _breakers = new(settings, state, clock ?? TimeProvider.System, warn ?? Warned);
     private DateTimeOffset? _warnedPause;
 
@@ -168,6 +169,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         _pulls.Clear();
         _stillWaiting.Clear();
         _backlog.NewPoll();
+        _overlap.NewPoll();
         await ReportEndedAsync(ct);
         await _reviews.ReportEndedAsync(ct);
         _watched = await WatchAsync(ct);
@@ -369,6 +371,9 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             return tripped;
         if (await BacklogAsync(key, name, issue.Number, ct) is { } backlog)
             return backlog;
+        var scope = ScopeOverlap.Declared(goal ?? $"{issue.Body}\n{comment}");
+        if (await OverlapAsync(key, name, issue.Number, scope, ct) is { } overlapping)
+            return overlapping;
         if (await SubscriptionAsync(key, name, issue.Number, ct) is { } limited)
             return limited;
         if (await SlotAsync(key, name, issue.Number, ct) is { } held)
@@ -389,7 +394,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var size = IntakeGoal.SizeOf(issue.Labels) ?? settings.BudgetClass;
         var taskId = TaskId(issue.Number);
         goal ??= IntakeGoal.Issue(name, issue, comment, commentAuthor);
-        return await LaunchAsync(key, name, issue.Number, source, new DrivenTask(taskId, Goal: goal, Size: size), run => new IntakeTask(name, issue.Number, run, taskId, _time.GetUtcNow(), size, Trigger: key),
+        return await LaunchAsync(key, name, issue.Number, source, new DrivenTask(taskId, Goal: goal, Size: size), run => new IntakeTask(name, issue.Number, run, taskId, _time.GetUtcNow(), size, Trigger: key, Scope: scope.Count == 0 ? null : scope),
             starter, run => $"chargehand started run `{run}` (task `{taskId}`). It works on its own branch and opens a draft pull request when it is done, or asks here if it needs an answer.", null, null, ct);
     }
 
@@ -444,6 +449,17 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         _info($"intake: {key}: waiting: review_backlog: {why}");
         Wait(key, name, issue, "review_backlog", why);
         await NotifyOnceAsync($"backlog:{key}", name, issue, $"chargehand is waiting: {why}. This starts when one is reviewed, merged or closed.", ct);
+        return Outcome.Deferred;
+    }
+
+    /// <summary>Waits while the issue's declared scope overlaps an open chargehand pull request or a running task (issue #737): null when the batch may start, or the issue declares no scope.</summary>
+    private async Task<Outcome?> OverlapAsync(string key, string name, int issue, IReadOnlyList<string> scope, CancellationToken ct)
+    {
+        if (await _overlap.HoldAsync(name, issue, scope, ct) is not { } why)
+            return null;
+        _info($"intake: {key}: waiting: overlap: {why}");
+        Wait(key, name, issue, "overlap", why);
+        await NotifyOnceAsync($"overlap:{key}", name, issue, $"chargehand is waiting: {why}. This starts when that pull request is merged or closed, or that task ends.", ct);
         return Outcome.Deferred;
     }
 
