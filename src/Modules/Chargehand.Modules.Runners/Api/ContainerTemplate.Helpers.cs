@@ -6,6 +6,9 @@ namespace Chargehand.Modules.Runners.Api;
 /// <summary>The helper containers of <see cref="ContainerTemplate"/>: the workspace, the host probe and the output-volume transfer.</summary>
 public static partial class ContainerTemplate
 {
+    /// <summary>The address a session commits as; the hand-over replaces it with the GitHub App's bot identity when one is configured (issue 426).</summary>
+    public const string SessionEmail = "chargehand@localhost";
+
     /// <summary>The script the workspace helper runs; the branch and the commit reach it only as arguments (<c>$1</c>, <c>$2</c>), never spliced into its text.
     /// <c>safe.directory</c> is needed because the read-only source belongs to another user. It is a global config in the helper's tmpfs (the root filesystem is
     /// read-only, so HOME moves to /tmp): <c>git clone</c> of a local path runs <c>git-upload-pack</c> as a child, which checks ownership itself and does not see
@@ -20,7 +23,7 @@ public static partial class ContainerTemplate
         + "printf '%s\\n' '/.dotnet/' '/.nuget/' '/.gradle/' '/.m2/' >> /work/.git/info/exclude\n"
         + "git -C /work checkout --quiet -b \"$1\" \"$2\"\n"
         + "git -C /work config user.name chargehand\n"
-        + "git -C /work config user.email chargehand@localhost\n"
+        + "git -C /work config user.email " + SessionEmail + "\n"
         + "git -C /work config core.hooksPath /dev/null\n";
 
     /// <summary>The arguments after <c>docker</c> for a workspace helper: foreground, removed when it ends, no network, a read-only source and one volume.</summary>
@@ -65,7 +68,7 @@ public static partial class ContainerTemplate
         + "printf '%s\\n' '/.dotnet/' '/.nuget/' '/.gradle/' '/.m2/' >> /work/.git/info/exclude\n"
         + "git -C /work checkout --quiet -b \"$1\" \"$2\"\n"
         + "git -C /work config user.name chargehand\n"
-        + "git -C /work config user.email chargehand@localhost\n"
+        + "git -C /work config user.email " + SessionEmail + "\n"
         + "git -C /work config core.hooksPath /dev/null\n";
 
     /// <summary>The arguments after <c>docker</c> for a bundle workspace helper: as <see cref="WorkspaceArgs"/>, with the run's output volume read-only at <c>/in</c> in place of a source directory.</summary>

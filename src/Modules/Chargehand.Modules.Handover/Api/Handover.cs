@@ -28,6 +28,7 @@ namespace Chargehand.Modules.Handover.Api;
 /// <param name="Goal">The task's goal; with it, a passing branch that changes only tests and build files is flagged unless the goal asks for that work (<see cref="TestIntegrity"/>). Null: not assessed.</param>
 /// <param name="LocalOnly">The repository is local-only (ADR 0069): the hand-over refuses before any git or forge call.</param>
 /// <param name="Provenance">The run that wrote the branch (ADR 0074): its trailers go on every commit past the base that has none, and at the end of the pull request body, so a squash merge keeps them. Null: no trailers.</param>
+/// <param name="Identity">The GitHub App's bot identity (issue 426): the commits the session made are authored and committed as it, dates kept. Null: as the session made them.</param>
 /// <param name="Bare">The benchmark's control arm (ADR 0080): the scans and the CI-change refusal still run, then the branch is pushed with no test run and no pull request.</param>
 /// <param name="CiVerifies">ADR 0078: the repository's CI verifies (<c>driven.environment: "mise"</c>). No fresh-container verification runs; the pull request says which checks decide and that the
 /// pre-push check is a filter. A repository with no CI and no check is refused unless the change is documentation only.</param>
@@ -36,7 +37,7 @@ namespace Chargehand.Modules.Handover.Api;
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
     bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false, string? FallbackBaseBranch = null, bool LocalOnly = false, Provenance? Provenance = null, bool Bare = false,
-    bool CiVerifies = false, IReadOnlyList<string>? PrePushCheck = null);
+    bool CiVerifies = false, IReadOnlyList<string>? PrePushCheck = null, CommitIdentity? Identity = null);
 
 /// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
 public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
