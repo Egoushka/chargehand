@@ -327,7 +327,12 @@ public static partial class ChargehandServer
             var who = PrincipalHttp.Of(ctx);
             var includeBench = ctx.Request.Query.TryGetValue("bench", out var bench) && bench == "include";
             var entries = driven?.Learning is { } store ? (await store.ReadAsync(ctx.RequestAborted, includeBench)).Where(e => Principal.Sees(who, e.Record.Actor)).ToList() : [];
-            return Json(Chargehand.Modules.Oversight.Api.LearningReport.Build(entries, since), StatusCodes.Status200OK);
+            // The weekly check's figures (issue #802) ride along: budget refusals and merged pull requests over 7 and 30 days, whatever since says.
+            var report = Chargehand.Modules.Oversight.Api.LearningReport.Build(entries, since) with
+            {
+                BudgetRefusals = Chargehand.Modules.Oversight.Api.BudgetRefusals.Build(entries, DateTimeOffset.UtcNow),
+            };
+            return Json(report, StatusCodes.Status200OK);
         });
 
         // What a task is expected to cost before it starts (CHARGEHAND-438): the most similar finished tasks of the repository, else of the size class; an account's own records only.
