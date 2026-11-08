@@ -124,7 +124,7 @@
       { "name": "small", "models": ["mistral-free/mistral-medium-latest", "provider/small-model"] },
       { "name": "large", "models": ["provider/large-model"] }
     ],
-    "routes": { "intake": "small", "research": "small", "review": "large", "code": "small", "code/L": "large" },
+    "routes": { "intake": "small", "driven": "small", "driven/L": "large", "review": "large", "code": "small", "code/L": "large" },
     "order": [
       { "name": "free", "kind": "free", "models": ["mistral-free/mistral-medium-latest"] },
       { "name": "credit", "kind": "monthly", "models": ["provider/small-model", "provider/large-model"], "total_usd": 100, "refill_day": 1 },

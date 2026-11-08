@@ -8,7 +8,7 @@ namespace Chargehand.Modules.Economics.Api;
 /// <param name="EscalateAfter">Failed verify steps in a row on one tier before the task moves one tier up.</param>
 /// <param name="DefaultTier">The tier of a task kind <paramref name="Routes"/> does not name; none: the cheapest tier.</param>
 /// <param name="Tiers">Cheapest first. Each lists its models in order of preference; a tier is what a model can do, not who pays for it.</param>
-/// <param name="Routes">Task kind (<c>intake</c>, <c>research</c>, <c>review</c>, <c>code</c>), or <c>kind/size</c> (<c>code/L</c>), to a tier name. The more specific key wins.</param>
+/// <param name="Routes">Route key to a tier name: the preset name a call runs under (<c>driven</c>, <c>review</c>, <c>code</c>), or <c>intake</c> for intake and the support check. <c>key/size</c> (<c>driven/L</c>) is more specific and wins.</param>
 /// <param name="Order">The pools, in the order they are drained.</param>
 public sealed record PoolsSettings(bool Enabled = false, string TimeZone = "UTC", int EscalateAfter = 2, string? DefaultTier = null, IReadOnlyList<TierSettings>? Tiers = null,
     IReadOnlyDictionary<string, string>? Routes = null, IReadOnlyList<PoolSettings>? Order = null)

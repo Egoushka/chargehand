@@ -82,8 +82,9 @@ less leaves more remaining, so every later day's allowance rises. A day that ove
 allowances by the same amount. A refill that happens during today counts only the spend after it. A pool past its
 expiry, or with no balance left, has no room.
 
-**Choosing.** The task's tier comes from `pools.routes`: the key `kind/size` (`code/L`) if present, else `kind`, else
-`pools.default_tier`. Tiers (`pools.tiers`) run from cheapest to strongest, and each lists its models in order of
+**Choosing.** The task's tier comes from `pools.routes`. The route key is the preset name the call runs under
+(`driven`, `review`, `code`), or `intake` for intake and the support check. The key `key/size` (`driven/L`) wins if
+present, else the key alone, else `pools.default_tier`. Tiers (`pools.tiers`) run from cheapest to strongest, and each lists its models in order of
 preference. Tiers are about capability and pools are about who pays: one tier can hold a free model and a paid one.
 
 The router walks the pools in drain order and takes the first pool that both has room today and pays for a model of
@@ -96,13 +97,21 @@ the profile loads.
 up for the rest of the task. It never moves down mid-task, and it stays at the top tier once there. The governor's
 continuation (ADR 0045) carries the new tier on the same branch.
 
-**An explicit model on every call.** With the router on, every runtime call is to carry the router's model: workers,
-research, review, intake, the support check, and a driven session together with its nested research and review calls.
-The Claude Code runtime then never chooses one on its own. The first change brings the settings, the pool maths and the
-router, and wires no call site to it; each call site moves to the router in a later change, before the block is turned
-on. What the first change does fix is the driven session: with the router off it now passes the model its preset
-resolves to through the profile's `models`, the defect described under Context. The places that still fall back to the
-CLI default are listed in the pull request that brings this ADR.
+**An explicit model on every call.** With the router on, every runtime call is to carry the router's model, so the
+Claude Code runtime never chooses one on its own. The pool block stays off by default; with it off every call keeps the
+model its caller resolved. The call sites wired so far:
+
+- the orchestrator's intake model and support check (key `intake`);
+- the orchestrator's worker (key: the preset);
+- a driven batch (key: the preset, size from the batch), which also sets `CLAUDE_CODE_SUBAGENT_MODEL` so the session's
+  nested research and review calls run the same model;
+- GitHub intake, which holds a new issue in its queue (reason `pools`) while no pool has room, instead of starting it.
+
+A run the router paid for records its pool, tier and model on the run record; spend per pool is read back from those
+records. Direct API and MCP calls that find no room get a retryable `RateLimited`. Still on the caller's own model: the
+probe, the eval judges, conversations and ACP, intake's continuation paths, and the `TaskTier` escalation. Separately,
+a driven session with the router off now passes the model its preset resolves to through the profile's `models`, the
+defect described under Context.
 
 **Measuring.** The router reads spend per pool from records chargehand keeps. It does not track spend by hand, and for
 the subscription it does not depend on the gateway log. `scripts/router-replay.py` replays finished tasks from the run

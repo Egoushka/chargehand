@@ -29,7 +29,7 @@ public sealed class PoolRouting(PoolsSettings? settings, IRunLog log, TimeProvid
 
     public bool On => _router is not null;
 
-    /// <summary>The model for one call of <paramref name="kind"/> (<c>code</c>, <c>research</c>, <c>review</c>, <c>intake</c>) and <paramref name="size"/> (S, M, L).</summary>
+    /// <summary>The model for one call under route key <paramref name="kind"/> (the preset name, or <c>intake</c>) and <paramref name="size"/> (S, M, L).</summary>
     /// <param name="unrouted">What the call runs on with the router off.</param>
     /// <exception cref="PoolsWaitException">The router is on and no pool has room for the tier.</exception>
     public async Task<Routed> RouteAsync(string kind, string? size, string? unrouted, CancellationToken ct)

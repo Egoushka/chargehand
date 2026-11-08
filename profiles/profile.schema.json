@@ -233,7 +233,7 @@
             }
           }
         },
-        "routes": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 }, "description": "Task kind (intake, research, review, code) or kind/size (code/L) to a tier name; the more specific key wins." },
+        "routes": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 }, "description": "Route key to a tier name: the preset name a call runs under (driven, review, code), or intake for intake and the support check; key/size (driven/L) is more specific and wins." },
         "order": {
           "type": "array",
           "description": "The pools, in the order they are drained.",
