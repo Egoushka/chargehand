@@ -23,6 +23,7 @@ From a checkout, every command runs as `dotnet run --project src/Chargehand.Cli 
 | `eval seed <cell> <run-id>...` | proposes eval items (JSONL on stdout) from runs in the log | |
 | `eval push <cell>` | pushes reviewed items (JSONL on stdin) to the cell's Langfuse dataset | |
 | `eval gate <base> <change> [options]` | Prompt CI's paired runs and verdict, see [Prompt CI](prompt-ci.md#the-eval-commands) | 1 when blocked |
+| `eval levers [options]` | tokens and pass rate per cell, preset and token-saving lever, see [Token levers](token-levers.md) | 0 |
 | `prompts sync` | mirrors prompt blocks to Langfuse prompt management | |
 | `learn report [--since <days>d\|<time>] [--include-bench]` | what finished driven tasks taught, per repository and size class: spend (median, 80th percentile), completion and partial rates, governor checkpoints and how many of those tasks still completed, how their pull requests ended ([the learning loop](driven.md#the-learning-loop)); reads `learning.jsonl` next to the run log | 2 on a usage error |
 | `cost [--json]` | dollars per merged pull request per repository and preset over 7 and 30 days: runs, spend, pull requests opened or served, merged, closed unmerged, and the spend that left no merged change; reads the run log and the pull request outcomes the server recorded in `learning.jsonl` (no forge call: a pull request the server never tracked reads as unknown; the console asks the forge) | 2 on a usage error |

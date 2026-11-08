@@ -79,6 +79,9 @@ const string Usage = """
       eval gate <base> <change> [--cells a,b] [--changed-files f] [--pr-body f] [--name n] [--cells-file f]
                                    [--change-cells-file f] [--allow-uncovered]
                                    paired runs of the base and change prompts/ and presets/; exit 1 when blocked
+      eval levers [--levers f] [--cells a,b] [--pass q] [--name n] [--work d]
+                                   token-saving levers (evals/levers.json) paired against this checkout over the cells' items:
+                                   tokens and pass rate per cell, preset and lever (docs/guide/token-levers.md)
       prompts sync                 pushes prompt blocks to Langfuse prompt management
       extensions check [--preset <name>] [--probe <query>]
                                    connects each mcp_servers entry, checks the memory mappings and the presets' services
@@ -332,6 +335,8 @@ switch (argv)
         return await EvalSupport(examplesFile);
     case ["eval", "score-claims", var claimsFile, .. var scoreOptions]:
         return await EvalScoreClaims(claimsFile, scoreOptions);
+    case ["eval", "levers", .. var options]:
+        return await EvalLevers(options);
     case ["eval", "gate", var baseRoot, var changeRoot, .. var options]:
         return await EvalGate(Path.GetFullPath(baseRoot), Path.GetFullPath(changeRoot), options);
     case ["prompts", "sync"]:
@@ -783,6 +788,31 @@ async Task<int> EvalGate(string baseRoot, string changeRoot, IReadOnlyList<strin
     // Last line for scripts/prompt-ci.sh: the commit status (a status description holds at most 140 characters).
     Console.WriteLine($"prompt-ci: {(blocked.Count > 0 || blockedByUncovered ? "failure" : "success")}: {(description.Length > 140 ? description[..137] + "..." : description)}");
     return blocked.Count > 0 || blockedByUncovered ? 1 : 0;
+}
+
+/// <summary>Issue #780: each lever's prompts/ and presets/ paired against this checkout's over the cells' items.</summary>
+async Task<int> EvalLevers(IReadOnlyList<string> options)
+{
+    string? Option(string name) => options.SkipWhile(o => o != name).Skip(1).FirstOrDefault();
+    var all = EvalCell.Load(Path.Combine(root, "evals", "cells.json"));
+    var cells = Option("--cells") is { } names
+        ? [.. names.Split(',').Select(n => all.FirstOrDefault(c => c.Name == n) ?? throw new ArgumentException($"no eval cell {n}"))]
+        : all.Where(c => c.Kind != "intake").ToList();
+    var leverFile = Path.GetFullPath(Option("--levers") ?? Path.Combine(root, "evals", "levers.json"));
+    var name = Option("--name") ?? $"levers-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
+    var pass = Option("--pass") is { } q ? double.Parse(q, CultureInfo.InvariantCulture) : LeverBench.DefaultPassQuality;
+    var work = Path.GetFullPath(Option("--work") ?? Path.Combine(root, "runs", "levers", name));
+
+    using var tracing = Tracing();
+    var (runtime, runtimeVersion) = await Connect();
+    var langfuse = Evals();
+    var runner = new EvalRunner(r => new Orchestrator(profile, runtime, runtimeVersion, r, runLog, new Dictionary<string, int>()), runtime, profile.IntakeModel,
+        runLog, langfuse, () => tracing?.ForceFlush(10_000), Console.Out);
+    var rows = await LeverBench.RunAsync(runner, cells, Lever.Load(leverFile), Path.GetDirectoryName(leverFile)!, async c => await langfuse.ItemsAsync(c.Dataset, ct),
+        root, work, name, pass, ct);
+    Console.WriteLine();
+    Console.Write(LeverBench.Table(rows));
+    return 0;
 }
 
 EvalCell Cell(string name) =>
