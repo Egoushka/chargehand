@@ -422,7 +422,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         }
         var taskId = TaskId(earlier.Issue);
         var task = new DrivenTask(taskId, Size: earlier.Size, Answers: [IntakeGoal.Answer(reply.Body)], ContinueFrom: new ContinueFrom(earlier.BatchRunId, earlier.TaskId));
-        return await LaunchAsync(key, name, earlier.Issue, repository, task, run => earlier with { BatchRunId = run, TaskId = taskId, Started = _time.GetUtcNow(), Phase = IntakePhase.Running, AskedCommentId = null, PrUrl = null, Trigger = null },
+        return await LaunchAsync(key, name, earlier.Issue, repository, task, run => earlier with { BatchRunId = run, TaskId = taskId, Started = _time.GetUtcNow(), Phase = IntakePhase.Running, AskedCommentId = null, PrUrl = null, Trigger = null, Harvested = false },
             starter, run => $"chargehand continues with your answer: run `{run}` (task `{taskId}`), on the same branch.", earlier, null, ct);
     }
 
