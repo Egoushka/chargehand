@@ -1,0 +1,13 @@
+{
+  "specversion": "1.0",
+  "id": "wake:example-job:1",
+  "source": "chargehand/wakes",
+  "type": "wake.job.started",
+  "subject": "example-job",
+  "time": "2026-11-08T22:00:01Z",
+  "causationid": "signal:example-rule:41",
+  "data": { "job": "example-job", "trigger": 42 },
+  "actor": { "kind": "job", "id": "example-job", "run": null },
+  "effect": "read",
+  "scope": "global"
+}
