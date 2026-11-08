@@ -14,10 +14,11 @@ public static class ContractSchemas
     public const string RunSummary = "run-summary/v1";
     public const string Conversation = "conversation/v1";
     public const string ConversationEvent = "conversation-event/v1";
+    public const string Events = "events/v1";
 
     // Built once; the global schema registry rejects a second registration of the same $id.
     private static readonly Dictionary<string, Lazy<JsonSchema>> Schemas =
-        new[] { Request, TaskSpec, Result, Preset, RunStatus, RunSummary, Conversation, ConversationEvent }.ToDictionary(n => n, n => new Lazy<JsonSchema>(() => JsonSchema.FromText(Text(n))));
+        new[] { Request, TaskSpec, Result, Preset, RunStatus, RunSummary, Conversation, ConversationEvent, Events }.ToDictionary(n => n, n => new Lazy<JsonSchema>(() => JsonSchema.FromText(Text(n))));
 
     /// <summary>Raw schema text, e.g. for serving it as an MCP tool's outputSchema.</summary>
     public static string Text(string name)

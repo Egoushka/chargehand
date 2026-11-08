@@ -20,6 +20,7 @@ public static partial class SessionDriver
         private readonly SessionTask _task = options.Task;
         private readonly Tally _tally = new(options.Task.Prices);
         private readonly SessionTrace _trace = new();
+        private readonly SessionActions _actions = new(options.Task.RunId, options.Secrets);
         private readonly StopCause _stoppedBy = new();
         private readonly List<GovernorDecision> _decisions = [];
         private SessionUsage? _lastUsage;
@@ -174,6 +175,19 @@ public static partial class SessionDriver
             }
         }
 
+        /// <summary>Appends the session's new tool calls to its action log (ADR 0090); a log that cannot be written does not stop the session.</summary>
+        private void Record(IReadOnlyList<Chargehand.Modules.Journal.Api.ActionEvent> calls)
+        {
+            try
+            {
+                foreach (var call in calls)
+                    Chargehand.Modules.Journal.Api.ActionLog.Append(options.OutDirectory, call);
+            }
+            catch (Exception x) when (x is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+
         public async Task ReadAsync(CancellationToken ct)
         {
             string? line;
@@ -188,6 +202,7 @@ public static partial class SessionDriver
                 detector.OnEvent(e, now);
                 _tally.Add(e);
                 _trace.OnEvent(e);
+                Record(_actions.OnEvent(e, now));
                 _stage = Adherence.StageOf(e) ?? _stage;
                 if (governor is not null)
                 {

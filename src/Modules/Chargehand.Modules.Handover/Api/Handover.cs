@@ -237,7 +237,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             verification = new VerificationRecord(plan.Argv, plan.Source, -1, Redact($"the verification could not run: {e.Message}", run.Secrets), false, TimeSpan.Zero, false);
         }
         run.Verification = verification;
-        input.Report?.Invoke(new HandoverEvent(RunEventKind.VerifyFinished, VerifyDetail(verification)));
+        Report(input, new HandoverEvent(RunEventKind.VerifyFinished, VerifyDetail(verification)));
         if ((verification.ExitCode != 0 || verification.TimedOut) && !input.Partial)
             return run.Refuse(verification.TimedOut ? "the tests timed out in chargehand's own verification" : $"the tests failed in chargehand's own verification (exit {verification.ExitCode})", ErrorCode.VerificationFailed,
                 verification, run.Changed, verificationPaths: run.VerificationPaths, commit: run.Commit);
@@ -271,7 +271,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         {
             return run.Refuse($"no push credential: {e.Message}", ErrorCode.CredentialUnavailable, run.Verification, run.Changed, verificationPaths: run.VerificationPaths, commit: run.Commit);
         }
-        input.Report?.Invoke(new HandoverEvent(RunEventKind.Pushed, pushed.Adopted ? $"{input.Branch} was already on the remote" : $"pushed {input.Branch}"));
+        Report(input, new HandoverEvent(RunEventKind.Pushed, pushed.Adopted ? $"{input.Branch} was already on the remote" : $"pushed {input.Branch}"));
         return null;
     }
 
@@ -290,7 +290,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity, run.NoTestsRule, run.CiVerdict);
             var (pr, bodyUsed) = await OpenPullRequestAsync(input, repository, prBody, ct);
             var detail = pr.Reused && input.UpdateReused ? await UpdateReusedAsync(run, repository, pr, bodyUsed, ct) : "draft pull request opened";
-            input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, detail, pr.Url));
+            Report(input, new HandoverEvent(RunEventKind.PrOpened, detail, pr.Url));
             return new(HandoverStatus.Pushed, "", null, input.Branch, commit, pr, verification, changed, verificationPaths, [], changes, integrity);
         }
         catch (PullRequestException e)
