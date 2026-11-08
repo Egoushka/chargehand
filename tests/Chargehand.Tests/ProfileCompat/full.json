@@ -254,6 +254,7 @@
   "public_free": null,
   "skip_structured_intake": false,
   "peer_clone": null,
+  "pools": null,
   "roots": [
     "/srv/chargehand/work"
   ],

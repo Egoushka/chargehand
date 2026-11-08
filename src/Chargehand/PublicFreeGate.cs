@@ -45,9 +45,15 @@ public sealed class PublicFreeGate(Profile profile, PublicFreePool pool, Func<IW
                 "Run it on another preset; the pool is for repositories GitHub reports as public.");
     }
 
+    private Task<(string? Forge, string? Path)> IdentifyAsync(string? given, CancellationToken ct) => RepositoryIdentity.IdentifyAsync(profile, given, ct);
+}
+
+/// <summary>The forge name and path of a known checkout, by the server's own mapping, never by the caller's text (ADR 0093). Shared by the free-model pool and the data-class gate of the budget router (ADR 0095).</summary>
+public static class RepositoryIdentity
+{
     /// <summary>The forge name and path of the known checkout <paramref name="given"/> names: a path of a known checkout, or a name <see cref="RepositoryNames"/> resolves. The forge name is kept only when
     /// the checkout's own <c>origin</c> names the same repository; otherwise it is null (fail closed).</summary>
-    private async Task<(string? Forge, string? Path)> IdentifyAsync(string? given, CancellationToken ct)
+    public static async Task<(string? Forge, string? Path)> IdentifyAsync(Profile profile, string? given, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(given))
             return (null, null);

@@ -32,7 +32,7 @@ public sealed record PendingReview(string Id, string Repository, int Pull, strin
 /// <param name="Key">The trigger's key, as <see cref="IntakeState.Handled"/> will hold it once it starts.</param>
 /// <param name="Issue">The issue, or the pull request of a review round.</param>
 /// <param name="Since">When it first waited.</param>
-/// <param name="Reason"><c>max_concurrent</c> (no free slot), <c>overlap</c> (its declared scope overlaps an open chargehand pull request or a running task, issue #737), <c>admission</c> (the server or <c>automation.account</c> refused the start, ADR 0076), <c>checkout</c> (the base commit could not be read), <c>harvest</c> (quota harvest work that waits for the end of a subscription window, issue #792)
+/// <param name="Reason"><c>max_concurrent</c> (no free slot), <c>overlap</c> (its declared scope overlaps an open chargehand pull request or a running task, issue #737), <c>admission</c> (the server or <c>automation.account</c> refused the start, ADR 0076), <c>checkout</c> (the base commit could not be read), <c>pools</c> (no budget pool has room, ADR 0095), <c>harvest</c> (quota harvest work that waits for the end of a subscription window, issue #792)
 /// or <c>lost</c> (a restart lost the issue's run, which starts again once; issue #557).</param>
 /// <param name="Detail">The refusal as the server gave it, for <c>admission</c> and <c>checkout</c>.</param>
 public sealed record WaitingTrigger(string Key, string Repository, int Issue, DateTimeOffset Since, string Reason, string? Detail = null);

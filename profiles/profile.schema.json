@@ -211,6 +211,57 @@
         "github_token_secret": { "type": "string", "minLength": 1, "description": "The secret item holding a GitHub token for the visibility lookup. Unset: the lookup is unauthenticated and sees only public repositories." }
       }
     },
+    "pools": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The budget-aware model router (ADR 0095): the money it may spend, in drain order, and the models each kind of task may use. Off unless enabled; absent or off, routing is as before.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "time_zone": { "type": "string", "default": "UTC", "description": "IANA zone that days, refills and expiries are read in." },
+        "escalate_after": { "type": "integer", "minimum": 1, "default": 2, "description": "Failed verify steps in a row on one tier before a task moves one tier up." },
+        "default_tier": { "type": "string", "description": "Tier of a task kind routes does not name; unset: the cheapest tier." },
+        "owner_private_repos": { "type": "array", "items": { "type": "string", "pattern": "^[^/]+/([^/]+|\\*)$" }, "description": "Forge names (owner/name, or owner/* for the owner's whole account) of private repositories that hold no personal or employer data. Their runs may reach models that train on prompts. A repository not named here and not public (public_free needed to look it up) is restricted: only no_training_models." },
+        "restricted_path_segments": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "A checkout with one of these directories in its path is always restricted, whatever else says; unset: [\"work\"] (employer repositories)." },
+        "tiers": {
+          "type": "array",
+          "description": "Cheapest first; each lists its gateway model ids in order of preference.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "models"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "models": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+            }
+          }
+        },
+        "routes": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 }, "description": "Route key to a tier name: the preset name a call runs under (driven, review, code), or intake for intake and the support check; key/size (driven/L) is more specific and wins." },
+        "order": {
+          "type": "array",
+          "description": "The pools, in the order they are drained. A configured amount or pace only warns; a pool leaves the order when its provider refuses a call (a 402 until its refill, a 429 until the next day), when it has expired, or has not started.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "kind", "models"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "kind": { "enum": ["free", "fixed", "monthly", "weekly"] },
+              "models": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "description": "Gateway model ids this pool pays for." },
+              "total_usd": { "type": "number", "exclusiveMinimum": 0, "description": "A fixed pool's whole sum; a monthly pool's sum per period. Spending past it only warns." },
+              "quota_usd": { "type": "number", "exclusiveMinimum": 0, "description": "A weekly pool's quota per period in API-price dollars; unset: unmetered. Spending past it only warns." },
+              "daily_requests": { "type": "integer", "minimum": 1, "description": "A free pool's calls per day; unset: unknown. Calls past it only warn; a provider's refusal takes the pool out." },
+              "start": { "type": "string", "format": "date", "description": "A fixed pool: the day spend is counted and paced from." },
+              "spread_days": { "type": "integer", "minimum": 1, "description": "A fixed pool: days from start its sum is spread over." },
+              "expires": { "type": "string", "format": "date", "description": "A fixed pool: the day it is gone." },
+              "refill_day": { "type": "integer", "minimum": 1, "maximum": 31, "default": 1, "description": "A monthly pool: day of the month it refills, clamped to the month's last day." },
+              "refill_weekday": { "enum": ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"], "description": "A weekly pool: the day it refills." },
+              "refill_time": { "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9]$", "default": "00:00", "description": "A monthly or weekly pool: the time of day it refills." },
+              "no_training_models": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The models of this pool whose provider does not train on prompts through this pool (\"*\": all of them). Only these may see restricted data; unset: every model of the pool is assumed to train, so restricted data never reaches the pool. At least one pool of an enabled block must list some." }
+            }
+          }
+        }
+      }
+    },
     "inbox": {
       "type": "object",
       "additionalProperties": false,
