@@ -25,8 +25,9 @@ public class RunnerPoolTests
 
     private static HostSnapshot Free(long availableMb, double? load = null, int cpus = 4) => new(availableMb, 16000, 0, 0, load, cpus);
 
-    private static PoolSite Site(string name, FakeHost host, int? maxSessions = null, double weight = 1, int? reserveMb = null, string platform = "linux/amd64") =>
-        new(new DrivenRunnerEntry(name, $"http://{name}:4310", "key", maxSessions, platform, weight, reserveMb), host);
+    private static PoolSite Site(string name, FakeHost host, int? maxSessions = null, double weight = 1, int? reserveMb = null, string platform = "linux/amd64",
+        WorkspaceMode workspace = WorkspaceMode.Shared) =>
+        new(new DrivenRunnerEntry(name, $"http://{name}:4310", "key", maxSessions, platform, weight, reserveMb, workspace), host);
 
     private static RunnerPool Pool(IReadOnlyList<PoolSite> sites, ManualTimeProvider? time = null, List<string>? log = null, int reserveMb = 0, TimeSpan? probeTimeout = null) =>
         new(sites, new DrivenAdmission(reserveMb), TimeSpan.FromMilliseconds(20), time ?? new ManualTimeProvider(), log is null ? null : log.Add, probeTimeout);
@@ -377,5 +378,90 @@ public class RunnerPoolTests
 
         Assert.Equal("laptop", (await pool.TryAdmitAsync(4096, null, default)).Runner);
         Assert.Equal(2, attempts);
+    }
+
+    [Fact]
+    public async Task A_runner_added_at_run_time_takes_a_waiting_task()
+    {
+        var log = new List<string>();
+        using var pool = Pool([Site("box", new FakeHost(Free(40000)), maxSessions: 1)], log: log);
+        Assert.Equal("box", (await pool.TryAdmitAsync(1024, null, default)).Runner);
+        Assert.False((await pool.TryAdmitAsync(1024, null, default)).Admit);
+
+        pool.Add(Site("laptop", new FakeHost(Free(12000)), platform: "linux/arm64", workspace: WorkspaceMode.Bundle));
+
+        Assert.Equal("laptop", (await pool.TryAdmitAsync(1024, null, default)).Runner);
+        Assert.Equal(["box", "laptop"], pool.Sites.Select(s => s.Name));
+        Assert.Contains("runner 'laptop' joined the pool", log);
+        Assert.Throws<ArgumentException>(() => pool.Add(Site("laptop", new FakeHost(Free(12000)))));
+    }
+
+    [Fact]
+    public async Task A_retired_runner_takes_no_new_task_but_keeps_its_running_one()
+    {
+        using var pool = Pool([Site("box", new FakeHost(Free(40000)), maxSessions: 1), Site("laptop", new FakeHost(Free(80000)))]);
+        Assert.Equal("laptop", (await pool.TryAdmitAsync(1024, null, default)).Runner);
+
+        Assert.True(pool.Retire("laptop"));
+        Assert.False(pool.Retire("gone"));
+
+        Assert.Equal("box", (await pool.TryAdmitAsync(1024, null, default)).Runner);
+        var wait = await pool.TryAdmitAsync(1024, null, default);
+        Assert.False(wait.Admit);
+        Assert.Contains("laptop: retired", wait.Detail);
+        // Its task still counts, and one a restart took up stays on it.
+        Assert.Equal(2, pool.Running);
+        Assert.Equal("laptop", (await pool.TryAdmitAsync(1024, "laptop", default)).Runner);
+        pool.Ended("laptop");
+        pool.Ended("laptop");
+        Assert.Equal(1, pool.Running);
+    }
+
+    [Fact]
+    public async Task Two_runners_of_different_kinds_take_tasks_from_one_queue_and_no_task_starts_twice()
+    {
+        // The server's own runner (shared disk, amd64) and the maintainer's machine (bundle, arm64), which joins while tasks wait. Twelve tasks, eight workers pulling from one queue.
+        using var pool = Pool([Site("server", new FakeHost(Free(400000)), maxSessions: 3)]);
+        var queue = new System.Collections.Concurrent.ConcurrentQueue<int>(Enumerable.Range(0, 12));
+        var starts = new System.Collections.Concurrent.ConcurrentDictionary<int, string>();
+        var doubles = 0;
+        var running = new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
+        var peak = new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
+        var limits = new Dictionary<string, int> { ["server"] = 3, ["maintainer"] = 2 };
+        var joined = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async Task Worker()
+        {
+            while (queue.TryDequeue(out var task))
+            {
+                AdmissionDecision decision;
+                while (!(decision = await pool.TryAdmitAsync(1024, null, default)).Admit)
+                    await Task.Yield();
+                var runner = decision.Runner!;
+                if (!starts.TryAdd(task, runner))
+                    Interlocked.Increment(ref doubles);
+                var now = running.AddOrUpdate(runner, 1, (_, n) => n + 1);
+                peak.AddOrUpdate(runner, now, (_, p) => Math.Max(p, now));
+                // The server's first tasks hold their slots until the maintainer's machine has joined, so it joins while tasks wait; every task yields so the workers interleave.
+                if (runner == "server")
+                    await joined.Task;
+                await Task.Yield();
+                running.AddOrUpdate(runner, 0, (_, n) => n - 1);
+                pool.Ended(runner);
+            }
+        }
+
+        var workers = Enumerable.Range(0, 8).Select(_ => Task.Run(Worker)).ToList();
+        while (pool.Running < 3)
+            await Task.Yield();
+        pool.Add(Site("maintainer", new FakeHost(Free(400000)), maxSessions: 2, platform: "linux/arm64", workspace: WorkspaceMode.Bundle));
+        joined.SetResult();
+        await Task.WhenAll(workers);
+
+        Assert.Equal(0, doubles);
+        Assert.Equal(Enumerable.Range(0, 12), starts.Keys.Order());
+        Assert.Equal(["maintainer", "server"], starts.Values.Distinct().Order());
+        Assert.All(peak, p => Assert.InRange(p.Value, 1, limits[p.Key]));
+        Assert.Equal(0, pool.Running);
     }
 }
