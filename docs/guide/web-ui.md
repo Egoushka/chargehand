@@ -34,6 +34,7 @@ The trade-off is that a script running in the page could read it. The page is bu
 - `GET /v1/accounts/me`: the caller's `name`, `owner`, `driven`, `repositories`, `limits`, `spend.day` and `spend.month` (`usd`, `tokens`, `resets_at`), `unfinished_runs`, `halted` and `presets`. A run token gets `403`, as on every route it does not open.
 - `GET /v1/runs` accepts `kind=single|batch`, `repository=<exact path>`, `run_id=` and, for the owner, `actor=`; an account always gets its own runs.
 - `run-summary/v1` gains optional `kind`, `repository`, `commit` and `tokens` (additive).
+- `run-summary/v1` also gains optional `credential` (`api_key` or `subscription`) and `subscription_usage` (additive): for a run on a subscription, `used` (the larger usage window as a fraction of 1), `window` (`five_hour` or `seven_day`) and each window's `utilization` and `resets_at`. Absent means unknown, not zero ([ADR 0098](../adr/0098-a-subscription-run-records-how-much-of-its-usage-windows-it-had-used.md)).
 
 ## The operator console (`/console/`)
 
