@@ -115,6 +115,7 @@ public sealed class Orchestrator(
         TaskAction? executed = null;
         Enhanced? enhanced = null;
         string? credential = null;
+        SubscriptionTally subscription = new();
         RunRoute? route = null;
         DataClass? dataClass = null;
         var asked = request;
@@ -127,6 +128,7 @@ public sealed class Orchestrator(
             intakeSkipped = false;
             executed = null;
             credential = null;
+            subscription.Clear();
             route = null;
             List<IAsyncDisposable> leases = [];
             try
@@ -241,7 +243,7 @@ public sealed class Orchestrator(
                                 [Inline("improved_request", "text/x-diff", detail.GetProperty("diff").GetString()!)]),
                             _ when preset.Approval?.Requires(spec) == true && request.Context.Approved != true => Stop(ResultStatus.NeedsInput,
                                 $"Preset {presetName} asks for approval: risk {Name(spec.Risk)}, estimate up to ${spec.Estimate.UsdHigh}.", ["Resend with context.approved = true to run it."]),
-                            _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, local, ct, budgetIsCap, intakeModelId),
+                            _ => await Execute(request, spec, plan, kindName, kind, workerModel, instructions, chain, callerBlocks, runId, traceId, run, extensions, progress, sandbox, worker, local, ct, budgetIsCap, intakeModelId, subscription),
                         };
                     }
                 }
@@ -275,7 +277,7 @@ public sealed class Orchestrator(
         run?.SetTag("chargehand.action", executed is null ? null : Name(executed.Value));
         // A caller's cancel must not stop the record of it from being written.
         await runLog.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, presetName, intake?.Spec is null ? null : Name(intake.Spec.Action), intake?.Spec, result,
-            executed is null ? null : Name(executed.Value), extensions.ToReport(), actor, credential, intakeSkipped ? true : null, route), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
+            executed is null ? null : Name(executed.Value), extensions.ToReport(), actor, credential, intakeSkipped ? true : null, route, subscription.Latest), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
         await ReportOutcome(enhanced, result, executed);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;
@@ -408,7 +410,7 @@ public sealed class Orchestrator(
     /// <summary>Runs the plan's nodes (one for answer) and returns the node's contract, or the merged one for a split.</summary>
     private async Task<ResultContract> Execute(RunRequest request, TaskSpec spec, IReadOnlyList<PlanNode> plan, string kindName, NodeKind kind, string? workerModel,
         IReadOnlyList<(string Key, string Value)> instructions, PromptChain chain, IReadOnlyList<PromptBlock> callerBlocks, string runId, string traceId,
-        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, IWorkerRuntime worker, bool local, CancellationToken ct, bool budgetIsCap = false, string? intakeModelId = null)
+        Activity? run, ExtensionsCollector extensions, Action<RunStatus>? progress, ISandbox? sandbox, IWorkerRuntime worker, bool local, CancellationToken ct, bool budgetIsCap = false, string? intakeModelId = null, SubscriptionTally? subscription = null)
     {
         var (directory, commit, repository, excluded) = kind.Checkout
             ? await Checkout(request.Context.Repository!, kind, refuseDenied: false, ct)
@@ -500,12 +502,16 @@ public sealed class Orchestrator(
                     run?.SetTag($"chargehand.service.{server}.not_connected", status);
                 }
 
+            // Only a subscription has windows to report; a reading on any other credential is not the run's to record (ADR 0098). Calls are oldest first, so the last one carries the latest.
+            var onSubscription = worker.Credential == CredentialKind.Subscription;
+            if (onSubscription && nodeResult.Calls.LastOrDefault(c => c.Subscription is not null) is { Subscription: { } reading } latest)
+                subscription?.Note(latest.Created, reading);
             foreach (var m in nodeResult.Calls)
             {
                 var usd = prices.PriceUsd(m.Model ?? modelLabel, m.Tokens!);
                 var latency = ((m.Completed ?? m.Created) - m.Created).TotalMilliseconds;
                 await runLog.AppendAsync(new CallRecord(runId, node.Id, kindName, nodeResult.SessionId, m.Id, m.Model ?? modelLabel, m.Created, latency, m.Tokens, usd, chain,
-                    nodeResult.ForkedFrom, instructionRefs, worker.Credential), token);
+                    nodeResult.ForkedFrom, instructionRefs, worker.Credential, onSubscription ? m.Subscription : null), token);
                 using var call = Telemetry.Source.StartActivity("chargehand.call", ActivityKind.Client, span?.Context ?? default, startTime: m.Created);
                 TagChain(call, chain);
                 call?.SetTag("langfuse.session.id", nodeResult.SessionId);

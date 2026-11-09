@@ -1,0 +1,6 @@
+{ "contract_version": "run-summary/v1", "run_id": "run-20260930-120000-a1b2c3", "task_ref": "t1", "preset": "default", "status": "completed",
+  "started_at": "2026-09-30T12:00:00Z", "finished_at": "2026-09-30T12:20:00Z", "usd": 0.42, "kind": "single", "tokens": 12840,
+  "credential": "subscription",
+  "subscription_usage": { "used": 0.61, "window": "seven_day",
+    "five_hour": { "utilization": 0.18, "resets_at": "2026-09-30T15:00:00Z" },
+    "seven_day": { "utilization": 0.61, "resets_at": "2026-10-04T08:00:00Z" } } }
