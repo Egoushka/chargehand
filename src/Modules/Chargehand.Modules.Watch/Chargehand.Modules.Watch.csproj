@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Watch.</Description>
+    <Description>Watch: agents that act on a red main or a regression report (the bisect agent).</Description>
   </PropertyGroup>
 
   <ItemGroup>
