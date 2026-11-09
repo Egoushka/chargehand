@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.18](https://github.com/Egoushka/chargehand/compare/v0.19.17...v0.19.18) (2026-11-09)
+
+
+### Features
+
+* **agent:** bisect agent: find the commit behind a regression ([#799](https://github.com/Egoushka/chargehand/issues/799)) ([034e865](https://github.com/Egoushka/chargehand/commit/034e865aca4943a97b113f7337c5b88a17e48e0f))
+* **ledger:** record the subscription's usage windows on runs and calls ([#817](https://github.com/Egoushka/chargehand/issues/817)) ([83d296e](https://github.com/Egoushka/chargehand/commit/83d296e361ce1d63310c1a1f8622516c3746b0bf))
+
 ## [0.19.17](https://github.com/Egoushka/chargehand/compare/v0.19.16...v0.19.17) (2026-11-08)
 
 
