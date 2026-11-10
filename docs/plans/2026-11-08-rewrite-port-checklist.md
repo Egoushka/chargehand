@@ -59,7 +59,7 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
   fallback inside the egress gateway, ADR 0088).
 - [ ] Runners (5): `Chargehand.Driven/Driven/RunnerSite.cs`; the runner's own server `Chargehand.Server/Runner/RunnerServer.cs`
   (its process entry `RunnerCli.cs` goes to Hosts.Runner, section 5).
-- [ ] Handover (7): `Chargehand.Server/HeldPrReconciler.cs` (updates a pull request once its base turns green).
+- [x] Handover (7): `Chargehand.Server/HeldPrReconciler.cs` (updates a pull request once its base turns green).
 
 ## 3. Layer 9: Research (the one-shot run) and Batches
 
