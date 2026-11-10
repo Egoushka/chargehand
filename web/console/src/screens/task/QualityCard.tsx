@@ -1,8 +1,5 @@
-import { useState } from 'react';
-import { useMergePull } from '../../api/actions';
 import type { BatchTaskDetailBody } from '../../api/batch-task';
-import { ApiError } from '../../api/client';
-import { Banner, Button, ConfirmDialog } from '../../ui';
+import { MergeButton } from './MergeButton';
 import { type Mark, mutationFacts, qualityPassed, reviewClaims, verdictItems } from './quality';
 
 const GLYPH: Record<Mark, string> = { ok: '✓', fail: '✗', warn: '⚠', none: '–' };
@@ -47,45 +44,16 @@ export function QualityCard({ detail }: { detail: BatchTaskDetailBody }) {
 /** Approve merge: only for a task whose pull request is open, enabled only when the card passed, and it asks first. The server decides again (policy, required checks) and says why when it refuses. */
 function MergeAction({ detail }: { detail: BatchTaskDetailBody }) {
   const pull = detail.task.pull_request;
-  const [asking, setAsking] = useState(false);
-  const merge = useMergePull();
-  const [owner, repo] = (pull?.repository ?? '').split('/');
-  if (pull?.state !== 'open' || pull.number == null || !owner || !repo) return null;
-  const number = pull.number;
-  const passed = qualityPassed(detail);
-  const done = merge.isSuccess;
+  if (pull?.state !== 'open') return null;
   return (
-    <div className="stack stack--tight">
-      <div>
-        <Button
-          variant="primary"
-          icon="pr"
-          label="Approve merge"
-          disabled={!passed || done}
-          title={
-            passed ? undefined : 'The quality card has not passed, so there is nothing to approve.'
-          }
-          onClick={() => setAsking(true)}
-        />
-      </div>
-      {done ? <p className="dim small">Merged.</p> : null}
-      {merge.isError ? (
-        <Banner tone="warn" icon="alert-triangle" title="Not merged" role="alert">
-          {merge.error instanceof ApiError ? merge.error.errors.join('; ') : 'The request failed.'}
-        </Banner>
-      ) : null}
-      <ConfirmDialog
-        open={asking}
-        onOpenChange={setAsking}
-        title={`Merge pull request ${number}?`}
-        text={`This squash-merges ${pull.repository} #${number} into its base branch. The repository's required checks and the integrator's policy are checked again first. A merge is not undone from here.`}
-        keepLabel="Keep it open"
-        confirmLabel={`Merge PR ${number}`}
-        busy={merge.isPending}
-        onConfirm={() => {
-          merge.mutate({ owner, repo, pull: number }, { onSettled: () => setAsking(false) });
-        }}
-      />
-    </div>
+    <MergeButton
+      repository={pull.repository}
+      number={pull.number}
+      blocked={
+        qualityPassed(detail)
+          ? undefined
+          : 'The quality card has not passed, so there is nothing to approve.'
+      }
+    />
   );
 }
