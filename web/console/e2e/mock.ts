@@ -189,6 +189,8 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
                   }),
           });
         }
+        if (request.method() === 'POST' && /^\/v1\/pulls\/[^/]+\/[^/]+\/\d+\/merge$/.test(pathname))
+          return route.fulfill({ status: 202, json: { action: 'merge', changed: true } });
         if (pathname.endsWith('/events'))
           return route.fulfill({ contentType: 'text/event-stream', body: '' });
         if (pathname.startsWith('/v1/runs/'))

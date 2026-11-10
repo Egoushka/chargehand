@@ -29,6 +29,8 @@ internal static class ConsoleActions
 
         app.MapPost("/v1/pulls/{owner}/{repo}/{number:int}/checks/rerun", async (string owner, string repo, int number, HttpContext ctx) =>
             await RerunChecksAsync(context(ctx), PrincipalHttp.Of(ctx), owner, repo, number, ctx.RequestAborted));
+
+        ConsoleMerge.Map(app, context);
     }
 
     private static IResult Json(object body, int status) => ChargehandServer.Json(body, status);
