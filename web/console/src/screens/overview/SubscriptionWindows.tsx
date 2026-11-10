@@ -12,7 +12,7 @@ export function SubscriptionWindows() {
   if (!runs.data) return null;
   const windows = usageWindows(latestUsage(runs.data)?.subscription_usage);
   return (
-    <Panel title="Subscription windows" busy={runs.isPending}>
+    <Panel title="Subscription windows">
       {windows.length === 0 ? (
         <div className="pad dim">No subscription windows</div>
       ) : (
