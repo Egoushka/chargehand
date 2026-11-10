@@ -6,6 +6,7 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Console.Api;
 using Chargehand.Modules.Conversations.Api;
 using Chargehand.Modules.Economics.Api;
 using Chargehand.Modules.Events.Api;
@@ -112,7 +113,7 @@ public sealed record Profile(
         TypeInfoResolver = JsonTypeInfoResolver.Combine(LedgerSettingsJsonContext.Default, AccountsSettingsJsonContext.Default,
             MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, HandoverSettingsJsonContext.Default, IntakeSettingsJsonContext.Default,
             BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default, SessionsSettingsJsonContext.Default, TasksSettingsJsonContext.Default,
-            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, EconomicsSettingsJsonContext.Default, KernelSettingsJsonContext.Default, GatewaySettingsJsonContext.Default, ResearchSettingsJsonContext.Default, ProfileJsonContext.Default),
+            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, EconomicsSettingsJsonContext.Default, KernelSettingsJsonContext.Default, GatewaySettingsJsonContext.Default, ResearchSettingsJsonContext.Default, ConsoleSettingsJsonContext.Default, ProfileJsonContext.Default),
     };
 
     /// <summary>Owner-visible defaults (this record's own default values) when the file does not exist.</summary>
@@ -341,21 +342,4 @@ public sealed partial record DrivenSettings(
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? ImageVariants = null,
     string? Environment = null);
 
-/// <summary>ADR 0085. Who an inbox card belongs to.</summary>
-/// <param name="Owners">A repository glob (<c>*</c> matches any run of characters, case-insensitive; matched against <c>owner/name</c>) to the name of the desk or person that answers for it. The first match in the file's order wins.</param>
-public sealed record InboxSettings(IReadOnlyDictionary<string, string>? Owners = null)
-{
-    /// <summary>The owner of <paramref name="repository"/> (a path or <c>owner/name</c>); null when no glob matches.</summary>
-    public string? OwnerOf(string? repository)
-    {
-        if (repository is null || Owners is null)
-            return null;
-        var parts = repository.TrimEnd('/').Split('/');
-        var name = parts.Length > 2 ? string.Join('/', parts[^2..]) : repository;
-        foreach (var (glob, owner) in Owners)
-            if (System.Text.RegularExpressions.Regex.IsMatch(name, "^" + System.Text.RegularExpressions.Regex.Escape(glob).Replace("\\*", ".*") + "$", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant))
-                return owner;
-        return null;
-    }
-}
 
