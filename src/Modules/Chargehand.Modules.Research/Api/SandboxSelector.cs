@@ -1,7 +1,7 @@
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 
-namespace Chargehand.Sandbox;
+namespace Chargehand.Modules.Research.Api;
 
 public static class SandboxSelector
 {

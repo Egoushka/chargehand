@@ -647,7 +647,7 @@ EventService? EventLog(EventsSettings? events) =>
 IConversationRuntime? ConversationRuntime(ConversationSettings? conversations, Orchestrator orchestrator) =>
     conversations is { Runtime: "acp" }
         ? new AcpConversationRuntime(AcpAgentCatalog.Load(profile.Acp?.AgentsFile ?? Path.Combine(root, AcpAgentCatalog.FileName)), profile.Acp ?? new AcpSettings(), profile.Secret,
-            orchestrator.CheckoutForConversationAsync, new Chargehand.Acp.AcpSandboxLauncher(Chargehand.Sandbox.SandboxSelector.Select(profile.Sandbox)))
+            orchestrator.CheckoutForConversationAsync, new Chargehand.Acp.AcpSandboxLauncher(Chargehand.Modules.Research.Api.SandboxSelector.Select(profile.Sandbox)))
         : null;
 
 /// <summary>The free-model pool for public repositories (ADR 0093), or null without a <c>public_free</c> block. Its key is resolved on the first pool run; the GitHub token, if any, now.</summary>
@@ -836,7 +836,7 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
         // ADR 0086: the agent comes from the pinned list, its key from a secret item, and the sandbox is chosen now so a machine without one refuses the run before it starts.
         var agent = AcpAgentCatalog.Load(profile.Acp?.AgentsFile ?? Path.Combine(root, AcpAgentCatalog.FileName))
             .Get(RuntimeSelector.AcpAgent(profile.Runtime, Environment.GetEnvironmentVariable("CHARGEHAND_RUNTIME"))!);
-        var acp = new Chargehand.Acp.AcpWorkerRuntime(agent, AcpLaunchEnvironment.Build(agent, profile.Acp?.CredentialFor(agent.Id), profile.Secret), Chargehand.Sandbox.SandboxSelector.Select(profile.Sandbox));
+        var acp = new Chargehand.Acp.AcpWorkerRuntime(agent, AcpLaunchEnvironment.Build(agent, profile.Acp?.CredentialFor(agent.Id), profile.Secret), Chargehand.Modules.Research.Api.SandboxSelector.Select(profile.Sandbox));
         return (acp, acp.Version);
     }
     if (kind == RuntimeKind.ClaudeCode)

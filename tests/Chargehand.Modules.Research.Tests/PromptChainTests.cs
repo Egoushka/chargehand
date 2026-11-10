@@ -70,18 +70,4 @@ public class PromptChainTests
         var expected = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes("[[\"core\",\"a\"],[\"preset\",\"b\"]]")));
         Assert.Equal(expected, PromptChains.InstructionsSha256([("core", "a"), ("preset", "b")]));
     }
-
-    private sealed class TempDir : IDisposable
-    {
-        public string Path { get; } = Directory.CreateTempSubdirectory("chargehand-test-").FullName;
-
-        public void Write(string relative, string content)
-        {
-            var full = System.IO.Path.Combine(Path, relative);
-            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(full)!);
-            File.WriteAllText(full, content);
-        }
-
-        public void Dispose() => Directory.Delete(Path, recursive: true);
-    }
 }

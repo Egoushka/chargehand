@@ -1,7 +1,8 @@
 using System.Globalization;
 using System.Text;
+using Chargehand.Modules.Research.Internal;
 
-namespace Chargehand.Sandbox;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>macOS <c>sandbox-exec</c> with a generated profile: reads everywhere except credential locations, writes only in the
 /// workspace and a private temp directory, no network unless allowed (ADR 0035). Apple marks <c>sandbox-exec</c> deprecated.</summary>

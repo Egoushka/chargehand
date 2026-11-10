@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using System.Text;
 
-namespace Chargehand.Sandbox;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>Starts a process with an exact environment, kills its tree at the timeout and keeps the tail of its output.</summary>
-internal static class ProcessRunner
+public static class ProcessRunner
 {
     internal const int TailBytes = 8192;
 
@@ -22,7 +22,7 @@ internal static class ProcessRunner
         return env;
     }
 
-    internal static async Task<SandboxResult> RunAsync(string fileName, IEnumerable<string> args, IReadOnlyDictionary<string, string> env, string workDirectory,
+    public static async Task<SandboxResult> RunAsync(string fileName, IEnumerable<string> args, IReadOnlyDictionary<string, string> env, string workDirectory,
         TimeSpan timeout, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(fileName)

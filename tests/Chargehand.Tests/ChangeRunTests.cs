@@ -4,8 +4,8 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Sessions.Api;
-using Chargehand.Sandbox;
 
 namespace Chargehand.Tests;
 

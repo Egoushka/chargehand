@@ -5,7 +5,7 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
-using Chargehand.Sandbox;
+using Chargehand.Modules.Research.Api;
 
 namespace Chargehand.Tests;
 

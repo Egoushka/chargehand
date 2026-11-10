@@ -81,7 +81,7 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
 Research is the module the answer pipeline lands in; ADR 0060 names it, and it already holds `IEvidenceResolver` and
 `TaskResultBuilder`. Its parts depend on each other in this order; each box needs the ones above it.
 
-- [ ] Sandbox: `src/Chargehand/Sandbox/*` (`ISandbox`, `BubblewrapSandbox`, `SeatbeltSandbox`, `NoSandbox`,
+- [x] Sandbox: `src/Chargehand/Sandbox/*` (`ISandbox`, `BubblewrapSandbox`, `SeatbeltSandbox`, `NoSandbox`,
   `SandboxSelector`, `ProcessRunner`, `CredentialPaths`). Needed by verification and by `Chargehand.Acp`.
 - [ ] Worker runtime port: `src/Chargehand/Runtime/*` (`IWorkerRuntime`, `RuntimeSelector`, `UnavailableRuntime`,
   `WorkerKill`, `IRunCleanup`, `IServiceHealth`, `IServiceResolver`). Layer 9 keeps the runtimes (layer 10) pointing

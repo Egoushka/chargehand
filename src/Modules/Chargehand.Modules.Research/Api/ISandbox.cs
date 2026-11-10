@@ -1,4 +1,4 @@
-namespace Chargehand.Sandbox;
+namespace Chargehand.Modules.Research.Api;
 
 /// <param name="Argv">The command and its arguments; no shell is involved unless the argv names one.</param>
 /// <param name="WorkDirectory">The only directory the command may write to, besides a private temp directory.</param>

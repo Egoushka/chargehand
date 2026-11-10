@@ -1,4 +1,4 @@
-namespace Chargehand.Sandbox;
+namespace Chargehand.Modules.Research.Internal;
 
 /// <summary>Where a user's credentials usually live, relative to the home directory; a sandboxed command may not read them.</summary>
 internal static class CredentialPaths
