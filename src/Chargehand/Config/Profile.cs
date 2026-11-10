@@ -10,6 +10,7 @@ using Chargehand.Modules.Conversations.Api;
 using Chargehand.Modules.Economics.Api;
 using Chargehand.Modules.Events.Api;
 using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Ledger.Api;
@@ -110,7 +111,7 @@ public sealed record Profile(
         TypeInfoResolver = JsonTypeInfoResolver.Combine(LedgerSettingsJsonContext.Default, AccountsSettingsJsonContext.Default,
             MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, HandoverSettingsJsonContext.Default, IntakeSettingsJsonContext.Default,
             BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default, SessionsSettingsJsonContext.Default, TasksSettingsJsonContext.Default,
-            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, EconomicsSettingsJsonContext.Default, KernelSettingsJsonContext.Default, ProfileJsonContext.Default),
+            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, EconomicsSettingsJsonContext.Default, KernelSettingsJsonContext.Default, GatewaySettingsJsonContext.Default, ProfileJsonContext.Default),
     };
 
     /// <summary>Owner-visible defaults (this record's own default values) when the file does not exist.</summary>
@@ -338,14 +339,6 @@ public sealed partial record DrivenSettings(
     IReadOnlyList<DrivenRunnerEntry>? Runners = null,
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? ImageVariants = null,
     string? Environment = null);
-
-/// <param name="Outside">A network besides the default one that the batch's egress container joins: the one the chargehand server sits on.</param>
-/// <param name="McpForward"><c>host:port</c> of the chargehand server as the egress container reaches it. Set, a session can call chargehand for research and review through a forward on its batch network; unset, it cannot.</param>
-/// <param name="ModelUrl">An Anthropic-compatible gateway as the egress container reaches it (<c>http://host:port/path</c> through a forward, or <c>https://host/path</c> through the proxy). Set, a session gets
-/// <c>claude_code.api_key_secret</c> (the key the gateway issued, with a budget) and a base URL instead of the real credential; unset, the real credential is in the container's environment.</param>
-/// <param name="OtlpUrl">An OTLP/HTTP collector as the egress container reaches it (<c>http://host:port</c>, through a forward). Set, each session's Claude Code exports its own logs and
-/// metrics there, tagged with the batch, task and trace (ADR 0042); unset, it exports nothing.</param>
-public sealed record DrivenNetwork(IReadOnlyList<string>? Allow = null, string? Outside = null, string? McpForward = null, string? ModelUrl = null, string? OtlpUrl = null);
 
 /// <summary>
 /// The <c>prompt-enhancer</c> extension (ADR 0040): an entry of <c>mcp_servers</c> that lists the tools <c>enhance</c> and
