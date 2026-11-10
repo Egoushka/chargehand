@@ -4,6 +4,7 @@ import type { AccountsBody } from '../api/accounts';
 import type { AnalyticsBody, AnalyticsBucket, AnalyticsGroupBy, CostBody } from '../api/analytics';
 import type { BatchBody } from '../api/batch';
 import type { BatchTaskDetailBody } from '../api/batch-task';
+import type { Conversation } from '../api/conversations';
 import type { InboxBody } from '../api/inbox';
 import type { IntakeBody, IntakeSourcesBody } from '../api/intake';
 import type { IntakeLimitsBody, LimitsChange } from '../api/limits';
@@ -28,6 +29,8 @@ export interface Scenario {
   tasks?: Record<string, BatchTaskDetailBody>;
   /** The text of a run's event stream by path (`/v1/runs/<id>/events`): server-sent events. */
   streams?: Record<string, string>;
+  /** The caller's conversations (`conversation/v1`), newest first; their event streams go in `streams`. */
+  conversations?: Conversation[];
   pulls?: PullsBody;
   system?: SystemBody | null;
   intake?: IntakeBody;
@@ -212,6 +215,27 @@ export function serveApi(scenario: Scenario = {}) {
       return Promise.resolve(
         json(scenario.tasks?.[`${id}/${name}`] ?? rx.taskDetail(id, name, now)),
       );
+    }
+    if (path === '/v1/conversations' && method === 'GET')
+      return Promise.resolve(json({ conversations: scenario.conversations ?? [] }));
+    const conv = /^\/v1\/conversations\/([^/]+)(\/messages|\/approvals\/[^/]+)?$/.exec(path);
+    if (conv) {
+      const found = scenario.conversations?.find((c) => c.id === decodeURIComponent(conv[1] ?? ''));
+      if (!found) return Promise.resolve(json({ errors: ['not found'] }, 404));
+      if (method === 'DELETE')
+        return Promise.resolve(json({ ...found, state: 'ended', ended_reason: 'user' }));
+      if (conv[2] === '/messages')
+        return Promise.resolve(
+          json({ conversation_id: found.id, queued: false, messages: 1 }, 202),
+        );
+      if (conv[2])
+        return Promise.resolve(
+          json({
+            call_id: conv[2].split('/')[2],
+            decision: (body as { decision?: string })?.decision,
+          }),
+        );
+      return Promise.resolve(json(found));
     }
     if (path.endsWith('/events'))
       return Promise.resolve(

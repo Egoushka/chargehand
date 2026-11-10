@@ -10,6 +10,7 @@ import { ApiError, Unauthorized } from './api/client';
 import { Accounts } from './screens/accounts/Accounts';
 import { Analytics } from './screens/analytics/Analytics';
 import { isTab, type TabId } from './screens/batch/tabs';
+import { Conversations } from './screens/conversations/Conversations';
 import { Intake } from './screens/intake/Intake';
 import { Learning } from './screens/learning/Learning';
 import { NeedsYou } from './screens/needs-you/NeedsYou';
@@ -49,6 +50,15 @@ const taskRoute = createRoute({
   component: lazyRouteComponent(() => import('./screens/run/TaskPage'), 'TaskPage'),
 });
 
+const conversationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'conversations',
+  validateSearch: (search: Record<string, unknown>): { id?: string } => ({
+    id: typeof search.id === 'string' && search.id !== '' ? search.id : undefined,
+  }),
+  component: Conversations,
+});
+
 // A screen lives in src/screens/<name>/; its route is one line here.
 const routeTree = rootRoute.addChildren([
   child('/', Overview),
@@ -56,6 +66,7 @@ const routeTree = rootRoute.addChildren([
   runRoute,
   taskRoute,
   child('needs-you', NeedsYou),
+  conversationsRoute,
   child('new', Start),
   child('analytics', Analytics),
   child('learning', Learning),
