@@ -47,6 +47,7 @@ POST /v1/mcp/
 GET /v1/overview
 GET /v1/pulls
 POST /v1/pulls/{owner}/{repo}/{number:int}/checks/rerun
+POST /v1/pulls/{owner}/{repo}/{number:int}/merge
 GET /v1/pulls/conflicts
 GET /v1/pulls/train
 GET /v1/repositories

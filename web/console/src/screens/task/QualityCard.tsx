@@ -1,5 +1,6 @@
 import type { BatchTaskDetailBody } from '../../api/batch-task';
-import { type Mark, mutationFacts, reviewClaims, verdictItems } from './quality';
+import { MergeButton } from './MergeButton';
+import { type Mark, mutationFacts, qualityPassed, reviewClaims, verdictItems } from './quality';
 
 const GLYPH: Record<Mark, string> = { ok: '✓', fail: '✗', warn: '⚠', none: '–' };
 
@@ -35,6 +36,24 @@ export function QualityCard({ detail }: { detail: BatchTaskDetailBody }) {
           </ul>
         </>
       ) : null}
+      <MergeAction detail={detail} />
     </section>
+  );
+}
+
+/** Approve merge: only for a task whose pull request is open, enabled only when the card passed, and it asks first. The server decides again (policy, required checks) and says why when it refuses. */
+function MergeAction({ detail }: { detail: BatchTaskDetailBody }) {
+  const pull = detail.task.pull_request;
+  if (pull?.state !== 'open') return null;
+  return (
+    <MergeButton
+      repository={pull.repository}
+      number={pull.number}
+      blocked={
+        qualityPassed(detail)
+          ? undefined
+          : 'The quality card has not passed, so there is nothing to approve.'
+      }
+    />
   );
 }

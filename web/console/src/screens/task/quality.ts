@@ -100,3 +100,12 @@ export function reviewClaims(review: unknown): ReviewClaim[] {
     return text && typeof verdict === 'string' ? [{ text, verdict }] : [];
   });
 }
+
+/** Whether the card says the task passed: chargehand's own verification passed, and no check failed or was flagged. A check that did not apply (mutation on a change with no C# file) does not count against it. */
+export function qualityPassed(detail: { verification?: unknown; mutation?: unknown }): boolean {
+  const items = verdictItems(detail);
+  return (
+    items.find((i) => i.key === 'verification')?.mark === 'ok' &&
+    items.every((i) => i.mark === 'ok' || i.mark === 'none')
+  );
+}
