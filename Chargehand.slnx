@@ -61,6 +61,7 @@
     <Project Path="tests/Chargehand.Kernel.Tests/Chargehand.Kernel.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Batches.CoyoteTests/Chargehand.Modules.Batches.CoyoteTests.csproj" />
     <Project Path="tests/Chargehand.Modules.Batches.Tests/Chargehand.Modules.Batches.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Console.Tests/Chargehand.Modules.Console.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Conversations.Tests/Chargehand.Modules.Conversations.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Economics.Tests/Chargehand.Modules.Economics.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Events.Tests/Chargehand.Modules.Events.Tests.csproj" />
