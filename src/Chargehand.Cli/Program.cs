@@ -294,7 +294,7 @@ switch (argv)
     case ["mcp"]:
         return await Mcp();
     case ["accounts", .. var accountArgs]:
-        return AccountsCli.Run(accountArgs, profile, AccountsCli.KeysFile(runLogPath), Console.Out, Console.Error);
+        return AccountsCli.Run(accountArgs, profile.Http?.Accounts ?? [], AccountsCli.KeysFile(runLogPath), Console.Out, Console.Error);
     case ["show", var id]:
         return await Show(id);
     case ["runs", "kill", "--all"]:
