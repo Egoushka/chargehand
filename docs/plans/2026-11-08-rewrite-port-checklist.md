@@ -54,7 +54,7 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
   `CredentialProbe.cs`, `CredentialAlert.cs` (beside `CredentialHealth`); `src/Chargehand/PublicFreeGate.cs` and
   `Chargehand.Server/RunService.PublicFree.cs` (beside `PublicFreePool`); `RunApprovalGate.cs` and
   `RunService.Approval.cs` (the owner's gate on priced spend, ADR 0092).
-- [ ] Oversight (3): `Chargehand.Server/PrOutcomeRefresher.cs` (the timer around `PrOutcomeTracker`).
+- [x] Oversight (3): `Chargehand.Server/PrOutcomeRefresher.cs` (the timer around `PrOutcomeTracker`).
 - [ ] Gateway (4): `Chargehand.Driven/Driven/DrivenModelRoute.cs`, `BatchFallback.cs` (the model route and the API-key
   fallback inside the egress gateway, ADR 0088).
 - [ ] Runners (5): `Chargehand.Driven/Driven/RunnerSite.cs`; the runner's own server `Chargehand.Server/Runner/RunnerServer.cs`
