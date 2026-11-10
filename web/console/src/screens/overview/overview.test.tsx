@@ -577,3 +577,42 @@ describe('Overview cockpit board', () => {
     expect(screen.queryByText('Paused by a provider rate limit')).toBeNull();
   });
 });
+
+describe('Overview subscription windows', () => {
+  it('shows the newest run’s windows with percent used and the reset time', async () => {
+    serveApi({
+      runs: [
+        run('run-old', {
+          finished_at: '2026-10-13T08:00:00Z',
+          subscription_usage: { five_hour: { utilization: 0.9 }, used: 0.9, window: 'five_hour' },
+        }),
+        run('run-new', {
+          finished_at: '2026-10-13T10:00:00Z',
+          subscription_usage: {
+            five_hour: { utilization: 0.12 },
+            seven_day: { utilization: 0.42, resets_at: '2026-10-16T09:00:00Z' },
+            used: 0.42,
+            window: 'seven_day',
+          },
+        }),
+      ],
+    });
+    renderConsole('/console/');
+    const list = await screen.findByRole('list', { name: 'Subscription windows' });
+    const items = within(list).getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(items[0]?.textContent).toContain('5 hours');
+    expect(items[0]?.textContent).toContain('12% used');
+    expect(items[0]?.textContent).not.toContain('resets');
+    expect(items[1]?.textContent).toContain('7 days');
+    expect(items[1]?.textContent).toContain('42% used');
+    expect(items[1]?.textContent).toContain('resets');
+  });
+
+  it('says there are no windows when no run carries a reading', async () => {
+    serveApi({ runs: [run('run-plain', { finished_at: '2026-10-13T10:00:00Z' })] });
+    renderConsole('/console/');
+    expect(await screen.findByText('No subscription windows')).toBeTruthy();
+    expect(screen.queryByRole('list', { name: 'Subscription windows' })).toBeNull();
+  });
+});
