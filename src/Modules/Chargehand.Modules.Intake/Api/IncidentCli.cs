@@ -1,11 +1,11 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
-using Chargehand.Verification;
 
-namespace Chargehand.Incident;
+namespace Chargehand.Modules.Intake.Api;
 
 /// <summary><c>chargehand incident &lt;repository path&gt; [--commit &lt;ref&gt;]</c>: reads an alert on stdin, an Alertmanager or Grafana webhook payload or plain text,
 /// and prints a <c>request/v1</c> for the <c>incident</c> preset, to pipe into <c>chargehand run</c> or post to <c>POST /v1/runs</c> (CHARGEHAND-192). It needs no
@@ -55,7 +55,7 @@ public static partial class IncidentCli
             error.WriteLine(problem);
             return 1;
         }
-        output.WriteLine(JsonSerializer.Serialize(request, ContractJson.Options));
+        output.WriteLine(JsonSerializer.Serialize(request, ContractJsonContext.Default.RunRequest));
         return 0;
     }
 
@@ -66,7 +66,7 @@ public static partial class IncidentCli
         var (alert, title, problem) = Describe(payload, now);
         if (alert is null)
             return (null, problem);
-        var commit = (await GitEvidenceResolver.Git(repository, ct, "rev-parse", "--verify", "--quiet", $"{commitRef}^{{commit}}"))?.Trim();
+        var commit = (await Git(repository, ct, "rev-parse", "--verify", "--quiet", $"{commitRef}^{{commit}}"))?.Trim();
         if (string.IsNullOrEmpty(commit))
             return (null, $"{commitRef} is not a commit of {repository}");
         return (new RunRequest("request/v1", $"Diagnose this alert: {title}", new RequestContext(false, "incident", Repository: new RepositoryRef(repository, commit)),
@@ -75,54 +75,84 @@ public static partial class IncidentCli
 
     /// <summary>The alert as text for the worker, and a one-line title. Webhook JSON lists its firing alerts (the payload of Alertmanager's
     /// webhook receiver and of Grafana's webhook contact point share the <c>alerts</c> array); anything else is the text itself.</summary>
-    internal static (string? Alert, string Title, string? Problem) Describe(string payload, DateTimeOffset now)
+    public static (string? Alert, string Title, string? Problem) Describe(string payload, DateTimeOffset now)
     {
         var text = payload.Trim();
         if (text.Length == 0)
             return (null, "", "the alert is empty: pipe the webhook payload or the alert text to stdin");
         var received = $"Received: {now.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)}";
-        if (!text.StartsWith('{'))
+        if (!text.StartsWith('{') || !TryParse(text, out var doc))
             return ($"{received}\n{Cut(text, MaxTextLength)}", Cut(Collapse(text.Split('\n')[0]), 120), null);
+        using (doc)
+            return DescribeWebhook(doc.RootElement, received);
+    }
 
-        JsonDocument doc;
+    private static bool TryParse(string text, out JsonDocument doc)
+    {
         try
         {
             doc = JsonDocument.Parse(text);
+            return true;
         }
         catch (JsonException)
         {
-            return ($"{received}\n{Cut(text, MaxTextLength)}", Cut(Collapse(text.Split('\n')[0]), 120), null);
+            doc = null!;
+            return false;
         }
-        using (doc)
+    }
+
+    private static (string? Alert, string Title, string? Problem) DescribeWebhook(JsonElement root, string received)
+    {
+        if (!root.TryGetProperty("alerts", out var alerts) || alerts.ValueKind != JsonValueKind.Array)
+            return (null, "", "the JSON has no alerts array; pass an Alertmanager or Grafana webhook payload, or the alert as plain text");
+        var firing = alerts.EnumerateArray().Where(a => a.ValueKind == JsonValueKind.Object && Text(a, "status") is not "resolved").ToList();
+        if (firing.Count == 0)
+            return (null, "", "the payload has no firing alert");
+
+        var sb = new StringBuilder(received);
+        if (Text(root, "status") is { } status)
+            sb.Append("\nGroup status: ").Append(status);
+        foreach (var (a, n) in firing.Take(MaxAlerts).Select((a, n) => (a, n + 1)))
+            AppendAlert(sb, a, n);
+        if (firing.Count > MaxAlerts)
+            sb.Append("\n\n").Append(firing.Count - MaxAlerts).Append(" more firing alerts are not listed.");
+        if (alerts.GetArrayLength() > firing.Count)
+            sb.Append("\n\n").Append("Resolved alerts left out: ").Append(alerts.GetArrayLength() - firing.Count).Append('.');
+
+        var title = Label(firing[0], "alertname") ?? "alert";
+        return (Cut(sb.ToString(), MaxTextLength), firing.Count > 1 ? $"{title} and {firing.Count - 1} more" : title, null);
+    }
+
+    private static void AppendAlert(StringBuilder sb, JsonElement a, int n)
+    {
+        sb.Append("\n\n[").Append(n).Append("] ").Append(Text(a, "status") ?? "firing").Append(": ").Append(Label(a, "alertname") ?? "alert");
+        if (Text(a, "startsAt") is { } started)
+            sb.Append(", started ").Append(started);
+        sb.Append("\nlabels: ").Append(Pairs(a, "labels", "="));
+        foreach (var (key, value) in Entries(a, "annotations"))
+            sb.Append('\n').Append(key).Append(": ").Append(Cut(value, MaxValueLength));
+        if (Text(a, "valueString") is { } values)
+            sb.Append("\nvalues: ").Append(Cut(values, MaxValueLength));
+    }
+
+    /// <summary>stdout, or null when git exits non-zero.</summary>
+    private static async Task<string?> Git(string repo, CancellationToken ct, params string[] args)
+    {
+        var psi = new ProcessStartInfo("git")
         {
-            if (!doc.RootElement.TryGetProperty("alerts", out var alerts) || alerts.ValueKind != JsonValueKind.Array)
-                return (null, "", "the JSON has no alerts array; pass an Alertmanager or Grafana webhook payload, or the alert as plain text");
-            var firing = alerts.EnumerateArray().Where(a => a.ValueKind == JsonValueKind.Object && Text(a, "status") is not "resolved").ToList();
-            if (firing.Count == 0)
-                return (null, "", "the payload has no firing alert");
-
-            var sb = new StringBuilder(received);
-            if (Text(doc.RootElement, "status") is { } status)
-                sb.Append("\nGroup status: ").Append(status);
-            foreach (var (a, n) in firing.Take(MaxAlerts).Select((a, n) => (a, n + 1)))
-            {
-                sb.Append("\n\n[").Append(n).Append("] ").Append(Text(a, "status") ?? "firing").Append(": ").Append(Label(a, "alertname") ?? "alert");
-                if (Text(a, "startsAt") is { } started)
-                    sb.Append(", started ").Append(started);
-                sb.Append("\nlabels: ").Append(Pairs(a, "labels", "="));
-                foreach (var (key, value) in Entries(a, "annotations"))
-                    sb.Append('\n').Append(key).Append(": ").Append(Cut(value, MaxValueLength));
-                if (Text(a, "valueString") is { } values)
-                    sb.Append("\nvalues: ").Append(Cut(values, MaxValueLength));
-            }
-            if (firing.Count > MaxAlerts)
-                sb.Append("\n\n").Append(firing.Count - MaxAlerts).Append(" more firing alerts are not listed.");
-            if (alerts.GetArrayLength() > firing.Count)
-                sb.Append("\n\n").Append("Resolved alerts left out: ").Append(alerts.GetArrayLength() - firing.Count).Append('.');
-
-            var title = Label(firing[0], "alertname") ?? "alert";
-            return (Cut(sb.ToString(), MaxTextLength), firing.Count > 1 ? $"{title} and {firing.Count - 1} more" : title, null);
-        }
+            WorkingDirectory = repo,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        foreach (var a in args)
+            psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi)!;
+        p.StandardInput.Close();
+        var stdout = p.StandardOutput.ReadToEndAsync(ct);
+        _ = p.StandardError.ReadToEndAsync(ct);
+        await p.WaitForExitAsync(ct);
+        return p.ExitCode == 0 ? await stdout : null;
     }
 
     private static string? Text(JsonElement o, string name) =>
