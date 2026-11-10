@@ -1,8 +1,8 @@
 using Chargehand.Acp;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Runtime;
 using Chargehand.Runtimes.Acp.Api;
-using Chargehand.Modules.Research.Api;
 
 namespace Chargehand.Tests;
 

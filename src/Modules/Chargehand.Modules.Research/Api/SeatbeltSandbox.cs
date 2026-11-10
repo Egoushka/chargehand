@@ -1,6 +1,6 @@
-using Chargehand.Modules.Research.Internal;
 using System.Globalization;
 using System.Text;
+using Chargehand.Modules.Research.Internal;
 
 namespace Chargehand.Modules.Research.Api;
 

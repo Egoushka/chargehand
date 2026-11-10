@@ -4,8 +4,8 @@ using System.Text;
 using System.Text.Json;
 using Chargehand.Acp;
 using Chargehand.Modules.Conversations.Api;
-using Chargehand.Runtimes.Acp.Api;
 using Chargehand.Modules.Research.Api;
+using Chargehand.Runtimes.Acp.Api;
 
 namespace Chargehand.Tests;
 
