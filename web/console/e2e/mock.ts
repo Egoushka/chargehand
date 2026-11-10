@@ -10,6 +10,7 @@ import {
   learnReport,
   RETRO_TEXT,
 } from '../src/testing/learning';
+import { routerBody } from '../src/testing/router';
 import * as st from '../src/testing/start';
 
 export const ORIGIN = `http://127.0.0.1:${process.env.CONSOLE_E2E_PORT ?? '4173'}`;
@@ -107,6 +108,8 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
         return route.fulfill({
           json: { size_class: 'M', basis: 'flat', samples: 0, usd_p90: 4, suggest_split: false },
         });
+      case '/v1/router':
+        return route.fulfill({ json: routerBody() });
       case '/v1/cost':
         return route.fulfill({ json: costBody() });
       case '/v1/analytics': {

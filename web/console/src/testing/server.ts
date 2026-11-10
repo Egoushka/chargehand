@@ -12,12 +12,14 @@ import type { IntakeLimitsBody, LimitsChange } from '../api/limits';
 import type { OverviewBody } from '../api/overview';
 import type { ConflictsBody, PullsBody, TrainsBody } from '../api/pulls';
 import type { RepositoriesBody } from '../api/repositories';
+import type { RouterBody } from '../api/router';
 import type { SystemBody } from '../api/system';
 import type { LearnReport, Me, RunSummary } from '../api/types';
 import * as adm from './admin';
 import * as fx from './fixtures';
 import * as rx from './fixtures-runs';
 import { analyticsBody, costBody, learnReport } from './learning';
+import { routerBody } from './router';
 
 export interface Scenario {
   key?: string;
@@ -46,6 +48,8 @@ export interface Scenario {
   analytics?: AnalyticsBody;
   /** Replaces the generated `cost/v1`. */
   cost?: CostBody;
+  /** Replaces the generated `router/v1` (a router with two pools). */
+  router?: RouterBody;
   /** Replaces the generated `/v1/learn` report for every range. */
   learn?: LearnReport;
   /** Answers `/v1/learn?since=` per range, for the trend; `learn` wins when both are set. */
@@ -128,6 +132,7 @@ export function serveApi(scenario: Scenario = {}) {
         }),
       );
     if (path === '/v1/cost') return Promise.resolve(json(scenario.cost ?? costBody()));
+    if (path === '/v1/router') return Promise.resolve(json(scenario.router ?? routerBody()));
     if (path === '/v1/analytics') {
       const q = new URLSearchParams(input.split('?')[1] ?? '');
       return Promise.resolve(
