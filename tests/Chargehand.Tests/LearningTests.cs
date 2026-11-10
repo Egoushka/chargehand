@@ -755,6 +755,22 @@ public class LearningTests
     }
 
     [Fact]
+    public async Task The_server_lists_each_repositorys_earned_autonomy_beside_the_groups()
+    {
+        using var stores = new Stores();
+        await stores.Store.AppendAsync(Record("a1", at: DateTimeOffset.UtcNow.AddHours(-1)), default);
+        DrivenRunTests.Rig? rig = null;
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), driven: (root, log) => (rig = new DrivenRunTests.Rig(dir: root, log: log, learning: stores.Store)).Run);
+        using var _ = rig;
+
+        var autonomy = (await s.Http.GetFromJsonAsync<JsonElement>("/v1/learn")).GetProperty("autonomy");
+
+        var repo = Assert.Single(autonomy.EnumerateArray());
+        Assert.Equal(("o/r", "M", false, 0), (repo.GetProperty("repository").GetString(), repo.GetProperty("max_size_class").GetString(), repo.GetProperty("auto_merge").GetBoolean(), repo.GetProperty("clean_streak").GetInt32()));
+        Assert.Contains("earn size L", repo.GetProperty("widens").GetString());
+    }
+
+    [Fact]
     public async Task An_accounts_key_sees_the_tasks_of_its_own_batches_only_and_the_owner_sees_all_including_those_from_before_accounts()
     {
         using var stores = new Stores();

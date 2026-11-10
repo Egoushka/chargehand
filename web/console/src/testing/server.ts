@@ -45,6 +45,8 @@ export interface Scenario {
   cost?: CostBody;
   /** Replaces the generated `/v1/learn` report for every range. */
   learn?: LearnReport;
+  /** Answers `/v1/learn?since=` per range, for the trend; `learn` wins when both are set. */
+  learnFor?: (since: string | undefined) => LearnReport;
   /** Answers by exact path (before the query), replacing the defaults: `[status, body, headers]`. */
   replies?: Record<string, [number, unknown, Record<string, string>?]>;
   /** A route that never answers: for a loading state. */
@@ -143,7 +145,7 @@ export function serveApi(scenario: Scenario = {}) {
       return Promise.resolve(
         json(
           scenario.learn ??
-            learnReport(
+            (scenario.learnFor ?? learnReport)(
               new URLSearchParams(input.split('?')[1] ?? '').get('since') ?? undefined,
               now,
             ),
