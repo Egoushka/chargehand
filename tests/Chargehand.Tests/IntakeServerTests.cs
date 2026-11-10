@@ -2,7 +2,6 @@ using Chargehand.Automation;
 using Chargehand.Config;
 using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.RunLog;
 using Chargehand.Server;
 
 namespace Chargehand.Tests;

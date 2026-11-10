@@ -1,7 +1,6 @@
 using Chargehand.Contracts;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
-using Chargehand.RunLog;
 using Chargehand.Verification;
 
 namespace Chargehand.Tests;

@@ -3,7 +3,6 @@ using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.RunLog;
 
 namespace Chargehand.Tests;
 

@@ -34,6 +34,26 @@ public class TaskArtifactsJsonTests
 
     private static string Content(ResultContract result, string kind) => result.Artifacts.Single(a => a.Kind == kind).Content!;
 
+    [Theory]
+    [InlineData(0.71, true, null, true)]
+    [InlineData(0.2, true, null, false)]
+    [InlineData(null, false, "the mutation run timed out", false)]
+    public async Task The_mutation_artifact_carries_the_score_the_threshold_and_the_reason(double? score, bool ran, string? notRun, bool passed)
+    {
+        var verification = new VerificationRecord(["npm", "test"], "detected", 0, "ok", false, TimeSpan.FromSeconds(1), true);
+        var handover = new HandoverOutcome(HandoverStatus.NotPushed, "held back", ErrorCode.VerificationFailed, "chargehand/run1", Commit, null, verification, ["Retry.cs"], [], [], null, null,
+            new MutationOutcome(ran, score, 0.6, notRun));
+
+        var result = await TaskResultBuilder.BuildAsync(Input(handover, """{"summary":"x","claims":[]}""", null), new NoFailures(), null, default);
+
+        var body = JsonDocument.Parse(Content(result, "mutation")).RootElement;
+        Assert.Equal(ran, body.GetProperty("ran").GetBoolean());
+        Assert.Equal(0.6, body.GetProperty("threshold").GetDouble());
+        Assert.Equal(passed, body.GetProperty("passed").GetBoolean());
+        Assert.Equal(score, body.GetProperty("score").ValueKind == JsonValueKind.Null ? null : body.GetProperty("score").GetDouble());
+        Assert.Equal(notRun, body.GetProperty("not_run").GetString());
+    }
+
     [Fact]
     public async Task Every_inline_artifact_of_a_pushed_task_is_written_as_the_anonymous_types_wrote_it()
     {

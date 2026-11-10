@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\Chargehand.Tests\ManualTimeProvider.cs" Link="ManualTimeProvider.cs" />
     <ProjectReference Include="..\..\src\Modules\Chargehand.Modules.Oversight\Chargehand.Modules.Oversight.csproj" />
   </ItemGroup>
 

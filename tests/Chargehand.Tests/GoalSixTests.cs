@@ -5,7 +5,6 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Mcp;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.RunLog;
 using ModelContextProtocol.Client;
 using static Chargehand.Tests.McpMemoryProviderTests;
 using static Chargehand.Tests.MemoryConfigTests;

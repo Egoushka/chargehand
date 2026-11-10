@@ -195,8 +195,64 @@ public class VerifierTests
                       npm test
             """);
         var plan = VerifyCommand.Resolve(null, dir.Path)!;
-        Assert.Equal(["sh", "-c", "npm ci && npm test"], plan.Argv);
+        Assert.Equal(["sh", "-c", "set -e\nnpm ci\nnpm test"], plan.Argv);
         Assert.Equal("ci", plan.Source);
+    }
+
+    [Fact]
+    public async Task A_ci_workflow_s_block_with_a_loop_a_conditional_and_a_comment_runs_as_one_script()
+    {
+        // Joined with `&&`, a `for … do` line, an `if … then` line or a `#` comment is a syntax error the shell rejects at once (issue #750): a block is a script, not a list of commands.
+        using var dir = new TempDir();
+        dir.Write(".github/workflows/ci.yml", """
+            jobs:
+              build:
+                steps:
+                  - name: Test
+                    run: |
+                      # every package
+                      for p in a b; do
+                        if [ "$p" = a ]; then
+                          echo "test $p" \
+                            >> seen.txt
+                        fi
+                      done
+            """);
+        var plan = VerifyCommand.Resolve(null, dir.Path)!;
+        Assert.Equal("ci", plan.Source);
+        Assert.Equal(["sh", "-c"], plan.Argv.Take(2));
+        var outcome = await Sh().RunAsync(plan, dir.Path, TimeSpan.FromSeconds(20), default);
+        Assert.True(outcome.Passed, outcome.OutputTail);
+        Assert.Equal("test a\n", File.ReadAllText(Path.Combine(dir.Path, "seen.txt")));
+    }
+
+    [Fact]
+    public void A_ci_workflow_s_merge_or_publish_step_is_never_picked()
+    {
+        // A step that waits for the check runs and then merges names "check", but running it from the worker (which has network) would merge the pull request (issue #750).
+        using var dir = new TempDir();
+        dir.Write(".github/workflows/merge.yml", """
+            jobs:
+              merge:
+                steps:
+                  - run: |
+                      gh pr checks "$PR" --watch
+                      gh pr merge "$PR" --squash
+              release:
+                steps:
+                  - run: npm publish
+                  - run: git push origin HEAD:release --tags
+                  - run: ./scripts/deploy-and-check.sh
+            """);
+        Assert.Null(VerifyCommand.Resolve(null, dir.Path));
+
+        dir.Write(".github/workflows/test.yml", """
+            jobs:
+              test:
+                steps:
+                  - run: make test
+            """);
+        Assert.Equal(["sh", "-c", "make test"], VerifyCommand.Resolve(null, dir.Path)!.Argv);
     }
 
     [Fact]

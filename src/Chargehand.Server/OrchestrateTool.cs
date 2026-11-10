@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Modules.Accounts.Api;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol;
@@ -116,7 +117,7 @@ public static class OrchestrateTool
         var who = PrincipalHttp.Of(http);
         if (http?.Items[RunScope.ItemKey] is RunTokenClaims scope)
         {
-            var applied = await RunScope.ApplyAsync(scope, request, runs.Ledger, ct);
+            var applied = await RunScopeGit.ApplyAsync(scope, request, runs.Ledger, ct);
             if (applied.Refusal is { } refusal)
                 throw new McpException(refusal);
             (request, parentRunId, chargeTo) = (applied.Request!, scope.RunId, scope.RunId);

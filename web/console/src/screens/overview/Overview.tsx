@@ -7,6 +7,7 @@ import { meQuery } from '../../api/queries';
 import { DISPLAY_ZONE_LABEL, formatTime } from '../../lib/format';
 import { buttonClass, ErrorState, Kpi, Panel, Skeleton } from '../../ui';
 import { ActiveBatches } from './ActiveBatches';
+import { FleetBoard } from './FleetBoard';
 import { kpis, recentMerges } from './model';
 import { OpenThreads } from './OpenThreads';
 import { AdmissionPanel, MergesPanel, NeedsPanel, SpendPanel, SystemPanel } from './Panels';
@@ -95,6 +96,7 @@ export function Overview() {
       {data || !overview.isError ? (
         <div className="g2">
           <div className="stack">
+            <FleetBoard />
             <ActiveBatches />
             <OpenThreads />
             <NeedsPanel
