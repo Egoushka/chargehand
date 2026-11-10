@@ -306,7 +306,11 @@ public static partial class ChargehandServer
 
         foreach (var path in new[] { "/v1/accounts/me", IdentityPath })
             app.MapGet(path, async (HttpContext ctx, RunService runs) =>
-                Json(await AccountStanding.ReadAsync(PrincipalHttp.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
+            {
+                var who = PrincipalHttp.Of(ctx)!;
+                return Json(await AccountStanding.ReadAsync(who, runs.Now, runs.Unfinished(who.Name), runs.Halted, runs.Presets(), runs.ReservedUsd(who.Name), log, ctx.RequestAborted),
+                    StatusCodes.Status200OK);
+            });
 
         app.MapGet("/v1/runs", async (HttpContext ctx) =>
         {
