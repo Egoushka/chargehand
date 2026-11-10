@@ -62,8 +62,12 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
   server, ASP.NET, `Profile` or a layer above): `AccountsHttp`, `AccessSignIn`, `CredentialProbe`, `CredentialAlert`, `PublicFreeGate`,
   `RunService.PublicFree.cs`, `RunService.Approval.cs`.
 - [x] Oversight (3): `Chargehand.Server/PrOutcomeRefresher.cs` (the timer around `PrOutcomeTracker`).
-- [ ] Gateway (4): `Chargehand.Driven/Driven/DrivenModelRoute.cs`, `BatchFallback.cs` (the model route and the API-key
+- [x] Gateway (4): `Chargehand.Driven/Driven/DrivenModelRoute.cs`, `BatchFallback.cs` (the model route and the API-key
   fallback inside the egress gateway, ADR 0088).
+  Moved: `DrivenModelRoute` (#827). Left in place: `BatchFallback.cs` (`FallbackSetup`, `FallbackReservation`). Every type it uses is in a layer
+  above Gateway: `ApiFallback` and `ClaudeCodeSettings` (Runtimes.ClaudeCode, 10), `BatchFallback` and `TaskFallback` (Batches, 9). The
+  Gateway-owned pieces it builds on (`GatewayFallback`, `FallbackPrice`, `FallbackSpend`) are already there. It moves with or after
+  Batches, or when `ApiFallback` moves down.
 - [ ] Runners (5): `Chargehand.Driven/Driven/RunnerSite.cs`; the runner's own server `Chargehand.Server/Runner/RunnerServer.cs`
   (its process entry `RunnerCli.cs` goes to Hosts.Runner, section 5).
   Left in place. `RunnerSite` holds an `ISessionVolumes` (Sessions, a layer above Runners), so it moves with or after Sessions
