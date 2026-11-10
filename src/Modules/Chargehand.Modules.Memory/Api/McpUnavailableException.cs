@@ -1,6 +1,6 @@
 using Chargehand.Kernel;
 
-namespace Chargehand.Mcp;
+namespace Chargehand.Modules.Memory.Api;
 
 /// <summary>
 /// An MCP server cannot be used for now (ADR 0034): it is not in the profile, a secret it needs no source resolves, or it did

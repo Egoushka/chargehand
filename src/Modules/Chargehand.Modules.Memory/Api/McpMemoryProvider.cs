@@ -1,16 +1,14 @@
-using System.Text.Json;
-using Chargehand.Config;
-using Chargehand.Modules.Memory.Api;
+using System.Globalization;
 using ModelContextProtocol.Protocol;
 
-namespace Chargehand.Mcp;
+namespace Chargehand.Modules.Memory.Api;
 
 /// <summary>
 /// A memory behind an MCP server (ADR 0034): the entry's tool mapping says which tool each operation calls, how its arguments
 /// are built and how a recall answer becomes facts. It throws when the server, the tool or the answer fails; the
 /// <see cref="MemoryStack"/> around it owns the timeout, the skipping and the caps.
 /// </summary>
-/// <param name="settings">An entry <see cref="Profile.Load"/> has validated.</param>
+/// <param name="settings">An entry the profile loader has validated.</param>
 /// <param name="pool">Opens the entry's server.</param>
 public sealed class McpMemoryProvider(MemoryProviderSettings settings, McpConnectionPool pool) : IMemoryProvider
 {
@@ -27,7 +25,7 @@ public sealed class McpMemoryProvider(MemoryProviderSettings settings, McpConnec
     public async Task RetainAsync(MemoryItem item, MemoryScope scope, CancellationToken ct)
     {
         var call = settings.Tools.Retain ?? throw new InvalidOperationException($"memory '{settings.Name}' has no retain tool");
-        var timestamp = item.Timestamp is { } at ? JsonSerializer.SerializeToElement(at).GetString() : null;
+        var timestamp = item.Timestamp is { } at ? at.ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz", CultureInfo.InvariantCulture) : null;
         McpMemoryException.ThrowIfError(await CallAsync(call, new()
         {
             ["namespace"] = scope.Namespace,

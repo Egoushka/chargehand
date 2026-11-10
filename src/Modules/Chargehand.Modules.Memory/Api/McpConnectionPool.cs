@@ -1,12 +1,10 @@
 using System.Collections.Concurrent;
-using Chargehand.Config;
 using Chargehand.Kernel;
-using Chargehand.Modules.Memory.Api;
-using Chargehand.Runtime;
+using Chargehand.Modules.Memory.Adapters;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
-namespace Chargehand.Mcp;
+namespace Chargehand.Modules.Memory.Api;
 
 /// <summary>
 /// One lazily opened <see cref="McpClient"/> per profile server, shared by memory and services (ADR 0034) and disposed at
@@ -39,7 +37,7 @@ public sealed class McpConnectionPool : IAsyncDisposable
     private readonly CancellationTokenSource _closing = new();
 
     /// <param name="servers">The profile's <c>mcp_servers</c>.</param>
-    /// <param name="secret">Resolves a secret item through the profile's chain (<see cref="Profile.Secret"/>).</param>
+    /// <param name="secret">Resolves a secret item through the profile's chain (<c>Profile.Secret</c>).</param>
     /// <param name="transports">Tests: builds the transport instead of the default one (HTTP for a url, stdio for a command),
     /// after the secrets the server needs resolved.</param>
     /// <param name="connectTimeout">How long opening a connection, handshake included, may take (default 30 s).</param>
@@ -78,15 +76,14 @@ public sealed class McpConnectionPool : IAsyncDisposable
     /// here; a runtime's config cannot fall back to SSE as this pool's client does. Blocks while a command secret source runs.
     /// </summary>
     /// <exception cref="McpUnavailableException">The server is not listed, or a secret it needs is unresolved.</exception>
-    public ServiceTransport Transport(string server)
+    public McpEndpoint Endpoint(string server)
     {
         if (!_servers.TryGetValue(server, out var settings))
             throw new McpUnavailableException(McpUnavailableException.UnknownServer, server, "no such server in mcp_servers");
         var secret = SecretReader(server);
         return settings.Url is not null
-            ? new HttpServiceTransport(new Uri(settings.Url), Resolved(settings.Headers, secret),
-                settings.Transport == McpServerSettings.TransportSse ? HttpServiceProtocol.Sse : HttpServiceProtocol.StreamableHttp)
-            : new StdioServiceTransport(settings.Command!, Resolved(settings.Env, secret));
+            ? new McpEndpoint(new Uri(settings.Url), settings.Transport == McpServerSettings.TransportSse, null, Resolved(settings.Headers, secret))
+            : new McpEndpoint(null, false, settings.Command, Resolved(settings.Env, secret));
     }
 
     public async ValueTask DisposeAsync()

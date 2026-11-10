@@ -1,6 +1,7 @@
-using Chargehand.Mcp;
+using Chargehand.Modules.Memory.Adapters;
 
-namespace Chargehand.Tests;
+
+namespace Chargehand.Modules.Memory.Tests;
 
 /// <summary>Goal 0.6: {secret:item} in MCP server headers and environment values, resolved through the profile's chain.</summary>
 public class SecretTemplateTests

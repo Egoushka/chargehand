@@ -47,11 +47,11 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
 
 ## 2. Layers 2 to 8: leftovers of modules already ported
 
-- [ ] Memory (2): `Chargehand.Mcp/McpMemoryProvider.cs`, `MemoryStacks.cs` (done: `McpMemoryException.cs`, `RecallResults.cs`, now in Memory `Api`).
-  Left in place: `McpMemoryProvider` takes the `McpConnectionPool` and `MemoryStacks` reads the old `Profile`, both still in `Chargehand.Mcp`/Core; they follow the pool.
-  The MCP client they sit on (`McpConnectionPool.cs`, `SecretTemplate.cs`, `ToolArguments.cs`,
-  `McpUnavailableException.cs`) has no chargehand types beyond settings: ADR 0060 sends such code to the separate MIT
-  library; until then, Memory's `Adapters/`. Proposal.
+- [x] Memory (2): `McpMemoryProvider.cs`, `MemoryStacks.cs` and the MCP client they sit on (`McpConnectionPool.cs`,
+  `McpUnavailableException.cs`, `ToolArguments.cs` in Memory `Api`; `SecretTemplate.cs` internal in `Adapters/`), after `McpMemoryException.cs`, `RecallResults.cs`.
+  `McpConnectionPool.Transport` (it returned the Core `ServiceTransport`) became `Endpoint`, returning `McpEndpoint` of Memory `Api`; `ServiceResolver` maps it to `ServiceTransport`.
+  `MemoryStacks.From` takes the profile's `memory` list, not the `Profile`. ADR 0060 sends the MCP client to the separate MIT library; until then it is Memory's.
+  Tests: `SecretTemplateTests`, `ToolArgumentsTests` moved; the pool, provider and stack tests stay in `Chargehand.Tests` beside the shared `FakeMcpServer`.
 - [x] Ledger (2): `src/Chargehand/RunLog/ExtensionsCollector.cs` (what memory and services did, for the run record).
 - [x] Accounts (3): `Chargehand.Server/AccountsCli.cs`, `AccountsHttp.cs`, `AccountStanding.cs`, `AccessSignIn.cs`
   (`ProxySignIn` and `CloudflareAccess` are there already); `RunToken.cs` (a driven session's capped token);
