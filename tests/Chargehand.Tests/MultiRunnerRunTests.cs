@@ -4,6 +4,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Runners.Api;

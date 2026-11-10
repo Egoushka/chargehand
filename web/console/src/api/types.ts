@@ -240,8 +240,23 @@ export interface LearnGroup {
   merged_unchanged_rate: number | null;
 }
 
+/** What a repository has earned (ADR 0097), whatever `since` says. */
+export interface AutonomyEntry {
+  repository: string;
+  max_size_class: string;
+  auto_merge: boolean;
+  clean_streak: number;
+  /** What reset the streak last: `revert` or `failed_check`; null when nothing in the window. */
+  lost_to: string | null;
+  /** What the next right needs; null when auto-merge is already earned. */
+  widens: string | null;
+  narrows: string;
+}
+
 export interface LearnReport {
   since: string | null;
   tasks: number;
   groups: LearnGroup[];
+  /** Absent from a server that does not report earned autonomy. */
+  autonomy?: AutonomyEntry[];
 }

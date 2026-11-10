@@ -43,7 +43,7 @@ internal static class ConsoleOverview
 
     public static async Task<OverviewBody> BuildAsync(ConsoleContext c, Principal who, CancellationToken ct)
     {
-        var standing = await AccountStanding.ReadAsync(who, c.Runs, c.Log, ct);
+        var standing = await AccountStanding.ReadAsync(who, c.Runs.Now, c.Runs.Unfinished(who.Name), c.Runs.Halted, c.Runs.Presets(), c.Runs.ReservedUsd(who.Name), c.Log, ct);
         var held = c.Runs.Held.Where(r => !r.IsChild && Principal.Sees(who, r.Actor)).ToList();
         var server = new OverviewServer(ConsoleSystem.Version, c.Runs.Halted, held.Count, held.Count(r => r.Latest.Status == RunState.Queued), held.Count(r => r.Latest.Status == RunState.Running), RunService.MaxUnfinished,
             who.IsOwner ? c.Profile?.Http?.MaxConcurrentRuns : null);

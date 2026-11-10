@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Chargehand.Contracts;
 using Chargehand.Driven;
+using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Server;

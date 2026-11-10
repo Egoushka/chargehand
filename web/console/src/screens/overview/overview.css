@@ -112,3 +112,18 @@
 .o9 {
   --o: 9;
 }
+
+.fleet-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.fleet-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 1fr 5rem 7rem;
+  gap: 12px;
+  padding: 8px 16px;
+}
+.fleet-row + .fleet-row {
+  border-top: 1px solid var(--line, rgba(128, 128, 128, 0.25));
+}

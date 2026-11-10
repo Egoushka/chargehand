@@ -49,12 +49,24 @@ const taskRoute = createRoute({
   component: lazyRouteComponent(() => import('./screens/run/TaskPage'), 'TaskPage'),
 });
 
+// Two tasks side by side: both are in the address as `<batch>/<task>`, so a link opens the same comparison.
+const compareRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'compare',
+  validateSearch: (search: Record<string, unknown>): { a?: string; b?: string } => ({
+    a: typeof search.a === 'string' ? search.a : undefined,
+    b: typeof search.b === 'string' ? search.b : undefined,
+  }),
+  component: lazyRouteComponent(() => import('./screens/compare/Compare'), 'Compare'),
+});
+
 // A screen lives in src/screens/<name>/; its route is one line here.
 const routeTree = rootRoute.addChildren([
   child('/', Overview),
   child('runs', Runs),
   runRoute,
   taskRoute,
+  compareRoute,
   child('needs-you', NeedsYou),
   child('new', Start),
   child('analytics', Analytics),

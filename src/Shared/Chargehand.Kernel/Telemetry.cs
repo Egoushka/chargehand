@@ -11,3 +11,8 @@ public static class Telemetry
 
     public static readonly ActivitySource Source = new("Chargehand");
 }
+
+/// <summary>The profile's <c>telemetry</c> (ADR 0012): the OTLP endpoint and the secret-store items holding its keys.</summary>
+/// <param name="UsageOnSpans">Call spans carry tokens and cost (ADR 0021). Only for calls no gateway records, e.g. Claude
+/// Code on a subscription; with a LiteLLM gateway, usage stays on its generations (ADR 0012).</param>
+public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecret, string SecretKeySecret, bool UsageOnSpans = false);

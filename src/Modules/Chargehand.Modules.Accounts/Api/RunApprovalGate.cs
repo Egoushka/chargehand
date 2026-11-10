@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
 
-namespace Chargehand.Server;
+namespace Chargehand.Modules.Accounts.Api;
 
 /// <summary>One run (or automated start) held for the owner because its priced spend passes the threshold (ADR 0092).</summary>
 /// <param name="Fingerprint">What the same request sent again hashes to: the approval is for this request, from this actor.</param>
@@ -31,8 +31,6 @@ public sealed class RunApprovalGate
 
     public enum Verdict { Start, Held, Declined }
 
-    private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower, WriteIndented = true };
-
     private readonly string? _path;
     private readonly Lock _lock = new();
     private readonly List<RunApproval> _requests = [];
@@ -42,14 +40,14 @@ public sealed class RunApprovalGate
     {
         _path = path;
         Limit = new Threshold(this);
-        if (path is not null && File.Exists(path) && JsonSerializer.Deserialize<Stored>(File.ReadAllText(path), Json) is { } stored)
+        if (path is not null && File.Exists(path) && JsonSerializer.Deserialize(File.ReadAllText(path), RunApprovalJsonContext.Default.Stored) is { } stored)
         {
             _limit = stored.LimitUsd;
             _requests.AddRange(stored.Requests ?? []);
         }
     }
 
-    private sealed record Stored(decimal? LimitUsd, List<RunApproval>? Requests);
+    internal sealed record Stored(decimal? LimitUsd, List<RunApproval>? Requests);
 
     /// <summary>The threshold alone: <c>null</c> never asks.</summary>
     public Threshold Limit { get; }
@@ -79,7 +77,7 @@ public sealed class RunApprovalGate
     public static string Fingerprint(string? actor, RunRequest request)
     {
         var pinned = request with { Context = request.Context with { Repository = request.Context.Repository is { } repository ? repository with { Commit = "" } : null } };
-        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{actor}\n{JsonSerializer.Serialize(pinned, ContractJson.Options)}")));
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{actor}\n{JsonSerializer.Serialize(pinned, ContractJsonContext.Default.RunRequest)}")));
     }
 
     /// <summary>What the gate says about a request over the threshold: start it (an approval is used up), hold it (asked, or still waiting), or refuse it (the owner declined; the refusal is used up).</summary>
@@ -145,7 +143,7 @@ public sealed class RunApprovalGate
             return;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
         var temp = $"{_path}.tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(new Stored(_limit, _requests), Json));
+        File.WriteAllText(temp, JsonSerializer.Serialize(new Stored(_limit, _requests), RunApprovalJsonContext.Default.Stored));
         File.Move(temp, _path, overwrite: true);
     }
 }

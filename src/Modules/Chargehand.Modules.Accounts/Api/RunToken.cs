@@ -3,9 +3,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
-using Chargehand.Modules.Runners.Api;
 
-namespace Chargehand.Server;
+namespace Chargehand.Modules.Accounts.Api;
 
 /// <summary>What a driven session's token allows (ADR 0039): calls on one repository at one commit, capped in dollars and tokens, until it expires.</summary>
 /// <param name="RunId">The batch task's run; runs the session starts record it as their parent, and their spend is charged to it.</param>
@@ -20,8 +19,6 @@ public sealed class RunTokenService(byte[] key)
     public const string Prefix = "chr1";
 
     private const int MaxLength = 2048;
-
-    private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
     /// <summary>A service with a fresh random key.</summary>
     public RunTokenService() : this(RandomNumberGenerator.GetBytes(32))
@@ -59,7 +56,7 @@ public sealed class RunTokenService(byte[] key)
     {
         if (claims.Expires <= now)
             throw new ArgumentException("a token must expire in the future", nameof(claims));
-        var payload = Base64Url(JsonSerializer.SerializeToUtf8Bytes(claims, Json));
+        var payload = Base64Url(JsonSerializer.SerializeToUtf8Bytes(claims, RunTokenJsonContext.Default.RunTokenClaims));
         return $"{Prefix}.{payload}.{Base64Url(Sign(payload))}";
     }
 
@@ -75,7 +72,7 @@ public sealed class RunTokenService(byte[] key)
         {
             if (!CryptographicOperations.FixedTimeEquals(Sign(parts[1]), FromBase64Url(parts[2])))
                 return null;
-            var claims = JsonSerializer.Deserialize<RunTokenClaims>(FromBase64Url(parts[1]), Json);
+            var claims = JsonSerializer.Deserialize(FromBase64Url(parts[1]), RunTokenJsonContext.Default.RunTokenClaims);
             return claims is not null && claims.Expires > now ? claims : null;
         }
         catch (Exception e) when (e is FormatException or JsonException or ArgumentException)
@@ -132,11 +129,6 @@ public static class RunScope
 
     private static readonly string[] AllowedPresets = ["default", "review"];
 
-    private static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(10);
-
-    /// <summary><see cref="Apply"/> with the call's commit related to the task's through git in the task's repository.</summary>
-    public static async Task<(RunRequest? Request, string? Refusal)> ApplyAsync(RunTokenClaims claims, RunRequest request, RunTokenLedger ledger, CancellationToken ct) =>
-        Apply(claims, request, ledger, request.Context.Repository is { } repository ? await RelateAsync(claims, repository.Commit, ct) : CommitRelation.Unrelated);
 
     /// <param name="relation">How the call's commit relates to the task's; unused when they are the same commit.</param>
     public static (RunRequest? Request, string? Refusal) Apply(RunTokenClaims claims, RunRequest request, RunTokenLedger ledger, CommitRelation relation = CommitRelation.Unrelated)
@@ -168,27 +160,5 @@ public static class RunScope
             request = request with { Context = request.Context with { BudgetUsd = Math.Min(request.Context.BudgetUsd ?? remaining, remaining) } };
         }
         return (request, null);
-    }
-
-    /// <summary>How <paramref name="commit"/> relates to the token's commit in the token's repository; a failed git call counts as unrelated.</summary>
-    public static async Task<CommitRelation> RelateAsync(RunTokenClaims claims, string commit, CancellationToken ct)
-    {
-        if (string.Equals(commit, claims.Commit, StringComparison.OrdinalIgnoreCase))
-            return CommitRelation.Descendant;
-        if (!Directory.Exists(claims.RepositoryPath) || commit.Length is < 4 or > 64 || !commit.All(char.IsAsciiHexDigit))
-            return CommitRelation.Unrelated;
-        try
-        {
-            var env = GitProcess.Environment(Path.GetTempPath());
-            var known = await GitProcess.RunAsync(claims.RepositoryPath, env, ["cat-file", "-e", $"{commit}^{{commit}}"], GitTimeout, ct);
-            if (known.ExitCode != 0)
-                return CommitRelation.Unknown;
-            var ancestor = await GitProcess.RunAsync(claims.RepositoryPath, env, ["merge-base", "--is-ancestor", claims.Commit, commit], GitTimeout, ct);
-            return ancestor.ExitCode == 0 ? CommitRelation.Descendant : CommitRelation.Unrelated;
-        }
-        catch (Exception e) when (e is TimeoutException or InvalidOperationException or System.ComponentModel.Win32Exception)
-        {
-            return CommitRelation.Unrelated;
-        }
     }
 }
