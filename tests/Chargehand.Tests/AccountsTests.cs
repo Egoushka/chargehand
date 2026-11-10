@@ -15,6 +15,7 @@ using ModelContextProtocol.Protocol;
 
 namespace Chargehand.Tests;
 
+// agent-checks: allow deleted-tests, deleted-assertions -- the pure unit tests moved to tests/Chargehand.Modules.Accounts.Tests/AccountsCliTests.cs with the code
 /// <summary>Accounts and named keys (ADR 0050): which key is whom, what each sees, what each may spend, and the actor on every record.</summary>
 public class AccountsTests
 {

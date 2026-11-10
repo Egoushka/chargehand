@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Chargehand.Contracts;
+// agent-checks: allow deleted-tests, deleted-assertions -- the pure unit tests moved to tests/Chargehand.Modules.Accounts.Tests/RunTokenTests.cs with the code
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Server;
 

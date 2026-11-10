@@ -8,6 +8,7 @@ using Chargehand.Server;
 
 namespace Chargehand.Tests;
 
+// agent-checks: allow deleted-tests, deleted-assertions -- the pure unit tests moved to tests/Chargehand.Modules.Accounts.Tests/RunApprovalGateTests.cs with the code
 /// <summary>ADR 0092: a run whose budget passes the per-run threshold waits for the owner's approval in the inbox before it starts.</summary>
 public class RunApprovalTests
 {
