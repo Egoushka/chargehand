@@ -17,6 +17,7 @@ using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.PeerClones.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
@@ -111,7 +112,7 @@ public sealed record Profile(
         TypeInfoResolver = JsonTypeInfoResolver.Combine(LedgerSettingsJsonContext.Default, AccountsSettingsJsonContext.Default,
             MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, HandoverSettingsJsonContext.Default, IntakeSettingsJsonContext.Default,
             BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default, SessionsSettingsJsonContext.Default, TasksSettingsJsonContext.Default,
-            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, EconomicsSettingsJsonContext.Default, KernelSettingsJsonContext.Default, GatewaySettingsJsonContext.Default, ProfileJsonContext.Default),
+            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, EconomicsSettingsJsonContext.Default, KernelSettingsJsonContext.Default, GatewaySettingsJsonContext.Default, ResearchSettingsJsonContext.Default, ProfileJsonContext.Default),
     };
 
     /// <summary>Owner-visible defaults (this record's own default values) when the file does not exist.</summary>
@@ -128,7 +129,7 @@ public sealed record Profile(
             throw new ChargehandException(ErrorCode.InvalidRequest, string.Join("; ", problems),
                 "Fix memory in the profile; docs/guide/reference.md lists the fields.");
         if (profile.PromptEnhancer is { } enhancer)
-            enhancer.Validate(servers);
+            enhancer.Validate(servers.Keys);
         profile.Http?.Validate();
         foreach (var (preset, uses) in profile.PresetServices ?? new Dictionary<string, IReadOnlyList<ServiceUse>>())
             foreach (var use in uses)
@@ -339,30 +340,6 @@ public sealed partial record DrivenSettings(
     IReadOnlyList<DrivenRunnerEntry>? Runners = null,
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? ImageVariants = null,
     string? Environment = null);
-
-/// <summary>
-/// The <c>prompt-enhancer</c> extension (ADR 0040): an entry of <c>mcp_servers</c> that lists the tools <c>enhance</c> and
-/// <c>feedback</c> (whetstone's contract). Unset: no enhancer, and every prompt is sent as written.
-/// </summary>
-/// <param name="Server">A key of <c>mcp_servers</c>.</param>
-/// <param name="DeadlineMs">How long to wait for <c>enhance</c> before sending the original; null is 1500. Also the <c>deadline_ms</c> the enhancer is told.</param>
-public sealed record PromptEnhancerSettings(string Server, int? DeadlineMs = null)
-{
-    public const int MinDeadlineMs = 50;
-    public const int MaxDeadlineMs = 30_000;
-
-    public int EffectiveDeadlineMs => DeadlineMs ?? (int)Chargehand.Enhancement.GuardedPromptEnhancer.DefaultDeadline.TotalMilliseconds;
-
-    internal void Validate(IReadOnlyDictionary<string, McpServerSettings> servers)
-    {
-        if (string.IsNullOrEmpty(Server) || !servers.ContainsKey(Server))
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"prompt_enhancer.server '{Server}' is not defined in mcp_servers",
-                "Add the server to mcp_servers, or remove prompt_enhancer; docs/guide/reference.md lists the fields.");
-        if (EffectiveDeadlineMs is < MinDeadlineMs or > MaxDeadlineMs)
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"prompt_enhancer.deadline_ms must be {MinDeadlineMs} to {MaxDeadlineMs}",
-                "Fix deadline_ms in the profile.");
-    }
-}
 
 /// <summary>ADR 0085. Who an inbox card belongs to.</summary>
 /// <param name="Owners">A repository glob (<c>*</c> matches any run of characters, case-insensitive; matched against <c>owner/name</c>) to the name of the desk or person that answers for it. The first match in the file's order wins.</param>
