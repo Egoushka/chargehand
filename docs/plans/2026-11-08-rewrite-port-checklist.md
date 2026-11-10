@@ -51,7 +51,7 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
   The MCP client they sit on (`McpConnectionPool.cs`, `SecretTemplate.cs`, `ToolArguments.cs`,
   `McpUnavailableException.cs`) has no chargehand types beyond settings: ADR 0060 sends such code to the separate MIT
   library; until then, Memory's `Adapters/`. Proposal.
-- [ ] Ledger (2): `src/Chargehand/RunLog/ExtensionsCollector.cs` (what memory and services did, for the run record).
+- [x] Ledger (2): `src/Chargehand/RunLog/ExtensionsCollector.cs` (what memory and services did, for the run record).
 - [x] Accounts (3): `Chargehand.Server/AccountsCli.cs`, `AccountsHttp.cs`, `AccountStanding.cs`, `AccessSignIn.cs`
   (`ProxySignIn` and `CloudflareAccess` are there already); `RunToken.cs` (a driven session's capped token);
   `CredentialProbe.cs`, `CredentialAlert.cs` (beside `CredentialHealth`); `src/Chargehand/PublicFreeGate.cs` and
@@ -60,7 +60,7 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
   Moved: `AccountsCli`, `AccountStanding`, `RunToken` (git half stays as `Server/RunScopeGit`), `RunApprovalGate`. Left behind (they need the
   server, ASP.NET, `Profile` or a layer above): `AccountsHttp`, `AccessSignIn`, `CredentialProbe`, `CredentialAlert`, `PublicFreeGate`,
   `RunService.PublicFree.cs`, `RunService.Approval.cs`.
-- [ ] Oversight (3): `Chargehand.Server/PrOutcomeRefresher.cs` (the timer around `PrOutcomeTracker`).
+- [x] Oversight (3): `Chargehand.Server/PrOutcomeRefresher.cs` (the timer around `PrOutcomeTracker`).
 - [ ] Gateway (4): `Chargehand.Driven/Driven/DrivenModelRoute.cs`, `BatchFallback.cs` (the model route and the API-key
   fallback inside the egress gateway, ADR 0088).
 - [ ] Runners (5): `Chargehand.Driven/Driven/RunnerSite.cs`; the runner's own server `Chargehand.Server/Runner/RunnerServer.cs`
@@ -69,7 +69,7 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
   (or the volumes port moves down). `RunnerServer` needs `Microsoft.AspNetCore.App`, which no module references, and serialises
   anonymous replies (`new { error }`, `new { count }`) through the reflection-based `RunnerJson.Options`, which Native AOT forbids;
   it goes to Hosts.Runner with `RunnerCli.cs`, after typed replies join `RunnerJsonContext`.
-- [ ] Handover (7): `Chargehand.Server/HeldPrReconciler.cs` (updates a pull request once its base turns green).
+- [x] Handover (7): `Chargehand.Server/HeldPrReconciler.cs` (updates a pull request once its base turns green).
 
 ## 3. Layer 9: Research (the one-shot run) and Batches
 

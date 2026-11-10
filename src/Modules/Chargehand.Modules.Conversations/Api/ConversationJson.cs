@@ -9,6 +9,7 @@ namespace Chargehand.Modules.Conversations.Api;
 /// <see cref="ConversationEvent"/> with the type infos here, and reads a request body with the ones for the bodies.</summary>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(ConversationView))]
+[JsonSerializable(typeof(ConversationList))]
 [JsonSerializable(typeof(ConversationEvent))]
 [JsonSerializable(typeof(StateData))]
 [JsonSerializable(typeof(MessageChunk))]
@@ -28,6 +29,8 @@ internal sealed partial class ConversationsJsonContext : JsonSerializerContext;
 public static class ConversationJson
 {
     public static JsonTypeInfo<ConversationView> View => ConversationsJsonContext.Default.ConversationView;
+
+    public static JsonTypeInfo<ConversationList> Listing => ConversationsJsonContext.Default.ConversationList;
 
     public static JsonTypeInfo<ConversationEvent> Event => ConversationsJsonContext.Default.ConversationEvent;
 

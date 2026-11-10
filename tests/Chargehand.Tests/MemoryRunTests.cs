@@ -3,7 +3,6 @@ using Chargehand.Contracts;
 using Chargehand.Mcp;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
-using Chargehand.RunLog;
 using static Chargehand.Tests.MemoryStackTests;
 
 namespace Chargehand.Tests;

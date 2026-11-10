@@ -22,3 +22,6 @@ public sealed record ConversationUsage(long InputTokens, long OutputTokens, deci
 
 /// <summary>The limits on one conversation. The account's own caps (ADR 0050) apply besides.</summary>
 public sealed record ConversationCaps(int MaxMessages);
+
+/// <summary>The body of <c>GET /v1/conversations</c>: the conversations the caller may see, newest first.</summary>
+public sealed record ConversationList(IReadOnlyList<ConversationView> Conversations);

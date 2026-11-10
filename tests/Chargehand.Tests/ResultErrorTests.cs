@@ -4,7 +4,6 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.OpenCode;
-using Chargehand.RunLog;
 
 namespace Chargehand.Tests;
 

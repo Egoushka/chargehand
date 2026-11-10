@@ -26,10 +26,11 @@ describe('the rail (desktop)', () => {
     await waitFor(() =>
       expect(within(rail).getByRole('link', { name: 'Needs you, 3 waiting' })).toBeTruthy(),
     );
-    expect(links.slice(0, 4)).toEqual([
+    expect(links.slice(0, 5)).toEqual([
       'Overview',
       expect.stringContaining('Needs you'),
       'Runs',
+      'Conversations',
       'Start a batch',
     ]);
     expect(within(rail).getByText('Insight')).toBeTruthy();
@@ -372,6 +373,7 @@ describe('a phone', () => {
     const sheet = within(await screen.findByRole('dialog', { name: 'More', hidden: true }));
     const labels = sheet.getAllByRole('button', { hidden: true }).map((b) => b.textContent);
     expect(labels).toEqual([
+      'Conversations',
       'Analytics',
       'Learning',
       'Intake and automation',
