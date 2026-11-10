@@ -8,6 +8,7 @@ import { DISPLAY_ZONE_LABEL, formatTime } from '../../lib/format';
 import { buttonClass, ErrorState, Kpi, Panel, Skeleton } from '../../ui';
 import { ActiveBatches } from './ActiveBatches';
 import { kpis, recentMerges } from './model';
+import { OpenThreads } from './OpenThreads';
 import { AdmissionPanel, MergesPanel, NeedsPanel, SpendPanel, SystemPanel } from './Panels';
 import './overview.css';
 
@@ -95,6 +96,7 @@ export function Overview() {
         <div className="g2">
           <div className="stack">
             <ActiveBatches />
+            <OpenThreads />
             <NeedsPanel
               items={inbox.data?.items ?? []}
               total={data?.inbox.total ?? inbox.data?.counts.total ?? 0}
