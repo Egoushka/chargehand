@@ -65,8 +65,12 @@ public static class VerifyCommand
         return null;
     }
 
-    /// <summary>The first <c>run:</c> step of <c>.github/workflows/*.yml</c> whose text names a test runner or a check (<see cref="RepositoryReadiness.RunsTests"/>), read as a
-    /// shell command; null when the repository has no workflow, or none of its steps' commands look like tests.</summary>
+    /// <summary>A step that merges, pushes, releases, deploys or publishes: it names "check" or "test" as easily as a test step does (one that waits for the check runs and
+    /// then merges), and the worker running it has network (issue #750).</summary>
+    private static readonly string[] PublishingWords = ["gh pr merge", "git push", "gh release", "deploy", "publish", "docker push", "nuget push", "twine upload"];
+
+    /// <summary>The first <c>run:</c> step of <c>.github/workflows/*.yml</c> whose text names a test runner or a check (<see cref="RepositoryReadiness.RunsTests"/>) and
+    /// nothing of <see cref="PublishingWords"/>, read as one shell script; null when the repository has no workflow, or none of its steps' commands look like tests.</summary>
     private static string[]? DetectFromCi(string dir)
     {
         var workflows = Path.Combine(dir, ".github", "workflows");
@@ -78,18 +82,22 @@ public static class VerifyCommand
             if (new FileInfo(file).Length > MaxWorkflowBytes)
                 continue;
             foreach (var run in RunSteps(File.ReadAllLines(file)))
-                if (RepositoryReadiness.RunsTests([run]))
+                if (RepositoryReadiness.RunsTests([run]) && !PublishingWords.Any(w => run.Contains(w, StringComparison.OrdinalIgnoreCase)))
                     return ["sh", "-c", run];
         }
         return null;
     }
 
-    /// <summary>The body of every <c>run:</c> step of a workflow file: a single line as is, or a <c>|</c>/<c>&gt;</c> block joined with <c>&amp;&amp;</c>.</summary>
+    /// <summary>The body of every <c>run:</c> step of a workflow file (<c>- run:</c> or under <c>- name:</c>): a single line as is; a <c>|</c> block as the script it is, its lines kept (a loop, a conditional,
+    /// a comment or a continuation is not a command list, issue #750) under <c>set -e</c>, as the forge's own shell stops at the first failing line; a <c>&gt;</c> block folded
+    /// into one line, as YAML reads it.</summary>
     private static IEnumerable<string> RunSteps(string[] lines)
     {
         for (var i = 0; i < lines.Length; i++)
         {
             var indented = lines[i].TrimStart();
+            if (indented.StartsWith("- ", StringComparison.Ordinal))
+                indented = indented[2..].TrimStart();
             if (!indented.StartsWith("run:", StringComparison.Ordinal))
                 continue;
             var rest = indented["run:".Length..].Trim();
@@ -100,12 +108,12 @@ public static class VerifyCommand
             }
             var (block, next) = ReadBlock(lines, i + 1);
             if (block.Count > 0)
-                yield return string.Join(" && ", block);
+                yield return rest.StartsWith('>') ? string.Join(' ', block) : "set -e\n" + string.Join('\n', block);
             i = next - 1;
         }
     }
 
-    /// <summary>The indented lines right after a <c>run: |</c>/<c>run: &gt;</c> header, and the index of the first line after them.</summary>
+    /// <summary>The indented lines right after a <c>run: |</c>/<c>run: &gt;</c> header, the block's own indentation taken off and the rest kept, and the index of the first line after them.</summary>
     private static (List<string> Lines, int Next) ReadBlock(string[] lines, int start)
     {
         List<string> block = [];
@@ -119,7 +127,7 @@ public static class VerifyCommand
             indent ??= own;
             if (own < indent)
                 break;
-            block.Add(lines[i].Trim());
+            block.Add(lines[i][indent.Value..].TrimEnd());
         }
         return (block, i);
     }

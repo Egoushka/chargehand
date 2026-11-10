@@ -158,29 +158,8 @@ public class ContainerTemplateTests
     {
         // The session image puts the .NET CLI home and the NuGet cache in /work; a snapshot commit with `git add -A` must not take them. The script runs here with its paths pointed at temporary directories.
         using var dir = new TempDir();
-        var (source, work, home) = (Path.Combine(dir.Path, "src"), Path.Combine(dir.Path, "work"), Path.Combine(dir.Path, "home"));
-        Directory.CreateDirectory(source);
-        Directory.CreateDirectory(home);
-        string Run(string where, params string[] args)
-        {
-            var psi = new System.Diagnostics.ProcessStartInfo(args[0]) { WorkingDirectory = where, RedirectStandardOutput = true, RedirectStandardError = true };
-            foreach (var a in args.Skip(1))
-                psi.ArgumentList.Add(a);
-            psi.Environment["GIT_CONFIG_GLOBAL"] = Path.Combine(home, ".gitconfig");
-            using var p = System.Diagnostics.Process.Start(psi)!;
-            var output = p.StandardOutput.ReadToEnd();
-            var error = p.StandardError.ReadToEnd();
-            p.WaitForExit();
-            Assert.True(p.ExitCode == 0, error);
-            return output;
-        }
-        Run(source, "git", "init", "-q", "-b", "main");
-        File.WriteAllText(Path.Combine(source, "a.txt"), "a");
-        Run(source, "git", "add", "-A");
-        Run(source, "git", "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "base");
-        var commit = Run(source, "git", "rev-parse", "HEAD").Trim();
-        var script = ContainerTemplate.WorkspaceScript.Replace("/src", source).Replace("/work", work).Replace("export HOME=/tmp", $"export HOME={home}");
-        Run(dir.Path, "sh", "-c", script, "prepare", "chargehand/run1", commit);
+        var (work, home) = PrepareWorkspace(dir);
+        string Run(string where, params string[] args) => RunIn(home, where, args);
 
         Directory.CreateDirectory(Path.Combine(work, ".dotnet", "sdk"));
         File.WriteAllText(Path.Combine(work, ".dotnet", "sdk", "x"), "cache");
@@ -189,6 +168,53 @@ public class ContainerTemplateTests
         File.WriteAllText(Path.Combine(work, "z.txt"), "work");
 
         Assert.Equal("?? z.txt", Run(work, "git", "status", "--porcelain").Trim());
+    }
+
+    [Fact]
+    public void The_workspace_helper_keeps_the_verify_run_s_scratch_directory_out_of_the_clone_s_status()
+    {
+        // A verify command sets TMPDIR to /work/.tmp (scripts/check.sh defaults to it, since the session's /tmp is noexec), so NuGet's scratch and lock files land inside
+        // the checkout; a repository whose .gitignore lacks .tmp/ had them staged by the stop snapshot's `git add -A` and carried into its draft pull request (issue #751).
+        using var dir = new TempDir();
+        var (work, home) = PrepareWorkspace(dir);
+
+        Directory.CreateDirectory(Path.Combine(work, ".tmp", "NuGetScratch", "lock"));
+        File.WriteAllText(Path.Combine(work, ".tmp", "NuGetScratch", "lock", "x.lock"), "scratch");
+        File.WriteAllText(Path.Combine(work, "z.txt"), "work");
+
+        Assert.Equal("?? z.txt", RunIn(home, work, "git", "status", "--porcelain").Trim());
+        RunIn(home, work, "git", "add", "-A");
+        Assert.Equal("z.txt", RunIn(home, work, "git", "diff", "--cached", "--name-only").Trim());
+    }
+
+    /// <summary>A source repository with one commit, and the workspace script run against it with its paths pointed at <paramref name="dir"/>: the clone's path and the helper's HOME.</summary>
+    private static (string Work, string Home) PrepareWorkspace(TempDir dir)
+    {
+        var (source, work, home) = (Path.Combine(dir.Path, "src"), Path.Combine(dir.Path, "work"), Path.Combine(dir.Path, "home"));
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(home);
+        RunIn(home, source, "git", "init", "-q", "-b", "main");
+        File.WriteAllText(Path.Combine(source, "a.txt"), "a");
+        RunIn(home, source, "git", "add", "-A");
+        RunIn(home, source, "git", "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "base");
+        var commit = RunIn(home, source, "git", "rev-parse", "HEAD").Trim();
+        var script = ContainerTemplate.WorkspaceScript.Replace("/src", source).Replace("/work", work).Replace("export HOME=/tmp", $"export HOME={home}");
+        RunIn(home, dir.Path, "sh", "-c", script, "prepare", "chargehand/run1", commit);
+        return (work, home);
+    }
+
+    private static string RunIn(string home, string where, params string[] args)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo(args[0]) { WorkingDirectory = where, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var a in args.Skip(1))
+            psi.ArgumentList.Add(a);
+        psi.Environment["GIT_CONFIG_GLOBAL"] = Path.Combine(home, ".gitconfig");
+        using var p = System.Diagnostics.Process.Start(psi)!;
+        var output = p.StandardOutput.ReadToEnd();
+        var error = p.StandardError.ReadToEnd();
+        p.WaitForExit();
+        Assert.True(p.ExitCode == 0, error);
+        return output;
     }
 
     private const string Image = "registry.example/session@sha256:1111111111111111111111111111111111111111111111111111111111111111";

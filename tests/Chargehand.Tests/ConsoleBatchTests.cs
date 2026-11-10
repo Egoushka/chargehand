@@ -37,6 +37,7 @@ public class ConsoleBatchTests
         ConsoleSeed.Inline("pull-request", new { url = "https://example.test/o/r/pull/7", number = 7, draft = true, head = "chargehand/run-b1-t1" }),
         ConsoleSeed.Inline("verification", new { argv = CheckCommand, exit_code = 0, passed = true, output_tail = "ok", test_integrity = new { flagged = true, reason = "only tests changed" } }),
         ConsoleSeed.Inline("session-tests", new { claimed_by = "session", command = "dotnet test", exit_code = 0 }),
+        ConsoleSeed.Inline("mutation", new { ran = true, score = 0.71, threshold = 0.6, passed = true, survivors = (int?)null, killed = (int?)null, not_run = (string?)null }),
         ConsoleSeed.Inline("changes", new { @base = ConsoleRig.Commit, commit = "c0ffee", files_total = 1, files = new[] { new { path = "src/a.cs", added = 3, removed = 1, binary = false } }, diff = "diff --git a/src/a.cs b/src/a.cs", diff_truncated = false }),
         ConsoleSeed.Inline("review", new { runs = new[] { new { run_id = "run-review-1", preset = "review", status = "completed" } } }),
     ];
@@ -119,6 +120,8 @@ public class ConsoleBatchTests
         Assert.Equal(("sh", 0, true), (verification.GetProperty("argv")[0].GetString(), verification.GetProperty("exit_code").GetInt32(), verification.GetProperty("passed").GetBoolean()));
         Assert.Equal("only tests changed", verification.GetProperty("test_integrity").GetProperty("reason").GetString());
         Assert.Equal("dotnet test", body.GetProperty("session_tests").GetProperty("command").GetString());
+        var mutation = body.GetProperty("mutation");
+        Assert.Equal((0.71, 0.6, true), (mutation.GetProperty("score").GetDouble(), mutation.GetProperty("threshold").GetDouble(), mutation.GetProperty("passed").GetBoolean()));
         var changes = body.GetProperty("changes");
         Assert.Equal("src/a.cs", changes.GetProperty("files")[0].GetProperty("path").GetString());
         Assert.StartsWith("diff --git", changes.GetProperty("diff").GetString(), StringComparison.Ordinal);

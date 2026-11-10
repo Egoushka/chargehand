@@ -1,4 +1,4 @@
-namespace Chargehand.Config;
+namespace Chargehand.Kernel;
 
 /// <summary>Where prompts/, presets/ and the run log live (ADR 0027, follow-up 2).</summary>
 public static class InstallPaths

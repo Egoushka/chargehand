@@ -3,6 +3,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Mcp;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.RunLog;
 using ModelContextProtocol.Protocol;
 
