@@ -6,7 +6,6 @@ using Chargehand.Incident;
 using Chargehand.Kernel;
 using Chargehand.Mcp;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.RunLog;
 using Chargehand.Runtime;
 
 namespace Chargehand.Tests;

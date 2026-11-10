@@ -11,9 +11,9 @@ using Chargehand.Contracts;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Conversations.Api;
 using Chargehand.Modules.Events.Api;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
-using Chargehand.RunLog;
 using Chargehand.Server.Conversations;
 using Chargehand.Server.Events;
 using Microsoft.AspNetCore.Builder;
@@ -150,10 +150,10 @@ public static partial class ChargehandServer
                 .AddHostedService<ConversationHost>();
         // ADR 0045: reads back what became of the pull requests, only where there are learning records.
         if (driven?.Learning is not null)
-            builder.Services.AddHostedService(_ => new PrOutcomeRefresher(driven));
+            builder.Services.AddHostedService(_ => new PrOutcomeRefresher(driven.PrCheckEvery, driven.RefreshPrOutcomesAsync));
         // CHARGEHAND-669: updates a pull request held only by its base branch's failing required checks, once the base turns green.
         if (driven?.Learning is not null)
-            builder.Services.AddHostedService(_ => new HeldPrReconciler(driven));
+            builder.Services.AddHostedService(_ => new HeldPrReconciler(driven.PrCheckEvery, driven.ReconcileHeldPrsAsync));
 
         var app = builder.Build();
         app.UseHostFiltering();

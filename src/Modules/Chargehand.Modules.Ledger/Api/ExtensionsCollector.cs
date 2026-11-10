@@ -1,22 +1,21 @@
-using Chargehand.Modules.Ledger.Api;
-using Chargehand.Modules.Memory.Api;
-
-namespace Chargehand.RunLog;
+namespace Chargehand.Modules.Ledger.Api;
 
 /// <summary>Gathers what memory and services did while one run executed, for its <see cref="RunRecord"/>.</summary>
-internal sealed class ExtensionsCollector
+public sealed class ExtensionsCollector
 {
     private readonly List<MemoryReport> _memory = [];
     private readonly List<ServiceReport> _services = [];
 
-    public void Recalled(IEnumerable<SourceRecall> sources) =>
-        _memory.AddRange(sources.Select(s => new MemoryReport(s.Source, s.Items.Count, s.SkippedReason, 0, null)));
+    /// <summary>What each memory source recalled: <see cref="MemoryReport.Source"/>, <see cref="MemoryReport.Recalled"/> and <see cref="MemoryReport.RecallSkipped"/> are read.</summary>
+    public void Recalled(IEnumerable<MemoryReport> sources) => _memory.AddRange(sources);
 
-    public void Retained(IEnumerable<RetainReport> reports)
+    /// <summary>What each memory source retained, added to the report of the source that recalled: <see cref="MemoryReport.Source"/>, <see cref="MemoryReport.Retained"/> and
+    /// <see cref="MemoryReport.RetainSkipped"/> are read.</summary>
+    public void Retained(IEnumerable<MemoryReport> reports)
     {
         foreach (var r in reports)
             if (_memory.FindIndex(m => m.Source == r.Source) is var i and >= 0)
-                _memory[i] = _memory[i] with { Retained = r.Claims, RetainSkipped = r.SkippedReason };
+                _memory[i] = _memory[i] with { Retained = r.Retained, RetainSkipped = r.RetainSkipped };
     }
 
     public void Serviced(IEnumerable<ServiceReport> reports) => _services.AddRange(reports);
