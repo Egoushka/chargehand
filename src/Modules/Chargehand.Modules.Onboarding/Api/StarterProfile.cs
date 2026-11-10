@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 
-namespace Chargehand.Onboarding;
+namespace Chargehand.Modules.Onboarding.Api;
 
 /// <summary>The profile <c>chargehand init</c> writes (profiles/example.json shows the full shape). Secrets are named by secret-store item and
 /// never valued: nothing here reads a credential, so none can end up in the file.</summary>
