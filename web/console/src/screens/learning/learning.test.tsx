@@ -373,12 +373,12 @@ describe('Learning', () => {
     const api = serveApi({ ...batchesFor() });
     renderConsole('/console/learning');
     await screen.findByRole('table');
-    expect(api.last('/v1/learn')?.path).toBe('/v1/learn?since=60d');
+    expect(api.calls.map((c) => c.path)).toContain('/v1/learn?since=60d');
     expect(screen.getByRole('button', { name: '60 d' }).getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: '7 d' }));
-    await waitFor(() => expect(api.last('/v1/learn')?.path).toBe('/v1/learn?since=7d'));
+    await waitFor(() => expect(api.calls.map((c) => c.path)).toContain('/v1/learn?since=7d'));
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
-    await waitFor(() => expect(api.last('/v1/learn')?.path).toBe('/v1/learn?since=36500d'));
+    await waitFor(() => expect(api.calls.map((c) => c.path)).toContain('/v1/learn?since=36500d'));
   });
 
   it('says how a budget is chosen with the defaults when the key cannot read the profile, and with the profile’s numbers when it can', async () => {

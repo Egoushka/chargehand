@@ -353,6 +353,7 @@ public static partial class ChargehandServer
             var report = Chargehand.Modules.Oversight.Api.LearningReport.Build(entries, since) with
             {
                 BudgetRefusals = Chargehand.Modules.Oversight.Api.BudgetRefusals.Build(entries, DateTimeOffset.UtcNow),
+                Autonomy = Chargehand.Modules.Oversight.Api.AutonomyOverview.Build(settings.Profile?.Driven?.Governor ?? new(), entries, DateTimeOffset.UtcNow),
             };
             return Json(report, StatusCodes.Status200OK);
         });
