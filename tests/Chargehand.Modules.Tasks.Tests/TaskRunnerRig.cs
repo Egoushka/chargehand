@@ -31,10 +31,14 @@ internal sealed class TaskRunnerRig : IDisposable
     }
 
     private readonly bool _bare;
+    private readonly bool _priced;
+    private readonly ISessionRouter? _router;
 
-    public TaskRunnerRig(FakeVolumes? volumes = null, TaskLimits? limits = null, bool bare = false)
+    public TaskRunnerRig(FakeVolumes? volumes = null, TaskLimits? limits = null, bool bare = false, ISessionRouter? router = null, bool priced = false)
     {
         _bare = bare;
+        _priced = priced;
+        _router = router;
         Volumes = volumes ?? new FakeVolumes(_ => SessionStatus.Completed);
         Log = new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
         _limits = limits ?? new TaskLimits(10_000_000, null);
@@ -45,7 +49,7 @@ internal sealed class TaskRunnerRig : IDisposable
         var request = new RunRequest("request/v1", "Run the tasks.", new RequestContext(false, "driven", Repository: new RepositoryRef("/srv/repo", Commit)),
             Driven: new RequestDriven([new DrivenTask("t1", Goal: goal)], MaxTokensTotal: 10_000_000, MaxUsdTotal: 5m, Bench: _bare ? true : null, Arm: _bare ? RequestDriven.BareArm : null));
         return new TaskRunnerSettings(BatchId, request, "ghcr.io/example/session@sha256:1111111111111111111111111111111111111111111111111111111111111111", "/srv/checkouts/repo-abc1234",
-            Commit, "https://github.com/o/r.git", "main", new BatchNetworkInfo($"chargehand-net-{BatchId}", "egress-1", "egress-1", 3128), null, new DrivenPreset(), _limits, false,
+            Commit, "https://github.com/o/r.git", "main", new BatchNetworkInfo($"chargehand-net-{BatchId}", "egress-1", "egress-1", 3128), null, new DrivenPreset(), _limits, _priced,
             new Dictionary<string, string> { ["CLAUDE_CODE_OAUTH_TOKEN"] = "value-of-claude-code-oauth-token" }, new PushCredential("value-of-secret-push"), Path.Combine(Dir.Path, ".driven"),
             "provider/claude-sonnet-5-5", "2.1.283");
     }
@@ -53,7 +57,7 @@ internal sealed class TaskRunnerRig : IDisposable
     /// <summary>Runs task <c>t1</c> with <paramref name="goal"/> to its outcome.</summary>
     public Task<TaskOutcome> RunAsync(string goal, TaskJournal? tasks = null, CancellationToken ct = default) =>
         new TaskRunner(Engine, Engine, Volumes, Handover, Log, g => $"tok-{g.RunId}", Settings(goal), new DrivenTaskResults(new NoEvidenceProblems(), null, null), TimeSpan.FromMilliseconds(1),
-                tasks: tasks)
+                tasks: tasks, router: _router)
             .RunAsync(new ResolvedTask("t1", null, goal), new Progress<TaskUsage>(), ct);
 
     public void Dispose() => Dir.Dispose();

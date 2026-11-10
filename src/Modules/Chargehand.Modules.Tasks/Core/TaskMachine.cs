@@ -24,7 +24,7 @@ internal sealed record TaskContainerStarted(string Container) : TaskEvent;
 internal sealed record TaskSessionRead : TaskEvent;
 
 /// <summary>A continuation session (ADR 0044) is about to start on the same branch.</summary>
-internal sealed record TaskContinuationBegan(string RunId, IReadOnlyList<string> Runs, int Continuation, SessionOutcome Prior, DateTimeOffset SessionStarted, BestBundle Best, string SessionGoal,
+internal sealed record TaskContinuationBegan(string RunId, IReadOnlyList<string> Runs, int Continuation, SessionOutcome Prior, DateTimeOffset SessionStarted, BestBundle? Best, string SessionGoal,
     string StartDetail) : TaskEvent;
 
 /// <summary>The continuation could not start: the previous session is the last, and the entry is back on it.</summary>

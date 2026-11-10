@@ -89,13 +89,14 @@ public sealed partial class TaskRunner
         // Once the branch is pushed, a cancel no longer undoes the task: its result is recorded with the pull request.
         var record = run.LastHead is null ? ct : CancellationToken.None;
         var children = (await log.ListAsync(new RunListQuery(Since: run.Started, Limit: 200), record)).Where(r => r.ParentRunId is { } parent && run.Runs.Contains(parent)).ToList();
-        var result = await results.BuildAsync(new DrivenTaskInput(task.Id, run.RunId, run.TraceId, settings.Model, settings.ClaudeVersion, run.Total, run.ReportJson, handed, children,
+        var (route, routes) = RoutesOf(run);
+        var result = await results.BuildAsync(new DrivenTaskInput(task.Id, run.RunId, run.TraceId, ModelOf(run.RunId), settings.ClaudeVersion, run.Total, run.ReportJson, handed, children,
             Directory.Exists(scratchClone) ? scratchClone : settings.SourcePath, settings.BaseCommit, settings.Priced,
             partial ? new KeptWork(run.Branch, run.Best!.RunId, run.Best.Commits, settings.BaseCommit) : null, Bare), record);
         result = result with { Actor = settings.Actor, Name = RunNames.Of(run.RunId) };
         result = results.Sign(result);
         await log.AppendAsync(new StartRecord(run.RunId, run.Started, run.TraceId, settings.Request with { Text = task.Goal, Driven = null }, Environment.ProcessId, settings.BatchId, ProcessBoot.Id, settings.Actor), CancellationToken.None);
-        await log.AppendAsync(new RunRecord(run.RunId, run.Started, DateTimeOffset.UtcNow, settings.Request.Context.Preset, null, null, result, Actor: settings.Actor), CancellationToken.None);
+        await log.AppendAsync(new RunRecord(run.RunId, run.Started, DateTimeOffset.UtcNow, settings.Request.Context.Preset, null, null, result, Actor: settings.Actor, Route: route, Routes: routes), CancellationToken.None);
         return result;
     }
 
@@ -185,11 +186,14 @@ public sealed partial class TaskRunner
             return new CiFixResult(false, "the task's token or cost cap is spent");
         if (!File.Exists(f.Seed))
             return new CiFixResult(false, "the branch's bundle is gone, so a session cannot start from it");
-        var fixRun = RunIds.New();
+        var (fixRun, refusal) = await PlaceFixAsync(token);
+        if (fixRun is null)
+            return new CiFixResult(false, refusal!);
         f.Containers[fixRun] = null;
         var outDirectory = Path.Combine(settings.ScratchRoot, "out", fixRun);
         Directory.CreateDirectory(outDirectory);
         var session = await FixSessionAsync(task, f, request, fixRun, outDirectory, running, (tokensLeft, usdLeft), token);
+        NoteRefusal(fixRun, session);
         f.Sum = f.Sum is null ? session : Total(f.Sum, session);
         f.Progress.Report(Capped(f.Sum.InputTokens + f.Sum.OutputTokens + f.Total.InputTokens + f.Total.OutputTokens, settings.Priced ? (f.Sum.CostUsd ?? 0) + (f.Total.CostUsd ?? 0) : 0, ended: true));
         if (session is not { Status: SessionStatus.Completed, BundleWritten: true } || session.Commits <= f.SeededCommits)
@@ -234,7 +238,7 @@ public sealed partial class TaskRunner
         handover.RunAsync(new HandoverInput(fixRun, outDirectory, settings.SourcePath, settings.BaseCommit, f.Branch, settings.RemoteUrl, settings.BaseBranch, PullRequestTitle.Of(task.Title, task.Goal),
             $"CI fix attempt {request.Attempt}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote, LocalOnly: settings.LocalOnly,
             Report: e => { if (e.Kind != RunEventKind.PrOpened) Publish(task.Id, e.Kind, e.Detail, s => s with { Branch = e.Kind == RunEventKind.Pushed ? f.Branch : null }); },
-            Provenance: TaskProvenance.Of(task, fixRun, spent, settings.Model, settings.ClaudeVersion), CiVerifies: CiVerifies, PrePushCheck: PrePushCheck, Identity: settings.Identity), token);
+            Provenance: TaskProvenance.Of(task, fixRun, spent, ModelOf(fixRun), settings.ClaudeVersion), CiVerifies: CiVerifies, PrePushCheck: PrePushCheck, Identity: settings.Identity), token);
 
     /// <summary>The pull request's checks and the CI fix attempts, kept for the console (CHARGEHAND-214).</summary>
     private IntegrationWatch WatchOf(ResolvedTask task, PullRequestRef pr)
@@ -265,7 +269,7 @@ public sealed partial class TaskRunner
             Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
             Goal: task.Goal, UpdateReused: !partial && task.From?.Pushed is null, PolicyNote: stack is null && settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null,
             FallbackBaseBranch: stack?.PullRequestBase is null ? null : settings.BaseBranch,
-            Provenance: TaskProvenance.Of(task, run.RunId, spent, settings.Model, settings.ClaudeVersion), Bare: bare, CiVerifies: CiVerifies, PrePushCheck: PrePushCheck, Identity: settings.Identity,
+            Provenance: TaskProvenance.Of(task, run.RunId, spent, ModelOf(run.RunId), settings.ClaudeVersion), Bare: bare, CiVerifies: CiVerifies, PrePushCheck: PrePushCheck, Identity: settings.Identity,
             MutationShare: settings.Preset.MutationShare), ct);
 
     /// <summary>ADR 0078: under mise the repository's CI verifies. ADR 0075: so it does for a Gradle repository whose session image has no JDK, where the detected command could only fail.</summary>

@@ -200,6 +200,19 @@ public class PoolRoutingTests
         Assert.Equal([new PoolSpend("credit", Now, 2.5m)], spend);
     }
 
+    [Fact]
+    public void A_run_that_moved_between_pools_charges_each_pool_what_its_sessions_cost_and_not_the_whole_to_the_last()
+    {
+        var run = Routed("credit", 3.5m, Now) with
+        {
+            Routes = [new RunRoute("free", "cheap", "free/small", "public", 1.5m), new RunRoute("credit", "cheap", "paid/small", "public", 2m), new RunRoute("other", "cheap", "paid/small", "public")],
+        };
+
+        var spend = PoolRouting.SpendOf([run]);
+
+        Assert.Equal([new PoolSpend("free", Now, 1.5m), new PoolSpend("credit", Now, 2m)], spend);   // a route with no price counts nothing
+    }
+
     private sealed class Clock(DateTimeOffset start) : TimeProvider
     {
         public DateTimeOffset Now { get; set; } = start;

@@ -356,7 +356,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             ? await _lifecycle.ResolveAsync(c, options, services?.TaskSource is { } source ? source.ResolveAsync : null)
             : (BatchLifecycle.Resumed(c.Request, c.Resume.Tasks), c.Resume.Unresolved);
         var routed = await RouteAsync(c, settings, resolved);
-        var setup = SetupOf(c, settings, options, routed.Routed.Model, routed.Gate(_routing, _gate));
+        var setup = SetupOf(c, settings, options, routed.Routed.Model, routed.Gate(_routing, _gate), routed.Sessions(_routing));
         // One route per runner (ADR 0058): where that runner's sessions reach the server, the model and the collector, and the image for its platform. Worked out before anything is created,
         // so a setting that cannot work fails the batch at its start, whichever runner it is for.
         var routes = SiteRoute.Of(setup, setup.Priced ? null : _lifecycle.TokenKey(c.RunId));
@@ -369,14 +369,12 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var steps = _lifecycle.JournalAsync() is { } journal ? await journal : null;
         var (replanned, ran, fallback) = await RunOnRunnersAsync(c, mint, setup, routes, ready, tasks, checkout, steps);
         var retro = await BatchLifecycle.RetroAsync(c, settings.Learning is { Retro: true }, learning, setup.Services.Retro, setup.Services.RetroSink);
-        var result = BatchLifecycle.Result(c, unresolved, replanned, ran, routes[0].Delivery, setup.Priced, setup.Claude.Version, plan, retro, fallback);
-        _routing.Ended(routed.Routed.Route, result.Error);
-        return result;
+        return BatchLifecycle.Result(c, unresolved, replanned, ran, routes[0].Delivery, setup.Priced, setup.Claude.Version, plan, retro, fallback);
     }
 
-    /// <summary>The budget router's model for the batch (ADR 0095), by the preset's name and the largest task's size, recorded on the batch's run record; null with the router off, which
-    /// reads nothing and keeps every refusal in its order. A wait throws, before anything is created. The batch keeps this pool for its whole run: its sessions hold the model, so a refusal ends the batch
-    /// (retryable) and takes the pool out, and the next start falls through to the next pool.</summary>
+    /// <summary>The budget router's model for the batch (ADR 0095), by the preset's name and the largest task's size; null with the router off, which reads nothing and keeps every refusal in its order.
+    /// A wait throws, before anything is created. It is the batch's first answer and its default model: each session of each task asks the router again (D-113), so a refusal in the middle of a task
+    /// moves that task's next session to the next pool, and the pool each session ran on is written on the task's run record, not the batch's.</summary>
     private async Task<BatchRoute> RouteAsync(BatchRunContext c, DrivenSettings settings, IReadOnlyList<ResolvedTask> tasks)
     {
         if (!_routing.On)
@@ -384,27 +382,30 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var (_, kind) = PresetOf(c.Request, settings);
         var size = tasks.Select(t => t.Size ?? "M").OrderBy(z => z switch { "S" => 0, "M" => 1, _ => 2 }).LastOrDefault();
         var dataClass = await _routing.ClassifyAsync(c.Request.Context.Repository?.Path, c.Ct);
-        var routed = await _routing.RouteAsync(c.Request.Context.Preset, size, profile.ResolveModel(kind.Model) ?? kind.Model, dataClass, c.Ct);
-        if (routed.Route is { } route)
-            _lifecycle.Routed(c.RunId, route);
-        return new BatchRoute(routed, c.Request.Context.Preset, size, dataClass);
+        var unrouted = profile.ResolveModel(kind.Model) ?? kind.Model;
+        var routed = await _routing.RouteAsync(c.Request.Context.Preset, size, unrouted, dataClass, c.Ct);
+        return new BatchRoute(routed, c.Request.Context.Preset, size, unrouted, dataClass);
     }
 
-    /// <summary>What the router chose for a batch, with what it was chosen from, so a refusal can be told to the gate.</summary>
-    private sealed record BatchRoute(Routed Routed, string Preset, string? Size, DataClass DataClass)
+    /// <summary>What the router chose for a batch, with what it was chosen from, so its tasks can ask again before each session and a refusal can be told to the gate.</summary>
+    private sealed record BatchRoute(Routed Routed, string Preset, string? Size, string? Unrouted, DataClass DataClass)
     {
         /// <summary>The router is off: the batch keeps its preset's model and the server's gate.</summary>
-        public static readonly BatchRoute None = new(new Routed(null, null), "", null, DataClass.Restricted);
+        public static readonly BatchRoute None = new(new Routed(null, null), "", null, null, DataClass.Restricted);
 
-        /// <summary>The gate the batch's tasks report to: one that tells the pool about a refusal, or <paramref name="inner"/> with the router off.</summary>
-        public IStartGate Gate(PoolRouting routing, IStartGate inner) => Routed.Route is { } route ? new RoutedGate(inner, routing, route, Preset, Size, DataClass) : inner;
+        /// <summary>The gate the batch's tasks report to: one that halts starts only when no pool can take the batch, or <paramref name="inner"/> with the router off.</summary>
+        public IStartGate Gate(PoolRouting routing, IStartGate inner) => Routed.Route is not null ? new RoutedGate(inner, routing, Preset, Size, DataClass) : inner;
+
+        /// <summary>What each task's sessions ask for their pool, with the batch's own data class; null with the router off.</summary>
+        public PoolSessionRouter? Sessions(PoolRouting routing) => Routed.Route is not null ? new PoolSessionRouter(routing, Preset, Size, Unrouted, DataClass) : null;
     }
 
     /// <summary>What the profile and the services give the batch; throws for a refusal: driven sessions not set up, no <c>claude_code</c> block, no image, a preset with no driven block, no push
     /// credential, or no model credential.</summary>
     /// <param name="routed">The budget router's <c>provider/model</c> (ADR 0095); null: the preset's model through the profile's <c>models</c>.</param>
     /// <param name="gate">The gate the batch's tasks report refusals to.</param>
-    private BatchSetup SetupOf(BatchRunContext c, DrivenSettings settings, BatchOptions options, string? routed, IStartGate gate)
+    /// <param name="sessions">What each session of the batch's tasks asks for its pool (D-113); null: the router is off.</param>
+    private BatchSetup SetupOf(BatchRunContext c, DrivenSettings settings, BatchOptions options, string? routed, IStartGate gate, ISessionRouter? sessions)
     {
         CheckArm(c.Request.Driven!);
         var s = services ?? throw new ChargehandException(ErrorCode.ContainerUnavailable, "driven sessions are on, but no container engine is set up for them", "Check driven.runner in the profile, or install Docker.");
@@ -423,20 +424,15 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
             "Set driven.integrator's app_id and private_key_secret to push as the App, or name the secret item that holds a push credential in driven.push_secret.");
         var credential = own?.ApiKeySecret ?? (priced ? claude.ApiKeySecret : claude.OauthTokenSecret)
             ?? throw new ChargehandException(ErrorCode.CredentialUnavailable, "claude_code names no credential", "Set api_key_secret or oauth_token_secret.");
-        var modelEnvironment = ModelEnvironment(priced, Resolve(s, credential), routed);
+        var modelEnvironment = ModelEnvironment(priced, Resolve(s, credential));
         var fallbackSetup = FallbackSetup.Of(claude, kind.Model, profile.PriceOf, priced, fallback, name => Resolve(s, name), c.RunId);
         // The session names its model (ADR 0095): an unresolved placeholder would leave the CLI to pick one, and the batch would price a model that did not run.
-        return new BatchSetup(s, settings, claude, image, drivenPreset, routed ?? profile.ResolveModel(kind.Model) ?? kind.Model, own, priced, limits, push, modelEnvironment, SitesOf(s), fallbackSetup);
+        return new BatchSetup(s, settings, claude, image, drivenPreset, routed ?? profile.ResolveModel(kind.Model) ?? kind.Model, own, priced, limits, push, modelEnvironment, SitesOf(s), fallbackSetup, sessions);
     }
 
-    /// <summary>The session's model credential; with the budget router on, its subagents also run on the routed model, so a nested call never picks the CLI's default (ADR 0095).</summary>
-    internal static Dictionary<string, string> ModelEnvironment(bool priced, string credential, string? routed)
-    {
-        var environment = new Dictionary<string, string> { [priced ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN"] = credential };
-        if (routed is not null)
-            environment["CLAUDE_CODE_SUBAGENT_MODEL"] = routed[(routed.IndexOf('/', StringComparison.Ordinal) + 1)..];
-        return environment;
-    }
+    /// <summary>The session's model credential, the one variable the batch's sessions share. The model a session runs, and its subagents' (<c>CLAUDE_CODE_SUBAGENT_MODEL</c>), come from the route it is given
+    /// (D-113), so they are not here: this is also what the handover's secret scan is told, and a model's name is no secret.</summary>
+    internal static Dictionary<string, string> ModelEnvironment(bool priced, string credential) => new() { [priced ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN"] = credential };
 
     /// <summary>The bare arm pushes a branch nobody has tested, so it is for the benchmark only (ADR 0080).</summary>
     public static void CheckArm(RequestDriven driven)
