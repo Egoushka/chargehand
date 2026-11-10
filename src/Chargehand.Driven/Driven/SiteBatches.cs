@@ -91,9 +91,9 @@ internal sealed record SiteRoute(RunnerSite Site, string? Forward, int Port, Dri
     private static DrivenModelRoute? ModelOf(RunnerSite site, DrivenNetwork? network, DrivenRunnerForwards? over, AccountModel? own, bool priced, int? port)
     {
         if (own is not null)
-            return DrivenModelRoute.Parse(own.BaseUrl, priced, port, "http.accounts[].model.base_url");
+            return DrivenModelRoute.Parse(own.BaseUrl, priced, port, BatchNetworkInfo.ServiceUrl, "http.accounts[].model.base_url");
         var where = over?.ModelUrl is not null ? $"driven.runners.{site.Name}.forwards.model_url" : "driven.network.model_url";
-        return DrivenModelRoute.Parse(over?.ModelUrl ?? network?.ModelUrl, priced, port, where);
+        return DrivenModelRoute.Parse(over?.ModelUrl ?? network?.ModelUrl, priced, port, BatchNetworkInfo.ServiceUrl, where);
     }
 }
 
