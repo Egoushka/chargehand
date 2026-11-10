@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
+// agent-checks: allow deleted-tests, deleted-assertions -- the test that needs the in-process server moved to Chargehand.Tests/WatchCliServerTests.cs
 using Chargehand.Modules.Watch.Api;
 
 namespace Chargehand.Modules.Watch.Tests;
