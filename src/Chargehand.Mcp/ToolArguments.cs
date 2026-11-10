@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Chargehand.Config;
+using Chargehand.Modules.Memory.Api;
 
 namespace Chargehand.Mcp;
 

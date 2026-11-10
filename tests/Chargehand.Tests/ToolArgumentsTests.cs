@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Chargehand.Mcp;
+using Chargehand.Modules.Memory.Api;
 
 namespace Chargehand.Tests;
 

@@ -8,6 +8,7 @@ namespace Chargehand.Modules.Memory.Api;
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower, ReadCommentHandling = JsonCommentHandling.Skip,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip)]
 [JsonSerializable(typeof(MemoryProviderSettings))]
+[JsonSerializable(typeof(ResultMapping))]
 [JsonSerializable(typeof(List<MemoryProviderSettings>))]
 [JsonSerializable(typeof(IEnumerable<MemoryProviderSettings>))]
 [JsonSerializable(typeof(IReadOnlyList<MemoryProviderSettings>))]
