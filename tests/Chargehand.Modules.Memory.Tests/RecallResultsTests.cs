@@ -1,12 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Chargehand.Config;
-using Chargehand.Mcp;
 using Chargehand.Modules.Memory.Api;
 using ModelContextProtocol.Protocol;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Memory.Tests;
 
 /// <summary>How a recall tool's answer becomes facts (ResultMapping): the path, the id, the ordered text entries.</summary>
 public class RecallResultsTests
@@ -17,7 +15,7 @@ public class RecallResultsTests
 
     private static CallToolResult Both(string structured, string text) => new() { Content = [new TextContentBlock { Text = text }], StructuredContent = Json(structured) };
 
-    private static ResultMapping Mapping(string json) => JsonSerializer.Deserialize<ResultMapping>(json, Profile.Json)!;
+    private static ResultMapping Mapping(string json) => JsonSerializer.Deserialize(json, MemorySettingsJsonContext.Default.ResultMapping)!;
 
     private static string Sha12(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..12];
 

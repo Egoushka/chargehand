@@ -18,4 +18,8 @@
     <ProjectReference Include="..\..\src\Modules\Chargehand.Modules.Memory\Chargehand.Modules.Memory.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.Core" Version="2.4.0" />
+  </ItemGroup>
+
 </Project>

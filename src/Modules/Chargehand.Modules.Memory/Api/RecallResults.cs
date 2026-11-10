@@ -2,11 +2,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Chargehand.Config;
-using Chargehand.Modules.Memory.Api;
 using ModelContextProtocol.Protocol;
 
-namespace Chargehand.Mcp;
+namespace Chargehand.Modules.Memory.Api;
 
 /// <summary>Reads a recall tool's answer as facts, the way its <see cref="ResultMapping"/> says.</summary>
 public static partial class RecallResults
@@ -39,7 +37,7 @@ public static partial class RecallResults
         JsonElement root;
         try
         {
-            root = JsonSerializer.Deserialize<JsonElement>(text);
+            root = JsonDocument.Parse(text).RootElement.Clone();
         }
         catch (JsonException)
         {

@@ -47,7 +47,8 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
 
 ## 2. Layers 2 to 8: leftovers of modules already ported
 
-- [ ] Memory (2): `Chargehand.Mcp/McpMemoryProvider.cs`, `McpMemoryException.cs`, `RecallResults.cs`, `MemoryStacks.cs`.
+- [ ] Memory (2): `Chargehand.Mcp/McpMemoryProvider.cs`, `MemoryStacks.cs` (done: `McpMemoryException.cs`, `RecallResults.cs`, now in Memory `Api`).
+  Left in place: `McpMemoryProvider` takes the `McpConnectionPool` and `MemoryStacks` reads the old `Profile`, both still in `Chargehand.Mcp`/Core; they follow the pool.
   The MCP client they sit on (`McpConnectionPool.cs`, `SecretTemplate.cs`, `ToolArguments.cs`,
   `McpUnavailableException.cs`) has no chargehand types beyond settings: ADR 0060 sends such code to the separate MIT
   library; until then, Memory's `Adapters/`. Proposal.

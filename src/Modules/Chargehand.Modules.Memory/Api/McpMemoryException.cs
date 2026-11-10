@@ -1,7 +1,7 @@
 using Chargehand.Kernel;
 using ModelContextProtocol.Protocol;
 
-namespace Chargehand.Mcp;
+namespace Chargehand.Modules.Memory.Api;
 
 /// <summary>
 /// A memory server answered, but not with something the provider's mapping can use: the tool reported an error, the answer is
@@ -13,7 +13,7 @@ public sealed class McpMemoryException(string message) : Exception(ChargehandExc
     private const int MaxErrorTextLength = 200;
 
     /// <summary>Throws when the tool reported a failure (<c>isError</c>); its first text block, cut, is the reason.</summary>
-    internal static void ThrowIfError(CallToolResult result)
+    public static void ThrowIfError(CallToolResult result)
     {
         if (result.IsError != true)
             return;
