@@ -1,9 +1,9 @@
+using System.Collections;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Chargehand.Config;
-using Chargehand.Modules.Memory.Api;
 
-namespace Chargehand.Mcp;
+namespace Chargehand.Modules.Memory.Api;
 
 /// <summary>Expands the argument template of a mapped tool call (<see cref="ToolCall"/>) into the arguments of one MCP call.</summary>
 public static partial class ToolArguments
@@ -62,12 +62,42 @@ public static partial class ToolArguments
 
     private static string Format(object? value)
     {
-        if (value is null)
-            return "";
-        if (value is string text)
-            return text;
-        var json = JsonSerializer.SerializeToElement(value);
-        return json.ValueKind == JsonValueKind.String ? json.GetString()! : json.GetRawText();
+        switch (value)
+        {
+            case null:
+                return "";
+            case string text:
+                return text;
+            case JsonElement { ValueKind: JsonValueKind.String } element:
+                return element.GetString()!;
+        }
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+            WriteValue(writer, value);
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    /// <summary>Writes the values a call offers (strings, numbers, booleans, lists of them, JSON as given) without reflection.</summary>
+    private static void WriteValue(Utf8JsonWriter writer, object? value)
+    {
+        switch (value)
+        {
+            case null: writer.WriteNullValue(); break;
+            case string text: writer.WriteStringValue(text); break;
+            case bool flag: writer.WriteBooleanValue(flag); break;
+            case int number: writer.WriteNumberValue(number); break;
+            case long number: writer.WriteNumberValue(number); break;
+            case double number: writer.WriteNumberValue(number); break;
+            case decimal number: writer.WriteNumberValue(number); break;
+            case JsonElement element: element.WriteTo(writer); break;
+            case IEnumerable items:
+                writer.WriteStartArray();
+                foreach (var item in items)
+                    WriteValue(writer, item);
+                writer.WriteEndArray();
+                break;
+            default: throw new McpMemoryException($"a call value of type {value.GetType().Name} cannot be written into an argument");
+        }
     }
 
     [GeneratedRegex(@"\{([A-Za-z_][A-Za-z0-9_]*)\}")]

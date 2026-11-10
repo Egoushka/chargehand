@@ -1,5 +1,6 @@
 using Chargehand.Config;
 using Chargehand.Enhancement;
+using Chargehand.Modules.Memory.Api;
 
 namespace Chargehand.Mcp;
 

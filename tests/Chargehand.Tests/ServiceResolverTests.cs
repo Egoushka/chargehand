@@ -231,9 +231,11 @@ public class ServiceResolverTests
             throw new IOException("must not connect");
         });
 
-        var transport = Assert.IsType<HttpServiceTransport>(pool.Transport("team-docs"));
+        var endpoint = pool.Endpoint("team-docs");
 
-        Assert.Equal("Bearer s3cret", transport.Headers["Authorization"]);
+        Assert.NotNull(endpoint.Url);
+        Assert.False(endpoint.Sse);
+        Assert.Equal("Bearer s3cret", endpoint.Values["Authorization"]);
         Assert.Equal(0, connected);
     }
 

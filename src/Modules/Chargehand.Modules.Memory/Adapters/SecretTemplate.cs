@@ -1,10 +1,10 @@
 using System.Text.RegularExpressions;
 
-namespace Chargehand.Mcp;
+namespace Chargehand.Modules.Memory.Adapters;
 
 /// <summary><c>{secret:item}</c> in an MCP server's header and environment values (ADR 0034): replaced with the item's value
 /// through the profile's secrets chain when a connection opens, so a profile never holds a credential.</summary>
-public static partial class SecretTemplate
+internal static partial class SecretTemplate
 {
     /// <summary>Replaces every placeholder with <paramref name="secret"/> of its item. A value is never scanned for
     /// placeholders. The function's exception propagates; it names the item, never a value.</summary>

@@ -880,7 +880,7 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
     return (runtime, runtime.Version);
 }
 
-MemoryStack? Memory() => MemoryStacks.From(profile, mcpPool);
+MemoryStack? Memory() => MemoryStacks.From(profile.Memory, mcpPool);
 
 Chargehand.Enhancement.IPromptEnhancer? Enhancer() => PromptEnhancers.From(profile, mcpPool);
 
