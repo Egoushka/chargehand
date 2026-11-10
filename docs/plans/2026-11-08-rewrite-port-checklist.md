@@ -86,7 +86,7 @@ Research is the module the answer pipeline lands in; ADR 0060 names it, and it a
 - [ ] Worker runtime port: `src/Chargehand/Runtime/*` (`IWorkerRuntime`, `RuntimeSelector`, `UnavailableRuntime`,
   `WorkerKill`, `IRunCleanup`, `IServiceHealth`, `IServiceResolver`). Layer 9 keeps the runtimes (layer 10) pointing
   down. ADR 0086's amendment makes this the step that lets `src/Chargehand.Acp` fold into `Runtimes.Acp`.
-- [ ] Prompts: `src/Chargehand/Prompts/*`, `LangfusePrompts.cs`.
+- [x] Prompts: `IPromptRegistry`, `PromptRegistry`, `PromptChains` (build, caller-block check, instruction hash) and `LangfusePrompts` are in Research. `ToolSetHash` (was `PromptChains.ToolsSha256`) stays in `src/Chargehand/Prompts`: it hashes `PermissionRule` and `ServiceGrant`, which still live in the old `Runtime/IWorkerRuntime.cs`; it moves with the worker runtime types.
 - [ ] Prompt enhancer: `src/Chargehand/Enhancement/*`, `Chargehand.Mcp/McpPromptEnhancer.cs`, `PromptEnhancers.cs`.
 - [ ] Services per preset: `Chargehand.Mcp/ServiceResolver.cs` (needs the MCP client, section 2).
 - [ ] Intake (request to Task Spec): `src/Chargehand/Intake/*` (`IIntake`, `GenerateIntake`, `StructuredSpec`).

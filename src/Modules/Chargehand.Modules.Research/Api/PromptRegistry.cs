@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
 
-namespace Chargehand.Prompts;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>Blocks from <c>prompts/&lt;name&gt;.md</c>, each starting with a front matter <c>version:</c> (SemVer).</summary>
 public sealed partial class PromptRegistry(string directory) : IPromptRegistry

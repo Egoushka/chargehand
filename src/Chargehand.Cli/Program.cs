@@ -20,7 +20,6 @@ using Chargehand.Modules.PeerClones.Api;
 using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.OpenCode;
-using Chargehand.Prompts;
 using Chargehand.Runtime;
 using Chargehand.Runtimes.Acp.Api;
 using Chargehand.Runtimes.ClaudeCode.Api;
