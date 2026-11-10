@@ -5,6 +5,31 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.19](https://github.com/Egoushka/chargehand/compare/v0.19.18...v0.19.19) (2026-11-10)
+
+
+### Features
+
+* **console:** autonomy beside the merge rate on Learning ([#833](https://github.com/Egoushka/chargehand/issues/833)) ([832201f](https://github.com/Egoushka/chargehand/commit/832201f4bed7f73c5137899e9644802d618bc50a))
+* **console:** budget router pools and routes on the spend screen ([#844](https://github.com/Egoushka/chargehand/issues/844)) ([3734258](https://github.com/Egoushka/chargehand/commit/37342588c69f7ae3f3bc6314877ca1874331cb66))
+* **console:** cockpit board on the overview from /v1/fleet ([#823](https://github.com/Egoushka/chargehand/issues/823)) ([9efa2cf](https://github.com/Egoushka/chargehand/commit/9efa2cf2da58f0f3251e0469aedd2f40245384f1))
+* **console:** compare two tasks side by side ([#832](https://github.com/Egoushka/chargehand/issues/832)) ([45ccce8](https://github.com/Egoushka/chargehand/commit/45ccce89eae4894cbc0cb8410c344d66e07b1739))
+* **console:** Conversations screen with list, live transcript, send, approve and end ([#828](https://github.com/Egoushka/chargehand/issues/828)) ([f6faec1](https://github.com/Egoushka/chargehand/commit/f6faec12881b345f63a55d817e699fabe4bd7542))
+* **console:** launch many: one goal, one batch per chosen repository ([#829](https://github.com/Egoushka/chargehand/issues/829)) ([789317d](https://github.com/Egoushka/chargehand/commit/789317db4cb21dd1be79b5b289a5ff65eac022a9))
+* **console:** merge a pull request from the quality card and the Needs-you card ([#845](https://github.com/Egoushka/chargehand/issues/845)) ([4f7071b](https://github.com/Egoushka/chargehand/commit/4f7071bb495b3dff78bbd7cb95eb3769a091ca56))
+* **console:** open threads panel on the overview ([#834](https://github.com/Egoushka/chargehand/issues/834)) ([f1a08da](https://github.com/Egoushka/chargehand/commit/f1a08daacf1460b4e9a4eeb03f2ca9caf7ccde1b))
+* **console:** quality card on the task page, with the mutation check recorded as an artifact ([#831](https://github.com/Egoushka/chargehand/issues/831)) ([0ae69bd](https://github.com/Egoushka/chargehand/commit/0ae69bd8ee503e3f3afeffac8ef9f382e6f3a6ae))
+* **console:** subscription windows on the cockpit ([#849](https://github.com/Egoushka/chargehand/issues/849)) ([3054a0d](https://github.com/Egoushka/chargehand/commit/3054a0d0e746de7c0241a39516059c8423a05e38))
+* **economics:** route each session of a driven task through the budget router (CHARGEHAND-773) ([#816](https://github.com/Egoushka/chargehand/issues/816)) ([4a27905](https://github.com/Egoushka/chargehand/commit/4a27905196d0e00d9bf22aa7a04899b47e0163bc))
+
+
+### Bug Fixes
+
+* **automation:** intake starts from an empty state when its state file is empty or corrupt ([#818](https://github.com/Egoushka/chargehand/issues/818)) ([79ebae8](https://github.com/Egoushka/chargehand/commit/79ebae80716bd3cc5c96b0c5911145bddd144ad3))
+* **cli:** build the indented result options once (CA1869) ([#843](https://github.com/Egoushka/chargehand/issues/843)) ([2cd0587](https://github.com/Egoushka/chargehand/commit/2cd05874591adef25b0c5a22c9a07fc223b73245))
+* keep verify scratch out of draft PRs; run CI-derived verify blocks as scripts and never a merge step ([#821](https://github.com/Egoushka/chargehand/issues/821)) ([5549ffe](https://github.com/Egoushka/chargehand/commit/5549ffeafe46bc97fc506d02e91f762a3ce721ca))
+* **mcp:** in-process MCP servers get a long discover probe so a slow start cannot fall back to initialize ([#826](https://github.com/Egoushka/chargehand/issues/826)) ([2712003](https://github.com/Egoushka/chargehand/commit/27120032c4038d6935b020f32575c58a9431088c)), closes [#645](https://github.com/Egoushka/chargehand/issues/645)
+
 ## [0.19.18](https://github.com/Egoushka/chargehand/compare/v0.19.17...v0.19.18) (2026-11-09)
 
 
