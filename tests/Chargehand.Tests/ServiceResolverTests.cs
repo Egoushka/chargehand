@@ -1,6 +1,7 @@
 using System.IO.Pipelines;
 using Chargehand.Config;
 using Chargehand.Mcp;
+using Chargehand.Modules.Memory.Api;
 using Chargehand.Runtime;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
