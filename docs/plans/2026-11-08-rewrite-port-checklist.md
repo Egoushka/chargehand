@@ -38,7 +38,7 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
   `DeliverySettings` to Kernel, `DrivenNetwork` to Gateway, `PromptEnhancerSettings` to Research, `InboxSettings` to Console.
 - [ ] `Config/Profile.cs`, `Config/ProfileJsonContext.cs`: what is left is composition: the root record, `HttpSettings`
   (it composes Accounts', Events' and Conversations' sections, so it goes to Hosts.Server with the root, not to a module),
-  `McpServerSettings` and `DrivenSettings`. The hosts compose the root.
+  `McpServerSettings` (now in Memory.Api) and `DrivenSettings`. The hosts compose the root. Plan: `2026-11-10-profile-move.md`.
 - [x] `Config/DrivenRunners.cs` → Runners (`DrivenRunnerSet`; the `DrivenSettings` members stay as thin delegates until the root goes).
 - [x] `Config/InstallPaths.cs` → Kernel (prompts, presets and run log locations; used by the CLI only today).
 - [ ] `Config/Preset.cs` (preset/v1 loader) → Research, beside intake, which is its main reader. Proposal. Waits for the

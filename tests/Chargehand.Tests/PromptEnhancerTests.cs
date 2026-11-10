@@ -3,6 +3,7 @@ using Chargehand.Config;
 using Chargehand.Enhancement;
 using Chargehand.Kernel;
 using Chargehand.Mcp;
+using Chargehand.Modules.Memory.Api;
 using ModelContextProtocol.Protocol;
 
 namespace Chargehand.Tests;

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Chargehand.Config;
 using Chargehand.Mcp;
+using Chargehand.Modules.Memory.Api;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 

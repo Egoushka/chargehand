@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Chargehand.Config;
 using Chargehand.Kernel;
+using Chargehand.Modules.Memory.Api;
 using Chargehand.Runtime;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;

@@ -7,6 +7,7 @@ using Chargehand.Mcp;
 // agent-checks: allow deleted-tests, deleted-assertions -- the incident command tests moved to tests/Chargehand.Modules.Intake.Tests/IncidentCliTests.cs
 using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Memory.Api;
 using Chargehand.Runtime;
 
 namespace Chargehand.Tests;

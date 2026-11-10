@@ -59,7 +59,7 @@ public class ProfileCompatTests
     [InlineData(typeof(ClaudeCodeSettings), typeof(ClaudeCodeSettingsJsonContext))]
     [InlineData(typeof(Profile), typeof(ProfileJsonContext))]
     [InlineData(typeof(DrivenSettings), typeof(ProfileJsonContext))]
-    [InlineData(typeof(McpServerSettings), typeof(ProfileJsonContext))]
+    [InlineData(typeof(McpServerSettings), typeof(MemorySettingsJsonContext))]
     public void A_modules_section_is_bound_by_the_modules_source_generated_context(Type section, Type context) =>
         Assert.IsType(context, Profile.LoadJson.GetTypeInfo(section).OriginatingResolver);
 
