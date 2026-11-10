@@ -154,3 +154,29 @@
   list-style: none;
   overflow-wrap: anywhere;
 }
+
+.quality-card__verdict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quality-card__item--fail {
+  color: var(--danger, inherit);
+}
+
+.quality-card__item--warn {
+  color: var(--warn, inherit);
+}
+
+.quality-card__item--none {
+  opacity: 0.7;
+}
+
+.quality-card__claims {
+  margin: 0;
+  padding-left: 1.25rem;
+}
