@@ -10,6 +10,7 @@ POST /v1/batches/{id}/tasks/{task}/cancel
 POST /v1/batches/{id}/tasks/{task}/retry
 POST /v1/batches/{id}/tasks/{task}/session/stop
 GET /v1/batches/{id}/tasks/{task}/sessions/{session}/transcript
+GET /v1/conversations/
 POST /v1/conversations/
 DELETE /v1/conversations/{id}
 GET /v1/conversations/{id}

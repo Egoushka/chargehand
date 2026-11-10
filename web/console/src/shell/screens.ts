@@ -5,6 +5,7 @@ export interface Screen {
     | '/'
     | '/needs-you'
     | '/runs'
+    | '/conversations'
     | '/new'
     | '/analytics'
     | '/learning'
@@ -50,6 +51,15 @@ export const SCREENS: readonly Screen[] = [
     group: 'main',
     go: 'r',
     blurb: 'Every run, newest first, with filters.',
+  },
+  {
+    to: '/conversations',
+    label: 'Conversations',
+    short: 'Chat',
+    icon: 'activity',
+    group: 'main',
+    go: 'c',
+    blurb: 'Agents you steer while they work: read, message, approve, end.',
   },
   {
     to: '/new',
