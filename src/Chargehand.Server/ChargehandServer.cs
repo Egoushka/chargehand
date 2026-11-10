@@ -261,7 +261,7 @@ public static partial class ChargehandServer
             var who = PrincipalHttp.Of(ctx);
             if (ctx.Items[RunScope.ItemKey] is RunTokenClaims scope)
             {
-                var applied = await RunScope.ApplyAsync(scope, request, runs.Ledger, ctx.RequestAborted);
+                var applied = await RunScopeGit.ApplyAsync(scope, request, runs.Ledger, ctx.RequestAborted);
                 if (applied.Refusal is { } refusal)
                     return Json(Problem(refusal), StatusCodes.Status403Forbidden);
                 (request, parent) = (applied.Request!, scope.RunId);
