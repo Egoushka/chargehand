@@ -119,7 +119,7 @@ Each needs the Research worker runtime port (section 3) unless it says otherwise
   `GitRepositoryHeads.cs`; schedules `Automation/Schedules/*`; phone answers `Automation/Notify/*`; the tracker source
   `src/Chargehand/ITaskSource.cs`, `Chargehand.Mcp/McpTaskSource.cs`; the hosted services
   `Chargehand.Server/IntakeService.cs`, `ScheduleService.cs`, `AnswerService.cs`. Needs Batches (section 3).
-- [ ] Intake, alerts: `src/Chargehand/Incident/IncidentCli.cs` (an alert into a `request/v1`). Proposal.
+- [x] Intake, alerts: `Intake/Api/IncidentCli.cs` (an alert into a `request/v1`). Proposal.
 - [ ] Console: `Chargehand.Server/Console/*` (29 files: inbox, fleet, batches, sources, routes, system and the rest),
   `WebConsole.cs`, `DependencyHealth.cs`. Needs Intake for its intake and sources screens, so it moves after it.
 - [ ] Evaluation: `src/Chargehand/Evals/*` (`EvalRunner`, `EvalItem`, `Gate`, `Scoring`, `ClaimScorer`, `FactJudge`,

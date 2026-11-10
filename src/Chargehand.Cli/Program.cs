@@ -218,7 +218,7 @@ if (argv is ["init", .. var initArgs])
     return Chargehand.Onboarding.InitCli.Run(initArgs, Directory.GetCurrentDirectory(), profilePath, DrivenPresetAllow(), Console.Out, Console.Error);
 // Profile-free: it maps an alert to a request for `run` (CHARGEHAND-192).
 if (argv is ["incident", .. var incidentArgs])
-    return await Chargehand.Incident.IncidentCli.RunAsync(incidentArgs, Directory.GetCurrentDirectory(), Console.In, Console.Out, Console.Error, DateTimeOffset.UtcNow, CancellationToken.None);
+    return await Chargehand.Modules.Intake.Api.IncidentCli.RunAsync(incidentArgs, Directory.GetCurrentDirectory(), Console.In, Console.Out, Console.Error, DateTimeOffset.UtcNow, CancellationToken.None);
 // Profile-free: it reads a repository's git log and prints a request for `run` (CHARGEHAND-191).
 if (argv is ["release-notes", .. var releaseNotesArgs])
     return await Chargehand.ReleaseNotes.ReleaseNotesCli.RunAsync(releaseNotesArgs, Directory.GetCurrentDirectory(), Console.Out, Console.Error, CancellationToken.None);

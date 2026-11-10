@@ -68,6 +68,7 @@
     <Project Path="tests/Chargehand.Modules.Forge.Tests/Chargehand.Modules.Forge.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Gateway.Tests/Chargehand.Modules.Gateway.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Handover.Tests/Chargehand.Modules.Handover.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Intake.Tests/Chargehand.Modules.Intake.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Journal.Tests/Chargehand.Modules.Journal.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Memory.Tests/Chargehand.Modules.Memory.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Oversight.Tests/Chargehand.Modules.Oversight.Tests.csproj" />
