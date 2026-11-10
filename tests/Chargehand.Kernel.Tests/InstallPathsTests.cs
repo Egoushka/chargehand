@@ -1,6 +1,4 @@
-using Chargehand.Config;
-
-namespace Chargehand.Tests;
+namespace Chargehand.Kernel.Tests;
 
 /// <summary>ADR 0027 follow-up 2: prompts/ and presets/ from a checkout when launched in one, else from the install.</summary>
 public class InstallPathsTests
@@ -8,7 +6,7 @@ public class InstallPathsTests
     [Fact]
     public void A_checkout_keeps_its_own_prompts_presets_and_relative_run_log()
     {
-        using var cwd = new TempDir();
+        using var cwd = new ScratchDir();
         Directory.CreateDirectory(Path.Combine(cwd.Path, "prompts"));
         Directory.CreateDirectory(Path.Combine(cwd.Path, "presets"));
 
@@ -21,7 +19,7 @@ public class InstallPathsTests
     [Fact]
     public void Elsewhere_the_install_and_a_per_user_run_log()
     {
-        using var cwd = new TempDir();
+        using var cwd = new ScratchDir();
         Directory.CreateDirectory(Path.Combine(cwd.Path, "prompts")); // a project's own prompts/ alone is not a checkout
 
         var (root, runLog) = InstallPaths.Resolve(null, cwd.Path, "/app", "/user-data");
@@ -33,8 +31,15 @@ public class InstallPathsTests
     [Fact]
     public void The_profile_run_log_wins()
     {
-        using var cwd = new TempDir();
+        using var cwd = new ScratchDir();
 
         Assert.Equal("runs/eval-log.jsonl", InstallPaths.Resolve("runs/eval-log.jsonl", cwd.Path, "/app", "/user-data").RunLog);
     }
+}
+
+internal sealed class ScratchDir : IDisposable
+{
+    public string Path { get; } = Directory.CreateTempSubdirectory("chargehand-test-").FullName;
+
+    public void Dispose() => Directory.Delete(Path, recursive: true);
 }

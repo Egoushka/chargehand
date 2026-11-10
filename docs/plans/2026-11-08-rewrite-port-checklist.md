@@ -39,7 +39,7 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
   `HttpSettings` to Accounts and Hosts.Server, `DrivenNetwork` to Gateway, `PromptEnhancerSettings` to Research,
   `InboxSettings` to Console, `DeliverySettings` to Kernel (`DeliveryPolicy.cs` is there). The hosts compose the root.
 - [ ] `Config/DrivenRunners.cs` → Runners (`DrivenRunners` settings already live there; this file only names the runner).
-- [ ] `Config/InstallPaths.cs` → Kernel (prompts, presets and run log locations; used by the CLI only today).
+- [x] `Config/InstallPaths.cs` → Kernel (prompts, presets and run log locations; used by the CLI only today).
 - [ ] `Config/Preset.cs` (preset/v1 loader) → Research, beside intake, which is its main reader. Proposal.
 
 ## 2. Layers 2 to 8: leftovers of modules already ported
