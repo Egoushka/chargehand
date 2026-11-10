@@ -71,6 +71,17 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
         });
       case '/v1/conversations':
         return route.fulfill({ json: { conversations: [] } });
+      case '/v1/fleet':
+        return route.fulfill({
+          json: {
+            contract_version: 'fleet/v1',
+            generated_at: new Date(now).toISOString(),
+            not_recorded: [],
+            runs: [],
+            claims: [],
+            pull_requests: [],
+          },
+        });
       case '/v1/pulls/train':
         return route.fulfill({ json: adm.train({}, now) });
       case '/v1/pulls/conflicts':

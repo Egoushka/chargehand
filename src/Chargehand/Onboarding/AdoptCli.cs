@@ -249,7 +249,7 @@ public static class AdoptCli
                 return;
             }
             output.WriteLine($"canary: {runId}");
-            var exit = await Watch.WatchCli.WatchAsync(client, runId, output, output, ct);
+            var exit = await Chargehand.Modules.Watch.Api.WatchCli.WatchAsync(client, runId, output, output, ct);
             output.WriteLine(exit == 0 ? "ok   canary: completed" : $"fail canary: ended with exit {exit}");
             if (exit != 0)
                 missing.Add("a canary run that completes");

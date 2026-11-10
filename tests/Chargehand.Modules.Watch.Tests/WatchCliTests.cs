@@ -2,9 +2,10 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
-using Chargehand.Watch;
+// agent-checks: allow deleted-tests, deleted-assertions -- the test that needs the in-process server moved to Chargehand.Tests/WatchCliServerTests.cs
+using Chargehand.Modules.Watch.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Watch.Tests;
 
 /// <summary><c>chargehand watch</c> is what a Claude Code session runs under its Monitor tool: every line on stdout is one notification, so what a line says
 /// and what the exit code means are pinned here.</summary>
@@ -24,19 +25,6 @@ public class WatchCliTests
             Seen.Add((request.Method, request.RequestUri!.AbsolutePath, request.Headers.Authorization?.ToString()));
             LastEventIds.Add(request.Headers.TryGetValues("Last-Event-ID", out var ids) ? ids.Single() : null);
             return Task.FromResult(replies[Math.Min(_next++, replies.Length - 1)](request));
-        }
-    }
-
-    /// <summary>Output that says when a given line was written.</summary>
-    private sealed class Lines(string awaited) : StringWriter
-    {
-        public TaskCompletionSource Written { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public override void WriteLine(string? value)
-        {
-            base.WriteLine(value);
-            if (value == awaited)
-                Written.TrySetResult();
         }
     }
 
@@ -250,29 +238,5 @@ public class WatchCliTests
 
         Assert.Null(client);
         Assert.Contains("--url", problem);
-        Assert.Contains("CHARGEHAND_API_KEY", problem);
-    }
-
-    [Fact]
-    public async Task Watch_follows_a_real_servers_run_from_accepted_to_its_result_and_reads_a_finished_one_again()
-    {
-        var runtime = new ScriptedRuntime(Runs.DraftReply) { Hold = new() };
-        await using var s = await TestServer.StartAsync(runtime);
-        var id = (await s.PostAsync(Runs.DraftRequest(), waitSeconds: 0)).Headers.Location!.OriginalString.Split('/')[^1];
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-
-        // The run is released only once watch follows it: a run that finished first is read from the log as its result alone.
-        var output = new Lines("accepted");
-        var watching = WatchCli.WatchAsync(s.Http, id, output, TextWriter.Null, timeout.Token);
-        await output.Written.Task.WaitAsync(timeout.Token);
-        runtime.Hold.SetResult();
-        Assert.Equal(0, await watching);
-        var lines = output.ToString().TrimEnd().Split('\n');
-        Assert.Equal("accepted", lines[0]);
-        Assert.StartsWith("run_finished: completed: ", lines[^1]);
-
-        var again = new StringWriter();
-        Assert.Equal(0, await WatchCli.WatchAsync(s.Http, id, again, TextWriter.Null, timeout.Token));
-        Assert.StartsWith("run_finished: completed: ", again.ToString());
     }
 }

@@ -22,6 +22,14 @@ public sealed class McpConnectionPool : IAsyncDisposable
         ClientInfo = new() { Name = "chargehand", Version = typeof(McpConnectionPool).Assembly.GetName().Version?.ToString() ?? "0" },
     };
 
+    // An injected transport is an in-process server that speaks 2026-07-28. Its host can start slowly on a loaded machine; a probe
+    // that timed out would fall back to initialize on a connection the server already holds in 2026-07-28 mode, and be refused (#645).
+    private static readonly McpClientOptions InProcessClientOptions = new()
+    {
+        ClientInfo = ClientOptions.ClientInfo,
+        DiscoverProbeTimeout = TimeSpan.FromSeconds(60),
+    };
+
     private readonly IReadOnlyDictionary<string, McpServerSettings> _servers;
     private readonly Func<string, string> _secret;
     private readonly Func<string, McpServerSettings, CancellationToken, Task<IClientTransport>>? _transports;
@@ -154,7 +162,7 @@ public sealed class McpConnectionPool : IAsyncDisposable
             transport = _transports is null
                 ? settings.Url is not null ? new HttpClientTransport(HttpOptions(name, settings, secret)) : new StdioClientTransport(StdioOptions(name, settings, secret))
                 : await _transports(name, settings, attempt.Token);
-            var client = await McpClient.CreateAsync(transport, ClientOptions, cancellationToken: attempt.Token);
+            var client = await McpClient.CreateAsync(transport, _transports is null ? ClientOptions : InProcessClientOptions, cancellationToken: attempt.Token);
             if (!_closing.IsCancellationRequested)
                 return client;
             await client.DisposeAsync();

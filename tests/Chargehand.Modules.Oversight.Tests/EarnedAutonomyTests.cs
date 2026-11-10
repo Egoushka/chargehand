@@ -109,4 +109,17 @@ public class EarnedAutonomyTests
             Assert.ThrowsAny<Exception>(() => new DrivenGovernor(Autonomy: bad).Validate());
         new DrivenGovernor(Autonomy: new DrivenGovernorAutonomy()).Validate();
     }
+
+    [Fact]
+    public void The_overview_lists_each_repository_with_what_would_widen_its_rights()
+    {
+        var entries = new List<LearningEntry>([.. Clean(6), Entry(3, PrOutcomes.Reverted, repository: "o/lost"), Entry(1, null, bench: true, repository: "o/bench")]);
+        var overview = AutonomyOverview.Build(Starting, entries, Now);
+        Assert.Equal(["o/lost", "o/r"], overview.Select(a => a.Repository));
+        var earned = overview[1];
+        Assert.Equal(("L", false, 6, null), (earned.MaxSizeClass, earned.AutoMerge, earned.CleanStreak, earned.LostTo));
+        Assert.Equal("4 more pull requests merged unchanged earn auto-merge.", earned.Widens);
+        var lost = overview[0];
+        Assert.Equal(("M", 0, EarnedAutonomy.Revert), (lost.MaxSizeClass, lost.CleanStreak, lost.LostTo));
+    }
 }

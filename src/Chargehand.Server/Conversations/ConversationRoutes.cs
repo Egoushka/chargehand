@@ -3,6 +3,7 @@ using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Conversations.Api;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;

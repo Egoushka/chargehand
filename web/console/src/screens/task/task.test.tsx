@@ -533,3 +533,62 @@ describe('a task as a drawer', () => {
     expect(router.state.location.search).toEqual({ tab: 'spend' });
   });
 });
+
+describe('the quality card', () => {
+  it('shows the mutation score against its threshold beside the verification', async () => {
+    serve(
+      {},
+      {
+        't2-retry-policy': {
+          mutation: { ran: true, score: 0.71, threshold: 0.6, passed: true, not_run: null },
+        },
+      },
+    );
+    renderConsole(page('t2-retry-policy'));
+    expect(await screen.findByText(/mutation 0\.71 ≥ 0\.60/)).toBeTruthy();
+    expect(screen.getByText(/verification passed/)).toBeTruthy();
+  });
+
+  it('shows a score below the threshold with its reason', async () => {
+    serve(
+      {},
+      {
+        't2-retry-policy': {
+          mutation: { ran: true, score: 0.2, threshold: 0.6, passed: false, not_run: null },
+        },
+      },
+    );
+    renderConsole(page('t2-retry-policy'));
+    expect(
+      await screen.findByText(/mutation 0\.20 < 0\.60 \(below the required 60%\)/),
+    ).toBeTruthy();
+  });
+
+  it('says not checked when the change had no C# production file', async () => {
+    serve({}, { 't2-retry-policy': { mutation: null } });
+    renderConsole(page('t2-retry-policy'));
+    expect(await screen.findByText('mutation: not checked')).toBeTruthy();
+  });
+
+  it('words a mutation run that could not run and lists review claims with their verdicts', async () => {
+    serve(
+      {},
+      {
+        't2-retry-policy': {
+          mutation: {
+            ran: false,
+            score: null,
+            threshold: 0.6,
+            passed: false,
+            not_run: 'timed out',
+          },
+          review: { runs: [], claims: [{ text: 'The cap is 30 seconds', support: 'refuted' }] },
+        },
+      },
+    );
+    renderConsole(page('t2-retry-policy'));
+    expect(await screen.findByText('mutation: could not run (timed out)')).toBeTruthy();
+    expect(screen.getByText('The cap is 30 seconds')).toBeTruthy();
+    expect(screen.getByText('refuted')).toBeTruthy();
+  });
+});

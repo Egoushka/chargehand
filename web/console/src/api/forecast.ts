@@ -24,15 +24,14 @@ export interface ForecastQuery {
 
 export const forecastKey = (q: ForecastQuery) => ['forecast', q.repository, q.size ?? 'M', q.goal];
 
-/** The forecast of one task; off while the repository or the goal is empty. */
-export function useForecast(query: ForecastQuery) {
-  const enabled = query.repository.trim() !== '' && query.goal.trim() !== '';
-  return useQuery({
+/** The query of one task's forecast; off while the repository or the goal is empty. */
+export function forecastQuery(query: ForecastQuery) {
+  return {
     queryKey: forecastKey(query),
-    enabled,
+    enabled: query.repository.trim() !== '' && query.goal.trim() !== '',
     staleTime: 60_000,
     retry: false,
-    queryFn: async ({ signal }): Promise<ForecastBody> => {
+    queryFn: async ({ signal }: { signal?: AbortSignal }): Promise<ForecastBody> => {
       const reply = await call<ForecastBody>('/v1/forecast', {
         method: 'POST',
         signal,
@@ -41,5 +40,8 @@ export function useForecast(query: ForecastQuery) {
       if (!reply.ok) throw new ApiError(reply.status, problems(reply));
       return reply.data;
     },
-  });
+  };
 }
+
+/** The forecast of one task. */
+export const useForecast = (query: ForecastQuery) => useQuery(forecastQuery(query));

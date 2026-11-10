@@ -13,14 +13,15 @@ public static partial class ContainerTemplate
     /// <c>safe.directory</c> is needed because the read-only source belongs to another user. It is a global config in the helper's tmpfs (the root filesystem is
     /// read-only, so HOME moves to /tmp): <c>git clone</c> of a local path runs <c>git-upload-pack</c> as a child, which checks ownership itself and does not see
     /// <c>-c</c> or <c>GIT_CONFIG_*</c> (measured on a Linux host). The clone gets no hooks (<c>--template=</c>) and its own commits run none (<c>core.hooksPath</c>). The session image keeps the .NET CLI home and
-    /// the NuGet package cache in /work (<c>DOTNET_CLI_HOME</c>, <c>NUGET_PACKAGES</c>), and the JDK variant (ADR 0048) Gradle's and Maven's: they are excluded here, so the stop snapshot's <c>git add -A</c> does not commit them.</summary>
+    /// the NuGet package cache in /work (<c>DOTNET_CLI_HOME</c>, <c>NUGET_PACKAGES</c>), and the JDK variant (ADR 0048) Gradle's and Maven's: they are excluded here, so the stop snapshot's <c>git add -A</c> does not commit them.
+    /// So is <c>/work/.tmp</c>, the scratch directory a verify command's <c>TMPDIR</c> points at (the session's /tmp is noexec), whatever the repository's own <c>.gitignore</c> says (issue #751).</summary>
     public const string WorkspaceScript =
         "set -e\n"
         + "export HOME=/tmp\n"
         + "git config --global safe.directory '*'\n"
         + "git clone --quiet --no-hardlinks --template= /src /work\n"
         + "mkdir -p /work/.git/info\n"
-        + "printf '%s\\n' '/.dotnet/' '/.nuget/' '/.gradle/' '/.m2/' >> /work/.git/info/exclude\n"
+        + "printf '%s\\n' '/.dotnet/' '/.nuget/' '/.gradle/' '/.m2/' '/.tmp/' >> /work/.git/info/exclude\n"
         + "git -C /work checkout --quiet -b \"$1\" \"$2\"\n"
         + "git -C /work config user.name chargehand\n"
         + "git -C /work config user.email " + SessionEmail + "\n"
@@ -65,7 +66,7 @@ public static partial class ContainerTemplate
         + "export HOME=/tmp\n"
         + "git clone --quiet --no-hardlinks --template= --no-checkout /in/source.bundle /work\n"
         + "mkdir -p /work/.git/info\n"
-        + "printf '%s\\n' '/.dotnet/' '/.nuget/' '/.gradle/' '/.m2/' >> /work/.git/info/exclude\n"
+        + "printf '%s\\n' '/.dotnet/' '/.nuget/' '/.gradle/' '/.m2/' '/.tmp/' >> /work/.git/info/exclude\n"
         + "git -C /work checkout --quiet -b \"$1\" \"$2\"\n"
         + "git -C /work config user.name chargehand\n"
         + "git -C /work config user.email " + SessionEmail + "\n"
