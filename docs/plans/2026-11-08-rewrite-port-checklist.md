@@ -52,11 +52,14 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
   `McpUnavailableException.cs`) has no chargehand types beyond settings: ADR 0060 sends such code to the separate MIT
   library; until then, Memory's `Adapters/`. Proposal.
 - [ ] Ledger (2): `src/Chargehand/RunLog/ExtensionsCollector.cs` (what memory and services did, for the run record).
-- [ ] Accounts (3): `Chargehand.Server/AccountsCli.cs`, `AccountsHttp.cs`, `AccountStanding.cs`, `AccessSignIn.cs`
+- [x] Accounts (3): `Chargehand.Server/AccountsCli.cs`, `AccountsHttp.cs`, `AccountStanding.cs`, `AccessSignIn.cs`
   (`ProxySignIn` and `CloudflareAccess` are there already); `RunToken.cs` (a driven session's capped token);
   `CredentialProbe.cs`, `CredentialAlert.cs` (beside `CredentialHealth`); `src/Chargehand/PublicFreeGate.cs` and
   `Chargehand.Server/RunService.PublicFree.cs` (beside `PublicFreePool`); `RunApprovalGate.cs` and
   `RunService.Approval.cs` (the owner's gate on priced spend, ADR 0092).
+  Moved: `AccountsCli`, `AccountStanding`, `RunToken` (git half stays as `Server/RunScopeGit`), `RunApprovalGate`. Left behind (they need the
+  server, ASP.NET, `Profile` or a layer above): `AccountsHttp`, `AccessSignIn`, `CredentialProbe`, `CredentialAlert`, `PublicFreeGate`,
+  `RunService.PublicFree.cs`, `RunService.Approval.cs`.
 - [ ] Oversight (3): `Chargehand.Server/PrOutcomeRefresher.cs` (the timer around `PrOutcomeTracker`).
 - [ ] Gateway (4): `Chargehand.Driven/Driven/DrivenModelRoute.cs`, `BatchFallback.cs` (the model route and the API-key
   fallback inside the egress gateway, ADR 0088).
