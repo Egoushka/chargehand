@@ -1,4 +1,5 @@
-namespace Chargehand.Sandbox;
+using Chargehand.Modules.Research.Internal;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>Linux <c>bwrap</c> (bubblewrap): the filesystem read-only, credential locations hidden, writes only in the workspace and a
 /// private temp directory, no network unless allowed (ADR 0035).</summary>

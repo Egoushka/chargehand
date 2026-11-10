@@ -5,7 +5,7 @@ using System.Text.Json;
 using Chargehand.Acp;
 using Chargehand.Modules.Conversations.Api;
 using Chargehand.Runtimes.Acp.Api;
-using Chargehand.Sandbox;
+using Chargehand.Modules.Research.Api;
 
 namespace Chargehand.Tests;
 

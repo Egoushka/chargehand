@@ -1,4 +1,4 @@
-namespace Chargehand.Sandbox;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>Runs the command with no confinement, only the cut environment and the timeout. Chosen only by
 /// <c>sandbox.kind: none</c> (ADR 0035), and used by tests.</summary>

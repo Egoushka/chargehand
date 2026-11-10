@@ -1,8 +1,8 @@
 using Chargehand.Contracts;
 using Chargehand.Kernel;
-using Chargehand.Sandbox;
+using Chargehand.Modules.Research.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Modules.Research.Tests;
 
 /// <summary>Goal 0.7 (ADR 0035): the sandbox a writing run's tests execute in.</summary>
 public class SandboxTests
