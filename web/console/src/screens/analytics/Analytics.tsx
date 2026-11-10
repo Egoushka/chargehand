@@ -46,6 +46,7 @@ import {
   topDecisions,
 } from './model';
 import { PassRateChart } from './PassRateChart';
+import { RouterPanel } from './RouterPanel';
 import './analytics.css';
 
 /** How old a query's data is, for the error box: "Showing the last data, from 13:14." */
@@ -164,6 +165,8 @@ export function Analytics() {
           />
         </div>
       </div>
+
+      {owner ? <RouterPanel /> : null}
 
       {analytics.isError ? (
         <ErrorState
