@@ -37,7 +37,14 @@ public static class GitRunner
         }
         catch (OperationCanceledException)
         {
-            process.Kill(entireProcessTree: true);
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException)
+            {
+                // It exited between the deadline and the kill.
+            }
             if (ct.IsCancellationRequested)
                 throw;
             return new GitRunResult(-1, "", "git timed out", TimedOut: true);
