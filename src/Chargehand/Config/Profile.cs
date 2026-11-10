@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -84,7 +83,7 @@ public sealed record Profile(
         PresetServices is not null && PresetServices.TryGetValue(preset, out var mapped) ? mapped : presetServices;
 
     /// <summary>How long one command secret source may run before it is killed and the next source is tried (ADR 0034).</summary>
-    internal TimeSpan CommandTimeout { get; init; } = TimeSpan.FromSeconds(15);
+    internal TimeSpan CommandTimeout { get; init; } = SecretSources.DefaultCommandTimeout;
 
     /// <summary>The runtimes this profile has a block for; the only one names the runtime when neither the runtime field
     /// nor CHARGEHAND_RUNTIME does (ADR 0032).</summary>
@@ -111,7 +110,7 @@ public sealed record Profile(
         TypeInfoResolver = JsonTypeInfoResolver.Combine(LedgerSettingsJsonContext.Default, AccountsSettingsJsonContext.Default,
             MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, HandoverSettingsJsonContext.Default, IntakeSettingsJsonContext.Default,
             BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default, SessionsSettingsJsonContext.Default, TasksSettingsJsonContext.Default,
-            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, EconomicsSettingsJsonContext.Default, ProfileJsonContext.Default),
+            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, EconomicsSettingsJsonContext.Default, KernelSettingsJsonContext.Default, ProfileJsonContext.Default),
     };
 
     /// <summary>Owner-visible defaults (this record's own default values) when the file does not exist.</summary>
@@ -182,56 +181,8 @@ public sealed record Profile(
 
     /// <summary>Tries each source in order; the first that resolves the item wins (ADR 0026). Default with no profile: env only.
     /// A command source that outruns <see cref="CommandTimeout"/> is killed and counts as not resolving (ADR 0034).</summary>
-    public string Secret(string item)
-    {
-        var timedOut = false;
-        foreach (var source in Secrets ?? [new SecretSource(Env: true)])
-        {
-            if (source.Env == true && Environment.GetEnvironmentVariable(item.ToUpperInvariant().Replace('-', '_')) is { Length: > 0 } value)
-                return value;
-            if (source.Command is { Count: > 0 } template)
-            {
-                var (output, expired) = RunCommand(template, item, CommandTimeout);
-                if (output is not null)
-                    return output;
-                timedOut |= expired;
-            }
-        }
-        throw new InvalidOperationException($"no secret source resolved '{item}'" + (timedOut ? $" (a command source timed out after {CommandTimeout.TotalSeconds:0.#} s)" : ""));
-    }
-
-    /// <summary>An argv array run directly via Process, no shell; "{item}" is substituted per array element. The output is null
-    /// when the command failed, printed nothing or was killed at <paramref name="timeout"/> (then <c>TimedOut</c>).</summary>
-    private static (string? Output, bool TimedOut) RunCommand(IReadOnlyList<string> template, string item, TimeSpan timeout)
-    {
-        var args = template.Select(a => a.Replace("{item}", item)).ToList();
-        var psi = new ProcessStartInfo(args[0]) { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in args.Skip(1))
-            psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        p.StandardInput.Close(); // under `chargehand mcp` the parent's stdin carries the protocol
-        var clock = Stopwatch.StartNew();
-        var output = p.StandardOutput.ReadToEndAsync();
-        _ = p.StandardError.ReadToEndAsync(); // drained so a chatty command cannot fill the pipe, never read
-        if (!output.Wait(timeout) || !p.WaitForExit(TimeSpan.FromTicks(Math.Max(0, (timeout - clock.Elapsed).Ticks))))
-        {
-            try
-            {
-                p.Kill(entireProcessTree: true);
-            }
-            catch (InvalidOperationException)
-            {
-                // it exited between the wait and the kill
-            }
-            return (null, true);
-        }
-        var value = output.Result.TrimEnd('\n');
-        return (p.ExitCode == 0 && value.Length > 0 ? value : null, false);
-    }
+    public string Secret(string item) => SecretSources.Resolve(Secrets, item, CommandTimeout);
 }
-
-/// <summary>One secret lookup: environment variable, or a command template ("{item}" substituted per array element).</summary>
-public sealed record SecretSource(bool? Env = null, IReadOnlyList<string>? Command = null);
 
 /// <summary>
 /// One MCP server the profile names (ADR 0034); memory providers and preset services refer to it by name. Exactly one of
@@ -317,10 +268,6 @@ internal sealed class MemoryListConverter : JsonConverter<IReadOnlyList<MemoryPr
     public override void Write(Utf8JsonWriter writer, IReadOnlyList<MemoryProviderSettings> value, JsonSerializerOptions options) =>
         JsonSerializer.Serialize(writer, value, (JsonTypeInfo<IEnumerable<MemoryProviderSettings>>)options.GetTypeInfo(typeof(IEnumerable<MemoryProviderSettings>)));
 }
-
-/// <param name="UsageOnSpans">Call spans carry tokens and cost (ADR 0021). Only for calls no gateway records, e.g. Claude
-/// Code on a subscription; with a LiteLLM gateway, usage stays on its generations (ADR 0012).</param>
-public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecret, string SecretKeySecret, bool UsageOnSpans = false);
 
 /// <summary>chargehand serve (ADR 0018): a port, and the secret-store item holding the API key callers send. Listen and
 /// AllowedHosts open it beyond loopback, for a private network only (ADR 0024).</summary>
