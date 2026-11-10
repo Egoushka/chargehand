@@ -1,9 +1,8 @@
 using System.Globalization;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
-using Chargehand.Modules.Runners.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Modules.Gateway.Api;
 
 /// <summary>Where a driven session reaches the model (ADR 0039): an Anthropic-compatible gateway named by <c>driven.network.model_url</c>, which issues the batch a key of its own
 /// (a budget, a model list, revocable) instead of the real credential. An <c>http</c> gateway is reached through a forward on the batch's egress container, because the proxy
@@ -18,8 +17,9 @@ public sealed record DrivenModelRoute(string? Forward, string? AllowHost, string
     public int? ForwardPort => Forward is null ? null : int.Parse(Forward[..Forward.IndexOf('=')], CultureInfo.InvariantCulture);
 
     /// <summary>Null when <paramref name="modelUrl"/> is not set. Throws <see cref="ChargehandException"/> for a URL that cannot work, before anything is created.</summary>
+    /// <param name="serviceUrl">Where a session reaches a forward on the egress container, from its listen port (the runner layer's <c>BatchNetworkInfo.ServiceUrl</c>).</param>
     /// <param name="key">The profile key the URL came from, for the refusals.</param>
-    public static DrivenModelRoute? Parse(string? modelUrl, bool priced, int? mcpPort, string key = "driven.network.model_url")
+    public static DrivenModelRoute? Parse(string? modelUrl, bool priced, int? mcpPort, Func<int, string> serviceUrl, string key = "driven.network.model_url")
     {
         if (string.IsNullOrEmpty(modelUrl))
             return null;
@@ -37,7 +37,7 @@ public sealed record DrivenModelRoute(string? Forward, string? AllowHost, string
         if (uri.Port == mcpPort)
             throw Refuse(key, $"{key} uses port {uri.Port}, which is the chargehand forward's; the two forwards need different ports.");
         var port = uri.Port.ToString(CultureInfo.InvariantCulture);
-        return new DrivenModelRoute($"{port}={uri.Host}:{port}", null, $"{BatchNetworkInfo.ServiceUrl(uri.Port)}{path}");
+        return new DrivenModelRoute($"{port}={uri.Host}:{port}", null, $"{serviceUrl(uri.Port)}{path}");
     }
 
     private static ChargehandException Refuse(string key, string message) =>
