@@ -4,6 +4,7 @@ import type { AccountsBody } from '../api/accounts';
 import type { AnalyticsBody, AnalyticsBucket, AnalyticsGroupBy, CostBody } from '../api/analytics';
 import type { BatchBody } from '../api/batch';
 import type { BatchTaskDetailBody } from '../api/batch-task';
+import type { FleetBody } from '../api/fleet';
 import type { InboxBody } from '../api/inbox';
 import type { IntakeBody, IntakeSourcesBody } from '../api/intake';
 import type { IntakeLimitsBody, LimitsChange } from '../api/limits';
@@ -22,6 +23,7 @@ export interface Scenario {
   me?: Me;
   overview?: OverviewBody;
   inbox?: InboxBody;
+  fleet?: FleetBody;
   runs?: RunSummary[];
   batches?: Record<string, BatchBody>;
   /** A task's own view by `<batch>/<task>`. */
@@ -43,6 +45,8 @@ export interface Scenario {
   cost?: CostBody;
   /** Replaces the generated `/v1/learn` report for every range. */
   learn?: LearnReport;
+  /** Answers `/v1/learn?since=` per range, for the trend; `learn` wins when both are set. */
+  learnFor?: (since: string | undefined) => LearnReport;
   /** Answers by exact path (before the query), replacing the defaults: `[status, body, headers]`. */
   replies?: Record<string, [number, unknown, Record<string, string>?]>;
   /** A route that never answers: for a loading state. */
@@ -95,6 +99,19 @@ export function serveApi(scenario: Scenario = {}) {
       return Promise.resolve(json(scenario.me ?? fx.me({}, now)));
     if (path === '/v1/overview')
       return Promise.resolve(json(scenario.overview ?? fx.overview({}, now)));
+    if (path === '/v1/fleet')
+      return Promise.resolve(
+        json(
+          scenario.fleet ?? {
+            contract_version: 'fleet/v1',
+            generated_at: new Date(now).toISOString(),
+            runs: [],
+            claims: [],
+            pull_requests: [],
+            not_recorded: [],
+          },
+        ),
+      );
     if (path === '/v1/inbox')
       return Promise.resolve(json(scenario.inbox ?? fx.inbox(undefined, now)));
     if ((path === '/v1/inbox/dismiss' || path === '/v1/inbox/restore') && method === 'POST')
@@ -128,7 +145,7 @@ export function serveApi(scenario: Scenario = {}) {
       return Promise.resolve(
         json(
           scenario.learn ??
-            learnReport(
+            (scenario.learnFor ?? learnReport)(
               new URLSearchParams(input.split('?')[1] ?? '').get('since') ?? undefined,
               now,
             ),

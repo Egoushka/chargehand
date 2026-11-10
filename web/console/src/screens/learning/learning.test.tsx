@@ -9,6 +9,7 @@ import { finishedBatch, finishedRuns, learnReport, RETRO_TEXT } from '../../test
 import { renderConsole } from '../../testing/render';
 import { serveApi } from '../../testing/server';
 import { viewport } from '../../testing/viewport';
+import { TREND_SINCE } from './autonomy';
 import {
   DEFAULT_RULE,
   historyRule,
@@ -373,12 +374,22 @@ describe('Learning', () => {
     const api = serveApi({ ...batchesFor() });
     renderConsole('/console/learning');
     await screen.findByRole('table');
-    expect(api.last('/v1/learn')?.path).toBe('/v1/learn?since=60d');
-    expect(screen.getByRole('button', { name: '60 d' }).getAttribute('aria-pressed')).toBe('true');
+    // The autonomy trend reads its own weekly samples; 7d is one of them, so the range shares that cached report.
+    const trend = new Set(TREND_SINCE.map((since) => `/v1/learn?since=${since}`));
+    const range = () =>
+      [...api.calls].reverse().find((c) => c.path.startsWith('/v1/learn') && !trend.has(c.path))
+        ?.path;
+    const pressed = (name: string) =>
+      screen.getByRole('button', { name }).getAttribute('aria-pressed');
+    expect(range()).toBe('/v1/learn?since=60d');
+    expect(pressed('60 d')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: '7 d' }));
-    await waitFor(() => expect(api.last('/v1/learn')?.path).toBe('/v1/learn?since=7d'));
+    await waitFor(() => expect(pressed('7 d')).toBe('true'));
+    expect(pressed('60 d')).toBe('false');
+    expect(api.calls.map((c) => c.path)).toContain('/v1/learn?since=7d');
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
-    await waitFor(() => expect(api.last('/v1/learn')?.path).toBe('/v1/learn?since=36500d'));
+    await waitFor(() => expect(range()).toBe('/v1/learn?since=36500d'));
+    expect(pressed('All')).toBe('true');
   });
 
   it('says how a budget is chosen with the defaults when the key cannot read the profile, and with the profile’s numbers when it can', async () => {

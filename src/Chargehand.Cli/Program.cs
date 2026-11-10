@@ -137,7 +137,7 @@ if (argv is ["watch" or "cancel", var watchRun, .. var watchOptions])
 {
     using var stop = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-    var (client, problem) = Chargehand.Watch.WatchCli.Connect(watchOptions, Environment.GetEnvironmentVariable, ProfileServer);
+    var (client, problem) = Chargehand.Modules.Watch.Api.WatchCli.Connect(watchOptions, Environment.GetEnvironmentVariable, ProfileServer);
     if (client is null)
     {
         Console.Error.WriteLine(problem);
@@ -145,8 +145,8 @@ if (argv is ["watch" or "cancel", var watchRun, .. var watchOptions])
     }
     using (client)
         return argv[0] == "watch"
-            ? await Chargehand.Watch.WatchCli.WatchAsync(client, watchRun, Console.Out, Console.Error, stop.Token)
-            : await Chargehand.Watch.WatchCli.CancelAsync(client, watchRun, Console.Out, Console.Error, stop.Token);
+            ? await Chargehand.Modules.Watch.Api.WatchCli.WatchAsync(client, watchRun, Console.Out, Console.Error, stop.Token)
+            : await Chargehand.Modules.Watch.Api.WatchCli.CancelAsync(client, watchRun, Console.Out, Console.Error, stop.Token);
 }
 // Profile-free too: the egress container of a driven-session batch holds an allowlist and nothing else (ADR 0039).
 if (argv is ["egress", .. var egressArgs])
@@ -205,7 +205,7 @@ if (argv is ["bench", "run", .. var benchRunArgs])
     using var stop = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Bench.BenchCli.RunAsync(benchRunArgs, benchProfile, DrivenPresetAllow(), BenchLimits(), () => BenchEngines(benchProfile),
-        connectArgs => Chargehand.Watch.WatchCli.Connect(connectArgs, Environment.GetEnvironmentVariable, ProfileServer), Environment.GetEnvironmentVariable,
+        connectArgs => Chargehand.Modules.Watch.Api.WatchCli.Connect(connectArgs, Environment.GetEnvironmentVariable, ProfileServer), Environment.GetEnvironmentVariable,
         Directory.GetCurrentDirectory(), Console.Out, Console.Error, stop.Token);
 }
 if (argv is ["bench", ..])
@@ -247,7 +247,7 @@ if (argv is ["adopt", .. var adoptArgs])
     using var stop = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Onboarding.AdoptCli.RunAsync(adoptArgs, profilePath, new Chargehand.Onboarding.SystemAdoptHost(),
-        connectArgs => Chargehand.Watch.WatchCli.Connect(connectArgs, Environment.GetEnvironmentVariable, ProfileServer), Console.Out, Console.Error, stop.Token);
+        connectArgs => Chargehand.Modules.Watch.Api.WatchCli.Connect(connectArgs, Environment.GetEnvironmentVariable, ProfileServer), Console.Out, Console.Error, stop.Token);
 }
 if (argv is ["doctor", .. var doctorArgs])
 {
@@ -293,7 +293,7 @@ switch (argv)
     case ["mcp"]:
         return await Mcp();
     case ["accounts", .. var accountArgs]:
-        return AccountsCli.Run(accountArgs, profile, AccountsCli.KeysFile(runLogPath), Console.Out, Console.Error);
+        return AccountsCli.Run(accountArgs, profile.Http?.Accounts ?? [], AccountsCli.KeysFile(runLogPath), Console.Out, Console.Error);
     case ["show", var id]:
         return await Show(id);
     case ["runs", "kill", "--all"]:

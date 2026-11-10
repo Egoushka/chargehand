@@ -84,9 +84,10 @@ public sealed record BatchBody(string ContractVersion, RunSummary Run, string? A
 /// <param name="Changes">The <c>changes</c> artifact: files with their line counts, and the diff (cut to the result's inline limit).</param>
 /// <param name="Review">The research and review runs the session started (<c>review</c> artifact).</param>
 /// <param name="KeptWork">What an unfinished task leaves for a continuation (<c>kept-work</c> artifact).</param>
+/// <param name="Mutation">The <c>mutation</c> artifact beside <paramref name="Verification"/>: score, threshold, survivors, killed, and <c>not_run</c> (why the tool could not run); null: the change was not checked.</param>
 public sealed record BatchTaskDetailBody(string ContractVersion, string BatchRunId, string? Actor, BatchRepository? Repository, BatchTaskBody Task, string? Summary, ErrorBody? ResultError,
     IReadOnlyList<ArtifactRef> Artifacts, JsonElement? Verification, JsonElement? SessionTests, JsonElement? Changes, JsonElement? Review, JsonElement? KeptWork, TimelineBody Timeline,
-    IReadOnlyList<string> NotRecorded);
+    IReadOnlyList<string> NotRecorded, JsonElement? Mutation = null);
 
 /// <summary>Builds <c>batch/v1</c> and <c>batch-task/v1</c> from the run log, the learning records, the saved state of unfinished batches and the events this process holds.</summary>
 internal static class ConsoleBatches
@@ -144,7 +145,7 @@ internal static class ConsoleBatches
         return new BatchTaskDetailBody(TaskContract, runId, batch.Actor, batch.Repository, withIntegrator, result?.Summary, result?.Error is { } e ? ErrorOf(e) : null,
             result?.Artifacts.Select(a => new ArtifactRef(a.Kind, a.MediaType, a.Sha256, a.Uri)).ToList() ?? [],
             ResultArtifacts.Content(result, "verification"), ResultArtifacts.Content(result, "session-tests"), ResultArtifacts.Content(result, "changes"),
-            ResultArtifacts.Content(result, "review"), ResultArtifacts.Content(result, ContinuationSource.KeptWorkKind), timeline, NotRecorded);
+            ResultArtifacts.Content(result, "review"), ResultArtifacts.Content(result, ContinuationSource.KeptWorkKind), timeline, NotRecorded, ResultArtifacts.Content(result, "mutation"));
     }
 
     /// <summary>Pull requests of the batches the caller sees, newest first; the same rows <c>GET /v1/pulls</c> lists, built from the learning records and the batch results.</summary>

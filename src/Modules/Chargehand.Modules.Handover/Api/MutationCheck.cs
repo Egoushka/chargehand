@@ -11,6 +11,14 @@ public sealed record MutationRun(string RunId, string BundlePath, string Branch,
 /// <param name="Score">The share of mutants the tests killed, 0 to 1; null: no mutant was made, so there is nothing to kill.</param>
 public sealed record MutationReport(bool Ran, double? Score, string Detail);
 
+/// <summary>What the mutation check found for a handover, kept in the task's <c>mutation</c> artifact.</summary>
+/// <param name="Ran">False: the tool could not run, and <paramref name="NotRun"/> says why.</param>
+/// <param name="Score">The share of mutants killed, 0 to 1; null: none was made, or the tool did not run.</param>
+/// <param name="Threshold">The share the repository requires.</param>
+/// <param name="Survivors">Surviving mutants when the tool reports the count; null otherwise.</param>
+/// <param name="NotRun">Why the tool could not run; null when it did.</param>
+public sealed record MutationOutcome(bool Ran, double? Score, double Threshold, string? NotRun, int? Survivors = null, int? Killed = null);
+
 public interface IMutationTester
 {
     Task<MutationReport> MutateAsync(MutationRun run, CancellationToken ct);

@@ -276,7 +276,7 @@ public sealed class Orchestrator(
         run?.SetTag("chargehand.action", executed is null ? null : Name(executed.Value));
         // A caller's cancel must not stop the record of it from being written.
         await runLog.AppendAsync(new RunRecord(runId, started, DateTimeOffset.UtcNow, presetName, intake?.Spec is null ? null : Name(intake.Spec.Action), intake?.Spec, result,
-            executed is null ? null : Name(executed.Value), extensions.ToReport(), actor, credential, intakeSkipped ? true : null, route, subscription.Latest), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
+            executed is null ? null : Name(executed.Value), extensions.ToReport(), actor, credential, intakeSkipped ? true : null, route, SubscriptionUsage: subscription.Latest), cancelledByCaller?.Invoke() == true ? CancellationToken.None : ct);
         await ReportOutcome(enhanced, result, executed);
         progress?.Invoke(RunStatus.Of(runId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });
         return result;

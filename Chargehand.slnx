@@ -61,6 +61,7 @@
     <Project Path="tests/Chargehand.Kernel.Tests/Chargehand.Kernel.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Batches.CoyoteTests/Chargehand.Modules.Batches.CoyoteTests.csproj" />
     <Project Path="tests/Chargehand.Modules.Batches.Tests/Chargehand.Modules.Batches.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Console.Tests/Chargehand.Modules.Console.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Conversations.Tests/Chargehand.Modules.Conversations.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Economics.Tests/Chargehand.Modules.Economics.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Events.Tests/Chargehand.Modules.Events.Tests.csproj" />
@@ -70,6 +71,7 @@
     <Project Path="tests/Chargehand.Modules.Journal.Tests/Chargehand.Modules.Journal.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Memory.Tests/Chargehand.Modules.Memory.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Oversight.Tests/Chargehand.Modules.Oversight.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Accounts.Tests/Chargehand.Modules.Accounts.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Ledger.Tests/Chargehand.Modules.Ledger.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Research.Tests/Chargehand.Modules.Research.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Runners.Tests/Chargehand.Modules.Runners.Tests.csproj" />

@@ -33,14 +33,17 @@ Watch are empty projects; the four hosts are stubs.
 ADR 0060: "The `Profile` record goes away: each module binds and validates its own options." Most modules already own
 a settings type with its JSON context; what is left is in `src/Chargehand/Config`.
 
-- [ ] `Config/Profile.cs`, `Config/ProfileJsonContext.cs`: the root record and the sections still declared there
-  (`SecretSource`, `TelemetrySettings`, `HttpSettings`, `DrivenNetwork`, `PromptEnhancerSettings`, `InboxSettings`,
-  `DeliverySettings`) go to the module that reads each: secrets and telemetry to Kernel (`Telemetry.cs` is there),
-  `HttpSettings` to Accounts and Hosts.Server, `DrivenNetwork` to Gateway, `PromptEnhancerSettings` to Research,
-  `InboxSettings` to Console, `DeliverySettings` to Kernel (`DeliveryPolicy.cs` is there). The hosts compose the root.
-- [ ] `Config/DrivenRunners.cs` → Runners (`DrivenRunners` settings already live there; this file only names the runner).
-- [ ] `Config/InstallPaths.cs` → Kernel (prompts, presets and run log locations; used by the CLI only today).
-- [ ] `Config/Preset.cs` (preset/v1 loader) → Research, beside intake, which is its main reader. Proposal.
+- [x] `Config/Profile.cs`: the sections it declared go to the module that reads each, with that module's settings JSON
+  context: `SecretSource` (and the resolver behind `Profile.Secret`, `SecretSources`), `TelemetrySettings` and
+  `DeliverySettings` to Kernel, `DrivenNetwork` to Gateway, `PromptEnhancerSettings` to Research, `InboxSettings` to Console.
+- [ ] `Config/Profile.cs`, `Config/ProfileJsonContext.cs`: what is left is composition: the root record, `HttpSettings`
+  (it composes Accounts', Events' and Conversations' sections, so it goes to Hosts.Server with the root, not to a module),
+  `McpServerSettings` and `DrivenSettings`. The hosts compose the root.
+- [x] `Config/DrivenRunners.cs` → Runners (`DrivenRunnerSet`; the `DrivenSettings` members stay as thin delegates until the root goes).
+- [x] `Config/InstallPaths.cs` → Kernel (prompts, presets and run log locations; used by the CLI only today).
+- [ ] `Config/Preset.cs` (preset/v1 loader) → Research, beside intake, which is its main reader. Proposal. Waits for the
+  worker runtime port (section 3): `NodeKind.Rules` builds `PermissionRule` of `src/Chargehand/Runtime`; and the loader
+  (YamlDotNet into reflection JSON) needs a source-generated path before a host publishes it.
 
 ## 2. Layers 2 to 8: leftovers of modules already ported
 
@@ -49,16 +52,23 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
   `McpUnavailableException.cs`) has no chargehand types beyond settings: ADR 0060 sends such code to the separate MIT
   library; until then, Memory's `Adapters/`. Proposal.
 - [x] Ledger (2): `src/Chargehand/RunLog/ExtensionsCollector.cs` (what memory and services did, for the run record).
-- [ ] Accounts (3): `Chargehand.Server/AccountsCli.cs`, `AccountsHttp.cs`, `AccountStanding.cs`, `AccessSignIn.cs`
+- [x] Accounts (3): `Chargehand.Server/AccountsCli.cs`, `AccountsHttp.cs`, `AccountStanding.cs`, `AccessSignIn.cs`
   (`ProxySignIn` and `CloudflareAccess` are there already); `RunToken.cs` (a driven session's capped token);
   `CredentialProbe.cs`, `CredentialAlert.cs` (beside `CredentialHealth`); `src/Chargehand/PublicFreeGate.cs` and
   `Chargehand.Server/RunService.PublicFree.cs` (beside `PublicFreePool`); `RunApprovalGate.cs` and
   `RunService.Approval.cs` (the owner's gate on priced spend, ADR 0092).
+  Moved: `AccountsCli`, `AccountStanding`, `RunToken` (git half stays as `Server/RunScopeGit`), `RunApprovalGate`. Left behind (they need the
+  server, ASP.NET, `Profile` or a layer above): `AccountsHttp`, `AccessSignIn`, `CredentialProbe`, `CredentialAlert`, `PublicFreeGate`,
+  `RunService.PublicFree.cs`, `RunService.Approval.cs`.
 - [x] Oversight (3): `Chargehand.Server/PrOutcomeRefresher.cs` (the timer around `PrOutcomeTracker`).
 - [ ] Gateway (4): `Chargehand.Driven/Driven/DrivenModelRoute.cs`, `BatchFallback.cs` (the model route and the API-key
   fallback inside the egress gateway, ADR 0088).
 - [ ] Runners (5): `Chargehand.Driven/Driven/RunnerSite.cs`; the runner's own server `Chargehand.Server/Runner/RunnerServer.cs`
   (its process entry `RunnerCli.cs` goes to Hosts.Runner, section 5).
+  Left in place. `RunnerSite` holds an `ISessionVolumes` (Sessions, a layer above Runners), so it moves with or after Sessions
+  (or the volumes port moves down). `RunnerServer` needs `Microsoft.AspNetCore.App`, which no module references, and serialises
+  anonymous replies (`new { error }`, `new { count }`) through the reflection-based `RunnerJson.Options`, which Native AOT forbids;
+  it goes to Hosts.Runner with `RunnerCli.cs`, after typed replies join `RunnerJsonContext`.
 - [x] Handover (7): `Chargehand.Server/HeldPrReconciler.cs` (updates a pull request once its base turns green).
 
 ## 3. Layer 9: Research (the one-shot run) and Batches
@@ -116,7 +126,7 @@ Each needs the Research worker runtime port (section 3) unless it says otherwise
   needs Batches); `src/Chargehand/ReleaseNotes/ReleaseNotesCli.cs` (proposal: it reads verification types, as evals do).
 - [ ] Onboarding: `src/Chargehand/Onboarding/*` (`AdoptCli`, `AdoptProbes`, `Doctor`, `DoctorCli`, `InitCli`,
   `StarterProfile`, `SystemDoctorEnvironment`); `Chargehand.Mcp/ExtensionsCheck.cs` (`extensions check`).
-- [ ] Watch: `src/Chargehand/Watch/WatchCli.cs` (`watch` and `cancel`; needs only Contracts, so it can move any time).
+- [x] Watch: `src/Chargehand/Watch/WatchCli.cs` (`watch` and `cancel`; needs only Contracts, so it can move any time).
 
 ## 5. Layer 11: hosts
 

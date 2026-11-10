@@ -261,7 +261,7 @@ public static partial class ChargehandServer
             var who = PrincipalHttp.Of(ctx);
             if (ctx.Items[RunScope.ItemKey] is RunTokenClaims scope)
             {
-                var applied = await RunScope.ApplyAsync(scope, request, runs.Ledger, ctx.RequestAborted);
+                var applied = await RunScopeGit.ApplyAsync(scope, request, runs.Ledger, ctx.RequestAborted);
                 if (applied.Refusal is { } refusal)
                     return Json(Problem(refusal), StatusCodes.Status403Forbidden);
                 (request, parent) = (applied.Request!, scope.RunId);
@@ -306,7 +306,11 @@ public static partial class ChargehandServer
 
         foreach (var path in new[] { "/v1/accounts/me", IdentityPath })
             app.MapGet(path, async (HttpContext ctx, RunService runs) =>
-                Json(await AccountStanding.ReadAsync(PrincipalHttp.Of(ctx)!, runs, log, ctx.RequestAborted), StatusCodes.Status200OK));
+            {
+                var who = PrincipalHttp.Of(ctx)!;
+                return Json(await AccountStanding.ReadAsync(who, runs.Now, runs.Unfinished(who.Name), runs.Halted, runs.Presets(), runs.ReservedUsd(who.Name), log, ctx.RequestAborted),
+                    StatusCodes.Status200OK);
+            });
 
         app.MapGet("/v1/runs", async (HttpContext ctx) =>
         {
@@ -353,6 +357,7 @@ public static partial class ChargehandServer
             var report = Chargehand.Modules.Oversight.Api.LearningReport.Build(entries, since) with
             {
                 BudgetRefusals = Chargehand.Modules.Oversight.Api.BudgetRefusals.Build(entries, DateTimeOffset.UtcNow),
+                Autonomy = Chargehand.Modules.Oversight.Api.AutonomyOverview.Build(settings.Profile?.Driven?.Governor ?? new(), entries, DateTimeOffset.UtcNow),
             };
             return Json(report, StatusCodes.Status200OK);
         });
