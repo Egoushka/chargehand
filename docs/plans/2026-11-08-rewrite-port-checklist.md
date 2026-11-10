@@ -33,14 +33,17 @@ Watch are empty projects; the four hosts are stubs.
 ADR 0060: "The `Profile` record goes away: each module binds and validates its own options." Most modules already own
 a settings type with its JSON context; what is left is in `src/Chargehand/Config`.
 
-- [ ] `Config/Profile.cs`, `Config/ProfileJsonContext.cs`: the root record and the sections still declared there
-  (`SecretSource`, `TelemetrySettings`, `HttpSettings`, `DrivenNetwork`, `PromptEnhancerSettings`, `InboxSettings`,
-  `DeliverySettings`) go to the module that reads each: secrets and telemetry to Kernel (`Telemetry.cs` is there),
-  `HttpSettings` to Accounts and Hosts.Server, `DrivenNetwork` to Gateway, `PromptEnhancerSettings` to Research,
-  `InboxSettings` to Console, `DeliverySettings` to Kernel (`DeliveryPolicy.cs` is there). The hosts compose the root.
-- [ ] `Config/DrivenRunners.cs` → Runners (`DrivenRunners` settings already live there; this file only names the runner).
-- [ ] `Config/InstallPaths.cs` → Kernel (prompts, presets and run log locations; used by the CLI only today).
-- [ ] `Config/Preset.cs` (preset/v1 loader) → Research, beside intake, which is its main reader. Proposal.
+- [x] `Config/Profile.cs`: the sections it declared go to the module that reads each, with that module's settings JSON
+  context: `SecretSource` (and the resolver behind `Profile.Secret`, `SecretSources`), `TelemetrySettings` and
+  `DeliverySettings` to Kernel, `DrivenNetwork` to Gateway, `PromptEnhancerSettings` to Research, `InboxSettings` to Console.
+- [ ] `Config/Profile.cs`, `Config/ProfileJsonContext.cs`: what is left is composition: the root record, `HttpSettings`
+  (it composes Accounts', Events' and Conversations' sections, so it goes to Hosts.Server with the root, not to a module),
+  `McpServerSettings` and `DrivenSettings`. The hosts compose the root.
+- [x] `Config/DrivenRunners.cs` → Runners (`DrivenRunnerSet`; the `DrivenSettings` members stay as thin delegates until the root goes).
+- [x] `Config/InstallPaths.cs` → Kernel (prompts, presets and run log locations; used by the CLI only today).
+- [ ] `Config/Preset.cs` (preset/v1 loader) → Research, beside intake, which is its main reader. Proposal. Waits for the
+  worker runtime port (section 3): `NodeKind.Rules` builds `PermissionRule` of `src/Chargehand/Runtime`; and the loader
+  (YamlDotNet into reflection JSON) needs a source-generated path before a host publishes it.
 
 ## 2. Layers 2 to 8: leftovers of modules already ported
 
