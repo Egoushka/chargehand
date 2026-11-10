@@ -146,7 +146,7 @@ internal static class ConsoleSources
     public static IntakeSourcesBody Build(ServerSettings settings, GitHubIntake? intake)
     {
         List<string> problems = [];
-        var github = intake is null ? null : Read(settings.IntakeStatePath, IntakeState.Load, "GitHub", problems) ?? new IntakeState();
+        var github = intake is null ? null : Read(settings.IntakeStatePath, IntakeState.Read, "GitHub", problems) ?? new IntakeState();
         var sources = intake is null ? [] : intake.Watched.OrderBy(w => w.Key, StringComparer.OrdinalIgnoreCase)
             .Select(w => GitHubSource(w.Key, intake.Sources.IsOn(w.Key), w.Value, github!)).ToList();
         return new(Contract, intake is not null, intake?.Discovers ?? false, sources, [.. problems, .. Unrecorded], intake is null ? null : Policy(intake));
