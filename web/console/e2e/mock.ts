@@ -66,6 +66,8 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
         return route.fulfill({
           json: options.account ? fx.accountOverview(now) : fx.overview({}, now),
         });
+      case '/v1/threads':
+        return route.fulfill({ json: { threads: [] } });
       case '/v1/inbox':
         return route.fulfill({
           json: fx.inbox(options.empty || options.account ? [] : fx.inboxItems(now), now),

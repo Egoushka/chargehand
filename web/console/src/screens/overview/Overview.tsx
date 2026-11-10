@@ -9,6 +9,7 @@ import { buttonClass, ErrorState, Kpi, Panel, Skeleton } from '../../ui';
 import { ActiveBatches } from './ActiveBatches';
 import { FleetBoard } from './FleetBoard';
 import { kpis, recentMerges } from './model';
+import { OpenThreads } from './OpenThreads';
 import { AdmissionPanel, MergesPanel, NeedsPanel, SpendPanel, SystemPanel } from './Panels';
 import './overview.css';
 
@@ -97,6 +98,7 @@ export function Overview() {
           <div className="stack">
             <FleetBoard />
             <ActiveBatches />
+            <OpenThreads />
             <NeedsPanel
               items={inbox.data?.items ?? []}
               total={data?.inbox.total ?? inbox.data?.counts.total ?? 0}

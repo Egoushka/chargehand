@@ -14,6 +14,7 @@ import type { ConflictsBody, PullsBody, TrainsBody } from '../api/pulls';
 import type { RepositoriesBody } from '../api/repositories';
 import type { RouterBody } from '../api/router';
 import type { SystemBody } from '../api/system';
+import type { ThreadCard } from '../api/threads';
 import type { LearnReport, Me, RunSummary } from '../api/types';
 import * as adm from './admin';
 import * as fx from './fixtures';
@@ -35,6 +36,8 @@ export interface Scenario {
   streams?: Record<string, string>;
   /** The caller's conversations (`conversation/v1`), newest first; their event streams go in `streams`. */
   conversations?: Conversation[];
+  /** The threads of `GET /v1/threads`; a card is the thread itself. */
+  threads?: ThreadCard[];
   pulls?: PullsBody;
   system?: SystemBody | null;
   intake?: IntakeBody;
@@ -237,6 +240,13 @@ export function serveApi(scenario: Scenario = {}) {
       return Promise.resolve(
         json(scenario.tasks?.[`${id}/${name}`] ?? rx.taskDetail(id, name, now)),
       );
+    }
+    if (path === '/v1/threads' && method === 'GET')
+      return Promise.resolve(json({ threads: scenario.threads ?? [] }));
+    const card = /^\/v1\/threads\/([^/]+)\/card$/.exec(path);
+    if (card) {
+      const found = scenario.threads?.find((t) => t.thread === decodeURIComponent(card[1] ?? ''));
+      return Promise.resolve(found ? json(found) : json({ errors: ['no such thread'] }, 404));
     }
     if (path === '/v1/conversations' && method === 'GET')
       return Promise.resolve(json({ conversations: scenario.conversations ?? [] }));
