@@ -487,3 +487,93 @@ describe('Overview model', () => {
     expect(kpis(accountOverview(), []).spend.sub).toBe('5.10M tokens');
   });
 });
+
+describe('Overview cockpit board', () => {
+  const at = { since: '2026-11-10T10:00:00Z' };
+  const fleet = {
+    contract_version: 'fleet/v1' as const,
+    generated_at: '2026-11-10T10:10:00Z',
+    not_recorded: [],
+    runs: [
+      {
+        id: BATCH_A,
+        kind: 'batch' as const,
+        actor: 'owner',
+        state: 'running',
+        age_seconds: 720,
+        blocked_by: null,
+        ...at,
+      },
+      {
+        id: BATCH_B,
+        kind: 'batch' as const,
+        actor: 'owner',
+        state: 'queued',
+        age_seconds: 30,
+        blocked_by: 'rate_limit',
+        ...at,
+      },
+    ],
+    claims: [
+      {
+        repository: 'o/r',
+        issue: 123,
+        holder: 'session-1',
+        state: 'held',
+        age_seconds: 2400,
+        blocked_by: null,
+        ...at,
+      },
+    ],
+    pull_requests: [
+      {
+        url: 'https://github.com/o/r/pull/7',
+        number: 7,
+        repository: 'o/r',
+        actor: 'owner',
+        state: 'awaiting_person',
+        age_seconds: 10800,
+        blocked_by: 'policy_ask',
+        ...at,
+      },
+    ],
+  };
+
+  it('lists runs, claims and pull requests with blocked_by, linked to their run or pull request', async () => {
+    serveApi({ runs: running, fleet });
+    renderConsole('/console/');
+
+    const runs = await screen.findByRole('list', { name: 'Running and queued' });
+    const rows = within(runs).getAllByRole('listitem') as HTMLElement[];
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0] as HTMLElement).getByText('12m')).toBeTruthy();
+    expect(within(rows[1] as HTMLElement).getByText('rate limit')).toBeTruthy();
+    expect(
+      within(rows[0] as HTMLElement)
+        .getByRole('link')
+        .getAttribute('href'),
+    ).toContain(`/runs/${BATCH_A}`);
+
+    const claims = screen.getByRole('list', { name: 'Claims' });
+    expect(within(claims).getByText('o/r#123')).toBeTruthy();
+
+    const prs = screen.getByRole('list', { name: 'Open pull requests' });
+    expect(within(prs).getByText('policy asks')).toBeTruthy();
+    expect(within(prs).getByRole('link').getAttribute('href')).toBe(
+      'https://github.com/o/r/pull/7',
+    );
+  });
+
+  it('shows a rate_limit as a visible pause banner', async () => {
+    serveApi({ runs: running, fleet });
+    renderConsole('/console/');
+    expect(await screen.findByText('Paused by a provider rate limit')).toBeTruthy();
+  });
+
+  it('shows no banner when nothing is rate limited', async () => {
+    serveApi({ runs: running, fleet: { ...fleet, runs: fleet.runs.slice(0, 1) } });
+    renderConsole('/console/');
+    await screen.findByRole('list', { name: 'Running and queued' });
+    expect(screen.queryByText('Paused by a provider rate limit')).toBeNull();
+  });
+});
