@@ -127,6 +127,7 @@ Each needs the Research worker runtime port (section 3) unless it says otherwise
   needs Batches); `src/Chargehand/ReleaseNotes/ReleaseNotesCli.cs` (proposal: it reads verification types, as evals do).
 - [ ] Onboarding: `src/Chargehand/Onboarding/*` (`AdoptCli`, `AdoptProbes`, `Doctor`, `DoctorCli`, `InitCli`,
   `StarterProfile`, `SystemDoctorEnvironment`); `Chargehand.Mcp/ExtensionsCheck.cs` (`extensions check`).
+  Partly done: `StarterProfile` is in `Modules.Onboarding.Api`; the rest waits on `RepositoryDetector` and the doctor probes.
 - [x] Watch: `src/Chargehand/Watch/WatchCli.cs` (`watch` and `cancel`; needs only Contracts, so it can move any time).
 
 ## 5. Layer 11: hosts
