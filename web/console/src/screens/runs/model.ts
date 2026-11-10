@@ -24,16 +24,35 @@ export function latestUsage(runs: RunSummary[]): RunSummary | null {
   return best;
 }
 
+export interface WindowReading {
+  /** The short name: `5h` or `7d`. */
+  name: string;
+  /** Whole percent of the window used; past 100 means over the cap. */
+  percent: number;
+  resetsAt?: string;
+}
+
+/** The windows a reading holds, five-hour first. */
+export function usageWindows(usage: SubscriptionUsage | null | undefined): WindowReading[] {
+  const reading = (name: string, w: UsageWindow | null | undefined): WindowReading[] =>
+    w
+      ? [
+          {
+            name,
+            percent: Math.round(w.utilization * 100),
+            ...(w.resets_at ? { resetsAt: w.resets_at } : {}),
+          },
+        ]
+      : [];
+  return [...reading('5h', usage?.five_hour), ...reading('7d', usage?.seven_day)];
+}
+
 /** The tooltip of a run's window cell: both windows and when each resets. */
 export function windowTitle(run: RunSummary): string | undefined {
-  const u = run.subscription_usage;
-  if (!u) return undefined;
-  const part = (name: string, w: UsageWindow | null | undefined) =>
-    w
-      ? `${name} ${Math.round(w.utilization * 100)}%${w.resets_at ? ` (resets ${w.resets_at})` : ''}`
-      : null;
   return (
-    [part('5h', u.five_hour), part('7d', u.seven_day)].filter(Boolean).join(' · ') || undefined
+    usageWindows(run.subscription_usage)
+      .map((w) => `${w.name} ${w.percent}%${w.resetsAt ? ` (resets ${w.resetsAt})` : ''}`)
+      .join(' · ') || undefined
   );
 }
 
