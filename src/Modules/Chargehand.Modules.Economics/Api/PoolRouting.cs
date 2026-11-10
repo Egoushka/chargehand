@@ -128,7 +128,9 @@ public sealed class PoolRouting(PoolsSettings? settings, IRunLog log, TimeProvid
 
     private async Task<IReadOnlyList<PoolSpend>> SpendAsync(CancellationToken ct) => SpendOf((await log.ReadRunsAsync(ct)).Runs);
 
-    /// <summary>Each routed run's cost, charged to its pool when it finished; a run with no price counts nothing.</summary>
+    /// <summary>Each routed run's cost, charged to its pool when it finished; a run with no price counts nothing. A run whose sessions moved between pools (D-113) charges each pool what its own sessions cost.</summary>
     public static IReadOnlyList<PoolSpend> SpendOf(IEnumerable<RunRecord> runs) =>
-        [.. runs.Where(r => r.Route is not null && r.Result.Usage.Usd is > 0).Select(r => new PoolSpend(r.Route!.Pool, r.Finished, r.Result.Usage.Usd!.Value))];
+        [.. runs.SelectMany(r => r.Routes is { Count: > 0 } routes
+            ? routes.Where(route => route.Usd is > 0).Select(route => new PoolSpend(route.Pool, r.Finished, route.Usd!.Value))
+            : r.Route is not null && r.Result.Usage.Usd is > 0 ? [new PoolSpend(r.Route.Pool, r.Finished, r.Result.Usage.Usd.Value)] : [])];
 }

@@ -15,7 +15,8 @@ namespace Chargehand.Modules.Tasks.Api;
 /// <summary>The task's sessions: the first one started or taken up, each one's end read and recorded, and the continuations (ADR 0044).</summary>
 public sealed partial class TaskRunner
 {
-    private async Task FirstSessionAsync(ResolvedTask task, TaskRun run, CancellationToken ct)
+    /// <returns>The task's end when no pool can take its first session (<see cref="NoSessionAsync"/>); null: the session started or was taken up.</returns>
+    private async Task<TaskOutcome?> FirstSessionAsync(ResolvedTask task, TaskRun run, CancellationToken ct)
     {
         run.Containers[run.RunId] = null;
         if (run.Attach)
@@ -25,6 +26,11 @@ public sealed partial class TaskRunner
         }
         else
         {
+            var route = await AskRouterAsync(ct);
+            if (route?.WaitUntil is { } until)
+                return await NoSessionAsync(task, run, until);
+            if (route is not null)
+                _routes[run.RunId] = route;
             run.SessionStarted = DateTimeOffset.UtcNow;
             await RecordAsync(task.Id, new TaskSessionStarting(run.SessionStarted));
             run.Open = (run.RunId, run.SessionStarted, run.Continuation == 0 ? "first" : "continuation");
@@ -33,6 +39,7 @@ public sealed partial class TaskRunner
         }
         run.Open ??= (run.RunId, run.SessionStarted, run.Continuation == 0 ? "first" : "continuation");
         run.Containers[run.RunId] = run.Container;
+        return null;
     }
 
     /// <summary>Waits for the session to end, reads and records its outcome, and adds its usage to the task's.</summary>
@@ -72,7 +79,9 @@ public sealed partial class TaskRunner
         progress.Report(Capped(run.Total.InputTokens + run.Total.OutputTokens, settings.Priced ? run.Total.CostUsd ?? 0 : 0, ended: true));
         if (session.BundleWritten && session.Commits > 0)
             run.Best = new BestRun(runId, outDirectory, session.Commits);
-        return Continues(session, run.Continuation, run.Total, run.Best, seeded);
+        NoteRefusal(runId, session);
+        Charge(run);
+        return Continues(session, run.Continuation - run.Reroutes, run.Total, run.Best, seeded) || Moves(run);
     }
 
     /// <summary>The session's governor decisions, records, question and span. An outcome read again after a restart (the task was saved Finished) publishes no events: they were published before.</summary>
@@ -93,15 +102,20 @@ public sealed partial class TaskRunner
         call?.SetEndTime(sessionEnded.UtcDateTime);
     }
 
-    /// <summary>The branch so far goes into a new session on the same branch name; the old container and workspace are not needed any more.</summary>
+    /// <summary>The branch so far goes into a new session on the same branch name; the old container and workspace are not needed any more. The router is asked first, so a task no pool can take changes nothing.</summary>
     /// <returns>False when the continuation could not be started: the previous session is then the last.</returns>
     private async Task<bool> ContinueAsync(ResolvedTask task, TaskRun run, CancellationToken ct)
     {
-        var session = run.Session;
+        var refused = run.Session.Status == SessionStatus.RateLimited;
+        var route = await AskRouterAsync(ct);
+        if (route?.WaitUntil is { } until)
+        {
+            NoFurtherSession(run, until, refused);
+            return false;
+        }
         run.Continuation++;
-        run.Goal = ContinuationGoal(task.Goal, run.Continuation, session, ReadProgress(run.OutDirectory));
-        run.StartDetail = $"session container started (continuation {run.Continuation} of {settings.Preset.MaxContinuations}, previous stopped by {session.Reason})";
-        run.Seed = Path.Combine(run.OutDirectory, "chargehand.bundle");
+        run.Reroutes += refused ? 1 : 0;
+        PlanContinuation(task, run, refused);
         run.Prior = run.Total;
         await RemoveSessionAsync(run.RunId, run.Container, CancellationToken.None);
         var (previousRun, previousOut) = (run.RunId, run.OutDirectory);
@@ -110,8 +124,10 @@ public sealed partial class TaskRunner
         run.OutDirectory = Path.Combine(settings.ScratchRoot, "out", run.RunId);
         Directory.CreateDirectory(run.OutDirectory);
         run.Containers[run.RunId] = null;
-        await RecordAsync(task.Id, new TaskContinuationBegan(run.RunId, run.Runs.ToList(), run.Continuation, run.Total, DateTimeOffset.UtcNow, new BestBundle(run.Best!.RunId, run.Best.Commits), run.Goal,
-            run.StartDetail));
+        if (route is not null)
+            _routes[run.RunId] = route;
+        await RecordAsync(task.Id, new TaskContinuationBegan(run.RunId, run.Runs.ToList(), run.Continuation, run.Total, DateTimeOffset.UtcNow, run.Best is { } best ? new BestBundle(best.RunId, best.Commits) : null,
+            run.Goal, run.StartDetail));
         try
         {
             run.SessionStarted = DateTimeOffset.UtcNow;
@@ -126,6 +142,7 @@ public sealed partial class TaskRunner
             RecordCutShort(task, run.Open!.Value, e);
             run.Open = null;
             run.Continuation--;
+            run.Reroutes -= refused ? 1 : 0;
             run.Runs.RemoveAt(run.Runs.Count - 1);
             (run.RunId, run.OutDirectory) = (previousRun, previousOut);
             await RecordAsync(task.Id, new TaskContinuationFailed(run.RunId, run.Runs.ToList(), run.Continuation));
@@ -204,13 +221,15 @@ public sealed partial class TaskRunner
         PhasesOf(task.Id).Restore += Since(restoring);
         // The bare arm (ADR 0080) keeps the limits and the caps, which bound its cost as they bound the other arm's, and drops everything that steers or checks the session.
         await volumes.WriteTaskAsync(runId, Bare
-            ? new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, SessionModel(settings.Model), left.Usd, Prices: settings.Prices, CheckRetries: 0, Bare: true)
-            : new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, SessionModel(settings.Model), left.Usd, Prices: settings.Prices,
+            ? new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, SessionModel(ModelOf(runId)), left.Usd, Prices: settings.Prices, CheckRetries: 0, Bare: true)
+            : new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, SessionModel(ModelOf(runId)), left.Usd, Prices: settings.Prices,
                 Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd, budget), Environment: settings.Shared?.ForSession(tools), Acceptance: task.Acceptance,
                 CheckRetries: preset.CheckRetries, ReminderMinutes: preset.GoalReminderMinutes > 0 ? preset.GoalReminderMinutes : null, ReminderTurns: preset.GoalReminderTurns,
                 Check: PrePushCheck), ct);
 
         var env = ModelEnvironment(runId, maxMinutes, left, sessionStarted);
+        if (SubagentModel(runId) is { } subagentModel)
+            env["CLAUDE_CODE_SUBAGENT_MODEL"] = subagentModel;
         AddServiceEnvironment(env, task, runId, maxMinutes, left, sessionStarted, span, traceId);
         var container = await engine.StartAsync(new ContainerSpec(runId, settings.Image, RunnerNames.Work(runId), RunnerNames.Out(runId), settings.Network.Network, env,
             preset.MemoryMb, preset.Cpus, preset.Pids, ["session"], Caches: settings.Shared?.Caches is { Count: > 0 } caches ? caches : null, Home: settings.Shared?.Home), ct);
@@ -302,6 +321,12 @@ public sealed partial class TaskRunner
         if (Bare || session is not { Status: SessionStatus.Stalled, BundleWritten: true, Commits: > 0 } || !StallDetector.Continuable(session.Reason) || best is null
             || continuation >= settings.Preset.MaxContinuations || session.Commits <= seeded)
             return false;
+        return HasRoom(total);
+    }
+
+    /// <summary>The task's caps are not spent: a further session may run.</summary>
+    private bool HasRoom(SessionOutcome total)
+    {
         var (tokens, usd) = Remaining(total);
         return tokens > 0 && usd is not <= 0;
     }
@@ -313,10 +338,9 @@ public sealed partial class TaskRunner
         session.Status is SessionStatus.Completed or SessionStatus.Stalled or SessionStatus.TokenCap or SessionStatus.RateLimited || (session.Status == SessionStatus.Failed && session.Reason != "out_of_memory");
 
     /// <summary>With a handoff (ADR 0045) the earlier commits are offered, not required: the handoff may show the approach failed, and then the session starts again from the base commit.</summary>
-    private string ContinuationGoal(string goal, int number, SessionOutcome previous, string? progress)
+    private string ContinuationGoal(string goal, string lead, string? progress)
     {
-        var head = $"{goal}\n\nContinuation {number} of {settings.Preset.MaxContinuations}. A previous session was stopped by {previous.Reason.Replace('_', ' ')} after {previous.Turns} turns; its work is on this branch "
-            + "(the last commit, 'WIP: ...'). ";
+        var head = $"{goal}\n\n{lead} ";
         return progress is null
             ? head + $"Read `git log` and `git diff {settings.BaseCommit}..HEAD` first, do not redo finished work, finish the task, run the tests, and end with the same report block."
             : head + $"The handoff below says where it stood. Read it, then `git log` and `git diff {settings.BaseCommit}..HEAD`. Those commits are offered, not required: keep what works and do not redo it, "

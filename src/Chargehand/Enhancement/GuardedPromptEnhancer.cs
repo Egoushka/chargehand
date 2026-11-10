@@ -1,3 +1,5 @@
+using Chargehand.Modules.Research.Api;
+
 namespace Chargehand.Enhancement;
 
 /// <summary>
@@ -8,7 +10,7 @@ namespace Chargehand.Enhancement;
 /// <param name="time">The clock the deadline runs on; tests pass one they advance by hand.</param>
 public sealed class GuardedPromptEnhancer(IPromptEnhancer inner, TimeSpan? deadline = null, TimeProvider? time = null) : IPromptEnhancer
 {
-    public static readonly TimeSpan DefaultDeadline = TimeSpan.FromMilliseconds(1500);
+    public static readonly TimeSpan DefaultDeadline = TimeSpan.FromMilliseconds(PromptEnhancerSettings.DefaultDeadlineMs);
 
     private readonly TimeSpan _deadline = deadline ?? DefaultDeadline;
     private readonly TimeProvider _time = time ?? TimeProvider.System;

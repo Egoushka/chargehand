@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -7,16 +6,19 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Console.Api;
 using Chargehand.Modules.Conversations.Api;
 using Chargehand.Modules.Economics.Api;
 using Chargehand.Modules.Events.Api;
 using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.PeerClones.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
@@ -84,7 +86,7 @@ public sealed record Profile(
         PresetServices is not null && PresetServices.TryGetValue(preset, out var mapped) ? mapped : presetServices;
 
     /// <summary>How long one command secret source may run before it is killed and the next source is tried (ADR 0034).</summary>
-    internal TimeSpan CommandTimeout { get; init; } = TimeSpan.FromSeconds(15);
+    internal TimeSpan CommandTimeout { get; init; } = SecretSources.DefaultCommandTimeout;
 
     /// <summary>The runtimes this profile has a block for; the only one names the runtime when neither the runtime field
     /// nor CHARGEHAND_RUNTIME does (ADR 0032).</summary>
@@ -111,7 +113,7 @@ public sealed record Profile(
         TypeInfoResolver = JsonTypeInfoResolver.Combine(LedgerSettingsJsonContext.Default, AccountsSettingsJsonContext.Default,
             MemorySettingsJsonContext.Default, ForgeSettingsJsonContext.Default, HandoverSettingsJsonContext.Default, IntakeSettingsJsonContext.Default,
             BatchesSettingsJsonContext.Default, OversightSettingsJsonContext.Default, RunnersSettingsJsonContext.Default, SessionsSettingsJsonContext.Default, TasksSettingsJsonContext.Default,
-            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, EconomicsSettingsJsonContext.Default, ProfileJsonContext.Default),
+            OpenCodeSettingsJsonContext.Default, ClaudeCodeSettingsJsonContext.Default, AcpSettingsJsonContext.Default, PeerCloneSettingsJsonContext.Default, EconomicsSettingsJsonContext.Default, KernelSettingsJsonContext.Default, GatewaySettingsJsonContext.Default, ResearchSettingsJsonContext.Default, ConsoleSettingsJsonContext.Default, ProfileJsonContext.Default),
     };
 
     /// <summary>Owner-visible defaults (this record's own default values) when the file does not exist.</summary>
@@ -128,7 +130,7 @@ public sealed record Profile(
             throw new ChargehandException(ErrorCode.InvalidRequest, string.Join("; ", problems),
                 "Fix memory in the profile; docs/guide/reference.md lists the fields.");
         if (profile.PromptEnhancer is { } enhancer)
-            enhancer.Validate(servers);
+            enhancer.Validate(servers.Keys);
         profile.Http?.Validate();
         foreach (var (preset, uses) in profile.PresetServices ?? new Dictionary<string, IReadOnlyList<ServiceUse>>())
             foreach (var use in uses)
@@ -150,7 +152,7 @@ public sealed record Profile(
         if (profile.Automation?.Account is { } charged && profile.Http?.Accounts?.FirstOrDefault(a => a.Name == charged) is not { Driven: true })
             throw new ChargehandException(ErrorCode.InvalidRequest, $"automation.account: '{charged}' must be an account of http.accounts with driven: true",
                 "Declare the account under http.accounts with driven: true, or leave automation.account out to run automated starts as the owner.");
-        profile.Delivery?.Validate(profile.Automation);
+        profile.Delivery?.Validate(profile.Automation?.Github?.Repositories?.Select(r => ("automation.github.repositories", r.Key, r.Value.Path)) ?? []);
         if (profile.PublicFree?.Problems().ToList() is { Count: > 0 } poolProblems)
             throw new ChargehandException(ErrorCode.InvalidRequest, "public_free: " + string.Join("; ", poolProblems),
                 "Fix public_free in the profile; docs/adr/0093-runs-on-public-repositories-use-a-free-model-pool.md lists the fields.");
@@ -166,7 +168,7 @@ public sealed record Profile(
 
     /// <summary>Which repositories are local-only (ADR 0069); none when the profile has no <c>delivery</c> block.</summary>
     [JsonIgnore]
-    public DeliveryPolicy DeliveryPolicy => new(Delivery?.LocalOnly);
+    public DeliveryPolicy DeliveryPolicy => Delivery?.Policy ?? DeliveryPolicy.None;
 
     /// <summary>The provider segment of the placeholder models presets name (e.g. provider/worker-model).</summary>
     public const string PlaceholderProvider = "provider/";
@@ -182,56 +184,8 @@ public sealed record Profile(
 
     /// <summary>Tries each source in order; the first that resolves the item wins (ADR 0026). Default with no profile: env only.
     /// A command source that outruns <see cref="CommandTimeout"/> is killed and counts as not resolving (ADR 0034).</summary>
-    public string Secret(string item)
-    {
-        var timedOut = false;
-        foreach (var source in Secrets ?? [new SecretSource(Env: true)])
-        {
-            if (source.Env == true && Environment.GetEnvironmentVariable(item.ToUpperInvariant().Replace('-', '_')) is { Length: > 0 } value)
-                return value;
-            if (source.Command is { Count: > 0 } template)
-            {
-                var (output, expired) = RunCommand(template, item, CommandTimeout);
-                if (output is not null)
-                    return output;
-                timedOut |= expired;
-            }
-        }
-        throw new InvalidOperationException($"no secret source resolved '{item}'" + (timedOut ? $" (a command source timed out after {CommandTimeout.TotalSeconds:0.#} s)" : ""));
-    }
-
-    /// <summary>An argv array run directly via Process, no shell; "{item}" is substituted per array element. The output is null
-    /// when the command failed, printed nothing or was killed at <paramref name="timeout"/> (then <c>TimedOut</c>).</summary>
-    private static (string? Output, bool TimedOut) RunCommand(IReadOnlyList<string> template, string item, TimeSpan timeout)
-    {
-        var args = template.Select(a => a.Replace("{item}", item)).ToList();
-        var psi = new ProcessStartInfo(args[0]) { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in args.Skip(1))
-            psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        p.StandardInput.Close(); // under `chargehand mcp` the parent's stdin carries the protocol
-        var clock = Stopwatch.StartNew();
-        var output = p.StandardOutput.ReadToEndAsync();
-        _ = p.StandardError.ReadToEndAsync(); // drained so a chatty command cannot fill the pipe, never read
-        if (!output.Wait(timeout) || !p.WaitForExit(TimeSpan.FromTicks(Math.Max(0, (timeout - clock.Elapsed).Ticks))))
-        {
-            try
-            {
-                p.Kill(entireProcessTree: true);
-            }
-            catch (InvalidOperationException)
-            {
-                // it exited between the wait and the kill
-            }
-            return (null, true);
-        }
-        var value = output.Result.TrimEnd('\n');
-        return (p.ExitCode == 0 && value.Length > 0 ? value : null, false);
-    }
+    public string Secret(string item) => SecretSources.Resolve(Secrets, item, CommandTimeout);
 }
-
-/// <summary>One secret lookup: environment variable, or a command template ("{item}" substituted per array element).</summary>
-public sealed record SecretSource(bool? Env = null, IReadOnlyList<string>? Command = null);
 
 /// <summary>
 /// One MCP server the profile names (ADR 0034); memory providers and preset services refer to it by name. Exactly one of
@@ -318,10 +272,6 @@ internal sealed class MemoryListConverter : JsonConverter<IReadOnlyList<MemoryPr
         JsonSerializer.Serialize(writer, value, (JsonTypeInfo<IEnumerable<MemoryProviderSettings>>)options.GetTypeInfo(typeof(IEnumerable<MemoryProviderSettings>)));
 }
 
-/// <param name="UsageOnSpans">Call spans carry tokens and cost (ADR 0021). Only for calls no gateway records, e.g. Claude
-/// Code on a subscription; with a LiteLLM gateway, usage stays on its generations (ADR 0012).</param>
-public sealed record TelemetrySettings(string OtlpEndpoint, string PublicKeySecret, string SecretKeySecret, bool UsageOnSpans = false);
-
 /// <summary>chargehand serve (ADR 0018): a port, and the secret-store item holding the API key callers send. Listen and
 /// AllowedHosts open it beyond loopback, for a private network only (ADR 0024).</summary>
 /// <param name="MaxConcurrentRuns">Runs executing at once; 1 (the default) runs them one at a time, as ADR 0011's per-model limit assumes.
@@ -392,73 +342,4 @@ public sealed partial record DrivenSettings(
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? ImageVariants = null,
     string? Environment = null);
 
-/// <param name="Outside">A network besides the default one that the batch's egress container joins: the one the chargehand server sits on.</param>
-/// <param name="McpForward"><c>host:port</c> of the chargehand server as the egress container reaches it. Set, a session can call chargehand for research and review through a forward on its batch network; unset, it cannot.</param>
-/// <param name="ModelUrl">An Anthropic-compatible gateway as the egress container reaches it (<c>http://host:port/path</c> through a forward, or <c>https://host/path</c> through the proxy). Set, a session gets
-/// <c>claude_code.api_key_secret</c> (the key the gateway issued, with a budget) and a base URL instead of the real credential; unset, the real credential is in the container's environment.</param>
-/// <param name="OtlpUrl">An OTLP/HTTP collector as the egress container reaches it (<c>http://host:port</c>, through a forward). Set, each session's Claude Code exports its own logs and
-/// metrics there, tagged with the batch, task and trace (ADR 0042); unset, it exports nothing.</param>
-public sealed record DrivenNetwork(IReadOnlyList<string>? Allow = null, string? Outside = null, string? McpForward = null, string? ModelUrl = null, string? OtlpUrl = null);
 
-/// <summary>
-/// The <c>prompt-enhancer</c> extension (ADR 0040): an entry of <c>mcp_servers</c> that lists the tools <c>enhance</c> and
-/// <c>feedback</c> (whetstone's contract). Unset: no enhancer, and every prompt is sent as written.
-/// </summary>
-/// <param name="Server">A key of <c>mcp_servers</c>.</param>
-/// <param name="DeadlineMs">How long to wait for <c>enhance</c> before sending the original; null is 1500. Also the <c>deadline_ms</c> the enhancer is told.</param>
-public sealed record PromptEnhancerSettings(string Server, int? DeadlineMs = null)
-{
-    public const int MinDeadlineMs = 50;
-    public const int MaxDeadlineMs = 30_000;
-
-    public int EffectiveDeadlineMs => DeadlineMs ?? (int)Chargehand.Enhancement.GuardedPromptEnhancer.DefaultDeadline.TotalMilliseconds;
-
-    internal void Validate(IReadOnlyDictionary<string, McpServerSettings> servers)
-    {
-        if (string.IsNullOrEmpty(Server) || !servers.ContainsKey(Server))
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"prompt_enhancer.server '{Server}' is not defined in mcp_servers",
-                "Add the server to mcp_servers, or remove prompt_enhancer; docs/guide/reference.md lists the fields.");
-        if (EffectiveDeadlineMs is < MinDeadlineMs or > MaxDeadlineMs)
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"prompt_enhancer.deadline_ms must be {MinDeadlineMs} to {MaxDeadlineMs}",
-                "Fix deadline_ms in the profile.");
-    }
-}
-
-/// <summary>ADR 0085. Who an inbox card belongs to.</summary>
-/// <param name="Owners">A repository glob (<c>*</c> matches any run of characters, case-insensitive; matched against <c>owner/name</c>) to the name of the desk or person that answers for it. The first match in the file's order wins.</param>
-public sealed record InboxSettings(IReadOnlyDictionary<string, string>? Owners = null)
-{
-    /// <summary>The owner of <paramref name="repository"/> (a path or <c>owner/name</c>); null when no glob matches.</summary>
-    public string? OwnerOf(string? repository)
-    {
-        if (repository is null || Owners is null)
-            return null;
-        var parts = repository.TrimEnd('/').Split('/');
-        var name = parts.Length > 2 ? string.Join('/', parts[^2..]) : repository;
-        foreach (var (glob, owner) in Owners)
-            if (System.Text.RegularExpressions.Regex.IsMatch(name, "^" + System.Text.RegularExpressions.Regex.Escape(glob).Replace("\\*", ".*") + "$", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant))
-                return owner;
-        return null;
-    }
-}
-
-/// <summary>ADR 0069. Repositories under these directories are always delivered locally: nothing is pushed, no pull request is opened, no forge is called, and a request that asks to push is refused.</summary>
-/// <param name="LocalOnly">Directories, absolute or starting with <c>~/</c>; <c>/</c> makes every repository on the server local-only.</param>
-public sealed record DeliverySettings(IReadOnlyList<string>? LocalOnly = null)
-{
-    /// <summary>A root must be absolute or start with <c>~/</c>, and no watched repository of the intake may sit under one: intake reads the forge and starts pushing batches.</summary>
-    internal void Validate(AutomationSettings? automation)
-    {
-        var roots = LocalOnly ?? [];
-        if (roots.FirstOrDefault(r => string.IsNullOrWhiteSpace(r) || !(Path.IsPathRooted(r) || r.StartsWith("~/", StringComparison.Ordinal))) is { } bad)
-            throw new ChargehandException(ErrorCode.InvalidRequest, $"delivery.local_only: '{bad}' must be an absolute directory or start with ~/",
-                "Fix delivery.local_only in the profile; docs/guide/reference.md lists the fields.");
-        var policy = new DeliveryPolicy(roots);
-        var watched = (automation?.Github?.Repositories?.Select(r => ("automation.github.repositories", r.Key, r.Value.Path)) ?? [])
-            ;
-        foreach (var (section, name, path) in watched)
-            if (policy.Forced(path))
-                throw new ChargehandException(ErrorCode.InvalidRequest, $"{section}.{name}.path is under delivery.local_only: intake reads a forge and starts batches that push",
-                    $"Remove {name} from {section}, or take its checkout out of delivery.local_only.");
-    }
-}
