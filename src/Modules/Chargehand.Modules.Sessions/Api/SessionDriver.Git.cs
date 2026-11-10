@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using Chargehand.Kernel;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 
@@ -208,24 +209,7 @@ public static partial class SessionDriver
 
     private static async Task<(int Exit, string Stdout, string Stderr)> Git(string directory, IReadOnlyList<string> args, CancellationToken ct, TimeSpan? timeout = null)
     {
-        var psi = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in args)
-            psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        var stdout = p.StandardOutput.ReadToEndAsync(CancellationToken.None);
-        var stderr = p.StandardError.ReadToEndAsync(CancellationToken.None);
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        if (timeout is { } limit)
-            deadline.CancelAfter(limit);
-        try
-        {
-            await p.WaitForExitAsync(deadline.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            p.Kill(entireProcessTree: true);
-            return (GitTimedOut, "", "git timed out");
-        }
-        return (p.ExitCode, await stdout, await stderr);
+        var r = await GitRunner.RunAsync(directory, args, ct, timeout);
+        return (r.ExitCode, r.Stdout, r.Stderr);
     }
 }

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Chargehand.Contracts;
@@ -107,13 +106,8 @@ public sealed class PeerCloneManager(PeerCloneSettings settings, IPeerRepository
     /// <summary>git's trimmed output, or null when it fails.</summary>
     private static async Task<string?> Git(string directory, CancellationToken ct, params string[] args)
     {
-        var psi = new ProcessStartInfo("git", ["-C", directory, .. args]) { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        using var p = Process.Start(psi)!;
-        p.StandardInput.Close();
-        var output = await p.StandardOutput.ReadToEndAsync(ct);
-        await p.StandardError.ReadToEndAsync(ct);
-        await p.WaitForExitAsync(ct);
-        return p.ExitCode == 0 ? output.Trim() : null;
+        var r = await GitRunner.RunAsync(null, ["-C", directory, .. args], ct);
+        return r.ExitCode == 0 ? r.Stdout.Trim() : null;
     }
 }
 

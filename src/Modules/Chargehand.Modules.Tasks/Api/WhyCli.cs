@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using Chargehand.Kernel;
@@ -158,17 +157,10 @@ public static class WhyCli
 
     private static async Task<(int Exit, string Out, string Err)> Git(string directory, CancellationToken ct, params string[] args)
     {
-        var psi = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8 };
-        psi.ArgumentList.Add("-c");
-        psi.ArgumentList.Add("core.quotepath=off");
-        foreach (var a in args)
-            psi.ArgumentList.Add(a);
         try
         {
-            using var p = Process.Start(psi)!;
-            var (stdout, stderr) = (p.StandardOutput.ReadToEndAsync(ct), p.StandardError.ReadToEndAsync(ct));
-            await p.WaitForExitAsync(ct);
-            return (p.ExitCode, await stdout, await stderr);
+            var r = await GitRunner.RunAsync(directory, ["-c", "core.quotepath=off", .. args], ct, utf8Stdout: true);
+            return (r.ExitCode, r.Stdout, r.Stderr);
         }
         catch (System.ComponentModel.Win32Exception)
         {
