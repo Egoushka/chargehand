@@ -1,6 +1,7 @@
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Prompts;
 using Chargehand.Runtime;
 
@@ -33,7 +34,7 @@ public class ServiceRunTests
         new(Runs.Profile(workerRoot), runtime, "2.0.16", installRoot, log, new Dictionary<string, int>(), null, resolver);
 
     private static string PlainToolsHash() =>
-        PromptChains.ToolsSha256("2.0.16", "build", Preset.Load(Repo.Path("presets"), "cheap").NodeKinds["worker"].Rules);
+        ToolSetHash.ToolsSha256("2.0.16", "build", Preset.Load(Repo.Path("presets"), "cheap").NodeKinds["worker"].Rules);
 
     [Fact]
     public async Task A_granted_service_reaches_the_node_spec_and_changes_the_tools_hash()

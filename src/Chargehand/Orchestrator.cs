@@ -206,7 +206,7 @@ public sealed class Orchestrator(
                     var chain = PromptChains.Build(blocks, new AsSent(opencodeVersion, kind.OpencodeAgent, workerModel ?? "auto", date,
                         BasePromptVariant: kind.OpencodeAgent,
                         InstructionFilesSha256: PromptChains.InstructionsSha256(instructions),
-                        ToolsSha256: PromptChains.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules)));
+                        ToolsSha256: ToolSetHash.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules)));
 
                     if (intake.Spec is not { } spec)
                     {
@@ -445,7 +445,7 @@ public sealed class Orchestrator(
         // Granted once per run and shared by every node; the tools hash covers the grant, and is today's when there is none.
         var granted = await Grant(profile.ServicesFor(request.Context.Preset, kind.Services), run, extensions, ct);
         if (granted.Count > 0)
-            chain = chain with { AsSent = chain.AsSent with { ToolsSha256 = PromptChains.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules, granted) } };
+            chain = chain with { AsSent = chain.AsSent with { ToolsSha256 = ToolSetHash.ToolsSha256(opencodeVersion, kind.OpencodeAgent, kind.Rules, granted) } };
 
         async Task<NodeResult> RunNode(PlanNode node, IReadOnlyList<ResultContract> upstream, ForkPoint? fork, TaskCompletionSource<ForkPoint?>? primed, CancellationToken token)
         {

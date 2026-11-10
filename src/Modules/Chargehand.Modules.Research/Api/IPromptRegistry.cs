@@ -1,6 +1,6 @@
 using Chargehand.Contracts;
 
-namespace Chargehand.Prompts;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>
 /// Versioned, content-hashed prompt blocks from git (ADR 0007). Placement order: core system, preset, project

@@ -18,7 +18,7 @@ public class LeverBenchTests
         {
             var root = LeverBench.Apply(lever, Repo.Root, Path.Combine(dir.Path, lever.Id), Repo.Path("evals"));
             var cheap = Preset.Load(Path.Combine(root, "presets"), "cheap").NodeKinds["worker"];
-            var worker = new Chargehand.Prompts.PromptRegistry(Path.Combine(root, "prompts")).Get("core/worker");
+            var worker = new Chargehand.Modules.Research.Api.PromptRegistry(Path.Combine(root, "prompts")).Get("core/worker");
             switch (lever.Kind)
             {
                 case "prompt":

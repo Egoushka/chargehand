@@ -1,9 +1,9 @@
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Chargehand.Contracts;
 
-namespace Chargehand;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>
 /// Syncs registry blocks to Langfuse prompt management (ADR 0007): one version per content hash, labelled
@@ -29,23 +29,31 @@ public sealed class LangfusePrompts : IDisposable
         using var res = await _http.GetAsync($"api/public/v2/prompts/{Uri.EscapeDataString(block.Name)}?label={Label(block.Sha256)}", ct);
         if (!res.IsSuccessStatusCode)
             return null;
-        return (await res.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("version").GetInt32();
+        return await VersionOf(res, ct);
     }
 
     public async Task<int> SyncAsync(PromptBlock block, CancellationToken ct)
     {
         if (await FindAsync(block, ct) is { } existing)
             return existing;
-        using var res = await _http.PostAsJsonAsync("api/public/v2/prompts", new
+        var body = new JsonObject
         {
-            name = block.Name,
-            type = "text",
-            prompt = block.Text,
-            labels = new[] { Label(block.Sha256), $"v{block.Version}" },
-            config = new { version = block.Version, sha256 = block.Sha256 },
-            commitMessage = $"chargehand {block.Name} {block.Version}",
-        }, ct);
+            ["name"] = block.Name,
+            ["type"] = "text",
+            ["prompt"] = block.Text,
+            ["labels"] = new JsonArray(Label(block.Sha256), $"v{block.Version}"),
+            ["config"] = new JsonObject { ["version"] = block.Version, ["sha256"] = block.Sha256 },
+            ["commitMessage"] = $"chargehand {block.Name} {block.Version}",
+        };
+        using var content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
+        using var res = await _http.PostAsync("api/public/v2/prompts", content, ct);
         res.EnsureSuccessStatusCode();
-        return (await res.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("version").GetInt32();
+        return await VersionOf(res, ct);
+    }
+
+    private static async Task<int> VersionOf(HttpResponseMessage res, CancellationToken ct)
+    {
+        using var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        return doc.RootElement.GetProperty("version").GetInt32();
     }
 }
