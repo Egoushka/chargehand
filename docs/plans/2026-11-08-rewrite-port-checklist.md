@@ -48,7 +48,7 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
   The MCP client they sit on (`McpConnectionPool.cs`, `SecretTemplate.cs`, `ToolArguments.cs`,
   `McpUnavailableException.cs`) has no chargehand types beyond settings: ADR 0060 sends such code to the separate MIT
   library; until then, Memory's `Adapters/`. Proposal.
-- [ ] Ledger (2): `src/Chargehand/RunLog/ExtensionsCollector.cs` (what memory and services did, for the run record).
+- [x] Ledger (2): `src/Chargehand/RunLog/ExtensionsCollector.cs` (what memory and services did, for the run record).
 - [ ] Accounts (3): `Chargehand.Server/AccountsCli.cs`, `AccountsHttp.cs`, `AccountStanding.cs`, `AccessSignIn.cs`
   (`ProxySignIn` and `CloudflareAccess` are there already); `RunToken.cs` (a driven session's capped token);
   `CredentialProbe.cs`, `CredentialAlert.cs` (beside `CredentialHealth`); `src/Chargehand/PublicFreeGate.cs` and

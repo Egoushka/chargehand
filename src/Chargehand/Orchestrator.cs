@@ -20,7 +20,6 @@ using Chargehand.Nodes;
 using Chargehand.Plans;
 using Chargehand.Prompts;
 using Chargehand.Results;
-using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Sandbox;
 using Chargehand.Signing;
@@ -575,11 +574,11 @@ public sealed class Orchestrator(
         if (selection.Claims.Count == 0)
         {
             var why = commit.Length == 0 ? "no commit" : "no claim qualified";
-            extensions.Retained(memory.Sources.Where(s => s.Retain).Select(s => new RetainReport(s.Name, 0, why)));
+            extensions.Retained(memory.Sources.Where(s => s.Retain).Select(s => new MemoryReport(s.Name, 0, null, 0, why)));
             return;
         }
         var reports = await memory.RetainAsync(RetainItems.Build(selection, repository, commit, runId, DateTimeOffset.UtcNow), ct);
-        extensions.Retained(reports);
+        extensions.Retained(reports.Select(r => new MemoryReport(r.Source, 0, null, r.Claims, r.SkippedReason)));
         foreach (var r in reports.Where(r => r.SkippedReason is not null))
             run?.SetTag($"chargehand.memory.{r.Source}.error", r.SkippedReason);
     }
@@ -590,7 +589,7 @@ public sealed class Orchestrator(
         if (memory is null)
             return new RecallOutcome([], "", []);
         var outcome = await memory.RecallAsync(query, ct);
-        extensions.Recalled(outcome.Sources);
+        extensions.Recalled(outcome.Sources.Select(s => new MemoryReport(s.Source, s.Items.Count, s.SkippedReason, 0, null)));
         foreach (var s in outcome.Sources)
             if (s.SkippedReason is { } reason)
                 run?.SetTag($"chargehand.memory.{s.Source}.error", reason);
