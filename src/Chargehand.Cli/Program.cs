@@ -439,7 +439,7 @@ async Task<int> Run()
     }
     tracing?.ForceFlush(10_000);
 
-    Console.WriteLine(JsonSerializer.Serialize(result, new JsonSerializerOptions(ContractJson.Options) { WriteIndented = true }));
+    Console.WriteLine(JsonSerializer.Serialize(result, CliJson.Indented));
     return result.Status switch { ResultStatus.Completed => 0, ResultStatus.NeedsInput => 3, _ => 1 };
 }
 
@@ -1040,4 +1040,10 @@ TracerProvider? Tracing()
             o.Headers = $"Authorization=Basic {basic}";
         })
         .Build();
+}
+
+/// <summary>The options the CLI prints a result with, built once (CA1869).</summary>
+file static class CliJson
+{
+    public static readonly JsonSerializerOptions Indented = new(ContractJson.Options) { WriteIndented = true };
 }
