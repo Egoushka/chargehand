@@ -6,7 +6,7 @@ using Chargehand.Modules.Tasks.Api;
 
 namespace Chargehand.Tests;
 
-/// <summary>A routed batch's start gate (ADR 0095): a spent budget takes the batch's pool out of the router, and halts every start only when no other pool can take the batch's preset.</summary>
+/// <summary>A routed batch's start gate (ADR 0095, D-113): the tasks' session router has already taken the refused pool out; a spent budget halts every start only when no other pool can take the batch's preset.</summary>
 public class RoutedGateTests
 {
     private static readonly RunRoute Subscription = new("subscription", "strong", "paid/big", "public");
@@ -21,13 +21,14 @@ public class RoutedGateTests
     {
         var routing = new PoolRouting(Pools(order), new JsonlRunLog(Path.Combine(Path.GetTempPath(), "routed-gate-never-read.jsonl")));
         var inner = new FakeGate();
-        return (new RoutedGate(inner, routing, Subscription, "driven", null, DataClass.Public), routing, inner);
+        return (new RoutedGate(inner, routing, "driven", null, DataClass.Public), routing, inner);
     }
 
     [Fact]
     public void A_spent_budget_with_another_pool_to_take_over_halts_nothing_and_the_next_start_falls_through()
     {
         var (gate, routing, inner) = Build(Pool("subscription"), Pool("credit"));
+        routing.Refused(Subscription, budget: true);               // the task's session router tells the pool, the gate only decides on halting
 
         gate.BudgetExhausted(Resets);
 
@@ -41,6 +42,7 @@ public class RoutedGateTests
     public void A_spent_budget_on_the_only_pool_halts_every_start_until_its_reset()
     {
         var (gate, routing, inner) = Build(Pool("subscription"));
+        routing.Refused(Subscription, budget: true);
 
         gate.BudgetExhausted(Resets);
 

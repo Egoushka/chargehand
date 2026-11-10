@@ -57,6 +57,7 @@ import {
   sessionText,
   turnsSeries,
 } from './model';
+import { QualityCard } from './QualityCard';
 import './task.css';
 
 const DiffView = lazy(() => import('../code/DiffView').then((m) => ({ default: m.DiffView })));
@@ -236,6 +237,7 @@ function Overview({
           {error.action ? ` ${error.action}` : ''}
         </Banner>
       ) : null}
+      <QualityCard detail={detail} />
       <section className="stack stack--tight">
         <div className="label-caps">Goal</div>
         <p className="quote task__goal">{task.goal ?? DASH}</p>

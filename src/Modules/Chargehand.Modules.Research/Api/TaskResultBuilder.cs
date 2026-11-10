@@ -151,6 +151,8 @@ public static class TaskResultBuilder
             artifacts.Add(Inline("pull-request", "application/vnd.chargehand.pull-request+json", new PullRequestArtifact(pr.Url, pr.Number, true, handover.Branch), Json.PullRequestArtifact));
         if (handover.Verification is { } v)
             artifacts.Add(Inline("verification", "application/json", Verification(v, handover), Json.VerificationArtifact));
+        if (handover.Mutation is { } m)
+            artifacts.Add(Inline("mutation", "application/json", new MutationArtifact(m.Ran, m.Score, m.Threshold, m.Ran && (m.Score is not { } s || s >= m.Threshold), m.Survivors, m.Killed, m.NotRun), Json.MutationArtifact));
     }
 
     private static VerificationArtifact Verification(VerificationRecord v, HandoverOutcome handover) =>
