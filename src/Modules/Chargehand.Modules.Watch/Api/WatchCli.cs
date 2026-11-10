@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
 
-namespace Chargehand.Watch;
+namespace Chargehand.Modules.Watch.Api;
 
 /// <summary><c>chargehand watch &lt;run-id&gt;</c> and <c>chargehand cancel &lt;run-id&gt;</c>: a run on a server from a terminal or from the Monitor tool of a Claude Code session
 /// that handed the work over. <c>watch</c> tails <c>GET /v1/runs/{id}/events</c> and prints one stdout line per event until the result, because a Monitor turns each line into a
@@ -84,7 +84,7 @@ public static class WatchCli
                             continue;
                         seen++;
                         lastId = string.IsNullOrEmpty(item.EventId) ? lastId : item.EventId;
-                        var e = JsonSerializer.Deserialize<RunStatus>(item.Data, ContractJson.Options)!;
+                        var e = JsonSerializer.Deserialize(item.Data, ContractJsonContext.Default.RunStatus)!;
                         if (printer.Print(e) is { } exit)
                             return exit;
                     }
