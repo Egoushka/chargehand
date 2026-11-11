@@ -946,7 +946,7 @@ github-start.md	ac7a5f2afa	With discovery on (below), every repository the insta
 github-start.md	34f67ddc11	Add to the profile the server runs with:
 github-start.md	9bdad99511	`discover: true` watches every repository the App is installed on, so 
 github-start.md	83dcf7b991	`allowed_authors` is who may start work; nobody else's label counts.
-github-start.md	5c7b9997b6	The App pushes `chargehand/<run>` and opens the draft pull request wit
+github-start.md	8eb70ee82d	The App pushes `chargehand/<run>` and opens the draft pull request wit
 github-start.md	ba88f45245	Within one poll (2 minutes) chargehand creates the `chargehand` label 
 github-start.md	9affc747e0	Write an issue that says what you want done, the way you would brief a
 github-start.md	66bfc674c8	You must be on `allowed_authors`: the person who applies the label is 
@@ -1035,10 +1035,10 @@ install.md	c3a4270956	One model credential: an Anthropic API key, or a subscript
 install.md	c617f77380	A container has no interactive login.
 install.md	3012b97187	A git repository with an `https` origin to ask about.
 install.md	3600416b07	The server clones from a checkout under `repository_roots`, never from
-install.md	b9f413bc6c	For driven mode, also: a Linux host (the work directory is a bind moun
+install.md	1a9373a805	For driven mode, also: a Linux host (the work directory is a bind moun
 install.md	b5b6af5436	`profile.json` and `.env` are gitignored; the profile holds secret ite
 install.md	4e887f1d8f	Both templates set `runtime` to `claude_code`, the one runtime in the 
-install.md	4f953be53a	Driven mode adds `CHARGEHAND_RUNNER_KEY`, `CHARGEHAND_PUSH_TOKEN`, `CH
+install.md	092d1fb641	Driven mode adds `CHARGEHAND_RUNNER_KEY`, `CHARGEHAND_APP_KEY`, `CHARG
 install.md	016303519e	Each variable is documented in `.env.example`.
 install.md	a1e23b817f	The compose file hands each service only what it reads: the runner nev
 install.md	c525d75fa5	**Pin by digest.** A tag can move; a digest cannot.
@@ -1055,7 +1055,7 @@ install.md	ec233e4204	**Driven mode only.** The server makes each task's checkou
 install.md	de93aec177	Set it in `.env`; compose mounts it at that path and `prepare` hands i
 install.md	9c06830c8e	With a different path, set `CHARGEHAND_WORK_DIR` to it and make `worke
 install.md	0f2dd8ba1c	`repository_roots` must also cover `<worker_root>/.checkouts`; the dri
-install.md	4dfd12a468	Then set `CHARGEHAND_RUNNER_KEY` and `CHARGEHAND_PUSH_TOKEN` in `.env`
+install.md	46af040468	Then set `CHARGEHAND_RUNNER_KEY` and `CHARGEHAND_APP_KEY` in `.env`, s
 install.md	85bca8d0d9	`init` reads the repository's marker files and prints the ecosystems, 
 install.md	e5440e233d	It runs in the image, against the checkout from step 3; it writes the 
 install.md	1d99befe47	Copy from its output: the test command, which you send as `context.ver
@@ -1075,7 +1075,7 @@ install.md	cde1693b3a	Ask a read-only question.
 install.md	de8ddbfbfe	`path` is the container's path, and the commit must exist in that chec
 install.md	fe7d475ef8	A `200` carries `result/v1` ([how to read it](quickstart.md#read-the-r
 install.md	9dbca05913	For an MCP client, point it at `http://127.0.0.1:4300/v1/mcp` with the
-install.md	7ce27b98c2	Start with one task and a token cap; the batch is the smoke test of th
+install.md	50f5d9c0b7	Start with one task and a token cap; the batch is the smoke test of th
 install.md	2de503e0f9	The request is [`request/v1`](reference.md) with a `driven` block:
 install.md	af70fb909f	The `Location` header names the batch.
 install.md	813abddaef	Follow it with `docker compose exec -e CHARGEHAND_URL=http://127.0.0.1
