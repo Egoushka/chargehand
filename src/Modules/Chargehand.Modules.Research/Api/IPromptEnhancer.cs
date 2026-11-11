@@ -1,4 +1,4 @@
-namespace Chargehand.Enhancement;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>
 /// What chargehand may tell a prompt enhancer besides the prompt (ADR 0040, ADR 0070): these five fields and nothing else, so file

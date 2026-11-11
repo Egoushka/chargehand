@@ -87,7 +87,7 @@ Research is the module the answer pipeline lands in; ADR 0060 names it, and it a
   `WorkerKill`, `IRunCleanup`, `IServiceHealth`, `IServiceResolver`). Layer 9 keeps the runtimes (layer 10) pointing
   down. ADR 0086's amendment makes this the step that lets `src/Chargehand.Acp` fold into `Runtimes.Acp`. Done: the types live in `Modules.Research.Api`, with `ServiceUse` (split out of `Preset.cs`).
 - [x] Prompts: `IPromptRegistry`, `PromptRegistry`, `PromptChains` (build, caller-block check, instruction hash) and `LangfusePrompts` are in Research. `ToolSetHash` (was `PromptChains.ToolsSha256`) is in Research.Api beside `PermissionRule` and `ServiceGrant`; its JSON basis is typed records with a source-generated context (AOT), same bytes, same pinned hash.
-- [ ] Prompt enhancer: `src/Chargehand/Enhancement/*`, `Chargehand.Mcp/McpPromptEnhancer.cs`, `PromptEnhancers.cs`.
+- [x] Prompt enhancer: `IPromptEnhancer`, `GuardedPromptEnhancer`, `McpPromptEnhancer` and `PromptEnhancers` are in `Modules.Research.Api` (Research now references Memory for the MCP pool). `PromptEnhancers.From` takes the profile's `PromptEnhancerSettings`, not the `Profile`. Tests stay in `Chargehand.Tests` beside `FakeMcpServer`.
 - [ ] Services per preset: `Chargehand.Mcp/ServiceResolver.cs` (needs the MCP client, section 2).
 - [ ] Intake (request to Task Spec): `src/Chargehand/Intake/*` (`IIntake`, `GenerateIntake`, `StructuredSpec`).
 - [ ] Workspace: `src/Chargehand/Workspace/*` (`DrivenCheckout`, `RepositoryNames`, `ReviewedChange`, `RunWorkspace`).

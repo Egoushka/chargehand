@@ -1,6 +1,4 @@
-using Chargehand.Modules.Research.Api;
-
-namespace Chargehand.Enhancement;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>
 /// Makes any <see cref="IPromptEnhancer"/> safe to call (ADR 0040): the user's prompt is never worse off for asking. A late,

@@ -35,7 +35,7 @@ public class EnhancerRunTests
             request = request with { Context = context(request.Context) };
         var runtime = new ScriptedRuntime(Runs.WorkerReply);
         var result = await new Orchestrator(profile, runtime, "2.0.16", Repo.Root, new JsonlRunLog(Path.Combine(workerRoot, "log.jsonl")), new Dictionary<string, int>(),
-                enhancer: PromptEnhancers.From(profile, pool, new ManualTimeProvider()))
+                enhancer: PromptEnhancers.From(profile.PromptEnhancer, pool, new ManualTimeProvider()))
             .RunAsync(request, CancellationToken.None);
         return (result, runtime);
     }
