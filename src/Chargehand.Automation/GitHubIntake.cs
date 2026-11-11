@@ -39,6 +39,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private readonly Action<string> _warn = warn ?? Warned;
     private readonly Action<string> _info = info ?? Informed;
     private readonly Regex _mention = new($@"(?<!\w){Regex.Escape(settings.Mention)}(?![\w-])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+    private readonly Regex _reviewRequest = new($@"(?<!\w){Regex.Escape(settings.Mention)}[ \t]+review(?![\w-])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private readonly HashSet<string> _allowed = new(settings.AllowedAuthors ?? [], StringComparer.OrdinalIgnoreCase);
     private readonly string[] _priorityLabels = [.. settings.EffectivePriorityLabels];
     private readonly Dictionary<(string Repository, int Number), IntakePull> _pulls = [];
@@ -197,8 +198,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                 await AttemptAsync(candidates, ct);
                 state.Save(_time.GetUtcNow());
                 await LostAsync(name, repository, starter, ct);
-                if (settings.ReviewPulls)
-                    await _reviews.StartAsync(name, repository, _checkouts, starter, Sources, ct);
+                if (settings.ReviewPulls || _reviews.HasRequests(name))
+                    await _reviews.StartAsync(name, repository, _checkouts, starter, Sources, settings.ReviewPulls, ct);
                 Withdraw(name);
             }
             catch (IntakeException e)
@@ -343,7 +344,12 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         if (issue.IsPullRequest)
         {
             state.Handled.Add(key);
-            if (MaxReviewRounds > 0)
+            if (_reviewRequest.IsMatch(QuotedLines().Replace(comment.Body, "")))
+            {
+                _reviews.Request(name, issue.Number);
+                Log(key, "queued", "review_requested", comment.Author);
+            }
+            else if (MaxReviewRounds > 0)
                 await QueueAsync(key, new PendingReview($"c{comment.Id.ToString(CultureInfo.InvariantCulture)}", name, issue.Number, comment.Author, comment.Body, null, null, comment.UpdatedAt), true, ct);
             else
                 Log(key, "ignored", "review_rounds_off", comment.Author);

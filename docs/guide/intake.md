@@ -127,7 +127,7 @@ The same poll reads the pull requests of the watched repositories. On a pull req
 | What | Who counts |
 |---|---|
 | An inline review comment | an allowed author; no mention needed. A reply inside a thread needs the mention |
-| A conversation comment that mentions `@chargehand` | an allowed author |
+| A conversation comment that mentions `@chargehand` (`@chargehand review` instead starts one review, see below) | an allowed author |
 
 All the comments waiting for a pull request go into one round: a batch of one task, `pr-<n>`, that continues the task which opened the pull request (found in the run log by its branch, so it works for a pull request intake did not start) with one entry per comment: who, the file and line, the text. The session starts from the branch **as the remote has it**, including what a person or the CI fixer pushed since; its push is a fast-forward of the same branch, so the pull request updates itself and keeps its title and body. If the task's batch, or an earlier round, is still running, the comments wait (one comment says so) and the next round takes them.
 
@@ -154,6 +154,10 @@ Never twice for one commit: the commit is recorded before the comment, and the m
 | `review_pulls` | false | off: nothing is reviewed (a review already running still gets its comment) |
 
 Reviews share `max_concurrent` with the batches: a review waits while that many batches and reviews run. A review is admitted as `automation.account` like a batch, so the account's dollar caps bound it; `max_reviews_per_day` is ignored. A diff GitHub will not render (too large) is skipped with a line on stderr. The run reads the head commit and nothing else; the pull request's text is untrusted, and the preset has no edit, shell or web tools. To turn it on add `"review_pulls": true` to `automation.github`. A server whose checkouts are mounted read-only cannot fetch the head itself: keep `refs/pull/*/head` fetched from outside (`git fetch origin '+refs/pull/*/head:refs/pull/*/head'` in the job that updates the checkouts) and chargehand uses that ref.
+
+### Reviewing one pull request on request
+
+With `review_pulls` off (the default), an allowed author gets one review of any open pull request (a draft or a bot's included, a fork too) by commenting `@chargehand review` in its conversation. Intake reviews the pull request's **current head** as above: one read-only run, one comment with the marker. A head that already has a review is not reviewed again, and the same comment twice starts one run. A push is a new head: comment again to review it. A quoted line (`> @chargehand review`) is no request, and `@chargehand review` takes the place of the plain mention, so it starts no review round. A request waits while `max_concurrent` is full. It is kept in memory only: a restart before the run starts drops it, and commenting again asks again. With `review_pulls` on, every head is reviewed anyway.
 
 ## Not covered
 
