@@ -99,7 +99,9 @@ jobs:
         run: npm test
       - name: Build (vite)
         run: npm run build
-      - run: npx playwright install --with-deps chromium
+      # No --with-deps: the runner image already carries Chromium's libraries, and its apt step fails whenever the Ubuntu
+      # mirrors do not resolve (2026-11-11), which blocked every PR on fonts the smoke test never renders.
+      - run: npx playwright install chromium
       - name: Smoke test (playwright)
         run: npm run test:e2e
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
