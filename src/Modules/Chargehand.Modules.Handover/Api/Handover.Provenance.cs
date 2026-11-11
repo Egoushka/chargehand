@@ -13,10 +13,10 @@ public sealed partial class Handover
     /// from the remote) is kept as it is. The branch moves to the new head; the tests ran on the bundle's trees, which are the same. With <see cref="HandoverInput.Identity"/> (issue 426) the commits
     /// are also authored and committed as that identity, dates kept, so a repository that refuses a non-noreply address takes them.
     /// </summary>
+    /// <remarks>Issue 430: a <c>WIP:</c> subject (the stop snapshot's) is renamed with <see cref="PushGuard.RenameWip"/> in the same rewrite, with or without trailers; a commit that already has
+    /// the trailers keeps its subject too.</remarks>
     private static async Task<HandoverOutcome?> StampAsync(HandoverRun run, CancellationToken ct)
     {
-        if (run.Input is { Provenance: null, Identity: null })
-            return null;
         var stamp = (run.Input.Provenance, run.Input.Identity);
         var (input, scratch, env) = (run.Input, run.Scratch, run.Env);
         var list = await GitProcess.RunAsync(scratch, env, ["rev-list", "--reverse", "--topo-order", $"{input.BaseCommit}..{run.Commit}"], GitTimeout, ct);
@@ -54,6 +54,8 @@ public sealed partial class Handover
         var original = body.Stdout.TrimEnd('\n') + "\n";
         var message = stamp.Provenance is { } provenance ? Provenance.Apply(body.Stdout.TrimEnd('\n'), provenance) : original;
         var stampedBefore = stamp.Provenance is not null && message == original;
+        if (!stampedBefore)
+            message = PushGuard.RenameWip(message);
         var author = Rename(authorName, authorEmail);
         var committer = Rename(committerName, committerEmail);
         if (message == original && author == (authorName, authorEmail) && committer == (committerName, committerEmail) && parents.SequenceEqual(parentList.Split(' ', StringSplitOptions.RemoveEmptyEntries)))

@@ -154,7 +154,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         return null;
     }
 
-    /// <summary>The branch against its base: it changes something, and its diff carries no secret.</summary>
+    /// <summary>The branch against its base: it changes something, its history carries no junk (<see cref="GuardJunkAsync"/>), and its diff no secret.</summary>
     private static async Task<HandoverOutcome?> ScanDiffAsync(HandoverRun run, CancellationToken ct)
     {
         var (input, scratch, env, commit) = (run.Input, run.Scratch, run.Env, run.Commit);
@@ -165,6 +165,8 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             return run.Refuse("the branch has no change against its base", ErrorCode.SessionFailed, commit: commit);
         var numstat = await GitProcess.RunAsync(scratch, env, ["diff", "--numstat", "--no-renames", "-z", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
         run.Changes = new ChangeSummary(ParseNumstat(numstat.Stdout), null, false);
+        if (await GuardJunkAsync(run, ct) is { } junk)
+            return junk;
         var diff = await GitProcess.RunAsync(scratch, env, ["diff", "--no-color", "-U0", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
         if (diff.Truncated)
             return run.Refuse("the diff is too large to scan", ErrorCode.SessionFailed, changed: changed, commit: commit);
@@ -328,7 +330,6 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         public Dictionary<string, string> Env { get; } = GitProcess.Environment(input.ScratchRoot);
 
         public string Commit { get; set; } = "";
-
         public List<string> Changed { get; set; } = [];
 
         public ChangeSummary? Changes { get; set; }
