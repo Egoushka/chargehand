@@ -1,6 +1,6 @@
 # 0089. Elastic runners: hourly cloud servers start when tasks wait and are deleted when idle
 
-- Status: proposed
+- Status: proposed; amended 2026-11-08: the maintainer's machine joins the pool as one more runner, and the first step (`RunnerPool.Add` and `Retire`) is implemented
 - Date: 2026-10-29
 
 ## Context
@@ -155,7 +155,37 @@ Option 4. The provider sits behind an interface; Hetzner Cloud is the first impl
     AOT), `ElasticLedger`, and `ElasticPool`, which drives `RunnerPool` through `Add` and `Retire`. A second provider is a
     second `ICloudServers`.
 
+## Amendment (2026-11-08): the maintainer's machine is one more runner, and the first step
+
+The ask behind this ADR is 5 to 10 sessions at once instead of 2, with the maintainer's own machine registered as one more
+worker beside the cloud servers. Nothing in the pool depends on what kind of machine a runner is: the server's own runner
+(`workspace: shared`), the maintainer's machine (`workspace: bundle`, often `linux/arm64`, away at times) and an elastic
+server (`workspace: bundle`, created by `ElasticPool`) are all `PoolSite`s, and one placement under one gate serves them all.
+So the work is in two steps, each shipping on its own:
+
+1. **Runners join and leave while the server runs** (done with this amendment). `RunnerPool.Add(PoolSite)` adds a runner
+   that takes tasks from the next placement round; a name the pool already knows, retired or not, is refused, so a task held
+   under that name is never confused with a new runner. `RunnerPool.Retire(name)` removes a runner from placement and keeps
+   it known: its tasks stay on it, count against its slots and `RunnerPool.Running`, and a task a restart took up still finds
+   it. `RunnerPool.Running` is the count across every runner, retired ones included; `max_parallel_total` already counts
+   every session whatever runner it is on (`DrivenRun`'s server-wide gate), so an added runner's sessions count there too. The maintainer's machine is a `driven.runners` entry today (ADR 0058); with `Add` it can also
+   be registered while the server runs, by whatever calls it (the elastic pool, or a later `runners add` command).
+2. **The elastic pool** (decisions 1 to 10 above): not started.
+
+More sessions at once also needs `driven.max_parallel_total` raised in the profile (default 4); the pool does not raise it.
+
 ## Acceptance checks
+
+Machine-run, in `tests/Chargehand.Modules.Runners.Tests/RunnerPoolTests.cs`, passing with this amendment:
+
+- `RunnerPoolTests.A_runner_added_at_run_time_takes_a_waiting_task`
+- `RunnerPoolTests.A_retired_runner_takes_no_new_task_but_keeps_its_running_one`
+- `RunnerPoolTests.Two_runners_of_different_kinds_take_tasks_from_one_queue_and_no_task_starts_twice`: the server's own
+  runner (shared, amd64) and the maintainer's machine (bundle, arm64, added while tasks wait); eight workers take twelve
+  tasks from one queue; every task starts exactly once, both runners take tasks, neither exceeds its `max_sessions`, and
+  the pool counts zero running at the end.
+
+For the elastic pool (step 2):
 
 Each is a test that fails before the change and passes after it, against a fake provider API built from Hetzner's
 documented responses (no network in tests), except the last.
@@ -173,8 +203,6 @@ documented responses (no network in tests), except the last.
 - `ElasticSweepTests.A_server_past_its_expires_label_is_deleted_in_any_state`
 - `ElasticSweepTests.A_creating_record_with_no_server_is_closed`
 - `ElasticSweepTests.After_a_restart_the_ledgers_live_servers_rejoin_the_pool_before_batches_resume`
-- `RunnerPoolTests.A_runner_added_at_run_time_takes_a_waiting_task`
-- `RunnerPoolTests.A_retired_runner_takes_no_new_task_but_keeps_its_running_one`
 - `HetznerCloudServersTests.Create_sends_labels_network_firewall_and_user_data_and_never_logs_the_runner_key`
 - `ProfileTests.Elastic_without_money_caps_is_refused`
 - Live, `scripts/elastic-live-check.sh` against a real project: one synthetic driven task on a profile whose only runner

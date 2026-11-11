@@ -23,7 +23,8 @@ public sealed record RunnerStatus(PoolSite Site, bool Reachable, string? Why, Ho
 /// eligible, the one with the most free memory takes it anyway, as ADR 0045 admits one task on an idle host. A task that must stay on its runner (one a restart took up) is counted there and never
 /// waits: its session may be running, and the task runner waits out a runner that does not answer. When no runner has been usable for <see cref="Patience"/> the pool refuses the task, and the
 /// batch does not start it. A runner whose allowlist lacks a session image of its <see cref="PoolSite.Images"/> is not usable (issue #425), and when every runner answered so the task is refused
-/// at once: it would only fail at its start. One instance serves every batch of a server.</summary>
+/// at once: it would only fail at its start. One instance serves every batch of a server. A runner can join while the server runs (<see cref="Add"/>) and leave placement (<see cref="Retire"/>), as ADR 0089
+/// has elastic runners and a maintainer's machine do: every runner, whatever its kind, takes tasks from the same placement under one gate, so no task starts twice.</summary>
 /// <param name="log">Told when a runner stops and starts answering, and once per runner that cannot report memory.</param>
 public sealed class RunnerPool : IAdmission, IDisposable
 {
@@ -47,11 +48,15 @@ public sealed class RunnerPool : IAdmission, IDisposable
         public int Failures { get; set; }
         public bool NeedsSweep { get; set; }
         public bool SaidUnknown { get; set; }
+        public volatile bool Retired;
     }
 
     private sealed record Probe(bool Healthy, HostSnapshot? Snapshot, string? Why, string? Mismatch = null);
 
-    private readonly List<State> _states;
+    // Copy-on-write: Add replaces the list, so a placement round reads one consistent set of runners.
+    private volatile IReadOnlyList<State> _states;
+    private readonly DrivenAdmission _admissionDefaults;
+    private readonly Lock _joining = new();
     private readonly SemaphoreSlim _gate = new(1);
     private readonly TimeProvider _time;
     private readonly Action<string>? _log;
@@ -66,12 +71,42 @@ public sealed class RunnerPool : IAdmission, IDisposable
         _log = log;
         _probeTimeout = probeTimeout ?? ProbeTimeout;
         Interval = interval ?? TimeSpan.FromSeconds(5);
-        _states = [.. sites.Select(s => new State(s, new HostAdmission(s.Host ?? new NoHost(), new DrivenAdmission(s.Config.ReserveMb ?? admission.ReserveMb, admission.MaxLoadPerCpu), interval, _time)))];
+        _admissionDefaults = admission;
+        _states = [.. sites.Select(NewState)];
     }
 
     public TimeSpan Interval { get; }
 
+    /// <summary>Every runner the pool knows, retired ones included: a retired runner still holds the tasks placed on it.</summary>
     public IReadOnlyList<PoolSite> Sites => [.. _states.Select(s => s.Site)];
+
+    /// <summary>Sessions this server runs now across every runner, retired ones included, whatever kind of runner each is.</summary>
+    public int Running => _states.Sum(s => s.Admission.Running);
+
+    /// <summary>A runner joins while the server runs (ADR 0089): from the next placement round it takes tasks like any runner of the profile, judged on its own host and limits.</summary>
+    /// <exception cref="ArgumentException">The pool already knows a runner of that name, retired or not: a retired one may still hold a task under it.</exception>
+    public void Add(PoolSite site)
+    {
+        ArgumentNullException.ThrowIfNull(site);
+        lock (_joining)
+        {
+            if (Find(site.Name) is not null)
+                throw new ArgumentException($"runner '{site.Name}' is already in the pool", nameof(site));
+            _states = [.. _states, NewState(site)];
+        }
+        _log?.Invoke($"runner '{site.Name}' joined the pool");
+    }
+
+    /// <summary>A runner leaves placement (ADR 0089): it takes no new task, while the tasks already on it stay there and keep counting until they end.</summary>
+    /// <returns>False when the pool does not know the runner.</returns>
+    public bool Retire(string runner)
+    {
+        if (Find(runner) is not { } state)
+            return false;
+        state.Retired = true;
+        _log?.Invoke($"runner '{runner}' retired: it takes no new task");
+        return true;
+    }
 
     /// <summary>Cleans a runner of what no batch owns the first time it answers (ADR 0043); set after the sweep at a server start. Until it has run for a runner, nothing is placed there.</summary>
     public Func<PoolSite, CancellationToken, Task>? Sweep { get; set; }
@@ -145,7 +180,7 @@ public sealed class RunnerPool : IAdmission, IDisposable
             if (fits.Count > 0)
                 return Place(fits.Select((c, i) => (c.State, Score: c.Assessment.FreeMb is { } free ? free * c.State.Site.Config.Weight : -1d, Order: i))
                     .OrderByDescending(c => c.Score).ThenBy(c => c.Order).First().State, requestMb, null);
-            if (candidates.Count > 0 && _states.Sum(s => s.Admission.Running) == 0)
+            if (candidates.Count > 0 && Running == 0)
             {
                 var (forced, why) = candidates.OrderByDescending(c => c.Assessment.FreeMb ?? long.MinValue).Select(c => (c.State, c.Assessment.Detail)).First();
                 return Place(forced, requestMb, $"admitted on runner '{forced.Site.Name}' with nothing else running, though its host says: {why}");
@@ -179,6 +214,11 @@ public sealed class RunnerPool : IAdmission, IDisposable
         var (usable, mismatched) = (0, 0);
         foreach (var state in _states)
         {
+            if (state.Retired)
+            {
+                reasons.Add($"{state.Site.Name}: retired");
+                continue;
+            }
             var probe = await ProbeAsync(state, ct);
             if (!probe.Healthy)
             {
@@ -220,6 +260,9 @@ public sealed class RunnerPool : IAdmission, IDisposable
         state.Admission.Commit(requestMb);
         return new AdmissionDecision(true, detail, state.Site.Name);
     }
+
+    private State NewState(PoolSite site) =>
+        new(site, new HostAdmission(site.Host ?? new NoHost(), new DrivenAdmission(site.Config.ReserveMb ?? _admissionDefaults.ReserveMb, _admissionDefaults.MaxLoadPerCpu), Interval, _time));
 
     private State? Find(string name) => _states.FirstOrDefault(s => s.Site.Name == name);
 
