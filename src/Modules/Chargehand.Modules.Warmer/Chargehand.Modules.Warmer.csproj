@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>The cache warmer: reads the event log (ADR 0090) and runs a new checkout's restore steps before the agent asks, logging each warm back.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Chargehand.Modules.Events\Chargehand.Modules.Events.csproj" />
+  </ItemGroup>
+
+</Project>

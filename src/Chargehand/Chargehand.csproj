@@ -15,6 +15,7 @@
     <ProjectReference Include="..\Modules\Chargehand.Modules.Conversations\Chargehand.Modules.Conversations.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Economics\Chargehand.Modules.Economics.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Events\Chargehand.Modules.Events.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Warmer\Chargehand.Modules.Warmer.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Forge\Chargehand.Modules.Forge.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Gateway\Chargehand.Modules.Gateway.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Handover\Chargehand.Modules.Handover.csproj" />
