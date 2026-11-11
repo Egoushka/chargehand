@@ -30,7 +30,7 @@ public sealed class WarmPlanTests : IDisposable
         var step = Assert.Single(WarmPlan.For(dir));
         Assert.Equal("dotnet-restore", step.Name);
         Assert.Equal("dotnet", step.File);
-        Assert.Equal(["restore", "Chargehand.slnx", "--disable-build-servers"], step.Args);
+        Assert.Equal(["restore", "./Chargehand.slnx", "--disable-build-servers"], step.Args);
         Assert.Equal(dir, step.WorkDir);
     }
 
@@ -38,7 +38,7 @@ public sealed class WarmPlanTests : IDisposable
     public void A_project_without_a_solution_restores_the_project()
     {
         Touch("App.csproj");
-        Assert.Equal(["restore", "App.csproj", "--disable-build-servers"], Assert.Single(WarmPlan.For(dir)).Args);
+        Assert.Equal(["restore", "./App.csproj", "--disable-build-servers"], Assert.Single(WarmPlan.For(dir)).Args);
     }
 
     [Fact]

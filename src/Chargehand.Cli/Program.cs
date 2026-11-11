@@ -652,6 +652,11 @@ CacheWarmer? CacheWarmerFor(EventService? events)
 {
     if (events is null)
         return null;
+    if (profile.Sandbox is { Kind: "none" })
+    {
+        Console.Error.WriteLine("cache warmer off: sandbox.kind is none, and warming runs a repository's restore unconfined");
+        return null;
+    }
     var workerRoot = Path.GetFullPath(profile.WorkerRoot);
     var store = Path.Combine(workerRoot, ".pnpm-store");
     var nuget = Path.Combine(workerRoot, ".nuget-packages");

@@ -41,7 +41,7 @@ public static class WarmPlan
     }
 
     private static string? Pick(string dir, string pattern) =>
-        Directory.EnumerateFiles(dir, pattern).Select(Path.GetFileName).Order(StringComparer.Ordinal).FirstOrDefault();
+        Directory.EnumerateFiles(dir, pattern).Select(f => "./" + Path.GetFileName(f)).Order(StringComparer.Ordinal).FirstOrDefault();
 
     private static bool HasAssets(string dir, int depth)
     {
