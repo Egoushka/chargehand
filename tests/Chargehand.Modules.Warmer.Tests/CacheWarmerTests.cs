@@ -174,8 +174,9 @@ public sealed class CacheWarmerTests : IDisposable
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         var loop = NewWarmer().RunAsync(stop.Token);
         await Emit("after", CacheWarmer.CreatedType, "new/c");
+        using var tick = new PeriodicTimer(TimeSpan.FromMilliseconds(20));
         while ((await Warmed()).Count == 0)
-            await Task.Delay(20, stop.Token);
+            await tick.WaitForNextTickAsync(stop.Token);
         await stop.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => loop);
         Assert.Equal("new/c", (await Warmed()).Single().GetProperty("data").GetProperty("checkout").GetString());
