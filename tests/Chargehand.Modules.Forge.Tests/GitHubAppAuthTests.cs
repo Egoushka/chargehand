@@ -76,6 +76,8 @@ public class GitHubAppAuthTests
 
         public List<(HttpMethod Method, string Path, string? Auth)> Requests { get; } = [];
 
+        public List<string> TokenBodies { get; } = [];
+
         public int Calls(string path) => Requests.Count(r => r.Path == path);
 
         public void Install(string owner, long id)
@@ -88,6 +90,8 @@ public class GitHubAppAuthTests
         {
             var path = request.RequestUri!.AbsolutePath;
             Requests.Add((request.Method, path, request.Headers.Authorization?.ToString()));
+            if (request.Content is { } content && path.EndsWith("access_tokens", StringComparison.Ordinal))
+                TokenBodies.Add(content.ReadAsStringAsync(ct).GetAwaiter().GetResult());
             var parts = path.Trim('/').Split('/');
             HttpResponseMessage Json(string body, HttpStatusCode status = HttpStatusCode.OK) => new(status) { Content = new StringContent(body) };
             HttpResponseMessage NotFound() => Json("""{"message":"Not Found"}""", HttpStatusCode.NotFound);
@@ -124,11 +128,11 @@ public class GitHubAppAuthTests
 
         Assert.Equal("ghs_4242_1", await tokens.GetAsync("alice", "repo", default));
         Assert.Equal("ghs_4242_1", await tokens.GetAsync("alice", "repo", default));
-        // Another repository of the same owner is the same installation: no new lookup.
-        Assert.Equal("ghs_4242_1", await tokens.GetAsync("Alice", "other", default));
+        // Another repository of the same owner is the same installation (no new lookup) but its own token, limited to that repository.
+        Assert.Equal("ghs_4242_2", await tokens.GetAsync("Alice", "other", default));
         time.Advance(TimeSpan.FromMinutes(54));
         Assert.Equal("ghs_4242_1", await tokens.GetAsync("alice", "repo", default));
-        Assert.Equal([(HttpMethod.Get, "/repos/alice/repo/installation"), (HttpMethod.Post, "/app/installations/4242/access_tokens")], app.Requests.Select(r => (r.Method, r.Path)));
+        Assert.Equal([(HttpMethod.Get, "/repos/alice/repo/installation"), (HttpMethod.Post, "/app/installations/4242/access_tokens"), (HttpMethod.Post, "/app/installations/4242/access_tokens")], app.Requests.Select(r => (r.Method, r.Path)));
 
         // Both calls were made as the App: the JWT verifies with the public key.
         foreach (var (_, _, auth) in app.Requests)
@@ -139,9 +143,36 @@ public class GitHubAppAuthTests
 
         // Inside the margin the next call replaces the token, with a fresh jwt, and keeps the installation.
         time.Advance(TimeSpan.FromMinutes(2));
-        Assert.Equal("ghs_4242_2", await tokens.GetAsync("alice", "repo", default));
+        Assert.Equal("ghs_4242_3", await tokens.GetAsync("alice", "repo", default));
         Assert.Equal(1, app.Calls("/repos/alice/repo/installation"));
         Assert.NotEqual(app.Requests[0].Auth, app.Requests[^1].Auth);
+        tokens.Dispose();
+    }
+
+    [Fact]
+    public async Task A_token_is_asked_for_one_repository_only_so_it_reaches_no_other_repository_of_the_installation()
+    {
+        var (pem, _) = NewKey();
+        var (tokens, app, _, _) = Source(pem);
+        app.Install("alice", 4242);
+
+        await tokens.GetAsync("alice", "chargehand", default);
+        await tokens.GetAsync("alice", "jarvis", default);
+
+        Assert.Equal(["""{"repositories":["chargehand"]}""", """{"repositories":["jarvis"]}"""], app.TokenBodies);
+        tokens.Dispose();
+    }
+
+    [Fact]
+    public async Task A_call_about_the_account_and_not_a_repository_gets_a_token_for_the_whole_installation()
+    {
+        var (pem, _) = NewKey();
+        var (tokens, app, _, _) = Source(pem);
+        app.Install("alice", 4242);
+
+        await tokens.GetAsync("alice", GitHubInstallationTokens.AccountWide, default);
+
+        Assert.Empty(app.TokenBodies);
         tokens.Dispose();
     }
 
@@ -155,8 +186,8 @@ public class GitHubAppAuthTests
 
         Assert.Equal("ghs_1_1", await tokens.GetAsync("alice", "chargehand", default));
         Assert.Equal("ghs_2_2", await tokens.GetAsync("acme-org", "mobile", default));
-        Assert.Equal("ghs_1_1", await tokens.GetAsync("alice", "jarvis", default));
-        Assert.Equal(["/repos/alice/chargehand/installation", "/app/installations/1/access_tokens", "/repos/acme-org/mobile/installation", "/app/installations/2/access_tokens"], app.Requests.Select(r => r.Path));
+        Assert.Equal("ghs_1_3", await tokens.GetAsync("alice", "jarvis", default));
+        Assert.Equal(["/repos/alice/chargehand/installation", "/app/installations/1/access_tokens", "/repos/acme-org/mobile/installation", "/app/installations/2/access_tokens", "/app/installations/1/access_tokens"], app.Requests.Select(r => r.Path));
         tokens.Dispose();
     }
 

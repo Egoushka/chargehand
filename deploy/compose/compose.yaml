@@ -43,7 +43,8 @@ services:
       CHARGEHAND_API_KEY: ${CHARGEHAND_API_KEY:?set CHARGEHAND_API_KEY in .env (openssl rand -hex 32)}
       # Driven mode only; empty in Core mode, where nothing reads them.
       CHARGEHAND_RUNNER_KEY: ${CHARGEHAND_RUNNER_KEY:-}
-      CHARGEHAND_PUSH_TOKEN: ${CHARGEHAND_PUSH_TOKEN:-}
+      # The GitHub App private key (PEM). The server mints a short-lived installation token for the one repository of each push from it.
+      CHARGEHAND_APP_KEY: ${CHARGEHAND_APP_KEY:-}
       # The worker's model credential. Set exactly one in .env; a variable that is not set is not passed on.
       ANTHROPIC_API_KEY:
       CLAUDE_CODE_OAUTH_TOKEN:
