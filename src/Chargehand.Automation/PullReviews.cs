@@ -66,6 +66,12 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
             catch (IntakeException e)
             {
                 warn($"intake: {name}#{pull.Number}: review not started: {e.Message}");
+                if (!await StillOpenAsync(name, pull.Number, ct))
+                {
+                    // Merged or closed since the listing: its head ref is gone, and asking again would fail the same way.
+                    _requested.Remove(Asked(name, pull.Number));
+                    Settle(Key(name, pull.Number, pull.HeadSha));
+                }
             }
         }
     }
@@ -112,6 +118,18 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
         state.Reviews.Add(new PullReview(name, pull.Number, pull.HeadSha, run, now));
         Settle(key);
         return true;
+    }
+
+    private async Task<bool> StillOpenAsync(string name, int number, CancellationToken ct)
+    {
+        try
+        {
+            return (await host.GetPullAsync(name, number, ct)).Open;
+        }
+        catch (IntakeException)
+        {
+            return true;
+        }
     }
 
     private void Settle(string key)

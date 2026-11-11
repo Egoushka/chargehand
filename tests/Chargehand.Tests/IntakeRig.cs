@@ -225,11 +225,16 @@ internal sealed class FakeHeads : IRepositoryHeads
     /// <summary>The checkouts pull request heads were fetched into, in order.</summary>
     public List<string> FetchedInto { get; } = [];
 
+    /// <summary>Pull requests whose head cannot be fetched, as GitHub answers for one that is gone.</summary>
+    public HashSet<int> Unfetchable { get; } = [];
+
     public Func<int, string> Listed { get; set; } = _ => "";
 
     public Task<string> FetchPullHeadAsync(string path, int number, CancellationToken ct)
     {
         Fetched.Add(number);
+        if (Unfetchable.Contains(number))
+            throw new IntakeException($"could not fetch the head of pull request {number}: fatal: couldn't find remote ref refs/pull/{number}/head");
         FetchedInto.Add(path);
         return ReadOnly.TryGetValue(path, out var e) ? throw e : Task.FromResult(PullHeads.GetValueOrDefault(number) ?? Listed(number));
     }

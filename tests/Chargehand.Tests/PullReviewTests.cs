@@ -142,6 +142,34 @@ public class PullReviewTests
     }
 
     [Fact]
+    public async Task A_pull_request_that_merged_and_cannot_be_fetched_is_dropped_instead_of_retried()
+    {
+        using var rig = new IntakeRig(On());
+        rig.OpenPull(5, Sha);
+        rig.Pull(5, open: false);
+        rig.Heads.Unfetchable.Add(5);
+        await rig.Poll();
+        await rig.Poll();
+
+        Assert.Single(rig.Heads.Fetched);
+        Assert.Empty(rig.Starter.Started);
+    }
+
+    [Fact]
+    public async Task A_pull_request_that_is_open_and_cannot_be_fetched_is_tried_again_at_the_next_poll()
+    {
+        using var rig = new IntakeRig(On());
+        rig.OpenPull(5, Sha);
+        rig.Pull(5);
+        rig.Heads.Unfetchable.Add(5);
+        await rig.Poll();
+        rig.Heads.Unfetchable.Clear();
+        await rig.Poll();
+
+        Assert.Single(rig.Starter.Started);
+    }
+
+    [Fact]
     public async Task A_head_that_moved_between_the_listing_and_the_fetch_waits_for_the_next_poll()
     {
         using var rig = new IntakeRig(On());
