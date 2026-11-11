@@ -1,6 +1,6 @@
 # Blind tests: a second worker writes acceptance tests from the issue alone
 
-- Status: proposed, for the maintainer's review. No code. Every decision below is the proposer's.
+- Status: accepted 2026-11-11 (maintainer approved the proposed choices below).
 - Date: 2026-11-11
 - Issue: #789 (one of nine ideas approved on 2026-10-18)
 - Builds on: [ADR 0039](../adr/0039-driven-writing-sessions.md) (driven sessions, handover),
@@ -48,11 +48,11 @@ Property or fuzz tests, running the blind tests in CI after merge, a blind revie
 which tasks to opt in automatically, non-C# test runners beyond what `VerifyPlan` already detects, and any change to the
 mutation check.
 
-## Open choices
+## Decisions (maintainer, 2026-11-11)
 
-1. Opt-in per task (above) or default on for tasks with a stated acceptance section. Proposed: opt in until a batch
+1. Opt-in per task (above) or default on for tasks with a stated acceptance section. Decided: opt in until a batch
    shows the cost is worth it.
-2. Whether the blind tests are committed to the pull request on success. Proposed: yes, as their own commit.
+2. Whether the blind tests are committed to the pull request on success. Decided: yes, as their own commit.
 
 ## Acceptance checks
 
