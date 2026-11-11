@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -92,15 +91,61 @@ public sealed class RunTokenService(byte[] key)
     }
 }
 
-/// <summary>What the runs a token started have cost so far, per parent run.</summary>
+/// <summary>What the runs a token started have cost so far, per parent run, and the budgets of the ones still running: a call is admitted against both,
+/// so calls running side by side are never together allowed more than the token has left.</summary>
 public sealed class RunTokenLedger
 {
-    private readonly ConcurrentDictionary<string, (decimal Usd, long Tokens)> _spent = new();
+    private readonly Lock _lock = new();
+    private readonly Dictionary<string, (decimal Usd, long Tokens)> _spent = [];
+    private readonly Dictionary<string, decimal> _reserved = [];
 
-    public void Charge(string runId, decimal usd, long tokens) =>
-        _spent.AddOrUpdate(runId, (usd, tokens), (_, s) => (s.Usd + usd, s.Tokens + tokens));
+    public void Charge(string runId, decimal usd, long tokens)
+    {
+        lock (_lock)
+        {
+            var s = _spent.GetValueOrDefault(runId);
+            _spent[runId] = (s.Usd + usd, s.Tokens + tokens);
+        }
+    }
 
-    public (decimal Usd, long Tokens) Spent(string runId) => _spent.GetValueOrDefault(runId);
+    public (decimal Usd, long Tokens) Spent(string runId)
+    {
+        lock (_lock)
+            return _spent.GetValueOrDefault(runId);
+    }
+
+    /// <summary>Gives back a call's reservation once it ended (its real cost is charged by then), failed or was cancelled.</summary>
+    public void Release(string runId, decimal usd)
+    {
+        if (usd <= 0)
+            return;
+        lock (_lock)
+        {
+            var left = _reserved.GetValueOrDefault(runId) - usd;
+            if (left > 0)
+                _reserved[runId] = left;
+            else
+                _reserved.Remove(runId);
+        }
+    }
+
+    /// <summary>Checks the token's caps against what is spent and reserved and, when a call fits, reserves its budget (capped at what is left) in the same step.</summary>
+    internal (decimal? Budget, string? Refusal) Reserve(RunTokenClaims claims, decimal? asked)
+    {
+        lock (_lock)
+        {
+            var (usd, tokens) = _spent.GetValueOrDefault(claims.RunId);
+            usd += _reserved.GetValueOrDefault(claims.RunId);
+            if (claims.MaxUsd is { } maxUsd && usd >= maxUsd)
+                return (null, "the task's spend cap is used up");
+            if (claims.MaxTokens is { } maxTokens && tokens >= maxTokens)
+                return (null, "the task's token cap is used up");
+            var budget = claims.MaxUsd is { } cap ? Math.Min(asked ?? cap - usd, cap - usd) : asked;
+            if (budget is > 0)
+                _reserved[claims.RunId] = _reserved.GetValueOrDefault(claims.RunId) + budget.Value;
+            return (budget, null);
+        }
+    }
 }
 
 /// <summary>How a call's commit relates to its task's commit in the server's checkout of the repository.</summary>
@@ -149,16 +194,10 @@ public static class RunScope
             if (relation == CommitRelation.Unknown)
                 request = request with { Context = request.Context with { Repository = repository with { Commit = claims.Commit } } };
         }
-        var (usd, tokens) = ledger.Spent(claims.RunId);
-        if (claims.MaxUsd is { } maxUsd && usd >= maxUsd)
-            return (null, "the task's spend cap is used up");
-        if (claims.MaxTokens is { } maxTokens && tokens >= maxTokens)
-            return (null, "the task's token cap is used up");
-        if (claims.MaxUsd is { } cap)
-        {
-            var remaining = cap - usd;
-            request = request with { Context = request.Context with { BudgetUsd = Math.Min(request.Context.BudgetUsd ?? remaining, remaining) } };
-        }
-        return (request, null);
+        // Last, so a call refused above holds no reservation; the caller releases BudgetUsd when the run ends.
+        var (budget, refusal) = ledger.Reserve(claims, request.Context.BudgetUsd);
+        if (refusal is not null)
+            return (null, refusal);
+        return (request with { Context = request.Context with { BudgetUsd = budget } }, null);
     }
 }
