@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.22](https://github.com/Egoushka/chargehand/compare/v0.19.21...v0.19.22) (2026-11-11)
+
+
+### Features
+
+* **bench:** publish the merge rate of a replay run ([#708](https://github.com/Egoushka/chargehand/issues/708)) ([#810](https://github.com/Egoushka/chargehand/issues/810)) ([61a4a3c](https://github.com/Egoushka/chargehand/commit/61a4a3c69fabc32d82b3c5ef96fce75ea8555b13))
+* **runners:** runners join and leave the pool while the server runs ([#779](https://github.com/Egoushka/chargehand/issues/779)) ([#811](https://github.com/Egoushka/chargehand/issues/811)) ([66f66d1](https://github.com/Egoushka/chargehand/commit/66f66d1d4648a921f1eacacffa23031d60c835c2))
+
 ## [0.19.21](https://github.com/Egoushka/chargehand/compare/v0.19.20...v0.19.21) (2026-11-11)
 
 
