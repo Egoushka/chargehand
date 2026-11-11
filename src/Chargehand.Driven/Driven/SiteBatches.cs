@@ -25,7 +25,7 @@ namespace Chargehand.Driven;
 /// <param name="Own">The account's own model credential (ADR 0053); null: the server's.</param>
 /// <param name="Priced">The credential has a dollar price (an API key), so the dollar cap binds.</param>
 /// <param name="Push">The credential <c>driven.push_secret</c> names; null: the GitHub App pushes (<see cref="BatchCheckout.Push"/>).</param>
-/// <param name="ModelEnvironment">The one model credential variable a session gets.</param>
+/// <param name="ModelEnvironment">The model credential a session gets, under <see cref="DrivenRun.ModelCredentialKey"/>; it may carry other entries.</param>
 /// <param name="Router">What each session of a task asks for its pool (ADR 0095, D-113); null: the budget router is off.</param>
 internal sealed record BatchSetup(DrivenServices Services, DrivenSettings Settings, ClaudeCodeSettings Claude, string Image, DrivenPreset Preset, string Model, AccountModel? Own, bool Priced,
     BatchLimits Limits, PushCredential? Push, IReadOnlyDictionary<string, string> ModelEnvironment, IReadOnlyList<RunnerSite> Sites,
@@ -45,7 +45,15 @@ internal sealed record SiteRoute(RunnerSite Site, string? Forward, int Port, Dri
 
     /// <summary>One route per runner of <paramref name="setup"/>; <paramref name="tokenKey"/> is the batch's run-token key, null with a priced credential.</summary>
     public static IReadOnlyList<SiteRoute> Of(BatchSetup setup, string? tokenKey) =>
-        [.. setup.Sites.Select(site => Of(site, setup.Settings, setup.Own, setup.Priced, tokenKey, setup.Preset, setup.ModelEnvironment.Values.Single()))];
+        [.. setup.Sites.Select(site => Of(site, setup.Settings, setup.Own, setup.Priced, tokenKey, setup.Preset, CredentialOf(setup)))];
+
+    /// <summary>The model credential, by the variable <see cref="DrivenRun.ModelEnvironment"/> stores it under: the environment may carry other entries.</summary>
+    private static string CredentialOf(BatchSetup setup)
+    {
+        var key = DrivenRun.ModelCredentialKey(setup.Priced);
+        return setup.ModelEnvironment.TryGetValue(key, out var credential) ? credential : throw new ChargehandException(ErrorCode.CredentialUnavailable,
+            $"the batch's model environment has no {key}", "Report this: the batch setup puts the claude_code credential there.");
+    }
 
     private static SiteRoute Of(RunnerSite site, DrivenSettings settings, AccountModel? own, bool priced, string? tokenKey, DrivenPreset drivenPreset, string credential)
     {
