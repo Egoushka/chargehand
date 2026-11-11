@@ -2,7 +2,9 @@ namespace Chargehand.Modules.Warmer.Api;
 
 /// <summary>One restore a checkout needs. A null <paramref name="File"/> is a check made in this process: done means hit, otherwise it is missing.</summary>
 /// <param name="Done">True when the step's result already exists, so running it again is not needed.</param>
-public sealed record WarmStep(string Name, string? File, IReadOnlyList<string> Args, string WorkDir, Func<bool> Done);
+/// <param name="Stages">True when the step writes NuGet packages that must be verified before they reach the shared cache.</param>
+/// <param name="Staging">The per-run folder a staged step writes its packages to; set by the warmer, never by the plan.</param>
+public sealed record WarmStep(string Name, string? File, IReadOnlyList<string> Args, string WorkDir, Func<bool> Done, bool Stages = false, string? Staging = null);
 
 /// <summary>What to restore in a checkout, decided from the files in it: the top level and each direct subdirectory.</summary>
 public static class WarmPlan
@@ -37,7 +39,7 @@ public static class WarmPlan
         var target = Pick(dir, "*.slnx") ?? Pick(dir, "*.sln") ?? Pick(dir, "*.csproj");
         return target is null
             ? null
-            : new WarmStep("dotnet-restore", "dotnet", ["restore", target, "--disable-build-servers"], dir, () => HasAssets(dir, 4));
+            : new WarmStep("dotnet-restore", "dotnet", ["restore", target, "--disable-build-servers"], dir, () => HasAssets(dir, 4), Stages: true);
     }
 
     private static string? Pick(string dir, string pattern) =>
