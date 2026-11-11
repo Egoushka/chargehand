@@ -35,6 +35,8 @@ public sealed class BubblewrapSandbox(string? home = null) : ISandbox
                 args.AddRange(["--ro-bind", "/dev/null", path]);
         }
         args.AddRange(["--bind", spec.WorkDirectory, spec.WorkDirectory, "--bind", tempDirectory, tempDirectory, "--unshare-all"]);
+        foreach (var path in spec.WritablePaths ?? [])
+            args.AddRange(["--bind", path, path]);
         if (spec.Network)
             args.Add("--share-net");
         args.AddRange(["--die-with-parent", "--chdir", spec.WorkDirectory, "--clearenv"]);

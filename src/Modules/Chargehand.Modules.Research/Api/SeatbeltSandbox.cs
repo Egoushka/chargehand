@@ -22,7 +22,7 @@ public sealed class SeatbeltSandbox(string? home = null) : ISandbox
     {
         var temp = Directory.CreateTempSubdirectory("chargehand-sbx-");
         var work = CredentialPaths.Real(spec.WorkDirectory);
-        var profile = Profile(spec with { WorkDirectory = work }, _home, CredentialPaths.Real(temp.FullName));
+        var profile = Profile(spec with { WorkDirectory = work, WritablePaths = spec.WritablePaths?.Select(CredentialPaths.Real).ToList() }, _home, CredentialPaths.Real(temp.FullName));
         return new SandboxLaunch("/usr/bin/sandbox-exec", ["-p", profile, "--", .. spec.Argv], ProcessRunner.Environment(temp.FullName, spec.PassEnv, spec.Env), work, temp.FullName);
     }
 
@@ -36,7 +36,8 @@ public sealed class SeatbeltSandbox(string? home = null) : ISandbox
             .AppendLine("(allow file-read*)");
         foreach (var relative in CredentialPaths.Relative)
             sb.AppendLine(CultureInfo.InvariantCulture, $"(deny file-read* (subpath \"{Quote(Path.Combine(home, relative))}\"))");
-        sb.AppendLine(CultureInfo.InvariantCulture, $"(allow file-write* (subpath \"{Quote(spec.WorkDirectory)}\") (subpath \"{Quote(tempDirectory)}\") (literal \"/dev/null\") (literal \"/dev/dtracehelper\"))");
+        var writable = new[] { spec.WorkDirectory, tempDirectory }.Concat(spec.WritablePaths ?? []).Select(p => $"(subpath \"{Quote(p)}\")");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"(allow file-write* {string.Join(' ', writable)} (literal \"/dev/null\") (literal \"/dev/dtracehelper\"))");
         if (spec.Network)
             sb.AppendLine("(allow network*)");
         return sb.ToString();
