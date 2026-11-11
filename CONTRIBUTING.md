@@ -21,6 +21,8 @@ Contributions come under the [Developer Certificate of Origin](https://developer
 commit with `git commit -s`; the `Signed-off-by` line certifies that you wrote the change or may submit it under the
 project's license.
 
+The sign-off also lets the maintainer, who holds the copyright in the relicensable code, keep licensing it: versions after v0.19.19 are under FSL-1.1-ALv2 (see [NOTICE](NOTICE)), and by signing off you agree your contribution may be distributed under that license and under Apache-2.0 when a version converts. Commits without a `Signed-off-by` line are not merged.
+
 ## Setup
 
 ```bash
