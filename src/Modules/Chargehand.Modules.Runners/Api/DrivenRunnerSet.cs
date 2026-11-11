@@ -30,6 +30,10 @@ public static partial class DrivenRunnerSet
     public static string ImageFor(IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? variants, string reference, string platform) =>
         variants?.GetValueOrDefault(reference)?.GetValueOrDefault(platform) ?? reference;
 
+    /// <summary>Every session image of <paramref name="images"/> (<c>driven.images</c>) as a runner of <paramref name="platform"/> is asked to start it: what its allowlist must carry.</summary>
+    public static IReadOnlyList<string> SessionImagesFor(IReadOnlyList<string>? images, IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? variants, string platform) =>
+        [.. (images ?? []).Select(i => ImageFor(variants, i, platform)).Distinct(StringComparer.Ordinal)];
+
     public static bool UsesMise(string? environment) => environment == MiseEnvironment;
 
     /// <summary>Throws an invalid_request error naming the key when <paramref name="environment"/> is not one of <see cref="Environments"/>.</summary>

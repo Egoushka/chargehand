@@ -52,7 +52,7 @@ A digest from before that, or an image built for one platform, is used as writte
 }
 ```
 
-A key must be an image of `driven.images`; a value must be pinned by digest. The runner's `--images` (and `--egress-image`, which is the session image on the server's runner) must list the reference the server will ask it to start: for an arm64 runner, the mapped one. `platform` must match the engine (`docker info --format '{{.OSType}}/{{.Architecture}}'` prints `linux/aarch64` on Apple silicon; that is `linux/arm64`); an amd64 image on an arm64 engine runs under emulation, slowly, or not at all.
+A key must be an image of `driven.images`; a value must be pinned by digest. The runner's `--images` (and `--egress-image`, which is the session image on the server's runner) must list the reference the server will ask it to start: for an arm64 runner, the mapped one. The server checks it (`GET /images`): a runner whose list lacks one is passed over, a task none can start is refused at admission naming the image, and the System page shows the runner as "image not allowed". `platform` must match the engine (`docker info --format '{{.OSType}}/{{.Architecture}}'` prints `linux/aarch64` on Apple silicon; that is `linux/arm64`); an amd64 image on an arm64 engine runs under emulation, slowly, or not at all.
 
 `chargehand doctor` probes each runner (`runner <name>`), checks each runner's key item, and for a runner that is not amd64 says how many of `driven.images` have a variant for it.
 

@@ -17,6 +17,9 @@ public sealed partial record DrivenSettings
     /// <summary>The image to start on a runner of <paramref name="platform"/>: the reference as the profile writes it, or its variant for that platform (<c>image_variants</c>).</summary>
     public string ImageFor(string reference, string platform) => DrivenRunnerSet.ImageFor(ImageVariants, reference, platform);
 
+    /// <summary>Every image of <c>images</c> as a runner of <paramref name="platform"/> starts it: what that runner's allowlist must carry (<see cref="ImageAllowlist"/>).</summary>
+    public IReadOnlyList<string> SessionImagesFor(string platform) => DrivenRunnerSet.SessionImagesFor(Images, ImageVariants, platform);
+
     /// <summary>The environments a profile may name (<c>driven.environment</c>); <c>image</c> is the default.</summary>
     public static IReadOnlyList<string> Environments => DrivenRunnerSet.Environments;
 

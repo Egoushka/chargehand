@@ -5,14 +5,16 @@ namespace Chargehand.Modules.Runners.Api;
 
 /// <summary>One runner as <see cref="RunnerPool"/> places tasks on it: its settings from the profile and its <c>GET /host</c>.</summary>
 /// <param name="Config">What the profile says about it.</param>
-/// <param name="Host">Its <c>GET /host</c>; null: tasks are placed on it by count only.</param>
-public sealed record PoolSite(DrivenRunnerEntry Config, IHostSource? Host = null)
+/// <param name="Host">Its <c>GET /host</c>; null: tasks are placed on it by count only. When it is also an <see cref="IImageAllowlistSource"/>, <paramref name="Images"/> are checked against it.</param>
+/// <param name="Images">The session images this runner will be asked to start (<c>driven.images</c> for its platform): what its allowlist must carry. Null or empty: not checked.</param>
+public sealed record PoolSite(DrivenRunnerEntry Config, IHostSource? Host = null, IReadOnlyList<string>? Images = null)
 {
     public string Name => Config.Name;
 }
 
-/// <summary>A runner as <see cref="RunnerPool.StatusAsync"/> reports it: whether it answered, why not, its last host figures and the sessions this server runs there.</summary>
-public sealed record RunnerStatus(PoolSite Site, bool Reachable, string? Why, HostSnapshot? Snapshot, int Running, long ElapsedMs);
+/// <summary>A runner as <see cref="RunnerPool.StatusAsync"/> reports it: whether it answered, why not, its last host figures, the sessions this server runs there, and what of the session images its
+/// allowlist lacks (<see cref="ImageAllowlist.Missing"/>; null when nothing, or when it did not answer).</summary>
+public sealed record RunnerStatus(PoolSite Site, bool Reachable, string? Why, HostSnapshot? Snapshot, int Running, long ElapsedMs, string? ImageMismatch = null);
 
 /// <summary>Picks a runner for each task (ADR 0058). A runner is eligible when it answered <c>GET /host</c> within <see cref="ProbeTimeout"/> (an answer is reused for <see cref="HealthTtl"/>; a
 /// runner that did not answer is skipped for 15 seconds, then 30, doubling to 2 minutes), is not draining, has a session slot under its <c>max_sessions</c>, and passes the memory and load rule of
@@ -20,7 +22,8 @@ public sealed record RunnerStatus(PoolSite Site, bool Reachable, string? Why, Ho
 /// cannot report memory comes last. When none is eligible the task waits, and when some runner would take it but for its memory, nothing of this server is running anywhere and no runner is
 /// eligible, the one with the most free memory takes it anyway, as ADR 0045 admits one task on an idle host. A task that must stay on its runner (one a restart took up) is counted there and never
 /// waits: its session may be running, and the task runner waits out a runner that does not answer. When no runner has been usable for <see cref="Patience"/> the pool refuses the task, and the
-/// batch does not start it. One instance serves every batch of a server.</summary>
+/// batch does not start it. A runner whose allowlist lacks a session image of its <see cref="PoolSite.Images"/> is not usable (issue #425), and when every runner answered so the task is refused
+/// at once: it would only fail at its start. One instance serves every batch of a server.</summary>
 /// <param name="log">Told when a runner stops and starts answering, and once per runner that cannot report memory.</param>
 public sealed class RunnerPool : IAdmission, IDisposable
 {
@@ -37,6 +40,7 @@ public sealed class RunnerPool : IAdmission, IDisposable
         public PoolSite Site { get; } = site;
         public HostAdmission Admission { get; } = admission;
         public HostSnapshot? Snapshot { get; set; }
+        public string? Mismatch { get; set; }
         public DateTimeOffset? Probed { get; set; }
         public DateTimeOffset DownUntil { get; set; }
         public string? Why { get; set; }
@@ -45,7 +49,7 @@ public sealed class RunnerPool : IAdmission, IDisposable
         public bool SaidUnknown { get; set; }
     }
 
-    private sealed record Probe(bool Healthy, HostSnapshot? Snapshot, string? Why);
+    private sealed record Probe(bool Healthy, HostSnapshot? Snapshot, string? Why, string? Mismatch = null);
 
     private readonly List<State> _states;
     private readonly SemaphoreSlim _gate = new(1);
@@ -98,7 +102,7 @@ public sealed class RunnerPool : IAdmission, IDisposable
             {
                 var clock = System.Diagnostics.Stopwatch.StartNew();
                 var probe = await ProbeAsync(state, ct, sweep: false);
-                statuses.Add(new RunnerStatus(state.Site, probe.Healthy, probe.Why, probe.Snapshot, state.Admission.Running, clock.ElapsedMilliseconds));
+                statuses.Add(new RunnerStatus(state.Site, probe.Healthy, probe.Why, probe.Snapshot, state.Admission.Running, clock.ElapsedMilliseconds, probe.Mismatch));
             }
             return statuses;
         }
@@ -123,8 +127,11 @@ public sealed class RunnerPool : IAdmission, IDisposable
 
             var now = _time.GetUtcNow();
             List<string> reasons = [];
-            var (candidates, usable) = await CandidatesAsync(requestMb, reasons, ct);
+            var (candidates, usable, mismatched) = await CandidatesAsync(requestMb, reasons, ct);
 
+            // Every runner answered and none carries the session image: waiting changes nothing until an operator restarts one, and starting it would only fail inside the task.
+            if (mismatched == _states.Count)
+                return new AdmissionDecision(false, $"no runner can start the session image ({string.Join("; ", reasons)})", Refuse: true);
             if (usable == 0)
             {
                 _noneUsableSince ??= now;
@@ -165,17 +172,23 @@ public sealed class RunnerPool : IAdmission, IDisposable
     }
 
     /// <summary>Every runner that answered and is not draining counts as usable; of those, the ones with a session slot are assessed against <paramref name="requestMb"/>. Why each one
-    /// cannot take the task goes into <paramref name="reasons"/>.</summary>
-    private async Task<(List<(State State, HostAssessment Assessment)> Candidates, int Usable)> CandidatesAsync(int requestMb, List<string> reasons, CancellationToken ct)
+    /// cannot take the task goes into <paramref name="reasons"/>; <c>Mismatched</c> counts the runners that answered with an allowlist that lacks a session image.</summary>
+    private async Task<(List<(State State, HostAssessment Assessment)> Candidates, int Usable, int Mismatched)> CandidatesAsync(int requestMb, List<string> reasons, CancellationToken ct)
     {
         List<(State State, HostAssessment Assessment)> candidates = [];
-        var usable = 0;
+        var (usable, mismatched) = (0, 0);
         foreach (var state in _states)
         {
             var probe = await ProbeAsync(state, ct);
             if (!probe.Healthy)
             {
                 reasons.Add($"{state.Site.Name}: {probe.Why}");
+                continue;
+            }
+            if (probe.Mismatch is { } mismatch)
+            {
+                mismatched++;
+                reasons.Add($"{state.Site.Name}: {mismatch}");
                 continue;
             }
             if (probe.Snapshot is { IsDraining: true } draining)
@@ -199,7 +212,7 @@ public sealed class RunnerPool : IAdmission, IDisposable
             if (!assessment.Fits)
                 reasons.Add($"{state.Site.Name}: {assessment.Detail}");
         }
-        return (candidates, usable);
+        return (candidates, usable, mismatched);
     }
 
     private static AdmissionDecision Place(State state, int requestMb, string? detail)
@@ -216,9 +229,10 @@ public sealed class RunnerPool : IAdmission, IDisposable
         if (now < state.DownUntil)
             return new Probe(false, null, $"unreachable ({state.Why}), asked again in {(int)Math.Ceiling((state.DownUntil - now).TotalSeconds)} s");
         if (state.Probed is { } at && now - at < HealthTtl)
-            return new Probe(true, state.Snapshot, null);
+            return new Probe(true, state.Snapshot, null, state.Mismatch);
 
         HostSnapshot? snapshot = null;
+        string? mismatch = null;
         try
         {
             if (state.Site.Host is { } host)
@@ -227,6 +241,7 @@ public sealed class RunnerPool : IAdmission, IDisposable
                 timeout.CancelAfter(_probeTimeout);
                 try
                 {
+                    mismatch = await ImageAllowlist.CheckAsync(host, state.Site.Images, timeout.Token);
                     snapshot = await host.ReadAsync(timeout.Token);
                 }
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -252,8 +267,10 @@ public sealed class RunnerPool : IAdmission, IDisposable
         }
         if (state.Failures > 0)
             _log?.Invoke($"runner '{state.Site.Name}' answers again");
-        (state.Failures, state.Snapshot, state.Probed) = (0, snapshot, now);
-        return new Probe(true, snapshot, null);
+        if (mismatch != state.Mismatch)
+            _log?.Invoke(mismatch is null ? $"runner '{state.Site.Name}' carries the session images again" : $"runner '{state.Site.Name}': {mismatch}");
+        (state.Failures, state.Snapshot, state.Mismatch, state.Probed) = (0, snapshot, mismatch, now);
+        return new Probe(true, snapshot, null, mismatch);
     }
 
     private void Down(State state, string why)

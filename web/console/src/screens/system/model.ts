@@ -51,6 +51,13 @@ export function runnerStatusView(
     return fallback
       ? runnerView(fallback)
       : { status: 'off', text: 'no answer served', short: 'unknown', tone: 'off' };
+  if (status.reachable === true && status.image_mismatch)
+    return {
+      status: 'failed',
+      text: status.image_mismatch,
+      short: 'image not allowed',
+      tone: 'danger',
+    };
   if (status.reachable === true && status.draining)
     return {
       status: 'waiting',
