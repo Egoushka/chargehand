@@ -342,7 +342,8 @@
         "refill_day": 1,
         "refill_weekday": null,
         "refill_time": "00:00",
-        "no_training_models": null
+        "no_training_models": null,
+        "pace_daily": false
       },
       {
         "name": "credit",
@@ -362,7 +363,8 @@
         "refill_time": "00:00",
         "no_training_models": [
           "*"
-        ]
+        ],
+        "pace_daily": false
       },
       {
         "name": "subscription",
@@ -381,7 +383,8 @@
         "refill_time": "09:00",
         "no_training_models": [
           "*"
-        ]
+        ],
+        "pace_daily": false
       },
       {
         "name": "bought",
@@ -399,7 +402,8 @@
         "refill_day": 1,
         "refill_weekday": null,
         "refill_time": "00:00",
-        "no_training_models": null
+        "no_training_models": null,
+        "pace_daily": false
       }
     ],
     "owner_private_repos": [

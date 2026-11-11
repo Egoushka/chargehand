@@ -282,4 +282,66 @@ public class ModelRouterTests
         Assert.Contains("default_tier 'missing' is not a tier", problems);
         Assert.Contains("tier 'cheap': no pool pays for any of its models", problems);
     }
+
+    private static readonly PoolSettings Paced = Subscription with { QuotaUsd = 700, PaceDaily = true };
+
+    [Fact]
+    public void A_paced_pool_whose_day_is_spent_hands_the_call_to_the_next_pool()
+    {
+        // Tuesday 10th: period began Sunday 8th 09:00, six days to the refill, so the allowance is 700 / 6 = 116.67 and 120 is spent.
+        var choice = Chosen(Router(Paced, Credit).Choose(1, DataClass.Public, [new("subscription", At(10, 8), 120)], At(10)));
+
+        Assert.Equal(("credit", "paid/big"), (choice.Pool, choice.Model));
+    }
+
+    [Fact]
+    public void A_pool_without_pace_daily_keeps_the_call_with_a_warning_when_its_day_is_spent()
+    {
+        var choice = Chosen(Router(Paced with { PaceDaily = false }, Credit).Choose(1, DataClass.Public, [new("subscription", At(10, 8), 120)], At(10)));
+
+        Assert.Equal(("subscription", "today's allowance is spent"), (choice.Pool, choice.Warning));
+    }
+
+    [Fact]
+    public void A_paced_pool_with_room_today_takes_the_call()
+    {
+        var choice = Chosen(Router(Paced, Credit).Choose(1, DataClass.Public, [new("subscription", At(10, 8), 100)], At(10)));
+
+        Assert.Equal(("subscription", null), (choice.Pool, choice.Warning));
+    }
+
+    [Fact]
+    public void A_paced_pool_is_still_used_when_no_other_pool_can_take_the_call()
+    {
+        var choice = Chosen(Router(Paced, Credit).Choose(1, DataClass.Public, [new("subscription", At(10, 8), 120)], At(10), new HashSet<string> { "credit" }));
+
+        Assert.Equal(("subscription", "today's allowance is spent"), (choice.Pool, choice.Warning));
+    }
+
+    [Fact]
+    public void A_paced_pool_the_provider_refused_is_out_not_soft()
+    {
+        var decision = Router(Paced).Choose(1, DataClass.Public, [new("subscription", At(10, 8), 120)], At(10), new HashSet<string> { "subscription" });
+
+        Assert.IsType<RouteWait>(decision);
+    }
+
+    [Fact]
+    public void A_paced_pool_gets_its_allowance_back_the_next_day_with_what_was_left_carried_over()
+    {
+        // Wednesday 11th: 580 left over five days (4.375 rounded up) is 116, nothing spent yet.
+        var standing = Standing(Paced, At(11), new PoolSpend("subscription", At(10, 8), 120));
+
+        Assert.Equal((116m, false), (standing.AllowanceUsd, standing.Paced));
+    }
+
+    [Fact]
+    public void Pace_daily_needs_an_amount_to_pace()
+    {
+        var problems = Settings(Subscription with { PaceDaily = true }, Free with { PaceDaily = true }).Problems().ToList();
+
+        Assert.Contains("pool 'subscription': pace_daily needs an amount to pace: total_usd, or quota_usd on a weekly pool", problems);
+        Assert.Contains("pool 'free': pace_daily needs an amount to pace: total_usd, or quota_usd on a weekly pool", problems);
+        Assert.DoesNotContain(Settings(Paced).Problems(), p => p.Contains("pace_daily"));
+    }
 }
