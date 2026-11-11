@@ -8,7 +8,7 @@ using Chargehand.Mcp;
 using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
-using Chargehand.Runtime;
+using Chargehand.Modules.Research.Api;
 
 namespace Chargehand.Tests;
 

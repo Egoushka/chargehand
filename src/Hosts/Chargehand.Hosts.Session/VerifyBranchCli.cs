@@ -1,9 +1,10 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Research.Api;
 
-namespace Chargehand.Driven;
+namespace Chargehand.Hosts.Session;
 
 /// <summary><c>chargehand verify-branch --bundle &lt;file&gt; --branch chargehand/&lt;run&gt; --timeout-seconds N [--work &lt;dir&gt;] -- &lt;command...&gt;</c>: what a fresh
 /// verification container runs (ADR 0039). The workspace is a clean clone at the base commit; this puts the session's branch on it from the bundle, checks it out detached,
@@ -80,7 +81,7 @@ public static class VerifyBranchCli
 
     private static int Record(TextWriter output, IReadOnlyList<string> argv, int exit, string tail, bool timedOut, TimeSpan duration, string commit, int exitCode)
     {
-        output.WriteLine(Marker + JsonSerializer.Serialize(new { argv, exit_code = exit, output_tail = tail, timed_out = timedOut, duration_ms = (long)duration.TotalMilliseconds, commit }));
+        output.WriteLine(Marker + JsonSerializer.Serialize(new VerificationRecord(argv, exit, tail, timedOut, (long)duration.TotalMilliseconds, commit), VerificationJsonContext.Default.VerificationRecord));
         return exitCode;
     }
 
@@ -107,3 +108,10 @@ public static class VerifyBranchCli
         return (p.ExitCode, await stdout, err.Length > 400 ? err[^400..] : err);
     }
 }
+
+/// <summary>The record of <see cref="VerifyBranchCli"/> without reflection (ADR 0060), as the anonymous type before it: snake_case, in declaration order.</summary>
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
+[JsonSerializable(typeof(VerificationRecord))]
+internal sealed partial class VerificationJsonContext : JsonSerializerContext;
+
+internal sealed record VerificationRecord(IReadOnlyList<string> Argv, int ExitCode, string OutputTail, bool TimedOut, long DurationMs, string Commit);

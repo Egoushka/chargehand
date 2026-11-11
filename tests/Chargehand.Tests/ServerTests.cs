@@ -6,7 +6,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.Runtime;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;

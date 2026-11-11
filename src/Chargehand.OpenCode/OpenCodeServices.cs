@@ -6,7 +6,7 @@ using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
-using Chargehand.Runtime;
+using Chargehand.Modules.Research.Api;
 
 namespace Chargehand.OpenCode;
 

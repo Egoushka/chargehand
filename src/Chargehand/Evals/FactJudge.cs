@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Chargehand.Contracts;
-using Chargehand.Runtime;
+using Chargehand.Modules.Research.Api;
 
 namespace Chargehand.Evals;
 

@@ -1,4 +1,4 @@
-namespace Chargehand.Runtime;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>
 /// Optional on a runtime that keeps something for the length of a run: OpenCode registers a run's granted MCP servers with a

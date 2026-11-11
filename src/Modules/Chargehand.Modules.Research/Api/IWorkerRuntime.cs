@@ -1,8 +1,7 @@
 using Chargehand.Contracts;
 using Chargehand.Kernel;
-using Chargehand.Modules.Research.Api;
 
-namespace Chargehand.Runtime;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>
 /// Port to the coding-agent runtime (ADR 0004). Asynchronous first: a node is created, a prompt is submitted,

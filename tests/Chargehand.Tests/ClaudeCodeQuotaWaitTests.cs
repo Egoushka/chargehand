@@ -1,7 +1,7 @@
 using Chargehand.ClaudeCode;
 using Chargehand.Contracts;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Sessions.Api;
-using Chargehand.Runtime;
 using Xunit;
 
 namespace Chargehand.Tests;

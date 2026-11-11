@@ -1,4 +1,4 @@
-namespace Chargehand.Runtime;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>
 /// Optional on a runtime that hands granted services to workers (ADR 0034): whether a session's worker got them. A grant is

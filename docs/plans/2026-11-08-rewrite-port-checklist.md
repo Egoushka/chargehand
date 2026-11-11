@@ -41,8 +41,8 @@ a settings type with its JSON context; what is left is in `src/Chargehand/Config
   `McpServerSettings` (now in Memory.Api) and `DrivenSettings`. The hosts compose the root. Plan: `2026-11-10-profile-move.md`.
 - [x] `Config/DrivenRunners.cs` → Runners (`DrivenRunnerSet`; the `DrivenSettings` members stay as thin delegates until the root goes).
 - [x] `Config/InstallPaths.cs` → Kernel (prompts, presets and run log locations; used by the CLI only today).
-- [ ] `Config/Preset.cs` (preset/v1 loader) → Research, beside intake, which is its main reader. Proposal. Waits for the
-  worker runtime port (section 3): `NodeKind.Rules` builds `PermissionRule` of `src/Chargehand/Runtime`; and the loader
+- [ ] `Config/Preset.cs` (preset/v1 loader) → Research, beside intake, which is its main reader. Proposal. The worker runtime port (section 3) is done; it
+  no longer blocks it. Remaining: the loader
   (YamlDotNet into reflection JSON) needs a source-generated path before a host publishes it.
 
 ## 2. Layers 2 to 8: leftovers of modules already ported
@@ -83,10 +83,10 @@ Research is the module the answer pipeline lands in; ADR 0060 names it, and it a
 
 - [x] Sandbox: `src/Chargehand/Sandbox/*` (`ISandbox`, `BubblewrapSandbox`, `SeatbeltSandbox`, `NoSandbox`,
   `SandboxSelector`, `ProcessRunner`, `CredentialPaths`). Needed by verification and by `Chargehand.Acp`.
-- [ ] Worker runtime port: `src/Chargehand/Runtime/*` (`IWorkerRuntime`, `RuntimeSelector`, `UnavailableRuntime`,
+- [x] Worker runtime port: `src/Chargehand/Runtime/*` (`IWorkerRuntime`, `RuntimeSelector`, `UnavailableRuntime`,
   `WorkerKill`, `IRunCleanup`, `IServiceHealth`, `IServiceResolver`). Layer 9 keeps the runtimes (layer 10) pointing
-  down. ADR 0086's amendment makes this the step that lets `src/Chargehand.Acp` fold into `Runtimes.Acp`.
-- [x] Prompts: `IPromptRegistry`, `PromptRegistry`, `PromptChains` (build, caller-block check, instruction hash) and `LangfusePrompts` are in Research. `ToolSetHash` (was `PromptChains.ToolsSha256`) stays in `src/Chargehand/Prompts`: it hashes `PermissionRule` and `ServiceGrant`, which still live in the old `Runtime/IWorkerRuntime.cs`; it moves with the worker runtime types.
+  down. ADR 0086's amendment makes this the step that lets `src/Chargehand.Acp` fold into `Runtimes.Acp`. Done: the types live in `Modules.Research.Api`, with `ServiceUse` (split out of `Preset.cs`).
+- [x] Prompts: `IPromptRegistry`, `PromptRegistry`, `PromptChains` (build, caller-block check, instruction hash) and `LangfusePrompts` are in Research. `ToolSetHash` (was `PromptChains.ToolsSha256`) is in Research.Api beside `PermissionRule` and `ServiceGrant`; its JSON basis is typed records with a source-generated context (AOT), same bytes, same pinned hash.
 - [ ] Prompt enhancer: `src/Chargehand/Enhancement/*`, `Chargehand.Mcp/McpPromptEnhancer.cs`, `PromptEnhancers.cs`.
 - [ ] Services per preset: `Chargehand.Mcp/ServiceResolver.cs` (needs the MCP client, section 2).
 - [ ] Intake (request to Task Spec): `src/Chargehand/Intake/*` (`IIntake`, `GenerateIntake`, `StructuredSpec`).
@@ -139,7 +139,7 @@ Each needs the Research worker runtime port (section 3) unless it says otherwise
 - [ ] Hosts.Server: `Chargehand.Server/ChargehandServer.cs`, the MCP tools `OrchestrateTool.cs`, `ResultTool.cs`,
   `RepositoriesTool.cs`, the conversation edge `Conversations/ConversationRoutes.cs` and `ConversationHost.cs`.
 - [ ] Hosts.Runner: `Chargehand.Server/Runner/RunnerCli.cs`.
-- [ ] Hosts.Session: `Chargehand.Driven/Driven/VerifyBranchCli.cs` (what a verification container runs).
+- [x] Hosts.Session: `Chargehand.Driven/Driven/VerifyBranchCli.cs` (what a verification container runs).
 - [ ] Hosts.Cli: `Chargehand.Cli/Program.cs` (980 lines of verb dispatch; each verb's code moves with its module above),
   `src/Chargehand/Signing/VerifyCli.cs`.
 - [ ] Every host publishes with Native AOT (`scripts/aot-smoke.sh`), which needs a source-generated JSON context for

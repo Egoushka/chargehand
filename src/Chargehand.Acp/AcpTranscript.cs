@@ -1,7 +1,7 @@
 using System.Text;
 using AgentClientProtocol;
 using Chargehand.Kernel;
-using Chargehand.Runtime;
+using Chargehand.Modules.Research.Api;
 
 namespace Chargehand.Acp;
 

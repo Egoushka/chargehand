@@ -2,7 +2,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
-using Chargehand.Runtime;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Workspace;
 
 namespace Chargehand;

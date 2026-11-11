@@ -1,4 +1,5 @@
 using Chargehand.Config;
+using Chargehand.Modules.Research.Api;
 
 namespace Chargehand.Tests;
 

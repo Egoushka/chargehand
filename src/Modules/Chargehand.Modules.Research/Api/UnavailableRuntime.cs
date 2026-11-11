@@ -1,7 +1,6 @@
 using Chargehand.Kernel;
-using Chargehand.Modules.Research.Api;
 
-namespace Chargehand.Runtime;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>
 /// Stands in for a runtime that could not start, so `chargehand mcp` still answers initialize and each call fails with

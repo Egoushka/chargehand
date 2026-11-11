@@ -34,6 +34,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Chargehand\Chargehand.csproj" />
     <ProjectReference Include="..\Chargehand.Driven\Chargehand.Driven.csproj" />
+    <Compile Include="..\Hosts\Chargehand.Hosts.Session\VerifyBranchCli.cs" Link="VerifyBranchCli.cs" />
     <ProjectReference Include="..\Chargehand.Acp\Chargehand.Acp.csproj" />
     <ProjectReference Include="..\Chargehand.ClaudeCode\Chargehand.ClaudeCode.csproj" />
     <ProjectReference Include="..\Chargehand.Mcp\Chargehand.Mcp.csproj" />

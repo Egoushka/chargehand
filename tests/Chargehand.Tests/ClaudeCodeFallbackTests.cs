@@ -1,6 +1,6 @@
 using Chargehand.ClaudeCode;
 using Chargehand.Contracts;
-using Chargehand.Runtime;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Xunit;
 

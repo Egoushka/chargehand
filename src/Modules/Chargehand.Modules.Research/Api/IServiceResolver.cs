@@ -1,7 +1,6 @@
-using Chargehand.Config;
 using Chargehand.Modules.Ledger.Api;
 
-namespace Chargehand.Runtime;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>
 /// Turns a preset's <c>services</c> into grants for one run (ADR 0034). What does not resolve (a server the profile lacks, a
