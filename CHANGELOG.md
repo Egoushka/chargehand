@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.20](https://github.com/Egoushka/chargehand/compare/v0.19.19...v0.19.20) (2026-11-11)
+
+
+### Features
+
+* **handover:** refuse junk branches and rename WIP commits before the push ([#856](https://github.com/Egoushka/chargehand/issues/856)) ([4fafc13](https://github.com/Egoushka/chargehand/commit/4fafc13dc2df51605a8a3e16dc98ee26c26d5858)), closes [#430](https://github.com/Egoushka/chargehand/issues/430)
+* **runners:** preflight the session images against each runner's allowlist (CHARGEHAND-425) ([#855](https://github.com/Egoushka/chargehand/issues/855)) ([036b34f](https://github.com/Egoushka/chargehand/commit/036b34f9ff924ed5ab1d93b4e2d36ce6266cd0b4))
+
+
+### Bug Fixes
+
+* **runners:** let a routed session's container get CLAUDE_CODE_SUBAGENT_MODEL ([#852](https://github.com/Egoushka/chargehand/issues/852)) ([7042271](https://github.com/Egoushka/chargehand/commit/704227145f1a1b3d9da997884fefc97d04e017d4))
+
 ## [0.19.19](https://github.com/Egoushka/chargehand/compare/v0.19.18...v0.19.19) (2026-11-10)
 
 
