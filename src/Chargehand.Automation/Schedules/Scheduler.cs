@@ -182,7 +182,15 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
 
     private async Task<Start> ClaimDriftAsync(ScheduleEntry entry, DateTimeOffset now, CancellationToken ct)
     {
-        var found = ClaimDriftReport.Findings(entry.Repository!.Path);
+        IReadOnlyList<DriftFinding> found;
+        try
+        {
+            found = ClaimDriftReport.Findings(entry.Repository!.Path);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            throw new IntakeException($"the guide could not be read: {e.Message}");
+        }
         var reported = state.Taken.GetValueOrDefault(entry.Id) ?? [];
         var text = ClaimDriftReport.Format(found, reported);
         if (text is not null)

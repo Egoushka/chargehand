@@ -38,7 +38,52 @@ public static class ClaimDrift
         if (!Directory.Exists(guide))
             return [];
         return [.. Directory.EnumerateFiles(guide, "*.md", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
-            .SelectMany(f => ClaimMarkers.Parse(Path.GetRelativePath(repositoryRoot, f).Replace('\\', '/'), File.ReadAllText(f)))];
+            .SelectMany(f => ReadInside(repositoryRoot, f) is { } text ? ClaimMarkers.Parse(Path.GetRelativePath(repositoryRoot, f).Replace('\\', '/'), text) : [])];
+    }
+
+    /// <summary>The most a cited file or page is read: a guard against a link to an endless file.</summary>
+    public const int MaxReadBytes = 4 * 1024 * 1024;
+
+    /// <summary>The text of <paramref name="path"/> when, after following every link, it is a file inside <paramref name="root"/> no larger than <see cref="MaxReadBytes"/>; otherwise null.</summary>
+    private static string? ReadInside(string root, string path)
+    {
+        try
+        {
+            var realRoot = Real(Path.GetFullPath(root));
+            var real = Real(Path.GetFullPath(path));
+            if (!real.StartsWith(realRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                return null;
+            using var stream = new FileStream(real, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1, FileOptions.SequentialScan);
+            using var bounded = new MemoryStream();
+            var buffer = new byte[8192];
+            int n;
+            while ((n = stream.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                if (bounded.Length + n > MaxReadBytes)
+                    return null;
+                bounded.Write(buffer, 0, n);
+            }
+            return System.Text.Encoding.UTF8.GetString(bounded.ToArray());
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The path with every link on the way replaced by its target.</summary>
+    private static string Real(string full)
+    {
+        var parts = full.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+        var current = Path.DirectorySeparatorChar.ToString();
+        foreach (var part in parts)
+        {
+            current = Path.Combine(current, part);
+            var info = new FileInfo(current);
+            if (info.LinkTarget is not null && info.ResolveLinkTarget(true) is { } target)
+                current = target.FullName;
+        }
+        return current;
     }
 
     /// <param name="testNames">The compiled test names (<see cref="TestNames"/>); when given, a claim citing a symbol in a file under <c>tests/</c> also needs that test in it.</param>
@@ -54,15 +99,18 @@ public static class ClaimDrift
         var file = Path.GetFullPath(Path.Combine(full, claim.Path));
         if (!file.StartsWith(full.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !File.Exists(file))
             return Found(DriftReason.FileMissing);
+        var text = ReadInside(full, file);
+        if (text is null)
+            return Found(DriftReason.FileMissing);
         switch (claim.Kind)
         {
             case ClaimKind.Symbol:
-                if (!Regex.IsMatch(File.ReadAllText(file), $@"(?<!\w){Regex.Escape(claim.Symbol!)}(?!\w)"))
+                if (!Regex.IsMatch(text, $@"(?<!\w){Regex.Escape(claim.Symbol!)}(?!\w)"))
                     return Found(DriftReason.SymbolMissing, claim.Symbol);
                 return testNames is not null && claim.Path.StartsWith("tests/", StringComparison.Ordinal) && !testNames.Contains(claim.Symbol!)
                     ? Found(DriftReason.TestMissing, claim.Symbol) : null;
             case ClaimKind.Text:
-                return File.ReadAllText(file).Contains(claim.Literal!, StringComparison.Ordinal) ? null : Found(DriftReason.TextMissing, claim.Literal);
+                return text.Contains(claim.Literal!, StringComparison.Ordinal) ? null : Found(DriftReason.TextMissing, claim.Literal);
             default:
                 return null;
         }

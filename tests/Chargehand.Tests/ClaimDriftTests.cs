@@ -19,6 +19,23 @@ public class ClaimDriftTests
     }
 
     [Fact]
+    public void A_link_out_of_the_root_or_to_an_endless_file_is_not_followed()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+        using var outside = new TempDir();
+        outside.Write("secret.txt", "class Alpha {}\n");
+        using var dir = Repo("<!-- cites: src/out.cs#Alpha -->\n<!-- cites: src/z -->\n<!-- cites: src/in.cs#Alpha -->\n");
+        File.CreateSymbolicLink(Path.Combine(dir.Path, "src/out.cs"), Path.Combine(outside.Path, "secret.txt"));
+        File.CreateSymbolicLink(Path.Combine(dir.Path, "src/z"), "/dev/zero");
+        File.CreateSymbolicLink(Path.Combine(dir.Path, "src/in.cs"), Path.Combine(dir.Path, "src/A.cs"));
+
+        var findings = ClaimDrift.Check(ClaimDrift.Scan(dir.Path), dir.Path);
+
+        Assert.Equal(["docs/guide/x.md:1: file-missing src/out.cs", "docs/guide/x.md:2: file-missing src/z"], findings.Select(f => f.Line));
+    }
+
+    [Fact]
     public void Marker_in_a_code_fence_is_not_a_claim()
     {
         Assert.Empty(Parse("```\n<!-- cites: src/Gone.cs -->\n```\n~~~\n<!-- cites: src/Gone.cs#X -->\n~~~\n"));

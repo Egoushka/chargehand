@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 
@@ -58,16 +59,25 @@ public static class ClaimsCli
 
     private static async Task<HashSet<string>?> ChangedAsync(string root, string since, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo("git") { WorkingDirectory = root, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in new[] { "diff", "--name-only", $"{since}..HEAD", "--" })
-            psi.ArgumentList.Add(a);
-        using var process = Process.Start(psi);
-        if (process is null)
+        if (since.StartsWith('-'))
             return null;
-        var text = await process.StandardOutput.ReadToEndAsync(ct);
-        await process.StandardError.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct);
-        return process.ExitCode == 0 ? [.. text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.Trim())] : null;
+        var psi = new ProcessStartInfo("git") { WorkingDirectory = root, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var a in new[] { "diff", "--name-only", "--no-renames", "-z", $"{since}..HEAD", "--" })
+            psi.ArgumentList.Add(a);
+        try
+        {
+            using var process = Process.Start(psi);
+            if (process is null)
+                return null;
+            var text = await process.StandardOutput.ReadToEndAsync(ct);
+            await process.StandardError.ReadToEndAsync(ct);
+            await process.WaitForExitAsync(ct);
+            return process.ExitCode == 0 ? [.. text.Split('\0', StringSplitOptions.RemoveEmptyEntries)] : null;
+        }
+        catch (Win32Exception)
+        {
+            return null;
+        }
     }
 
     private static int Fail(TextWriter error, string message)

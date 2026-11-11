@@ -87,5 +87,23 @@ public class ClaimsCliTests
         var sinceOne = await Run(dir.Path, "--changed-since", "HEAD~2");
         Assert.Equal(["docs/guide/x.md:1: symbol-missing src/A.cs#Alpha"], sinceOne.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
         Assert.Equal(2, (await Run(dir.Path, "--changed-since", "no-such-ref")).Code);
+        Assert.Equal(2, (await Run(dir.Path, "--changed-since", "--output=x")).Code);
+    }
+
+    [Fact]
+    public async Task Changed_since_sees_a_renamed_cited_file_as_gone()
+    {
+        using var dir = new TempDir();
+        dir.Write("src/A.cs", "class Alpha {}\n");
+        dir.Write("docs/guide/x.md", "a <!-- cites: src/A.cs#Alpha -->\n");
+        Git(dir.Path, "init", "-q");
+        Git(dir.Path, "add", ".");
+        Git(dir.Path, "commit", "-q", "-m", "one");
+        Git(dir.Path, "mv", "src/A.cs", "src/Z.cs");
+        Git(dir.Path, "commit", "-q", "-m", "two");
+
+        var result = await Run(dir.Path, "--changed-since", "HEAD~1");
+        Assert.Equal(1, result.Code);
+        Assert.Contains("file-missing src/A.cs", result.Output, StringComparison.Ordinal);
     }
 }
