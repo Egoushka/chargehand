@@ -321,7 +321,7 @@ public class ModelRouterTests
     [Fact]
     public void A_paced_pool_the_provider_refused_is_out_not_soft()
     {
-        var decision = Router(Paced).Choose(1, DataClass.Public, [], At(10), new HashSet<string> { "subscription" });
+        var decision = Router(Paced).Choose(1, DataClass.Public, [new("subscription", At(10, 8), 120)], At(10), new HashSet<string> { "subscription" });
 
         Assert.IsType<RouteWait>(decision);
     }

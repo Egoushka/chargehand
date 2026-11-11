@@ -227,3 +227,6 @@ A pool may set `pace_daily: true`. Once its paced daily allowance is spent, the 
 day cannot eat a weekly subscription cap (about a seventh of it per day). It stays soft: when no other pool can take the call, the paced pool is still
 chosen, with its warning. Nothing leaves the order because of it, and the provider's refusal remains the only thing that drains a pool. The setting needs an
 amount to pace, `total_usd` or `quota_usd` on a weekly pool; a profile that sets it on a pool without one is refused.
+
+"Has room" means the pool is not out (expired, not started, refused). A later pool that is itself over a limit still takes the call ahead of a paced pool,
+because limits only warn; pacing moves work only between pools the router would otherwise use, and within the current tier.
