@@ -206,4 +206,26 @@ public class CheckoutTests
         Assert.NotEqual(ResultStatus.Failed, r.Status);
         Assert.False(File.Exists(Path.Combine(Assert.Single(runtime.Created).Directory, ".env.test.local")));
     }
+
+    [Fact]
+    public async Task A_pinned_versions_file_is_not_a_secret_but_other_env_files_are()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        Directory.CreateDirectory(Path.Combine(repo.Path, "bootstrap"));
+        File.WriteAllText(Path.Combine(repo.Path, "bootstrap", "versions.env"), "TOOL_VER=1.2.3\n");
+        File.WriteAllText(Path.Combine(repo.Path, "bootstrap", "secrets.env"), "API_KEY=value\n");
+        File.WriteAllText(Path.Combine(repo.Path, "versions.env"), "API_KEY=value\n");
+        repo = Runs.Commit(repo, "bootstrap/versions.env", "bootstrap/secrets.env", "versions.env");
+        var runtime = new ScriptedRuntime(Runs.WorkerReply);
+
+        var r = await Runs.Orchestrator(runtime, root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
+            .RunAsync(Runs.CheapRequest(repo), CancellationToken.None);
+
+        Assert.NotEqual(ResultStatus.Failed, r.Status);
+        var dir = Assert.Single(runtime.Created).Directory;
+        Assert.True(File.Exists(Path.Combine(dir, "bootstrap", "versions.env")));
+        Assert.False(File.Exists(Path.Combine(dir, "bootstrap", "secrets.env")));
+        Assert.False(File.Exists(Path.Combine(dir, "versions.env")));
+    }
 }
