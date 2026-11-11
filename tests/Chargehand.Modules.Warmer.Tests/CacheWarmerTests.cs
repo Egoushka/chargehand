@@ -248,6 +248,91 @@ public sealed class CacheWarmerTests : IDisposable
         Assert.Empty(runner.Ran);
     }
 
+
+    private sealed class FakePromoter(Func<string, PromotionResult> promote) : IPackagePromoter
+    {
+        public List<string> Seen { get; } = [];
+
+        public Task<PromotionResult> PromoteAsync(string stagingDir, CancellationToken ct)
+        {
+            Seen.Add(stagingDir);
+            return Task.FromResult(promote(stagingDir));
+        }
+    }
+
+    [Fact]
+    public async Task A_staging_step_gets_a_fresh_folder_under_the_staging_root_and_it_is_deleted_after_promotion()
+    {
+        Checkout("r/c", "App.slnx");
+        var stagingRoot = Path.Combine(root, "staging");
+        string? given = null;
+        runner.Exit = step =>
+        {
+            given = step.Staging;
+            File.WriteAllText(Path.Combine(step.Staging!, "planted.txt"), "x");
+            return 0;
+        };
+        var promoter = new FakePromoter(_ => new PromotionResult(["a/1.0.0"], ["b/2.0.0"]));
+        await new CacheWarmer(log, Path.Combine(root, "checkouts"), runner, null, promoter, stagingRoot).WarmAsync(await Emit("e1", CacheWarmer.CreatedType, "r/c"), default);
+
+        Assert.StartsWith(stagingRoot + Path.DirectorySeparatorChar, given!);
+        Assert.Equal([given!], promoter.Seen);
+        Assert.False(Directory.Exists(given!));
+        var step = (await Warmed()).Single().GetProperty("data").GetProperty("steps")[0];
+        Assert.Equal(1, step.GetProperty("promoted").GetInt32());
+        Assert.Equal(["b/2.0.0"], step.GetProperty("skipped").EnumerateArray().Select(s => s.GetString()!).ToArray());
+    }
+
+    [Fact]
+    public async Task A_failed_staging_step_promotes_nothing_and_still_deletes_the_folder()
+    {
+        Checkout("r/c", "App.slnx");
+        var stagingRoot = Path.Combine(root, "staging");
+        string? given = null;
+        runner.Exit = step =>
+        {
+            given = step.Staging;
+            return 1;
+        };
+        var promoter = new FakePromoter(_ => new PromotionResult(["a/1.0.0"], []));
+        await new CacheWarmer(log, Path.Combine(root, "checkouts"), runner, null, promoter, stagingRoot).WarmAsync(await Emit("e1", CacheWarmer.CreatedType, "r/c"), default);
+
+        Assert.Empty(promoter.Seen);
+        Assert.False(Directory.Exists(given!));
+        Assert.Equal("failed", (await Warmed()).Single().GetProperty("data").GetProperty("steps")[0].GetProperty("result").GetString());
+    }
+
+    [Fact]
+    public async Task A_promoter_that_throws_is_a_failed_step_and_the_folder_is_still_deleted()
+    {
+        Checkout("r/c", "App.slnx");
+        var stagingRoot = Path.Combine(root, "staging");
+        string? given = null;
+        runner.Exit = step =>
+        {
+            given = step.Staging;
+            return 0;
+        };
+        var promoter = new FakePromoter(_ => throw new IOException("disk"));
+        await new CacheWarmer(log, Path.Combine(root, "checkouts"), runner, null, promoter, stagingRoot).WarmAsync(await Emit("e1", CacheWarmer.CreatedType, "r/c"), default);
+
+        Assert.False(Directory.Exists(given!));
+        Assert.Equal("failed", (await Warmed()).Single().GetProperty("data").GetProperty("steps")[0].GetProperty("result").GetString());
+    }
+
+    [Fact]
+    public async Task Without_a_promoter_the_restore_step_runs_with_no_staging_folder()
+    {
+        Checkout("r/c", "App.slnx");
+        WarmStep? seen = null;
+        runner.Exit = step =>
+        {
+            seen = step;
+            return 0;
+        };
+        await NewWarmer().WarmAsync(await Emit("e1", CacheWarmer.CreatedType, "r/c"), default);
+        Assert.Null(seen!.Staging);
+    }
 }
 
 [System.Text.Json.Serialization.JsonSerializable(typeof(Dictionary<string, string>))]

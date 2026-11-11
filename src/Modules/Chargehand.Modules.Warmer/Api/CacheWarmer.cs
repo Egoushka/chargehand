@@ -3,8 +3,8 @@ using Chargehand.Modules.Events.Api;
 
 namespace Chargehand.Modules.Warmer.Api;
 
-/// <summary>Restores a checkout's packages ahead of the agent that will use it, when the event log says the checkout exists (ADR 0090). Each job is logged back as <see cref="WarmedType"/>.</summary>
-public sealed class CacheWarmer(IEventLog log, string checkoutsRoot, IStepRunner runner, TimeProvider? clock = null)
+/// <summary>Restores a checkout's packages ahead of the agent that will use it, when the event log says the checkout exists (ADR 0090). Each job is logged back as <see cref="WarmedType"/>. A step that stages NuGet packages (<see cref="WarmStep.Stages"/>) writes them to a per-run folder under <paramref name="stagingRoot"/>; <paramref name="promoter"/> checks them and fills the shared cache, and the folder is deleted afterwards.</summary>
+public sealed class CacheWarmer(IEventLog log, string checkoutsRoot, IStepRunner runner, TimeProvider? clock = null, IPackagePromoter? promoter = null, string? stagingRoot = null)
 {
     public const string CreatedType = "chargehand.worktree.created";
     public const string QueuedType = "chargehand.branch.queued";
@@ -43,7 +43,7 @@ public sealed class CacheWarmer(IEventLog log, string checkoutsRoot, IStepRunner
         if (trigger.Type is not (CreatedType or QueuedType) || Name(trigger) is not { } name || Resolve(name) is not { } dir)
             return false;
         var started = time.GetTimestamp();
-        var steps = new List<(string Name, string Result, long Ms, string? Error)>();
+        var steps = new List<StepResult>();
         if (Directory.Exists(dir))
         {
             foreach (var step in WarmPlan.For(dir))
@@ -58,34 +58,62 @@ public sealed class CacheWarmer(IEventLog log, string checkoutsRoot, IStepRunner
         return true;
     }
 
-    private async Task<(string Name, string Result, long Ms, string? Error)> Run(WarmStep step, CancellationToken ct)
+    private sealed record StepResult(string Name, string Result, long Ms, string? Error, PromotionResult? Promotion = null);
+
+    private async Task<StepResult> Run(WarmStep step, CancellationToken ct)
     {
         var started = time.GetTimestamp();
         string result;
         string? error = null;
+        PromotionResult? promotion = null;
         if (step.Done())
             result = "hit";
         else if (step.File is null)
             result = "miss";
         else
         {
-            error = await Execute(step, ct).ConfigureAwait(false);
+            (error, promotion) = await Execute(step, ct).ConfigureAwait(false);
             result = error is null ? "miss" : "failed";
         }
-        return (step.Name, result, (long)time.GetElapsedTime(started).TotalMilliseconds, error);
+        return new StepResult(step.Name, result, (long)time.GetElapsedTime(started).TotalMilliseconds, error, promotion);
     }
 
-    private async Task<string?> Execute(WarmStep step, CancellationToken ct)
+    private async Task<(string? Error, PromotionResult? Promotion)> Execute(WarmStep step, CancellationToken ct)
     {
+        string? staging = null;
         try
         {
-            var code = await runner.RunAsync(step, ct).ConfigureAwait(false);
-            return code == 0 ? null : $"exit code {code}";
+            if (step.Stages && promoter is not null && stagingRoot is not null)
+            {
+                staging = Path.Combine(Path.GetFullPath(stagingRoot), Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(staging);
+            }
+            var code = await runner.RunAsync(staging is null ? step : step with { Staging = staging }, ct).ConfigureAwait(false);
+            if (code != 0)
+                return ($"exit code {code}", null);
+            return staging is null ? (null, null) : (null, await promoter!.PromoteAsync(staging, ct).ConfigureAwait(false));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Console.Error.WriteLine($"warmer: {step.Name}: {ex.Message}");
-            return ex.Message;
+            return (ex.Message, null);
+        }
+        finally
+        {
+            if (staging is not null)
+                Discard(staging);
+        }
+    }
+
+    private static void Discard(string dir)
+    {
+        try
+        {
+            Directory.Delete(dir, true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine($"warmer: could not delete {dir}: {ex.Message}");
         }
     }
 
@@ -114,7 +142,7 @@ public sealed class CacheWarmer(IEventLog log, string checkoutsRoot, IStepRunner
         return full;
     }
 
-    private JsonElement Build(StoredEvent trigger, string checkout, string outcome, long ms, List<(string Name, string Result, long Ms, string? Error)> steps)
+    private JsonElement Build(StoredEvent trigger, string checkout, string outcome, long ms, List<StepResult> steps)
     {
         using var buffer = new MemoryStream();
         using (var w = new Utf8JsonWriter(buffer))
@@ -131,14 +159,22 @@ public sealed class CacheWarmer(IEventLog log, string checkoutsRoot, IStepRunner
             w.WriteString("outcome", outcome);
             w.WriteNumber("ms", ms);
             w.WriteStartArray("steps");
-            foreach (var (name, result, stepMs, error) in steps)
+            foreach (var s in steps)
             {
                 w.WriteStartObject();
-                w.WriteString("name", name);
-                w.WriteString("result", result);
-                w.WriteNumber("ms", stepMs);
-                if (error is not null)
-                    w.WriteString("error", error);
+                w.WriteString("name", s.Name);
+                w.WriteString("result", s.Result);
+                w.WriteNumber("ms", s.Ms);
+                if (s.Error is not null)
+                    w.WriteString("error", s.Error);
+                if (s.Promotion is { } p)
+                {
+                    w.WriteNumber("promoted", p.Promoted.Count);
+                    w.WriteStartArray("skipped");
+                    foreach (var id in p.Skipped)
+                        w.WriteStringValue(id);
+                    w.WriteEndArray();
+                }
                 w.WriteEndObject();
             }
             w.WriteEndArray();

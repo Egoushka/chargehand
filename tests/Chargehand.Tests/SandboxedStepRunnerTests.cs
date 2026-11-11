@@ -76,4 +76,26 @@ public sealed class SandboxedStepRunnerTests
             Environment.SetEnvironmentVariable("CHARGEHAND_WARMER_TEST_SECRET", null);
         }
     }
+
+    [Fact]
+    public async Task A_staging_step_writes_nuget_packages_to_its_staging_folder_and_never_to_the_shared_cache()
+    {
+        using var root = new TempDir();
+        var store = Path.Combine(root.Path, "store");
+        var sharedNuget = Path.Combine(root.Path, "nuget-packages");
+        var staging = Path.Combine(root.Path, "staging", "run1");
+        var sandbox = new FakeSandbox(Ok());
+        var env = new Dictionary<string, string> { ["pnpm_config_store_dir"] = store };
+        var runner = new SandboxedStepRunner(sandbox, true, [], env, [store]);
+        var step = new WarmStep("dotnet-restore", "dotnet", ["restore"], root.Path, () => false, Stages: true, Staging: staging);
+
+        await runner.RunAsync(step, default);
+
+        var spec = sandbox.Seen!;
+        Assert.Equal(staging, spec.Env!["NUGET_PACKAGES"]);
+        Assert.Contains(staging, spec.WritablePaths!);
+        Assert.DoesNotContain(sharedNuget, spec.WritablePaths!);
+        Assert.DoesNotContain(spec.WritablePaths!, p => p.Contains("nuget-packages", StringComparison.Ordinal));
+        Assert.False(env.ContainsKey("NUGET_PACKAGES"));
+    }
 }
