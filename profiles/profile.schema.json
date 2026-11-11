@@ -275,7 +275,8 @@
       "additionalProperties": false,
       "description": "Where a run's output may go (ADR 0069).",
       "properties": {
-        "local_only": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Directories, absolute or starting with ~/. A repository under one is always delivered locally: a writing run leaves a local branch in the repository, nothing is pushed, no pull request is opened, no forge is called, and a request that says push is refused with local_only. \"/\" makes the whole server local-only. Intake may not watch a repository under one." }
+        "local_only": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Directories, absolute or starting with ~/. A repository under one is always delivered locally: a writing run leaves a local branch in the repository, nothing is pushed, no pull request is opened, no forge is called, and a request that says push is refused with local_only. \"/\" makes the whole server local-only. Intake may not watch a repository under one." },
+        "push_remote": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$", "description": "Opt-in: a code run that is not local pushes its chargehand/<run>/<node> branch to the caller repository's remote of this name, never forced, with the credentials git already has. Unset: nothing is pushed." }
       }
     },
     "driven": {
