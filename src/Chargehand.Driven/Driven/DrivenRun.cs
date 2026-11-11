@@ -457,7 +457,10 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
 
     /// <summary>The session's model credential, the one variable the batch's sessions share. The model a session runs, and its subagents' (<c>CLAUDE_CODE_SUBAGENT_MODEL</c>), come from the route it is given
     /// (D-113), so they are not here: this is also what the handover's secret scan is told, and a model's name is no secret.</summary>
-    internal static Dictionary<string, string> ModelEnvironment(bool priced, string credential) => new() { [priced ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN"] = credential };
+    internal static Dictionary<string, string> ModelEnvironment(bool priced, string credential) => new() { [ModelCredentialKey(priced)] = credential };
+
+    /// <summary>The variable <see cref="ModelEnvironment"/> stores the credential under: the API key for a priced credential, else the subscription token.</summary>
+    internal static string ModelCredentialKey(bool priced) => priced ? "ANTHROPIC_API_KEY" : "CLAUDE_CODE_OAUTH_TOKEN";
 
     /// <summary>The bare arm pushes a branch nobody has tested, so it is for the benchmark only (ADR 0080).</summary>
     public static void CheckArm(RequestDriven driven)
