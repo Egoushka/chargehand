@@ -22,6 +22,8 @@ public static partial class ContainerTemplate
         "CHARGEHAND_MCP_URL", "CHARGEHAND_RUN_TOKEN", "CHARGEHAND_RUN_ID", "CHARGEHAND_BRANCH", "CHARGEHAND_DRIVEN",
         "CHARGEHAND_REPOSITORY_PATH", "CHARGEHAND_BASE_COMMIT",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_AUTOUPDATER", "DISABLE_TELEMETRY",
+        // The subagents' model of a routed session (TaskRunner.Route): a model id, it names no file or library the process loads.
+        "CLAUDE_CODE_SUBAGENT_MODEL",
         // ADR 0048: where the package managers keep their cache (each only with its fixed value, see EnvFileLines) and the test services of the batch.
         "NUGET_PACKAGES", "npm_config_cache", "PIP_CACHE_DIR", "GRADLE_USER_HOME", "MAVEN_OPTS", ServicesVariable,
     };
