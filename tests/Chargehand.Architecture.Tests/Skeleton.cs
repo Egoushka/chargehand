@@ -24,6 +24,8 @@ internal static class Skeleton
         ["Chargehand.Modules.PeerClones"] = 2,
         // Accounts prices a request against the account's spend, which the Ledger keeps.
         ["Chargehand.Modules.Accounts"] = 3,
+        // Warms a checkout's restore results when the event log says one was made (ADR 0090): reads and appends events only.
+        ["Chargehand.Modules.Warmer"] = 3,
         // Below Sessions, where the governor runs (ADR 0060, amendment of 2026-10-14).
         ["Chargehand.Modules.Oversight"] = 3,
         // Reads the run log (Ledger), the forge and the learning records (Oversight): a read model with nothing below that reads it.

@@ -5,8 +5,9 @@ namespace Chargehand.Modules.Research.Api;
 /// <param name="Network">False by default (ADR 0035): a build that needs the network fails until the profile allows it.</param>
 /// <param name="PassEnv">Names of environment variables copied in on top of the fixed allowlist.</param>
 /// <param name="Env">Values the caller resolved, set on top of the allowlist (a model credential). Used by <see cref="ISandbox.Wrap"/>.</param>
+/// <param name="WritablePaths">More directories the command may write to, for a shared cache a session never touches (the cache warmer). Null for a session.</param>
 public sealed record SandboxSpec(IReadOnlyList<string> Argv, string WorkDirectory, TimeSpan Timeout, bool Network, IReadOnlyList<string> PassEnv,
-    IReadOnlyDictionary<string, string>? Env = null);
+    IReadOnlyDictionary<string, string>? Env = null, IReadOnlyList<string>? WritablePaths = null);
 
 /// <param name="OutputTail">The last 8 KiB of stdout and stderr together.</param>
 public sealed record SandboxResult(int ExitCode, string OutputTail, bool TimedOut, TimeSpan Duration);

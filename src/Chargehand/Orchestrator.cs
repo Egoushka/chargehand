@@ -10,11 +10,13 @@ using Chargehand.Intake;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Economics.Api;
+using Chargehand.Modules.Events.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.PeerClones.Api;
 using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Sessions.Api;
+using Chargehand.Modules.Warmer.Api;
 using Chargehand.Nodes;
 using Chargehand.Plans;
 using Chargehand.Results;
@@ -33,6 +35,7 @@ namespace Chargehand;
 /// <param name="publicFree">The free-model pool (ADR 0093): hands out its runtime to a run of the pool preset on a repository that qualifies, and refuses the pool preset anywhere else; null: no pool, and the default pool preset is refused.</param>
 /// <param name="runtimeFor">The runtime a run of the given account uses (ADR 0053), which throws for an account that may use no model credential; null: <paramref name="runtime"/> for every run.</param>
 /// <param name="routing">The budget router (ADR 0095), shared with the driven batches so a pool a provider refused is out for both; null: one of this orchestrator's own, off unless the profile enables <c>pools</c>.</param>
+/// <param name="events">The event log (ADR 0090); a fresh checkout is announced there so the cache warmer can restore it ahead of the agent; null: nothing is announced.</param>
 /// <param name="reuseReviews">A review of the same commit and diff as a completed one of the same account returns that review (<see cref="ReviewReuse"/>, issue 448); false: every review runs.</param>
 /// <param name="peerClones">Resolves <c>gh:owner/name</c> into a shallow clone for an account with <c>public_clone</c>; null: such a path is refused like any other repository outside the roots.</param>
 public sealed class Orchestrator(
@@ -50,7 +53,8 @@ public sealed class Orchestrator(
     PublicFreeGate? publicFree = null,
     bool reuseReviews = false,
     IPeerCloneManager? peerClones = null,
-    PoolRouting? routing = null)
+    PoolRouting? routing = null,
+    IEventLog? events = null)
 {
     public const string NodeKindName = "worker";
 
@@ -709,6 +713,8 @@ public sealed class Orchestrator(
                 if (await Git(dir, ct, "rev-parse", "HEAD") != commit)
                     throw;
             }
+            if (events is not null)
+                await CheckoutAnnouncer.AnnounceAsync(events, $"{Path.GetFileName(Path.GetDirectoryName(dir))}/{commit[..12]}", ct);
         }
         var denied = await DeniedFiles(dir, kind.Permissions, ct);
         if (denied.Count > 0 && refuseDenied)

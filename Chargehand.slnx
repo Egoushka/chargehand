@@ -37,6 +37,7 @@
     <Project Path="src/Modules/Chargehand.Modules.Runners/Chargehand.Modules.Runners.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Sessions/Chargehand.Modules.Sessions.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Tasks/Chargehand.Modules.Tasks.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Warmer/Chargehand.Modules.Warmer.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Watch/Chargehand.Modules.Watch.csproj" />
   </Folder>
   <Folder Name="/src/Runtimes/">
@@ -79,6 +80,7 @@
     <Project Path="tests/Chargehand.Modules.Runners.Tests/Chargehand.Modules.Runners.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Sessions.Tests/Chargehand.Modules.Sessions.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Tasks.Tests/Chargehand.Modules.Tasks.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Warmer.Tests/Chargehand.Modules.Warmer.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Watch.Tests/Chargehand.Modules.Watch.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Onboarding.Tests/Chargehand.Modules.Onboarding.Tests.csproj" />
     <Project Path="tests/Chargehand.Runtimes.Acp.Tests/Chargehand.Runtimes.Acp.Tests.csproj" />

@@ -19,6 +19,7 @@ using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.PeerClones.Api;
 using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Runners.Api;
+using Chargehand.Modules.Warmer.Api;
 using Chargehand.OpenCode;
 using Chargehand.Runtimes.Acp.Api;
 using Chargehand.Runtimes.ClaudeCode.Api;
@@ -646,6 +647,33 @@ EventService? EventLog(EventsSettings? events) =>
         : new EventService(SqliteEventLog.Open(events.Database ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "events.db")),
             [.. (events.Tokens ?? []).Select(t => (t.Grant(), profile.Secret(t.Secret)))]);
 
+/// <summary>Restores each new checkout ahead of its agent (ADR 0090), each step in the sandbox sessions use (ADR 0035): pnpm packages go to one content-addressed store and NuGet packages to one cache, both beside the checkouts and the only places besides the checkout a step may write. The network is the profile's <c>sandbox.network</c>, so a cold fill needs it on.</summary>
+CacheWarmer? CacheWarmerFor(EventService? events)
+{
+    if (events is null)
+        return null;
+    if (profile.Sandbox is { Kind: "none" })
+    {
+        Console.Error.WriteLine("cache warmer off: sandbox.kind is none, and warming runs a repository's restore unconfined");
+        return null;
+    }
+    var workerRoot = Path.GetFullPath(profile.WorkerRoot);
+    var store = Path.Combine(workerRoot, ".pnpm-store");
+    var nuget = Path.Combine(workerRoot, ".nuget-packages");
+    var env = new Dictionary<string, string>
+    {
+        ["pnpm_config_store_dir"] = store,
+        ["pnpm_config_package_import_method"] = "auto",
+        ["pnpm_config_manage_package_manager_versions"] = "false",
+        ["NUGET_PACKAGES"] = nuget,
+        ["DOTNET_NOLOGO"] = "1",
+        ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1",
+    };
+    string[] tools = ["DOTNET_ROOT", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"];
+    var runner = new Chargehand.Warming.SandboxedStepRunner(Chargehand.Modules.Research.Api.SandboxSelector.Select(profile.Sandbox), profile.Sandbox?.Network ?? false, [.. tools, .. profile.Sandbox?.Env ?? []], env, [store, nuget]);
+    return new CacheWarmer(events.Log, Path.Combine(workerRoot, ".checkouts"), runner);
+}
+
 /// <summary>The runtime conversations reach agents through (ADR 0086): null is the module's scripted agent; <c>acp</c> is the pinned list's agents, each on the key the profile gives it.</summary>
 IConversationRuntime? ConversationRuntime(ConversationSettings? conversations, Orchestrator orchestrator) =>
     conversations is { Runtime: "acp" }
@@ -700,8 +728,9 @@ async Task<int> Serve()
         return 2;
     }
     using var peerClones = PeerClones();
+    var events = EventLog(http.Events);
     var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer(), runtimeFor: runtimeFor,
-        publicFree: PublicFree(runtime), reuseReviews: true, peerClones: peerClones);
+        publicFree: PublicFree(runtime), reuseReviews: true, peerClones: peerClones, events: events?.Log);
     var drivenRun = DrivenRunFor(orchestrator);
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
@@ -709,7 +738,7 @@ async Task<int> Serve()
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), DailyWarningPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "limits", "daily-warning.json"), RunApprovalPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "limits", "run-approval.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn, Probes: HealthProbes(),
         Conversations: http.Conversations, ConversationsDirectory: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "conversations"),
-        ConversationRuntime: ConversationRuntime(http.Conversations, orchestrator), Events: EventLog(http.Events)),
+        ConversationRuntime: ConversationRuntime(http.Conversations, orchestrator), Events: events, Warmer: CacheWarmerFor(events)),
         orchestrator, runLog, drivenRun, GitHubIntake(drivenRun), Schedules(drivenRun), PhoneAnswers());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");

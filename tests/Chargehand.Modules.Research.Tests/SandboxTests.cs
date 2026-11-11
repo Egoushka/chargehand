@@ -44,6 +44,27 @@ public class SandboxTests
     }
 
     [Fact]
+    public void Writable_paths_are_bound_writable_in_bubblewrap_and_allowed_in_seatbelt_and_default_to_none()
+    {
+        var env = new Dictionary<string, string> { ["PATH"] = "/usr/bin" };
+        var spec = Spec("/w", false, "true") with { WritablePaths = ["/store", "/cache"] };
+        var args = BubblewrapSandbox.Args(spec, [], "/t", env);
+        Assert.Equal(["--bind", "/store", "/store"], Triple(args, "/store"));
+        Assert.Equal(["--bind", "/cache", "/cache"], Triple(args, "/cache"));
+        Assert.DoesNotContain("/store", BubblewrapSandbox.Args(Spec("/w", false, "true"), [], "/t", env));
+        var profile = SeatbeltSandbox.Profile(spec, "/h", "/t");
+        Assert.Contains("(subpath \"/store\")", profile, StringComparison.Ordinal);
+        Assert.Contains("(subpath \"/cache\")", profile, StringComparison.Ordinal);
+        Assert.DoesNotContain("/store", SeatbeltSandbox.Profile(Spec("/w", false, "true"), "/h", "/t"), StringComparison.Ordinal);
+    }
+
+    private static List<string> Triple(List<string> args, string path)
+    {
+        var i = args.IndexOf(path);
+        return args.GetRange(i - 1, 3);
+    }
+
+    [Fact]
     public void Bubblewrap_shares_the_network_only_on_request_and_hides_credentials()
     {
         var env = new Dictionary<string, string> { ["PATH"] = "/usr/bin" };
