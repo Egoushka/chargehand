@@ -148,6 +148,9 @@ public static partial class ChargehandServer
                 ?? throw new InvalidOperationException("http.conversations needs a directory for the journals"), conversations, log, settings.Clock,
                 new ConversationCredentials(sp.GetRequiredService<RunService>().Credentials, sp.GetRequiredService<RunService>().ReportCredentialAsync, settings.Clock)))
                 .AddHostedService<ConversationHost>();
+        // Issue #425: the session images against every runner's allowlist, at the start and then periodically.
+        if (driven?.Enabled == true)
+            builder.Services.AddHostedService(_ => new ImagePreflight(ImagePreflight.Every, driven.ImageMismatchesAsync));
         // ADR 0045: reads back what became of the pull requests, only where there are learning records.
         if (driven?.Learning is not null)
             builder.Services.AddHostedService(_ => new PrOutcomeRefresher(driven.PrCheckEvery, driven.RefreshPrOutcomesAsync));

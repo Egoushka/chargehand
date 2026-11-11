@@ -207,6 +207,21 @@ describe('System with data', () => {
     expect(within(rows[1] as HTMLElement).getByTitle('draining: host update')).toBeTruthy();
   });
 
+  it('shows a runner whose allowlist lacks the session image, over its draining state', async () => {
+    const mismatch =
+      "the session image registry.example.test/session@sha256:aaaa is not on the runner's allowlist (--images); restart the runner with it, or change driven.images";
+    const runners = (full.runners ?? []).map((r) =>
+      r.name === 'second' ? { ...r, image_mismatch: mismatch } : r,
+    );
+    await open({ system: { ...full, runners } });
+    const rows = within(screen.getByRole('table', { name: 'Runners' }))
+      .getAllByRole('row')
+      .slice(1);
+    expect(within(rows[0] as HTMLElement).getByText('reachable')).toBeTruthy();
+    expect(within(rows[1] as HTMLElement).getByText('image not allowed')).toBeTruthy();
+    expect(within(rows[1] as HTMLElement).getByTitle(mismatch)).toBeTruthy();
+  });
+
   it("falls back to the first runner's probe when the server does not serve runners", async () => {
     await open({ system: { ...full, runners: null } });
     const rows = within(screen.getByRole('table', { name: 'Runners' }))

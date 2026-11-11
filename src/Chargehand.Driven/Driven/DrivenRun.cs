@@ -100,12 +100,38 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     /// <summary>A batch's journaled events after sequence <paramref name="after"/> (<see cref="BatchLifecycle.JournaledEventsAsync"/>).</summary>
     public Task<IReadOnlyList<(long Sequence, RunStatus Event)>> JournaledEventsAsync(string batch, long after, CancellationToken ct) => _lifecycle.JournaledEventsAsync(batch, after, ct);
 
-    // With several runners (ADR 0058) the pool places each task; with one host, the memory rule of ADR 0045 alone.
+    // With several runners (ADR 0058) the pool places each task; with one host, the memory rule of ADR 0045 alone. Either refuses a task a runner's allowlist cannot start (issue #425).
     private readonly IAdmission? _admission = services?.Runners is { Count: > 0 } runners
-        ? new RunnerPool([.. runners.Select(r => new PoolSite(r.Config, r.Host))], profile.Driven?.Admission ?? new DrivenAdmission(), services.Poll, log: message => Console.Error.WriteLine($"chargehand: {message}"))
+        ? new RunnerPool([.. runners.Select(r => new PoolSite(r.Config, r.Host, SessionImagesOf(profile, r.Config)))], profile.Driven?.Admission ?? new DrivenAdmission(), services.Poll,
+            log: message => Console.Error.WriteLine($"chargehand: {message}"))
         : services?.Host is { } host
-            ? new HostAdmission(host, profile.Driven?.Admission ?? new DrivenAdmission(), services.Poll, log: message => Console.Error.WriteLine($"chargehand: {message}"))
+            ? new HostAdmission(host, profile.Driven?.Admission ?? new DrivenAdmission(), services.Poll, log: message => Console.Error.WriteLine($"chargehand: {message}"),
+                images: SessionImagesOf(profile, SitesOf(services)[0].Config))
             : null;
+
+    /// <summary>The session images <paramref name="runner"/> will be asked to start: <c>driven.images</c> for its platform.</summary>
+    public static IReadOnlyList<string> SessionImagesOf(Profile profile, DrivenRunnerEntry runner) => profile.Driven?.SessionImagesFor(runner.Platform) ?? [];
+
+    /// <summary>What of its session images each runner's allowlist lacks, by runner name (<see cref="ImageAllowlist"/>): the preflight a server runs at its start and then periodically. A runner
+    /// that did not answer, or that cannot say, is left out; empty when driven sessions are off.</summary>
+    public async Task<IReadOnlyDictionary<string, string?>> ImageMismatchesAsync(CancellationToken ct)
+    {
+        Dictionary<string, string?> found = [];
+        foreach (var site in Sites)
+        {
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            limit.CancelAfter(RunnerPool.ProbeTimeout);
+            try
+            {
+                found[site.Name] = await ImageAllowlist.CheckAsync(site.Host, SessionImagesOf(profile, site.Config), limit.Token);
+            }
+            catch (Exception e) when (e is ChargehandException or HttpRequestException or IOException or System.Text.Json.JsonException
+                || (e is OperationCanceledException && !ct.IsCancellationRequested))
+            {
+            }
+        }
+        return found;
+    }
 
     public void Dispose()
     {

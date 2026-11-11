@@ -232,6 +232,9 @@ public static class RunnerServer
 
         app.MapGet("/host", (CancellationToken ct) => Guard(async () => Ok(await (host ?? new HostProbe()).ReadAsync(ct) ?? new HostSnapshot(null, null, null, null, null, null))));
 
+        // The allowlist, so a server can preflight its session images before it admits a task; a route of its own, so a server older than it still reads /host.
+        app.MapGet("/images", () => Ok(new RunnerImages([.. policy.Images])));
+
         app.MapGet("/count", (HttpContext ctx, CancellationToken ct) => Guard(async () => Ok(new { count = await engine.CountAsync(ct) })));
 
         app.MapGet("/resources", (HttpContext ctx, CancellationToken ct) => Guard(async () =>
