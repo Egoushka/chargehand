@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.21](https://github.com/Egoushka/chargehand/compare/v0.19.20...v0.19.21) (2026-11-11)
+
+
+### Features
+
+* **automation:** review a pull request on request with "[@chargehand](https://github.com/chargehand) review" ([#862](https://github.com/Egoushka/chargehand/issues/862)) ([594d0b4](https://github.com/Egoushka/chargehand/commit/594d0b417ff00cac5c75234bb3b3423450694221))
+
+
+### Bug Fixes
+
+* **accounts:** reserve a run token call's budget on admission ([#860](https://github.com/Egoushka/chargehand/issues/860)) ([e155256](https://github.com/Egoushka/chargehand/commit/e1552562f721786d9350dcca97df35d5e1694a60))
+* **driven:** site batches find the model credential by its key ([#859](https://github.com/Egoushka/chargehand/issues/859)) ([105a83d](https://github.com/Egoushka/chargehand/commit/105a83d30bb25a1fc36a4f2d5cfbac80b9e6d049))
+* **integrator:** a GitHub timeout is an IntegrationException ([#858](https://github.com/Egoushka/chargehand/issues/858)) ([df0f059](https://github.com/Egoushka/chargehand/commit/df0f059530bdc11238cbba4a579c8627ba4dfee4)), closes [#505](https://github.com/Egoushka/chargehand/issues/505)
+
 ## [0.19.20](https://github.com/Egoushka/chargehand/compare/v0.19.19...v0.19.20) (2026-11-11)
 
 
