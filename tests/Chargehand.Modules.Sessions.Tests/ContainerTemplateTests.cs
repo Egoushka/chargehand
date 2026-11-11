@@ -66,6 +66,14 @@ public class ContainerTemplateTests
     }
 
     [Fact]
+    public void The_env_file_takes_the_subagent_model_a_routed_session_gets()
+    {
+        // TaskRunner sets it for every routed session (budget router, #816); refusing it failed every routed start with a 400.
+        Assert.Equal(["CLAUDE_CODE_SUBAGENT_MODEL=claude-haiku"],
+            ContainerTemplate.EnvFileLines(new Dictionary<string, string> { ["CLAUDE_CODE_SUBAGENT_MODEL"] = "claude-haiku" }));
+    }
+
+    [Fact]
     public void The_env_file_holds_only_names_of_the_fixed_set()
     {
         Assert.Equal(["CHARGEHAND_RUN_TOKEN=canary-token-value", "HTTPS_PROXY=http://egress:3128",
