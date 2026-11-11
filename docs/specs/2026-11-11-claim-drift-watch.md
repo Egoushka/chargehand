@@ -1,6 +1,6 @@
 # Claim-drift watch: flag docs whose claims no longer match the code
 
-- Status: proposed (first PR of issue #785: spec only, no code)
+- Status: accepted 2026-11-11 (maintainer approved the recommendations below). Issue #785.
 - Date: 2026-11-11
 - Builds on: [ADR 0068](../adr/0068-scheduled-work-within-a-monthly-cap.md) (schedules), [ADR 0074](../adr/0074-provenance-trailers-on-commits.md)
   (provenance trailers, already shipped), the `doc-drift` template in `ScheduleTemplates`
@@ -97,10 +97,10 @@ Each is run by a machine; the implementing PR adds the tests, this PR adds none.
 11. **Whole gate:** `scripts/check.sh` exits 0 and its last test line reads `Passed!  - Failed:     0`.
 12. **No private text:** the commit-msg and pre-commit denylist hooks pass; no marker names a host, address or home path.
 
-## Open questions for the maintainer
+## Decisions (maintainer, 2026-11-11)
 
 - Opening issues needs Issues write permission on the integrator App, which `driven.integrator` does not request today
-  ([GitHub setup](../guide/github-start.md)). Recommended: ship the notify-only version first (checks 1 to 10 hold
+  ([GitHub setup](../guide/github-start.md)). Decided: ship the notify-only version first (checks 1 to 10 hold
   without it) and add issue opening as a second PR once the permission is granted.
 - Marker syntax: an HTML comment keeps rendered pages clean but is invisible to a reader. The alternative is a footnote-style
-  link, which shows on the page. Recommended: the comment.
+  link, which shows on the page. Decided: the comment.

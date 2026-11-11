@@ -1,6 +1,6 @@
 # Claim bounty: a queue of claims for workers to disprove
 
-- Status: proposed. Issue #787 (approved idea, first PR is this spec).
+- Status: accepted 2026-11-11 (maintainer approved the spec as proposed). Issue #787.
 - Date: 2026-11-11
 - Builds on: [ADR 0036](../adr/0036-support-checking-and-signed-results.md) (support check), [ADR 0019](../adr/0019-prompt-ci-and-routing-report.md) (Prompt CI, eval cells, routing report)
 - Schema rule: `result/v1` and every other published major take additive changes only; this spec changes none.
