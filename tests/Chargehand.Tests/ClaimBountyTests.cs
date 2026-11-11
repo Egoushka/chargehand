@@ -152,4 +152,69 @@ public class ClaimBountyTests
         Assert.Contains(claim.Id, line, StringComparison.Ordinal);
         Assert.Contains("\"preset\":\"disprove\"", line, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task An_unresolved_claim_is_released_and_the_next_claim_is_still_processed()
+    {
+        using var dir = new TempDir();
+        var repo = Runs.GitRepo(dir.Path);
+        File.Copy(Repo.Path("CLAUDE.md"), Path.Combine(repo.Path, "CLAUDE.md"));
+        repo = Runs.Commit(repo, "CLAUDE.md");
+        var reply = "```json\n{\"status\":\"completed\",\"summary\":\"false\"," +
+            "\"claims\":[{\"text\":\"It is false because CLAUDE.md says so.\",\"evidence\":[\"e1\"],\"confidence\":0.9}]," +
+            "\"evidence\":[{\"id\":\"e1\",\"kind\":\"file\",\"locator\":\"CLAUDE.md:3\"}],\"artifacts\":[],\"open_questions\":[],\"confidence\":0.9}\n```";
+        var runtime = new ScriptedRuntime(reply, ScriptedRuntime.Spec(), Verdict("unsupported"), ScriptedRuntime.Spec(), Verdict("supported"));
+        var queue = new ClaimQueue(Path.Combine(dir.Path, "claims.jsonl"));
+        var ledger = new BountyLedger(Path.Combine(dir.Path, "bounty.jsonl"));
+        var orchestrator = Runs.Orchestrator(runtime, dir.Path, new JsonlRunLog(Path.Combine(dir.Path, "runs.jsonl")));
+        var seed = new[] { new SeedClaim("first claim", "result:seed1"), new SeedClaim("second claim", "result:seed2") };
+
+        var counts = await ClaimBounty.RunAsync(orchestrator, runtime, null, queue, ledger, seed, repo.Path, repo.Commit, default);
+
+        Assert.Equal((1, 1), (counts.Disproved, counts.Open));
+        var claims = await queue.ReadAsync(default);
+        var first = claims.Single(c => c.Text == "first claim");
+        Assert.Equal((ClaimState.Open, null), (first.State, first.LeaseUntil));
+        Assert.Equal(ClaimState.Disproved, claims.Single(c => c.Text == "second claim").State);
+
+        var again = await ClaimBounty.RunAsync(orchestrator, runtime, null, queue, ledger, seed, repo.Path, repo.Commit, default);
+        Assert.Equal(1, again.Skipped);
+    }
+
+    [Fact]
+    public async Task The_ledger_refuses_a_second_positive_line_for_one_claim()
+    {
+        using var dir = new TempDir();
+        var ledger = new BountyLedger(Path.Combine(dir.Path, "bounty.jsonl"));
+        Assert.NotNull(await ledger.AppendAsync("c1", "run1", Preset, 1, default));
+        Assert.Null(await ledger.AppendAsync("c1", "run2", Preset, 1, default));
+        Assert.NotNull(await ledger.AppendAsync("c1", "run3", Preset, -1, default));
+        Assert.NotNull(await ledger.AppendAsync("c2", "run4", Preset, 1, default));
+        Assert.Equal(3, (await ledger.ReadAsync(default)).Count);
+    }
+
+    [Fact]
+    public async Task Judging_one_claim_twice_at_once_awards_one_point()
+    {
+        using var dir = new TempDir();
+        var (repo, commit, queue, ledger) = Setup(dir);
+        var claim = await queue.AddAsync("the sky is blue", "result:r1", commit, "prior-art", default);
+        var runtime = new ScriptedRuntime("", ScriptedRuntime.Spec(), Verdict("supported"));
+        var disproof = Disproof("the sky is blue is false because a.txt says green", "a.txt:1");
+        await Task.WhenAll(Enumerable.Range(0, 4).Select(i => ClaimBounty.JudgeAsync(runtime, null, queue, ledger, claim, disproof, $"run{i}", Preset, repo, default)));
+        Assert.Single(await ledger.ReadAsync(default));
+    }
+
+    [Fact]
+    public async Task Ancestry_tells_not_an_ancestor_from_a_git_failure()
+    {
+        using var dir = new TempDir();
+        var first = Runs.GitRepo(dir.Path);
+        dir.Write(Path.Combine("repo", "README.md"), "changed\n");
+        var second = Runs.Commit(first, "README.md");
+        Assert.True(await ClaimQueue.IsAncestorAsync(first.Path, first.Commit, second.Commit, default));
+        Assert.False(await ClaimQueue.IsAncestorAsync(first.Path, second.Commit, first.Commit, default));
+        Assert.Null(await ClaimQueue.IsAncestorAsync(first.Path, Commit, second.Commit, default));
+        Assert.Null(await ClaimQueue.IsAncestorAsync(Path.Combine(dir.Path, "no-such-repo"), first.Commit, second.Commit, default));
+    }
 }

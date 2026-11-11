@@ -13,13 +13,16 @@ public sealed class BountyLedger(string path, TimeProvider? time = null)
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private readonly TimeProvider _time = time ?? TimeProvider.System;
 
-    public async Task<BountyEntry> AppendAsync(string claimId, string runId, string preset, int points, CancellationToken ct)
+    /// <summary>Appends the line; null, and nothing written, when a positive line for <paramref name="claimId"/> is already there and this one is positive too.</summary>
+    public async Task<BountyEntry?> AppendAsync(string claimId, string runId, string preset, int points, CancellationToken ct)
     {
         var entry = new BountyEntry(claimId, runId, preset, points, _time.GetUtcNow());
         var o = new JsonObject { ["claim_id"] = entry.ClaimId, ["run_id"] = entry.RunId, ["preset"] = entry.Preset, ["points"] = entry.Points, ["at"] = entry.At };
         await Gate.WaitAsync(ct);
         try
         {
+            if (points > 0 && (await ReadAsync(ct)).Any(e => e.ClaimId == claimId && e.Points > 0))
+                return null;
             if (Path.GetDirectoryName(Path.GetFullPath(path)) is { Length: > 0 } dir)
                 Directory.CreateDirectory(dir);
             await File.AppendAllTextAsync(path, o.ToJsonString() + "\n", new UTF8Encoding(false), ct);

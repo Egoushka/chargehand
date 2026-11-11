@@ -493,6 +493,8 @@ async Task<int> EvalBounty(string seedFile, IReadOnlyList<string> options)
     Console.WriteLine($"disproved: {counts.Disproved}");
     Console.WriteLine($"stands: {counts.Stands}");
     Console.WriteLine($"open: {counts.Open}");
+    Console.WriteLine($"skipped (already resolved): {counts.Skipped}");
+    Console.WriteLine($"stale: {counts.Stale}");
     return 0;
 }
 

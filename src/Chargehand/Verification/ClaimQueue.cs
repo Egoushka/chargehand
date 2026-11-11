@@ -54,15 +54,15 @@ public sealed class ClaimQueue(string path, TimeProvider? time = null)
         }
     }
 
-    /// <summary>The next open claim, now leased; null when none is open or another claim's lease is still running.</summary>
-    public async Task<BountyClaim?> LeaseNextAsync(TimeSpan lease, CancellationToken ct)
+    /// <summary>The next open claim, now leased; null when none is open or another claim's lease is still running. Ids in <paramref name="skip"/> are passed over.</summary>
+    public async Task<BountyClaim?> LeaseNextAsync(TimeSpan lease, CancellationToken ct, ISet<string>? skip = null)
     {
         await Gate.WaitAsync(ct);
         try
         {
             var now = _time.GetUtcNow();
             var open = Latest().Values.Where(c => c.State == ClaimState.Open).ToList();
-            if (open.Any(c => c.LeaseUntil > now) || open.FirstOrDefault() is not { } next)
+            if (open.Any(c => c.LeaseUntil > now) || open.FirstOrDefault(c => skip?.Contains(c.Id) != true) is not { } next)
                 return null;
             var leased = next with { LeaseUntil = now + lease };
             Write(leased);
@@ -88,6 +88,30 @@ public sealed class ClaimQueue(string path, TimeProvider? time = null)
         }
     }
 
+    /// <summary>
+    /// Sets <paramref name="id"/> disproved and runs <paramref name="award"/> in one critical section, so two judgings of one claim cannot both award.
+    /// False, with <paramref name="award"/> not run, when the claim is already disproved or unknown.
+    /// </summary>
+    public async Task<bool> TryDisproveAsync(string id, Func<Task> award, CancellationToken ct)
+    {
+        await Gate.WaitAsync(ct);
+        try
+        {
+            if (!Latest().TryGetValue(id, out var held) || held.State == ClaimState.Disproved)
+                return false;
+            Write(held with { State = ClaimState.Disproved, LeaseUntil = null });
+            await award();
+            return true;
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    /// <summary>Gives back a leased claim that stayed open, so it can be leased again.</summary>
+    public Task ReleaseAsync(string id, CancellationToken ct) => SetStateAsync(id, ClaimState.Open, ct);
+
     /// <summary>Marks every open claim whose commit <paramref name="isAncestor"/> rejects as stale; returns how many.</summary>
     public async Task<int> MarkStaleAsync(Func<string, Task<bool>> isAncestor, CancellationToken ct)
     {
@@ -101,15 +125,22 @@ public sealed class ClaimQueue(string path, TimeProvider? time = null)
         return stale;
     }
 
-    /// <summary>Whether <paramref name="commit"/> is an ancestor of <paramref name="branch"/> in the repository at <paramref name="repo"/>.</summary>
-    public static async Task<bool> IsAncestorAsync(string repo, string commit, string branch, CancellationToken ct)
+    /// <summary>Whether <paramref name="commit"/> is an ancestor of <paramref name="branch"/> in the repository at <paramref name="repo"/>; null when git cannot tell (unknown commit, bad repository).</summary>
+    public static async Task<bool?> IsAncestorAsync(string repo, string commit, string branch, CancellationToken ct)
     {
         var psi = new ProcessStartInfo("git") { WorkingDirectory = repo, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var a in new[] { "merge-base", "--is-ancestor", commit, branch })
             psi.ArgumentList.Add(a);
-        using var process = Process.Start(psi) ?? throw new InvalidOperationException("git did not start");
-        await process.WaitForExitAsync(ct);
-        return process.ExitCode == 0;
+        try
+        {
+            using var process = Process.Start(psi) ?? throw new InvalidOperationException("git did not start");
+            await process.WaitForExitAsync(ct);
+            return process.ExitCode switch { 0 => true, 1 => false, _ => null };
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
     }
 
     private Dictionary<string, BountyClaim> Latest()
