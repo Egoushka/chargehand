@@ -134,6 +134,7 @@
   "skip_structured_intake": false,
   "peer_clone": null,
   "pools": null,
+  "nuget_trusted_signers": null,
   "roots": [
     "/var/tmp/chargehand/work"
   ],

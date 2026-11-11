@@ -65,7 +65,8 @@ public sealed record Profile(
     PublicFreeSettings? PublicFree = null,
     bool SkipStructuredIntake = false,
     PeerCloneSettings? PeerClone = null,
-    PoolsSettings? Pools = null)
+    PoolsSettings? Pools = null,
+    IReadOnlyList<string>? NugetTrustedSigners = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
