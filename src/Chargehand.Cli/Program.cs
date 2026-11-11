@@ -885,7 +885,7 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
 
 MemoryStack? Memory() => MemoryStacks.From(profile.Memory, mcpPool);
 
-Chargehand.Enhancement.IPromptEnhancer? Enhancer() => PromptEnhancers.From(profile, mcpPool);
+IPromptEnhancer? Enhancer() => PromptEnhancers.From(profile.PromptEnhancer, mcpPool);
 
 // Resolves gh:owner/name for an account with public_clone (CHARGEHAND-683); null leaves such a path refused, as any other outside repository_roots.
 PeerCloneManager? PeerClones()

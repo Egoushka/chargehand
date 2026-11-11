@@ -1,18 +1,15 @@
 using System.Text.Json;
-using Chargehand.Config;
-using Chargehand.Enhancement;
 using Chargehand.Modules.Memory.Api;
-using Chargehand.Modules.Research.Api;
 using ModelContextProtocol.Protocol;
 
-namespace Chargehand.Mcp;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>
 /// A prompt enhancer behind an MCP server (ADR 0040): the tools <c>enhance</c> and <c>feedback</c> of whetstone's contract
 /// (schemas enhance/v1 and feedback/v1 in its repository). It throws when the server, the tool or the answer fails;
 /// <see cref="GuardedPromptEnhancer"/> around it owns the deadline and the fall back to the original prompt.
 /// </summary>
-/// <param name="settings">An entry <see cref="Profile.Load"/> has validated.</param>
+/// <param name="settings">The profile's entry, which Profile.Load has validated.</param>
 /// <param name="pool">Opens the entry's server.</param>
 public sealed class McpPromptEnhancer(PromptEnhancerSettings settings, McpConnectionPool pool) : IPromptEnhancer
 {

@@ -1,9 +1,9 @@
 using System.Text.Json;
 using Chargehand.Config;
-using Chargehand.Enhancement;
 using Chargehand.Kernel;
 using Chargehand.Mcp;
 using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.Research.Api;
 using ModelContextProtocol.Protocol;
 
 namespace Chargehand.Tests;
@@ -214,7 +214,7 @@ public class PromptEnhancerTests
         await using var server = Whetstone(PassThrough);
         await using var pool = PoolFor(profile, server);
 
-        var enhanced = await PromptEnhancers.From(profile, pool)!.EnhanceAsync(Prompt, Context, CancellationToken.None);
+        var enhanced = await PromptEnhancers.From(profile.PromptEnhancer, pool)!.EnhanceAsync(Prompt, Context, CancellationToken.None);
 
         Assert.False(enhanced.Changed);
         Assert.Equal(Prompt, enhanced.Original);
@@ -247,7 +247,7 @@ public class PromptEnhancerTests
         await using var server = new FakeMcpServer(new FakeTool("enhance", _ => FakeMcpServer.Error($"cannot enhance '{Prompt}'")));
         await using var pool = PoolFor(profile, server);
 
-        var enhanced = await PromptEnhancers.From(profile, pool)!.EnhanceAsync(Prompt, Context, CancellationToken.None);
+        var enhanced = await PromptEnhancers.From(profile.PromptEnhancer, pool)!.EnhanceAsync(Prompt, Context, CancellationToken.None);
 
         Assert.False(enhanced.Changed);
         Assert.Equal(Prompt, enhanced.Original);
@@ -260,7 +260,7 @@ public class PromptEnhancerTests
         var profile = ProfileWith("""{"server":"gw"}""");
         await using var pool = new McpConnectionPool(profile.McpServers!, _ => "", (_, _, _) => throw new IOException("connection refused"));
 
-        var enhanced = await PromptEnhancers.From(profile, pool)!.EnhanceAsync(Prompt, Context, CancellationToken.None);
+        var enhanced = await PromptEnhancers.From(profile.PromptEnhancer, pool)!.EnhanceAsync(Prompt, Context, CancellationToken.None);
 
         Assert.False(enhanced.Changed);
         Assert.Equal(Prompt, enhanced.Original);
@@ -271,7 +271,7 @@ public class PromptEnhancerTests
     {
         await using var pool = new McpConnectionPool(new Dictionary<string, McpServerSettings>(), _ => "");
 
-        Assert.Null(PromptEnhancers.From(new Profile("profile/v1"), pool));
+        Assert.Null(PromptEnhancers.From(new Profile("profile/v1").PromptEnhancer, pool));
     }
 
     [Fact]
