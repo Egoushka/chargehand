@@ -147,6 +147,21 @@ public sealed class SqliteEventLog : IEventLog, IDisposable
             sql.Append(" AND subject = $subject");
             cmd.Parameters.AddWithValue("$subject", subject);
         }
+        if (f.Since is { } since)
+        {
+            sql.Append(" AND time >= $since");
+            cmd.Parameters.AddWithValue("$since", since);
+        }
+        if (f.Until is { } until)
+        {
+            sql.Append(" AND time <= $until");
+            cmd.Parameters.AddWithValue("$until", until);
+        }
+        if (f.Correlation is { } correlation)
+        {
+            sql.Append(" AND correlationid = $correlation");
+            cmd.Parameters.AddWithValue("$correlation", correlation);
+        }
         if (f.Thread is { } thread)
         {
             sql.Append(" AND (subject = $thread OR correlationid = $thread)");
