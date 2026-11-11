@@ -256,7 +256,8 @@
               "refill_day": { "type": "integer", "minimum": 1, "maximum": 31, "default": 1, "description": "A monthly pool: day of the month it refills, clamped to the month's last day." },
               "refill_weekday": { "enum": ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"], "description": "A weekly pool: the day it refills." },
               "refill_time": { "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9]$", "default": "00:00", "description": "A monthly or weekly pool: the time of day it refills." },
-              "no_training_models": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The models of this pool whose provider does not train on prompts through this pool (\"*\": all of them). Only these may see restricted data; unset: every model of the pool is assumed to train, so restricted data never reaches the pool. At least one pool of an enabled block must list some." }
+              "no_training_models": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The models of this pool whose provider does not train on prompts through this pool (\"*\": all of them). Only these may see restricted data; unset: every model of the pool is assumed to train, so restricted data never reaches the pool. At least one pool of an enabled block must list some." },
+              "pace_daily": { "type": "boolean", "default": false, "description": "Soft daily pacing: once today's allowance is spent the router prefers the next pool in the order that has room, and returns to this pool only when no other can take the call (it still warns). Needs total_usd, or quota_usd on a weekly pool." }
             }
           }
         }

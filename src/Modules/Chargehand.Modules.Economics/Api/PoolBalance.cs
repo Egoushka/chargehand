@@ -13,8 +13,9 @@ public sealed record PoolSpend(string Pool, DateTimeOffset At, decimal Usd);
 /// <param name="HasRoom">The pool may take a call now: it has not expired, has started, and its provider has not refused it. A configured amount or pace never takes it away.</param>
 /// <param name="Why">Why the pool may not take a call: <c>expired</c>, <c>not started</c> or <c>exhausted</c>.</param>
 /// <param name="Warning">A configured limit the pool is over (the balance is spent, today's allowance is used, the day's requests are used). It only warns: the pool still takes calls until its provider refuses.</param>
+/// <param name="Paced">The pool sets <c>pace_daily</c> and today's allowance is spent: the router prefers another pool that has room, and takes this one only when none does.</param>
 public sealed record PoolStanding(string Pool, DateTimeOffset? PeriodStart, DateTimeOffset? Refill, DateTimeOffset? Horizon, decimal? RemainingUsd, decimal? AllowanceUsd,
-    decimal? RoomUsd, bool HasRoom, string? Why = null, string? Warning = null);
+    decimal? RoomUsd, bool HasRoom, string? Why = null, string? Warning = null, bool Paced = false);
 
 /// <summary>A pool's period and its daily allowance with carry-over (ADR 0095): pure, the same spend and time give the same standing. The balance and the allowance are figures to warn by, never a reason to refuse a call.</summary>
 public static class PoolBalance
@@ -39,7 +40,7 @@ public static class PoolBalance
         var remaining = balance.Value - before - spentToday;
         var allowance = horizon is { } end ? (balance.Value - before) / DaysLeft(today, end) : balance.Value - before;
         var room = Math.Min(allowance - spentToday, remaining);
-        return new(pool.Name, periodStart, refill, horizon, remaining, allowance, room, true, null, room > 0 ? null : remaining <= 0 ? "empty" : "today's allowance is spent");
+        return new(pool.Name, periodStart, refill, horizon, remaining, allowance, room, true, null, room > 0 ? null : remaining <= 0 ? "empty" : "today's allowance is spent", pool.PaceDaily && room <= 0);
     }
 
     private static PoolStanding Free(PoolSettings pool, int requestsToday, DateTimeOffset? periodStart)
