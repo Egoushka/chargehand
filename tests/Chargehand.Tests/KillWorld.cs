@@ -3,6 +3,7 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 
@@ -195,7 +196,7 @@ internal sealed class KillWorld(Func<string, string> bundleFor) : IContainerEngi
             _outcomes.Add(c.Run!);
         if (c.Kind == "verify-branch")
             c.Logs = _volumes.GetValueOrDefault(work) && _outcomes.Contains(c.Run!)
-                ? VerifyBranchCli.Marker + JsonSerializer.Serialize(new { argv = NpmTest, exit_code = 0, output_tail = "ok", timed_out = false, duration_ms = 1000 })
+                ? ContainerVerifier.Marker + JsonSerializer.Serialize(new { argv = NpmTest, exit_code = 0, output_tail = "ok", timed_out = false, duration_ms = 1000 })
                 : "fatal: no workspace or no bundle";
     }
 

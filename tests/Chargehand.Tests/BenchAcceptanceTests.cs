@@ -4,6 +4,7 @@ using System.Text.Json;
 using Chargehand.Bench;
 using Chargehand.Driven;
 using Chargehand.Kernel;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Runners.Api;
 
 namespace Chargehand.Tests;
@@ -125,7 +126,7 @@ public sealed class BenchAcceptanceTests : IDisposable
     private static readonly string[] Argv = ["x"];
 
     private static string Verdict(int exit, string tail = "", bool timedOut = false) =>
-        VerifyBranchCli.Marker + JsonSerializer.Serialize(new { argv = Argv, exit_code = exit, output_tail = tail, timed_out = timedOut, duration_ms = 4200, commit = "c" });
+        ContainerVerifier.Marker + JsonSerializer.Serialize(new { argv = Argv, exit_code = exit, output_tail = tail, timed_out = timedOut, duration_ms = 4200, commit = "c" });
 
     private AcceptanceRequest Request(TimeSpan? timeout = null) =>
         new("t1", _repo, "chargehand/run-1", _base, ["sh", "-c", "test -f b.txt"], timeout ?? TimeSpan.FromMinutes(5), Image, ["registry.npmjs.org", "pypi.org"]);

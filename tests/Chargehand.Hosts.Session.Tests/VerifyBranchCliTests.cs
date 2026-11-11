@@ -1,8 +1,9 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Chargehand.Driven;
+using Chargehand.Hosts.Session;
+using Chargehand.Modules.Handover.Api;
 
-namespace Chargehand.Tests;
+namespace Chargehand.Hosts.Session.Tests;
 
 /// <summary><c>chargehand verify-branch</c>, the command a fresh verification container runs (ADR 0039): put the session's bundle on a clean workspace, run the tests, print one line.</summary>
 public class VerifyBranchCliTests
@@ -147,4 +148,11 @@ public class VerifyBranchCliTests
         Assert.Equal(2, await VerifyBranchCli.RunAsync(args, TextWriter.Null, error, default));
         Assert.Contains("usage: chargehand verify-branch", error.ToString());
     }
+}
+
+internal sealed class TempDir : IDisposable
+{
+    public string Path { get; } = Directory.CreateTempSubdirectory("chargehand-test-").FullName;
+
+    public void Dispose() => Directory.Delete(Path, recursive: true);
 }

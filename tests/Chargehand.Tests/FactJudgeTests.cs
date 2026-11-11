@@ -1,4 +1,5 @@
 using Chargehand.Evals;
+using Chargehand.Modules.Research.Api;
 
 namespace Chargehand.Tests;
 
@@ -29,11 +30,11 @@ public class FactJudgeTests
         var runtime = new ScriptedRuntime(Runs.WorkerReply, "nonsense", """{"stated": [1], "repeated": []}""");
         var result = Runs.Completed();
 
-        var check = await FactJudge.JudgeAsync(runtime, new Runtime.ModelRef("p", "small"), result, ["a"], [], CancellationToken.None);
+        var check = await FactJudge.JudgeAsync(runtime, new ModelRef("p", "small"), result, ["a"], [], CancellationToken.None);
 
         Assert.Equal(new FactCheck(1, 1, 0), check);
         Assert.Contains("previous output was invalid", runtime.IntakePrompts.Last(), StringComparison.Ordinal);
         var failing = new ScriptedRuntime(Runs.WorkerReply, "nonsense", "still nonsense", "and again");
-        await Assert.ThrowsAsync<InvalidOperationException>(() => FactJudge.JudgeAsync(failing, new Runtime.ModelRef("p", "small"), result, ["a"], [], CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => FactJudge.JudgeAsync(failing, new ModelRef("p", "small"), result, ["a"], [], CancellationToken.None));
     }
 }

@@ -20,7 +20,6 @@ using Chargehand.Modules.PeerClones.Api;
 using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.OpenCode;
-using Chargehand.Runtime;
 using Chargehand.Runtimes.Acp.Api;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Server;
@@ -179,7 +178,7 @@ if (argv is ["verify-branch", .. var verifyBranchArgs])
     using var stop = new CancellationTokenSource();
     using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => stop.Cancel());
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-    return await Chargehand.Driven.VerifyBranchCli.RunAsync(verifyBranchArgs, Console.Out, Console.Error, stop.Token);
+    return await Chargehand.Hosts.Session.VerifyBranchCli.RunAsync(verifyBranchArgs, Console.Out, Console.Error, stop.Token);
 }
 // Benchmarks (ADR 0052): a report is a file read; a run reads the profile for the images, the allowlist and the server it may reach.
 if (argv is ["bench", "report", .. var benchReportArgs])

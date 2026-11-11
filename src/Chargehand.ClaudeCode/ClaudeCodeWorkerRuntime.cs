@@ -8,7 +8,6 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Sessions.Api;
-using Chargehand.Runtime;
 using Chargehand.Runtimes.ClaudeCode.Api;
 
 namespace Chargehand.ClaudeCode;

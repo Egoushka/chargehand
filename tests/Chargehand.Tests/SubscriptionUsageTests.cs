@@ -2,7 +2,7 @@ using System.Text.Json;
 using Chargehand.ClaudeCode;
 using Chargehand.Contracts;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.Runtime;
+using Chargehand.Modules.Research.Api;
 
 namespace Chargehand.Tests;
 

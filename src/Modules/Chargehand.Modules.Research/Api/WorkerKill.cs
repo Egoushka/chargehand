@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Chargehand.Runtime;
+namespace Chargehand.Modules.Research.Api;
 
 /// <summary>
 /// A worker process that died of SIGKILL (exit 137) without chargehand interrupting it: on a server in a container that is

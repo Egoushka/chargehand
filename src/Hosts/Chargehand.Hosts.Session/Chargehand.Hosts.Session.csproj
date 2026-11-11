@@ -2,6 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Shared\Chargehand.Kernel\Chargehand.Kernel.csproj" />
+    <ProjectReference Include="..\..\Modules\Chargehand.Modules.Handover\Chargehand.Modules.Handover.csproj" />
+    <ProjectReference Include="..\..\Modules\Chargehand.Modules.Research\Chargehand.Modules.Research.csproj" />
   </ItemGroup>
 
 </Project>

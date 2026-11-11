@@ -1,7 +1,7 @@
 using Chargehand.Acp;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
-using Chargehand.Runtime;
+using Chargehand.Modules.Research.Api;
 using static Chargehand.Tests.AcpTestSupport;
 
 namespace Chargehand.Tests;

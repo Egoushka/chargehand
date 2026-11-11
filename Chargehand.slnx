@@ -58,6 +58,7 @@
     <Project Path="tests/AgentClientProtocol.FakeAgent/AgentClientProtocol.FakeAgent.csproj" />
     <Project Path="tests/AgentClientProtocol.Net.Tests/AgentClientProtocol.Net.Tests.csproj" />
     <Project Path="tests/Chargehand.Architecture.Tests/Chargehand.Architecture.Tests.csproj" />
+    <Project Path="tests/Chargehand.Hosts.Session.Tests/Chargehand.Hosts.Session.Tests.csproj" />
     <Project Path="tests/Chargehand.Kernel.Tests/Chargehand.Kernel.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Batches.CoyoteTests/Chargehand.Modules.Batches.CoyoteTests.csproj" />
     <Project Path="tests/Chargehand.Modules.Batches.Tests/Chargehand.Modules.Batches.Tests.csproj" />

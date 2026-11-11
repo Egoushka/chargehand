@@ -1,8 +1,8 @@
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Tasks.Api;
-using Chargehand.Runtime;
 using YamlDotNet.Serialization;
 
 namespace Chargehand.Config;
@@ -52,15 +52,6 @@ public sealed record NodeKind(string Model, string OpencodeAgent, IReadOnlyList<
 public sealed record VerifySettings(int TimeoutSeconds = 600, int MaxFixRounds = 2);
 
 public sealed record RuleEntry(string Action, string Resource, string Effect);
-
-/// <summary>A server of the profile's <c>mcp_servers</c> and the tools of it a node may use: exact names, or globs where <c>*</c> is
-/// any run of characters (never the server's whole set, ADR 0034).</summary>
-public sealed record ServiceUse(string Server, IReadOnlyList<string> Tools)
-{
-    public bool Equals(ServiceUse? other) => other is not null && Server == other.Server && Tools.SequenceEqual(other.Tools);
-
-    public override int GetHashCode() => HashCode.Combine(Server, Tools.Count);
-}
 
 /// <param name="MaxInputTokens">Prompt tokens (input + cache read + cache write) summed over the node's calls; the node is interrupted above it.</param>
 public sealed record NodeBudget(long MaxInputTokens, decimal MaxUsd);

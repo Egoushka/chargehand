@@ -1,9 +1,9 @@
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Nodes;
 using Chargehand.Plans;
 using Chargehand.Results;
-using Chargehand.Runtime;
 
 namespace Chargehand.Tests;
 

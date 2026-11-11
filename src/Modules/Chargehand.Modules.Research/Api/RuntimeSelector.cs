@@ -1,7 +1,7 @@
 using Chargehand.Contracts;
 using Chargehand.Kernel;
 
-namespace Chargehand.Runtime;
+namespace Chargehand.Modules.Research.Api;
 
 public enum RuntimeKind { Opencode, ClaudeCode, Acp }
 

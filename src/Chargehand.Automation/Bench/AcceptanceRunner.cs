@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Chargehand.Driven;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Runners.Api;
 
 namespace Chargehand.Bench;
@@ -93,12 +94,12 @@ public sealed class ContainerAcceptanceRunner(IContainerEngine engine, IWorkspac
 
     private static AcceptanceResult Parse(string logs, ContainerState state, TimeSpan elapsed)
     {
-        var line = logs.Split('\n').LastOrDefault(l => l.StartsWith(VerifyBranchCli.Marker, StringComparison.Ordinal));
+        var line = logs.Split('\n').LastOrDefault(l => l.StartsWith(ContainerVerifier.Marker, StringComparison.Ordinal));
         if (line is not null)
         {
             try
             {
-                using var doc = JsonDocument.Parse(line[VerifyBranchCli.Marker.Length..]);
+                using var doc = JsonDocument.Parse(line[ContainerVerifier.Marker.Length..]);
                 var r = doc.RootElement;
                 var exit = r.GetProperty("exit_code").GetInt32();
                 var timedOut = r.GetProperty("timed_out").GetBoolean();

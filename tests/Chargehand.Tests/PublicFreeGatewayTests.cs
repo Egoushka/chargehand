@@ -1,8 +1,8 @@
 using Chargehand.ClaudeCode;
 using Chargehand.Config;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Nodes;
-using Chargehand.Runtime;
 
 namespace Chargehand.Tests;
 

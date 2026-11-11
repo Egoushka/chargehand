@@ -7,7 +7,7 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.Runtime;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Server;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
