@@ -13,6 +13,7 @@ public static class BenchCli
                           [--remote <url template>] [--max-tokens <n>] [--max-usd <n>] [--max-parallel <n>]
                           [--workdir <dir>] [--out <dir>] [--accept-root <dir>] [--url <server>] [--arm chargehand|bare]
                chargehand bench report <results.json> [<other.json>] [--out <file>]
+               chargehand bench publish <results.json> [--out <file>] [--min-tasks <n>]
           run --dry-run   checks the task set, the pins and that every acceptance command exists; starts nothing, calls no model
           run --baseline  runs the repositories' test commands and every acceptance check on the pinned commits in containers: each check must
                           behave as the set says (a change's check fails, an impossible task's guard passes); calls no model
@@ -21,6 +22,8 @@ public static class BenchCli
           run --arm bare  the control arm (ADR 0080): each task is one plain agent session on the same pin, goal, model and caps, with none of chargehand's features; the branch it
                           leaves gets the same acceptance check. Run both arms on the same set, then `bench report` the two results files
           report          renders a results file again, or compares two (the first is the base; a chargehand file and a bare file give the two arms side by side)
+          publish         writes the merge rate of a finished replay run as bench-merge-rate/v1 (counts and rates only, for a status page); exit 1 when the run did not
+                          finish or graded fewer than --min-tasks tasks (default 20)
         """;
 
     private static readonly string[] Flags = ["--dry-run", "--baseline", "--check-pins"];

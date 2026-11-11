@@ -30,3 +30,10 @@ request flow.
 
 A milestone is a named goal — tracked as a milestone of the repository's GitHub issues, or
 in [`ROADMAP.md`](../ROADMAP.md) — not a round number or a tally of merged pull requests.
+
+## Publish the merge rate
+
+Each release, replay 20 merged pull requests and publish the merge rate on the website's live status
+([benchmark guide](guide/benchmark.md#the-merge-rate-published-each-release)): `chargehand bench replay import` and
+`baseline`, `chargehand bench run` on the valid tasks, then `chargehand bench publish <results.json> --out merge-rate.json`.
+It runs on the maintainer's machine (it calls a model), not in the release workflow.
