@@ -74,6 +74,45 @@ public class HandoverMutationTests
     }
 
     [Fact]
+    public async Task The_outcome_records_the_score_against_the_threshold()
+    {
+        using var f = CodeChange("Assert.Equal(2, new Retry().Run());");
+        var mutation = new FakeMutation(new MutationReport(true, 0.71, ""));
+
+        var passed = await new Handover(new HandoverTests.FakeVerifier(), new HandoverTests.FakePullRequests(), mutation: mutation).RunAsync(f.Input(with: i => i with { MutationShare = 0.6 }), default);
+
+        Assert.Equal(new MutationOutcome(true, 0.71, 0.6, null), passed.Mutation);
+
+        using var g = CodeChange("new Retry().Run();");
+        var weak = new FakeMutation(new MutationReport(true, 0.2, ""));
+        var refused = await new Handover(new HandoverTests.FakeVerifier(), new HandoverTests.FakePullRequests(), mutation: weak).RunAsync(g.Input(with: i => i with { MutationShare = 0.6 }), default);
+
+        Assert.Equal(new MutationOutcome(true, 0.2, 0.6, null), refused.Mutation);
+    }
+
+    [Fact]
+    public async Task A_run_that_could_not_finish_records_why()
+    {
+        using var f = CodeChange("new Retry().Run();");
+        var mutation = new FakeMutation(new MutationReport(false, null, "the mutation run timed out"));
+
+        var outcome = await new Handover(new HandoverTests.FakeVerifier(), new HandoverTests.FakePullRequests(), mutation: mutation).RunAsync(f.Input(with: i => i with { MutationShare = 0.6 }), default);
+
+        Assert.Equal(new MutationOutcome(false, null, 0.6, "the mutation run timed out"), outcome.Mutation);
+    }
+
+    [Fact]
+    public async Task A_change_with_no_production_file_has_no_mutation_record()
+    {
+        using var f = new HandoverTests.Fixture();
+        var mutation = new FakeMutation(new MutationReport(true, 0, ""));
+
+        var outcome = await new Handover(new HandoverTests.FakeVerifier(), new HandoverTests.FakePullRequests(), mutation: mutation).RunAsync(f.Input(with: i => i with { MutationShare = 0.6 }), default);
+
+        Assert.Null(outcome.Mutation);
+    }
+
+    [Fact]
     public async Task No_share_no_check()
     {
         using var f = CodeChange("new Retry().Run();");

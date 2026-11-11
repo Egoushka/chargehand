@@ -1,5 +1,7 @@
+// agent-checks: allow deleted-tests, deleted-assertions -- Rendering_twice_gives_the_same_text moved to Chargehand.Modules.Onboarding.Tests with StarterProfile
 using System.Text.Json;
 using Chargehand.Config;
+using Chargehand.Modules.Onboarding.Api;
 using Chargehand.Onboarding;
 
 namespace Chargehand.Tests;
@@ -158,10 +160,4 @@ public class InitCliTests
             JsonValueKind.Array => element.EnumerateArray().SelectMany(e => Strings(e, property)),
             _ => [],
         };
-
-    [Fact]
-    public void Rendering_twice_gives_the_same_text()
-    {
-        Assert.Equal(StarterProfile.Render("/work/repo", ["a.example"]), StarterProfile.Render("/work/repo", ["a.example"]));
-    }
 }

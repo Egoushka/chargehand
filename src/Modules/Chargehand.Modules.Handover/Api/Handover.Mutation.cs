@@ -17,6 +17,7 @@ public sealed partial class Handover
         if (files.Count == 0)
             return null;
         var report = await mutation.MutateAsync(new MutationRun(input.RunId, run.Bundle, input.Branch, input.BaseCommit, files, input.VerifyTimeout ?? TimeSpan.FromMinutes(30)), ct);
+        run.Mutation = new MutationOutcome(report.Ran, report.Score, share, report.Ran ? null : report.Detail);
         if (MutationVerdict(report, share) is not { } reason)
             return null;
         return run.Refuse(reason, ErrorCode.VerificationFailed, run.Verification, run.Changed, verificationPaths: run.VerificationPaths, commit: run.Commit);

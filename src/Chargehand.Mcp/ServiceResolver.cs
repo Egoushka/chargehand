@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 using Chargehand.Config;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.RunLog;
+using Chargehand.Modules.Memory.Api;
 using Chargehand.Runtime;
 
 namespace Chargehand.Mcp;
@@ -38,12 +38,16 @@ public sealed class ServiceResolver(McpConnectionPool pool, TimeSpan? listTimeou
         return new ResolvedServices(grants, report);
     }
 
+    private static ServiceTransport ToTransport(McpEndpoint endpoint) => endpoint.Url is { } url
+        ? new HttpServiceTransport(url, endpoint.Values, endpoint.Sse ? HttpServiceProtocol.Sse : HttpServiceProtocol.StreamableHttp)
+        : new StdioServiceTransport(endpoint.Command!, endpoint.Values);
+
     private async Task<(ServiceGrant? Grant, IReadOnlyList<string> Issues)> ResolveOne(string server, IReadOnlyList<string> patterns, CancellationToken ct)
     {
         try
         {
             // Secrets first, unbounded by the listing timeout: a command source has its own limit.
-            var transport = await Task.Run(() => pool.Transport(server), ct);
+            var transport = ToTransport(await Task.Run(() => pool.Endpoint(server), ct));
             using var bound = CancellationTokenSource.CreateLinkedTokenSource(ct);
             bound.CancelAfter(_listTimeout);
             var client = await pool.GetAsync(server, bound.Token);

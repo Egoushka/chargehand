@@ -385,6 +385,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
 
         s.Interrupted = false;
         s.Result = null;
+        s.OnFallback = fallback;
         Process p;
         try
         {
@@ -598,7 +599,7 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
                 {
                     Complete(s, now);
                     s.Messages.Add(new WorkerMessage(id, WorkerMessageKind.Assistant, now, text, Tokens(m), null,
-                        s.Spec.Model is { } sm ? $"{sm.ProviderId}/{sm.ModelId}" : null, tools, error));
+                        s.Spec.Model is { } sm ? $"{sm.ProviderId}/{sm.ModelId}" : null, tools, error, Subscription: s.OnFallback ? null : s.Subscription));
                 }
                 return false;
             case "user":
@@ -608,6 +609,11 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
                     var (_, called, returned) = Content(e.GetProperty("message"));
                     s.Messages[i] = s.Messages[i] with { ToolOutput = s.Messages[i].ToolOutput + called, ToolResults = [.. s.Messages[i].ToolResults ?? [], .. returned] };
                 }
+                return false;
+            case "rate_limit_event":
+                // The subscription's windows (ADR 0098). A turn on the fallback key reports none, and a stray one is not the subscription's.
+                if (!s.OnFallback)
+                    s.Subscription = SubscriptionUsage.Merge(s.Subscription, RateLimitEvent.Read(e));
                 return false;
             case "system" when e.TryGetProperty("subtype", out var kind) && kind.GetString() == "init":
                 NoteServers(s, e);
@@ -914,6 +920,10 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
         /// <summary>Set while the turn sleeps to a quota reset (ADR 0096); an interrupt cancels it.</summary>
         public volatile CancellationTokenSource? Waiting;
         public volatile bool CompactPending;
+        /// <summary>The subscription's windows as the last <c>rate_limit_event</c> left them (ADR 0098); null until one arrives. Guarded by a lock on the session.</summary>
+        public SubscriptionUsage? Subscription { get; set; }
+        /// <summary>Whether the turn in flight runs on the fallback API key, whose calls the subscription's windows do not describe.</summary>
+        public volatile bool OnFallback;
         /// <summary>Granted servers the CLI reported as not connected, by name. Guarded by a lock on the session.</summary>
         public Dictionary<string, string> UnavailableServices { get; } = [];
         public Task? Turn { get; set; }

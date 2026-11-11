@@ -4,6 +4,7 @@ using Chargehand.Driven;
 using Chargehand.Mcp;
 using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Intake.Api;
+using Chargehand.Modules.Memory.Api;
 
 namespace Chargehand.Tests;
 

@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Kernel;
-using Chargehand.Prompts;
+using Chargehand.Modules.Research.Api;
 using Chargehand.Results;
 using Chargehand.Runtime;
 

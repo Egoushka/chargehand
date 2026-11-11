@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Chargehand.Config;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Economics.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
@@ -42,6 +43,7 @@ public class ProfileCompatTests
     [Theory]
     [InlineData(typeof(IReadOnlyDictionary<string, ModelPrice>), typeof(LedgerSettingsJsonContext))]
     [InlineData(typeof(IReadOnlyList<AccountSettings>), typeof(AccountsSettingsJsonContext))]
+    [InlineData(typeof(PoolsSettings), typeof(EconomicsSettingsJsonContext))]
     [InlineData(typeof(List<MemoryProviderSettings>), typeof(MemorySettingsJsonContext))]
     [InlineData(typeof(DrivenForge), typeof(ForgeSettingsJsonContext))]
     [InlineData(typeof(DrivenIntegrator), typeof(HandoverSettingsJsonContext))]
@@ -57,7 +59,7 @@ public class ProfileCompatTests
     [InlineData(typeof(ClaudeCodeSettings), typeof(ClaudeCodeSettingsJsonContext))]
     [InlineData(typeof(Profile), typeof(ProfileJsonContext))]
     [InlineData(typeof(DrivenSettings), typeof(ProfileJsonContext))]
-    [InlineData(typeof(McpServerSettings), typeof(ProfileJsonContext))]
+    [InlineData(typeof(McpServerSettings), typeof(MemorySettingsJsonContext))]
     public void A_modules_section_is_bound_by_the_modules_source_generated_context(Type section, Type context) =>
         Assert.IsType(context, Profile.LoadJson.GetTypeInfo(section).OriginatingResolver);
 

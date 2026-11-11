@@ -6,6 +6,7 @@ using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Forge.Api;
+using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
@@ -255,10 +256,11 @@ public class ConsoleActionTests
         new(new DrivenFakes.FakeEngine(), new DrivenFakes.FakeEngine(), new DrivenFakes.FakeVolumes(_ => SessionStatus.Completed), _ => throw new NotSupportedException(), null,
             (_, _, _) => Task.FromResult(new DrivenCheckout("/srv/checkouts/repo", ConsoleRig.Commit, "https://github.com/o/r.git", "main")), new DrivenRunTests.NoEvidenceProblems(), name => $"value-of-{name}", Integration: host);
 
-    private static async Task<(ConsoleRig Rig, FakeIntegrationHost Host)> PullRigAsync(string? actor = null, bool withHost = true)
+    private static async Task<(ConsoleRig Rig, FakeIntegrationHost Host)> PullRigAsync(string? actor = null, bool withHost = true, string? mode = null)
     {
         var host = new FakeIntegrationHost { Current = FakeIntegrationHost.Snapshot(draft: false, status: "BLOCKED", checks: [new CheckStatus("build", true, CheckOutcome.Failed, 900), new CheckStatus("lint", false, CheckOutcome.Failed, 901), new CheckStatus("test", true, CheckOutcome.Failed, 902)]) };
-        var rig = await ConsoleRig.StartAsync(accounts: [Alice(), Bob()], services: withHost ? _ => Services(host) : null);
+        var rig = await ConsoleRig.StartAsync(accounts: [Alice(), Bob()], services: withHost ? _ => Services(host) : null,
+            profile: mode is null ? null : (Func<string, Profile>)(root => Runs.Profile(root) with { Driven = new DrivenSettings(Integrator: new DrivenIntegrator(Repositories: new Dictionary<string, string> { ["o/r"] = mode })) }));
         await ConsoleSeed.BatchAsync(rig, "run-b1", actor, new SeedTask("t1", PrUrl: "https://example.test/o/r/pull/7"));
         await ConsoleSeed.LearnAsync(rig, ConsoleSeed.Learned("run-b1", "t1", actor: actor, pr: ConsoleSeed.Pull(7)));
         return (rig, host);
@@ -319,5 +321,76 @@ public class ConsoleActionTests
         var (bare, _) = await PullRigAsync(withHost: false);
         await using var __ = bare;
         Assert.Equal(HttpStatusCode.Conflict, (await Post(bare.Owner, "/v1/pulls/o/r/7/checks/rerun")).StatusCode);
+    }
+
+    // Merging a pull request
+
+    private static readonly CheckStatus[] Passed = [new CheckStatus("build", true, CheckOutcome.Passed, 900)];
+
+    [Fact]
+    public async Task The_owner_merges_a_pull_request_whose_required_checks_passed_once_pinned_to_the_head_and_the_batch_gets_an_event()
+    {
+        var (rig, host) = await PullRigAsync(mode: "ask");
+        await using var _ = rig;
+        host.Current = FakeIntegrationHost.Snapshot(head: "bbbbbbb2", draft: false, status: "CLEAN", checks: Passed);
+
+        var first = await Post(rig.Owner, "/v1/pulls/o/r/7/merge");
+        var second = await Post(rig.Owner, "/v1/pulls/o/r/7/merge");
+
+        Assert.Equal(HttpStatusCode.Accepted, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Equal(["merge bbbbbbb2"], host.Calls.Where(c => c.StartsWith("merge", StringComparison.Ordinal)));
+        Assert.Equal("task t1: pull request #7 merged by an operator", Assert.Single(rig.Records.ReadEvents("run-b1")!, e => e.Event == RunEventKind.Operator).Detail);
+    }
+
+    [Fact]
+    public async Task A_refused_merge_is_a_conflict_with_the_reason_and_nothing_is_merged()
+    {
+        var (rig, host) = await PullRigAsync(mode: "ask");
+        await using var _ = rig;
+
+        host.Current = FakeIntegrationHost.Snapshot(draft: false, status: "BLOCKED", checks: [new CheckStatus("build", true, CheckOutcome.Failed, 900)]);
+        var failing = await Post(rig.Owner, "/v1/pulls/o/r/7/merge");
+        host.Current = FakeIntegrationHost.Snapshot(draft: false, status: "CLEAN", checks: Passed);
+        host.Gate = ChecksGate.None;
+        var ungated = await Post(rig.Owner, "/v1/pulls/o/r/7/merge");
+
+        Assert.Equal(HttpStatusCode.Conflict, failing.StatusCode);
+        Assert.Contains("build", await failing.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.Conflict, ungated.StatusCode);
+        Assert.DoesNotContain(host.Calls, c => c.StartsWith("merge", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_repository_the_integrator_is_off_for_is_not_merged()
+    {
+        var (rig, host) = await PullRigAsync();
+        await using var _ = rig;
+        host.Current = FakeIntegrationHost.Snapshot(draft: false, status: "CLEAN", checks: Passed);
+
+        var refused = await Post(rig.Owner, "/v1/pulls/o/r/7/merge");
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Contains("integrator is off", await refused.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.DoesNotContain(host.Calls, c => c.StartsWith("merge", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Only_the_owner_merges_and_an_unknown_pull_request_and_a_missing_forge_are_answered_in_kind()
+    {
+        var (rig, host) = await PullRigAsync("alice", mode: "ask");
+        await using var _ = rig;
+        host.Current = FakeIntegrationHost.Snapshot(draft: false, status: "CLEAN", checks: Passed);
+        using var alice = rig.As("alice");
+        using var anonymous = new HttpClient { BaseAddress = rig.Server.BaseAddress };
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await Post(alice, "/v1/pulls/o/r/7/merge")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Post(anonymous, "/v1/pulls/o/r/7/merge")).StatusCode);
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await rig.Owner.GetAsync("/v1/pulls/o/r/7/merge")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await Post(rig.Owner, "/v1/pulls/o/r/8/merge")).StatusCode);
+        Assert.Empty(host.Calls);
+        var (bare, _) = await PullRigAsync(withHost: false);
+        await using var __ = bare;
+        Assert.Equal(HttpStatusCode.Conflict, (await Post(bare.Owner, "/v1/pulls/o/r/7/merge")).StatusCode);
     }
 }

@@ -10,6 +10,7 @@ import {
   learnReport,
   RETRO_TEXT,
 } from '../src/testing/learning';
+import { routerBody } from '../src/testing/router';
 import * as st from '../src/testing/start';
 
 export const ORIGIN = `http://127.0.0.1:${process.env.CONSOLE_E2E_PORT ?? '4173'}`;
@@ -65,9 +66,24 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
         return route.fulfill({
           json: options.account ? fx.accountOverview(now) : fx.overview({}, now),
         });
+      case '/v1/threads':
+        return route.fulfill({ json: { threads: [] } });
       case '/v1/inbox':
         return route.fulfill({
           json: fx.inbox(options.empty || options.account ? [] : fx.inboxItems(now), now),
+        });
+      case '/v1/conversations':
+        return route.fulfill({ json: { conversations: [] } });
+      case '/v1/fleet':
+        return route.fulfill({
+          json: {
+            contract_version: 'fleet/v1',
+            generated_at: new Date(now).toISOString(),
+            not_recorded: [],
+            runs: [],
+            claims: [],
+            pull_requests: [],
+          },
         });
       case '/v1/pulls/train':
         return route.fulfill({ json: adm.train({}, now) });
@@ -94,6 +110,8 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
         return route.fulfill({
           json: { size_class: 'M', basis: 'flat', samples: 0, usd_p90: 4, suggest_split: false },
         });
+      case '/v1/router':
+        return route.fulfill({ json: routerBody() });
       case '/v1/cost':
         return route.fulfill({ json: costBody() });
       case '/v1/analytics': {
@@ -189,6 +207,8 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
                   }),
           });
         }
+        if (request.method() === 'POST' && /^\/v1\/pulls\/[^/]+\/[^/]+\/\d+\/merge$/.test(pathname))
+          return route.fulfill({ status: 202, json: { action: 'merge', changed: true } });
         if (pathname.endsWith('/events'))
           return route.fulfill({ contentType: 'text/event-stream', body: '' });
         if (pathname.startsWith('/v1/runs/'))

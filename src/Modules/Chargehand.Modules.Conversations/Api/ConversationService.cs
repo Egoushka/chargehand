@@ -98,6 +98,10 @@ public sealed partial class ConversationService(IConversationRuntime runtime, st
     /// <summary>The conversation, or null when there is none or <paramref name="who"/> may not see it.</summary>
     public ConversationView? Find(Principal? who, string id) => Visible(who, id) is { } entry ? ViewOf(entry) : null;
 
+    /// <summary>The conversations <paramref name="who"/> may see, newest first.</summary>
+    public IReadOnlyList<ConversationView> List(Principal? who) =>
+        [.. _entries.Values.Where(e => Principal.Sees(who, e.Snapshot.Actor)).Select(ViewOf).OrderByDescending(v => v.CreatedAt).ThenByDescending(v => v.Id, StringComparer.Ordinal)];
+
     /// <summary>The events after <paramref name="after"/> (0: all), then those that follow until the conversation is over; null when there is no such conversation for <paramref name="who"/>.</summary>
     public IAsyncEnumerable<ConversationEvent>? Events(Principal? who, string id, long after, CancellationToken ct) =>
         Visible(who, id)?.Events(after, ct);

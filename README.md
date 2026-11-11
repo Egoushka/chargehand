@@ -150,4 +150,13 @@ before a pull request opens. [ARCHITECTURE.md](ARCHITECTURE.md) maps the code.
 - [Memory and services](docs/guide/memory-and-services.md) · [Prompt CI](docs/guide/prompt-ci.md) · [Benchmark](docs/guide/benchmark.md)
 - [Reference](docs/guide/reference.md): commands, routes, presets, contracts, profile fields, environment variables
 - [Architecture](ARCHITECTURE.md) · [Decisions](docs/guide/decisions.md) · [Changelog](CHANGELOG.md) · [Roadmap](ROADMAP.md)
-- [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Apache-2.0 license](LICENSE)
+- [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [License (FSL-1.1-ALv2)](LICENSE)
+
+## License
+
+Versions after v0.19.19 are under the [Functional Source License, Version 1.1, ALv2 Future License](LICENSE)
+(FSL-1.1-ALv2): you may use, copy, modify and redistribute the code for any purpose other than a competing use, and each
+version converts to Apache-2.0 two years after its release.
+
+Releases up to and including v0.19.19 were published under Apache-2.0 and remain Apache-2.0
+([LICENSE-APACHE-2.0](LICENSE-APACHE-2.0)). See [NOTICE](NOTICE).

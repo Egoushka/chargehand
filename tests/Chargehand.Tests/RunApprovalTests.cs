@@ -8,6 +8,7 @@ using Chargehand.Server;
 
 namespace Chargehand.Tests;
 
+// agent-checks: allow deleted-tests, deleted-assertions -- the pure unit tests moved to tests/Chargehand.Modules.Accounts.Tests/RunApprovalGateTests.cs with the code
 /// <summary>ADR 0092: a run whose budget passes the per-run threshold waits for the owner's approval in the inbox before it starts.</summary>
 public class RunApprovalTests
 {
@@ -17,41 +18,6 @@ public class RunApprovalTests
         (await http.GetFromJsonAsync<JsonElement>("/v1/inbox")).GetProperty("items").EnumerateArray().Where(i => i.GetProperty("kind").GetString() == "approval").ToArray() is var items
             ? JsonSerializer.SerializeToElement(items)
             : default;
-
-    [Fact]
-    public void The_threshold_defaults_to_five_and_a_new_process_reads_the_one_set()
-    {
-        using var dir = new TempDir();
-        var path = Path.Combine(dir.Path, "limits", "run-approval.json");
-        Assert.Equal(5m, new RunApprovalGate(path).Limit.LimitUsd);
-
-        new RunApprovalGate(path).Limit.Set(12.5m);
-        Assert.Equal(12.5m, new RunApprovalGate(path).Limit.LimitUsd);
-
-        new RunApprovalGate(path).Limit.Set(null);
-        Assert.Null(new RunApprovalGate(path).Limit.LimitUsd);
-    }
-
-    [Fact]
-    public void A_pending_request_survives_a_restart_and_an_approval_is_used_once()
-    {
-        using var dir = new TempDir();
-        var path = Path.Combine(dir.Path, "limits", "run-approval.json");
-        var now = new DateTimeOffset(2026, 11, 4, 9, 0, 0, TimeSpan.Zero);
-        var gate = new RunApprovalGate(path);
-        var (asked, first) = gate.Check("fp", "alice", "owner/repo", "Draft a note.", 8m, RunApprovalGate.BudgetBasis, now);
-        Assert.Equal(RunApprovalGate.Verdict.Held, first);
-
-        gate = new RunApprovalGate(path);
-        Assert.Equal(asked.Id, Assert.Single(gate.Pending()).Id);
-        Assert.Equal(RunApprovalGate.Verdict.Held, gate.Check("fp", "alice", "owner/repo", "Draft a note.", 8m, RunApprovalGate.BudgetBasis, now).Verdict);
-        Assert.Single(gate.Pending());
-
-        Assert.NotNull(gate.Decide(asked.Id, approve: true, now));
-        Assert.Null(gate.Decide(asked.Id, approve: true, now));
-        Assert.Equal(RunApprovalGate.Verdict.Start, gate.Check("fp", "alice", "owner/repo", "Draft a note.", 8m, RunApprovalGate.BudgetBasis, now).Verdict);
-        Assert.Equal(RunApprovalGate.Verdict.Held, gate.Check("fp", "alice", "owner/repo", "Draft a note.", 8m, RunApprovalGate.BudgetBasis, now).Verdict);
-    }
 
     [Fact]
     public async Task The_console_reads_and_sets_the_threshold_and_refuses_one_that_is_not_above_zero()

@@ -213,6 +213,8 @@ export interface RunnerStatusBody {
   running?: number | null;
   max_sessions?: number | null;
   container_count?: number | null;
+  /** What of the session images the runner's allowlist lacks; admission refuses tasks there. Null when nothing, or when it cannot say; absent from an older server. */
+  image_mismatch?: string | null;
 }
 
 export interface ImageBody {

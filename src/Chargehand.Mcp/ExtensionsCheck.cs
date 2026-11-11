@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Chargehand.Config;
 using Chargehand.Kernel;
 using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.Research.Api;
 using ModelContextProtocol.Protocol;
 
 namespace Chargehand.Mcp;

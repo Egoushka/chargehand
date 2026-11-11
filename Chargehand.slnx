@@ -22,6 +22,7 @@
     <Project Path="src/Modules/Chargehand.Modules.Conversations/Chargehand.Modules.Conversations.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Economics/Chargehand.Modules.Economics.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Evaluation/Chargehand.Modules.Evaluation.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Events/Chargehand.Modules.Events.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Forge/Chargehand.Modules.Forge.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Gateway/Chargehand.Modules.Gateway.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Handover/Chargehand.Modules.Handover.csproj" />
@@ -60,18 +61,25 @@
     <Project Path="tests/Chargehand.Kernel.Tests/Chargehand.Kernel.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Batches.CoyoteTests/Chargehand.Modules.Batches.CoyoteTests.csproj" />
     <Project Path="tests/Chargehand.Modules.Batches.Tests/Chargehand.Modules.Batches.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Console.Tests/Chargehand.Modules.Console.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Conversations.Tests/Chargehand.Modules.Conversations.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Economics.Tests/Chargehand.Modules.Economics.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Events.Tests/Chargehand.Modules.Events.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Forge.Tests/Chargehand.Modules.Forge.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Gateway.Tests/Chargehand.Modules.Gateway.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Handover.Tests/Chargehand.Modules.Handover.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Intake.Tests/Chargehand.Modules.Intake.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Journal.Tests/Chargehand.Modules.Journal.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Memory.Tests/Chargehand.Modules.Memory.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Oversight.Tests/Chargehand.Modules.Oversight.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Accounts.Tests/Chargehand.Modules.Accounts.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Ledger.Tests/Chargehand.Modules.Ledger.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Research.Tests/Chargehand.Modules.Research.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Runners.Tests/Chargehand.Modules.Runners.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Sessions.Tests/Chargehand.Modules.Sessions.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Tasks.Tests/Chargehand.Modules.Tasks.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Watch.Tests/Chargehand.Modules.Watch.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Onboarding.Tests/Chargehand.Modules.Onboarding.Tests.csproj" />
     <Project Path="tests/Chargehand.Runtimes.Acp.Tests/Chargehand.Runtimes.Acp.Tests.csproj" />
     <Project Path="tests/Chargehand.Tests/Chargehand.Tests.csproj" />
   </Folder>

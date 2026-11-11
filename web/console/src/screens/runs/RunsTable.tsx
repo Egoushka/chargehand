@@ -26,10 +26,10 @@ import {
   TableRow,
 } from '../../ui';
 import { Elapsed } from '../overview/Elapsed';
-import { isActive, pullNumber } from './model';
+import { isActive, pullNumber, usageLabel, windowTitle } from './model';
 
 // select, state, run, repository, kind, preset, account, tokens, spend, started, elapsed, PR
-const COLS = '24px 96px 64px minmax(104px,1.2fr) 52px 72px 76px 60px 64px 100px 68px 52px';
+const COLS = '24px 96px 64px minmax(104px,1.2fr) 52px 72px 76px 60px 64px 76px 100px 68px 52px';
 const HEADS: Array<{ name: string; num?: boolean }> = [
   { name: 'State' },
   { name: 'Run' },
@@ -39,6 +39,7 @@ const HEADS: Array<{ name: string; num?: boolean }> = [
   { name: 'Account' },
   { name: 'Tokens', num: true },
   { name: 'Spend', num: true },
+  { name: 'Window', num: true },
   { name: 'Started', num: true },
   { name: 'Elapsed', num: true },
   { name: 'PR' },
@@ -176,6 +177,9 @@ export function RunsTable({
                     {formatTokens(run.tokens)}
                   </Cell>
                   <Cell num>{formatUsd(run.usd)}</Cell>
+                  <Cell num title={windowTitle(run)}>
+                    {usageLabel(run.subscription_usage) ?? DASH}
+                  </Cell>
                   <Cell num title={formatDateTime(run.started_at)}>
                     {formatTime(run.started_at)}
                   </Cell>

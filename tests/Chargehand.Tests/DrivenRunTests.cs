@@ -8,6 +8,7 @@ using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Economics.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Handover.Api;
@@ -17,7 +18,6 @@ using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;
-using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Runtimes.ClaudeCode.Api;
 using Chargehand.Workspace;
@@ -67,7 +67,8 @@ public class DrivenRunTests
             IBatchPlanner? planner = null, IStackSeeder? stacker = null, DrivenPlanning? planning = null, ILearningStore? learning = null, DrivenLearning? learningSettings = null,
             IBatchRetro? retro = null, IRetroSink? retroSink = null, DrivenGovernor? governor = null, IBranchSeeder? brancher = null, IReadOnlyList<AccountSettings>? accounts = null,
             IHostSource? host = null, DrivenAdmission? admission = null, int maxParallel = 2, bool records = false, string? pushSecret = PushSecret,
-            Func<RemoteRepository, CancellationToken, Task<string>>? appToken = null, ClaudeCodeSettings? claude = null, ApiFallback? fallback = null, IReadOnlyDictionary<string, ModelPrice>? prices = null)
+            Func<RemoteRepository, CancellationToken, Task<string>>? appToken = null, ClaudeCodeSettings? claude = null, ApiFallback? fallback = null, IReadOnlyDictionary<string, ModelPrice>? prices = null,
+            PoolsSettings? pools = null)
         {
             Log = log ?? new JsonlRunLog(Path.Combine(Dir.Path, "log.jsonl"));
             Profile = Runs.Profile(dir ?? Dir.Path) with
@@ -79,6 +80,8 @@ public class DrivenRunTests
                 Http = accounts is null ? null : new HttpSettings("api-key", Accounts: accounts),
                 Prices = prices ?? new Dictionary<string, ModelPrice> { ["p/small"] = new(0.1m, 0.5m, 0.01m, 0.125m), ["provider/claude-sonnet-5-5"] = new(3m, 15m, 0.3m, 3.75m) },
             };
+            if (pools is not null)
+                Profile = Profile with { Pools = pools };
             Volumes = volumes ?? new FakeVolumes(script ?? (_ => SessionStatus.Completed), outcomes);
             var services = enabled
                 ? new DrivenServices(Engine, Engine, Volumes, _ => throw new NotSupportedException("the handover is faked"), null,

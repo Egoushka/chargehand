@@ -11,7 +11,7 @@ namespace Chargehand.Modules.Runners.Api;
 /// that did not answer, not a cancel, so give the client an infinite <see cref="HttpClient.Timeout"/> when files of repository size travel through it (ADR 0058).</summary>
 /// <param name="maxDownloadBytes">The most a file read out of an output volume may be (the session's bundle); more is refused before it is copied, as the Docker CLI engine refuses it.</param>
 public sealed class RunnerClient(HttpClient http, long maxDownloadBytes = DockerCliEngine.OutFileCap)
-    : IContainerEngine, IWorkspaceEngine, IBundleWorkspaceEngine, IOutVolumeEngine, IOutTailEngine, IServiceEngine, IHostSource
+    : IContainerEngine, IWorkspaceEngine, IBundleWorkspaceEngine, IOutVolumeEngine, IOutTailEngine, IServiceEngine, IHostSource, IImageAllowlistSource
 {
     public static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(100);
 
@@ -187,6 +187,19 @@ public sealed class RunnerClient(HttpClient http, long maxDownloadBytes = Docker
         try
         {
             return await Send(HttpMethod.Get, "/host", null, RunnerJsonContext.Default.HostSnapshot, ct);
+        }
+        catch (ChargehandException e) when (e.Message.Contains("404", StringComparison.Ordinal))
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The runner's session image allowlist (<c>GET /images</c>). A runner older than the route answers 404: null, "unknown".</summary>
+    public async Task<IReadOnlyList<string>?> ReadImagesAsync(CancellationToken ct)
+    {
+        try
+        {
+            return (await Send(HttpMethod.Get, "/images", null, RunnerJsonContext.Default.RunnerImages, ct)).Images;
         }
         catch (ChargehandException e) when (e.Message.Contains("404", StringComparison.Ordinal))
         {

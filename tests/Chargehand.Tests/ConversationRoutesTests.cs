@@ -180,6 +180,26 @@ public class ConversationRoutesTests
     }
 
     [Fact]
+    public async Task The_list_holds_the_caller_s_conversations_with_their_state()
+    {
+        await using var s = await Server(accounts: [Account("alice"), Account("bob")]);
+        using var alice = s.As(s.Keys.Create("alice", null).Key);
+        using var bob = s.As(s.Keys.Create("bob", null).Key);
+        var first = await StartedId(alice);
+        var second = await StartedId(alice);
+        await StartedId(bob);
+
+        var res = await alice.GetAsync("/v1/conversations");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var list = (await Body(res)).GetProperty("conversations");
+        Assert.Equal(new[] { first, second }.Order(StringComparer.Ordinal), list.EnumerateArray().Select(c => c.GetProperty("id").GetString()!).Order(StringComparer.Ordinal));
+        Assert.True(list[0].TryGetProperty("state", out _));
+        Assert.Equal(3, (await Body(await s.Http.GetAsync("/v1/conversations"))).GetProperty("conversations").GetArrayLength());
+        using var nobody = new HttpClient { BaseAddress = s.BaseAddress };
+        Assert.Equal(HttpStatusCode.Unauthorized, (await nobody.GetAsync("/v1/conversations")).StatusCode);
+    }
+
+    [Fact]
     public async Task A_run_token_opens_no_conversation_route()
     {
         await using var s = await Server();

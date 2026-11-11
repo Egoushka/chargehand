@@ -1,3 +1,4 @@
+using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Research.Api;
 
@@ -108,6 +109,7 @@ public enum IdleOutcome { Succeeded, Failed, Interrupted }
 
 /// <param name="ToolOutput">Concatenated tool inputs and outputs of an assistant message (evidence scope).</param>
 /// <param name="ToolResults">What the message's tools returned, one text per result and without the calls' inputs; null: none.</param>
+/// <param name="Subscription">The subscription's usage windows as the provider last reported them when this message was made (ADR 0098); null when the runtime had none: an API key, or no report yet.</param>
 public sealed record WorkerMessage(
     string Id,
     WorkerMessageKind Kind,
@@ -119,7 +121,8 @@ public sealed record WorkerMessage(
     string? ToolOutput = null,
     string? Error = null,
     IdleOutcome? Outcome = null,
-    IReadOnlyList<string>? ToolResults = null);
+    IReadOnlyList<string>? ToolResults = null,
+    SubscriptionUsage? Subscription = null);
 
 public enum WorkerMessageKind { User, Assistant, Compaction, Idle, Other }
 
