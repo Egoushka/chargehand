@@ -1,0 +1,11 @@
+{
+  "specversion": "1.0",
+  "id": "handover:run-1:pushed",
+  "source": "chargehand/handover",
+  "type": "chargehand.handover.pushed",
+  "time": "2026-11-08T12:05:00Z",
+  "data": { "step": "pushed", "summary": "pushed chargehand/run-1" },
+  "actor": { "kind": "service", "id": "chargehand", "run": "run-1" },
+  "effect": "external",
+  "scope": "run:run-1"
+}

@@ -28,7 +28,7 @@ public static class ResultMerger
             done.SelectMany(p => p.Contract.Evidence.Select(e => e with { Id = $"{p.Node.Id}.{e.Id}" })).ToList(),
             done.SelectMany(p => p.Contract.Artifacts).ToList(),
             questions,
-            done.Count > 0 ? Math.Round(done.Average(p => p.Contract.Confidence), 3) : 0,
+            done.Count > 0 ? Math.Round(done.Average(p => p.Contract.Confidence), 3) : ResultConfidence.None,
             usage,
             // No part completed: the first part's cause is the run's (the rest were skipped or failed alike).
             done.Count > 0 ? null : parts.Select(p => p.Contract.Error).FirstOrDefault(e => e is not null));

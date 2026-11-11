@@ -14,8 +14,11 @@ public enum IntakePhase { Running, Asked, Done }
 /// <param name="Round">The number of the review round this task is (shared with the CI fix attempts of the pull request); null for a task started from an issue. <paramref name="Issue"/> is then the pull request's number.</param>
 /// <param name="FailedAt">When the batch ended without a pull request, a question or a finished round (it failed, was lost or never started the task); null otherwise. Three in a row in a repository open the failure breaker (ADR 0084).</param>
 /// <param name="Trigger">The key of the trigger that started the task fresh from its issue; null for a continuation or a round. A run a restart lost is started again from it once (issue #557).</param>
+/// <param name="Scope">The paths the issue declared on a <c>Scope:</c> line (issue #737); while the task runs, a new start whose scope overlaps them waits. Null: none declared.</param>
+/// <param name="Harvested">Started by the quota harvester (issue #792): counts toward <c>harvest.max_per_day</c>.</param>
 public sealed record IntakeTask(string Repository, int Issue, string BatchRunId, string TaskId, DateTimeOffset Started, string Size, IntakePhase Phase = IntakePhase.Running,
-    long? AskedCommentId = null, string? PrUrl = null, string? Branch = null, int? Round = null, string? Trigger = null, DateTimeOffset? FailedAt = null);
+    long? AskedCommentId = null, string? PrUrl = null, string? Branch = null, int? Round = null, string? Trigger = null, DateTimeOffset? FailedAt = null, IReadOnlyList<string>? Scope = null,
+    bool Harvested = false);
 
 /// <summary>A review of a pull request's head commit that is running, or finished and not yet commented (ADR 0051). The run is a plain read-only run, not a driven batch.</summary>
 public sealed record PullReview(string Repository, int Pull, string Sha, string RunId, DateTimeOffset Started);
@@ -29,7 +32,7 @@ public sealed record PendingReview(string Id, string Repository, int Pull, strin
 /// <param name="Key">The trigger's key, as <see cref="IntakeState.Handled"/> will hold it once it starts.</param>
 /// <param name="Issue">The issue, or the pull request of a review round.</param>
 /// <param name="Since">When it first waited.</param>
-/// <param name="Reason"><c>max_concurrent</c> (no free slot), <c>admission</c> (the server or <c>automation.account</c> refused the start, ADR 0076), <c>checkout</c> (the base commit could not be read)
+/// <param name="Reason"><c>max_concurrent</c> (no free slot), <c>overlap</c> (its declared scope overlaps an open chargehand pull request or a running task, issue #737), <c>admission</c> (the server or <c>automation.account</c> refused the start, ADR 0076), <c>checkout</c> (the base commit could not be read), <c>pools</c> (no budget pool has room, ADR 0095), <c>harvest</c> (quota harvest work that waits for the end of a subscription window, issue #792)
 /// or <c>lost</c> (a restart lost the issue's run, which starts again once; issue #557).</param>
 /// <param name="Detail">The refusal as the server gave it, for <c>admission</c> and <c>checkout</c>.</param>
 public sealed record WaitingTrigger(string Key, string Repository, int Issue, DateTimeOffset Since, string Reason, string? Detail = null);
@@ -42,7 +45,7 @@ public sealed record WaitingTrigger(string Key, string Repository, int Issue, Da
 /// <param name="Author">The GitHub login that set the label or wrote the comment, where there is one.</param>
 public sealed record IntakeTrigger(DateTimeOffset At, string Key, string Outcome, string? Reason = null, string? Author = null);
 
-/// <summary>What intake remembers between polls and across a restart (ADR 0051), in one JSON file written whole through a temporary file. <see cref="Handled"/> holds every trigger that was acted on
+/// <summary>What intake remembers between polls and across a restart (ADR 0051), in one JSON file written whole through a temporary file that is flushed to the disk and then renamed over it. <see cref="Handled"/> holds every trigger that was acted on
 /// or ignored, by key (<c>label:owner/repo#12:&lt;event id&gt;</c>, <c>comment:owner/repo:&lt;comment id&gt;</c>), and it only grows: a trigger seen once is never acted on again.</summary>
 public sealed class IntakeState
 {
@@ -100,11 +103,32 @@ public sealed class IntakeState
     public List<PullReview> Reviews { get; init; } = [];
 
 
-    public static IntakeState Load(string path)
+    /// <summary>Reads the state file for the server. A missing file is an empty state; so is an empty or unreadable one (a power loss or a hard freeze can leave a zero-byte file), after a warning and, when the file has content,
+    /// a copy beside it as <c>.corrupt-&lt;yyyyMMdd&gt;</c> (the first of the day is kept). Failing the start on it would restart-loop the server for good, since nothing else rewrites the file. <see cref="Read"/> is the strict form.</summary>
+    /// <param name="warn">Where the warning goes; standard error when null.</param>
+    public static IntakeState Load(string path, Action<string>? warn = null)
+    {
+        try
+        {
+            return Read(path);
+        }
+        catch (Exception e) when (e is JsonException or InvalidDataException)
+        {
+            var kept = new FileInfo(path).Length == 0 ? null : KeepCorruptCopy(path);
+            (warn ?? Console.Error.WriteLine)($"intake state {path}: {e.Message}; starting from an empty state{(kept is null ? "" : $", the file is kept as {kept}")}");
+            return new IntakeState(path);
+        }
+    }
+
+    /// <summary>Reads the state file and throws <see cref="InvalidDataException"/> (empty) or <see cref="JsonException"/> (not a state) when it is damaged, touching nothing: for the console, which reports that and must not move files.</summary>
+    public static IntakeState Read(string path)
     {
         if (!File.Exists(path))
             return new IntakeState(path);
-        var state = JsonSerializer.Deserialize<IntakeState>(File.ReadAllText(path), Json) ?? throw new InvalidDataException($"{path}: empty intake state");
+        var text = File.ReadAllText(path);
+        if (text.Length == 0)
+            throw new InvalidDataException("the file is empty");
+        var state = JsonSerializer.Deserialize<IntakeState>(text, Json) ?? throw new InvalidDataException("the file holds no state");
         return new IntakeState(path)
         {
             CommentCursor = state.CommentCursor ?? [],
@@ -123,6 +147,24 @@ public sealed class IntakeState
         };
     }
 
+    private static string? KeepCorruptCopy(string path)
+    {
+        var copy = $"{path}.corrupt-{DateTimeOffset.UtcNow:yyyyMMdd}";
+        try
+        {
+            File.Copy(path, copy, overwrite: false);
+            return copy;
+        }
+        catch (IOException) when (File.Exists(copy))
+        {
+            return copy;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>The latest task for an issue, if intake started one.</summary>
     public IntakeTask? LatestFor(string repository, int issue) => Tasks.LastOrDefault(t => t.Repository == repository && t.Issue == issue);
 
@@ -136,7 +178,12 @@ public sealed class IntakeState
             return;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
         var temp = $"{_path}.tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(this, Json));
+        // Flushed to the disk before the rename, so a power loss leaves the old file or the whole new one, never an empty one.
+        using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            stream.Write(System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(this, Json)));
+            stream.Flush(flushToDisk: true);
+        }
         File.Move(temp, _path, overwrite: true);
     }
 }

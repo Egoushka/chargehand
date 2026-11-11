@@ -39,11 +39,12 @@ public delegate string TaskTokenMinter(TaskGrant grant);
 /// <param name="Actor">The account that started the batch (ADR 0050); on the task's records and result.</param>
 /// <param name="LocalOnly">The repository is local-only (ADR 0069): the hand-over, the integrator and the CI fixer each refuse to push or call the forge.</param>
 /// <param name="Mise">ADR 0078: set when the profile says <c>driven.environment: "mise"</c>; an install helper runs before each session; null: none, as before.</param>
+/// <param name="Identity">The integrator App's bot identity the pushed commits are by (issue 426); null: the session's own.</param>
 /// <param name="Remote">The remote as the forge names it, for the learning record's pull request (ADR 0045); null: the remote is not one a forge can be asked about.</param>
 public sealed record TaskRunnerSettings(string BatchId, RunRequest Request, string Image, string SourcePath, string BaseCommit, string RemoteUrl, string BaseBranch,
     BatchNetworkInfo Network, string? McpUrl, DrivenPreset Preset, TaskLimits Limits, bool Priced, IReadOnlyDictionary<string, string> ModelEnvironment, PushCredential Push,
     string ScratchRoot, string Model, string ClaudeVersion, bool AllowLocalRemote = false, string? ModelBaseUrl = null, bool CallbackForwards = false, DrivenOtlpRoute? Otlp = null,
-    IReadOnlyDictionary<string, ModelPrice>? Prices = null, bool UsageOnSpans = false, string? GatewayKey = null, DrivenGovernor? Governor = null, Integrator? Integration = null, SharedServicesPlan? Shared = null, string? Actor = null, RemoteRepository? Remote = null, bool LocalOnly = false, MiseSetup? Mise = null);
+    IReadOnlyDictionary<string, ModelPrice>? Prices = null, bool UsageOnSpans = false, string? GatewayKey = null, DrivenGovernor? Governor = null, Integrator? Integration = null, SharedServicesPlan? Shared = null, string? Actor = null, RemoteRepository? Remote = null, bool LocalOnly = false, MiseSetup? Mise = null, CommitIdentity? Identity = null);
 
 /// <summary>What the install helper of ADR 0078 needs besides the batch's: the egress proxy's image, which its own network is given, and the network that egress joins to reach the toolchain hosts.</summary>
 public sealed record MiseSetup(string EgressImage, string Outside = BatchNetwork.DefaultOutside);
@@ -55,11 +56,13 @@ public sealed record MiseSetup(string EgressImage, string Outside = BatchNetwork
 /// events show as begun is taken up where it stood after a server restart (ADR 0043). <paramref name="detaching"/> says the server is stopping rather than the run being cancelled: the session container is then left running for the next process.
 /// A task with <see cref="ResolvedTask.Upstream"/> (ADR 0049) starts from the branches of the tasks it depends on: <paramref name="stacker"/> makes one branch of them, named for this task, and its bundle seeds
 /// the first session. With a <paramref name="learning"/> store, a task that ends writes what it taught (ADR 0045). With <paramref name="records"/>, each session, its governor log, the pull request's checks and the CI fix
-/// attempts are kept for the console (CHARGEHAND-214), and <paramref name="stops"/> holds how an operator stops the session the task waits on. <paramref name="results"/> (P4) builds, checks and signs the task's result. With <paramref name="steps"/>, each session start is a recorded step (ADR 0061), and a start a restart cut short is taken up under its own run id.</summary>
+/// attempts are kept for the console (CHARGEHAND-214), and <paramref name="stops"/> holds how an operator stops the session the task waits on. <paramref name="results"/> (P4) builds, checks and signs the task's result. With <paramref name="steps"/>, each session start is a recorded step (ADR 0061), and a start a restart cut short is taken up under its own run id.
+/// With a <paramref name="router"/> (ADR 0095, D-113) each session gets its model and pool from it, and a session that ends on its provider's refusal takes its pool out: the task goes on in a new session on the next pool,
+/// seeded from the work so far. Without one every session runs on <see cref="TaskRunnerSettings.Model"/>.</summary>
 public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine workspace, ISessionVolumes volumes, IBranchHandover handover, IRunLog log, TaskTokenMinter mint,
     TaskRunnerSettings settings, ITaskResults results,
     TimeSpan? poll = null, TimeSpan? stopGrace = null, Action<RunStatus>? publish = null, TaskJournal? tasks = null, Func<bool>? detaching = null, IStackSeeder? stacker = null, ILearningStore? learning = null, IBranchSeeder? brancher = null,
-    Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null, DrivenJournal? steps = null, TaskRecordStore? records = null, SessionStops? stops = null) : ITaskRunner
+    Func<string?, ISessionVolumes>? volumesOf = null, TimeSpan? outageGrace = null, DrivenJournal? steps = null, TaskRecordStore? records = null, SessionStops? stops = null, ISessionRouter? router = null) : ITaskRunner
 {
     private static readonly TimeSpan DefaultPoll = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultUsagePoll = TimeSpan.FromSeconds(5);
@@ -74,6 +77,18 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
 
     /// <summary>The most memory (MiB) any session container of a task has used, by task id; tasks of a batch run at once on one runner instance.</summary>
     private readonly ConcurrentDictionary<string, int> _memoryPeaks = new();
+
+    /// <summary>Wall seconds per phase by task id (issue #781), added up over the task's sessions.</summary>
+    private readonly ConcurrentDictionary<string, PhaseSeconds> _phases = new();
+
+    private sealed class PhaseSeconds
+    {
+        public double Clone, Restore, ModelTurns, Checks, Handover;
+    }
+
+    private PhaseSeconds PhasesOf(string taskId) => _phases.GetOrAdd(taskId, _ => new PhaseSeconds());
+
+    private static double Since(long started) => Stopwatch.GetElapsedTime(started).TotalSeconds;
 
     private sealed record BestRun(string RunId, string OutDirectory, int Commits);
 
@@ -97,6 +112,12 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
 
         /// <summary>Sessions after the first (ADR 0044).</summary>
         public int Continuation { get; set; }
+
+        /// <summary>The continuations that were a move to another pool after a provider's refusal, not a stall (ADR 0095, D-113): they are not counted against <c>MaxContinuations</c>.</summary>
+        public int Reroutes { get; set; }
+
+        /// <summary>The routes the sessions ran on, each once, with what the sessions on it cost.</summary>
+        public List<RunRoute> Routes { get; } = [];
 
         /// <summary>The earlier sessions' usage added up.</summary>
         public SessionOutcome? Prior { get; set; }
@@ -164,7 +185,8 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
         try
         {
             await SeedAsync(task, run, ct);
-            await FirstSessionAsync(task, run, ct);
+            if (await FirstSessionAsync(task, run, ct) is { } unplaced)
+                return unplaced;
             while (true)
             {
                 if (!await EndSessionAsync(task, run, progress, ct))
@@ -237,6 +259,7 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
             foreach (var (runId, name) in run.Containers)
             {
                 await RemoveSessionAsync(runId, name, CancellationToken.None);
+                _routes.TryRemove(runId, out _);
                 DeleteQuietly(Path.Combine(settings.ScratchRoot, "out", runId));
                 DeleteQuietly(Path.Combine(settings.ScratchRoot, runId));
                 // The last session's output volume and the one the handover read stay, as they always have; an earlier session's is no use once a later one has its bundle.

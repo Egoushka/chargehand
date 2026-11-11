@@ -103,6 +103,7 @@ public static class ProcessBoot
 /// <param name="ForkedFrom">The session this call's session was forked from, if any (cache report).</param>
 /// <param name="Credential">The <see cref="CredentialKind"/> that paid; null on a record from before it existed (counts as an API key).</param>
 /// <param name="Instructions">The node's instruction entries by key, hashed, in the order they were set (cache report).</param>
+/// <param name="SubscriptionUsage">The subscription's usage windows as the provider last reported them when the call was made (ADR 0098); null when the credential is an API key or the runtime had no report.</param>
 public sealed record CallRecord(
     string RunId,
     string NodeId,
@@ -117,7 +118,8 @@ public sealed record CallRecord(
     PromptChain PromptChain,
     string? ForkedFrom = null,
     IReadOnlyList<InstructionRef>? Instructions = null,
-    string? Credential = null)
+    string? Credential = null,
+    SubscriptionUsage? SubscriptionUsage = null)
 {
     public long? PromptTokens => Tokens is null ? null : Tokens.Input + Tokens.CacheRead + Tokens.CacheWrite;
 
@@ -128,6 +130,10 @@ public sealed record InstructionRef(string Key, string Sha256);
 
 /// <param name="Credential">The <see cref="CredentialKind"/> that paid for the run; null on a record from before it existed (counts as an API key).</param>
 /// <param name="ExecutedAction">What ran: intake's action, or "answer" when the preset or the split plan did not allow it.</param>
+/// <param name="IntakeSkipped">True: a structured caller's request ran on a spec built from its inputs, with no intake call (issue 429); null: intake ran as before.</param>
+/// <param name="Route">The pool, tier and model the budget router chose for the run's worker or session (ADR 0095); its cost and outcome are the result's. Null: the router is off. When the run's sessions moved between pools, the last.</param>
+/// <param name="Routes">Set only when a task's sessions ran on more than one route (ADR 0095, D-113): every route in the order it was used, each with the cost spent on it. Null: <see cref="Route"/> is the only one and the result's cost is its.</param>
+/// <param name="SubscriptionUsage">The subscription's usage windows as the provider last reported them while the run ran (ADR 0098), as fractions of each window: a share, not dollars. Null: an API-key run, a runtime that reports none, or a record from before it existed.</param>
 public sealed record RunRecord(
     string RunId,
     DateTimeOffset Started,
@@ -139,7 +145,16 @@ public sealed record RunRecord(
     string? ExecutedAction = null,
     ExtensionsReport? Extensions = null,
     string? Actor = null,
-    string? Credential = null);
+    string? Credential = null,
+    bool? IntakeSkipped = null,
+    RunRoute? Route = null,
+    IReadOnlyList<RunRoute>? Routes = null,
+    SubscriptionUsage? SubscriptionUsage = null);
+
+/// <summary>Who paid for a run and on what (ADR 0095): the router reads each pool's spend back from these.</summary>
+/// <param name="DataClass">The class of the data the run touched (<c>public</c>, <c>owner_private</c>, <c>restricted</c>) that the router gated the model by; null on a record from before it existed.</param>
+/// <param name="Usd">What the sessions that ran on this route cost; set only on an entry of <see cref="RunRecord.Routes"/>, and null there when nothing was priced.</param>
+public sealed record RunRoute(string Pool, string Tier, string Model, string? DataClass = null, decimal? Usd = null);
 
 /// <summary>What the profile's extensions did in one run, for the run log and <c>chargehand show</c> (goal 0.6). Null on a record from before it existed.</summary>
 public sealed record ExtensionsReport(IReadOnlyList<MemoryReport> Memory, IReadOnlyList<ServiceReport> Services)

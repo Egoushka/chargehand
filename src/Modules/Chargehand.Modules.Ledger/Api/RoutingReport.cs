@@ -38,7 +38,23 @@ public static class RoutingReport
         }
         sb.AppendLine().AppendLine(CultureInfo.InvariantCulture, $"Suggestions only: a model is a candidate once it and the default each have {MinRuns} scored runs, it scores within " +
                                    $"{QualityTolerance:0.00} of the default and costs at least {CostSaving:0%} less. Models never switch within a node.");
+        if (IntakeSaved(data) is { } saved)
+            sb.AppendLine().AppendLine(saved);
         return sb.ToString();
+    }
+
+    /// <summary>The latency structured runs saved by skipping intake (issue 429): their count times the median intake latency of the runs
+    /// that called it; null when no run skipped it. An estimate: a skipped call has no latency of its own to measure.</summary>
+    private static string? IntakeSaved(RunLogData data)
+    {
+        var skipped = data.Runs.Count(r => r.IntakeSkipped == true);
+        if (skipped == 0)
+            return null;
+        var perRun = data.Calls.Where(c => c.Kind == "intake").GroupBy(c => c.RunId).Select(g => g.Sum(c => c.LatencyMs) / 1000).ToList();
+        if (perRun.Count == 0)
+            return string.Create(CultureInfo.InvariantCulture, $"Intake skipped on {skipped} runs; no run in this log called it, so the latency saved is unknown.");
+        var median = Percentile(perRun, 0.5);
+        return string.Create(CultureInfo.InvariantCulture, $"Intake skipped on {skipped} runs: about {skipped * median:0.0} s saved at the median intake latency of {median:0.0} s.");
     }
 
     private static List<Row> Rows(RunLogData data)

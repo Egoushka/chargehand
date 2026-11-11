@@ -73,7 +73,7 @@ internal static class ChangeRun
             return merged with
             {
                 OpenQuestions = [.. merged.OpenQuestions, "No test command found: the change was not tested. Name one with context.verify."],
-                Confidence = Math.Min(merged.Confidence, UntestedConfidence),
+                Confidence = double.IsNaN(merged.Confidence) ? UntestedConfidence : Math.Min(merged.Confidence, UntestedConfidence),
             };
         if (verification.Passed)
             return merged;

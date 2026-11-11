@@ -26,6 +26,7 @@ Scheduled work ([ADR 0068](../adr/0068-scheduled-work-within-a-monthly-cap.md)) 
 - `max_per_month`: 1 to 100, counted per calendar month in UTC. Default 4; 31 for `morning-report`. An occurrence over the cap is skipped and logged.
 - `budget_class`: S, M or L for a driven entry (default S).
 - `max_tasks`: `security-alerts` only, 1 to 10 (default 3): new alerts taken per run, one task each.
+- `batch`: with a read-only `goal` only. The work can wait: the goal goes as one prompt to the provider's batch endpoint (`automation.schedules.batch`) at half the token price instead of a worker run. The prompt has no tools and does not read the checkout, so `repository` is optional; the answer comes within the provider's batch window (up to 24 hours) and is posted to `notify_url` with its cost next to what the same tokens cost run live. See [Batch lane](#batch-lane).
 - `notify_url`: an ntfy-style URL. The text goes in the body, the `Title` header carries the title. The URL can hold a secret topic, so it is never logged. Required by `morning-report`.
 
 ## Templates
@@ -68,3 +69,21 @@ The scheduler wakes every minute. An entry is due when its next occurrence after
 When a read-only run ends, its summary and findings with their cited places are POSTed, cut to 3500 characters. A driven run posts nothing; its pull request and questions are in the inbox. Without `notify_url` a read-only result stays in the run log. State is in `schedules/state.json` beside the run log.
 
 Validation errors read `automation.schedules: ...` and refuse the profile when it loads.
+
+## Batch lane
+
+Work that can wait runs on a provider batch endpoint ([ADR 0087](../adr/0087-replay-benchmark-and-calibrated-judges.md)): the entry picks the tier with `"batch": true`. Only Anthropic Message Batches (`/v1/messages/batches`) is supported. Not yet run against a real endpoint: only against a fake.
+
+```json
+"automation": { "schedules": {
+  "notify_url": "https://ntfy.example/my-topic",
+  "batch": { "base_url": "https://gateway.example", "model": "claude-haiku-model-id", "key_secret": "batch-api-key", "max_tokens": 4096 },
+  "entries": [
+    { "id": "weekly-digest", "at": "weekly mon 03:00", "goal": "Summarise ...", "batch": true }
+  ]
+} }
+```
+
+- `base_url`, `model` and `key_secret` come from the profile, never from code. Every call (submit, status, results) goes to `base_url`, so a gateway in front of the provider sees them all; a direct call to the provider happens only when `base_url` names it.
+- At the occurrence the scheduler submits the prompt; each wake after that polls the batch. While it is processing the entry's next occurrence is skipped as still going. When it ended, the answer is posted with a line like `Cost: $0.0012 at the batch rate; $0.0024 for the same tokens run live`, priced from the model's `prices` entry (unknown without one). A batch whose polls fail 30 times is dropped.
+

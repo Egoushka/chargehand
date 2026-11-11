@@ -19,6 +19,20 @@ export const RUN_STATES: readonly RunState[] = [
   'denied',
 ];
 
+/** One of a subscription's rate-limit windows: `utilization` is a fraction (0.42 is 42 %), above 1 past the cap. */
+export interface UsageWindow {
+  utilization: number;
+  resets_at?: string | null;
+}
+
+/** How much of a subscription's windows a run had used (ADR 0098); `used` is the larger window, `window` names it. */
+export interface SubscriptionUsage {
+  five_hour?: UsageWindow | null;
+  seven_day?: UsageWindow | null;
+  used?: number | null;
+  window?: 'five_hour' | 'seven_day' | null;
+}
+
 /** run-summary/v1: one row of GET /v1/runs. */
 export interface RunSummary {
   contract_version: 'run-summary/v1';
@@ -40,6 +54,10 @@ export interface RunSummary {
   tokens?: number | null;
   /** A friendly name derived from the run id, like "Brave Capybara". For people: match on run_id. */
   name?: string | null;
+  /** Who paid: `api_key` or `subscription`; absent on a run from before the record held it. */
+  credential?: 'api_key' | 'subscription' | null;
+  /** The subscription's windows as last reported while the run ran; absent without a reading. */
+  subscription_usage?: SubscriptionUsage | null;
 }
 
 export interface RunList {
@@ -123,7 +141,8 @@ export interface RunResult {
   claims?: Claim[];
   evidence?: Evidence[];
   open_questions?: string[];
-  confidence: number;
+  /** Null when the run did not complete. */
+  confidence: number | null;
   usage: {
     input: number;
     output: number;
@@ -221,8 +240,23 @@ export interface LearnGroup {
   merged_unchanged_rate: number | null;
 }
 
+/** What a repository has earned (ADR 0097), whatever `since` says. */
+export interface AutonomyEntry {
+  repository: string;
+  max_size_class: string;
+  auto_merge: boolean;
+  clean_streak: number;
+  /** What reset the streak last: `revert` or `failed_check`; null when nothing in the window. */
+  lost_to: string | null;
+  /** What the next right needs; null when auto-merge is already earned. */
+  widens: string | null;
+  narrows: string;
+}
+
 export interface LearnReport {
   since: string | null;
   tasks: number;
   groups: LearnGroup[];
+  /** Absent from a server that does not report earned autonomy. */
+  autonomy?: AutonomyEntry[];
 }

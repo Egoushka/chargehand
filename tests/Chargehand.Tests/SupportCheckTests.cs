@@ -1,7 +1,6 @@
 using Chargehand.Contracts;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
-using Chargehand.RunLog;
 using Chargehand.Verification;
 
 namespace Chargehand.Tests;
@@ -31,6 +30,48 @@ public class SupportCheckTests
         Assert.Equal(["e1", "e2"], result.Evidence.Select(e => e.Id));
         Assert.Equal(ResultStatus.Completed, result.Status);
         Assert.Equal("The summary.", result.Summary);
+    }
+
+    [Fact]
+    public void Confidence_is_the_share_of_judged_claims_the_check_found_supported()
+    {
+        var result = SupportCheck.Apply(
+            Contract(C("supported claim", "e1"), C("partial claim", "e2"), C("unsupported claim", "e3"), C("unjudged claim", "e1")),
+            [new ClaimVerdict(0, SupportVerdict.Supported, ""), new ClaimVerdict(1, SupportVerdict.Partial, ""), new ClaimVerdict(2, SupportVerdict.Unsupported, "")]);
+        Assert.Equal(0.333, result.Confidence);
+    }
+
+    [Fact]
+    public void All_claims_demoted_gives_zero_confidence_whatever_the_worker_said()
+    {
+        var result = SupportCheck.Apply(Contract(C("a", "e1"), C("b", "e2")), [new ClaimVerdict(0, SupportVerdict.Unsupported, ""), new ClaimVerdict(1, SupportVerdict.Partial, "")]);
+        Assert.Equal(0, result.Confidence);
+    }
+
+    [Fact]
+    public void Confidence_stays_the_workers_when_no_claim_was_judged()
+    {
+        Assert.Equal(0.8, SupportCheck.Apply(Contract(C("a", "e1")), []).Confidence);
+        Assert.Equal(0.8, SupportCheck.Unavailable(Contract(C("a", "e1")), "gateway down").Confidence);
+    }
+
+    [Theory]
+    [InlineData(ResultStatus.Failed)]
+    [InlineData(ResultStatus.NeedsInput)]
+    [InlineData(ResultStatus.Denied)]
+    public void A_run_that_did_not_complete_has_no_confidence(ResultStatus status)
+    {
+        var result = ResultConfidence.Final(Contract(C("a", "e1")) with { Status = status });
+        Assert.True(double.IsNaN(result.Confidence));
+        Assert.Equal(0.8, ResultConfidence.Final(Contract(C("a", "e1"))).Confidence);
+    }
+
+    [Fact]
+    public void A_null_confidence_is_written_as_null_and_is_valid_result_v1()
+    {
+        var element = System.Text.Json.JsonSerializer.SerializeToElement(ResultConfidence.Final(Contract() with { Status = ResultStatus.Failed }), ContractJson.Options);
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, element.GetProperty("confidence").ValueKind);
+        Assert.Empty(ContractSchemas.Validate("result/v1", element));
     }
 
     [Fact]

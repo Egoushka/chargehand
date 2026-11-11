@@ -18,7 +18,7 @@ public class SessionDriverTests
     private static readonly JsonSerializerOptions Snake = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
     internal static SessionTask Task(int noProgressSeconds = 60, long? maxTokens = null) =>
-        new("run1", "Add a retry to the fetch client", "chargehand/run1", MaxTurns: 80, MaxMinutes: 5, NoProgressSeconds: noProgressSeconds, MaxTokens: maxTokens);
+        new("run1", "Add a retry to the fetch client", "chargehand/run1", MaxTurns: 80, MaxMinutes: 5, NoProgressSeconds: noProgressSeconds, MaxTokens: maxTokens, QuotaWaitMinutes: 0);
 
     internal sealed class Workspace : IDisposable
     {

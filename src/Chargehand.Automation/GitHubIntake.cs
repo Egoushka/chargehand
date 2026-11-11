@@ -8,7 +8,6 @@ using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.RunLog;
 
 namespace Chargehand.Automation;
 
@@ -18,7 +17,8 @@ namespace Chargehand.Automation;
 /// <see cref="IntakeState"/> before the comment about it, so a restart cannot start a trigger twice. The watched repositories are the profile's, and with <c>discover</c> every one the App can see, each
 /// cloned into <paramref name="clones"/>; one switched off in <paramref name="sources"/> is not read.</summary>
 public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost host, IRunLog log, IRepositoryHeads heads, IntakeState state, TimeProvider? clock = null, Action<string>? warn = null,
-    IntegratorPolicy? integrator = null, IntakeSources? sources = null, ManagedClones? clones = null, Action<string>? info = null, Func<DateTimeOffset, DateTimeOffset?>? subscriptionResetsAt = null)
+    IntegratorPolicy? integrator = null, IntakeSources? sources = null, ManagedClones? clones = null, Action<string>? info = null, Func<DateTimeOffset, DateTimeOffset?>? subscriptionResetsAt = null,
+    Func<DateTimeOffset, QuotaWindow?>? quotaWindow = null, Func<string, CancellationToken, Task<DateTimeOffset?>>? poolsRoomAt = null)
 {
     public const string Preset = "driven";
 
@@ -39,13 +39,18 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private readonly Action<string> _warn = warn ?? Warned;
     private readonly Action<string> _info = info ?? Informed;
     private readonly Regex _mention = new($@"(?<!\w){Regex.Escape(settings.Mention)}(?![\w-])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+    private readonly Regex _reviewRequest = new($@"(?<!\w){Regex.Escape(settings.Mention)}[ \t]+review(?![\w-])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private readonly HashSet<string> _allowed = new(settings.AllowedAuthors ?? [], StringComparer.OrdinalIgnoreCase);
     private readonly string[] _priorityLabels = [.. settings.EffectivePriorityLabels];
     private readonly Dictionary<(string Repository, int Number), IntakePull> _pulls = [];
     private readonly CheckoutSources _checkouts = new(heads, clones, "intake", warn ?? Warned, info ?? Informed);
     private readonly PullReviews _reviews = new(settings, host, log, state, clock ?? TimeProvider.System, warn ?? Warned);
     private readonly ReviewBacklog _backlog = new(settings, host, state);
+    private readonly ScopeOverlap _overlap = new(host, state);
     private readonly IntakeBreakers _breakers = new(settings, state, clock ?? TimeProvider.System, warn ?? Warned);
+    private readonly QuotaHarvest? _harvest = settings.Harvest is { } harvest
+        ? new(harvest, state, quotaWindow ?? QuotaHarvest.Reported(TimeSpan.FromHours(harvest.WindowHours), subscriptionResetsAt ?? (_ => null)))
+        : null;
     private DateTimeOffset? _warnedPause;
 
     /// <summary>The waiting triggers this poll read again; one of a repository that was not is withdrawn.</summary>
@@ -67,19 +72,20 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private enum TriggerSource { CiFix = 0, ReviewRound = 1, Answer = 2, NewIssue = 3 }
 
     /// <summary>A trigger ready to attempt this poll, ranked for a free slot by priority label, then source, then size, then age (issue #576); lower in each ranks first. <see cref="Finish"/> runs
-    /// after the attempt with its outcome, for bookkeeping (a cursor, a seen time) a source needs once every trigger it found this poll is known.</summary>
-    private sealed record Candidate(string Key, TriggerSource Source, int PriorityRank, int SizeRank, DateTimeOffset Since, Func<CancellationToken, Task<Outcome>> Attempt, Action<Outcome> Finish);
+    /// after the attempt with its outcome, for bookkeeping (a cursor, a seen time) a source needs once every trigger it found this poll is known. <see cref="Harvest"/>: the quota harvester's work (issue #792).</summary>
+    private sealed record Candidate(string Key, TriggerSource Source, int PriorityRank, int SizeRank, DateTimeOffset Since, Func<CancellationToken, Task<Outcome>> Attempt, Action<Outcome> Finish,
+        bool Harvest = false);
 
     private static IOrderedEnumerable<Candidate> Ranked(IEnumerable<Candidate> candidates) =>
         candidates.OrderBy(c => c.PriorityRank).ThenBy(c => c.Source).ThenBy(c => c.SizeRank).ThenBy(c => c.Since);
 
     /// <summary>Attempts the candidates a repository's gather found this poll. A free slot for every one of them is attempted in the order they were found: nothing waits, so nothing is ranked
     /// against anything else. Once they outnumber the free slots, the highest-ranked go first (issue #576), so a lower one that would have slipped in first by luck of discovery order waits
-    /// instead; each is still checked for a free slot (and the other admission rules) at the moment it is tried.</summary>
+    /// instead; each is still checked for a free slot (and the other admission rules) at the moment it is tried. Harvest work is always ranked, so the day's harvested starts go to <c>size:S</c> first.</summary>
     private async Task AttemptAsync(List<Candidate> candidates, CancellationToken ct)
     {
         var freeSlots = MaxConcurrent - state.Tasks.Count(t => t.Phase == IntakePhase.Running);
-        var ordered = candidates.Count > Math.Max(freeSlots, 0) ? (IEnumerable<Candidate>)Ranked(candidates) : candidates;
+        var ordered = candidates.Count > Math.Max(freeSlots, 0) || candidates.Any(c => c.Harvest) ? (IEnumerable<Candidate>)Ranked(candidates) : candidates;
         foreach (var candidate in ordered)
             candidate.Finish(await candidate.Attempt(ct));
     }
@@ -102,7 +108,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
 
     /// <summary>A candidate ranked from an issue's labels: a label trigger or a comment that mentions the bot on a new issue.</summary>
     private Candidate NewIssueCandidate(string key, IReadOnlyList<string> labels, Func<CancellationToken, Task<Outcome>> attempt, Action<Outcome> finish) =>
-        new(key, TriggerSource.NewIssue, PriorityRankOf(labels), SizeRankOf(labels), WaitingSince(key), attempt, finish);
+        new(key, TriggerSource.NewIssue, PriorityRankOf(labels), SizeRankOf(labels), WaitingSince(key), attempt, finish, _harvest?.Marks(labels) == true);
 
     /// <summary>A candidate with no issue labels to rank by (an answer, a review round): ranked last on priority and size, ahead only of a lower-ranked source.</summary>
     private Candidate DefaultCandidate(string key, TriggerSource source, DateTimeOffset since, Func<CancellationToken, Task<Outcome>> attempt, Action<Outcome> finish) =>
@@ -168,6 +174,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         _pulls.Clear();
         _stillWaiting.Clear();
         _backlog.NewPoll();
+        _overlap.NewPoll();
         await ReportEndedAsync(ct);
         await _reviews.ReportEndedAsync(ct);
         _watched = await WatchAsync(ct);
@@ -191,8 +198,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                 await AttemptAsync(candidates, ct);
                 state.Save(_time.GetUtcNow());
                 await LostAsync(name, repository, starter, ct);
-                if (settings.ReviewPulls)
-                    await _reviews.StartAsync(name, repository, _checkouts, starter, Sources, ct);
+                if (settings.ReviewPulls || _reviews.HasRequests(name))
+                    await _reviews.StartAsync(name, repository, _checkouts, starter, Sources, settings.ReviewPulls, ct);
                 Withdraw(name);
             }
             catch (IntakeException e)
@@ -337,7 +344,12 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         if (issue.IsPullRequest)
         {
             state.Handled.Add(key);
-            if (MaxReviewRounds > 0)
+            if (_reviewRequest.IsMatch(QuotedLines().Replace(comment.Body, "")))
+            {
+                _reviews.Request(name, issue.Number);
+                Log(key, "queued", "review_requested", comment.Author);
+            }
+            else if (MaxReviewRounds > 0)
                 await QueueAsync(key, new PendingReview($"c{comment.Id.ToString(CultureInfo.InvariantCulture)}", name, issue.Number, comment.Author, comment.Body, null, null, comment.UpdatedAt), true, ct);
             else
                 Log(key, "ignored", "review_rounds_off", comment.Author);
@@ -369,8 +381,16 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             return tripped;
         if (await BacklogAsync(key, name, issue.Number, ct) is { } backlog)
             return backlog;
+        var scope = ScopeOverlap.Declared(goal ?? $"{issue.Body}\n{comment}");
+        if (await OverlapAsync(key, name, issue.Number, scope, ct) is { } overlapping)
+            return overlapping;
         if (await SubscriptionAsync(key, name, issue.Number, ct) is { } limited)
             return limited;
+        var harvested = _harvest?.Marks(issue.Labels) == true;
+        if (harvested && await HarvestAsync(key, name, issue.Number, ct) is { } harvest)
+            return harvest;
+        if (await PoolsAsync(key, name, issue.Number, repository.Path, ct) is { } broke)
+            return broke;
         if (await SlotAsync(key, name, issue.Number, ct) is { } held)
             return held;
         RepositoryRef source;
@@ -389,7 +409,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var size = IntakeGoal.SizeOf(issue.Labels) ?? settings.BudgetClass;
         var taskId = TaskId(issue.Number);
         goal ??= IntakeGoal.Issue(name, issue, comment, commentAuthor);
-        return await LaunchAsync(key, name, issue.Number, source, new DrivenTask(taskId, Goal: goal, Size: size), run => new IntakeTask(name, issue.Number, run, taskId, _time.GetUtcNow(), size, Trigger: key),
+        return await LaunchAsync(key, name, issue.Number, source, new DrivenTask(taskId, Goal: goal, Size: size), run => new IntakeTask(name, issue.Number, run, taskId, _time.GetUtcNow(), size, Trigger: key, Scope: scope.Count == 0 ? null : scope,
+            Harvested: harvested),
             starter, run => $"chargehand started run `{run}` (task `{taskId}`). It works on its own branch and opens a draft pull request when it is done, or asks here if it needs an answer.", null, null, ct);
     }
 
@@ -408,7 +429,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         }
         var taskId = TaskId(earlier.Issue);
         var task = new DrivenTask(taskId, Size: earlier.Size, Answers: [IntakeGoal.Answer(reply.Body)], ContinueFrom: new ContinueFrom(earlier.BatchRunId, earlier.TaskId));
-        return await LaunchAsync(key, name, earlier.Issue, repository, task, run => earlier with { BatchRunId = run, TaskId = taskId, Started = _time.GetUtcNow(), Phase = IntakePhase.Running, AskedCommentId = null, PrUrl = null, Trigger = null },
+        return await LaunchAsync(key, name, earlier.Issue, repository, task, run => earlier with { BatchRunId = run, TaskId = taskId, Started = _time.GetUtcNow(), Phase = IntakePhase.Running, AskedCommentId = null, PrUrl = null, Trigger = null, Harvested = false },
             starter, run => $"chargehand continues with your answer: run `{run}` (task `{taskId}`), on the same branch.", earlier, null, ct);
     }
 
@@ -447,6 +468,17 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         return Outcome.Deferred;
     }
 
+    /// <summary>Waits while the issue's declared scope overlaps an open chargehand pull request or a running task (issue #737): null when the batch may start, or the issue declares no scope.</summary>
+    private async Task<Outcome?> OverlapAsync(string key, string name, int issue, IReadOnlyList<string> scope, CancellationToken ct)
+    {
+        if (await _overlap.HoldAsync(name, issue, scope, ct) is not { } why)
+            return null;
+        _info($"intake: {key}: waiting: overlap: {why}");
+        Wait(key, name, issue, "overlap", why);
+        await NotifyOnceAsync($"overlap:{key}", name, issue, $"chargehand is waiting: {why}. This starts when that pull request is merged or closed, or that task ends.", ct);
+        return Outcome.Deferred;
+    }
+
     /// <summary>A task of a running batch reported a rate limit that has not reset (ADR 0084): the start is warned about in the server log, once per pause, and goes on; with <c>subscription_block</c> it waits. Null when it may start.</summary>
     private async Task<Outcome?> SubscriptionAsync(string key, string name, int issue, CancellationToken ct)
     {
@@ -466,6 +498,29 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         _info($"intake: {key}: waiting: subscription: {why}");
         Wait(key, name, issue, "subscription", why);
         await NotifyOnceAsync($"subscription:{key}", name, issue, $"chargehand is waiting: {why}. This starts after it resets.", ct);
+        return Outcome.Deferred;
+    }
+
+    /// <summary>Waits until the subscription window is about to reset with quota left, and while the day's harvested starts are used up (issue #792): null when the harvest work may start.</summary>
+    private async Task<Outcome?> HarvestAsync(string key, string name, int issue, CancellationToken ct)
+    {
+        if (_harvest!.Hold(_time.GetUtcNow()) is not { } why)
+            return null;
+        _info($"intake: {key}: waiting: harvest: {why}");
+        Wait(key, name, issue, "harvest", why);
+        await NotifyOnceAsync($"harvest:{key}", name, issue, $"chargehand is waiting: this issue runs on subscription quota that would otherwise expire unused, so it starts near the end of a window ({why}).", ct);
+        return Outcome.Deferred;
+    }
+
+    /// <summary>Waits while the budget router has no pool with room for a batch (ADR 0095): the start is queued, not failed, and a later poll starts it. Null when it may start or the router is off.</summary>
+    private async Task<Outcome?> PoolsAsync(string key, string name, int issue, string repositoryPath, CancellationToken ct)
+    {
+        if (poolsRoomAt is null || await poolsRoomAt(repositoryPath, ct) is not { } until)
+            return null;
+        var why = $"no budget pool has room until {until.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)}";
+        _info($"intake: {key}: waiting: pools: {why}");
+        Wait(key, name, issue, "pools", why);
+        await NotifyOnceAsync($"pools:{key}", name, issue, $"chargehand is waiting: {why}. This starts once a pool has room.", ct);
         return Outcome.Deferred;
     }
 

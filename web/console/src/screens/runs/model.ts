@@ -1,4 +1,60 @@
-import type { RunFilter, RunState, RunSummary } from '../../api/types';
+import type {
+  RunFilter,
+  RunState,
+  RunSummary,
+  SubscriptionUsage,
+  UsageWindow,
+} from '../../api/types';
+
+const WINDOW_NAMES: Record<string, string> = { five_hour: '5h', seven_day: '7d' };
+
+/** The larger of a run's subscription windows as "42% 7d"; a share past 100% means the usage ran past the window's cap. Null: no reading. */
+export function usageLabel(usage: SubscriptionUsage | null | undefined): string | null {
+  if (usage?.used == null) return null;
+  return `${Math.round(usage.used * 100)}% ${WINDOW_NAMES[usage.window ?? ''] ?? ''}`.trim();
+}
+
+/** The most recently finished run that carries a subscription reading: where the account stands in its windows. */
+export function latestUsage(runs: RunSummary[]): RunSummary | null {
+  let best: RunSummary | null = null;
+  for (const r of runs) {
+    if (!r.subscription_usage || !r.finished_at) continue;
+    if (!best || Date.parse(r.finished_at) > Date.parse(best.finished_at ?? '')) best = r;
+  }
+  return best;
+}
+
+export interface WindowReading {
+  /** The short name: `5h` or `7d`. */
+  name: string;
+  /** Whole percent of the window used; past 100 means over the cap. */
+  percent: number;
+  resetsAt?: string;
+}
+
+/** The windows a reading holds, five-hour first. */
+export function usageWindows(usage: SubscriptionUsage | null | undefined): WindowReading[] {
+  const reading = (name: string, w: UsageWindow | null | undefined): WindowReading[] =>
+    w
+      ? [
+          {
+            name,
+            percent: Math.round(w.utilization * 100),
+            ...(w.resets_at ? { resetsAt: w.resets_at } : {}),
+          },
+        ]
+      : [];
+  return [...reading('5h', usage?.five_hour), ...reading('7d', usage?.seven_day)];
+}
+
+/** The tooltip of a run's window cell: both windows and when each resets. */
+export function windowTitle(run: RunSummary): string | undefined {
+  return (
+    usageWindows(run.subscription_usage)
+      .map((w) => `${w.name} ${w.percent}%${w.resetsAt ? ` (resets ${w.resetsAt})` : ''}`)
+      .join(' · ') || undefined
+  );
+}
 
 export type StateFilter = 'all' | 'running' | 'attention' | 'done' | 'failed' | 'cancelled';
 export type KindFilter = 'all' | 'batch' | 'single';

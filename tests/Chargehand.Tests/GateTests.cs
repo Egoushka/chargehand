@@ -3,7 +3,6 @@ using Chargehand.Contracts;
 using Chargehand.Evals;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.RunLog;
 
 namespace Chargehand.Tests;
 

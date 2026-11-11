@@ -119,7 +119,8 @@
       "subscription_block": false,
       "max_starts_per_hour": 30,
       "breaker_cooldown_minutes": 120,
-      "priority_labels": null
+      "priority_labels": null,
+      "harvest": null
     },
     "schedules": null,
     "account": null,
@@ -130,6 +131,9 @@
   "acp": null,
   "inbox": null,
   "public_free": null,
+  "skip_structured_intake": false,
+  "peer_clone": null,
+  "pools": null,
   "roots": [
     "/var/tmp/chargehand/work"
   ],

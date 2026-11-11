@@ -393,4 +393,18 @@ public sealed class ConversationServiceTests : IAsyncLifetime
         Assert.Empty(new ConversationSettings().Problems());
         Assert.Equal(["runtime must be one of fake, acp", "max_messages must be 1 to 10000"], new ConversationSettings(" ", 0).Problems());
     }
+
+    [Fact]
+    public async Task The_list_is_newest_first_and_an_account_sees_its_own_only()
+    {
+        var service = Service();
+        var alice = People.Account("alice");
+        var first = await Started(service, alice);
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        var second = await Started(service, alice);
+        await Started(service, People.Account("bob"));
+
+        Assert.Equal([second.Id, first.Id], service.List(alice).Select(c => c.Id));
+        Assert.Equal(3, service.List(Principal.Owner).Count);
+    }
 }

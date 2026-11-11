@@ -10,6 +10,7 @@ POST /v1/batches/{id}/tasks/{task}/cancel
 POST /v1/batches/{id}/tasks/{task}/retry
 POST /v1/batches/{id}/tasks/{task}/session/stop
 GET /v1/batches/{id}/tasks/{task}/sessions/{session}/transcript
+GET /v1/conversations/
 POST /v1/conversations/
 DELETE /v1/conversations/{id}
 GET /v1/conversations/{id}
@@ -32,6 +33,7 @@ POST /v1/intake/reviews/exclude
 POST /v1/intake/reviews/include
 GET /v1/intake/limits
 PUT /v1/intake/limits
+POST /v1/intake/rank
 GET /v1/intake/sources
 PUT /v1/intake/sources
 GET /v1/learn
@@ -45,10 +47,12 @@ POST /v1/mcp/
 GET /v1/overview
 GET /v1/pulls
 POST /v1/pulls/{owner}/{repo}/{number:int}/checks/rerun
+POST /v1/pulls/{owner}/{repo}/{number:int}/merge
 GET /v1/pulls/conflicts
 GET /v1/pulls/train
 GET /v1/repositories
 POST /v1/resume
+GET /v1/router
 GET /v1/runs
 POST /v1/runs
 GET /v1/runs/{id}

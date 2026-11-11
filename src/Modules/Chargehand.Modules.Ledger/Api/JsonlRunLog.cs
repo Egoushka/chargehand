@@ -89,12 +89,15 @@ public sealed class JsonlRunLog(string path, Action<string>? warn = null) : IRun
     }
 
     /// <summary>The run-summary/v1 row of a run: from its start record and, once it finished, its run record.</summary>
-    public static RunSummary SummaryOf(StartRecord start, RunRecord? run) =>
+    public static RunSummary SummaryOf(StartRecord start, RunRecord? run) => Paid(
         new("run-summary/v1", start.RunId, run is not null ? RunStatus.StateOf(run.Result.Status) : start.OwnerAlive() ? RunState.Running : RunState.Lost, run?.Preset ?? start.Request.Context.Preset,
             start.Started, start.ParentRunId, null, run?.Finished, run?.Result.Usage.Usd, ArtifactField(run?.Result, "branch", "branch"), ArtifactField(run?.Result, "pull-request", "url"),
             run?.Result.Error?.Code, start.Actor, start.Request.Driven is null ? "single" : "batch", start.Request.Context.Repository?.Path,
             run is null ? null : run.Result.Usage.Input + run.Result.Usage.Output, start.Request.Context.Repository?.Commit)
-        { Name = RunNames.Of(start.RunId) };
+        { Name = RunNames.Of(start.RunId) }, run);
+
+    /// <summary>The row with who paid for the run and how much of the subscription's windows it had used (ADR 0082, 0098): only a finished run's record holds them.</summary>
+    private static RunSummary Paid(RunSummary row, RunRecord? run) => row with { Credential = run?.Credential, SubscriptionUsage = run?.SubscriptionUsage };
 
     public async Task<ActorSpend> SpendAsync(string actor, DateTimeOffset since, CancellationToken ct)
     {

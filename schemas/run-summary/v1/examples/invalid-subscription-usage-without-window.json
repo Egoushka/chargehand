@@ -1,0 +1,2 @@
+{ "contract_version": "run-summary/v1", "run_id": "r", "preset": "default", "status": "completed", "started_at": "2026-09-30T12:05:00Z",
+  "credential": "subscription", "subscription_usage": { "used": 0.4, "five_hour": { "utilization": 0.4 } } }

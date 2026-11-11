@@ -7,7 +7,6 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Server;
 using ModelContextProtocol.Client;
@@ -15,6 +14,7 @@ using ModelContextProtocol.Protocol;
 
 namespace Chargehand.Tests;
 
+// agent-checks: allow deleted-tests, deleted-assertions -- the pure unit tests moved to tests/Chargehand.Modules.Accounts.Tests/AccountsCliTests.cs with the code
 /// <summary>Accounts and named keys (ADR 0050): which key is whom, what each sees, what each may spend, and the actor on every record.</summary>
 public class AccountsTests
 {
@@ -556,44 +556,6 @@ public class AccountsTests
 
         Assert.Equal(1.25m + 0.75m + 4m + 0.5m + 0.2m, spend.Usd);
         Assert.Equal(100 + 40 + 1000 + 10 + 100, spend.Tokens);
-    }
-
-    [Fact]
-    public void The_accounts_commands_add_list_and_revoke_without_ever_listing_a_key()
-    {
-        using var dir = new TempDir();
-        var keys = System.IO.Path.Combine(dir.Path, "accounts.json");
-        var profile = new Profile("profile/v1", Http: new HttpSettings("api", Accounts: [Account("alice", usdDay: 5m, driven: true)]));
-        int Run(out string stdout, out string stderr, params string[] args)
-        {
-            using var output = new StringWriter();
-            using var error = new StringWriter();
-            var code = AccountsCli.Run(args, profile, keys, output, error);
-            (stdout, stderr) = (output.ToString(), error.ToString());
-            return code;
-        }
-
-        Assert.Equal(2, Run(out _, out var unknown, "add", "mallory"));
-        Assert.Contains("alice", unknown, StringComparison.Ordinal);
-        Assert.Equal(2, Run(out _, out _, "add", "owner"));
-        Assert.Equal(0, Run(out var key, out var notice, "add", "alice", "--label", "laptop"));
-        Assert.Matches(@"^chk1\.[0-9a-f]{16}\.[A-Za-z0-9_-]{43}\r?\n$", key);
-        var id = key.Split('.')[1];
-        Assert.Contains(id, notice, StringComparison.Ordinal);
-
-        Assert.Equal(0, Run(out var list, out _, "list"));
-        Assert.DoesNotContain(key.Trim().Split('.')[2], list, StringComparison.Ordinal);
-        Assert.Contains($"{id}", list, StringComparison.Ordinal);
-        Assert.Contains("laptop", list, StringComparison.Ordinal);
-        Assert.Contains("usd/day 5", list, StringComparison.Ordinal);
-        Assert.Contains("server's model key", list, StringComparison.Ordinal);
-        Assert.Contains("active", list, StringComparison.Ordinal);
-
-        Assert.Equal(0, Run(out _, out _, "revoke", id));
-        Assert.Equal(1, Run(out _, out _, "revoke", id));
-        Run(out var again, out _, "list");
-        Assert.Contains("revoked", again, StringComparison.Ordinal);
-        Assert.Equal(2, Run(out _, out _, "bogus"));
     }
 
     [Fact]

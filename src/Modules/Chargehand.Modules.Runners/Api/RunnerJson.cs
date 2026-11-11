@@ -61,6 +61,9 @@ internal sealed record LogsReply(string Logs);
 
 internal sealed record CountReply(int Count);
 
+/// <summary>The reply of <c>GET /images</c>: the session images the runner starts (<see cref="RunnerPolicy.Images"/>).</summary>
+public sealed record RunnerImages(List<string> Images);
+
 /// <summary>The body of a call that carries no fields: <c>{}</c>.</summary>
 internal sealed record RunnerEmpty;
 
@@ -82,5 +85,6 @@ internal sealed record RunnerEmpty;
 [JsonSerializable(typeof(IdReply))]
 [JsonSerializable(typeof(LogsReply))]
 [JsonSerializable(typeof(CountReply))]
+[JsonSerializable(typeof(RunnerImages))]
 [JsonSerializable(typeof(RunnerEmpty))]
 internal sealed partial class RunnerJsonContext : JsonSerializerContext;

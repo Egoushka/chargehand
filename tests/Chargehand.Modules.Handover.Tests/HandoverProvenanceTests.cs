@@ -79,4 +79,66 @@ public class HandoverProvenanceTests
 
         Assert.Equal(made, outcome.Commit);
     }
+
+    [Fact]
+    public void The_commit_identity_is_the_App_bots_noreply_address_derived_from_the_integrator()
+    {
+        var app = new DrivenIntegrator(AppId: 123456, PrivateKeySecret: "app-key", AppSlug: "chargehand-bot", BotUserId: 98765);
+
+        Assert.Equal(new CommitIdentity("chargehand-bot[bot]", "98765+chargehand-bot[bot]@users.noreply.github.com"), app.BotIdentity());
+        Assert.Null((app with { AppSlug = null, BotUserId = null }).BotIdentity());
+        Assert.Null(new DrivenIntegrator(AppSlug: "chargehand-bot", BotUserId: 98765).BotIdentity());
+    }
+
+    [Fact]
+    public void A_slug_without_a_bot_user_id_is_refused()
+    {
+        var e = Assert.ThrowsAny<Exception>(() => new DrivenIntegrator(AppId: 1, PrivateKeySecret: "k", AppSlug: "chargehand-bot").Validate());
+        Assert.Contains("bot_user_id", e.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_bad_slug_is_refused_even_without_the_App()
+    {
+        var e = Assert.ThrowsAny<Exception>(() => new DrivenIntegrator(AppSlug: "Not A Slug", BotUserId: 5).Validate());
+        Assert.Contains("app_slug", e.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task With_the_App_configured_the_pushed_commits_are_by_its_bot_and_keep_their_dates()
+    {
+        using var f = new HandoverTests.Fixture(thenEdit: dir => File.WriteAllText(Path.Combine(dir, "more.txt"), "more\n"));
+        var identity = new DrivenIntegrator(AppId: 123456, PrivateKeySecret: "app-key", AppSlug: "chargehand-bot", BotUserId: 98765).BotIdentity();
+        var before = Git(f.Work, "log", "--format=%T %aI %cI", $"{f.BaseCommit}..chargehand/run1");
+
+        var outcome = await new Handover(new HandoverTests.FakeVerifier(), new HandoverTests.FakePullRequests()).RunAsync(f.Input(with: i => i with { Provenance = Run, Identity = identity }), default);
+
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        Assert.Equal(before, Git(f.Remote, "log", "--format=%T %aI %cI", $"{f.BaseCommit}..chargehand/run1"));
+        var people = Git(f.Remote, "log", "--format=%an <%ae>|%cn <%ce>", $"{f.BaseCommit}..chargehand/run1").Split('\n');
+        Assert.Equal(Enumerable.Repeat("chargehand-bot[bot] <98765+chargehand-bot[bot]@users.noreply.github.com>|chargehand-bot[bot] <98765+chargehand-bot[bot]@users.noreply.github.com>", 2), people);
+    }
+
+    [Fact]
+    public async Task Without_the_App_the_commits_keep_the_sessions_identity()
+    {
+        using var f = new HandoverTests.Fixture();
+
+        await new Handover(new HandoverTests.FakeVerifier(), new HandoverTests.FakePullRequests()).RunAsync(f.Input(with: i => i with { Provenance = Run }), default);
+
+        Assert.Equal("chargehand <chargehand@localhost>", Git(f.Remote, "log", "-1", "--format=%an <%ae>", "chargehand/run1"));
+    }
+
+    [Fact]
+    public async Task A_repeated_handover_with_the_App_makes_the_same_commits()
+    {
+        using var f = new HandoverTests.Fixture();
+        var input = f.Input(with: i => i with { Provenance = Run, Identity = new CommitIdentity("chargehand-bot[bot]", "98765+chargehand-bot[bot]@users.noreply.github.com") });
+
+        var first = await new Handover(new HandoverTests.FakeVerifier(), new HandoverTests.FakePullRequests()).RunAsync(input, default);
+        var second = await new Handover(new HandoverTests.FakeVerifier(), new HandoverTests.FakePullRequests()).RunAsync(input, default);
+
+        Assert.Equal(HandoverStatus.Pushed, second.Status);
+        Assert.Equal(first.Commit, second.Commit);
+    }
 }

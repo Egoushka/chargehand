@@ -1,13 +1,13 @@
 {
   "name": "chargehand",
   "displayName": "chargehand",
-  "version": "0.19.14",
+  "version": "0.19.20",
   "description": "Two commands: change (one prompt to a reviewed change on a local branch) and run (hand a prompt to a driven session and watch it).",
   "author": {
     "name": "Egoushka"
   },
   "repository": "https://github.com/Egoushka/chargehand",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
   "keywords": [
     "review",
     "citations",

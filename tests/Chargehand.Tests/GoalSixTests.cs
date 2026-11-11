@@ -5,7 +5,7 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Mcp;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.RunLog;
+using Chargehand.Modules.Memory.Api;
 using ModelContextProtocol.Client;
 using static Chargehand.Tests.McpMemoryProviderTests;
 using static Chargehand.Tests.MemoryConfigTests;
@@ -97,7 +97,7 @@ public class GoalSixTests
         var runtime = new ScriptedRuntime(TwoClaims);
         var log = new JsonlRunLog(Path.Combine(root.Path, "log.jsonl"));
 
-        var result = await new Orchestrator(profile, runtime, "2.0.16", presets.Path, log, new Dictionary<string, int>(), MemoryStacks.From(profile, pool), new ServiceResolver(pool))
+        var result = await new Orchestrator(profile, runtime, "2.0.16", presets.Path, log, new Dictionary<string, int>(), MemoryStacks.From(profile.Memory, pool), new ServiceResolver(pool))
             .RunAsync(Request(repo), CancellationToken.None);
 
         Assert.Equal(ResultStatus.Completed, result.Status);
@@ -150,7 +150,7 @@ public class GoalSixTests
         var runtime = new ScriptedRuntime(TwoClaims);
         var log = new JsonlRunLog(Path.Combine(root.Path, "log.jsonl"));
 
-        var result = await new Orchestrator(profile, runtime, "2.0.16", presets.Path, log, new Dictionary<string, int>(), MemoryStacks.From(profile, pool))
+        var result = await new Orchestrator(profile, runtime, "2.0.16", presets.Path, log, new Dictionary<string, int>(), MemoryStacks.From(profile.Memory, pool))
             .RunAsync(Request(repo), CancellationToken.None);
 
         Assert.Equal(ResultStatus.Completed, result.Status);

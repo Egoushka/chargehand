@@ -289,27 +289,27 @@ describe('KeyValue', () => {
   });
 });
 
-describe('Tabs and Segmented', () => {
-  function Harness() {
-    const [value, setValue] = useState('tasks');
-    return (
-      <Tabs
-        value={value}
-        onValueChange={setValue}
-        label="Batch"
-        items={[
-          { id: 'tasks', label: 'Tasks', count: 10 },
-          { id: 'events', label: 'Events' },
-        ]}
-      >
-        <TabPanel value="tasks">task list</TabPanel>
-        <TabPanel value="events">event stream</TabPanel>
-      </Tabs>
-    );
-  }
+function TabsHarness() {
+  const [value, setValue] = useState('tasks');
+  return (
+    <Tabs
+      value={value}
+      onValueChange={setValue}
+      label="Batch"
+      items={[
+        { id: 'tasks', label: 'Tasks', count: 10 },
+        { id: 'events', label: 'Events' },
+      ]}
+    >
+      <TabPanel value="tasks">task list</TabPanel>
+      <TabPanel value="events">event stream</TabPanel>
+    </Tabs>
+  );
+}
 
+describe('Tabs and Segmented', () => {
   it('is a tablist: the selected tab is marked, its panel shows, and a count sits in the tab', () => {
-    render(<Harness />);
+    render(<TabsHarness />);
     expect(screen.getByRole('tablist', { name: 'Batch' }).className).toContain('ch-tabs');
     expect(screen.getByRole('tab', { name: /Tasks/ }).getAttribute('aria-selected')).toBe('true');
     expect(within(screen.getByRole('tab', { name: /Tasks/ })).getByText('10').className).toBe(
@@ -320,7 +320,7 @@ describe('Tabs and Segmented', () => {
   });
 
   it('changes tab with the keyboard', () => {
-    render(<Harness />);
+    render(<TabsHarness />);
     const tasks = screen.getByRole('tab', { name: /Tasks/ });
     tasks.focus();
     fireEvent.keyDown(tasks, { key: 'ArrowRight' });

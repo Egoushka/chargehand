@@ -7,7 +7,8 @@ namespace Chargehand.Modules.Intake.Api;
 /// <summary>ADR 0068: recurring work on a schedule, within a monthly cap. Unset, nothing runs on a clock.</summary>
 /// <param name="Entries">What runs and when.</param>
 /// <param name="NotifyUrl">An ntfy-style URL: the result of a read-only entry and the morning report are POSTed to it as plain text with a <c>Title</c> header. Required by <c>morning-report</c>; the URL can carry a secret topic, so it is never logged.</param>
-public sealed partial record AutomationSchedules(IReadOnlyList<ScheduleEntry>? Entries = null, string? NotifyUrl = null)
+/// <param name="Batch">The provider batch endpoint entries with <c>batch</c> run on (ADR 0087); null: no entry may set <c>batch</c>.</param>
+public sealed partial record AutomationSchedules(IReadOnlyList<ScheduleEntry>? Entries = null, string? NotifyUrl = null, ScheduleBatchLane? Batch = null)
 {
     public const int MaxGoal = 4000;
 
@@ -22,12 +23,15 @@ public sealed partial record AutomationSchedules(IReadOnlyList<ScheduleEntry>? E
     {
         if (NotifyUrl is not null && !(Uri.TryCreate(NotifyUrl, UriKind.Absolute, out var url) && url.Scheme is "http" or "https"))
             yield return "notify_url must be an http or https URL";
+        if (Batch is not null)
+            foreach (var problem in Batch.Problems())
+                yield return problem;
         if (Entries is not { Count: > 0 })
             yield return "entries must list at least one schedule";
         foreach (var duplicate in (Entries ?? []).GroupBy(e => e?.Id).Where(g => g.Count() > 1))
             yield return $"id '{duplicate.Key}' is used more than once";
         foreach (var entry in Entries ?? [])
-            foreach (var problem in entry is null ? ["an entry is empty"] : entry.Problems(drivenEnabled, NotifyUrl is not null))
+            foreach (var problem in entry is null ? ["an entry is empty"] : entry.Problems(drivenEnabled, NotifyUrl is not null, Batch is not null))
                 yield return problem;
     }
 
@@ -47,8 +51,10 @@ public sealed partial record AutomationSchedules(IReadOnlyList<ScheduleEntry>? E
 /// <param name="MaxPerMonth">Starts per calendar month (UTC), 1 to 100. Default 4; 31 for <c>morning-report</c>. An occurrence over it is skipped and logged.</param>
 /// <param name="BudgetClass">S, M or L for a driven entry (default S): the governor's budget (ADR 0045).</param>
 /// <param name="MaxTasks">With <c>security-alerts</c> only: new alerts taken per run, 1 to 10 (default 3). Each is one task of the run's batch.</param>
+/// <param name="Batch">With a read-only <paramref name="Goal"/> only: the work can wait, so the goal is one prompt sent to the provider's batch endpoint (<see cref="AutomationSchedules.Batch"/>) at the batch rate
+/// instead of a worker run. The prompt has no tools and does not read the checkout; the answer comes within the provider's batch window (up to 24 hours).</param>
 public sealed record ScheduleEntry(string Id, string At, string? Template = null, string? Goal = null, bool Driven = false, AutomationRepository? Repository = null, int? MaxPerMonth = null,
-    string? BudgetClass = null, int? MaxTasks = null)
+    string? BudgetClass = null, int? MaxTasks = null, bool Batch = false)
 {
     public const int DefaultMaxPerMonth = 4;
     public const int ReportMaxPerMonth = 31;
@@ -69,7 +75,8 @@ public sealed record ScheduleEntry(string Id, string At, string? Template = null
 
     public ScheduleAt Schedule() => ScheduleAt.TryParse(At, out var at, out _) ? at : default;
 
-    internal IEnumerable<string> Problems(bool drivenEnabled, bool hasNotifyUrl) => [.. WhatProblems(), .. LimitProblems(), .. KindProblems(drivenEnabled, hasNotifyUrl)];
+    internal IEnumerable<string> Problems(bool drivenEnabled, bool hasNotifyUrl, bool hasBatchLane = false) =>
+        [.. WhatProblems(), .. LimitProblems(), .. KindProblems(drivenEnabled, hasNotifyUrl), .. BatchProblems(hasBatchLane)];
 
     private string Name => $"schedule '{Id}'";
 
@@ -96,6 +103,34 @@ public sealed record ScheduleEntry(string Id, string At, string? Template = null
         var kind = Kind();
         if (kind == ScheduleKind.Driven && !drivenEnabled) yield return $"{Name}: a driven entry needs driven.enabled";
         if (kind == ScheduleKind.Report && !hasNotifyUrl) yield return $"{Name}: morning-report needs notify_url";
-        if (kind != ScheduleKind.Report && string.IsNullOrWhiteSpace(Repository?.Path)) yield return $"{Name}: repository.path must be the server's checkout of the repository";
+        if (kind != ScheduleKind.Report && !Batch && string.IsNullOrWhiteSpace(Repository?.Path)) yield return $"{Name}: repository.path must be the server's checkout of the repository";
+    }
+
+    private IEnumerable<string> BatchProblems(bool hasBatchLane)
+    {
+        if (!Batch) yield break;
+        if (Goal is null || Driven) yield return $"{Name}: batch applies to a read-only goal; a batch request has no tools and cannot run a driven session";
+        if (!hasBatchLane) yield return $"{Name}: batch needs automation.schedules.batch";
+    }
+}
+
+/// <summary>A provider's message batch endpoint (Anthropic Message Batches): half the token price, an answer within 24 hours (ADR 0087). Everything comes from the profile, never from code:
+/// a direct call to the provider happens only when <paramref name="BaseUrl"/> names it.</summary>
+/// <param name="BaseUrl">The gateway or provider root that serves <c>/v1/messages/batches</c>.</param>
+/// <param name="Model">The model id the endpoint takes, and the key of its <c>prices</c> entry.</param>
+/// <param name="KeySecret">The secret-store item of the API key.</param>
+/// <param name="MaxTokens">The answer's output token limit, 1 to 64000 (default 4096).</param>
+public sealed record ScheduleBatchLane(string BaseUrl, string Model, string KeySecret, int? MaxTokens = null)
+{
+    public const int DefaultMaxTokens = 4096;
+
+    public int Tokens() => MaxTokens ?? DefaultMaxTokens;
+
+    internal IEnumerable<string> Problems()
+    {
+        if (!(Uri.TryCreate(BaseUrl, UriKind.Absolute, out var url) && url.Scheme is "http" or "https")) yield return "batch.base_url must be an http or https URL";
+        if (string.IsNullOrWhiteSpace(Model)) yield return "batch.model must name the model";
+        if (string.IsNullOrWhiteSpace(KeySecret)) yield return "batch.key_secret must name the secret-store item of the key";
+        if (MaxTokens is < 1 or > 64000) yield return "batch.max_tokens must be 1 to 64000";
     }
 }

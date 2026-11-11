@@ -56,10 +56,11 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
 /// A repository in <paramref name="Repositories"/> keeps its own checkout.</param>
 /// <param name="PriorityLabels">Label names that set a waiting trigger's place in the queue, highest first (default <c>priority:high</c>, <c>priority:low</c>; issue #576). An issue with exactly one of
 /// these labels waits ahead of one with a label later in the list, or none; one with more than one of them is not ranked by it, the same as having none. Checked before source, size and age.</param>
+/// <param name="Harvest">The quota harvester (issue #792): issues with its label wait for the end of a subscription window that still has quota left; null: off, and they start like any other.</param>
 public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, AutomationRepository>? Repositories = null, IReadOnlyList<string>? AllowedAuthors = null, string Label = "chargehand",
     string Mention = "@chargehand", int PollSeconds = 120, string BudgetClass = "M", long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int? MaxStartsPerDay = null, int MaxReviewRounds = 3,
     bool ReviewPulls = false, int? MaxReviewsPerDay = null, bool Discover = false, int MaxReviewBacklog = 3, bool SubscriptionBlock = false, int MaxStartsPerHour = 30, int BreakerCooldownMinutes = 120,
-    IReadOnlyList<string>? PriorityLabels = null)
+    IReadOnlyList<string>? PriorityLabels = null, AutomationHarvest? Harvest = null)
 {
     /// <summary>Where discovered repositories are cloned, under <c>worker_root</c>.</summary>
     public const string ClonesDirectory = "repos";
@@ -74,7 +75,7 @@ public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, Automa
 
     internal void Validate(bool drivenEnabled, DrivenIntegrator? integrator)
     {
-        List<string> problems = [.. SourceProblems(drivenEnabled, integrator), .. TriggerProblems(), .. LimitProblems()];
+        List<string> problems = [.. SourceProblems(drivenEnabled, integrator), .. TriggerProblems(), .. HarvestProblems(), .. LimitProblems()];
         if (problems.Count > 0)
             throw new ChargehandException(ErrorCode.InvalidRequest, $"automation.github: {string.Join("; ", problems)}", "Fix automation.github in the profile; docs/guide/intake.md lists the keys.");
     }
@@ -108,6 +109,17 @@ public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, Automa
             yield return "priority_labels must not repeat a name";
     }
 
+    private IEnumerable<string> HarvestProblems()
+    {
+        if (Harvest is not { } harvest)
+            yield break;
+        if (!LabelName().IsMatch(harvest.Label)) yield return "harvest.label must be a label name without commas";
+        if (harvest.Label.Equals(Label, StringComparison.OrdinalIgnoreCase)) yield return "harvest.label must not be the trigger label";
+        if (harvest.LeadMinutes is < 1 or > 300) yield return "harvest.lead_minutes must be 1 to 300";
+        if (harvest.MaxPerDay is < 1 or > 100) yield return "harvest.max_per_day must be 1 to 100";
+        if (harvest.WindowHours is < 1 or > 168) yield return "harvest.window_hours must be 1 to 168";
+    }
+
     private IEnumerable<string> LimitProblems()
     {
         if (BudgetClass is not ("S" or "M" or "L")) yield return "budget_class must be S, M or L";
@@ -132,6 +144,16 @@ public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, Automa
     [GeneratedRegex(@"^@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")]
     private static partial Regex MentionName();
 }
+
+/// <summary>The quota harvester (issue #792): subscription quota that would expire unused at a window's reset runs low-priority work instead. An issue with <paramref name="Label"/> waits (reason
+/// <c>harvest</c>) until the window resets within <paramref name="LeadMinutes"/> and has quota left; then the waiting ones start, <c>size:S</c> first, at most <paramref name="MaxPerDay"/> a UTC day.
+/// Every start is still admitted as <c>automation.account</c>, so its daily dollar and token caps hold too.</summary>
+/// <param name="Label">The label that marks an issue as harvest work (default <c>priority:low</c>).</param>
+/// <param name="LeadMinutes">How close to the window's reset harvest work may start (default 30).</param>
+/// <param name="MaxPerDay">Harvested starts per UTC day (default 3).</param>
+/// <param name="WindowHours">The length of a subscription window, to project the next reset from the last one a running task reported (default 5). Until one is reported, no window is known and harvest
+/// work waits.</param>
+public sealed record AutomationHarvest(string Label = "priority:low", int LeadMinutes = 30, int MaxPerDay = 3, int WindowHours = 5);
 
 /// <param name="Path">The checkout the server reads the base commit from and the batch works from (ADR 0023); its <c>origin</c> is the repository.</param>
 public sealed record AutomationRepository(string Path);

@@ -1,7 +1,7 @@
 <Project>
   <!-- One version source for the orchestrator. Chargehand.Contracts overrides it (schema-major versioning). -->
   <PropertyGroup>
-    <Version>0.19.14</Version>
+    <Version>0.19.20</Version>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -10,6 +10,10 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <Authors>chargehand contributors</Authors>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <!-- FSL-1.1-ALv2 has no SPDX expression accepted by NuGet: ship the text. Releases up to v0.19.19 are Apache-2.0. -->
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
   </PropertyGroup>
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <None Include="$(MSBuildThisFileDirectory)LICENSE" Pack="true" PackagePath="" Visible="false" />
+  </ItemGroup>
 </Project>

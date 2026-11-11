@@ -2,7 +2,6 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Research.Api;
-using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Runtimes.OpenCode.Api;
 
@@ -61,6 +60,7 @@ public class OrchestratorActionTests
     {
         var (r, run) = await Run(new IntakeOnly("""{"reason":"touches prod","unblock_condition":"use staging"}""", "deny"), "cheap");
         Assert.Equal(ResultStatus.Denied, r.Status);
+        Assert.True(double.IsNaN(r.Confidence));
         Assert.Equal("touches prod", r.Summary);
         Assert.Equal(["Unblock: use staging"], r.OpenQuestions);
         Assert.Equal("deny", run.ExecutedAction);
@@ -72,6 +72,7 @@ public class OrchestratorActionTests
         var (r, _) = await Run(new IntakeOnly("""{"questions":["Which service?"]}""", "ask"), "cheap");
         Assert.Equal(ResultStatus.NeedsInput, r.Status);
         Assert.Equal(["Which service?"], r.OpenQuestions);
+        Assert.True(double.IsNaN(r.Confidence));
     }
 
     [Fact]

@@ -4,7 +4,6 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Research.Api;
-using Chargehand.Prompts;
 using Chargehand.Results;
 using Chargehand.Runtime;
 
@@ -398,7 +397,7 @@ public sealed class WorkerNode(IWorkerRuntime runtime, IPriceTable prices, IEvid
     {
         IdleOutcome.Succeeded => ErrorCode.InvalidResult,
         // A deadline reached while the provider kept rate limiting the node is the rate limit's doing.
-        _ when ChargehandException.RateLimited(messages.FirstOrDefault(m => m.Error is not null)?.Error) => ErrorCode.RateLimited,
+        _ when messages.FirstOrDefault(m => m.Error is not null)?.Error is { } refusal && (ChargehandException.RateLimited(refusal) || ChargehandException.BudgetRefused(refusal)) => ErrorCode.RateLimited,
         IdleOutcome.Interrupted when Usage(messages, r.Spec.Model).Usd > r.CapUsd || Calls(messages).Sum(m => Context(m.Tokens!)) > r.MaxInputTokens => ErrorCode.CostCapReached,
         IdleOutcome.Interrupted => ErrorCode.DeadlineExceeded,
         _ => ErrorCode.Internal,

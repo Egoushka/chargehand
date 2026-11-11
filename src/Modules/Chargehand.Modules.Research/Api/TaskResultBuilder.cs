@@ -136,6 +136,7 @@ public static class TaskResultBuilder
     {
         ErrorCode.VerificationFailed => "Read the verification artifact (output_tail), fix the change or the tests, and send the task again. Nothing was pushed.",
         ErrorCode.PushRejected => "Check the push credential and that the branch name is free. Nothing was pushed; the bundle is kept in the run's output volume.",
+        ErrorCode.MergeConflict => "The branch conflicts with its base branch as it is now. Continue the task so it rebases onto the base, or wait for the conflicting change to settle. Nothing was pushed; the bundle is kept in the run's output volume.",
         _ => "Read the reason above and the session-log artifact, and send the task again. Nothing was pushed.",
     };
 
@@ -150,6 +151,8 @@ public static class TaskResultBuilder
             artifacts.Add(Inline("pull-request", "application/vnd.chargehand.pull-request+json", new PullRequestArtifact(pr.Url, pr.Number, true, handover.Branch), Json.PullRequestArtifact));
         if (handover.Verification is { } v)
             artifacts.Add(Inline("verification", "application/json", Verification(v, handover), Json.VerificationArtifact));
+        if (handover.Mutation is { } m)
+            artifacts.Add(Inline("mutation", "application/json", new MutationArtifact(m.Ran, m.Score, m.Threshold, m.Ran && (m.Score is not { } s || s >= m.Threshold), m.Survivors, m.Killed, m.NotRun), Json.MutationArtifact));
     }
 
     private static VerificationArtifact Verification(VerificationRecord v, HandoverOutcome handover) =>
@@ -158,7 +161,7 @@ public static class TaskResultBuilder
             handover.TestIntegrity is { } flag ? new TestIntegrityArtifact(true, flag.Reason, flag.TestPaths, flag.BuildPaths) : null);
 
     private static ResultContract Reject(ResultContract contract, ErrorCode code, string message, string action) =>
-        contract with { Status = ResultStatus.Failed, Summary = message, Confidence = 0, Error = new ResultError(code, message, ChargehandException.Retryable(code), action) };
+        contract with { Status = ResultStatus.Failed, Summary = message, Confidence = ResultConfidence.None, Error = new ResultError(code, message, ChargehandException.Retryable(code), action) };
 
     /// <summary>The <c>changes</c> artifact: every changed path with its line counts, and the diff. It is inline, so it stays within 64 KiB: the diff goes first
     /// (<c>diff</c> null, <c>diff_truncated</c> true), then paths from the end; <c>files_total</c> keeps the real count.</summary>
@@ -226,7 +229,7 @@ public static class TaskResultBuilder
         public List<Artifact> Artifacts { get; } = [];
 
         public ResultContract Result(ResultStatus status, string summary, IReadOnlyList<Claim>? claims = null, IReadOnlyList<Evidence>? evidence = null,
-            IReadOnlyList<string>? questions = null, double confidence = 0, ResultError? error = null) =>
+            IReadOnlyList<string>? questions = null, double confidence = ResultConfidence.None, ResultError? error = null) =>
             new("result/v1", Input.RunId, "session", Input.TraceId, _chain, status, summary, claims ?? [], evidence ?? [], [.. Artifacts], questions ?? [], confidence, _usage, error);
 
         public ResultContract Failed(ErrorCode code, string message, string action, IReadOnlyList<string>? questions = null, bool retryable = false) =>

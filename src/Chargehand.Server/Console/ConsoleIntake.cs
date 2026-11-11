@@ -63,7 +63,7 @@ internal static class ConsoleIntake
         if (info is not null)
             try
             {
-                state = IntakeState.Load(path!);
+                state = IntakeState.Read(path!);
             }
             catch (Exception e) when (e is System.Text.Json.JsonException or InvalidDataException or IOException)
             {

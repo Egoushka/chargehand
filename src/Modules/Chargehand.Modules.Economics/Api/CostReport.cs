@@ -2,6 +2,7 @@ using System.Text.Json;
 using Chargehand.Contracts;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Modules.Economics.Api;
 
@@ -22,7 +23,10 @@ public sealed record CostRow(string Repository, string Preset, int Runs, decimal
 public sealed record CostWindow(int Days, DateTimeOffset Since, CostRow Total, IReadOnlyList<CostRow> Rows);
 
 /// <summary><c>cost/v1</c>.</summary>
-public sealed record CostReport(string ContractVersion, DateTimeOffset GeneratedAt, IReadOnlyList<CostWindow> Windows, IReadOnlyList<string> NotRecorded);
+/// <param name="BudgetRefusals">Driven tasks a gateway's budget refusal ended and merged pull requests per repository over 7 and 30 days, from the learning records
+/// (<see cref="Oversight.Api.BudgetRefusals"/>); null where the report was built without them.</param>
+public sealed record CostReport(string ContractVersion, DateTimeOffset GeneratedAt, IReadOnlyList<CostWindow> Windows, IReadOnlyList<string> NotRecorded,
+    IReadOnlyList<BudgetRefusalWindow>? BudgetRefusals = null);
 
 /// <summary>Dollars per merged pull request, per repository and preset (CHARGEHAND-577): the run log's finished top-level runs joined to what became of the pull requests they name. Pure apart from
 /// the state lookups: the same log and states give the same report.</summary>

@@ -348,9 +348,9 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
             using var response = await http.SendAsync(request, ct);
             return (response.StatusCode, response.Headers.Location is { } l && !l.IsAbsoluteUri ? new Uri(http.BaseAddress!, l) : response.Headers.Location, await response.Content.ReadAsStringAsync(ct));
         }
-        catch (HttpRequestException e)
+        catch (Exception e) when (e is HttpRequestException || e is TaskCanceledException && !ct.IsCancellationRequested)
         {
-            throw new IntegrationException(Redact($"{what} could not be reached: {e.Message}", token));
+            throw new IntegrationException(Redact(e is HttpRequestException ? $"{what} could not be reached: {e.Message}" : $"{what} timed out: {e.Message}", token));
         }
     }
 

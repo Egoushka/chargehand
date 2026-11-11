@@ -1,5 +1,7 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Chargehand.Contracts;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Journal.Api;
 using Chargehand.Modules.Runners.Api;
@@ -40,6 +42,7 @@ public sealed partial class Handover
                     if (remote.ExitCode == 0 && remote.Stdout.Split('\t', 2)[0].Trim() == commit)
                         return new PushedBranch(input.Branch, commit, Adopted: true);
                 }
+                await RefuseConflictAsync(input, scratch, commit, pushEnv, token);
                 var push = await GitProcess.RunAsync(scratch, pushEnv, PushArgs(input.RemoteUrl, input.Branch), GitTimeout, token);
                 if (push.ExitCode == 0)
                     return new PushedBranch(input.Branch, commit);
@@ -75,6 +78,22 @@ public sealed partial class Handover
         }
         var opened = steps is null ? await Open(new StepAttempt(1, false), ct) : await steps.RunAsync(StepKey.PullRequest(batchId!, input.RunId), Open, HandoverSteps.Default.OpenedPullRequest, ct);
         return (opened.PullRequest, opened.OnFallback ? fallbackBody : body);
+    }
+
+    /// <summary>Tells <see cref="HandoverInput.Report"/> that a step ended and appends it to the run's action log (ADR 0090) in the output directory. A log that cannot be written does not stop
+    /// the handover.</summary>
+    private static void Report(HandoverInput input, HandoverEvent e)
+    {
+        input.Report?.Invoke(e);
+        var step = JsonNamingPolicy.SnakeCaseLower.ConvertName(e.Kind.ToString());
+        try
+        {
+            ActionLog.Append(input.OutDirectory, new ActionEvent($"handover:{input.RunId}:{step}", "chargehand/handover", $"chargehand.handover.{step}", step, DateTimeOffset.UtcNow, input.RunId,
+                e.PrUrl is { } url ? $"{e.Detail} {url}" : e.Detail, e.Kind == RunEventKind.VerifyFinished ? "write" : "external"));
+        }
+        catch (Exception x) when (x is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     /// <summary>The pauses before a push that did not reach the remote is tried again: a session's finished work is not dropped for a network fault of a minute or two.</summary>

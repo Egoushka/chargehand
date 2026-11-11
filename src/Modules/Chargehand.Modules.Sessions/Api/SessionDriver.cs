@@ -116,7 +116,7 @@ public static partial class SessionDriver
             var run = new Run(options, stream, detector, governor, governorLog, new SemaphoreSlim(1, 1),
                 reminder is null ? null : new Reminding(reminder, files.Reminder, GoalReminder.Text(task, rules)));
 
-            await run.DriveAsync(StartInfo(options, files, null), start, started, ct);
+            await run.DriveWaitingAsync(() => StartInfo(options, files, null), resume => StartInfo(options, files, resume), start, started, ct);
             var checks = await run.GateAsync(rules, start, resume => StartInfo(options, files, resume), ct);
             await run.CommitAsync(start, from, resume => StartInfo(options, files, resume), ct);
             await run.ReportAsync(start, resume => StartInfo(options, files, resume), ct);

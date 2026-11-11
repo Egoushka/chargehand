@@ -7,8 +7,11 @@ import { meQuery } from '../../api/queries';
 import { DISPLAY_ZONE_LABEL, formatTime } from '../../lib/format';
 import { buttonClass, ErrorState, Kpi, Panel, Skeleton } from '../../ui';
 import { ActiveBatches } from './ActiveBatches';
+import { FleetBoard } from './FleetBoard';
 import { kpis, recentMerges } from './model';
+import { OpenThreads } from './OpenThreads';
 import { AdmissionPanel, MergesPanel, NeedsPanel, SpendPanel, SystemPanel } from './Panels';
+import { SubscriptionWindows } from './SubscriptionWindows';
 import './overview.css';
 
 /** How old a query's data is, for the error box: "Showing the last data, from 13:14." */
@@ -94,7 +97,10 @@ export function Overview() {
       {data || !overview.isError ? (
         <div className="g2">
           <div className="stack">
+            <FleetBoard />
             <ActiveBatches />
+            <SubscriptionWindows />
+            <OpenThreads />
             <NeedsPanel
               items={inbox.data?.items ?? []}
               total={data?.inbox.total ?? inbox.data?.counts.total ?? 0}

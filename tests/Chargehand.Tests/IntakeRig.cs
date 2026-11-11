@@ -7,7 +7,6 @@ using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Tasks.Api;
-using Chargehand.RunLog;
 
 namespace Chargehand.Tests;
 
@@ -108,6 +107,12 @@ internal sealed class FakeGitHub : IIntakeHost
 
     public Task<IReadOnlyList<string>> ReviewersAsync(string repository, int number, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<string>>([.. Reviewers.GetValueOrDefault(number) ?? []]);
+
+    /// <summary>The paths each pull request changes, by number.</summary>
+    public Dictionary<int, List<string>> PullFiles { get; } = [];
+
+    public Task<IReadOnlyList<string>> PullFilesAsync(string repository, int number, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<string>>([.. PullFiles.GetValueOrDefault(number) ?? []]);
 
     public Task<string> PullDiffAsync(string repository, int number, CancellationToken ct) =>
         DiffFailsWith is { } status ? throw new IntakeException($"GitHub answered {status} to the diff", status) : Task.FromResult(Diffs.GetValueOrDefault(number, "diff --git a/x b/x"));
@@ -355,7 +360,10 @@ internal sealed class IntakeRig : IDisposable
     public IntakeState State => IntakeState.Load(StatePath);
 
     private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy, IntakeSources.Load(SourcesPath), _clones, Infos.Add,
-        subscriptionResetsAt: now => RateLimitUntil > now ? RateLimitUntil : null);
+        subscriptionResetsAt: now => RateLimitUntil > now ? RateLimitUntil : null, quotaWindow: now => QuotaWindow?.Invoke(now));
+
+    /// <summary>The subscription window the quota harvester reads (issue #792); null: none is known.</summary>
+    public Func<DateTimeOffset, QuotaWindow?>? QuotaWindow { get; set; }
 
     /// <summary>When the rate-limit pause a running task reported ends; null: none.</summary>
     public DateTimeOffset? RateLimitUntil { get; set; }

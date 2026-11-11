@@ -20,6 +20,7 @@ namespace Chargehand.Modules.Sessions.Api;
 /// <param name="ReminderTurns">The goal and criteria are re-sent after this many assistant messages; null: by minutes only.</param>
 /// <param name="Check">ADR 0078: the repository's declared check, run by the driver in this container before the rules and criteria, as a filter before the push (the repository's CI verifies);
 /// null: none.</param>
+/// <param name="QuotaWaitMinutes">ADR 0096: the longest the session waits for a subscription limit to lift before it resumes, within its wall clock; null: <see cref="QuotaWait.Longest"/>; 0: it does not wait.</param>
 /// <param name="Bare">The benchmark's control arm (ADR 0080): the goal goes to Claude Code as it is, with no plugin, skill, system prompt, research or review call, governor, check gate or reminder, and the working tree is committed once when the session ends.</param>
 public sealed record SessionTask(string RunId, string Goal, string Branch, int MaxTurns, int MaxMinutes, int NoProgressSeconds,
     long? MaxTokens = null, string? Model = null, decimal? MaxUsd = null,
@@ -31,7 +32,8 @@ public sealed record SessionTask(string RunId, string Goal, string Branch, int M
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ReminderMinutes = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ReminderTurns = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Bare = false,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Check = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Check = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? QuotaWaitMinutes = null);
 
 /// <summary>How to start Claude Code: the program and arguments that go before its own (a test runs a script as <c>sh script</c>).</summary>
 public sealed record SessionCommand(string File, IReadOnlyList<string> LeadingArgs)
@@ -44,9 +46,11 @@ public sealed record SessionCommand(string File, IReadOnlyList<string> LeadingAr
 /// <param name="McpUrl">The chargehand server's MCP address on the batch network, for the skill's research and review calls.</param>
 /// <param name="McpToken">The run-scoped token for it.</param>
 /// <param name="GitTimeout">How long one of the stop snapshot's git calls may run before it is killed and the snapshot skipped; null: 3 minutes.</param>
+/// <param name="Delay">How a quota wait sleeps (ADR 0096); null: <see cref="Task.Delay(TimeSpan, CancellationToken)"/>. A test passes a fake clock.</param>
 /// <param name="GitRunning">Whether some git process is alive (a lock file may then be live); null: look at the process table.</param>
 public sealed record SessionOptions(string WorkDirectory, string OutDirectory, SessionTask Task, SessionCommand Command, IReadOnlyList<string> Secrets,
-    string PromptText, string? McpUrl, string? McpToken, string PluginDirectory = "/opt/chargehand-plugin", TimeSpan? GitTimeout = null, Func<bool>? GitRunning = null);
+    string PromptText, string? McpUrl, string? McpToken, string PluginDirectory = "/opt/chargehand-plugin", TimeSpan? GitTimeout = null, Func<bool>? GitRunning = null,
+    Func<TimeSpan, CancellationToken, Task>? Delay = null);
 
 /// <summary>The running tally the session writes to <c>session-usage.json</c>: input plus output tokens so far, assistant messages so far, and the <c>change</c> skill's step of the
 /// latest tool call that names one (<see cref="Adherence.StageOf"/>). <c>CacheRead</c> and <c>CacheWrite</c> are summed over the assistant messages so far; <c>UsdEstimate</c> prices
@@ -72,10 +76,12 @@ public enum SessionStatus { Completed, NeedsInput, Stalled, TokenCap, Failed, Ra
 /// <param name="GovernorLogSha256">The SHA-256 of <c>governor.jsonl</c>; null when no governor ran.</param>
 /// <param name="Checks">The last run of each repository check and acceptance criterion; null when none ran (the session did not finish, or there were none).</param>
 /// <param name="GoalReminders">How many times the goal was queued for the session again (<see cref="GoalReminder"/>).</param>
+/// <param name="ChecksSeconds">Wall seconds the check gate's commands took over all its rounds (issue #781); null when none ran.</param>
 /// <param name="Bare">The session ran as the benchmark's bare arm. The host reads it back to refuse an image that predates the arm, which would have run the full session instead.</param>
 public sealed record SessionOutcome(SessionStatus Status, string Reason, int Turns, long InputTokens, long OutputTokens, long CacheReadTokens,
     decimal? CostUsd, int? ExitCode, IReadOnlyList<string> Questions, bool BundleWritten, string? StreamSha256 = null, long CacheWriteTokens = 0, string? SessionId = null,
     string? Model = null, IReadOnlyDictionary<string, TokenCounts>? ModelUsage = null, decimal? UsdEstimate = null, DateTimeOffset? RateLimitResetsAt = null, bool UsdEstimatePartial = false,
     int Commits = 0, string? SnapshotNote = null, IReadOnlyList<GovernorDecision>? Governor = null, string? GovernorLogSha256 = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<CheckResult>? Checks = null, int GoalReminders = 0,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Bare = false);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Bare = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] double? ChecksSeconds = null);

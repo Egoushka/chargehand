@@ -53,7 +53,7 @@ public class HandoverTests
         public string BaseCommit { get; }
 
         public Fixture(Action<string>? edit = null, bool commit = true, bool makeBundle = true, bool rejectAll = false, bool orphan = false, bool revert = false, Action<string>? afterBundle = null, Action<string>? thenEdit = null,
-            bool untested = false, string file = "retry.txt", Action<string>? source = null)
+            bool untested = false, string file = "retry.txt", Action<string>? source = null, string[]? thenMessage = null)
         {
             Directory.CreateDirectory(Source);
             Directory.CreateDirectory(Out);
@@ -89,7 +89,7 @@ public class HandoverTests
                 {
                     thenEdit(Work);
                     G(Work, "add", "-A");
-                    G(Work, "commit", "-q", "-m", "chore: tidy");
+                    G(Work, ["commit", "-q", .. (thenMessage ?? ["chore: tidy"]).SelectMany(m => (string[])["-m", m])]);
                 }
             }
             if (makeBundle)

@@ -3,6 +3,7 @@ using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Conversations.Api;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -21,6 +22,7 @@ internal static class ConversationRoutes
         var group = app.MapGroup(Path);
         group.AddEndpointFilter(async (ctx, next) => ctx.HttpContext.Items.ContainsKey(RunScope.ItemKey) ? HttpResults.StatusCode(StatusCodes.Status403Forbidden) : await next(ctx));
         group.MapPost("", StartAsync);
+        group.MapGet("", List);
         group.MapGet("{id}", Read);
         group.MapGet("{id}/events", EventsOf);
         group.MapPost("{id}/messages", SendAsync);
@@ -38,6 +40,9 @@ internal static class ConversationRoutes
         ctx.Response.Headers.Location = $"{Path}/{started.Value!.Id}";
         return HttpResults.Json(started.Value, ConversationJson.View, statusCode: StatusCodes.Status201Created);
     }
+
+    private static IResult List(HttpContext ctx, ConversationService service) =>
+        HttpResults.Json(new ConversationList(service.List(PrincipalHttp.Of(ctx))), ConversationJson.Listing);
 
     private static IResult Read(string id, HttpContext ctx, ConversationService service) =>
         service.Find(PrincipalHttp.Of(ctx), id) is { } view ? HttpResults.Json(view, ConversationJson.View) : HttpResults.NotFound();

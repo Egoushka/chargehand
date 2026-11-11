@@ -207,11 +207,27 @@
     "listen": "127.0.0.1",
     "allowed_hosts": null,
     "max_concurrent_runs": 1,
-    "accounts": null,
+    "accounts": [
+      {
+        "name": "peer-harvest",
+        "max_usd_per_day": null,
+        "max_usd_per_month": 20.0,
+        "max_tokens_per_day": null,
+        "max_tokens_per_month": null,
+        "max_concurrent_runs": null,
+        "driven": false,
+        "repositories": null,
+        "model": null,
+        "allow_server_credential": false,
+        "pause_on_forecast": false,
+        "public_clone": true
+      }
+    ],
     "ui": false,
     "cloudflare_access": null,
     "proxy_sign_in": null,
-    "conversations": null
+    "conversations": null,
+    "events": null
   },
   "claude_code": null,
   "repository_roots": [
@@ -272,6 +288,125 @@
     "intake_model": "mistral-free/mistral-medium-latest",
     "github_token_secret": "chargehand-github-read-token",
     "denied": [
+      "work"
+    ]
+  },
+  "skip_structured_intake": false,
+  "peer_clone": {
+    "root": "/srv/chargehand/peer-clones",
+    "max_repository_bytes": 200000000,
+    "min_free_bytes": 5000000000,
+    "token_secret": "chargehand-peer-clone-github-token"
+  },
+  "pools": {
+    "enabled": false,
+    "time_zone": "UTC",
+    "escalate_after": 2,
+    "default_tier": "small",
+    "tiers": [
+      {
+        "name": "small",
+        "models": [
+          "mistral-free/mistral-medium-latest",
+          "provider/small-model"
+        ]
+      },
+      {
+        "name": "large",
+        "models": [
+          "provider/large-model"
+        ]
+      }
+    ],
+    "routes": {
+      "intake": "small",
+      "driven": "small",
+      "driven/L": "large",
+      "review": "large",
+      "code": "small",
+      "code/L": "large"
+    },
+    "order": [
+      {
+        "name": "free",
+        "kind": "free",
+        "models": [
+          "mistral-free/mistral-medium-latest"
+        ],
+        "total_usd": null,
+        "quota_usd": null,
+        "daily_requests": null,
+        "start": null,
+        "spread_days": null,
+        "expires": null,
+        "refill_day": 1,
+        "refill_weekday": null,
+        "refill_time": "00:00",
+        "no_training_models": null
+      },
+      {
+        "name": "credit",
+        "kind": "monthly",
+        "models": [
+          "provider/small-model",
+          "provider/large-model"
+        ],
+        "total_usd": 100,
+        "quota_usd": null,
+        "daily_requests": null,
+        "start": null,
+        "spread_days": null,
+        "expires": null,
+        "refill_day": 1,
+        "refill_weekday": null,
+        "refill_time": "00:00",
+        "no_training_models": [
+          "*"
+        ]
+      },
+      {
+        "name": "subscription",
+        "kind": "weekly",
+        "models": [
+          "provider/large-model"
+        ],
+        "total_usd": null,
+        "quota_usd": null,
+        "daily_requests": null,
+        "start": null,
+        "spread_days": null,
+        "expires": null,
+        "refill_day": 1,
+        "refill_weekday": "sunday",
+        "refill_time": "09:00",
+        "no_training_models": [
+          "*"
+        ]
+      },
+      {
+        "name": "bought",
+        "kind": "fixed",
+        "models": [
+          "provider/small-model",
+          "provider/large-model"
+        ],
+        "total_usd": 10,
+        "quota_usd": null,
+        "daily_requests": null,
+        "start": null,
+        "spread_days": null,
+        "expires": null,
+        "refill_day": 1,
+        "refill_weekday": null,
+        "refill_time": "00:00",
+        "no_training_models": null
+      }
+    ],
+    "owner_private_repos": [
+      "owner/personal-notes",
+      "other-account/*"
+    ],
+    "restricted_path_segments": [
       "work"
     ]
   },

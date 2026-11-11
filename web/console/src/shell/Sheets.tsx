@@ -1,6 +1,6 @@
 import { useNavigate } from '@tanstack/react-router';
 import { Dialog, DialogClose, Icon, type IconName } from '../ui';
-import { SCREENS } from './screens';
+import { SCREENS, TAB_BAR } from './screens';
 import { SHORTCUTS, type ShortcutGroup } from './shortcuts';
 
 const GROUPS: ShortcutGroup[][] = [
@@ -80,7 +80,7 @@ export function MoreSheet({
   actions: MoreAction[];
 }) {
   const navigate = useNavigate();
-  const rest = SCREENS.filter((s) => s.group !== 'main' && (owner || !s.ownerOnly));
+  const rest = SCREENS.filter((s) => !TAB_BAR.includes(s.to) && (owner || !s.ownerOnly));
   const done = (fn: () => void) => () => {
     onOpenChange(false);
     fn();
