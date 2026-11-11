@@ -60,7 +60,7 @@ public sealed class ModelRouter
     public string NameOf(int tier) => _tiers[Math.Clamp(tier, 0, TopTier)].Name;
 
     /// <summary>The first pool in drain order that may take the call now and pays for a model of <paramref name="tier"/> that may see <paramref name="dataClass"/>. A pool a provider refused, or that
-    /// has expired or not started, falls through to the next pool. A tier with no model that may see the data moves the call one tier up, never down. Limits in the settings never remove a pool.</summary>
+    /// has expired or not started, falls through to the next pool. A tier with no model that may see the data moves the call one tier up, never down. Limits in the settings never remove a pool; a pool with <c>pace_daily</c> whose day is spent is passed over for a later pool that has room, and chosen (with its warning) only when no other pool can take the call.</summary>
     /// <param name="exhausted">Pools a provider refused (a 402, a 429, a used quota): out until their mark lapses.</param>
     public RouteDecision Choose(int tier, DataClass dataClass, IReadOnlyList<PoolSpend> spend, DateTimeOffset now, IReadOnlySet<string>? exhausted = null)
     {
@@ -72,13 +72,18 @@ public sealed class ModelRouter
             if (candidates.Count == 0)
                 continue;
             List<PoolStanding> seen = [];
+            RouteChoice? paced = null;
             foreach (var (pool, model) in candidates)
             {
                 var standing = PoolBalance.Of(pool, spend, now, Zone, exhausted?.Contains(pool.Name) == true);
-                if (standing.HasRoom)
+                if (standing.HasRoom && !standing.Paced)
                     return new RouteChoice(NameOf(at), pool.Name, model!, standing.RoomUsd, standing.Warning);
+                if (standing.HasRoom)
+                    paced ??= new RouteChoice(NameOf(at), pool.Name, model!, standing.RoomUsd, standing.Warning);
                 seen.Add(standing);
             }
+            if (paced is not null)
+                return paced;
             return new RouteWait(NameOf(at), Until(seen, now), seen);
         }
         return new RouteBlocked(NameOf(tier), dataClass);

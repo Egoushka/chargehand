@@ -220,3 +220,10 @@ Where the record is short of the truth, and why it is left:
 The subagents of a session (`CLAUDE_CODE_SUBAGENT_MODEL`) follow the session's own route now, set per session by the task runner. They were set once from the
 batch's route, in the environment that holds the batch's one credential: that made the environment two variables, which the runner's route (one credential,
 read as the only value) and the handover's secret scan (which was given the model's name as a secret) did not expect.
+
+## Amended 2026-11-11 (soft daily pacing)
+
+A pool may set `pace_daily: true`. Once its paced daily allowance is spent, the router passes over it for the next pool in the order that has room, so one
+day cannot eat a weekly subscription cap (about a seventh of it per day). It stays soft: when no other pool can take the call, the paced pool is still
+chosen, with its warning. Nothing leaves the order because of it, and the provider's refusal remains the only thing that drains a pool. The setting needs an
+amount to pace, `total_usd` or `quota_usd` on a weekly pool; a profile that sets it on a pool without one is refused.
