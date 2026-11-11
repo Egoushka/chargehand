@@ -215,6 +215,7 @@ capabilities.md	c8f361c9c8	[change-e2e.sh](../../scripts/change-e2e.sh) is an en
 capabilities.md	b6a03beb19	the repository records no result of it.
 capabilities.md	070b8a6620	The plugin's MCP entry runs the `Chargehand` package, which is now on 
 capabilities.md	6990eda292	What is missing: [Claude Code plugin](#claude-code-plugin).
+capabilities.md	c272c909ff	nuget.org's flat-container index lists `Chargehand` 0.4.0 and 0.4.1 an
 capabilities.md	fa6862e208	[release.yml](../../.github/workflows/release.yml) packs and pushes ea
 capabilities.md	b33e4574fc	[mcp-smoke.py](../../scripts/mcp-smoke.py) packs the tool and starts i
 capabilities.md	7c5face1a4	[The MCP page](mcp.md#from-the-package) has the `dnx` lines.
@@ -224,6 +225,7 @@ capabilities.md	b8a406ca79	It ran for v0.4.1, and no test covers it.
 capabilities.md	4537920500	The registry lists `io.github.Egoushka/chargehand` 0.4.1 (checked on 2
 capabilities.md	9e4c735932	The `Chargehand` 0.4.0 README has the ownership line in lower case, wh
 capabilities.md	21e6562587	Goal 0.7 in [ROADMAP.md](../../ROADMAP.md), [ADR 0035](../adr/0035-san
+capabilities.md	3fbc87e3e9	[SandboxTests](../../tests/Chargehand.Tests/SandboxTests.cs) run the m
 capabilities.md	cca32ae50e	On 2026-09-29 `scripts/write-e2e.sh` ran on macOS with the signed-in C
 capabilities.md	c34286eff6	What is missing: [Writing nodes](#writing-nodes).
 capabilities.md	1b6f29d548	Goal 0.8 in [ROADMAP.md](../../ROADMAP.md).
@@ -261,6 +263,9 @@ capabilities.md	9e22aaaa5d	A preset's `services` give workers read-only tools fr
 capabilities.md	d38ca328e4	No shipped preset lists any.
 capabilities.md	e2b5bfdd89	What is missing: no recorded run has a claim citing a URL a service re
 capabilities.md	002c13fb8b	On OpenCode, a preset that denies `*` (such as `draft`) cannot use ser
+capabilities.md	37aca707d0	`Profile.Load` returns defaults when the file is missing, and a placeh
+capabilities.md	968cb25411	Goal 0.4 ends when a clean machine with one signed-in agent CLI gets a
+capabilities.md	4308712de0	The tests call no model, so that end-to-end case has no test of its ow
 capabilities.md	5204557981	The `code` preset writes; every other shipped preset denies edits.
 capabilities.md	975098add9	Not covered: the worker can edit the tests the command runs (listed in
 capabilities.md	b04e299778	Merging stays a person's step ([ADR 0035](../adr/0035-sandboxed-writin
@@ -525,6 +530,8 @@ driven.md	4dd4d891cc	It is a filter that saves a CI round trip, not proof.
 driven.md	c1c679039d	**No fresh-container verifier runs.** The pull request body says what 
 driven.md	88190c4a14	It also says which check ran before the push.
 driven.md	26ee727f44	A repository with no CI and no declared check is refused unless the ch
+driven.md	c28b562302	For chargehand's own repository a profile sets, in `driven`: `"environ
+driven.md	84d519514f	The install helper reaches the toolchain hosts of `HomeVolumes.Toolcha
 driven.md	f74edf8c6a	Off unless the profile has a `driven.integrator` block; with none, a t
 driven.md	22a3d60c00	With one, chargehand acts on a finished task's pull request **as a Git
 driven.md	c457961566	The App's JWT (RS256, signed with the key from the secret store) is ex
@@ -993,6 +1000,8 @@ index.md	f806773f8d	Goal 0.7 (writing workers) and goal 0.8 (support checking an
 index.md	0c301e39ac	The 0.7 exit bar, five real issues taken to a merged change, is not me
 index.md	b9f86eef12	**Read-only workers, and one writer.** Every shipped preset but `code`
 index.md	03b1d51f23	Since 0.8.0, the `code` preset writes a branch that passes its tests i
+index.md	277c38aebc	**On nuget.org and in the MCP Registry.** The `Chargehand` tool packag
+index.md	8e5acf3abd	The registry lists `io.github.Egoushka/chargehand` from 0.4.1, and the
 index.md	9faca196cf	**Main and the release.** This guide describes the `main` branch, whic
 index.md	eacb9948d4	A change that lands on `main` after a release appears there, and pages
 index.md	e31b02fe7c	[What it does, and how we know](capabilities.md): each capability with
@@ -1569,6 +1578,8 @@ quickstart.md	2d5f61936e	`run` prints `result/v1` on stdout.
 quickstart.md	22e22c494b	It exits 0 when the run completed, 1 when it failed or was denied, 2 o
 quickstart.md	db8f30b544	If chargehand cannot reach the runtime (binary missing, server not run
 quickstart.md	c2dd505106	This is `schemas/result/v1/examples/valid-completed.json`, formatted:
+quickstart.md	88ed360ab6	In this example the claim cites lines 5 to 7 of `src/calc.py` at commi
+quickstart.md	46c5c0c96a	In a real run the resolver checks that such lines exist at that commit
 quickstart.md	8462cbd960	`show` prints the run's preset, intake action, status, duration, cost,
 quickstart.md	43879c1c63	A run with a start record and no result reads `running` while its proc
 quickstart.md	7637d2a5af	`cache <run-id>` lists cache reads and writes per call and names the f
@@ -1931,6 +1942,7 @@ server.md	bc70475c29	Before a run starts, the server checks that the body is JSO
 server.md	0dee20f8f9	A failure is `400` with `{"errors": [...]}`, and no run starts.
 server.md	18e84ba45d	Otherwise the run starts and the response waits up to `Prefer: wait=N`
 server.md	db403f6f7e	Both `200` and `202` carry `Location: /v1/runs/{id}`.
+server.md	0ecd3cd6ef	`samples/ContentEngineCall` is a complete caller in C#, built on `Char
 server.md	7a5df01dd7	A `202` body is `run-status/v1` with status `queued` or `running`; a r
 server.md	443ae90b38	A `410` body has status `lost`: the process that ran it ended before i
 server.md	794080841a	A finished run comes back as `result/v1`.
@@ -2089,6 +2101,9 @@ support-and-signing.md	90919da15c	A key file that is missing, is not PEM or is n
 support-and-signing.md	b868db9c2b	The result then has a `signature` member: `{ "alg": "ES256", "key_id":
 support-and-signing.md	a3a3e07109	`value` is ECDSA P-256 with SHA-256 (IEEE P1363, 64 bytes) over the RF
 support-and-signing.md	52871c485e	Check a result anywhere, with no network and no profile:
+support-and-signing.md	abb3c68663	Exit 0 means valid, 1 means the signature is missing or does not match
+support-and-signing.md	cb6bdee7e6	Reformatting the JSON or reordering its keys does not break a signatur
+support-and-signing.md	51fbecc85b	`Chargehand.Contracts` has the same check as `ResultSignature.Verify` 
 support-and-signing.md	0a6a07e52c	On 2026-09-30 a real run (`cheap` preset on a two-line repository, Cla
 support-and-signing.md	378ce978dd	It says that the holder of the key produced exactly this JSON.
 support-and-signing.md	8da42033e0	It does not say the claims are true, that the support check was right,
@@ -2204,6 +2219,10 @@ web-ui.md	ec6f871f60	`g` then `o`, `n`, `r`, `s` or `a` goes to Overview, Needs 
 web-ui.md	ceb8bd2085	Cancel and halt have no bare key.
 web-ui.md	3e27b94fb8	**Look.** The design system is the one approved on 13 October 2026: da
 web-ui.md	a82d5b1329	A browser that asks for light gets light until you choose; theme, row 
+web-ui.md	ce8d72429d	A screen lives in `web/console/src/screens/<name>/` (its component, it
+web-ui.md	ab37a84b7a	Shared parts are `src/ui/` (the design system's 18 components as React
+web-ui.md	41f06028bd	A new shortcut adds a row to `src/shell/shortcuts.ts`, so the `?` shee
+web-ui.md	238b0e7421	`src/testing/` holds the fixtures of every contract (invented data, ti
 web-ui.md	064431c018	Rules the code keeps: a colour, size or space comes from `tokens.css`,
 web-ui.md	a5a76ede92	Needs Node 24 (`web/console/.nvmrc`; `engines` allows newer).
 web-ui.md	c241daa560	The dev server has no Content-Security-Policy (Vite's hot reload needs
