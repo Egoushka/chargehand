@@ -8,7 +8,6 @@ using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Tasks.Api;
-using Chargehand.RunLog;
 using Chargehand.Workspace;
 using Microsoft.AspNetCore.Http;
 
@@ -313,6 +312,9 @@ public sealed partial class RunService(Orchestrator orchestrator, string presets
             if (!run.IsChild)
                 Archive(run);
             _runs.TryRemove(run.Id, out _);
+            // Charged above when it ended; ended, failed or cancelled, its reservation goes back to the token (ADR 0039).
+            if (chargeTo is not null)
+                Ledger.Release(chargeTo, request.Context.BudgetUsd ?? 0);
             run.Dispose();
         }
     }

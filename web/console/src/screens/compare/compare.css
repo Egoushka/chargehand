@@ -1,0 +1,35 @@
+/* The compare screen: two quality cards side by side. */
+.compare__title {
+  margin: 0 0 var(--space-3);
+  font-size: 18px;
+}
+
+.compare__verdict {
+  margin: 0 0 var(--space-3);
+  font-weight: 600;
+}
+
+.compare__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.compare__side {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-4);
+}
+
+.compare__goal {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 800px) {
+  .compare__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

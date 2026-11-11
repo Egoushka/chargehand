@@ -18,10 +18,14 @@ public partial class ChargehandException(ErrorCode code, string message, string?
         code is ErrorCode.RuntimeUnavailable or ErrorCode.ProviderUnavailable or ErrorCode.RateLimited or ErrorCode.DeadlineExceeded or ErrorCode.ContainerUnavailable
             or ErrorCode.SessionStalled or ErrorCode.PrFailed;
 
-    /// <summary>The error of any exception: its own code, a rate limit recognised by its text (Claude Code's), else internal.</summary>
+    /// <summary>The error of any exception: its own code, a rate limit or a spent budget recognised by its text (Claude Code's, a gateway's), else internal.</summary>
     public static ResultError ErrorOf(Exception e) => e is ChargehandException c
         ? c.Error
-        : new ChargehandException(RateLimited(e.Message) ? ErrorCode.RateLimited : ErrorCode.Internal, e.Message).Error;
+        : new ChargehandException(RateLimited(e.Message) || BudgetRefused(e.Message) ? ErrorCode.RateLimited : ErrorCode.Internal, e.Message).Error;
+
+    /// <summary>A gateway's or provider's refusal over a spent budget: a 402, "payment required", "budget has been exceeded". The same rule as the sessions module's <c>GatewayRefusal.IsBudget</c>, which this
+    /// layer cannot reference.</summary>
+    public static bool BudgetRefused(string? message) => message is not null && BudgetText().IsMatch(message);
 
     /// <summary>A gateway or provider rate limit, as relayed by OpenCode ("Rate limit exceeded") or Claude Code (rate_limit_error, 429).</summary>
     public static bool RateLimited(string? message) => message is not null && RateLimitText().IsMatch(message);
@@ -31,4 +35,7 @@ public partial class ChargehandException(ErrorCode code, string message, string?
 
     [GeneratedRegex(@"rate[ _]limit|\b429\b", RegexOptions.IgnoreCase)]
     private static partial Regex RateLimitText();
+
+    [GeneratedRegex(@"\b(?:status|http|error)\b[\s:=]*402\b|\b402\b[\s:]*(?:payment required|budget)|payment required|budget has been exceeded", RegexOptions.IgnoreCase)]
+    private static partial Regex BudgetText();
 }

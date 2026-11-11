@@ -32,6 +32,7 @@ import {
   TableHead,
   TableRow,
 } from '../../ui';
+import { AutonomyPanel } from './AutonomyPanel';
 import {
   historyRule,
   LEARN_RANGES,
@@ -316,6 +317,8 @@ export function Learning() {
               task, so a group can fall a few short of what its row suggests.
             </div>
           </Panel>
+
+          <AutonomyPanel report={learn.data} phone={phone} />
 
           <div className="ln-grid">
             <Panel

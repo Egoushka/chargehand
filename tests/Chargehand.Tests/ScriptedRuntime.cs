@@ -5,7 +5,6 @@ using Chargehand.Contracts;
 using Chargehand.Kernel;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Research.Api;
-using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Runtimes.OpenCode.Api;
 
@@ -24,6 +23,9 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
 
     /// <summary>The credential kind the runtime reports: <c>api_key</c> is priced, <c>subscription</c> is not (ADR 0082).</summary>
     public string Credential { get; set; } = "api_key";
+
+    /// <summary>The subscription windows every assistant message carries, as a runtime that read the provider's report would stamp them (ADR 0098); null: none read.</summary>
+    public SubscriptionUsage? Subscription { get; set; }
 
     /// <summary>Called at the start of each turn with the session's directory and the turn's number (1-based), as a worker that edits files would.</summary>
     public Action<string, int>? OnTurn { get; set; }
@@ -103,7 +105,7 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
         }
         var now = DateTimeOffset.UtcNow;
         Add(sessionId, new WorkerMessage($"msg_{Interlocked.Increment(ref _ids)}", WorkerMessageKind.Assistant, now, reply, new TokenCounts(1000, 100, 0, 4000, 200), now.AddSeconds(1),
-            ToolOutput: ToolResult, ToolResults: ToolResult is null ? null : [ToolResult]));
+            ToolOutput: ToolResult, ToolResults: ToolResult is null ? null : [ToolResult], Subscription: Subscription));
         return IdleOutcome.Succeeded;
     }
 

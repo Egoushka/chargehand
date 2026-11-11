@@ -8,6 +8,7 @@ using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
+using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
@@ -54,7 +55,10 @@ public sealed record HostBody(long? AvailableMb, long? TotalMb, long? SwapTotalM
 /// <param name="Reachable">The runner answered <c>GET /host</c>; null when driven sessions are off.</param>
 /// <param name="Draining">The runner said it takes no new session; null when it did not answer or does not report a state.</param>
 /// <param name="Running">Sessions of this server admitted there; null with one runner, which does not count them.</param>
-public sealed record RunnerStatusBody(string Name, string? Host, bool? Reachable, string? Error, long? ElapsedMs, bool? Draining, string? DrainingReason, int? Running, int? MaxSessions, int? ContainerCount);
+/// <param name="ImageMismatch">What of the session images (<c>driven.images</c> for the runner's platform) its allowlist lacks, as admission's refusal says it (issue #425); null when nothing, when it
+/// did not answer, or when it cannot say (a runner older than <c>GET /images</c>).</param>
+public sealed record RunnerStatusBody(string Name, string? Host, bool? Reachable, string? Error, long? ElapsedMs, bool? Draining, string? DrainingReason, int? Running, int? MaxSessions, int? ContainerCount,
+    string? ImageMismatch = null);
 
 public sealed record ImageBody(string Reference, string Name, string? Digest, bool Pinned);
 
@@ -156,12 +160,31 @@ internal static class ConsoleSystem
             var statuses = await pool.StatusAsync(ct);
             var sites = c.Driven.Sites;
             return await Task.WhenAll(statuses.Select(async s => new RunnerStatusBody(s.Site.Name, HostOf(s.Site.Config.Url), s.Reachable, s.Why, s.ElapsedMs, s.Reachable ? s.Snapshot?.State is null ? null : s.Snapshot.IsDraining : null,
-                s.Reachable && s.Snapshot?.IsDraining == true ? s.Snapshot.StateReason : null, s.Running, s.Site.Config.MaxSessions, s.Reachable ? await CountAsync(sites.First(r => r.Name == s.Site.Name).Engine, ct) : null)));
+                s.Reachable && s.Snapshot?.IsDraining == true ? s.Snapshot.StateReason : null, s.Running, s.Site.Config.MaxSessions, s.Reachable ? await CountAsync(sites.First(r => r.Name == s.Site.Name).Engine, ct) : null,
+                s.ImageMismatch)));
         }
+        var mismatch = first.Reachable == true && c.Driven?.Sites is [var only, ..] ? await MismatchAsync(c, only, ct) : null;
         return [.. configured.Select((r, i) => i == 0 && c.Driven?.Engine is not null
             ? new RunnerStatusBody(r.Name, HostOf(r.Url), first.Reachable, first.Error, first.ElapsedMs, snapshot?.State is null ? null : snapshot.IsDraining, snapshot?.IsDraining == true ? snapshot.StateReason : null, null,
-                r.MaxSessions, first.ContainerCount)
+                r.MaxSessions, first.ContainerCount, mismatch)
             : new RunnerStatusBody(r.Name, HostOf(r.Url), null, null, null, null, null, null, r.MaxSessions, null))];
+    }
+
+    /// <summary>The one runner's allowlist against the session images, as <see cref="HostAdmission"/> checks it; null when it cannot be asked within <see cref="Probe"/>.</summary>
+    private static async Task<string?> MismatchAsync(ConsoleContext c, RunnerSite site, CancellationToken ct)
+    {
+        if (c.Profile is not { } profile)
+            return null;
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        limit.CancelAfter(Probe);
+        try
+        {
+            return await ImageAllowlist.CheckAsync(site.Host, DrivenRun.SessionImagesOf(profile, site.Config), limit.Token);
+        }
+        catch (Exception e) when (e is ChargehandException or OperationCanceledException or HttpRequestException or IOException or JsonException)
+        {
+            return null;
+        }
     }
 
     private static async Task<int?> CountAsync(IContainerEngine engine, CancellationToken ct)

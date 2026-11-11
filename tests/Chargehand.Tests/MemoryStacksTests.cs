@@ -1,5 +1,4 @@
 using Chargehand.Config;
-using Chargehand.Mcp;
 using Chargehand.Modules.Memory.Api;
 using static Chargehand.Tests.MemoryConfigTests;
 
@@ -24,7 +23,7 @@ public class MemoryStacksTests
         var profile = ProfileWith($"[{Hindsight},{notes}]");
         await using var pool = NeverConnects(profile);
 
-        var stack = MemoryStacks.From(profile, pool)!;
+        var stack = MemoryStacks.From(profile.Memory, pool)!;
 
         Assert.Equal(["hindsight", "notes"], stack.Sources.Select(s => s.Name));
         Assert.Equal([true, false], stack.Sources.Select(s => s.Retain));
@@ -41,7 +40,7 @@ public class MemoryStacksTests
         var profile = ProfileWith($"[{Chronicle}]", """{"chronicle":{"url":"http://localhost:8031/sse","transport":"sse"}}""");
         await using var pool = NeverConnects(profile);
 
-        var source = Assert.Single(MemoryStacks.From(profile, pool)!.Sources);
+        var source = Assert.Single(MemoryStacks.From(profile.Memory, pool)!.Sources);
 
         Assert.Equal(("chronicle", false), (source.Name, source.Retain));
         Assert.Equal(new MemoryScope("chronicle", "chronicle"), source.Scope);
@@ -52,7 +51,7 @@ public class MemoryStacksTests
     {
         await using var pool = new McpConnectionPool(new Dictionary<string, McpServerSettings>(), _ => "");
 
-        Assert.Null(MemoryStacks.From(new Profile("profile/v1"), pool));
-        Assert.Null(MemoryStacks.From(ProfileWith("[]"), pool));
+        Assert.Null(MemoryStacks.From(new Profile("profile/v1").Memory, pool));
+        Assert.Null(MemoryStacks.From(ProfileWith("[]").Memory, pool));
     }
 }

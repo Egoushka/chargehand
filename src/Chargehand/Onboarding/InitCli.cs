@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Chargehand.Modules.Gateway.Api;
+using Chargehand.Modules.Onboarding.Api;
 
 namespace Chargehand.Onboarding;
 

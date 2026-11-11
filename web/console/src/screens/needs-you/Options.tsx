@@ -4,6 +4,7 @@ import { shortId } from '../../lib/format';
 import { safeHttpUrl } from '../../lib/url';
 import { useToast } from '../../shell/toasts';
 import { Button, buttonClass, IconButton } from '../../ui';
+import { MergeButton } from '../task/MergeButton';
 
 /** The address an `open` option may go to: a console page of this site, or an http(s) page; nothing else. */
 function openUrl(url: string | null | undefined): string | null {
@@ -41,6 +42,14 @@ function OptionAction({
   label: string;
 }) {
   if (option.id === 'dismiss') return <DismissOption item={item} option={option} label={label} />;
+  if (option.id === 'merge')
+    return (
+      <MergeButton
+        repository={item.pull_request?.repository}
+        number={item.pull_request?.number}
+        label={option.label}
+      />
+    );
   if (option.command) return <CommandOption option={option} />;
   if (option.call) return <CallOption option={option} label={label} />;
   const url = openUrl(option.url);

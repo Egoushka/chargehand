@@ -132,7 +132,8 @@
     "ui": true,
     "cloudflare_access": null,
     "proxy_sign_in": null,
-    "conversations": null
+    "conversations": null,
+    "events": null
   },
   "claude_code": null,
   "repository_roots": null,
@@ -253,6 +254,7 @@
   "public_free": null,
   "skip_structured_intake": false,
   "peer_clone": null,
+  "pools": null,
   "roots": [
     "/srv/chargehand/work"
   ],

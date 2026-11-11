@@ -64,7 +64,7 @@ public enum HandoverStatus { Pushed, PrFailed, NotPushed }
 /// <param name="Reason">Why it was not pushed, or why the pull request failed; a credential is never in it.</param>
 /// <param name="Changes">The branch against its base, once the bundle is fetched and the branch changes something; null before that.</param>
 public sealed record HandoverOutcome(HandoverStatus Status, string Reason, ErrorCode? Error, string? Branch, string? Commit, PullRequestRef? PullRequest, VerificationRecord? Verification,
-    IReadOnlyList<string> ChangedPaths, IReadOnlyList<string> ChangedVerificationPaths, IReadOnlyList<ScanFinding> Findings, ChangeSummary? Changes = null, TestIntegrityFlag? TestIntegrity = null);
+    IReadOnlyList<string> ChangedPaths, IReadOnlyList<string> ChangedVerificationPaths, IReadOnlyList<ScanFinding> Findings, ChangeSummary? Changes = null, TestIntegrityFlag? TestIntegrity = null, MutationOutcome? Mutation = null);
 
 /// <summary>One path the branch changes, from <c>git diff --numstat --no-renames</c>: a rename is a delete and an add. Null counts: a binary file.</summary>
 public sealed record FileChange(string Path, int? Added, int? Removed);
@@ -154,7 +154,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         return null;
     }
 
-    /// <summary>The branch against its base: it changes something, and its diff carries no secret.</summary>
+    /// <summary>The branch against its base: it changes something, its history carries no junk (<see cref="GuardJunkAsync"/>), and its diff no secret.</summary>
     private static async Task<HandoverOutcome?> ScanDiffAsync(HandoverRun run, CancellationToken ct)
     {
         var (input, scratch, env, commit) = (run.Input, run.Scratch, run.Env, run.Commit);
@@ -165,6 +165,8 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             return run.Refuse("the branch has no change against its base", ErrorCode.SessionFailed, commit: commit);
         var numstat = await GitProcess.RunAsync(scratch, env, ["diff", "--numstat", "--no-renames", "-z", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
         run.Changes = new ChangeSummary(ParseNumstat(numstat.Stdout), null, false);
+        if (await GuardJunkAsync(run, ct) is { } junk)
+            return junk;
         var diff = await GitProcess.RunAsync(scratch, env, ["diff", "--no-color", "-U0", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
         if (diff.Truncated)
             return run.Refuse("the diff is too large to scan", ErrorCode.SessionFailed, changed: changed, commit: commit);
@@ -284,18 +286,18 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         var integrity = input.Goal is { } goal && verification is { ExitCode: 0, TimedOut: false } ? TestIntegrity.Assess(changed, goal) : null;
         var repository = RemoteRepository.Parse(input.RemoteUrl, forge) ?? (input.AllowLocalRemote ? new RemoteRepository("local", "local") : null);
         if (repository is null)
-            return new(HandoverStatus.PrFailed, "the remote's owner and repository could not be read from its URL", ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity);
+            return new(HandoverStatus.PrFailed, "the remote's owner and repository could not be read from its URL", ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity, run.Mutation);
         try
         {
             var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity, run.NoTestsRule, run.CiVerdict);
             var (pr, bodyUsed) = await OpenPullRequestAsync(input, repository, prBody, ct);
             var detail = pr.Reused && input.UpdateReused ? await UpdateReusedAsync(run, repository, pr, bodyUsed, ct) : "draft pull request opened";
             Report(input, new HandoverEvent(RunEventKind.PrOpened, detail, pr.Url));
-            return new(HandoverStatus.Pushed, "", null, input.Branch, commit, pr, verification, changed, verificationPaths, [], changes, integrity);
+            return new(HandoverStatus.Pushed, "", null, input.Branch, commit, pr, verification, changed, verificationPaths, [], changes, integrity, run.Mutation);
         }
         catch (PullRequestException e)
         {
-            return new(HandoverStatus.PrFailed, Redact(e.Message, run.Secrets), ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity);
+            return new(HandoverStatus.PrFailed, Redact(e.Message, run.Secrets), ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity, run.Mutation);
         }
     }
 
@@ -328,12 +330,13 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         public Dictionary<string, string> Env { get; } = GitProcess.Environment(input.ScratchRoot);
 
         public string Commit { get; set; } = "";
-
         public List<string> Changed { get; set; } = [];
 
         public ChangeSummary? Changes { get; set; }
 
         public VerificationRecord? Verification { get; set; }
+
+        public MutationOutcome? Mutation { get; set; }
 
         public IReadOnlyList<string> VerificationPaths { get; set; } = [];
 
@@ -345,7 +348,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
 
         public HandoverOutcome Refuse(string reason, ErrorCode error, VerificationRecord? verification = null, IReadOnlyList<string>? changed = null, IReadOnlyList<ScanFinding>? findings = null,
             IReadOnlyList<string>? verificationPaths = null, string? commit = null) =>
-            new(HandoverStatus.NotPushed, Redact(reason, Secrets), error, Input.Branch, commit, null, verification, changed ?? [], verificationPaths ?? [], findings ?? [], Changes);
+            new(HandoverStatus.NotPushed, Redact(reason, Secrets), error, Input.Branch, commit, null, verification, changed ?? [], verificationPaths ?? [], findings ?? [], Changes, Mutation: Mutation);
     }
 
     /// <summary><c>added\tremoved\tpath\0</c> per path; a binary file has <c>-</c> for both counts.</summary>

@@ -258,4 +258,36 @@ public class GitHubIntegrationHostTests
     {
         Assert.Equal("a\nb", GitHubIntegrationHost.TailOf("2026-10-13T09:00:00.1Z a\r\n2026-10-13T09:00:01.1Z b\n", 100));
     }
+
+    private sealed class Hangs : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            throw new InvalidOperationException("unreachable");
+        }
+    }
+
+    private static GitHubIntegrationHost Hanging(TimeSpan timeout) =>
+        new(new HttpClient(new Hangs()) { BaseAddress = new Uri("https://api.example.test/"), Timeout = timeout }, new FixedToken());
+
+    [Fact]
+    public async Task A_timeout_is_an_integration_exception_that_names_the_call_without_the_token()
+    {
+        var host = Hanging(TimeSpan.FromMilliseconds(50));
+
+        var e = await Assert.ThrowsAsync<IntegrationException>(() => host.GetAsync(Repo, 7, default));
+        Assert.Contains("timed out", e.Message);
+        Assert.DoesNotContain("ghs_secrettoken", e.Message);
+        await Assert.ThrowsAsync<IntegrationException>(() => host.JobLogTailAsync(Repo, 501, 500, default));
+    }
+
+    [Fact]
+    public async Task The_callers_cancellation_is_still_a_cancellation()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        var host = Hanging(TimeSpan.FromMinutes(5));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.GetAsync(Repo, 7, cts.Token));
+    }
 }

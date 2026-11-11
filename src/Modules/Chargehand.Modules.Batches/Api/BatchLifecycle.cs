@@ -174,8 +174,7 @@ public sealed partial class BatchLifecycle(IRunLog log, string? stateDirectory =
         context.Span?.SetTag("chargehand.error.code", result.Error is { } failure ? JsonNamingPolicy.SnakeCaseLower.ConvertName(failure.Code.ToString()) : null);
         if (result.Status != ResultStatus.Completed)
             context.Span?.SetStatus(ActivityStatusCode.Error, result.Error?.Message);
-        await log.AppendAsync(new RunRecord(context.RunId, context.Started, DateTimeOffset.UtcNow, context.Request.Context.Preset, null, null, result, Actor: context.Actor),
-            context.CancelledByCaller() ? CancellationToken.None : context.Ct);
+        await log.AppendAsync(new RunRecord(context.RunId, context.Started, DateTimeOffset.UtcNow, context.Request.Context.Preset, null, null, result, Actor: context.Actor), context.CancelledByCaller() ? CancellationToken.None : context.Ct);
         await EndStepsAsync(context.RunId);
         _pauses.TryRemove(context.RunId, out _);
         context.Progress?.Invoke(RunStatus.Of(context.RunId, RunStatus.StateOf(result.Status), RunEventKind.RunFinished) with { Result = result });

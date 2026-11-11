@@ -4,8 +4,9 @@ using System.Text.RegularExpressions;
 namespace Chargehand.Evals;
 
 /// <summary>One item's paired runs: quality 0–1 and cost of base and change. Null cost (ADR 0026): the arm's model
-/// had no price entry; it carries no cost ratio and contributes nothing to the total (not zeroed-and-counted).</summary>
-public sealed record Pair(string ItemId, double BaseQuality, double ChangeQuality, decimal? BaseUsd, decimal? ChangeUsd);
+/// had no price entry; it carries no cost ratio and contributes nothing to the total (not zeroed-and-counted). Tokens: input,
+/// output and cache tokens of the arm's run; null where the run reports no usage (intake).</summary>
+public sealed record Pair(string ItemId, double BaseQuality, double ChangeQuality, decimal? BaseUsd, decimal? ChangeUsd, long? BaseTokens = null, long? ChangeTokens = null);
 
 /// <summary>A trade declared in the pull request: quality may fall to <paramref name="Quality"/> if cost changes by at most <paramref name="Cost"/>.</summary>
 /// <param name="Quality">Lowest mean paired quality change accepted, e.g. -0.15.</param>

@@ -1,0 +1,10 @@
+{
+  "levers": [
+    { "id": "terse-worker-prompt", "kind": "prompt", "block": "core/worker", "file": "levers/worker-terse.md",
+      "note": "prompt language: the worker block in telegraphic English, same rules and result shape, about a third fewer characters" },
+    { "id": "effort-low", "kind": "effort", "value": "low",
+      "note": "output and thinking budget: every node kind's model runs with reasoning effort low (#low)" },
+    { "id": "compact-at-30k", "kind": "compaction", "value": "30000",
+      "note": "context trimming: compact the session once a call's context passes 30k tokens instead of the preset's 60k" }
+  ]
+}

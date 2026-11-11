@@ -114,6 +114,9 @@ internal static class ConsoleRoutes
             return Json(await ConsoleCost.BuildAsync(Context(ctx), costStates, PrincipalHttp.Of(ctx), ctx.RequestAborted));
         });
 
+        app.MapGet("/v1/router", async (HttpContext ctx) =>
+            ChargehandServer.OwnerOnly(ctx) ?? Json(await ConsoleRouter.BuildAsync(Context(ctx), ctx.RequestAborted)));
+
         app.MapGet("/v1/repositories", async (HttpContext ctx) =>
         {
             return Json(await ConsoleRepositories.BuildAsync(Context(ctx), PrincipalHttp.Of(ctx), ctx.RequestAborted));

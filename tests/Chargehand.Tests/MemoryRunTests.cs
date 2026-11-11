@@ -3,7 +3,6 @@ using Chargehand.Contracts;
 using Chargehand.Mcp;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
-using Chargehand.RunLog;
 using static Chargehand.Tests.MemoryStackTests;
 
 namespace Chargehand.Tests;
@@ -158,7 +157,7 @@ public class MemoryRunTests
         var log = new JsonlRunLog(Path.Combine(root.Path, "log.jsonl"));
         var request = Runs.CheapRequest(repo) with { Inputs = [new CallerInput("rel-v1", "signal", "Released v1.")] };
 
-        var result = await Make(root.Path, runtime, MemoryStacks.From(profile, pool), log)
+        var result = await Make(root.Path, runtime, MemoryStacks.From(profile.Memory, pool), log)
             .RunAsync(request, CancellationToken.None);
 
         Assert.Equal(ResultStatus.Completed, result.Status);
