@@ -111,6 +111,8 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
 
     private async Task<Start> StartAsync(ScheduleEntry entry, DateTimeOffset last, IBatchStarter starter, DateTimeOffset now, CancellationToken ct)
     {
+        if (entry.Template == ScheduleTemplates.ClaimDrift)
+            return await ClaimDriftAsync(entry, now, ct);
         if (entry.Kind() == ScheduleKind.Report)
         {
             await PostAsync(MorningReport.Title(now), MorningReport.Format(await morning.ReadAsync(now - MorningReport.Window, ct)), ct);
@@ -177,6 +179,17 @@ public sealed class Scheduler(AutomationSchedules settings, IRunLog log, IReposi
         entry.Template == ScheduleTemplates.FlakyTests && flakes is not null && await flakes.ReadAsync(entry.Repository!.Path, ct) is { } history
             ? FlakyTestsGoal.Compose(history)
             : entry.Text()!;
+
+    private async Task<Start> ClaimDriftAsync(ScheduleEntry entry, DateTimeOffset now, CancellationToken ct)
+    {
+        var found = ClaimDriftReport.Findings(entry.Repository!.Path);
+        var reported = state.Taken.GetValueOrDefault(entry.Id) ?? [];
+        var text = ClaimDriftReport.Format(found, reported);
+        if (text is not null)
+            await PostAsync(ClaimDriftReport.Title(now), text, ct);
+        state.Taken[entry.Id] = [.. found.Select(f => f.Key)];
+        return text is null ? Start.Nothing : Start.Started;
+    }
 
     private async Task PostAsync(string title, string body, CancellationToken ct)
     {

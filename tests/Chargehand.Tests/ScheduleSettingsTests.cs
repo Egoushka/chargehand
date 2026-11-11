@@ -41,6 +41,14 @@ public class ScheduleSettingsTests
     }
 
     [Fact]
+    public void Claim_drift_template_validates()
+    {
+        Assert.Contains("claim-drift", ScheduleTemplates.Names);
+        var drift = Load("{\"notify_url\":\"https://ntfy.example/topic\",\"entries\":[{\"id\":\"cd\",\"at\":\"daily 05:00\",\"template\":\"claim-drift\",\"repository\":{\"path\":\"/srv/repos/repo\"}}]}").Automation!.Schedules!.Entries![0];
+        Assert.Equal((ScheduleKind.Report, 4, null), (drift.Kind(), drift.Cap(), drift.Text()));
+    }
+
+    [Fact]
     public void A_free_goal_is_read_only_unless_it_says_driven()
     {
         Assert.Equal(ScheduleKind.ReadOnly, Load(Entry("\"goal\":\"List the TODOs\"")).Automation!.Schedules!.Entries![0].Kind());
@@ -67,6 +75,8 @@ public class ScheduleSettingsTests
     [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","template":"doc-drift"}]}""", "repository.path")]
     [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","template":"morning-report"}]}""", "needs notify_url")]
     [InlineData("""{"notify_url":"ntfy.example/topic","entries":[{"id":"a","at":"daily 04:00","template":"morning-report"}]}""", "notify_url must be")]
+    [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","template":"claim-drift","repository":{"path":"/p"}}]}""", "claim-drift needs notify_url")]
+    [InlineData("""{"notify_url":"https://ntfy.example/t","entries":[{"id":"a","at":"daily 04:00","template":"claim-drift"}]}""", "repository.path")]
     [InlineData("""{"entries":[{"id":"a","at":"daily 04:00","goal":"x","batch":true}]}""", "batch needs automation.schedules.batch")]
     [InlineData("""{"batch":{"base_url":"https://g.example","model":"m","key_secret":"k"},"entries":[{"id":"a","at":"daily 04:00","goal":"x","driven":true,"batch":true}]}""", "batch applies to a read-only goal")]
     [InlineData("""{"batch":{"base_url":"https://g.example","model":"m","key_secret":"k"},"entries":[{"id":"a","at":"daily 04:00","template":"doc-drift","batch":true,"repository":{"path":"/p"}}]}""", "batch applies to a read-only goal")]

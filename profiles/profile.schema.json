@@ -606,7 +606,7 @@
                 "properties": {
                   "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,39}$", "description": "Lowercase letters, digits and hyphens, 1 to 40 characters. Names the entry in the state file, the logs and the notification title." },
                   "at": { "type": "string", "pattern": "^(daily|weekly (mon|tue|wed|thu|fri|sat|sun)|monthly ([1-9]|1[0-9]|2[0-8])) ([01][0-9]|2[0-3]):[0-5][0-9]$", "description": "daily HH:MM, weekly <mon..sun> HH:MM or monthly <1-28> HH:MM, in UTC. Not cron." },
-                  "template": { "enum": ["dependency-upgrades", "doc-drift", "flaky-tests", "morning-report", "security-alerts"], "description": "A built-in. Exactly one of template and goal." },
+                  "template": { "enum": ["claim-drift", "dependency-upgrades", "doc-drift", "flaky-tests", "morning-report", "security-alerts"], "description": "A built-in. Exactly one of template and goal." },
                   "goal": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "Free text, run read-only on the default preset unless driven. Exactly one of template and goal." },
                   "driven": { "type": "boolean", "default": false, "description": "With goal only: run it as a driven batch of one task that may open a pull request." },
                   "repository": {

@@ -102,8 +102,8 @@ public sealed record ScheduleEntry(string Id, string At, string? Template = null
     {
         var kind = Kind();
         if (kind == ScheduleKind.Driven && !drivenEnabled) yield return $"{Name}: a driven entry needs driven.enabled";
-        if (kind == ScheduleKind.Report && !hasNotifyUrl) yield return $"{Name}: morning-report needs notify_url";
-        if (kind != ScheduleKind.Report && !Batch && string.IsNullOrWhiteSpace(Repository?.Path)) yield return $"{Name}: repository.path must be the server's checkout of the repository";
+        if (kind == ScheduleKind.Report && !hasNotifyUrl) yield return $"{Name}: {Template} needs notify_url";
+        if ((kind != ScheduleKind.Report || Template == ScheduleTemplates.ClaimDrift) && !Batch && string.IsNullOrWhiteSpace(Repository?.Path)) yield return $"{Name}: repository.path must be the server's checkout of the repository";
     }
 
     private IEnumerable<string> BatchProblems(bool hasBatchLane)

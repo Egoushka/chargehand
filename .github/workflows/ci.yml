@@ -66,6 +66,9 @@ jobs:
       - run: dotnet format --verify-no-changes --no-restore
       - run: dotnet build --no-restore -c Release -warnaserror
       - run: dotnet test --no-build -c Release
+      # Specs/2026-11-11-claim-drift-watch.md: what the guide pages cite (<!-- cites: ... -->) still exists. Notify-only: runs on main and on code pull requests.
+      - name: Guide citations are checked
+        run: dotnet run --no-build -c Release --project src/Chargehand.Cli -- claims check --root .
       - name: The current version has a changelog section
         run: scripts/release-notes.sh "$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)" > /dev/null
 

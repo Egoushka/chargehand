@@ -103,6 +103,8 @@ const string Usage = """
       doctor [--profile <path>]    checks a setup, one ok/warn/fail line per check with the fix; exit 1 when a check fails
       incident <repo path> [--commit <ref>]
                                    reads an alert on stdin (Alertmanager or Grafana webhook JSON, or text) and prints a request/v1 for the incident preset; pipe it to run
+      claims check [--root <dir>] [--changed-since <ref>] [--test-list <file>] [--json]
+                                   checks that what docs/guide cites (cites markers) still exists; exit 0 clean, 1 a line per finding (no profile)
       release-notes <repo path> --from <tag or commit> [--to <ref>]
                                    prints a request/v1 for the release-notes preset, the range's commits as inputs (git only); pipe it to run
     prompts/ and presets/ come from the current directory when it has both (a checkout), else from the install; the
@@ -225,6 +227,9 @@ if (argv is ["incident", .. var incidentArgs])
 // Profile-free: it reads a repository's git log and prints a request for `run` (CHARGEHAND-191).
 if (argv is ["release-notes", .. var releaseNotesArgs])
     return await Chargehand.ReleaseNotes.ReleaseNotesCli.RunAsync(releaseNotesArgs, Directory.GetCurrentDirectory(), Console.Out, Console.Error, CancellationToken.None);
+// Profile-free: it checks that what docs/guide cites still exists in the working tree (#785).
+if (argv is ["claims", .. var claimsArgs])
+    return await Chargehand.Automation.ClaimsCli.RunAsync(claimsArgs, Directory.GetCurrentDirectory(), Console.Out, Console.Error, CancellationToken.None);
 // Reads git blame and, where it can, the run log (ADR 0074): with no profile or no log it still answers from the commit's trailers.
 if (argv is ["why", .. var whyArgs])
 {
