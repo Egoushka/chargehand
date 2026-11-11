@@ -401,4 +401,87 @@ public class PullReviewTests
         Assert.True(process.ExitCode == 0, $"git {string.Join(' ', args)}: {process.StandardError.ReadToEnd()}");
         return output.Trim();
     }
+
+    private static AutomationGitHub Off(int concurrent = 2) =>
+        new(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, [IntakeRig.Author], MaxConcurrent: concurrent);
+
+    private static async Task<IntakeRig> Asked(string body = "@chargehand review", string author = IntakeRig.Author, bool draft = false, string pullAuthor = "carol", AutomationGitHub? settings = null)
+    {
+        var rig = new IntakeRig(settings ?? Off());
+        await rig.Poll();
+        rig.OpenPull(5, Sha, pullAuthor, draft);
+        rig.Pull(5);
+        rig.Comment(5, author, body);
+        await rig.Poll();
+        return rig;
+    }
+
+    [Fact]
+    public async Task A_review_comment_from_an_allowed_author_reviews_the_head_once_with_review_pulls_off()
+    {
+        using var rig = await Asked();
+
+        var request = Assert.Single(rig.Starter.Started);
+        Assert.True(Valid(request));
+        Assert.Equal(("review", false, new RepositoryRef("/srv/repos/repo", Sha)), (request.Context.Preset, request.Context.Interactive, request.Context.Repository));
+        rig.Log.Finish("run-1", ResultStatus.Completed, "Looks fine.");
+        await rig.Poll();
+        Assert.Contains(PullReviews.MarkerFor(Sha), Assert.Single(rig.GitHub.Posted).Body);
+
+        rig.Comment(5, IntakeRig.Author, "@chargehand review");
+        await rig.Poll();
+        Assert.Single(rig.Starter.Started);
+    }
+
+    [Fact]
+    public async Task A_review_comment_from_an_author_who_is_not_allowed_starts_nothing()
+    {
+        using var rig = await Asked(author: "mallory");
+        Assert.Empty(rig.Starter.Started);
+    }
+
+    [Fact]
+    public async Task A_draft_and_a_bots_pull_request_are_reviewed_when_asked()
+    {
+        using var draft = await Asked(draft: true);
+        Assert.Single(draft.Starter.Started);
+        using var bot = await Asked(pullAuthor: "dependabot[bot]");
+        Assert.Single(bot.Starter.Started);
+    }
+
+    [Fact]
+    public async Task A_quoted_review_request_and_a_longer_word_are_not_requests()
+    {
+        using var quoted = await Asked("> @chargehand review\nthanks");
+        Assert.Empty(quoted.Starter.Started);
+        using var longer = await Asked("@chargehand reviewer please");
+        Assert.DoesNotContain(longer.Starter.Started, r => r.Context.Preset == "review");
+        using var split = await Asked("thanks @chargehand\nreview the naming in Foo.cs");
+        Assert.DoesNotContain(split.Starter.Started, r => r.Context.Preset == "review");
+        using var hyphen = await Asked("@chargehand review-me");
+        Assert.DoesNotContain(hyphen.Starter.Started, r => r.Context.Preset == "review");
+    }
+
+    [Fact]
+    public async Task A_request_waits_while_max_concurrent_is_full_and_a_new_push_can_be_reviewed_again()
+    {
+        using var rig = await Asked(settings: Off(concurrent: 1));
+        rig.OpenPull(6, Sha2);
+        rig.Pull(6);
+        rig.Comment(6, IntakeRig.Author, "@chargehand review");
+        await rig.Poll();
+        Assert.Single(rig.Starter.Started);
+
+        rig.Log.Finish("run-1", ResultStatus.Completed, "Fine.");
+        await rig.Poll();
+        await rig.Poll();
+        Assert.Equal(2, rig.Starter.Started.Count);
+
+        rig.OpenPull(5, Sha2);
+        rig.Comment(5, IntakeRig.Author, "@chargehand review");
+        rig.Log.Finish("run-2", ResultStatus.Completed, "Fine.");
+        await rig.Poll();
+        await rig.Poll();
+        Assert.Equal(3, rig.Starter.Started.Count);
+    }
 }

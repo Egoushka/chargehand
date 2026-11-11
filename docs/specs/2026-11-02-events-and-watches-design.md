@@ -7,6 +7,8 @@
   parked and the first consumers changed; see [Parked](#parked) and [Re-check after parking](#re-check-after-parking-2026-11-02).
   His answers to the open choices are recorded below; Task 1 (ADR 0090) starts from them.
 - Date: 2026-11-02
+- Addendum: [Threads and resume cards](2026-11-08-threads-and-resume-cards.md) (2026-11-08): `thread.step.recorded`, the
+  threads view and resume card, and the reserved `signal.rule.fired` and `wake.job.*` types
 - ADR: 0090 (Task 1 writes it from the Decisions below); switchknife ADR 0007 for the Journal change
 - Builds on: [ADR 0061](../adr/0061-driven-step-journal.md) (step journal), [0068](../adr/0068-scheduled-work-within-a-monthly-cap.md)
   (schedules and their monthly cap), [0086](../adr/0086-one-core-doors-in-and-doors-out.md) (one core, doors in and

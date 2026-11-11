@@ -13,14 +13,13 @@ using Chargehand.Mcp;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Conversations.Api;
+using Chargehand.Modules.Events.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.PeerClones.Api;
 using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.OpenCode;
-using Chargehand.Prompts;
-using Chargehand.RunLog;
 using Chargehand.Runtime;
 using Chargehand.Runtimes.Acp.Api;
 using Chargehand.Runtimes.ClaudeCode.Api;
@@ -48,6 +47,7 @@ const string Usage = """
       runs replay <actions.jsonl>  prints a recorded run's tool calls and handover steps in order, read-only (ADR 0090)
       runs kill --all              removes every driven-session container and batch network by label (works with the server down)
       learn report [--since <days>d|<time>] [--include-bench]
+      learn phases [--last <runs>]  median wall seconds per run phase (clone, restore, model turns, checks, handover) over the last runs, 30 by default
                                    what finished driven tasks taught, per repository and size class: spend, completion, governor checkpoints,
                                    how their pull requests ended (reads learning.jsonl next to the run log; the server writes it)
       cost [--json]                dollars per merged pull request per repository and preset over 7 and 30 days, and the spend that left
@@ -79,6 +79,9 @@ const string Usage = """
       eval gate <base> <change> [--cells a,b] [--changed-files f] [--pr-body f] [--name n] [--cells-file f]
                                    [--change-cells-file f] [--allow-uncovered]
                                    paired runs of the base and change prompts/ and presets/; exit 1 when blocked
+      eval levers [--levers f] [--cells a,b] [--pass q] [--name n] [--work d]
+                                   token-saving levers (evals/levers.json) paired against this checkout over the cells' items:
+                                   tokens and pass rate per cell, preset and lever (docs/guide/token-levers.md)
       prompts sync                 pushes prompt blocks to Langfuse prompt management
       extensions check [--preset <name>] [--probe <query>]
                                    connects each mcp_servers entry, checks the memory mappings and the presets' services
@@ -133,7 +136,7 @@ if (argv is ["watch" or "cancel", var watchRun, .. var watchOptions])
 {
     using var stop = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-    var (client, problem) = Chargehand.Watch.WatchCli.Connect(watchOptions, Environment.GetEnvironmentVariable, ProfileServer);
+    var (client, problem) = Chargehand.Modules.Watch.Api.WatchCli.Connect(watchOptions, Environment.GetEnvironmentVariable, ProfileServer);
     if (client is null)
     {
         Console.Error.WriteLine(problem);
@@ -141,8 +144,8 @@ if (argv is ["watch" or "cancel", var watchRun, .. var watchOptions])
     }
     using (client)
         return argv[0] == "watch"
-            ? await Chargehand.Watch.WatchCli.WatchAsync(client, watchRun, Console.Out, Console.Error, stop.Token)
-            : await Chargehand.Watch.WatchCli.CancelAsync(client, watchRun, Console.Out, Console.Error, stop.Token);
+            ? await Chargehand.Modules.Watch.Api.WatchCli.WatchAsync(client, watchRun, Console.Out, Console.Error, stop.Token)
+            : await Chargehand.Modules.Watch.Api.WatchCli.CancelAsync(client, watchRun, Console.Out, Console.Error, stop.Token);
 }
 // Profile-free too: the egress container of a driven-session batch holds an allowlist and nothing else (ADR 0039).
 if (argv is ["egress", .. var egressArgs])
@@ -201,7 +204,7 @@ if (argv is ["bench", "run", .. var benchRunArgs])
     using var stop = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Bench.BenchCli.RunAsync(benchRunArgs, benchProfile, DrivenPresetAllow(), BenchLimits(), () => BenchEngines(benchProfile),
-        connectArgs => Chargehand.Watch.WatchCli.Connect(connectArgs, Environment.GetEnvironmentVariable, ProfileServer), Environment.GetEnvironmentVariable,
+        connectArgs => Chargehand.Modules.Watch.Api.WatchCli.Connect(connectArgs, Environment.GetEnvironmentVariable, ProfileServer), Environment.GetEnvironmentVariable,
         Directory.GetCurrentDirectory(), Console.Out, Console.Error, stop.Token);
 }
 if (argv is ["bench", ..])
@@ -214,7 +217,7 @@ if (argv is ["init", .. var initArgs])
     return Chargehand.Onboarding.InitCli.Run(initArgs, Directory.GetCurrentDirectory(), profilePath, DrivenPresetAllow(), Console.Out, Console.Error);
 // Profile-free: it maps an alert to a request for `run` (CHARGEHAND-192).
 if (argv is ["incident", .. var incidentArgs])
-    return await Chargehand.Incident.IncidentCli.RunAsync(incidentArgs, Directory.GetCurrentDirectory(), Console.In, Console.Out, Console.Error, DateTimeOffset.UtcNow, CancellationToken.None);
+    return await Chargehand.Modules.Intake.Api.IncidentCli.RunAsync(incidentArgs, Directory.GetCurrentDirectory(), Console.In, Console.Out, Console.Error, DateTimeOffset.UtcNow, CancellationToken.None);
 // Profile-free: it reads a repository's git log and prints a request for `run` (CHARGEHAND-191).
 if (argv is ["release-notes", .. var releaseNotesArgs])
     return await Chargehand.ReleaseNotes.ReleaseNotesCli.RunAsync(releaseNotesArgs, Directory.GetCurrentDirectory(), Console.Out, Console.Error, CancellationToken.None);
@@ -243,7 +246,7 @@ if (argv is ["adopt", .. var adoptArgs])
     using var stop = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
     return await Chargehand.Onboarding.AdoptCli.RunAsync(adoptArgs, profilePath, new Chargehand.Onboarding.SystemAdoptHost(),
-        connectArgs => Chargehand.Watch.WatchCli.Connect(connectArgs, Environment.GetEnvironmentVariable, ProfileServer), Console.Out, Console.Error, stop.Token);
+        connectArgs => Chargehand.Modules.Watch.Api.WatchCli.Connect(connectArgs, Environment.GetEnvironmentVariable, ProfileServer), Console.Out, Console.Error, stop.Token);
 }
 if (argv is ["doctor", .. var doctorArgs])
 {
@@ -289,11 +292,13 @@ switch (argv)
     case ["mcp"]:
         return await Mcp();
     case ["accounts", .. var accountArgs]:
-        return AccountsCli.Run(accountArgs, profile, AccountsCli.KeysFile(runLogPath), Console.Out, Console.Error);
+        return AccountsCli.Run(accountArgs, profile.Http?.Accounts ?? [], AccountsCli.KeysFile(runLogPath), Console.Out, Console.Error);
     case ["show", var id]:
         return await Show(id);
     case ["runs", "kill", "--all"]:
         return await Chargehand.Modules.Runners.Api.RunsCli.KillAllAsync(new Chargehand.Modules.Runners.Api.DockerCliEngine(), Console.Out, Console.Error, ct);
+    case ["learn", "phases", .. var phaseOptions]:
+        return await Chargehand.Modules.Oversight.Api.LearningCli.PhasesAsync(phaseOptions, learning, Console.Out, Console.Error, ct);
     case ["learn", "report", .. var learnOptions]:
         return await Chargehand.Modules.Oversight.Api.LearningCli.RunAsync(learnOptions, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow, ct);
     case ["cost", .. var costOptions]:
@@ -332,6 +337,8 @@ switch (argv)
         return await EvalSupport(examplesFile);
     case ["eval", "score-claims", var claimsFile, .. var scoreOptions]:
         return await EvalScoreClaims(claimsFile, scoreOptions);
+    case ["eval", "levers", .. var options]:
+        return await EvalLevers(options);
     case ["eval", "gate", var baseRoot, var changeRoot, .. var options]:
         return await EvalGate(Path.GetFullPath(baseRoot), Path.GetFullPath(changeRoot), options);
     case ["prompts", "sync"]:
@@ -431,7 +438,7 @@ async Task<int> Run()
     }
     tracing?.ForceFlush(10_000);
 
-    Console.WriteLine(JsonSerializer.Serialize(result, new JsonSerializerOptions(ContractJson.Options) { WriteIndented = true }));
+    Console.WriteLine(JsonSerializer.Serialize(result, CliJson.Indented));
     return result.Status switch { ResultStatus.Completed => 0, ResultStatus.NeedsInput => 3, _ => 1 };
 }
 
@@ -470,7 +477,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
     // What the operator console reads about a batch (events, sessions, governor decisions, checks) sits there too, one directory per batch.
     var records = new BatchRecords(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "records"));
     if (profile.Driven is not { Enabled: true } driven)
-        return new Chargehand.Driven.DrivenRun(profile, runLog, root, null, learning: learning, records: records);
+        return new Chargehand.Driven.DrivenRun(profile, runLog, root, null, learning: learning, records: records, routing: orchestrator.Routing);
     Chargehand.Modules.Runners.Api.IContainerEngine engine;
     Chargehand.Modules.Runners.Api.IWorkspaceEngine workspace;
     Chargehand.Modules.Runners.Api.IHostSource hostSource;
@@ -520,7 +527,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
         AppToken: AppTokens(driven) is { } appTokens ? (remote, token) => appTokens.GetAsync(remote.Owner, remote.Name, token) : null),
         stateDirectory, learning, records,
         profile.ClaudeCode is { ApiFallbackKeySecret: not null, ApiFallbackDailyUsd: { } fallbackUsd }
-            ? ApiFallback.For(fallbackUsd, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "api-fallback.json")) : null);
+            ? ApiFallback.For(fallbackUsd, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "api-fallback.json")) : null, orchestrator.Routing);
 }
 
 // GitHub's API root: api.github.com, or the Enterprise host the profile's driven.forge names. The E2E switch exists for scripts/driven-e2e.sh only.
@@ -556,7 +563,8 @@ Chargehand.Automation.GitHubIntake? GitHubIntake(Chargehand.Driven.DrivenRun? dr
     var clones = new Chargehand.Automation.ManagedClones(profile.ClonesRoot, tokens.GetAsync);
     return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state,
         integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "sources.json")), clones: clones,
-        subscriptionResetsAt: now => drivenRun?.RateLimitPauses(now) is { Count: > 0 } pauses ? pauses.Max(p => p.ResetsAt) : null);
+        subscriptionResetsAt: now => drivenRun?.RateLimitPauses(now) is { Count: > 0 } pauses ? pauses.Max(p => p.ResetsAt) : null,
+        poolsRoomAt: drivenRun is null ? null : (path, ct) => drivenRun.PoolsRoomAtAsync(Chargehand.Automation.GitHubIntake.Preset, path, ct));
 }
 
 // The managed clones a read-only checkout falls back to, fetched with the integrator App's token; null without an App, and the checkout's own commit is used.
@@ -628,11 +636,18 @@ bool SecretResolves(string item)
     }
 }
 
+/// <summary>The event log (ADR 0090) of <c>http.events</c>, in <c>events.db</c> beside the run log unless the profile names the file; each producer's token resolved from the secret store.</summary>
+EventService? EventLog(EventsSettings? events) =>
+    events is null
+        ? null
+        : new EventService(SqliteEventLog.Open(events.Database ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "events.db")),
+            [.. (events.Tokens ?? []).Select(t => (t.Grant(), profile.Secret(t.Secret)))]);
+
 /// <summary>The runtime conversations reach agents through (ADR 0086): null is the module's scripted agent; <c>acp</c> is the pinned list's agents, each on the key the profile gives it.</summary>
 IConversationRuntime? ConversationRuntime(ConversationSettings? conversations, Orchestrator orchestrator) =>
     conversations is { Runtime: "acp" }
         ? new AcpConversationRuntime(AcpAgentCatalog.Load(profile.Acp?.AgentsFile ?? Path.Combine(root, AcpAgentCatalog.FileName)), profile.Acp ?? new AcpSettings(), profile.Secret,
-            orchestrator.CheckoutForConversationAsync, new Chargehand.Acp.AcpSandboxLauncher(Chargehand.Sandbox.SandboxSelector.Select(profile.Sandbox)))
+            orchestrator.CheckoutForConversationAsync, new Chargehand.Acp.AcpSandboxLauncher(Chargehand.Modules.Research.Api.SandboxSelector.Select(profile.Sandbox)))
         : null;
 
 /// <summary>The free-model pool for public repositories (ADR 0093), or null without a <c>public_free</c> block. Its key is resolved on the first pool run; the GitHub token, if any, now.</summary>
@@ -691,7 +706,7 @@ async Task<int> Serve()
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), DailyWarningPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "limits", "daily-warning.json"), RunApprovalPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "limits", "run-approval.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn, Probes: HealthProbes(),
         Conversations: http.Conversations, ConversationsDirectory: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "conversations"),
-        ConversationRuntime: ConversationRuntime(http.Conversations, orchestrator)),
+        ConversationRuntime: ConversationRuntime(http.Conversations, orchestrator), Events: EventLog(http.Events)),
         orchestrator, runLog, drivenRun, GitHubIntake(drivenRun), Schedules(drivenRun), PhoneAnswers());
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");
@@ -785,6 +800,31 @@ async Task<int> EvalGate(string baseRoot, string changeRoot, IReadOnlyList<strin
     return blocked.Count > 0 || blockedByUncovered ? 1 : 0;
 }
 
+/// <summary>Issue #780: each lever's prompts/ and presets/ paired against this checkout's over the cells' items.</summary>
+async Task<int> EvalLevers(IReadOnlyList<string> options)
+{
+    string? Option(string name) => options.SkipWhile(o => o != name).Skip(1).FirstOrDefault();
+    var all = EvalCell.Load(Path.Combine(root, "evals", "cells.json"));
+    var cells = Option("--cells") is { } names
+        ? [.. names.Split(',').Select(n => all.FirstOrDefault(c => c.Name == n) ?? throw new ArgumentException($"no eval cell {n}"))]
+        : all.Where(c => c.Kind != "intake").ToList();
+    var leverFile = Path.GetFullPath(Option("--levers") ?? Path.Combine(root, "evals", "levers.json"));
+    var name = Option("--name") ?? $"levers-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
+    var pass = Option("--pass") is { } q ? double.Parse(q, CultureInfo.InvariantCulture) : LeverBench.DefaultPassQuality;
+    var work = Path.GetFullPath(Option("--work") ?? Path.Combine(root, "runs", "levers", name));
+
+    using var tracing = Tracing();
+    var (runtime, runtimeVersion) = await Connect();
+    var langfuse = Evals();
+    var runner = new EvalRunner(r => new Orchestrator(profile, runtime, runtimeVersion, r, runLog, new Dictionary<string, int>()), runtime, profile.IntakeModel,
+        runLog, langfuse, () => tracing?.ForceFlush(10_000), Console.Out);
+    var rows = await LeverBench.RunAsync(runner, cells, Lever.Load(leverFile), Path.GetDirectoryName(leverFile)!, async c => await langfuse.ItemsAsync(c.Dataset, ct),
+        root, work, name, pass, ct);
+    Console.WriteLine();
+    Console.Write(LeverBench.Table(rows));
+    return 0;
+}
+
 EvalCell Cell(string name) =>
     EvalCell.Load(Path.Combine(root, "evals", "cells.json")).FirstOrDefault(c => c.Name == name) ?? throw new ArgumentException($"no eval cell {name} in evals/cells.json");
 
@@ -796,7 +836,7 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
         // ADR 0086: the agent comes from the pinned list, its key from a secret item, and the sandbox is chosen now so a machine without one refuses the run before it starts.
         var agent = AcpAgentCatalog.Load(profile.Acp?.AgentsFile ?? Path.Combine(root, AcpAgentCatalog.FileName))
             .Get(RuntimeSelector.AcpAgent(profile.Runtime, Environment.GetEnvironmentVariable("CHARGEHAND_RUNTIME"))!);
-        var acp = new Chargehand.Acp.AcpWorkerRuntime(agent, AcpLaunchEnvironment.Build(agent, profile.Acp?.CredentialFor(agent.Id), profile.Secret), Chargehand.Sandbox.SandboxSelector.Select(profile.Sandbox));
+        var acp = new Chargehand.Acp.AcpWorkerRuntime(agent, AcpLaunchEnvironment.Build(agent, profile.Acp?.CredentialFor(agent.Id), profile.Secret), Chargehand.Modules.Research.Api.SandboxSelector.Select(profile.Sandbox));
         return (acp, acp.Version);
     }
     if (kind == RuntimeKind.ClaudeCode)
@@ -840,7 +880,7 @@ async Task<(IWorkerRuntime Runtime, string Version)> Connect()
     return (runtime, runtime.Version);
 }
 
-MemoryStack? Memory() => MemoryStacks.From(profile, mcpPool);
+MemoryStack? Memory() => MemoryStacks.From(profile.Memory, mcpPool);
 
 Chargehand.Enhancement.IPromptEnhancer? Enhancer() => PromptEnhancers.From(profile, mcpPool);
 
@@ -999,4 +1039,10 @@ TracerProvider? Tracing()
             o.Headers = $"Authorization=Basic {basic}";
         })
         .Build();
+}
+
+/// <summary>The options the CLI prints a result with, built once (CA1869).</summary>
+file static class CliJson
+{
+    public static readonly JsonSerializerOptions Indented = new(ContractJson.Options) { WriteIndented = true };
 }

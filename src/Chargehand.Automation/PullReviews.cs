@@ -19,6 +19,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
     private const int MaxLocator = 120;
 
     private readonly HashSet<string> _stale = [];
+    private readonly HashSet<string> _requested = new(StringComparer.OrdinalIgnoreCase);
 
     public static string MarkerFor(string sha) => $"<!-- chargehand-review {sha} -->";
 
@@ -26,22 +27,41 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
 
     private static string Key(string repository, int number, string sha) => $"{repository}#{number.ToString(CultureInfo.InvariantCulture)}@{sha}";
 
-    /// <summary>Starts a review for each pull request whose head commit has none. No free slot or a busy server leaves the rest for a later poll. A repository the owner left out of reviews (<paramref name="policy"/>) is skipped,
-    /// and its pull requests are reviewed once it is put back.</summary>
-    public async Task StartAsync(string name, AutomationRepository repository, CheckoutSources checkouts, IBatchStarter starter, IntakeSources policy, CancellationToken ct)
+    private static string Asked(string repository, int number) => $"{repository}#{number.ToString(CultureInfo.InvariantCulture)}";
+
+    /// <summary>An allowed author asked for a review of this pull request (<c>@chargehand review</c>): its current head is reviewed on a coming poll even with <c>review_pulls</c> off, a draft or a bot's pull request
+    /// included. The request is kept in memory only: a restart before the review starts drops it.</summary>
+    public void Request(string repository, int number) => _requested.Add(Asked(repository, number));
+
+    public bool HasRequests(string repository) => _requested.Any(r => r.StartsWith(repository + "#", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Starts a review for each pull request whose head commit has none (<paramref name="all"/> off: only for the requested ones). No free slot or a busy server leaves the rest for a later poll. A repository the
+    /// owner left out of reviews (<paramref name="policy"/>) is skipped, and its pull requests are reviewed once it is put back.</summary>
+    public async Task StartAsync(string name, AutomationRepository repository, CheckoutSources checkouts, IBatchStarter starter, IntakeSources policy, bool all, CancellationToken ct)
     {
         if (!policy.ReviewsOn(name))
             return;
-        foreach (var pull in await host.OpenPullsAsync(name, ct))
+        var pulls = await host.OpenPullsAsync(name, ct);
+        // A request for a pull request that is no longer open is dropped.
+        _requested.RemoveWhere(r => r.StartsWith(name + "#", StringComparison.OrdinalIgnoreCase) && !pulls.Any(p => Asked(name, p.Number).Equals(r, StringComparison.OrdinalIgnoreCase)));
+        foreach (var pull in pulls)
         {
-            if (pull.Draft || pull.Author.EndsWith("[bot]", StringComparison.OrdinalIgnoreCase) || pull.HeadSha.Length < 7 || state.Reviewed.Contains(Key(name, pull.Number, pull.HeadSha)))
+            var asked = _requested.Contains(Asked(name, pull.Number));
+            if (!asked && (!all || pull.Draft || pull.Author.EndsWith("[bot]", StringComparison.OrdinalIgnoreCase)))
                 continue;
+            if (pull.HeadSha.Length < 7 || state.Reviewed.Contains(Key(name, pull.Number, pull.HeadSha)))
+            {
+                _requested.Remove(Asked(name, pull.Number));
+                continue;
+            }
             if (Full(policy))
                 return;
             try
             {
                 if (!await TryStartAsync(name, repository, pull, checkouts, starter, policy, ct))
                     return;
+                if (state.Reviewed.Contains(Key(name, pull.Number, pull.HeadSha)))
+                    _requested.Remove(Asked(name, pull.Number));
             }
             catch (IntakeException e)
             {

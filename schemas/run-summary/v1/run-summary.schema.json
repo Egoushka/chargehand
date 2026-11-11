@@ -24,6 +24,31 @@
     "kind": { "enum": ["single", "batch"], "description": "batch: a request with a driven block; single: any other." },
     "repository": { "type": ["string", "null"], "description": "context.repository.path of the request; null when it named none." },
     "commit": { "type": ["string", "null"], "description": "context.repository.commit of the request: the commit the run's citations are checked against." },
-    "tokens": { "type": ["integer", "null"], "minimum": 0, "description": "Input plus output tokens of the finished run's result; null while it runs." }
+    "tokens": { "type": ["integer", "null"], "minimum": 0, "description": "Input plus output tokens of the finished run's result; null while it runs." },
+    "credential": { "enum": ["api_key", "subscription", null], "description": "Who paid for the run (ADR 0082). Absent on a run from before the record held it, which counted as an API key. On a subscription, usd is the price table's figure, not money spent." },
+    "subscription_usage": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "minProperties": 3,
+      "description": "How much of the subscription's usage windows the run had used, as the provider last reported it while the run ran (ADR 0098): fractions of each window, not dollars. Absent when the run did not use a subscription or the provider reported nothing; never a zero standing for that.",
+      "properties": {
+        "used": { "type": "number", "minimum": 0, "description": "The larger window's utilization, a fraction of 1 (0.42 is 42 %). Above 1 means usage ran past the window's cap." },
+        "window": { "enum": ["five_hour", "seven_day"], "description": "Which window used is." },
+        "five_hour": { "$ref": "#/$defs/usage_window" },
+        "seven_day": { "$ref": "#/$defs/usage_window" }
+      },
+      "required": ["used", "window"]
+    }
+  },
+  "$defs": {
+    "usage_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["utilization"],
+      "properties": {
+        "utilization": { "type": "number", "minimum": 0, "description": "The fraction of the window used." },
+        "resets_at": { "type": ["string", "null"], "format": "date-time", "description": "When the window resets; absent when the provider did not say." }
+      }
+    }
   }
 }

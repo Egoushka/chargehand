@@ -1,0 +1,14 @@
+chargehand
+Copyright 2026 Yehor Hrabovskyi
+
+Licensing
+
+- Releases up to and including v0.19.19 were published under the Apache License,
+  Version 2.0 (LICENSE-APACHE-2.0). They remain available under Apache-2.0
+  permanently; this change does not withdraw that grant.
+- Versions after v0.19.19 are published under the Functional Source License,
+  Version 1.1, ALv2 Future License (FSL-1.1-ALv2), see LICENSE. Each version
+  converts to Apache License 2.0 on the second anniversary of the date it is made
+  available, as stated in LICENSE.
+
+The name "chargehand" is covered by TRADEMARK.md.

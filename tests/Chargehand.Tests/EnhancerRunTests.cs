@@ -3,7 +3,8 @@ using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Mcp;
 using Chargehand.Modules.Ledger.Api;
-using Chargehand.RunLog;
+using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.Research.Api;
 using ModelContextProtocol.Protocol;
 
 namespace Chargehand.Tests;

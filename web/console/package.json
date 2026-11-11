@@ -2,7 +2,7 @@
   "name": "chargehand-console",
   "private": true,
   "version": "0.0.0",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
   "description": "The chargehand operator console (ADR 0056): built with Vite, embedded in Chargehand.Server and served at /console/.",
   "type": "module",
   "engines": {

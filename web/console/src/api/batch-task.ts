@@ -20,6 +20,8 @@ export interface BatchTaskDetailBody {
   /** Files with their line counts, and the diff (cut to the result's inline limit). */
   changes?: unknown;
   review?: unknown;
+  /** The mutation check beside `verification`: score, threshold, survivors, killed, `not_run`; absent when the change was not checked. */
+  mutation?: unknown;
   /** What an unfinished task leaves for a continuation. */
   kept_work?: unknown;
   timeline: TimelineBody;

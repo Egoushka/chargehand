@@ -39,6 +39,15 @@ public sealed partial class PublicFreePool(PublicFreeSettings settings, IReposit
     {
         if (!enabled.Enabled || !IsForgeName(forge) || checkoutPath is not { Length: > 0 } || IsDenied(checkoutPath))
             return false;
+        return await IsPublicAsync(forge, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Whether GitHub says <paramref name="forge"/> is public, now: the lookup alone, with no regard to the pool's switch or the checkout's path. Only a public answer is remembered; a failure is not public.
+    /// The data-class gate of the budget router (ADR 0095) asks this too.</summary>
+    public async Task<bool> IsPublicAsync(string? forge, CancellationToken ct)
+    {
+        if (!IsForgeName(forge))
+            return false;
         var now = clock.GetUtcNow();
         if (_public.TryGetValue(forge!, out var until) && until > now)
             return true;

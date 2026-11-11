@@ -72,7 +72,8 @@ public sealed partial class TaskRunner
             partial ? LearningOutcome.Partial : outcome.State switch { TaskState.Completed => LearningOutcome.Completed, TaskState.NeedsInput => LearningOutcome.NeedsInput, _ => LearningOutcome.Failed },
             StopReason(last), settings.Governor is { } governor ? JsonNamingPolicy.SnakeCaseLower.ConvertName(governor.Mode.ToString()) : null, Summarize(decisions), handed?.TestIntegrity is not null,
             pr is not null && settings.Remote is { } remote ? new LearningPr(pr.Url, pr.Number, remote, head) : null, settings.Actor,
-            _memoryPeaks.TryGetValue(task.Id, out var peakMb) ? peakMb : null, IsBench, GoalTerms.Of(task.Goal));
+            _memoryPeaks.TryGetValue(task.Id, out var peakMb) ? peakMb : null, IsBench, GoalTerms.Of(task.Goal),
+            PhasesRecord(task.Id));
         try
         {
             await learning.AppendAsync(record, CancellationToken.None);
@@ -82,6 +83,11 @@ public sealed partial class TaskRunner
             Console.Error.WriteLine($"chargehand: could not write the learning record of task {task.Id}: {e.Message}");
         }
     }
+
+    private LearningPhases? PhasesRecord(string taskId) =>
+        _phases.TryGetValue(taskId, out var p) ? new LearningPhases(Round(p.Clone), Round(p.Restore), Round(p.ModelTurns), Round(p.Checks), Round(p.Handover)) : null;
+
+    private static double Round(double seconds) => Math.Round(seconds, 1);
 
     /// <summary>The task's budget (ADR 0045): its own, else a percentile of what past tasks of its size class cost when there are enough, else the flat one. Chosen once when the task starts, so its
     /// sessions all hold it to the same figure. Null without a governor.</summary>

@@ -115,6 +115,25 @@
     "replaces": ["cheap"],
     "intake_model": "mistral-free/mistral-medium-latest"
   },
+  "pools": {
+    "enabled": false,
+    "time_zone": "UTC",
+    "escalate_after": 2,
+    "default_tier": "small",
+    "owner_private_repos": ["owner/personal-notes", "other-account/*"],
+    "restricted_path_segments": ["work"],
+    "tiers": [
+      { "name": "small", "models": ["mistral-free/mistral-medium-latest", "provider/small-model"] },
+      { "name": "large", "models": ["provider/large-model"] }
+    ],
+    "routes": { "intake": "small", "driven": "small", "driven/L": "large", "review": "large", "code": "small", "code/L": "large" },
+    "order": [
+      { "name": "free", "kind": "free", "models": ["mistral-free/mistral-medium-latest"] },
+      { "name": "credit", "kind": "monthly", "models": ["provider/small-model", "provider/large-model"], "total_usd": 100, "refill_day": 1, "no_training_models": ["*"] },
+      { "name": "subscription", "kind": "weekly", "models": ["provider/large-model"], "refill_weekday": "sunday", "refill_time": "09:00", "no_training_models": ["*"] },
+      { "name": "bought", "kind": "fixed", "models": ["provider/small-model", "provider/large-model"], "total_usd": 10 }
+    ]
+  },
   "models": {
     "provider/free-model": "mistral-free/mistral-medium-latest",
     "provider/worker-model": "provider/large-model",

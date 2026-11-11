@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Enhancement;
+using Chargehand.Modules.Memory.Api;
+using Chargehand.Modules.Research.Api;
 using ModelContextProtocol.Protocol;
 
 namespace Chargehand.Mcp;

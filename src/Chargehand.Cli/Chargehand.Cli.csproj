@@ -40,6 +40,7 @@
     <ProjectReference Include="..\Chargehand.OpenCode\Chargehand.OpenCode.csproj" />
     <ProjectReference Include="..\Chargehand.Server\Chargehand.Server.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Economics\Chargehand.Modules.Economics.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Research\Chargehand.Modules.Research.csproj" />
   </ItemGroup>
 
   <!-- prompts/ and presets/ ship next to the binary (and in a packed tool), read when the working directory has none. -->

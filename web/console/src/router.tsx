@@ -10,6 +10,7 @@ import { ApiError, Unauthorized } from './api/client';
 import { Accounts } from './screens/accounts/Accounts';
 import { Analytics } from './screens/analytics/Analytics';
 import { isTab, type TabId } from './screens/batch/tabs';
+import { Conversations } from './screens/conversations/Conversations';
 import { Intake } from './screens/intake/Intake';
 import { Learning } from './screens/learning/Learning';
 import { NeedsYou } from './screens/needs-you/NeedsYou';
@@ -49,13 +50,35 @@ const taskRoute = createRoute({
   component: lazyRouteComponent(() => import('./screens/run/TaskPage'), 'TaskPage'),
 });
 
+const conversationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'conversations',
+  validateSearch: (search: Record<string, unknown>): { id?: string } => ({
+    id: typeof search.id === 'string' && search.id !== '' ? search.id : undefined,
+  }),
+  component: Conversations,
+});
+
+// Two tasks side by side: both are in the address as `<batch>/<task>`, so a link opens the same comparison.
+const compareRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'compare',
+  validateSearch: (search: Record<string, unknown>): { a?: string; b?: string } => ({
+    a: typeof search.a === 'string' ? search.a : undefined,
+    b: typeof search.b === 'string' ? search.b : undefined,
+  }),
+  component: lazyRouteComponent(() => import('./screens/compare/Compare'), 'Compare'),
+});
+
 // A screen lives in src/screens/<name>/; its route is one line here.
 const routeTree = rootRoute.addChildren([
   child('/', Overview),
   child('runs', Runs),
   runRoute,
   taskRoute,
+  compareRoute,
   child('needs-you', NeedsYou),
+  conversationsRoute,
   child('new', Start),
   child('analytics', Analytics),
   child('learning', Learning),

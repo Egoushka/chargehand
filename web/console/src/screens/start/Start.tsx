@@ -7,6 +7,7 @@ import { systemQuery } from '../../api/system';
 import { useIsPhone } from '../../shell/useIsPhone';
 import { ErrorState, Segmented, Skeleton } from '../../ui';
 import { Composer } from './Composer';
+import { LaunchMany } from './LaunchMany';
 import { emptyDraft } from './model';
 import { readPrefill } from './prefill';
 import { SingleRun } from './SingleRun';
@@ -30,7 +31,7 @@ export function Start() {
   const state = useLocation({ select: (l) => l.state });
   const visit = state.key ?? String(state.__TSR_index);
   const prefill = useMemo(() => readPrefill(state), [state]);
-  const [mode, setMode] = useState<'batch' | 'run'>('batch');
+  const [mode, setMode] = useState<'batch' | 'many' | 'run'>('batch');
 
   if (me.isPending)
     return (
@@ -64,17 +65,21 @@ export function Start() {
     );
 
   const lead = (
-    <Segmented<'batch' | 'run'>
+    <Segmented<'batch' | 'many' | 'run'>
       label="Kind of start"
       touch={phone}
       value={mode}
       onValueChange={setMode}
       items={[
         { id: 'batch', label: 'Batch' },
+        { id: 'many', label: 'Launch many' },
         { id: 'run', label: 'Single run' },
       ]}
     />
   );
+
+  if (mode === 'many')
+    return <LaunchMany me={me.data} repositories={repos.data?.repositories ?? null} lead={lead} />;
 
   if (mode === 'run')
     return (

@@ -1,0 +1,12 @@
+{
+  "specversion": "1.0",
+  "id": "signal:example-rule:41",
+  "source": "chargehand/signals",
+  "type": "signal.rule.fired",
+  "subject": "example-rule",
+  "time": "2026-11-08T22:00:00Z",
+  "data": { "rule": "example-rule", "facts": [40, 41], "proposal": null },
+  "actor": { "kind": "job", "id": "example-rule", "run": null },
+  "effect": "read",
+  "scope": "global"
+}

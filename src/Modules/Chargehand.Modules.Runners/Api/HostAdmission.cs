@@ -36,7 +36,10 @@ public interface IAdmission
 /// A host that cannot say (no <c>/proc</c>, an older runner) admits by counts as before, and the log says so once; a host with no PSI skips the pressure rule. When nothing of this server is
 /// running and the host is still short, one task is admitted anyway, so a batch never waits on memory that only other tenants hold. One instance serves every batch of a server.</summary>
 /// <param name="log">Told once that the host is unknown.</param>
-public sealed class HostAdmission(IHostSource host, DrivenAdmission settings, TimeSpan? interval = null, TimeProvider? time = null, Action<string>? log = null) : IAdmission, IDisposable
+/// <param name="images">The session images the runner will be asked to start. When <paramref name="host"/> is a runner that reports its allowlist (<see cref="IImageAllowlistSource"/>) and it lacks
+/// one, the task is refused with that reason (issue #425) instead of failing at its start. Null or empty: not checked.</param>
+public sealed class HostAdmission(IHostSource host, DrivenAdmission settings, TimeSpan? interval = null, TimeProvider? time = null, Action<string>? log = null, IReadOnlyList<string>? images = null)
+    : IAdmission, IDisposable
 {
     /// <summary>How long a started container's request still counts against the host's free memory.</summary>
     public static readonly TimeSpan Settle = TimeSpan.FromSeconds(60);
@@ -60,6 +63,8 @@ public sealed class HostAdmission(IHostSource host, DrivenAdmission settings, Ti
         await _gate.WaitAsync(ct);
         try
         {
+            if (await MismatchAsync(ct) is { } mismatch)
+                return new AdmissionDecision(false, mismatch, Refuse: true);
             var snapshot = await ReadAsync(ct);
             var now = _time.GetUtcNow();
             _recent.RemoveAll(r => now - r.At > Settle);
@@ -109,6 +114,19 @@ public sealed class HostAdmission(IHostSource host, DrivenAdmission settings, Ti
         lock (_recent)
             _recent.Add((_time.GetUtcNow(), requestMb + StartMarginMb));
         Interlocked.Increment(ref _running);
+    }
+
+    /// <summary>What of <c>images</c> the runner's allowlist lacks; null when nothing, when there is nothing to check, or when the runner could not be asked (its start then says why).</summary>
+    private async Task<string?> MismatchAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await ImageAllowlist.CheckAsync(host, images, ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            return null;
+        }
     }
 
     private async Task<HostSnapshot?> ReadAsync(CancellationToken ct)

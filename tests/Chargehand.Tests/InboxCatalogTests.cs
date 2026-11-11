@@ -116,6 +116,25 @@ public partial class InboxCatalogTests
     }
 
     [Fact]
+    public async Task A_pull_request_waiting_only_on_policy_offers_merge_and_one_flagged_for_test_integrity_does_not()
+    {
+        await using var rig = await ConsoleRig.StartAsync(profile: root => Runs.Profile(root) with
+        {
+            Driven = new DrivenSettings(Integrator: new DrivenIntegrator(Repositories: new Dictionary<string, string> { ["o/r"] = "ask" })),
+        });
+        await SeedAsync(rig);
+        await ConsoleSeed.LearnAsync(rig, ConsoleSeed.Learned("b-tests", "t1", pr: ConsoleSeed.Pull(2), at: ConsoleRig.Now.AddHours(-2)) with { TestIntegrityFlagged = true });
+
+        var plain = (await ItemAsync(rig, "pull_request:https://example.test/o/r/pull/1")).GetProperty("options").EnumerateArray().ToList();
+        var flagged = (await ItemAsync(rig, "pull_request:https://example.test/o/r/pull/2")).GetProperty("options").EnumerateArray().Select(o => o.GetProperty("id").GetString());
+
+        Assert.Equal(["open", "merge", "dismiss"], plain.Select(o => o.GetProperty("id").GetString()));
+        var call = plain[1].GetProperty("call");
+        Assert.Equal(("POST", "/v1/pulls/o/r/1/merge"), (call.GetProperty("method").GetString(), call.GetProperty("path").GetString()));
+        Assert.Equal(["open", "dismiss"], flagged);
+    }
+
+    [Fact]
     public async Task A_review_that_stopped_at_its_budget_names_the_pull_request_and_its_spend()
     {
         await using var rig = await ConsoleRig.StartAsync();

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -157,15 +156,10 @@ public static class TakeoverCli
 
     private static async Task<string> GitAsync(string directory, CancellationToken ct, params string[] args)
     {
-        var psi = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8 };
-        foreach (var a in (string[])["-c", "core.quotepath=off", .. args])
-            psi.ArgumentList.Add(a);
         try
         {
-            using var p = Process.Start(psi)!;
-            var (stdout, stderr) = (p.StandardOutput.ReadToEndAsync(ct), p.StandardError.ReadToEndAsync(ct));
-            await p.WaitForExitAsync(ct);
-            return p.ExitCode == 0 ? (await stdout).Trim() : throw Refuse($"git {args[0]} failed: {(await stderr).Trim()}");
+            var r = await GitRunner.RunAsync(directory, ["-c", "core.quotepath=off", .. args], ct, utf8Stdout: true);
+            return r.ExitCode == 0 ? r.Stdout.Trim() : throw Refuse($"git {args[0]} failed: {r.Stderr.Trim()}");
         }
         catch (System.ComponentModel.Win32Exception)
         {

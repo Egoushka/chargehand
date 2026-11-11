@@ -4,30 +4,40 @@ import type { AccountsBody } from '../api/accounts';
 import type { AnalyticsBody, AnalyticsBucket, AnalyticsGroupBy, CostBody } from '../api/analytics';
 import type { BatchBody } from '../api/batch';
 import type { BatchTaskDetailBody } from '../api/batch-task';
+import type { Conversation } from '../api/conversations';
+import type { FleetBody } from '../api/fleet';
 import type { InboxBody } from '../api/inbox';
 import type { IntakeBody, IntakeSourcesBody } from '../api/intake';
 import type { IntakeLimitsBody, LimitsChange } from '../api/limits';
 import type { OverviewBody } from '../api/overview';
 import type { ConflictsBody, PullsBody, TrainsBody } from '../api/pulls';
 import type { RepositoriesBody } from '../api/repositories';
+import type { RouterBody } from '../api/router';
 import type { SystemBody } from '../api/system';
+import type { ThreadCard } from '../api/threads';
 import type { LearnReport, Me, RunSummary } from '../api/types';
 import * as adm from './admin';
 import * as fx from './fixtures';
 import * as rx from './fixtures-runs';
 import { analyticsBody, costBody, learnReport } from './learning';
+import { routerBody } from './router';
 
 export interface Scenario {
   key?: string;
   me?: Me;
   overview?: OverviewBody;
   inbox?: InboxBody;
+  fleet?: FleetBody;
   runs?: RunSummary[];
   batches?: Record<string, BatchBody>;
   /** A task's own view by `<batch>/<task>`. */
   tasks?: Record<string, BatchTaskDetailBody>;
   /** The text of a run's event stream by path (`/v1/runs/<id>/events`): server-sent events. */
   streams?: Record<string, string>;
+  /** The caller's conversations (`conversation/v1`), newest first; their event streams go in `streams`. */
+  conversations?: Conversation[];
+  /** The threads of `GET /v1/threads`; a card is the thread itself. */
+  threads?: ThreadCard[];
   pulls?: PullsBody;
   system?: SystemBody | null;
   intake?: IntakeBody;
@@ -41,8 +51,12 @@ export interface Scenario {
   analytics?: AnalyticsBody;
   /** Replaces the generated `cost/v1`. */
   cost?: CostBody;
+  /** Replaces the generated `router/v1` (a router with two pools). */
+  router?: RouterBody;
   /** Replaces the generated `/v1/learn` report for every range. */
   learn?: LearnReport;
+  /** Answers `/v1/learn?since=` per range, for the trend; `learn` wins when both are set. */
+  learnFor?: (since: string | undefined) => LearnReport;
   /** Answers by exact path (before the query), replacing the defaults: `[status, body, headers]`. */
   replies?: Record<string, [number, unknown, Record<string, string>?]>;
   /** A route that never answers: for a loading state. */
@@ -95,6 +109,19 @@ export function serveApi(scenario: Scenario = {}) {
       return Promise.resolve(json(scenario.me ?? fx.me({}, now)));
     if (path === '/v1/overview')
       return Promise.resolve(json(scenario.overview ?? fx.overview({}, now)));
+    if (path === '/v1/fleet')
+      return Promise.resolve(
+        json(
+          scenario.fleet ?? {
+            contract_version: 'fleet/v1',
+            generated_at: new Date(now).toISOString(),
+            runs: [],
+            claims: [],
+            pull_requests: [],
+            not_recorded: [],
+          },
+        ),
+      );
     if (path === '/v1/inbox')
       return Promise.resolve(json(scenario.inbox ?? fx.inbox(undefined, now)));
     if ((path === '/v1/inbox/dismiss' || path === '/v1/inbox/restore') && method === 'POST')
@@ -108,6 +135,7 @@ export function serveApi(scenario: Scenario = {}) {
         }),
       );
     if (path === '/v1/cost') return Promise.resolve(json(scenario.cost ?? costBody()));
+    if (path === '/v1/router') return Promise.resolve(json(scenario.router ?? routerBody()));
     if (path === '/v1/analytics') {
       const q = new URLSearchParams(input.split('?')[1] ?? '');
       return Promise.resolve(
@@ -128,7 +156,7 @@ export function serveApi(scenario: Scenario = {}) {
       return Promise.resolve(
         json(
           scenario.learn ??
-            learnReport(
+            (scenario.learnFor ?? learnReport)(
               new URLSearchParams(input.split('?')[1] ?? '').get('since') ?? undefined,
               now,
             ),
@@ -212,6 +240,34 @@ export function serveApi(scenario: Scenario = {}) {
       return Promise.resolve(
         json(scenario.tasks?.[`${id}/${name}`] ?? rx.taskDetail(id, name, now)),
       );
+    }
+    if (path === '/v1/threads' && method === 'GET')
+      return Promise.resolve(json({ threads: scenario.threads ?? [] }));
+    const card = /^\/v1\/threads\/([^/]+)\/card$/.exec(path);
+    if (card) {
+      const found = scenario.threads?.find((t) => t.thread === decodeURIComponent(card[1] ?? ''));
+      return Promise.resolve(found ? json(found) : json({ errors: ['no such thread'] }, 404));
+    }
+    if (path === '/v1/conversations' && method === 'GET')
+      return Promise.resolve(json({ conversations: scenario.conversations ?? [] }));
+    const conv = /^\/v1\/conversations\/([^/]+)(\/messages|\/approvals\/[^/]+)?$/.exec(path);
+    if (conv) {
+      const found = scenario.conversations?.find((c) => c.id === decodeURIComponent(conv[1] ?? ''));
+      if (!found) return Promise.resolve(json({ errors: ['not found'] }, 404));
+      if (method === 'DELETE')
+        return Promise.resolve(json({ ...found, state: 'ended', ended_reason: 'user' }));
+      if (conv[2] === '/messages')
+        return Promise.resolve(
+          json({ conversation_id: found.id, queued: false, messages: 1 }, 202),
+        );
+      if (conv[2])
+        return Promise.resolve(
+          json({
+            call_id: conv[2].split('/')[2],
+            decision: (body as { decision?: string })?.decision,
+          }),
+        );
+      return Promise.resolve(json(found));
     }
     if (path.endsWith('/events'))
       return Promise.resolve(

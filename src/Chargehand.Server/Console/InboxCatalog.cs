@@ -86,6 +86,16 @@ internal static class InboxCatalog
 
     public static string? PullRequestWhy(string reason) => PullRequestReasons.GetValueOrDefault(reason);
 
+    /// <summary>Merge is offered only on a pull request that waits on the repository's policy alone: the task completed, nothing flagged it, it is no draft (<c>partial_draft</c>, <c>test_integrity</c> wait for more
+    /// than a click). The inbox does not read the forge, so whether the required checks passed is decided by the route, which refuses with the reason. Only a repository the route can name (<c>owner/name</c>) has it.</summary>
+    private static IEnumerable<InboxOption> MergeOption(InboxItem item)
+    {
+        if (item.Reason != "policy_ask" || item.PullRequest is not { Number: { } number, Repository: { } repository } || repository.Split('/') is not [var owner, var name])
+            yield break;
+        yield return new("merge", "Merge pull request", "Squash-merges it once the repository's required checks have passed; the server checks again and says why if it refuses.",
+            Call: new InboxCall("POST", $"/v1/pulls/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(name)}/{number}/merge"));
+    }
+
     /// <summary>An item a rule or a person resolved, as the Handled lane lists it: its one option puts it back.</summary>
     public static InboxItem Handled(InboxItem item, string reason) => item with
     {
@@ -114,7 +124,7 @@ internal static class InboxCatalog
                 Lane = Decide,
                 What = $"Pull request {item.Title} waits for you",
                 Why = PullRequestWhy(item.Reason ?? "") ?? "chargehand will not merge it on its own",
-                Options = [new("open", "Open pull request", "Opens it on the forge to review and merge.", Url: item.PullRequest?.Url), dismiss],
+                Options = [new("open", "Open pull request", "Opens it on the forge to review and merge.", Url: item.PullRequest?.Url), .. MergeOption(item), dismiss],
             },
             "approval" => item with
             {

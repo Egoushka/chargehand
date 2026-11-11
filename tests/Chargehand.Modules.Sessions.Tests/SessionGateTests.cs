@@ -75,6 +75,20 @@ public class SessionGateTests
     }
 
     [Fact]
+    public async Task A_failing_declared_check_ends_the_round_without_running_the_rules_and_the_gate_is_timed()
+    {
+        using var w = new Workspace();
+        // The rule takes two seconds; a round that the failed check ends does not wait for it (issue #781).
+        CommitRules(w, $"sleep 2 && echo x >> '{w.Out}/rule-runs'\n");
+        var task = Task() with { Check = ["sh", "-c", "test -f fixed.txt"] };
+        var outcome = await SessionDriver.RunAsync(Options(w, Script(w, onResume: "touch fixed.txt && git add -A && git commit -q -m 'fix: the check'"), task), default);
+        Assert.Equal(SessionStatus.Completed, outcome.Status);
+        Assert.Equal(2, Runs(w));
+        Assert.Single(File.ReadAllLines(Path.Combine(w.Out, "rule-runs")));
+        Assert.InRange(outcome.ChecksSeconds!.Value, 1.5, 3.9);
+    }
+
+    [Fact]
     public async Task A_failed_criterion_goes_back_to_the_session_which_fixes_it_and_completes()
     {
         using var w = new Workspace();

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Intake.Api;
+using Chargehand.Modules.Memory.Api;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 
