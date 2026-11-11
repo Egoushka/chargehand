@@ -83,12 +83,29 @@ public class RunTokenTests
     [Fact]
     public void The_budget_of_a_call_is_capped_at_what_the_token_has_left()
     {
+        static RunTokenLedger Ledger()
+        {
+            var ledger = new RunTokenLedger();
+            ledger.Charge("run-parent", usd: 1.0m, tokens: 0);
+            return ledger;
+        }
+        Assert.Equal(1.5m, RunScope.Apply(Claims(usd: 2.5m), Request(), Ledger()).Request!.Context.BudgetUsd);          // none asked: the remainder
+        Assert.Equal(1.5m, RunScope.Apply(Claims(usd: 2.5m), Request(budget: 9m), Ledger()).Request!.Context.BudgetUsd);  // too much asked: the remainder
+        Assert.Equal(0.5m, RunScope.Apply(Claims(usd: 2.5m), Request(budget: 0.5m), Ledger()).Request!.Context.BudgetUsd); // less asked: kept
+        Assert.Null(RunScope.Apply(Claims(), Request(), Ledger()).Request!.Context.BudgetUsd);                          // no cap: untouched
+    }
+
+    [Fact]
+    public void A_call_reserves_its_budget_until_it_is_released()
+    {
         var ledger = new RunTokenLedger();
-        ledger.Charge("run-parent", usd: 1.0m, tokens: 0);
-        Assert.Equal(1.5m, RunScope.Apply(Claims(usd: 2.5m), Request(), ledger).Request!.Context.BudgetUsd);          // none asked: the remainder
-        Assert.Equal(1.5m, RunScope.Apply(Claims(usd: 2.5m), Request(budget: 9m), ledger).Request!.Context.BudgetUsd);  // too much asked: the remainder
-        Assert.Equal(0.5m, RunScope.Apply(Claims(usd: 2.5m), Request(budget: 0.5m), ledger).Request!.Context.BudgetUsd); // less asked: kept
-        Assert.Null(RunScope.Apply(Claims(), Request(), ledger).Request!.Context.BudgetUsd);                          // no cap: untouched
+        var first = RunScope.Apply(Claims(usd: 2.5m), Request(budget: 2m), ledger).Request!;
+        Assert.Equal(0.5m, RunScope.Apply(Claims(usd: 2.5m), Request(), ledger).Request!.Context.BudgetUsd); // the rest
+        Assert.Contains("spend", RunScope.Apply(Claims(usd: 2.5m), Request(), ledger).Refusal);           // all reserved
+        ledger.Release("run-parent", 0.5m);                                                                 // the second failed
+        ledger.Charge("run-parent", usd: 0.25m, tokens: 0);                                                 // the first ended, spending less
+        ledger.Release("run-parent", first.Context.BudgetUsd!.Value);
+        Assert.Equal(2.25m, RunScope.Apply(Claims(usd: 2.5m), Request(), ledger).Request!.Context.BudgetUsd);
     }
 
     [Fact]
@@ -112,5 +129,20 @@ public class RunTokenTests
         Assert.Equal((2m, 20L), ledger.Spent("a"));
         Assert.Equal((5m, 1L), ledger.Spent("b"));
         Assert.Equal((0m, 0L), ledger.Spent("c"));
+    }
+
+    [Fact]
+    public async Task Concurrent_calls_are_not_together_allowed_more_than_the_token_has_left()
+    {
+        var ledger = new RunTokenLedger();
+        ledger.Charge("run-parent", usd: 1.0m, tokens: 0);
+        using var start = new Barrier(8);
+        var calls = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() =>
+        {
+            start.SignalAndWait();
+            return RunScope.Apply(Claims(usd: 2.5m), Request(), ledger);
+        })));
+        Assert.Equal(1.5m, calls.Sum(c => c.Request?.Context.BudgetUsd ?? 0));
+        Assert.All(calls.Where(c => c.Request is null), c => Assert.Contains("spend", c.Refusal));
     }
 }
