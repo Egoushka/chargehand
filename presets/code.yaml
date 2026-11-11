@@ -22,6 +22,8 @@ node_kinds:
       - { action: edit, resource: "*.env.*.local", effect: deny }
       - { action: edit, resource: ".github/**", effect: deny }
       - { action: read, resource: "*.env", effect: deny }
+      - { action: read, resource: "versions.env", effect: allow }   # pinned tool versions, not secrets
+      - { action: read, resource: "*/versions.env", effect: allow }
       - { action: read, resource: "*.env.*", effect: deny }
       - { action: read, resource: "*.env.example", effect: allow }
       - { action: read, resource: "*.env.enc", effect: allow }   # SOPS ciphertext: GitOps repos track it

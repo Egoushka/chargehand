@@ -51,6 +51,39 @@ public class CheckoutTests
     }
 
     [Fact]
+    public async Task A_driven_checkout_keeps_a_versions_env()
+    {
+        // bootstrap/versions.env is pinned tool versions, not a secret: the preset allows it past the *.env deny.
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        Directory.CreateDirectory(Path.Combine(repo.Path, "bootstrap"));
+        File.WriteAllText(Path.Combine(repo.Path, "bootstrap", "versions.env"), "TOOL=1.2.3\n");
+        repo = Runs.Commit(repo, "bootstrap/versions.env");
+        Runs.SetOrigin(repo, "https://example.com/owner/repo.git");
+
+        var driven = await Runs.Orchestrator(new ScriptedRuntime(Runs.WorkerReply), root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
+            .CheckoutForDrivenAsync(repo, "driven", CancellationToken.None);
+
+        Assert.True(File.Exists(Path.Combine(driven.Directory, "bootstrap", "versions.env")));
+    }
+
+    [Fact]
+    public async Task A_driven_checkout_still_refuses_a_dot_env_at_the_root()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        File.WriteAllText(Path.Combine(repo.Path, ".env"), "TOKEN=x\n");
+        repo = Runs.Commit(repo, ".env");
+        Runs.SetOrigin(repo, "https://example.com/owner/repo.git");
+
+        var e = await Assert.ThrowsAsync<ChargehandException>(() =>
+            Runs.Orchestrator(new ScriptedRuntime(Runs.WorkerReply), root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
+                .CheckoutForDrivenAsync(repo, "driven", CancellationToken.None));
+
+        Assert.Equal(ErrorCode.CheckoutHasSecrets, e.Code);
+    }
+
+    [Fact]
     public async Task A_driven_checkout_of_a_repository_named_by_folder_reads_its_remote_from_that_repository()
     {
         // The name is not a path here: it resolves through the repository roots, as the worker checkout does, not against the working directory.

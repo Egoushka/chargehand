@@ -14,6 +14,8 @@ node_kinds:
       # Secrets: a leading "* * allow" overrides the agent's own ask-before-reading-.env rules, so deny them
       # here. Deny (not ask): a rejected ask aborts the worker's whole step in OpenCode 2.0.16.
       - { action: read, resource: "*.env", effect: deny }
+      - { action: read, resource: "versions.env", effect: allow }   # pinned tool versions, not secrets
+      - { action: read, resource: "*/versions.env", effect: allow }
       - { action: read, resource: "*.env.*", effect: deny }
       - { action: read, resource: "*.env.example", effect: allow }
       - { action: read, resource: "*.env.enc", effect: allow }   # SOPS ciphertext: GitOps repos track it
