@@ -49,6 +49,9 @@ public sealed class EventAcceptanceTests
         Assert.Equal(["t1", "t2", "t3", "t5"], Ids((await SendAsync(http, HttpMethod.Get, "/v1/events?correlationid=s1")).Body));
         Assert.Equal(["t3"], Ids((await SendAsync(http, HttpMethod.Get, "/v1/events?type=claude.tool.failed&source=claude&scope=project:Egoushka/a")).Body));
 
+        Assert.Equal(["t4", "t5"], Ids((await SendAsync(http, HttpMethod.Get, "/v1/events?since=2026-11-08T14:02:00%2B02:00")).Body));
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(http, HttpMethod.Get, "/v1/events?until=soon")).Status);
+
         var bad = await SendAsync(http, HttpMethod.Get, "/v1/events?since=yesterday");
         Assert.Equal(HttpStatusCode.BadRequest, bad.Status);
 
