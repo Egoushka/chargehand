@@ -20,7 +20,7 @@
     "enabled": true,
     "max_parallel": 1,
     "images": ["ghcr.io/egoushka/chargehand-session@sha256:a710fb966e7b2b4aaacd95bd437d98e12b889be159f294fcc140bb26d144e1a7"],
-    "push_secret": "chargehand-push-token",
+    "integrator": { "app_id": 123456, "private_key_secret": "chargehand-app-key" },
     "runner": { "url": "http://runner:4310", "api_key_secret": "chargehand-runner-key" },
     "network": {
       "outside": "chargehand-outside",

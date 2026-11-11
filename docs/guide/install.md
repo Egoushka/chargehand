@@ -21,7 +21,7 @@ Files in `deploy/compose/`: `compose.yaml`, `.env.example`, `profile.core.json`,
 - Docker Engine with Compose v2.20 or later (`docker compose version`). `docker compose config -q` is the quick validity check.
 - One model credential: an Anthropic API key, or a subscription token from `claude setup-token`. A container has no interactive login.
 - A git repository with an `https` origin to ask about. The server clones from a checkout under `repository_roots`, never from your working tree.
-- For driven mode, also: a Linux host (the work directory is a bind mount whose host path the engine must resolve; Docker Desktop and OrbStack work only with a shared path), and a push credential, such as a fine-grained GitHub token for that repository with contents and pull requests write, that cannot push the default branch.
+- For driven mode, also: a Linux host (the work directory is a bind mount whose host path the engine must resolve; Docker Desktop and OrbStack work only with a shared path), and a GitHub App installed on the repository with contents and pull requests write ([create it](github-start.md)); its installation token, minted at each push for that one repository, pushes `chargehand/<run>` branches.
 
 ## 1. Get the bundle and pick a mode
 
@@ -45,7 +45,7 @@ openssl rand -hex 32     # one per key below
 | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` | the worker's credential. Exactly one. An API key bills per token; the token uses your subscription |
 | `CHARGEHAND_IMAGE` | server and runner image, a release tag. Defaults to the release in `.env.example` |
 
-Driven mode adds `CHARGEHAND_RUNNER_KEY`, `CHARGEHAND_PUSH_TOKEN`, `CHARGEHAND_SESSION_IMAGE` and `CHARGEHAND_WORK_DIR` (see step 3). Each variable is documented in `.env.example`. The compose file hands each service only what it reads: the runner never gets the model credential.
+Driven mode adds `CHARGEHAND_RUNNER_KEY`, `CHARGEHAND_APP_KEY`, `CHARGEHAND_SESSION_IMAGE` and `CHARGEHAND_WORK_DIR` (see step 3). Each variable is documented in `.env.example`. The compose file hands each service only what it reads: the runner never gets the model credential.
 
 **Pin by digest.** A tag can move; a digest cannot. After choosing a [release](https://github.com/Egoushka/chargehand/releases):
 
@@ -72,7 +72,7 @@ A private repository needs a fetch credential the clone can use; none is built i
 echo 'CHARGEHAND_WORK_DIR=/srv/chargehand/work' >> .env
 ```
 
-With a different path, set `CHARGEHAND_WORK_DIR` to it and make `worker_root` in `profile.json` the same. `repository_roots` must also cover `<worker_root>/.checkouts`; the driven template lists `worker_root` for that. Then set `CHARGEHAND_RUNNER_KEY` and `CHARGEHAND_PUSH_TOKEN` in `.env`, and add your ecosystem's package hosts in step 4.
+With a different path, set `CHARGEHAND_WORK_DIR` to it and make `worker_root` in `profile.json` the same. `repository_roots` must also cover `<worker_root>/.checkouts`; the driven template lists `worker_root` for that. Then set `CHARGEHAND_RUNNER_KEY` and `CHARGEHAND_APP_KEY` in `.env`, set `app_id` in the template's `integrator`, and add your ecosystem's package hosts in step 4.
 
 ## 4. Run `chargehand init` against your repository
 
@@ -120,7 +120,7 @@ A `200` carries `result/v1` ([how to read it](quickstart.md#read-the-result)); a
 
 ## 8. First driven batch
 
-Driven mode only. Start with one task and a token cap; the batch is the smoke test of the whole path (server, runner, proxy, session image, push credential). The request is [`request/v1`](reference.md) with a `driven` block:
+Driven mode only. Start with one task and a token cap; the batch is the smoke test of the whole path (server, runner, proxy, session image, App key). The request is [`request/v1`](reference.md) with a `driven` block:
 
 ```bash
 curl -s -X POST http://127.0.0.1:4300/v1/runs \

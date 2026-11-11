@@ -37,7 +37,7 @@ Add to the profile the server runs with:
 }
 ```
 
-`discover: true` watches every repository the App is installed on, so there is no list of checkouts to keep: chargehand clones each one into `<worker_root>/repos/<owner>/<repo>` the first time it sees it and fetches it before each task, with the App's token, on the server's host. `allowed_authors` is who may start work; nobody else's label counts. The App pushes `chargehand/<run>` and opens the draft pull request with an installation token minted at each push, so `driven.push_secret` is optional; when it is set it wins and the App only reads, comments and integrates. Restart the server. Within one poll (2 minutes) chargehand creates the `chargehand` label in each repository that lacks it.
+`discover: true` watches every repository the App is installed on, so there is no list of checkouts to keep: chargehand clones each one into `<worker_root>/repos/<owner>/<repo>` the first time it sees it and fetches it before each task, with the App's token, on the server's host. `allowed_authors` is who may start work; nobody else's label counts. The App pushes `chargehand/<run>` and opens the draft pull request with an installation token minted at each push and limited to that one repository (it lasts at most an hour and is never stored), so `driven.push_secret` is optional; when it is set it wins and the App only reads, comments and integrates. Restart the server. Within one poll (2 minutes) chargehand creates the `chargehand` label in each repository that lacks it.
 
 ## 4. Label an issue
 

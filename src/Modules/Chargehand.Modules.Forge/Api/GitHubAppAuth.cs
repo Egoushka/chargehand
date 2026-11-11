@@ -60,12 +60,15 @@ public static class GitHubAppJwt
 /// reach any other owner, and a pin GitHub does not know is ignored.</summary>
 public sealed class GitHubInstallationTokens(HttpClient http, long appId, long? installationId, Func<string> privateKey, TimeProvider time) : IInstallationTokens, IDisposable
 {
+    /// <summary>The repository name of a call about the account and not a repository (listing what the installation holds): its token is not limited to one.</summary>
+    public const string AccountWide = "-";
+
     /// <summary>A token is replaced when it has less than this left, so a call never starts with one about to lapse.</summary>
     public static readonly TimeSpan Margin = TimeSpan.FromMinutes(5);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, long> _installations = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<long, (string Token, DateTimeOffset Expires)> _tokens = [];
+    private readonly Dictionary<(long Id, string Repository), (string Token, DateTimeOffset Expires)> _tokens = [];
     private bool _pinRead;
     private string? _pinAccount;
 
@@ -85,16 +88,16 @@ public sealed class GitHubInstallationTokens(HttpClient http, long appId, long? 
                     _installations[owner] = id;
                     looked = true;
                 }
-                if (_tokens.TryGetValue(id, out var kept) && time.GetUtcNow() < kept.Expires - Margin)
+                if (_tokens.TryGetValue((id, repository.ToUpperInvariant()), out var kept) && time.GetUtcNow() < kept.Expires - Margin)
                     return kept.Token;
-                var (status, text) = await SendAsync(HttpMethod.Post, $"app/installations/{id.ToString(CultureInfo.InvariantCulture)}/access_tokens", ct);
+                var (status, text) = await SendAsync(HttpMethod.Post, $"app/installations/{id.ToString(CultureInfo.InvariantCulture)}/access_tokens", ct, repository == AccountWide ? null : RepositoryBody(repository));
                 if (status is HttpStatusCode.Created or HttpStatusCode.OK)
-                    return Remember(id, text);
+                    return Remember((id, repository.ToUpperInvariant()), text);
                 if (!looked && status is HttpStatusCode.NotFound or HttpStatusCode.Unauthorized)
                 {
                     // The id kept for this owner is stale: ask GitHub which installation covers it now.
                     _installations.Remove(owner);
-                    _tokens.Remove(id);
+                    _tokens.Remove((id, repository.ToUpperInvariant()));
                     continue;
                 }
                 throw new GitHubAppException($"GitHub answered {(int)status} to the installation token request: {GitHubApi.Message(text)}");
@@ -132,6 +135,21 @@ public sealed class GitHubInstallationTokens(HttpClient http, long appId, long? 
             _gate.Release();
         }
         return [.. found.Select(f => f.Account)];
+    }
+
+    /// <summary>Limits the token to the one repository the call is about: a leaked token reaches no sibling repository of the installation.</summary>
+    private static string RepositoryBody(string repository)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteStartArray("repositories");
+            writer.WriteStringValue(repository);
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
     }
 
     private async Task<long> FindInstallationAsync(string owner, string repository, CancellationToken ct)
@@ -177,13 +195,13 @@ public sealed class GitHubInstallationTokens(HttpClient http, long appId, long? 
         return _pinAccount;
     }
 
-    private string Remember(long id, string text)
+    private string Remember((long Id, string Repository) key, string text)
     {
         try
         {
             using var doc = JsonDocument.Parse(text);
             var token = doc.RootElement.GetProperty("token").GetString() ?? throw new KeyNotFoundException();
-            _tokens[id] = (token, doc.RootElement.GetProperty("expires_at").GetDateTimeOffset());
+            _tokens[key] = (token, doc.RootElement.GetProperty("expires_at").GetDateTimeOffset());
             return token;
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
@@ -193,7 +211,7 @@ public sealed class GitHubInstallationTokens(HttpClient http, long appId, long? 
     }
 
     /// <summary>A call as the App itself, with a fresh JWT.</summary>
-    private async Task<(HttpStatusCode Status, string Body)> SendAsync(HttpMethod method, string path, CancellationToken ct)
+    private async Task<(HttpStatusCode Status, string Body)> SendAsync(HttpMethod method, string path, CancellationToken ct, string? body = null)
     {
         string key;
         try
@@ -205,6 +223,8 @@ public sealed class GitHubInstallationTokens(HttpClient http, long appId, long? 
             throw new GitHubAppException($"the GitHub App private key could not be resolved: {e.Message}");
         }
         using var request = new HttpRequestMessage(method, path);
+        if (body is not null)
+            request.Content = new StringContent(body, Encoding.UTF8, "application/json");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", GitHubAppJwt.Create(appId, key, time.GetUtcNow()));
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("chargehand", "1"));

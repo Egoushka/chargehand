@@ -41,6 +41,21 @@ public partial class ComposeBundleTests
     }
 
     [Fact]
+    public void The_driven_template_pushes_with_the_app_and_no_long_lived_push_token_is_passed()
+    {
+        var driven = Profile.Load(Bundle("profile.driven.json")).Driven!;
+        var compose = File.ReadAllText(Bundle("compose.yaml"));
+        var example = File.ReadAllText(Bundle(".env.example"));
+
+        Assert.Null(driven.PushSecret);                                           // the App's per-push installation token does the push
+        Assert.Equal("chargehand-app-key", driven.Integrator!.PrivateKeySecret);
+        Assert.Contains("CHARGEHAND_APP_KEY:", compose, StringComparison.Ordinal);
+        Assert.Contains("#CHARGEHAND_APP_KEY=", example, StringComparison.Ordinal);
+        Assert.DoesNotContain("CHARGEHAND_PUSH_TOKEN", compose, StringComparison.Ordinal);
+        Assert.DoesNotContain("CHARGEHAND_PUSH_TOKEN", example, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_env_example_and_the_compose_default_pin_the_same_session_image_as_the_template()
     {
         var image = Profile.Load(Bundle("profile.driven.json")).Driven!.Images![0];
@@ -59,7 +74,7 @@ public partial class ComposeBundleTests
 
         Assert.Single(socket);
         Assert.InRange(socket[0].i, proxyAt, nextService);
-        Assert.All(File.ReadAllLines(Bundle(".env.example")).Where(l => Regex.IsMatch(l, "^#?(CHARGEHAND_(API|RUNNER)_KEY|CHARGEHAND_PUSH_TOKEN|ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN)=")),
+        Assert.All(File.ReadAllLines(Bundle(".env.example")).Where(l => Regex.IsMatch(l, "^#?(CHARGEHAND_(API|RUNNER)_KEY|CHARGEHAND_APP_KEY|ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN)=")),
             l => Assert.EndsWith("=", l, StringComparison.Ordinal));
     }
 
