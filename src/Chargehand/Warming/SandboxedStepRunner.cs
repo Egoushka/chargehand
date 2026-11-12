@@ -12,7 +12,7 @@ public sealed class SandboxedStepRunner(ISandbox sandbox, bool network, IReadOnl
 {
     public static TimeSpan Timeout { get; } = TimeSpan.FromMinutes(10);
 
-    public async Task<int> RunAsync(WarmStep step, CancellationToken ct)
+    public async Task<StepExit> RunAsync(WarmStep step, CancellationToken ct)
     {
         foreach (var cache in sharedCaches)
             Directory.CreateDirectory(cache);
@@ -26,6 +26,6 @@ public sealed class SandboxedStepRunner(ISandbox sandbox, bool network, IReadOnl
         }
         var spec = new SandboxSpec([step.File!, .. step.Args], step.WorkDir, Timeout, network, passEnv, environment, writable);
         var result = await sandbox.RunAsync(spec, ct).ConfigureAwait(false);
-        return result.TimedOut ? -1 : result.ExitCode;
+        return new StepExit(result.ExitCode, result.TimedOut, result.OutputTail);
     }
 }
