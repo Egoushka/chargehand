@@ -62,11 +62,12 @@ public static class ProcessRunner
         }
         try
         {
-            // A grandchild that left the process tree can hold the pipes open after the child is gone; its output is not waited for.
             await readers.WaitAsync(ReaderGrace, CancellationToken.None);
         }
         catch (TimeoutException)
         {
+            // Dropped on purpose: a grandchild that left the process tree can hold the pipes open after the child is gone,
+            // and its output is not waited for. The tail read so far is the result.
         }
         return new SandboxResult(timedOut ? -1 : process.ExitCode, tail.Text(), timedOut, started.Elapsed);
     }
