@@ -190,6 +190,35 @@ public sealed class PoolTests
         Assert.Equal(PoolStatus.Done, (await kit.Pool.ItemsAsync(null, None)).Single(i => i.Key == done.Key).Status);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_card_taken_by_a_successor_that_never_ran_goes_to_the_next_one(bool lost)
+    {
+        using var kit = new PoolKit();
+        await kit.AddAsync("a", "item");
+        var first = (await kit.Pool.TickAsync(None)).Worker!;
+        await kit.Pool.ReleaseAsync(first, new ResumeCard("half", "the rest", "the ceiling"), None);
+        if (lost)
+        {
+            var taker = (await kit.Pool.TickAsync(None)).Worker!;
+            Assert.NotNull(kit.Starter.Requests[^1].Card);
+            Assert.Equal(1, await kit.Pool.ReleaseLostAsync(new HashSet<string>(), None));
+            Assert.NotEqual(first, taker);
+        }
+        else
+        {
+            kit.Starter.Refusal = "no room";
+            Assert.Null((await kit.Pool.TickAsync(None)).Worker);
+            Assert.NotNull(kit.Starter.Requests[^1].Card);
+            kit.Starter.Refusal = null;
+        }
+
+        Assert.NotNull((await kit.Pool.TickAsync(None)).Worker);
+
+        Assert.Equal("the rest", kit.Starter.Requests[^1].Card?.Left);
+    }
+
     [Fact]
     public async Task Restart_releases_lost_claims_and_starts_nothing_twice()
     {

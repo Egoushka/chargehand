@@ -47,11 +47,16 @@ ceiling, then writes a resume card for its successor.
    and `pull_request`. It writes one item and returns `{key, repository, area, position}`; it never starts work.
    Refusals carry stable codes and never quote the refused value: `400 invalid` (a field missing, too long, or
    `repository` not `owner/name`), `413 too_large` (body over 16 KiB), `422 secret` (`DiffScan.ScanText` finds a
-   credential in title or body). The caller is the owner's principal or an account the server already admits; no new
-   authentication surface.
+   credential in title or body), and `400 invalid` for a repository not in `automation.github.repositories`. The caller is
+   the owner's key only: an account key and a session's run token (which also acts for the owner) are refused with
+   `forbidden`, so a run cannot queue work for workers outside its own grant. No new authentication surface. The tool is
+   listed only when `http.pool` is set.
 9. **The worker is a run.** The server's starter composes a non-interactive run request from the scope's claimed items
    and the card, starts it through the same admission as intake, and binds the run to the worker: when the run ends,
-   its usage is reported, the items it carried are done and the worker is released. A worker that pulls items one by
+   its usage is reported, the items it carried are done and the worker is released. A run stopped at the worker's token
+   ceiling (`cost_cap_reached` with tokens used) instead releases with a card built from its summary, so its items go back
+   to the queue for a successor. After a restart, a worker whose batch the run service took up again stays live and is
+   watched as before; every other claim is released as `lost`. A worker that pulls items one by
    one from inside the run needs a worker-facing tool; that is a later change (see Left for later).
 
 ## Acceptance checks (machine-run)
