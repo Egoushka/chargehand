@@ -720,15 +720,22 @@ public sealed class Orchestrator(
             if (moved && events is not null)
                 await CheckoutAnnouncer.AnnounceAsync(events, $"{Path.GetFileName(Path.GetDirectoryName(dir))}/{commit[..12]}", ct);
         }
-        var denied = await DeniedFiles(dir, kind.Permissions, ct);
+        var label = RepositoryLabel.From(await Git(source, ct, "config", "--get", "remote.origin.url"), Path.GetFileName(source));
+        var denied = WithoutPublic(await DeniedFiles(dir, kind.Permissions, ct), label);
         if (denied.Count > 0 && refuseDenied)
             throw new ChargehandException(ErrorCode.CheckoutHasSecrets, $"the repository tracks files the preset denies reading, which a session's shell would still reach: " +
                 $"{string.Join(", ", denied.Take(5))}{(denied.Count > 5 ? ", ..." : "")}",
                 "Pin a commit that does not track them, or remove them from the repository.");
         if (denied.Count > 0)
             await Exclude(dir, denied, ct);
-        return (dir, commit, RepositoryLabel.From(await Git(source, ct, "config", "--get", "remote.origin.url"), Path.GetFileName(source)), denied);
+        return (dir, commit, label, denied);
     }
+
+    /// <summary>Drops the denied files the profile's public_files declares hold no secret in this repository (issue 867), so a file such as a version pin named *.env neither refuses nor leaves the checkout.</summary>
+    private IReadOnlyList<string> WithoutPublic(IReadOnlyList<string> denied, string repository) =>
+        profile.PublicFiles?.GetValueOrDefault(repository) is { Count: > 0 } patterns
+            ? [.. denied.Where(f => !patterns.Any(p => Wildcard(f, p)))]
+            : denied;
 
     /// <summary>Removes a clone that lost the race to its final path; a leftover is only disk, so a failure is ignored.</summary>
     private static void TryDelete(string directory)

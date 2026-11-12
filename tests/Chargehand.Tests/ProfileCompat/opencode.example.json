@@ -32,6 +32,7 @@
   "peer_clone": null,
   "pools": null,
   "nuget_trusted_signers": null,
+  "public_files": null,
   "roots": [
     "/var/tmp/chargehand/work"
   ],

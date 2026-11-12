@@ -51,6 +51,47 @@ public class CheckoutTests
     }
 
     [Fact]
+    public async Task A_driven_checkout_takes_a_denied_file_the_profile_declares_public_for_that_repository()
+    {
+        // A version pin file named *.env holds no secret; the owner says so for that one repository, and the session may start.
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        Runs.SetOrigin(repo, "https://example.com/owner/repo.git");
+        Directory.CreateDirectory(Path.Combine(repo.Path, "pins"));
+        File.WriteAllText(Path.Combine(repo.Path, "pins", "versions.env"), "TOOL_VER=1.2.3");
+        repo = Runs.Commit(repo, "pins/versions.env");
+        var profile = Runs.Profile(root.Path) with
+        {
+            PublicFiles = new Dictionary<string, IReadOnlyList<string>> { ["example.com/owner/repo"] = ["pins/versions.env"] },
+        };
+
+        var driven = await new Orchestrator(profile, new ScriptedRuntime(Runs.WorkerReply), "2.0.16", Repo.Root,
+                new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")), new Dictionary<string, int>())
+            .CheckoutForDrivenAsync(repo, "driven", CancellationToken.None);
+
+        Assert.True(File.Exists(Path.Combine(driven.Directory, "pins", "versions.env")));
+    }
+
+    [Fact]
+    public async Task Public_files_of_another_repository_do_not_lift_the_refusal()
+    {
+        using var root = new TempDir();
+        var repo = TrackingDeniedFiles(root.Path);
+        Runs.SetOrigin(repo, "https://example.com/owner/repo.git");
+        var profile = Runs.Profile(root.Path) with
+        {
+            PublicFiles = new Dictionary<string, IReadOnlyList<string>> { ["example.com/owner/other"] = ["sub/.env", "x.env.local"] },
+        };
+
+        var e = await Assert.ThrowsAsync<ChargehandException>(() =>
+            new Orchestrator(profile, new ScriptedRuntime(Runs.WorkerReply), "2.0.16", Repo.Root,
+                    new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")), new Dictionary<string, int>())
+                .CheckoutForDrivenAsync(repo, "driven", CancellationToken.None));
+
+        Assert.Equal(ErrorCode.CheckoutHasSecrets, e.Code);
+    }
+
+    [Fact]
     public async Task A_driven_checkout_of_a_repository_named_by_folder_reads_its_remote_from_that_repository()
     {
         // The name is not a path here: it resolves through the repository roots, as the worker checkout does, not against the working directory.
