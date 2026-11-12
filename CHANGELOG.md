@@ -5,6 +5,34 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.23](https://github.com/Egoushka/chargehand/compare/v0.19.22...v0.19.23) (2026-11-12)
+
+
+### Features
+
+* **console:** pool in the overview (D-155 step 1) ([#897](https://github.com/Egoushka/chargehand/issues/897)) ([c8afac6](https://github.com/Egoushka/chargehand/commit/c8afac63ed14b4754772670be54dd70a5add7ec7))
+* **docs:** ratchet uncited behaviour sentences in docs/guide ([#786](https://github.com/Egoushka/chargehand/issues/786)) ([#883](https://github.com/Egoushka/chargehand/issues/883)) ([1b3d93b](https://github.com/Egoushka/chargehand/commit/1b3d93b3dba030158a5d562c736ab521c5e4535e))
+* **drift:** claim-drift watch, notify-only ([#785](https://github.com/Egoushka/chargehand/issues/785)) ([#884](https://github.com/Egoushka/chargehand/issues/884)) ([3403ccf](https://github.com/Egoushka/chargehand/commit/3403ccf4788291316527d622df4c4b9d27c1f0fd))
+* **economics:** pace a metered pool's day softly with pace_daily ([#865](https://github.com/Egoushka/chargehand/issues/865)) ([3a25481](https://github.com/Egoushka/chargehand/commit/3a254816cafcb6f11f642aaf285f1737ac65c82d))
+* **events:** query events by time range and correlationid ([#870](https://github.com/Egoushka/chargehand/issues/870)) ([2a9503e](https://github.com/Egoushka/chargehand/commit/2a9503e736eae93798746204294947ac6b172db6))
+* **forge:** scope the App installation token to the run's repository; retire CHARGEHAND_PUSH_TOKEN ([#873](https://github.com/Egoushka/chargehand/issues/873)) ([42f4c6e](https://github.com/Egoushka/chargehand/commit/42f4c6eb1588dc73dee2a07c03d673ed6eb3c253))
+* **pool:** chargehand is the task pool (ADR 0099) ([#896](https://github.com/Egoushka/chargehand/issues/896)) ([5c2cb8e](https://github.com/Egoushka/chargehand/commit/5c2cb8e888413414da1044e2cec180b0b1648bb3))
+* **warmer:** promote only signed NuGet packages from a per-run staging folder ([#886](https://github.com/Egoushka/chargehand/issues/886)) ([cdbe865](https://github.com/Egoushka/chargehand/commit/cdbe8659bfb806587aaccd5872c9977d2a263335))
+* **warmer:** warm checkouts from the event log and share a pnpm store ([#878](https://github.com/Egoushka/chargehand/issues/878)) ([ecab9e4](https://github.com/Egoushka/chargehand/commit/ecab9e484b1f15f37d2f03ab2eab53034508d425))
+
+
+### Bug Fixes
+
+* **checkout:** let the profile declare tracked files public per repository ([#891](https://github.com/Egoushka/chargehand/issues/891)) ([5c20c48](https://github.com/Egoushka/chargehand/commit/5c20c48c433720af4380aad8943ccaff0a6115f6))
+* **intake:** drop a review of a pull request that merged or closed ([#874](https://github.com/Egoushka/chargehand/issues/874)) ([d9e29ac](https://github.com/Egoushka/chargehand/commit/d9e29ac77ab3bd17284d6639207887bb6c4b74a9)), closes [#869](https://github.com/Egoushka/chargehand/issues/869)
+* **warmer:** announce a checkout once and log why a step failed ([#888](https://github.com/Egoushka/chargehand/issues/888)) ([9bf6210](https://github.com/Egoushka/chargehand/commit/9bf62102f7501ae6b5d185aee6bc4f0dc31c1f30))
+* **warmer:** close the [#878](https://github.com/Egoushka/chargehand/issues/878) review mediums and residual risks ([#890](https://github.com/Egoushka/chargehand/issues/890)) ([f3f7f95](https://github.com/Egoushka/chargehand/commit/f3f7f95d2aa05a6b4f2947ebb024cb377884d989))
+
+
+### Performance Improvements
+
+* **pool:** index items by status and done_at for the overview done list ([#898](https://github.com/Egoushka/chargehand/issues/898)) ([dc0bc31](https://github.com/Egoushka/chargehand/commit/dc0bc310a86bd970bb5eded6001bf9365ba38158))
+
 ## [0.19.22](https://github.com/Egoushka/chargehand/compare/v0.19.21...v0.19.22) (2026-11-11)
 
 
