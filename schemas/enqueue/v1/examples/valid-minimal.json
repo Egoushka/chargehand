@@ -1,0 +1,6 @@
+{
+  "repository": "owner/repo",
+  "area": "docs",
+  "title": "Explain the pool in the README",
+  "body": "Add a short section on enqueue. Done when the README names the tool and links ADR 0099."
+}

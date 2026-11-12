@@ -16,22 +16,37 @@ public sealed record EnqueueResult(Enqueued? Item, PoolRefusal? Refusal);
 /// <summary>The pool's one entry point: producers enqueue, the governor ticks, workers ask for more and release (ADR 0099).</summary>
 public sealed class TaskPool(SqlitePoolStore store, TaskPoolSettings settings, IReadOnlyList<IPoolCheck> checks, IPoolStarter starter, TimeProvider time)
 {
-    /// <summary>Validates and writes one item; never starts work.</summary>
+    /// <summary>Validates and writes one item, unless <see cref="TaskPoolSettings.MaxQueued"/> items already wait; never starts work.</summary>
     public async Task<EnqueueResult> EnqueueAsync(EnqueueRequest request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (request.Validate() is { } refusal)
             return new EnqueueResult(null, refusal);
-        return new EnqueueResult(await store.EnqueueAsync(request, time.GetUtcNow(), ct).ConfigureAwait(false), null);
+        if (await store.EnqueueAsync(request, settings.MaxQueued, time.GetUtcNow(), ct).ConfigureAwait(false) is not { } item)
+            return new EnqueueResult(null, new PoolRefusal(429, "full", $"the queue holds {settings.MaxQueued} items; enqueue again once workers have taken some"));
+        return new EnqueueResult(item, null);
     }
 
-    /// <summary>One governor step: the first startable scope either starts one worker or is held with the first failing check's name.</summary>
+    /// <summary>One governor step: scopes are tried in order until one starts a worker. A scope a check or the starter holds carries the reason and the next one is
+    /// tried, so one scope that cannot start never stalls the rest. When none starts, the first scope's hold is returned.</summary>
     public async Task<PoolTick> TickAsync(CancellationToken ct)
     {
         var scopes = await store.StartableAsync(ct).ConfigureAwait(false);
         if (scopes.Count == 0)
             return new PoolTick(null, null, "empty");
-        var scope = scopes[0];
+        PoolTick? first = null;
+        foreach (var scope in scopes)
+        {
+            var tick = await TryAsync(scope, ct).ConfigureAwait(false);
+            if (tick.Worker is not null)
+                return tick;
+            first ??= tick;
+        }
+        return first!;
+    }
+
+    private async Task<PoolTick> TryAsync(PoolScope scope, CancellationToken ct)
+    {
         foreach (var check in checks)
         {
             if (await check.HoldAsync(scope, ct).ConfigureAwait(false) is not { } detail)
@@ -39,7 +54,10 @@ public sealed class TaskPool(SqlitePoolStore store, TaskPoolSettings settings, I
             await store.HoldAsync(scope, check.Name, ct).ConfigureAwait(false);
             return new PoolTick(scope, null, check.Name, detail);
         }
-        return await StartAsync(scope, ct).ConfigureAwait(false);
+        var tick = await StartAsync(scope, ct).ConfigureAwait(false);
+        if (tick.Worker is null)
+            await store.HoldAsync(scope, "starter", ct).ConfigureAwait(false);
+        return tick;
     }
 
     private async Task<PoolTick> StartAsync(PoolScope scope, CancellationToken ct)

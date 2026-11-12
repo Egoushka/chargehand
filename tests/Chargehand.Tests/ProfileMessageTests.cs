@@ -50,8 +50,8 @@ public class ProfileMessageTests
     [InlineData("planning", """{"schema":"profile/v1","driven":{"planning":{"preset":" "}}}""",
         """driven.planning: preset must not be empty""",
         """Fix driven.planning in the profile; docs/guide/driven.md lists the keys.""")]
-    [InlineData("pool", """{"schema":"profile/v1","http":{"api_key_secret":"k","pool":{"worker_tokens":0,"max_open_decisions":-1,"database":" ","max_batch_bytes":0}}}""",
-        """http.pool: worker_tokens must be a positive number of tokens; max_open_decisions must be zero or more; database must name a file or be left out; max_batch_bytes must be a positive number of bytes""",
+    [InlineData("pool", """{"schema":"profile/v1","http":{"api_key_secret":"k","pool":{"worker_tokens":0,"max_open_decisions":-1,"database":" ","max_batch_bytes":0,"max_queued":0}}}""",
+        """http.pool: worker_tokens must be a positive number of tokens; max_open_decisions must be zero or more; database must name a file or be left out; max_batch_bytes must be a positive number of bytes; max_queued must be a positive number of items""",
         """Fix http.pool in the profile; docs/guide/reference.md lists the keys.""")]
     [InlineData("runners", """{"schema":"profile/v1","driven":{"runners":[{"name":"a","url":"x"},{"name":"a","url":"x"}]}}""",
         """driven: runners.a: url must be an absolute http or https URL; runners.a: api_key_secret is required; runners.a: name is used twice; runners.a: url must be an absolute http or https URL; runners.a: api_key_secret is required""",

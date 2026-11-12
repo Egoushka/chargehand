@@ -150,6 +150,57 @@ public sealed class PoolTests
     }
 
     [Fact]
+    public async Task A_scope_the_starter_refuses_does_not_stall_the_scopes_behind_it()
+    {
+        using var kit = new PoolKit();
+        await kit.AddAsync("a", "first in order", pullRequest: 4);
+        var behind = await kit.AddAsync("b", "behind it");
+        kit.Starter.Refusal = "the checkout failed";
+        kit.Starter.RefusedArea = "a";
+
+        var tick = await kit.Pool.TickAsync(None);
+
+        Assert.Equal(new PoolScope("owner/repo", "b"), tick.Scope);
+        Assert.NotNull(tick.Worker);
+        Assert.Equal(["a", "b"], kit.Starter.Requests.Select(r => r.Scope.Area));
+        Assert.Equal(behind.Key, Assert.Single(kit.Starter.Requests[1].Items).Key);
+        var refused = Assert.Single(await kit.Pool.ItemsAsync(new PoolScope("owner/repo", "a"), None));
+        Assert.Equal((PoolStatus.Queued, "starter"), (refused.Status, refused.Reason));
+    }
+
+    [Fact]
+    public async Task When_no_scope_starts_the_tick_reports_the_first_ones_hold()
+    {
+        using var kit = new PoolKit(new FakeCheck("box") { Detail = "memory is short" });
+        await kit.AddAsync("a", "first in order", pullRequest: 4);
+        await kit.AddAsync("b", "behind it");
+
+        var tick = await kit.Pool.TickAsync(None);
+
+        Assert.Equal((new PoolScope("owner/repo", "a"), "box", "memory is short"), (tick.Scope, tick.Reason, tick.Detail));
+        Assert.All(await kit.Pool.ItemsAsync(null, None), i => Assert.Equal("box", i.Reason));
+    }
+
+    [Fact]
+    public async Task Enqueue_refuses_with_full_once_max_queued_items_wait()
+    {
+        using var kit = new PoolKit(new TaskPoolSettings(MaxQueued: 2));
+        await kit.AddAsync("a", "one");
+        await kit.AddAsync("b", "two");
+
+        var third = await kit.Pool.EnqueueAsync(new EnqueueRequest("owner/repo", "c", "three", "body"), None);
+
+        Assert.Null(third.Item);
+        Assert.Equal((429, "full"), (third.Refusal!.Status, third.Refusal.Code));
+        Assert.Equal(2, (await kit.Pool.ItemsAsync(null, None)).Count);
+
+        await kit.Pool.TickAsync(None);
+        var afterClaim = await kit.Pool.EnqueueAsync(new EnqueueRequest("owner/repo", "c", "three", "body"), None);
+
+        Assert.Null(afterClaim.Refusal);
+    }
+
+    [Fact]
     public async Task One_start_per_tick()
     {
         using var kit = new PoolKit();
@@ -316,5 +367,6 @@ public sealed class PoolTests
     public void Batch_cap_must_be_positive()
     {
         Assert.Contains("max_batch_bytes must be a positive number of bytes", new TaskPoolSettings(MaxBatchBytes: 0).Problems());
+        Assert.Contains("max_queued must be a positive number of items", new TaskPoolSettings(MaxQueued: 0).Problems());
     }
 }

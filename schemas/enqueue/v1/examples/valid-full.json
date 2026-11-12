@@ -1,0 +1,8 @@
+{
+  "repository": "owner/repo",
+  "area": "pool",
+  "title": "Answer the review comment on the batch cap",
+  "body": "Reply on the pull request and adjust the cap if the comment holds. Done when the thread is resolved.",
+  "priority": 50,
+  "pull_request": 12
+}

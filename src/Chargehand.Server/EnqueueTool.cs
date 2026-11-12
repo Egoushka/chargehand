@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Chargehand.Contracts;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Pool.Api;
 using Microsoft.AspNetCore.Http;
@@ -30,15 +31,8 @@ public static class EnqueueTool
             Destructive = false,
             Idempotent = false,
         });
-        tool.ProtocolTool.InputSchema = JsonDocument.Parse("""
-            {"type":"object","additionalProperties":false,"required":["repository","area","title","body"],"properties":{
-              "repository":{"type":"string","description":"owner/name, as listed in automation.github.repositories","maxLength":100},
-              "area":{"type":"string","description":"The sense the task belongs to (docs, pool, wheelhouse-ui); items of one area share a worker","minLength":1,"maxLength":64},
-              "title":{"type":"string","minLength":1,"maxLength":200},
-              "body":{"type":"string","description":"What to do and how to check it is done; at most 16 KB"},
-              "priority":{"type":"integer","minimum":0,"maximum":100,"default":0},
-              "pull_request":{"type":"integer","minimum":1,"description":"The pull request this task changes, when there is one"}}}
-            """).RootElement.Clone();
+        // The published schema is the tool's input schema, so the two cannot drift.
+        tool.ProtocolTool.InputSchema = JsonDocument.Parse(ContractSchemas.Text(ContractSchemas.Enqueue)).RootElement.Clone();
         return tool;
     }
 

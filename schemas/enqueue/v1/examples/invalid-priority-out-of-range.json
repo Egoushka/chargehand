@@ -1,0 +1,7 @@
+{
+  "repository": "owner/repo",
+  "area": "docs",
+  "title": "Too urgent",
+  "body": "Priority runs from 0 to 100.",
+  "priority": 101
+}

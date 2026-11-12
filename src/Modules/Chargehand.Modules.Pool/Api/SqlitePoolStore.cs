@@ -85,10 +85,15 @@ public sealed class SqlitePoolStore : IDisposable
         SqliteConnection.ClearPool(pooled);
     }
 
-    /// <summary>Writes one queued item; the request must already be valid.</summary>
-    public Task<Enqueued> EnqueueAsync(EnqueueRequest request, DateTimeOffset now, CancellationToken ct) =>
-        WriteAsync((db, tx) =>
+    /// <summary>Writes one queued item, or nothing (null) when <paramref name="maxQueued"/> items already wait; the request must already be valid.</summary>
+    public Task<Enqueued?> EnqueueAsync(EnqueueRequest request, int maxQueued, DateTimeOffset now, CancellationToken ct) =>
+        WriteAsync<Enqueued?>((db, tx) =>
         {
+            using (var queued = Command(db, tx, "SELECT COUNT(*) FROM items WHERE status = 'queued';"))
+            {
+                if (Convert.ToInt64(queued.ExecuteScalar(), CultureInfo.InvariantCulture) >= maxQueued)
+                    return null;
+            }
             var key = "p-" + Guid.NewGuid().ToString("N");
             Command(db, tx, $"INSERT INTO items ({Columns}) VALUES ($key, $source, $repo, $area, $title, $body, $priority, $pr, $at, 'queued', NULL, NULL, NULL, NULL);",
                 ("$key", key), ("$source", request.Source), ("$repo", request.Repository), ("$area", request.Area),

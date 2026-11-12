@@ -25,10 +25,11 @@ ceiling, then writes a resume card for its successor.
    and each time it asks for the next item (`NextAsync`), oldest first; so an item enqueued into a live scope goes to that
    worker. A scope with a live worker is never started again.
 4. **The governor** ticks. On a tick it orders startable scopes (no live worker, at least one queued item): scopes with
-   any pull-request item first, then highest priority, then oldest `enqueued_at`. It takes the first and runs the checks
-   in registration order; the first failing check's name becomes the `reason` on the scope's queued items and the tick
-   ends with no start. When every check passes it asks the starter for a worker; a refusal from the starter is a reason
-   too (`starter`). One start per tick is the start-rate breaker. "Slots" is not a setting: the checks are the capacity.
+   any pull-request item first, then highest priority, then oldest `enqueued_at`. It tries them in that order: for each it
+   runs the checks in registration order, and the first failing check's name becomes the `reason` on the scope's queued
+   items. When every check passes it asks the starter for a worker; a refusal from the starter is a reason too
+   (`starter`). A held scope does not stall the ones behind it: the tick moves to the next scope and ends at the first
+   start, or, when none starts, reports the first scope's hold. One start per tick is the start-rate breaker. "Slots" is not a setting: the checks are the capacity.
 5. **Checks** are `IPoolCheck { Name; HoldAsync(scope) → detail or null }`. The module defines the shape and one check,
    `decisions`: open decisions waiting on the owner must be ≤ `pool.max_open_decisions` (default 5, system-wide), counted
    by a function the host supplies (the console inbox's `decide` lane). Money, subscription headroom and the box arrive
@@ -47,7 +48,8 @@ ceiling, then writes a resume card for its successor.
    and `pull_request`. It writes one item and returns `{key, repository, area, position}`; it never starts work.
    Refusals carry stable codes and never quote the refused value: `400 invalid` (a field missing, too long, or
    `repository` not `owner/name`), `413 too_large` (body over 16 KiB), `422 secret` (`DiffScan.ScanText` finds a
-   credential in title or body), and `400 invalid` for a repository not in `automation.github.repositories`. The caller is
+   credential in title or body), `400 invalid` for a repository not in `automation.github.repositories`, and `429 full`
+   once `pool.max_queued` items wait (default 1000, a starting value). The tool's input schema is the published file. The caller is
    the owner's key only: an account key and a session's run token (which also acts for the owner) are refused with
    `forbidden`, so a run cannot queue work for workers outside its own grant. No new authentication surface. The tool is
    listed only when `http.pool` is set.
@@ -77,6 +79,12 @@ ceiling, then writes a resume card for its successor.
   exactly one start.
 - `Starter_refusal_is_a_reason`: the starter refuses → items carry `reason` = `starter`, next tick asks again.
 - `One_start_per_tick`: two startable scopes, one tick → one worker.
+- `A_scope_the_starter_refuses_does_not_stall_the_scopes_behind_it`: the first scope in order is refused by the starter →
+  the same tick starts the next one; the refused scope's item stays queued with reason `starter`.
+- `Enqueue_refuses_with_full_once_max_queued_items_wait`: `max_queued` 2, two items queued → the third is refused with
+  `429 full`; after a claim takes one, enqueue succeeds again.
+- `The_listed_input_schema_is_the_published_enqueue_v1` (server tests): the listed tool's input schema equals
+  `schemas/enqueue/v1/enqueue.schema.json`.
 - `Ceiling_ends_the_worker_with_a_card_and_the_successor_gets_it`: report 150001 tokens → `NextAsync` returns `ceiling`;
   the worker writes a card and releases; the next tick starts a successor whose start request carries that card; the
   successor receives the items left.

@@ -129,9 +129,9 @@ public class PoolServerTests
     {
         using var dir = new TempDir();
         var profile = Profile.Load(dir.Write("p.json",
-            """{"schema":"profile/v1","http":{"api_key_secret":"k","pool":{"worker_tokens":90000,"max_open_decisions":2,"database":"q.db","max_batch_bytes":4096}}}"""));
+            """{"schema":"profile/v1","http":{"api_key_secret":"k","pool":{"worker_tokens":90000,"max_open_decisions":2,"database":"q.db","max_batch_bytes":4096,"max_queued":7}}}"""));
 
-        Assert.Equal(new TaskPoolSettings(90_000, 2, "q.db", 4096), profile.Http!.Pool);
+        Assert.Equal(new TaskPoolSettings(90_000, 2, "q.db", 4096, 7), profile.Http!.Pool);
     }
 
     [Fact]
@@ -156,6 +156,18 @@ public class PoolServerTests
         var reply = JsonDocument.Parse(Text(call)).RootElement;
         Assert.Equal(("owner/repo", "docs", 1), (reply.GetProperty("repository").GetString(), reply.GetProperty("area").GetString(), reply.GetProperty("position").GetInt32()));
         Assert.False(string.IsNullOrEmpty(reply.GetProperty("key").GetString()));
+    }
+
+    [Fact]
+    public async Task The_listed_input_schema_is_the_published_enqueue_v1()
+    {
+        await using var s = await StartWithPool();
+        await using var client = await Connect(s, TestServer.Key);
+
+        var tool = (await client.ListToolsAsync()).Single(t => t.Name == EnqueueTool.Name);
+
+        var published = JsonDocument.Parse(File.ReadAllText(Repo.Path("schemas/enqueue/v1/enqueue.schema.json"))).RootElement;
+        Assert.True(JsonElement.DeepEquals(published, tool.ProtocolTool.InputSchema), tool.ProtocolTool.InputSchema.GetRawText());
     }
 
     [Fact]

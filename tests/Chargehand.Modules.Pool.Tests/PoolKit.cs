@@ -67,10 +67,13 @@ internal sealed class FakeStarter : IPoolStarter
 
     public string? Refusal { get; set; }
 
+    /// <summary>When set, only this area is refused, with <see cref="Refusal"/>.</summary>
+    public string? RefusedArea { get; set; }
+
     public Task<string?> StartAsync(PoolStartRequest request, CancellationToken ct)
     {
         Requests.Add(request);
-        return Task.FromResult(Refusal);
+        return Task.FromResult(RefusedArea is null || RefusedArea == request.Scope.Area ? Refusal : null);
     }
 }
 

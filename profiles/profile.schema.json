@@ -924,6 +924,11 @@
               "type": "integer",
               "minimum": 1,
               "description": "The UTF-8 bytes of titles and bodies one claim may take; the rest stays queued. A single larger item is still claimed alone. Default: 65536."
+            },
+            "max_queued": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The queued items the pool holds at most; enqueue refuses with full beyond it. Default: 1000."
             }
           }
         }
