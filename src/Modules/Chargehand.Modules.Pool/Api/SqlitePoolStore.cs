@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using Microsoft.Data.Sqlite;
 
 namespace Chargehand.Modules.Pool.Api;
@@ -128,8 +129,9 @@ public sealed class SqlitePoolStore : IDisposable
             return cmd.ExecuteNonQuery();
         }, ct);
 
-    /// <summary>Starts a worker for the scope, claims every queued item oldest first and takes the latest untaken card.</summary>
-    public Task<PoolClaim> StartWorkerAsync(PoolScope scope, string worker, DateTimeOffset now, CancellationToken ct) =>
+    /// <summary>Starts a worker for the scope, claims queued items oldest first up to <paramref name="maxBytes"/> of title and body (always at least one) and
+    /// takes the latest untaken card.</summary>
+    public Task<PoolClaim> StartWorkerAsync(PoolScope scope, string worker, long maxBytes, DateTimeOffset now, CancellationToken ct) =>
         WriteAsync((db, tx) =>
         {
             using (var live = Command(db, tx, "SELECT COUNT(*) FROM workers WHERE repository = $repo AND area = $area AND released_at IS NULL;",
@@ -141,7 +143,7 @@ public sealed class SqlitePoolStore : IDisposable
             using (var insert = Command(db, tx, "INSERT INTO workers (id, repository, area, started_at) VALUES ($id, $repo, $area, $at);",
                 ("$id", worker), ("$repo", scope.Repository), ("$area", scope.Area), ("$at", Stamp(now))))
                 insert.ExecuteNonQuery();
-            var items = ClaimQueued(db, tx, scope, worker, now);
+            var items = ClaimQueued(db, tx, scope, worker, maxBytes, now);
             ResumeCard? card = null;
             long? cardId = null;
             using (var read = Command(db, tx, """
@@ -164,14 +166,14 @@ public sealed class SqlitePoolStore : IDisposable
             return new PoolClaim(items, card);
         }, ct);
 
-    /// <summary>Claims the queued items of a live worker's scope; nothing for a released or unknown worker.</summary>
-    public Task<IReadOnlyList<PoolItem>> ClaimAsync(string worker, DateTimeOffset now, CancellationToken ct) =>
+    /// <summary>Claims the queued items of a live worker's scope up to <paramref name="maxBytes"/>; nothing for a released or unknown worker.</summary>
+    public Task<IReadOnlyList<PoolItem>> ClaimAsync(string worker, long maxBytes, DateTimeOffset now, CancellationToken ct) =>
         WriteAsync<IReadOnlyList<PoolItem>>((db, tx) =>
         {
             var found = ReadWorkers(db, tx, "WHERE id = $id", ("$id", worker));
             if (found.Count == 0 || found[0].ReleasedAt is not null)
                 return [];
-            return ClaimQueued(db, tx, found[0].Scope, worker, now);
+            return ClaimQueued(db, tx, found[0].Scope, worker, maxBytes, now);
         }, ct);
 
     public Task<PoolWorker?> WorkerAsync(string worker, CancellationToken ct)
@@ -282,12 +284,14 @@ public sealed class SqlitePoolStore : IDisposable
         return true;
     }
 
-    private static List<PoolItem> ClaimQueued(SqliteConnection db, SqliteTransaction tx, PoolScope scope, string worker, DateTimeOffset now)
+    private static List<PoolItem> ClaimQueued(SqliteConnection db, SqliteTransaction tx, PoolScope scope, string worker, long maxBytes, DateTimeOffset now)
     {
         List<PoolItem> queued;
         using (var select = Command(db, tx, $"SELECT {Columns} FROM items WHERE repository = $repo AND area = $area AND status = 'queued' ORDER BY enqueued_at, rowid;",
             ("$repo", scope.Repository), ("$area", scope.Area)))
             queued = ReadItems(select);
+        long bytes = 0;
+        queued = queued.TakeWhile((item, i) => (bytes += Encoding.UTF8.GetByteCount(item.Title) + Encoding.UTF8.GetByteCount(item.Body)) <= maxBytes || i == 0).ToList();
         foreach (var item in queued)
         {
             using var claim = Command(db, tx, "UPDATE items SET status = 'claimed', worker = $worker, reason = NULL, claimed_at = $at WHERE key = $key;",

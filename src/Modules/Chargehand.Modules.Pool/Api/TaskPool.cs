@@ -14,7 +14,7 @@ public sealed record PoolNext(IReadOnlyList<PoolItem> Items, string? Reason);
 public sealed record EnqueueResult(Enqueued? Item, PoolRefusal? Refusal);
 
 /// <summary>The pool's one entry point: producers enqueue, the governor ticks, workers ask for more and release (ADR 0099).</summary>
-public sealed class TaskPool(SqlitePoolStore store, PoolSettings settings, IReadOnlyList<IPoolCheck> checks, IPoolStarter starter, TimeProvider time)
+public sealed class TaskPool(SqlitePoolStore store, TaskPoolSettings settings, IReadOnlyList<IPoolCheck> checks, IPoolStarter starter, TimeProvider time)
 {
     /// <summary>Validates and writes one item; never starts work.</summary>
     public async Task<EnqueueResult> EnqueueAsync(EnqueueRequest request, CancellationToken ct)
@@ -45,7 +45,7 @@ public sealed class TaskPool(SqlitePoolStore store, PoolSettings settings, IRead
     private async Task<PoolTick> StartAsync(PoolScope scope, CancellationToken ct)
     {
         var worker = "w-" + Guid.NewGuid().ToString("N");
-        var claim = await store.StartWorkerAsync(scope, worker, time.GetUtcNow(), ct).ConfigureAwait(false);
+        var claim = await store.StartWorkerAsync(scope, worker, settings.MaxBatchBytes, time.GetUtcNow(), ct).ConfigureAwait(false);
         string? refusal;
         try
         {
@@ -62,7 +62,7 @@ public sealed class TaskPool(SqlitePoolStore store, PoolSettings settings, IRead
         return new PoolTick(scope, null, "starter", refusal);
     }
 
-    /// <summary>Claims every queued item of the worker's scope, unless the worker is past its token ceiling or released.</summary>
+    /// <summary>Claims the next batch of queued items of the worker's scope (up to <see cref="TaskPoolSettings.MaxBatchBytes"/>), unless the worker is past its token ceiling or released.</summary>
     public async Task<PoolNext> NextAsync(string worker, CancellationToken ct)
     {
         var live = await store.WorkerAsync(worker, ct).ConfigureAwait(false);
@@ -70,7 +70,7 @@ public sealed class TaskPool(SqlitePoolStore store, PoolSettings settings, IRead
             return new PoolNext([], "released");
         if (live.Tokens > settings.WorkerTokens)
             return new PoolNext([], "ceiling");
-        return new PoolNext(await store.ClaimAsync(worker, time.GetUtcNow(), ct).ConfigureAwait(false), null);
+        return new PoolNext(await store.ClaimAsync(worker, settings.MaxBatchBytes, time.GetUtcNow(), ct).ConfigureAwait(false), null);
     }
 
     /// <summary>Records the worker's total token use so far.</summary>

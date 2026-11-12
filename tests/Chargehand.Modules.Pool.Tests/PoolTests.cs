@@ -261,4 +261,31 @@ public sealed class PoolTests
         Assert.DoesNotContain(secret, leaked.Refusal!.Message, StringComparison.Ordinal);
         Assert.Empty(await kit.Pool.ItemsAsync(null, None));
     }
+
+    [Fact]
+    public async Task Batch_stops_at_its_byte_cap_and_the_rest_waits_for_the_next_claim()
+    {
+        using var kit = new PoolKit(new TaskPoolSettings(MaxBatchBytes: 2500));
+        var big = new string('x', 1000);
+        var keys = new List<string>();
+        for (var i = 0; i < 4; i++)
+            keys.Add((await kit.AddAsync("a", "t" + i, body: big)).Key);
+        var huge = await kit.AddAsync("b", "huge", body: new string('y', 3000));
+
+        var worker = (await kit.Pool.TickAsync(None)).Worker!;
+        var lone = (await kit.Pool.TickAsync(None)).Worker!;
+
+        Assert.Equal(keys.Take(2), kit.Starter.Requests[0].Items.Select(i => i.Key));
+        Assert.Equal(huge.Key, Assert.Single(kit.Starter.Requests[1].Items).Key);
+        var queued = (await kit.Pool.ItemsAsync(new PoolScope("owner/repo", "a"), None)).Where(i => i.Status == PoolStatus.Queued);
+        Assert.Equal(keys.Skip(2), queued.Select(i => i.Key));
+        Assert.Equal(keys.Skip(2), (await kit.Pool.NextAsync(worker, None)).Items.Select(i => i.Key));
+        Assert.Empty((await kit.Pool.NextAsync(lone, None)).Items);
+    }
+
+    [Fact]
+    public void Batch_cap_must_be_positive()
+    {
+        Assert.Contains("max_batch_bytes must be a positive number of bytes", new TaskPoolSettings(MaxBatchBytes: 0).Problems());
+    }
 }

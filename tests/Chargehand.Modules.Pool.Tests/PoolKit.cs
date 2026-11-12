@@ -9,10 +9,18 @@ internal sealed class PoolKit : IDisposable
     private readonly string _dir = Directory.CreateTempSubdirectory("chargehand-pool-").FullName;
 
     public PoolKit(params IPoolCheck[] checks)
+        : this(new TaskPoolSettings(), checks)
     {
-        Store = SqlitePoolStore.Open(DbPath);
-        Pool = new TaskPool(Store, new PoolSettings(), checks, Starter, Time);
     }
+
+    public PoolKit(TaskPoolSettings settings, params IPoolCheck[] checks)
+    {
+        Settings = settings;
+        Store = SqlitePoolStore.Open(DbPath);
+        Pool = new TaskPool(Store, settings, checks, Starter, Time);
+    }
+
+    public TaskPoolSettings Settings { get; }
 
     public string DbPath => Path.Combine(_dir, "pool.db");
 
@@ -24,9 +32,9 @@ internal sealed class PoolKit : IDisposable
 
     public FakeStarter Starter { get; } = new();
 
-    public async Task<PoolItem> AddAsync(string area, string title, int priority = 0, int? pullRequest = null, string repository = "owner/repo")
+    public async Task<PoolItem> AddAsync(string area, string title, int priority = 0, int? pullRequest = null, string repository = "owner/repo", string? body = null)
     {
-        var result = await Pool.EnqueueAsync(new EnqueueRequest(repository, area, title, "body of " + title, priority, pullRequest), CancellationToken.None);
+        var result = await Pool.EnqueueAsync(new EnqueueRequest(repository, area, title, body ?? "body of " + title, priority, pullRequest), CancellationToken.None);
         Assert.Null(result.Refusal);
         Time.Advance(TimeSpan.FromSeconds(1));
         return result.Item!.Item;
@@ -36,7 +44,7 @@ internal sealed class PoolKit : IDisposable
     {
         Store.Dispose();
         Store = SqlitePoolStore.Open(DbPath);
-        Pool = new TaskPool(Store, new PoolSettings(), checks, Starter, Time);
+        Pool = new TaskPool(Store, Settings, checks, Starter, Time);
     }
 
     public void Dispose()

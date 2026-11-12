@@ -10,6 +10,7 @@
     <ProjectReference Include="..\Chargehand.Driven\Chargehand.Driven.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Conversations\Chargehand.Modules.Conversations.csproj" />
     <ProjectReference Include="..\Modules\Chargehand.Modules.Economics\Chargehand.Modules.Economics.csproj" />
+    <ProjectReference Include="..\Modules\Chargehand.Modules.Pool\Chargehand.Modules.Pool.csproj" />
   </ItemGroup>
 
   <!-- The operator console (ADR 0056): the Vite build in web/console/dist, served at /console/. Without it (no `npm run build` yet) the server still builds and answers /console/ with a page that says so. -->

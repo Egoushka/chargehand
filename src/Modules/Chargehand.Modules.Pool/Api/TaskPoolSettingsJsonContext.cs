@@ -3,8 +3,8 @@ using System.Text.Json.Serialization;
 
 namespace Chargehand.Modules.Pool.Api;
 
-/// <summary>Source-generated JSON for <see cref="PoolSettings"/> (the profile's <c>http.pool</c>).</summary>
+/// <summary>Source-generated JSON for <see cref="TaskPoolSettings"/> (the profile's <c>http.pool</c>).</summary>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower, ReadCommentHandling = JsonCommentHandling.Skip,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip)]
-[JsonSerializable(typeof(PoolSettings))]
-public sealed partial class PoolSettingsJsonContext : JsonSerializerContext;
+[JsonSerializable(typeof(TaskPoolSettings))]
+public sealed partial class TaskPoolSettingsJsonContext : JsonSerializerContext;
