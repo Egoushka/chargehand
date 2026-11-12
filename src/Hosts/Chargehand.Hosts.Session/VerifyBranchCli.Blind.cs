@@ -66,18 +66,37 @@ public static partial class VerifyBranchCli
         return (await Git(work, env, [.. Safe, "clean", "--quiet", "-fd"], ct)).ExitCode == 0;
     }
 
-    /// <summary>Takes the files a tests branch changed since <paramref name="onto"/> from that branch.</summary>
+    /// <summary>Takes the test files a tests branch added or changed since <paramref name="onto"/> from that branch. Other paths, symlinks and submodules are left out,
+    /// and so is a file the checked-out branch itself changed: the implementer's version stays.</summary>
     private static async Task<bool> OverlayAsync(string work, IReadOnlyDictionary<string, string> env, string onto, IReadOnlyList<string> refs, CancellationToken ct)
     {
+        var own = await Git(work, env, [.. Safe, "diff", "--name-only", "-z", onto, "HEAD"], ct);
+        if (own.ExitCode != 0)
+            return false;
+        var kept = own.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
         foreach (var reference in refs)
         {
-            var changed = await Git(work, env, [.. Safe, "diff", "--name-only", "--diff-filter=AMR", onto, reference], ct);
-            var paths = changed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var changed = await Git(work, env, [.. Safe, "diff", "--raw", "-z", "--no-renames", "--diff-filter=AM", onto, reference], ct);
             if (changed.ExitCode != 0)
                 return false;
-            if (paths.Length > 0 && (await Git(work, env, [.. Safe, "checkout", reference, "--", .. paths], ct)).ExitCode != 0)
+            var paths = TestFiles(changed.Stdout, kept);
+            if (paths.Count > 0 && (await Git(work, env, [.. Safe, "checkout", reference, "--", .. paths], ct)).ExitCode != 0)
                 return false;
         }
         return true;
+    }
+
+    private static List<string> TestFiles(string raw, HashSet<string> excluded)
+    {
+        var fields = raw.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        List<string> paths = [];
+        for (var i = 0; i + 1 < fields.Length; i += 2)
+        {
+            var modes = fields[i].Split(' ');
+            var regular = modes.Length > 1 && modes[1] is "100644" or "100755";
+            if (regular && TestIntegrity.Classify(fields[i + 1]) == ChangeKind.Test && !excluded.Contains(fields[i + 1]))
+                paths.Add(fields[i + 1]);
+        }
+        return paths;
     }
 }

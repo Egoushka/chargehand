@@ -30,7 +30,7 @@ internal sealed record VerificationArtifact(IReadOnlyList<string> Argv, string S
 
 internal sealed record TestIntegrityArtifact(bool Flagged, string Reason, IReadOnlyList<string> TestPaths, IReadOnlyList<string> BuildPaths);
 
-internal sealed record BlindTestsArtifact(int Count, int Failed, IReadOnlyList<string> Names, IReadOnlyList<string> Uncompilable);
+internal sealed record BlindTestsArtifact(int Count, int Failed, IReadOnlyList<string> Names, IReadOnlyList<string> Uncompilable, string? Skipped = null);
 
 /// <summary>The <c>mutation</c> artifact: the share of mutants of the changed lines the tests killed, against the share required; <c>not_run</c> says why the tool could not run.</summary>
 internal sealed record MutationArtifact(bool Ran, double? Score, double Threshold, bool Passed, int? Survivors, int? Killed, string? NotRun);

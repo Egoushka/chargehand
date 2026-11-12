@@ -151,6 +151,9 @@ public static partial class ContainerTemplate
     /// <summary>The files chargehand writes into a session's output volume.</summary>
     public const int MaxBlindBundles = 4;
 
+    /// <summary>The largest tests bundle the verifier carries into the container; test files are small, so a bigger bundle is not tests.</summary>
+    public const long MaxBlindBundleBytes = 8 * 1024 * 1024;
+
     /// <summary>The out-volume name of the n-th tests bundle a verification lays over a branch (issue 789).</summary>
     public static string BlindBundleFile(int n) => $"blind-{n}.bundle";
 

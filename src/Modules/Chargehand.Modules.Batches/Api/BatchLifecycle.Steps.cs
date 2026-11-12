@@ -103,9 +103,11 @@ public sealed partial class BatchLifecycle
     private static ResolvedTask Resumed(RunRequest request, TaskEntry entry)
     {
         var asked = request.Driven?.Tasks.FirstOrDefault(t => t.Id == entry.Id);
-        return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, entry.Size ?? asked?.Size, asked?.BudgetUsd, entry.From, entry.DependsOn ?? asked?.DependsOn,
+        var task = new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, entry.Size ?? asked?.Size,
+            asked?.BudgetUsd, entry.From, entry.DependsOn ?? asked?.DependsOn,
             SplitFrom: entry.SplitFrom, SizeFrom: entry.SizeFrom, Title: entry.Title, Runner: entry.Phase == TaskPhase.Pending ? null : entry.Runner ?? "",
-            Acceptance: asked?.Acceptance, BlindTests: asked?.BlindTests == true, BlindFor: BlindIds.For(entry.Id));
+            Acceptance: asked?.Acceptance, BlindTests: asked?.BlindTests == true, BlindFor: BlindIds.For(entry.Id), ImplementerNote: asked?.ImplementerNote);
+        return task.BlindFor is null ? task : task with { MaxTurns = BlindLimits.MaxTurns, MaxMinutes = BlindLimits.MaxMinutes, BudgetUsd = BlindLimits.BudgetUsd, Preset = BlindLimits.PresetName };
     }
 
     /// <summary>Runs the batch's tasks under its limits (<see cref="BatchScheduler"/>, ADR 0039): each end is journaled before the next step, and told as a <c>task_finished</c> event, as is a task that

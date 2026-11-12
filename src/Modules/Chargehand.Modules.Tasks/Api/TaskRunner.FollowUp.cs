@@ -68,11 +68,11 @@ public sealed partial class TaskRunner
         var handoverRun = partial && best is not null ? (best.RunId, best.OutDirectory) : (run.RunId, run.OutDirectory);
         HandoverOutcome? handed = null;
         if (finished && !partial)
-            handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"{DrivenReport.Parse(run.ReportJson!)!.Summary}\n\nRun: {RunNames.Label(run.RunId)}\nTask: {task.Id}{ContinuationNote(run.Continuation)}{GoalSection(task.Goal)}{CostReceipt.Footer(run.Total, run.Continuation)}", partial: false, run.Stack, session, ct, blindBundles: run.BlindBundles);
+            handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"{DrivenReport.Parse(run.ReportJson!)!.Summary}\n\nRun: {RunNames.Label(run.RunId)}\nTask: {task.Id}{ContinuationNote(run.Continuation)}{GoalSection(task.Goal)}{CostReceipt.Footer(run.Total, run.Continuation)}", partial: false, run.Stack, session, ct, blindBundles: run.BlindBundles, blindSkipped: run.BlindSkipped);
         else if (partial)
         {
             await RestoreBundleAsync(handoverRun.Item1, ct);
-            handed = await HandOverAsync(task, handoverRun, run.Branch, $"[partial] {PullRequestTitle.Of(task.Title, task.Goal)}", PartialBody(task, handoverRun.Item1, session, run.Total, run.Continuation, run.StartFailure, ReadProgress(run.OutDirectory)), partial: true, run.Stack, run.Total, ct, blindBundles: run.BlindBundles);
+            handed = await HandOverAsync(task, handoverRun, run.Branch, $"[partial] {PullRequestTitle.Of(task.Title, task.Goal)}", PartialBody(task, handoverRun.Item1, session, run.Total, run.Continuation, run.StartFailure, ReadProgress(run.OutDirectory)), partial: true, run.Stack, run.Total, ct, blindBundles: run.BlindBundles, blindSkipped: run.BlindSkipped);
         }
         return (partial, handoverRun, handed);
     }
@@ -271,14 +271,14 @@ public sealed partial class TaskRunner
         e is ChargehandException or HttpRequestException or IOException || (e is TaskCanceledException && !ct.IsCancellationRequested);
 
     private Task<HandoverOutcome> HandOverAsync(ResolvedTask task, (string RunId, string OutDirectory) run, string branch, string title, string body, bool partial, StackBase? stack, SessionOutcome spent, CancellationToken ct, bool bare = false,
-        IReadOnlyList<TestsBundle>? blindBundles = null, bool blindTask = false) =>
+        IReadOnlyList<TestsBundle>? blindBundles = null, bool blindTask = false, string? blindSkipped = null) =>
         handover.RunAsync(new HandoverInput(run.RunId, run.OutDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, stack?.PullRequestBase ?? settings.BaseBranch,
             title, stack is null ? body : $"{body}\n\n{stack.Note}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote, LocalOnly: settings.LocalOnly,
             Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
             Goal: task.Goal, UpdateReused: !partial && task.From?.Pushed is null, PolicyNote: stack is null && settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null,
             FallbackBaseBranch: stack?.PullRequestBase is null ? null : settings.BaseBranch,
             Provenance: TaskProvenance.Of(task, run.RunId, spent, ModelOf(run.RunId), settings.ClaudeVersion), Bare: bare, CiVerifies: CiVerifies, PrePushCheck: PrePushCheck, Identity: settings.Identity,
-            MutationShare: settings.Preset.MutationShare, BlindBundles: blindBundles, BlindTask: blindTask), ct);
+            MutationShare: settings.Preset.MutationShare, BlindBundles: blindBundles, BlindTask: blindTask, BlindSkipped: blindSkipped), ct);
 
     /// <summary>ADR 0078: under mise the repository's CI verifies. ADR 0075: so it does for a Gradle repository whose session image has no JDK, where the detected command could only fail.</summary>
     private bool CiVerifies => settings.Mise is not null || settings.Shared is { NoJdk: true };

@@ -76,6 +76,9 @@ public sealed record DrivenTask(string Id, string? Ref = null, string? Goal = nu
 {
     /// <summary>True: a second session writes acceptance tests from the issue alone, and the task's branch must pass them (docs/specs/2026-11-11-blind-tests.md). Null or false: off.</summary>
     public bool? BlindTests { get; init; }
+
+    /// <summary>Text for the implementing session only, appended to its goal: a name to use, a file to touch. The blind session never gets it. Null: none.</summary>
+    public string? ImplementerNote { get; init; }
 }
 
 /// <summary>A machine-checkable acceptance criterion: a shell command, the exit code it must end with and, when set, text its output must contain.</summary>

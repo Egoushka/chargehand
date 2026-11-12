@@ -116,6 +116,17 @@ public class ContainerVerifierTests
     }
 
     [Fact]
+    public async Task A_tests_bundle_over_the_byte_cap_is_refused_before_anything_is_written()
+    {
+        using var dir = new TempDir();
+        var file = System.IO.Path.Combine(dir.Path, "blind.bundle");
+        await File.WriteAllBytesAsync(file, new byte[ContainerTemplate.MaxBlindBundleBytes + 1]);
+        var engine = new FakeEngine { Logs = Line(0) + "\n" };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => BlindVerifier(engine).VerifyAsync(WithBlind(file), default));
+        Assert.Empty(engine.Written);
+    }
+
+    [Fact]
     public async Task Failures_of_the_blind_tests_appear_in_the_record()
     {
         using var dir = new TempDir();

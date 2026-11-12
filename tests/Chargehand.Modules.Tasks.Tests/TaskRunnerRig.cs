@@ -61,12 +61,12 @@ internal sealed class TaskRunnerRig : IDisposable
             .RunAsync(new ResolvedTask("t1", null, goal), new Progress<TaskUsage>(), ct);
 
     /// <summary>Runs <c>t1</c> (opted in to blind tests) and its sibling <c>t1.blind</c> on one runner, as a batch does.</summary>
-    public async Task<(TaskOutcome Implementer, TaskOutcome Blind)> RunPairAsync(string goal)
+    public async Task<(TaskOutcome Implementer, TaskOutcome Blind)> RunPairAsync(string goal, string? implementerNote = null)
     {
         var runner = new TaskRunner(Engine, Engine, Volumes, Handover, Log, g => $"tok-{g.RunId}", Settings(goal), new DrivenTaskResults(new NoEvidenceProblems(), null, null), TimeSpan.FromMilliseconds(1),
             router: _router);
         var blind = runner.RunAsync(new ResolvedTask("t1.blind", null, goal, BlindFor: "t1"), new Progress<TaskUsage>(), default);
-        var implementer = runner.RunAsync(new ResolvedTask("t1", null, goal, BlindTests: true), new Progress<TaskUsage>(), default);
+        var implementer = runner.RunAsync(new ResolvedTask("t1", null, goal, BlindTests: true, ImplementerNote: implementerNote), new Progress<TaskUsage>(), default);
         return (await implementer, await blind);
     }
 

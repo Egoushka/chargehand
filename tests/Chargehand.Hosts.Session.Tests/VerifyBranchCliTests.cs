@@ -28,7 +28,7 @@ public class VerifyBranchCliTests
         public string Work => Path.Combine(Dir.Path, "work");
         public string Bundle => Path.Combine(Dir.Path, "chargehand.bundle");
 
-        public Fixture(bool bundleBranch = true)
+        public Fixture(bool bundleBranch = true, Action<string>? shapeSession = null)
         {
             var source = Directory.CreateDirectory(Path.Combine(Dir.Path, "source")).FullName;
             G(source, "init", "-q", "-b", "main");
@@ -41,6 +41,7 @@ public class VerifyBranchCliTests
             G(Dir.Path, "clone", "-q", "--template=", source, session);
             G(session, "checkout", "-q", "-b", "chargehand/run1");
             File.WriteAllText(Path.Combine(session, "retry.txt"), "retry");
+            shapeSession?.Invoke(session);
             G(session, "add", "-A");
             G(session, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "feat: retry");
             if (bundleBranch)
@@ -48,12 +49,14 @@ public class VerifyBranchCliTests
         }
 
         /// <summary>A bundle of a branch off the same base that adds blind.txt, as a blind task's tests-only branch does; the argument for <c>--tests-bundle</c>.</summary>
-        public string BlindBundle(string name = "blind1")
+        public string BlindBundle(string name = "blind1", Action<string>? shape = null)
         {
             var clone = Path.Combine(Dir.Path, name);
             G(Dir.Path, "clone", "-q", "--template=", Path.Combine(Dir.Path, "source"), clone);
             G(clone, "checkout", "-q", "-b", $"chargehand/{name}");
-            File.WriteAllText(Path.Combine(clone, "blind.txt"), "tests");
+            Directory.CreateDirectory(Path.Combine(clone, "tests"));
+            File.WriteAllText(Path.Combine(clone, "tests", "blind.txt"), "tests");
+            shape?.Invoke(clone);
             G(clone, "add", "-A");
             G(clone, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "-m", "test: blind");
             var bundle = Path.Combine(Dir.Path, $"{name}.bundle");
@@ -76,7 +79,7 @@ public class VerifyBranchCliTests
         return (exit, JsonDocument.Parse(line[VerifyBranchCli.Marker.Length..]).RootElement);
     }
 
-    private const string FailsWithBlindFile = "if [ -f blind.txt ]; then echo '  Failed Boundary_Test [3 ms]'; echo 'Failed!  - Failed:     1, Passed:     4, Skipped:     0, Total:     5'; exit 1; fi; echo 'Passed!  - Failed:     0, Passed:     3, Skipped:     0, Total:     3'";
+    private const string FailsWithBlindFile = "if [ -f tests/blind.txt ]; then echo '  Failed Boundary_Test [3 ms]'; echo 'Failed!  - Failed:     1, Passed:     4, Skipped:     0, Total:     5'; exit 1; fi; echo 'Passed!  - Failed:     0, Passed:     3, Skipped:     0, Total:     3'";
 
     private static async Task<(int Exit, JsonElement Record)> Run(Fixture f, string timeout, params string[] argv)
     {
@@ -192,11 +195,51 @@ public class VerifyBranchCliTests
     public async Task Blind_tests_that_do_not_compile_on_the_base_commit_are_dropped_and_do_not_fail_the_run()
     {
         using var f = new Fixture();
-        var (_, record) = await RunBlind(f, [f.BlindBundle()], "if [ -f blind.txt ]; then echo 'blind.txt(1,1): error CS1002: ; expected'; exit 1; fi; echo ok");
+        var (_, record) = await RunBlind(f, [f.BlindBundle()], "if [ -f tests/blind.txt ]; then echo 'blind.txt(1,1): error CS1002: ; expected'; exit 1; fi; echo ok");
         Assert.Equal(0, record.GetProperty("exit_code").GetInt32());
         var blind = record.GetProperty("blind");
         Assert.Equal(0, blind.GetProperty("failed").GetInt32());
         Assert.Equal(["chargehand/blind1"], blind.GetProperty("uncompilable").EnumerateArray().Select(n => n.GetString()));
+    }
+
+    [Fact]
+    public async Task Blind_tests_that_build_and_fail_on_the_base_commit_are_kept()
+    {
+        using var f = new Fixture();
+        var (_, record) = await RunBlind(f, [f.BlindBundle()], "if [ -f tests/blind.txt ]; then echo '  Failed Boundary_Test [3 ms]'; echo 'Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1'; exit 1; fi; echo ok");
+        var blind = record.GetProperty("blind");
+        Assert.Empty(blind.GetProperty("uncompilable").EnumerateArray());
+        Assert.Equal(1, blind.GetProperty("failed").GetInt32());
+    }
+
+    [Fact]
+    public async Task Only_test_paths_of_a_tests_bundle_are_laid_over_the_branch()
+    {
+        using var f = new Fixture();
+        var bundle = f.BlindBundle(shape: clone => File.WriteAllText(Path.Combine(clone, "prod.txt"), "production"));
+        var (_, record) = await RunBlind(f, [bundle], "if [ -f prod.txt ]; then echo 'Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1'; exit 1; fi; echo 'Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1'");
+        Assert.Equal(0, record.GetProperty("blind").GetProperty("failed").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_symlink_in_a_tests_bundle_is_not_laid_over_the_branch()
+    {
+        using var f = new Fixture();
+        var bundle = f.BlindBundle(shape: clone => File.CreateSymbolicLink(Path.Combine(clone, "tests", "link.txt"), "/etc/hostname"));
+        var (_, record) = await RunBlind(f, [bundle], "if [ -L tests/link.txt ]; then echo 'Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1'; exit 1; fi; echo 'Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1'");
+        Assert.Equal(0, record.GetProperty("blind").GetProperty("failed").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_test_file_the_implementer_changed_is_not_overwritten_by_the_tests_bundle()
+    {
+        using var f = new Fixture(shapeSession: session =>
+        {
+            Directory.CreateDirectory(Path.Combine(session, "tests"));
+            File.WriteAllText(Path.Combine(session, "tests", "blind.txt"), "implementer");
+        });
+        var (_, record) = await RunBlind(f, [f.BlindBundle()], "if [ \"$(cat tests/blind.txt)\" = tests ]; then echo 'Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1'; exit 1; fi; echo 'Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1'");
+        Assert.Equal(0, record.GetProperty("blind").GetProperty("failed").GetInt32());
     }
 
     [Fact]

@@ -36,12 +36,13 @@ namespace Chargehand.Modules.Handover.Api;
 /// <param name="FallbackBaseBranch">For a pull request stacked on another task's branch (ADR 0049), <paramref name="BaseBranch"/> is that branch: if the host refuses it, the pull request is opened against this one instead and says so.</param>
 /// <param name="BlindBundles">Issue 789: bundles of tests another worker wrote from the issue alone; the verifier applies each and the tests must pass. Null: no blind tests.</param>
 /// <param name="BlindTask">Issue 789: the input is the blind task's own handover; every changed path must be a test, and the bundle is the artifact.</param>
+/// <param name="BlindSkipped">Issue 789: why a blind task's tests are missing for this input (it asked for them); recorded in the verification as <c>blind: skipped</c>. Null: nothing to record.</param>
 /// <param name="MutationShare">Issue 788: the share of mutants of the changed lines the tests must kill, 0 to 1, checked by the handover's mutation tester; null: not checked.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
     bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false, string? FallbackBaseBranch = null, bool LocalOnly = false, Provenance? Provenance = null, bool Bare = false,
     bool CiVerifies = false, IReadOnlyList<string>? PrePushCheck = null, CommitIdentity? Identity = null, double? MutationShare = null,
-    IReadOnlyList<TestsBundle>? BlindBundles = null, bool BlindTask = false);
+    IReadOnlyList<TestsBundle>? BlindBundles = null, bool BlindTask = false, string? BlindSkipped = null);
 
 /// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
 public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
@@ -245,6 +246,8 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             // The work is kept whether or not the tests could run; say that they did not.
             verification = new VerificationRecord(plan.Argv, plan.Source, -1, Redact($"the verification could not run: {e.Message}", run.Secrets), false, TimeSpan.Zero, false);
         }
+        if (input.BlindSkipped is { } skipped && verification.BlindTests is null)
+            verification = verification with { BlindTests = new BlindTestResult(0, 0, [], []) { Skipped = skipped } };
         run.Verification = verification;
         Report(input, new HandoverEvent(RunEventKind.VerifyFinished, VerifyDetail(verification)));
         if ((verification.ExitCode != 0 || verification.TimedOut) && !input.Partial)

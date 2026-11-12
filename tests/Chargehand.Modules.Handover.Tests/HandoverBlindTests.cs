@@ -17,6 +17,13 @@ public class HandoverBlindTests
     private static readonly BlindTestResult Failing = new(2, 1, ["DiscountTests.Applies_at_exactly_100"], []);
 
     [Fact]
+    public void A_run_that_reached_a_test_summary_built_even_when_it_printed_a_build_message()
+    {
+        Assert.False(BlindTestOutput.DidNotCompile("Build FAILED in the fixture's own output\nFailed!  - Failed:     1, Passed:     2"));
+        Assert.True(BlindTestOutput.DidNotCompile("Program.cs(3,1): error CS0103: The name 'x' does not exist"));
+    }
+
+    [Fact]
     public async Task A_failing_blind_test_is_refused_with_its_name_so_the_session_can_continue()
     {
         using var f = new HandoverTests.Fixture(file: "src/Retry.cs");
@@ -60,5 +67,24 @@ public class HandoverBlindTests
         var body = Assert.Single(prs.Created).Body;
         Assert.Contains("blind_uncompilable", body);
         Assert.Contains("chargehand/run1.blind", body);
+    }
+
+    private sealed class PlainVerifier : IBranchVerifier
+    {
+        public Task<VerificationRecord> VerifyAsync(BranchVerification v, CancellationToken ct) =>
+            Task.FromResult(new VerificationRecord(v.Argv, "detected", 0, "output", false, TimeSpan.FromSeconds(3), false));
+    }
+
+    [Fact]
+    public async Task Blind_tests_that_were_skipped_are_recorded_with_the_reason()
+    {
+        using var f = new HandoverTests.Fixture(file: "src/Retry.cs");
+        var prs = new HandoverTests.FakePullRequests();
+
+        var outcome = await new Handover(new PlainVerifier(), prs).RunAsync(f.Input(with: i => i with { BlindSkipped = "the blind task did not finish in time" }), default);
+
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        Assert.Equal("the blind task did not finish in time", outcome.Verification!.BlindTests!.Skipped);
+        Assert.Contains("blind: skipped", Assert.Single(prs.Created).Body);
     }
 }

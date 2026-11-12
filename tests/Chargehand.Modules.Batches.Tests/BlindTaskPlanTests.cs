@@ -26,6 +26,30 @@ public class BlindTaskPlanTests
     }
 
     [Fact]
+    public void The_sibling_does_not_inherit_the_implementers_note()
+    {
+        var (tasks, _) = PlanApplier.Apply([Item("a", blind: true) with { ImplementerNote = "Name the method ApplyDiscount." }], Proposal(), "request");
+
+        var blind = Assert.Single(tasks, t => t.Id == "a.blind");
+        Assert.Null(blind.ImplementerNote);
+        Assert.Equal("issue text of a", blind.Goal);
+        Assert.Equal("issue text of a\n\nName the method ApplyDiscount.", tasks.Single(t => t.Id == "a").WorkGoal);
+    }
+
+    [Fact]
+    public void The_sibling_runs_under_the_blind_tests_preset_and_its_limits_and_the_implementer_does_not()
+    {
+        var (tasks, _) = PlanApplier.Apply([Item("a", blind: true)], Proposal(), "request");
+
+        var blind = Assert.Single(tasks, t => t.Id == "a.blind");
+        Assert.Equal(BlindLimits.PresetName, blind.Preset);
+        Assert.Equal(BlindLimits.MaxTurns, blind.MaxTurns);
+        Assert.Equal(BlindLimits.MaxMinutes, blind.MaxMinutes);
+        Assert.Equal(BlindLimits.BudgetUsd, blind.BudgetUsd);
+        Assert.Null(tasks.Single(t => t.Id == "a").Preset);
+    }
+
+    [Fact]
     public void A_task_that_did_not_opt_in_adds_nothing()
     {
         var (tasks, plan) = PlanApplier.Apply([Item("a"), Item("b")], Proposal(), "request");

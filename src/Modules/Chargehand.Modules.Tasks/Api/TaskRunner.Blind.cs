@@ -32,7 +32,7 @@ public sealed partial class TaskRunner
         if (handed.Status == HandoverStatus.Pushed && File.Exists(source))
         {
             Directory.CreateDirectory(BlindScratch(task.BlindFor!));
-            var copy = Path.Combine(BlindScratch(task.BlindFor!), "chargehand.bundle");
+            var copy = Path.Combine(BlindScratch(task.BlindFor!), $"{run.RunId}.bundle");
             File.Copy(source, copy, overwrite: true);
             published = new TestsBundle(copy, run.Branch);
         }
@@ -48,14 +48,17 @@ public sealed partial class TaskRunner
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
         limit.CancelAfter(TimeSpan.FromMinutes(run.MaxMinutes));
         TestsBundle? bundle = null;
+        var skipped = "the blind task produced no tests";
         try
         {
             bundle = await BlindSlot(task.Id).Task.WaitAsync(limit.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
+            skipped = "the blind task did not hand over its tests before the implementer's time ran out";
         }
         run.BlindBundles = bundle is null ? null : [bundle];
+        run.BlindSkipped = bundle is null ? skipped : null;
     }
 
     /// <summary>A handover refused for failing blind tests continues the session while continuations and budget remain; otherwise the work is kept as a partial draft. True: a new session started.</summary>
@@ -86,7 +89,7 @@ public sealed partial class TaskRunner
         if (run.BlindFeedback is not { } feedback)
             return;
         run.BlindFeedback = null;
-        run.Goal = ContinuationGoal(task.Goal, $"Continuation {run.Continuation} of {settings.Preset.MaxContinuations}. Your work was finished, but it fails acceptance tests that another worker wrote from the issue alone. "
+        run.Goal = ContinuationGoal(task.WorkGoal, $"Continuation {run.Continuation} of {settings.Preset.MaxContinuations}. Your work was finished, but it fails acceptance tests that another worker wrote from the issue alone. "
             + $"Fix the code so they pass; do not edit or delete those tests. What failed:\n{feedback}", ReadProgress(run.OutDirectory));
     }
 

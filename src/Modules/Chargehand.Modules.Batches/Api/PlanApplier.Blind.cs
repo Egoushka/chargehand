@@ -5,7 +5,7 @@ namespace Chargehand.Modules.Batches.Api;
 public static partial class PlanApplier
 {
     /// <summary>Adds the blind sibling (issue 789) of every task that opted in: <c>&lt;id&gt;.blind</c>, the same repository and base commit, the issue text as its goal and no <c>depends_on</c>,
-    /// so it starts with the batch and sees neither the plan nor the implementer's work. Adding it twice changes nothing.</summary>
+    /// so it starts with the batch and sees neither the plan nor the implementer's work nor its note. It runs under the blind-tests limits. Adding it twice changes nothing.</summary>
     public static IReadOnlyList<ResolvedTask> AddBlind(IReadOnlyList<ResolvedTask> tasks, IReadOnlyDictionary<string, string>? goals = null)
     {
         var present = tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
@@ -20,7 +20,7 @@ public static partial class PlanApplier
     }
 
     private static ResolvedTask Sibling(ResolvedTask task, string goal) =>
-        new(BlindIds.Of(task.Id), null, goal, BlindFor: task.Id);
+        new(BlindIds.Of(task.Id), null, goal, BlindFor: task.Id, MaxTurns: BlindLimits.MaxTurns, MaxMinutes: BlindLimits.MaxMinutes, BudgetUsd: BlindLimits.BudgetUsd, Preset: BlindLimits.PresetName);
 
     /// <summary>The blind siblings a batch will add, so the cap counts them before a plan splits anything.</summary>
     private static int BlindCount(IReadOnlyList<ResolvedTask> tasks) =>

@@ -44,7 +44,9 @@ public class TaskRunnerBlindTests
         var (implementer, _) = await rig.RunPairAsync("Discount orders of 100 or more");
 
         Assert.Equal(TaskState.Completed, implementer.State);
-        Assert.Null(Assert.Single(rig.Handover.Inputs, i => !i.BlindTask).BlindBundles);
+        var own = Assert.Single(rig.Handover.Inputs, i => !i.BlindTask);
+        Assert.Null(own.BlindBundles);
+        Assert.False(string.IsNullOrEmpty(own.BlindSkipped));
     }
 
     [Fact]

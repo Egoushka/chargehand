@@ -32,19 +32,28 @@ git -C "$repo" init -q -b main
 git -C "$repo" -c user.name=seed -c user.email=seed@example.invalid add -A
 git -C "$repo" -c user.name=seed -c user.email=seed@example.invalid commit -q -m "seed: Discount.Total without a discount"
 commit=$(git -C "$repo" rev-parse HEAD)
-goal="$(cat "$fixture/issue.txt")
-$(cat "$fixture/implementer-pin.txt")"
+goal=$(cat "$fixture/issue.txt")
+pin=$(cat "$fixture/implementer-pin.txt")
 
 run_batch() { # blind flag (true|false), result file
-  local req id end=$((SECONDS + timeout_s))
-  req=$(jq -n --arg repo "$repo" --arg commit "$commit" --arg goal "$goal" --arg preset "$preset" --argjson verify "$verify" --argjson blind "$1" \
+  local req id code status end=$((SECONDS + timeout_s))
+  req=$(jq -n --arg repo "$repo" --arg commit "$commit" --arg goal "$goal" --arg pin "$pin" --arg preset "$preset" --argjson verify "$verify" --argjson blind "$1" \
     '{contract_version:"request/v1", text:"blind seed", context:{interactive:false, preset:$preset, repository:{path:$repo, commit:$commit}, verify:$verify},
-      driven:{tasks:[{id:"discount", goal:$goal, blind_tests:$blind}], max_parallel:1}}')
+      driven:{tasks:[{id:"discount", goal:$goal, implementer_note:$pin, blind_tests:$blind}], max_parallel:1}}')
   id=$(call -D "$work/hdr" -o /dev/null -H 'Content-Type: application/json' -H 'Prefer: wait=1' -d "$req" "$api/v1/runs" \
     && tr -d '\r' < "$work/hdr" | awk 'tolower($1)=="location:" {n=split($2,p,"/"); print p[n]}')
   [ -n "$id" ] || { echo "the batch did not start" >&2; return 1; }
+  # 200 carries the finished result, 202 a status body while the run is queued, running or waiting for input, 410 a run the server lost (curl -f fails on it).
   while [ "$SECONDS" -lt "$end" ]; do
-    [ "$(call -o "$2" -w '%{http_code}' "$api/v1/runs/$id")" = 200 ] && return 0
+    code=$(call -o "$2" -w '%{http_code}' "$api/v1/runs/$id") || { echo "the batch run is lost or unreadable" >&2; return 1; }
+    if [ "$code" = 200 ]; then
+      status=$(jq -r '.status // empty' "$2")
+      case "$status" in
+        completed|failed) return 0 ;;
+        queued|running|needs_input) ;;
+        *) echo "the batch ended in state '${status:-unknown}'" >&2; return 1 ;;
+      esac
+    fi
     sleep 5
   done
   echo "the batch did not finish in ${timeout_s}s" >&2; return 1
@@ -61,12 +70,11 @@ verification() { jq -c '[.artifacts[] | select(.kind=="verification")] | last //
 echo "== blind_tests true"
 run_batch true "$work/on.json" || exit 1
 task_result "$work/on.json" "$work/on-task.json"
-v=$(verification "$work/on-task.json")
-# The final verification is the last artifact; the first one failed when more than one was recorded or when it carries blind failures.
-own_pass=""; [ "$(jq -r '.passed // false' <<<"$v")" = true ] || [ "$(jq -r '.blind_tests.failed // 0' <<<"$v")" -ge 1 ] && own_pass=pass
-blind_named=""; jq -e '(.blind_tests.failed // 0) >= 1 and ((.blind_tests.names // []) | any(test("100|boundary|exactly"; "i")))' <<<"$v" >/dev/null && blind_named=pass
-first_failed=""; [ "$(jq '[.artifacts[] | select(.kind=="verification")] | length' "$work/on-task.json")" -ge 1 ] \
-  && [ "$(jq -r '[.artifacts[] | select(.kind=="verification")] | first | (.passed // true)' "$work/on-task.json")" = false ] && first_failed=pass
+# The first verification is the one the blind tests failed: the implementer's own tests ran green in it, and a missing field is a failure, never a pass.
+v=$(jq -c '[.artifacts[] | select(.kind=="verification")] | first // {}' "$work/on-task.json")
+own_pass=""; jq -e '(.exit_code == 0) and (.timed_out == false)' <<<"$v" >/dev/null && own_pass=pass
+blind_named=""; jq -e '((.blind_tests.failed // 0) >= 1) and ((.blind_tests.names // []) | any(test("100|boundary|exactly"; "i")))' <<<"$v" >/dev/null && blind_named=pass
+first_failed=""; jq -e '(.blind_tests.failed // 0) >= 1' <<<"$v" >/dev/null && first_failed=pass
 check "implementer_own_tests_pass" "${own_pass:-fail}"
 check "blind_tests_failed_naming_the_boundary" "${blind_named:-fail}"
 check "first_verification_failed_before_continuation" "${first_failed:-fail}"
@@ -75,7 +83,7 @@ echo "== blind_tests false"
 run_batch false "$work/off.json" || exit 1
 task_result "$work/off.json" "$work/off-task.json"
 off=$(verification "$work/off-task.json")
-off_green=""; [ "$(jq -r '.passed // false' <<<"$off")" = true ] && [ "$(jq -r '.blind_tests // null' <<<"$off")" = null ] && off_green=pass
+off_green=""; jq -e '(.passed == true) and (.blind_tests == null)' <<<"$off" >/dev/null && off_green=pass
 check "without_blind_tests_the_bug_ships_green" "${off_green:-fail}"
 
 exit "$fail"

@@ -1,6 +1,9 @@
-# blind-tests (issue 789): the sibling session of a task that opted in to blind tests. It reads the issue text alone and writes acceptance
-# tests, nothing else: it gets no plan, no implementer prompt and no diff, and its handover refuses any changed path that is not a test.
-# Same container limits as driven, a smaller budget: tests are shorter than the change.
+# blind-tests (issue 789): the limits of the sibling session of a task that opted in to blind tests. It reads the issue text alone and writes
+# acceptance tests: it gets no plan, no implementer note and no diff, and its handover refuses any changed path that is not a test.
+# Like driven, what the session may do is set by the container and the driver's tool list, not by this file: it edits and runs the build and
+# the tests there. The node kind below is read-only like driven's (ADR 0006 keeps the shell tool out of every preset; the deny rules do not reach a
+# driven session, only nested calls and a request naming this preset without a `driven` block). The numbers are the ones the sibling is given per task (BlindLimits); BlindTestsPresetTests keeps the two in step.
+# Fewer turns, less time and less money than driven: tests are shorter than the change.
 schema: preset/v1
 name: blind-tests
 version: 0.1.0
@@ -19,6 +22,10 @@ node_kinds:
       - { action: read, resource: "*.env", effect: deny }
       - { action: read, resource: "*.env.*", effect: deny }
       - { action: read, resource: "*.env.example", effect: allow }
+      - { action: read, resource: "*.env.enc", effect: allow }
+      - { action: read, resource: "*.env.test.*", effect: allow }
+      - { action: read, resource: "*.env.spec.*", effect: allow }
+      - { action: read, resource: "*.env.*.local", effect: deny }
       - { action: question, resource: "*", effect: deny }
     budget: { max_input_tokens: 1000000, max_usd: 1.50 }
 driven:

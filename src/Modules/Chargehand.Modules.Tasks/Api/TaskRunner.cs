@@ -171,6 +171,8 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
 
         public IReadOnlyList<TestsBundle>? BlindBundles { get; set; }
 
+        public string? BlindSkipped { get; set; }
+
         public string? BlindFeedback { get; set; }
 
         public bool ForcePartial { get; set; }

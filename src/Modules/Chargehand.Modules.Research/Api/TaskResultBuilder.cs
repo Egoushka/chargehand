@@ -159,7 +159,7 @@ public static class TaskResultBuilder
         new(v.Argv, v.Source, "container", v.Network, v.ExitCode, v.ExitCode == 0 && !v.TimedOut, v.TimedOut, 1, Math.Round(v.Duration.TotalSeconds, 1), v.OutputTail,
             handover.ChangedVerificationPaths,
             handover.TestIntegrity is { } flag ? new TestIntegrityArtifact(true, flag.Reason, flag.TestPaths, flag.BuildPaths) : null,
-            v.BlindTests is { } b ? new BlindTestsArtifact(b.Count, b.Failed, b.Names, b.Uncompilable) : null);
+            v.BlindTests is { } b ? new BlindTestsArtifact(b.Count, b.Failed, b.Names, b.Uncompilable, b.Skipped) : null);
 
     private static ResultContract Reject(ResultContract contract, ErrorCode code, string message, string action) =>
         contract with { Status = ResultStatus.Failed, Summary = message, Confidence = ResultConfidence.None, Error = new ResultError(code, message, ChargehandException.Retryable(code), action) };

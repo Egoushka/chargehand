@@ -72,6 +72,8 @@ public sealed class ContainerVerifier(IContainerEngine engine, IWorkspaceEngine 
             return args;
         if (files is null || bundles.Count > ContainerTemplate.MaxBlindBundles)
             throw new InvalidOperationException("the blind tests bundles cannot be carried into the verification container");
+        if (bundles.Any(b => new FileInfo(b.Path).Length > ContainerTemplate.MaxBlindBundleBytes))
+            throw new InvalidOperationException("a blind tests bundle is larger than the verification container accepts");
         for (var i = 0; i < bundles.Count; i++)
         {
             var name = ContainerTemplate.BlindBundleFile(i);

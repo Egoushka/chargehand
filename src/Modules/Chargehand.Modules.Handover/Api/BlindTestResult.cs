@@ -10,7 +10,11 @@ public sealed record TestsBundle(string Path, string Branch);
 /// <param name="Failed">Failing tests; 1 at least when the run failed without a test name in its output.</param>
 /// <param name="Names">The failing test names the output gave.</param>
 /// <param name="Uncompilable">The tests bundles (by branch) that did not compile on the base commit; they are reported <c>blind_uncompilable</c> and never fail the implementer.</param>
-public sealed record BlindTestResult(int Count, int Failed, IReadOnlyList<string> Names, IReadOnlyList<string> Uncompilable);
+public sealed record BlindTestResult(int Count, int Failed, IReadOnlyList<string> Names, IReadOnlyList<string> Uncompilable)
+{
+    /// <summary>Why the blind tests did not run at all (the blind task ran out of time or produced none); null: they ran.</summary>
+    public string? Skipped { get; init; }
+}
 
 /// <summary>Reads a test run's output for <see cref="BlindTestResult"/>: <c>dotnet test</c> lines <c>  Failed Name [3 ms]</c> and its <c>Failed: n, Passed: m</c> summary.</summary>
 public static partial class BlindTestOutput
@@ -27,8 +31,8 @@ public static partial class BlindTestOutput
     public static IReadOnlyList<string> FailedNames(string output) =>
         [.. FailedLine().Matches(output).Select(m => m.Groups["name"].Value).Distinct(StringComparer.Ordinal)];
 
-    /// <summary>True when the output shows the tests did not build, as opposed to a test failing.</summary>
-    public static bool DidNotCompile(string output) => CompileError().IsMatch(output);
+    /// <summary>True when the output shows the tests did not build, as opposed to a test failing; a run that reached a test summary built, whatever else it printed.</summary>
+    public static bool DidNotCompile(string output) => !Summary().IsMatch(output) && CompileError().IsMatch(output);
 
     public static BlindTestResult Of(string output, int exitCode, IReadOnlyList<string> uncompilable)
     {

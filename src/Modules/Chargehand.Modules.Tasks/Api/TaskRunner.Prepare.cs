@@ -104,7 +104,7 @@ public sealed partial class TaskRunner
     {
         run.Continuation = resumed?.Continuation ?? 0;
         run.Prior = resumed?.Prior;
-        run.Goal = resumed?.SessionGoal ?? task.Goal;
+        run.Goal = resumed?.SessionGoal ?? task.WorkGoal;
         run.StartDetail = resumed?.StartDetail ?? (task.From is null ? "session container started" : "session container started (continues an earlier task's work)");
     }
 

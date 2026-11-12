@@ -35,6 +35,8 @@ public sealed partial class Handover
         if (verification?.BlindTests is not { } blind)
             return "";
         var text = new StringBuilder();
+        if (blind.Skipped is not null)
+            text.Append("\nblind: skipped (").Append(blind.Skipped).Append(").\n");
         if (blind.Failed > 0)
             text.Append("\nBlind tests (written from the issue alone) still fail: ").Append(BlindNames(blind)).Append(".\n");
         if (blind.Uncompilable.Count > 0)

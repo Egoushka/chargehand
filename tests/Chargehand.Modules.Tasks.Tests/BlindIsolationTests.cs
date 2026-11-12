@@ -29,6 +29,19 @@ public class BlindIsolationTests
     }
 
     [Fact]
+    public async Task A_pin_meant_for_the_implementer_never_reaches_the_blind_session()
+    {
+        using var rig = Rig();
+
+        await rig.RunPairAsync(Issue, implementerNote: "Name the method ApplyDiscount.");
+
+        var blindRun = Assert.Single(rig.Handover.Inputs, i => i.BlindTask).RunId;
+        var implementerRun = Assert.Single(rig.Handover.Inputs, i => !i.BlindTask).RunId;
+        Assert.Equal(Issue, Assert.Single(rig.Volumes.Tasks, t => t.RunId == blindRun).Goal);
+        Assert.Contains("ApplyDiscount", Assert.Single(rig.Volumes.Tasks, t => t.RunId == implementerRun).Goal, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task The_work_volume_of_the_blind_session_is_made_before_the_implementers_bundle_exists_and_never_reads_it()
     {
         using var rig = Rig();
