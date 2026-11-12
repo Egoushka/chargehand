@@ -116,7 +116,8 @@ public static partial class ChargehandServer
         AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory, driven, settings.MaxConcurrentRuns, settings.MaxSessionCalls, settings.StateDirectory, log, settings.Clock,
                 settings.Accounts, notify, new RunApprovalGate(settings.RunApprovalPath))
             // Hybrid: 2026-07-28 clients run stateless (tasks, input_required results); initialize clients get a session.
-            .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients);
+            .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients)
+            .WithTools(settings.Pool is null ? [] : [EnqueueTool.Create()]);
 
         // Before the listener opens: interrupted batches are taken up and leftovers swept, so no new batch can be mistaken for one.
         builder.Services.AddHostedService(sp => new BatchResumer(sp.GetRequiredService<RunService>(), log));
@@ -495,7 +496,7 @@ public static partial class ChargehandServer
                 o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" };
                 o.ServerInstructions = Instructions;
             })
-            .WithTools([OrchestrateTool.Create(), ResultTool.Create(), RepositoriesTool.Create(), EnqueueTool.Create()])
+            .WithTools([OrchestrateTool.Create(), ResultTool.Create(), RepositoriesTool.Create()])
             .WithTasks(new InMemoryMcpTaskStore());
     }
 

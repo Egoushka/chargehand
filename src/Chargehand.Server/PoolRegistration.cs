@@ -1,6 +1,6 @@
 using Chargehand.Modules.Accounts.Api;
-using Chargehand.Modules.Pool.Api;
 using Chargehand.Modules.Ledger.Api;
+using Chargehand.Modules.Pool.Api;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Chargehand.Server;
