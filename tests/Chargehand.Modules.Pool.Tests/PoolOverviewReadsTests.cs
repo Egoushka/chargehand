@@ -54,25 +54,4 @@ public sealed class PoolOverviewReadsTests
         var worker = Assert.Single(live);
         Assert.Equal((first, 2), (worker.Id, worker.Items));
     }
-
-    [Fact]
-    public async Task A_file_already_at_the_current_version_still_gets_the_done_index()
-    {
-        using var kit = new PoolKit();
-        kit.Store.Dispose();
-        using (var raw = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={kit.DbPath};Pooling=False"))
-        {
-            raw.Open();
-            using var drop = raw.CreateCommand();
-            drop.CommandText = "DROP INDEX IF EXISTS items_done;";
-            drop.ExecuteNonQuery();
-        }
-
-        using var reopened = SqlitePoolStore.Open(kit.DbPath);
-        using var check = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={kit.DbPath};Pooling=False");
-        check.Open();
-        using var cmd = check.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE name = 'items_done';";
-        Assert.Equal(1L, cmd.ExecuteScalar());
-    }
 }

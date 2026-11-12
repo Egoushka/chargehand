@@ -52,9 +52,6 @@ public sealed partial class SqlitePoolStore : IDisposable
 
         """;
 
-    // Not in Schema: a file already at this version gets it on the next open.
-    private const string DoneIndex = "CREATE INDEX IF NOT EXISTS items_done ON items (status, done_at);";
-
     private const string Columns =
         "key, source, repository, area, title, body, priority, pull_request, enqueued_at, status, worker, reason, claimed_at, done_at";
 
@@ -76,7 +73,8 @@ public sealed partial class SqlitePoolStore : IDisposable
         if (version > Version)
             throw new InvalidOperationException($"pool store version {version} is newer than this build ({Version})");
         Execute(db, "PRAGMA journal_mode=WAL;");
-        Execute(db, version < Version ? Schema + $"PRAGMA user_version={Version};" + DoneIndex : DoneIndex);
+        if (version < Version)
+            Execute(db, Schema + $"PRAGMA user_version={Version};");
         return new SqlitePoolStore(cs);
     }
 
