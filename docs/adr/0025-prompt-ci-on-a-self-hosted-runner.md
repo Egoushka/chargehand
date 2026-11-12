@@ -30,7 +30,7 @@ the deployment's choice, not the repository's.
 - **Workflow:** `.github/workflows/prompt-ci.yml` on `pull_request_target`, so main's copy runs and its token can
   post the status on a fork's pull request. `classify` reads the changed file names through the API and settles
   `prompt-ci` when no prompt or preset changed. `review`, in the environment `prompt-ci-review` with the owner as
-  required reviewer, runs for a fork's pull request or a preset change and stands in for `--reviewed`. `gate` runs
+  required reviewer, runs for a fork's pull request only (amended 2026-11-12: a preset change on a branch of this repository no longer waits) and stands in for `--reviewed`. `gate` runs
   `scripts/prompt-ci.sh` on the runner against main's build; the pull request still contributes only `prompts/` and
   `presets/`. A push, a body edit (a declared trade) or a `prompt-ci:` label reruns the gate.
 - **Cost under a subscription:** an eval profile prices a subscription's models at their API list prices, not at zero
@@ -42,7 +42,7 @@ the deployment's choice, not the repository's.
 
 ## Consequences
 
-- No gated pull request waits for the owner's machine. A fork's pull request or a preset change waits for one
+- No gated pull request waits for the owner's machine. A fork's pull request waits for one
   approval in GitHub instead.
 - Every job on the runner can read its variables: model, gateway and tracing credentials. A job reaches the runner
   only through main's workflow, or through a fork's workflow after the owner approves the run (repository setting:

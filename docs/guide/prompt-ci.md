@@ -30,7 +30,7 @@ Every cell needs at least 8 items; a cell whose dataset is empty is skipped with
 
 [prompt-ci.yml](../../.github/workflows/prompt-ci.yml) runs on `pull_request_target`, so main's copy of the workflow runs, also for a fork. It hands the gate to a self-hosted runner labelled `chargehand-eval`. The runner builds main and takes only `prompts/` and `presets/` from the pull request, at the commit the run was approved for; a symbolic link among them stops the run.
 
-A fork's pull request, or any change under `presets/`, first waits for the owner's approval in the `prompt-ci-review` environment, because a preset can give a worker tools. The runner holds one eval profile per runtime and a default. A `prompt-ci:<runtime>` label picks another runtime, and it counts only when someone with write access added it. A push, an edit of the pull request body or a `prompt-ci:` label reruns the gate ([ADR 0025](../adr/0025-prompt-ci-on-a-self-hosted-runner.md)).
+A fork's pull request first waits for the owner's approval in the `prompt-ci-review` environment, because a preset can give a worker tools; a branch of this repository goes straight to the gate, since only its writers can push one. The runner holds one eval profile per runtime and a default. A `prompt-ci:<runtime>` label picks another runtime, and it counts only when someone with write access added it. A push, an edit of the pull request body or a `prompt-ci:` label reruns the gate ([ADR 0025](../adr/0025-prompt-ci-on-a-self-hosted-runner.md)).
 
 By hand, from the main checkout:
 
@@ -38,7 +38,7 @@ By hand, from the main checkout:
 scripts/prompt-ci.sh <pr-number> [--trusted-build] [--reviewed] [--allow-uncovered] [--no-status]
 ```
 
-`--reviewed` says you read the `prompts/` and `presets/` diff, which a fork or a preset change needs. `--trusted-build` builds the runner from the pull request itself, so use it only for your own branches. `--no-status` prints the verdict without posting it. The eval profile comes from `CHARGEHAND_PROFILE`, default `profiles/local.eval.json`.
+`--reviewed` says you read the `prompts/` and `presets/` diff, which a fork needs. `--trusted-build` builds the runner from the pull request itself, so use it only for your own branches. `--no-status` prints the verdict without posting it. The eval profile comes from `CHARGEHAND_PROFILE`, default `profiles/local.eval.json`.
 
 ## The eval commands
 
@@ -98,6 +98,6 @@ Both passed the first gate. The first score measured grounding, which the worker
 
 - Expect a paired eval for every cell your change touches. If you trade quality for cost on purpose, declare the trade in the pull request body.
 - A change to the prompt block or preset file of `default`, `thorough` or `strict` has no cell; the gate fails unless the owner passes `--allow-uncovered` or adds the `prompt-ci-allow-uncovered` label.
-- A change under `presets/`, or a pull request from a fork, waits for the owner's approval before any eval runs.
+- A pull request from a fork waits for the owner's approval before any eval runs.
 - A prompt that merges facts into fewer claims on purpose reads as a thinner answer; declare it as a trade.
 - A pass means the gate saw no drop beyond its tolerances on its items. It did not see #6.
