@@ -62,7 +62,7 @@ fi
 # A prompt instructs a worker; a preset sets its permissions (a shell allow can run programs, ADR 0006), agent, model
 # and budget. A fork's change is read by the owner first; a branch of this repository is written by trusted people.
 if [ -z "$reviewed" ] &&
-  [ "$(gh pr view "$pr" --json isCrossRepository -q .isCrossRepository)" = true ]; then
+  [ "$(gh pr view "$pr" --json isCrossRepository -q .isCrossRepository)" != false ]; then
   status failure "owner review needed: fork (--reviewed)"
   echo "prompt-ci: failure: a fork's pull request; read the prompts/ and presets/ diff, then rerun with --reviewed" >&2
   exit 1
