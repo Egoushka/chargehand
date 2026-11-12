@@ -13,6 +13,7 @@ using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Pool.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Modules.Tasks.Api;

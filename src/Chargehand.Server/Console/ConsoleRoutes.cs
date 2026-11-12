@@ -21,14 +21,17 @@ internal static class ConsoleRoutes
     {
         var secrets = new SecretPresence(settings.SecretPresent);
         var dismissals = settings.InboxDismissalsPath is { } path ? new InboxDismissals(path) : null;
-        ConsoleContext Context(HttpContext ctx) => new(settings, ctx.RequestServices.GetRequiredService<RunService>(), log, driven, secrets, dismissals);
+        ConsoleContext Context(HttpContext ctx) => new(settings, ctx.RequestServices.GetRequiredService<RunService>(), log, driven, secrets, dismissals) { Pool = ctx.RequestServices.GetService<Chargehand.Modules.Pool.Api.TaskPool>() };
         var costStates = ConsoleCost.StatesFor(driven);
         IResult? OwnerOnly(HttpContext ctx) => ChargehandServer.OwnerOnly(ctx);
 
         // Block bodies where a lambda would be one call: an expression body that is a statement also converts to RequestDelegate, which discards the result and answers 200 with no body.
         app.MapGet("/v1/overview", async (HttpContext ctx) =>
         {
-            return Json(await ConsoleOverview.BuildAsync(Context(ctx), PrincipalHttp.Of(ctx)!, ctx.RequestAborted));
+            var c = Context(ctx);
+            if (Since(ctx, c, TimeSpan.FromHours(24)) is not { } since)
+                return Json(ChargehandServer.Problem("since must be a number of days such as 14d, or an ISO 8601 time"), StatusCodes.Status400BadRequest);
+            return Json(await ConsoleOverview.BuildAsync(c, PrincipalHttp.Of(ctx)!, since, ctx.RequestAborted));
         });
 
         app.MapGet("/v1/inbox", async (HttpContext ctx) =>

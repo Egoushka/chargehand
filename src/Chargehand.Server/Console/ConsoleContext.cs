@@ -19,6 +19,9 @@ internal sealed class ConsoleContext(ServerSettings settings, RunService runs, I
 
     public Profile? Profile => settings.Profile;
 
+    /// <summary>The task pool (ADR 0099); null when the profile has no <c>http.pool</c>.</summary>
+    public Chargehand.Modules.Pool.Api.TaskPool? Pool { get; init; }
+
     public RunService Runs => runs;
 
     public DrivenRun? Driven => driven;

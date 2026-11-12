@@ -11,6 +11,7 @@ using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Pool.Api;
 using Chargehand.Server;
 
 namespace Chargehand.Tests;
@@ -33,6 +34,8 @@ internal sealed class ConsoleRig : IAsyncDisposable
 
     public TestServer Server { get; }
 
+    public ManualTimeProvider Clock { get; private init; } = null!;
+
     public JsonlLearningStore Learning { get; }
 
     public string BatchDirectory { get; }
@@ -54,7 +57,8 @@ internal sealed class ConsoleRig : IAsyncDisposable
     /// <param name="accountsFor">The accounts from the server's root directory, for an account whose rules name a path under it; wins over <paramref name="accounts"/>.</param>
     /// <param name="hold">The scripted runtime holds every run unfinished.</param>
     public static async Task<ConsoleRig> StartAsync(IReadOnlyList<AccountSettings>? accounts = null, Func<string, Profile>? profile = null, Func<string, bool>? secretPresent = null,
-        Func<string, DrivenServices>? services = null, Func<string, IReadOnlyList<AccountSettings>>? accountsFor = null, bool hold = false, Chargehand.Automation.PhoneAnswers? phone = null)
+        Func<string, DrivenServices>? services = null, Func<string, IReadOnlyList<AccountSettings>>? accountsFor = null, bool hold = false, Chargehand.Automation.PhoneAnswers? phone = null,
+        Func<string, TaskPoolSettings?>? pool = null)
     {
         var clock = new ManualTimeProvider();
         clock.Advance(Now - clock.GetUtcNow());
@@ -82,12 +86,13 @@ internal sealed class ConsoleRig : IAsyncDisposable
                 {
                     Profile = built,
                     SecretPresent = secretPresent,
+                    Pool = pool?.Invoke(dir),
                     IntakeStatePath = intake,
                     Accounts = accountsFor?.Invoke(dir) ?? settings.Accounts,
                     InboxDismissalsPath = Path.Combine(dir, "inbox", "dismissed.json"),
                 };
             });
-        return new ConsoleRig(server, learning!, batches, intake, driven!, built!, root, records!);
+        return new ConsoleRig(server, learning!, batches, intake, driven!, built!, root, records!) { Clock = clock };
     }
 
     /// <summary>A key for <paramref name="account"/>; the account must be declared.</summary>

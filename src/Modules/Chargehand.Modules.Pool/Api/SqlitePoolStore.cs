@@ -8,7 +8,7 @@ namespace Chargehand.Modules.Pool.Api;
 public sealed record PoolClaim(IReadOnlyList<PoolItem> Items, ResumeCard? Card);
 
 /// <summary>The pool's rows in one SQLite file: items, workers and resume cards (ADR 0099).</summary>
-public sealed class SqlitePoolStore : IDisposable
+public sealed partial class SqlitePoolStore : IDisposable
 {
     public const int Version = 1;
 
