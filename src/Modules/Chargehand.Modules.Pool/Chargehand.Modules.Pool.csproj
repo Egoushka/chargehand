@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>The task pool and its governor (ADR 0099): one durable queue for every source, scoped workers, a token ceiling.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Chargehand.Contracts\Chargehand.Contracts.csproj" />
+    <ProjectReference Include="..\..\Shared\Chargehand.Kernel\Chargehand.Kernel.csproj" />
+  </ItemGroup>
+
+  <!-- The store is SQLite, as the event log's is (ADR 0090). -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
+  </ItemGroup>
+
+</Project>

@@ -28,6 +28,8 @@ internal static class Skeleton
         ["Chargehand.Modules.Warmer"] = 3,
         // Below Sessions, where the governor runs (ADR 0060, amendment of 2026-10-14).
         ["Chargehand.Modules.Oversight"] = 3,
+        // The task pool (ADR 0099): below Sessions and Intake, which take work from it; on Contracts and the Kernel only.
+        ["Chargehand.Modules.Pool"] = 3,
         // Reads the run log (Ledger), the forge and the learning records (Oversight): a read model with nothing below that reads it.
         ["Chargehand.Modules.Economics"] = 4,
         // Gateway, Runners, Sessions: the container engine checks egress settings with the gateway's rules, and sessions run on the

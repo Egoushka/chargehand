@@ -1,0 +1,76 @@
+using Chargehand.Modules.Pool.Api;
+using Chargehand.Tests;
+
+namespace Chargehand.Modules.Pool.Tests;
+
+/// <summary>A pool on a temp file with a manual clock, a recording starter and settable checks.</summary>
+internal sealed class PoolKit : IDisposable
+{
+    private readonly string _dir = Directory.CreateTempSubdirectory("chargehand-pool-").FullName;
+
+    public PoolKit(params IPoolCheck[] checks)
+    {
+        Store = SqlitePoolStore.Open(DbPath);
+        Pool = new TaskPool(Store, new PoolSettings(), checks, Starter, Time);
+    }
+
+    public string DbPath => Path.Combine(_dir, "pool.db");
+
+    public SqlitePoolStore Store { get; private set; }
+
+    public TaskPool Pool { get; private set; }
+
+    public ManualTimeProvider Time { get; } = new();
+
+    public FakeStarter Starter { get; } = new();
+
+    public async Task<PoolItem> AddAsync(string area, string title, int priority = 0, int? pullRequest = null, string repository = "owner/repo")
+    {
+        var result = await Pool.EnqueueAsync(new EnqueueRequest(repository, area, title, "body of " + title, priority, pullRequest), CancellationToken.None);
+        Assert.Null(result.Refusal);
+        Time.Advance(TimeSpan.FromSeconds(1));
+        return result.Item!.Item;
+    }
+
+    public void Reopen(params IPoolCheck[] checks)
+    {
+        Store.Dispose();
+        Store = SqlitePoolStore.Open(DbPath);
+        Pool = new TaskPool(Store, new PoolSettings(), checks, Starter, Time);
+    }
+
+    public void Dispose()
+    {
+        Store.Dispose();
+        try
+        {
+            Directory.Delete(_dir, recursive: true);
+        }
+        catch (IOException)
+        {
+            // agent-checks: allow empty-catch -- a temp directory left behind by a file the OS still holds is harmless to the test run
+        }
+    }
+}
+
+internal sealed class FakeStarter : IPoolStarter
+{
+    public List<PoolStartRequest> Requests { get; } = [];
+
+    public string? Refusal { get; set; }
+
+    public Task<string?> StartAsync(PoolStartRequest request, CancellationToken ct)
+    {
+        Requests.Add(request);
+        return Task.FromResult(Refusal);
+    }
+}
+
+internal sealed class FakeCheck(string name) : IPoolCheck
+{
+    public string? Detail { get; set; }
+
+    public string Name => name;
+
+    public Task<string?> HoldAsync(PoolScope scope, CancellationToken ct) => Task.FromResult(Detail);
+}

@@ -33,6 +33,7 @@
     <Project Path="src/Modules/Chargehand.Modules.Onboarding/Chargehand.Modules.Onboarding.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Oversight/Chargehand.Modules.Oversight.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.PeerClones/Chargehand.Modules.PeerClones.csproj" />
+    <Project Path="src/Modules/Chargehand.Modules.Pool/Chargehand.Modules.Pool.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Research/Chargehand.Modules.Research.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Runners/Chargehand.Modules.Runners.csproj" />
     <Project Path="src/Modules/Chargehand.Modules.Sessions/Chargehand.Modules.Sessions.csproj" />
@@ -74,6 +75,7 @@
     <Project Path="tests/Chargehand.Modules.Journal.Tests/Chargehand.Modules.Journal.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Memory.Tests/Chargehand.Modules.Memory.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Oversight.Tests/Chargehand.Modules.Oversight.Tests.csproj" />
+    <Project Path="tests/Chargehand.Modules.Pool.Tests/Chargehand.Modules.Pool.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Accounts.Tests/Chargehand.Modules.Accounts.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Ledger.Tests/Chargehand.Modules.Ledger.Tests.csproj" />
     <Project Path="tests/Chargehand.Modules.Research.Tests/Chargehand.Modules.Research.Tests.csproj" />
