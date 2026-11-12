@@ -29,10 +29,12 @@ public sealed class CacheWarmerTests : IDisposable
 
         public Func<WarmStep, int> Exit { get; set; } = _ => 0;
 
-        public Task<int> RunAsync(WarmStep step, CancellationToken ct)
+        public Func<WarmStep, StepExit>? Ends { get; set; }
+
+        public Task<StepExit> RunAsync(WarmStep step, CancellationToken ct)
         {
             Ran.Add(step.Name);
-            return Task.FromResult(Exit(step));
+            return Task.FromResult(Ends?.Invoke(step) ?? new StepExit(Exit(step)));
         }
     }
 
@@ -192,9 +194,32 @@ public sealed class CacheWarmerTests : IDisposable
         Assert.Equal("no such program", (await Warmed()).Single().GetProperty("data").GetProperty("steps")[0].GetProperty("error").GetString());
     }
 
+    [Fact]
+    public async Task A_failed_step_records_why_and_logs_its_output_tail_outside_the_event()
+    {
+        Checkout("r/c", "pnpm-lock.yaml");
+        runner.Ends = _ => new StepExit(0, TimedOut: true, OutputTail: "progress\nERR_PNPM_FETCH_404 left-pad\n");
+        var before = Console.Error;
+        using var stderr = new StringWriter();
+        Console.SetError(stderr);
+        try
+        {
+            await NewWarmer().WarmAsync(await Emit("e1", CacheWarmer.CreatedType, "r/c"), default);
+        }
+        finally
+        {
+            Console.SetError(before);
+        }
+        var step = (await Warmed()).Single().GetProperty("data").GetProperty("steps")[0];
+        Assert.Equal("timed out", step.GetProperty("error").GetString());
+        Assert.DoesNotContain("ERR_PNPM", step.GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("timed out; output ends:", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("ERR_PNPM_FETCH_404 left-pad", stderr.ToString(), StringComparison.Ordinal);
+    }
+
     private sealed class ThrowingRunner : IStepRunner
     {
-        public Task<int> RunAsync(WarmStep step, CancellationToken ct) => throw new InvalidOperationException("no such program");
+        public Task<StepExit> RunAsync(WarmStep step, CancellationToken ct) => throw new InvalidOperationException("no such program");
     }
 
     [Fact]

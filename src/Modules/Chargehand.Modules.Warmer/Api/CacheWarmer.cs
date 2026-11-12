@@ -78,6 +78,17 @@ public sealed class CacheWarmer(IEventLog log, string checkoutsRoot, IStepRunner
         return new StepResult(step.Name, result, (long)time.GetElapsedTime(started).TotalMilliseconds, error, promotion);
     }
 
+    private const int TailChars = 2000;
+
+    /// <summary>The event gets only the reason; the output tail goes to the daemon's log, since a tool may print a registry URL or token there.</summary>
+    private static string Failure(string name, StepExit exit)
+    {
+        var reason = exit.TimedOut ? "timed out" : $"exit code {exit.Code}";
+        var tail = exit.OutputTail.Length > TailChars ? exit.OutputTail[^TailChars..] : exit.OutputTail;
+        Console.Error.WriteLine(tail.Length == 0 ? $"warmer: {name}: {reason}" : $"warmer: {name}: {reason}; output ends:\n{tail.TrimEnd()}");
+        return reason;
+    }
+
     private async Task<(string? Error, PromotionResult? Promotion)> Execute(WarmStep step, CancellationToken ct)
     {
         string? staging = null;
@@ -88,9 +99,9 @@ public sealed class CacheWarmer(IEventLog log, string checkoutsRoot, IStepRunner
                 staging = Path.Combine(Path.GetFullPath(stagingRoot), Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(staging);
             }
-            var code = await runner.RunAsync(staging is null ? step : step with { Staging = staging }, ct).ConfigureAwait(false);
-            if (code != 0)
-                return ($"exit code {code}", null);
+            var exit = await runner.RunAsync(staging is null ? step : step with { Staging = staging }, ct).ConfigureAwait(false);
+            if (exit.TimedOut || exit.Code != 0)
+                return (Failure(step.Name, exit), null);
             return staging is null ? (null, null) : (null, await promoter!.PromoteAsync(staging, ct).ConfigureAwait(false));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

@@ -669,7 +669,7 @@ public sealed class Orchestrator(
     /// The worker reads a clone of the caller's repository at the requested commit, made under worker_root (ADR 0023):
     /// the source may sit anywhere under the profile's repository roots, the worker's directory stays outside the
     /// OpenCode user's home (ADR 0003), and the source's uncommitted and ignored files never reach the worker. A clone
-    /// per source and commit is reused and never deleted (ADR 0015). The clone's working tree holds no file the node kind may
+    /// per source and commit is reused and never deleted (ADR 0015); a run whose clone loses the race to that path deletes its own. The clone's working tree holds no file the node kind may
     /// not read (ADR 0006): OpenCode's grep searches any path or include glob it is given, and its permission resource is
     /// the search pattern, so a read deny cannot keep it out of a file. Such files are left out of the working tree, or,
     /// with <paramref name="refuseDenied"/>, refuse the run. Returns the files left out.
@@ -703,6 +703,7 @@ public sealed class Orchestrator(
                 || await Git(temp, ct, "checkout", "-q", "--detach", commit) is null)
                 throw new ChargehandException(ErrorCode.CheckoutInvalid, $"could not clone {source} at {commit[..12]} into {Path.GetDirectoryName(dir)}",
                     "Check that worker_root is writable and has free space.");
+            var moved = true;
             try
             {
                 Directory.Move(temp, dir);
@@ -712,8 +713,11 @@ public sealed class Orchestrator(
                 // Another run made the same clone first; anything else at that path is not ours to replace.
                 if (await Git(dir, ct, "rev-parse", "HEAD") != commit)
                     throw;
+                moved = false;
+                TryDelete(temp);
             }
-            if (events is not null)
+            // Only the run whose clone landed announces it, so concurrent runs on one commit warm it once.
+            if (moved && events is not null)
                 await CheckoutAnnouncer.AnnounceAsync(events, $"{Path.GetFileName(Path.GetDirectoryName(dir))}/{commit[..12]}", ct);
         }
         var denied = await DeniedFiles(dir, kind.Permissions, ct);
@@ -724,6 +728,13 @@ public sealed class Orchestrator(
         if (denied.Count > 0)
             await Exclude(dir, denied, ct);
         return (dir, commit, RepositoryLabel.From(await Git(source, ct, "config", "--get", "remote.origin.url"), Path.GetFileName(source)), denied);
+    }
+
+    /// <summary>Removes a clone that lost the race to its final path; a leftover is only disk, so a failure is ignored.</summary>
+    private static void TryDelete(string directory)
+    {
+        try { Directory.Delete(directory, recursive: true); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
     /// <summary>A review gets the change it reviews on disk (<see cref="ReviewedChange"/>). Files the preset denies reading, a change's new ones too, are left out of the clone as in <see cref="Checkout"/>.</summary>

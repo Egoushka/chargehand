@@ -31,7 +31,7 @@ public sealed class SandboxedStepRunnerTests
         var runner = new SandboxedStepRunner(sandbox, network: true, ["HTTPS_PROXY"], env, [cache]);
         var step = new WarmStep("pnpm-install", "pnpm", ["install", "--ignore-pnpmfile"], root.Path, () => false);
 
-        Assert.Equal(0, await runner.RunAsync(step, default));
+        Assert.Equal(0, (await runner.RunAsync(step, default)).Code);
 
         var spec = sandbox.Seen!;
         Assert.Equal(["pnpm", "install", "--ignore-pnpmfile"], spec.Argv);
@@ -53,11 +53,11 @@ public sealed class SandboxedStepRunnerTests
     }
 
     [Fact]
-    public async Task A_failure_returns_its_code_and_a_timeout_is_minus_one()
+    public async Task A_failure_returns_its_code_a_timeout_and_the_output_tail()
     {
         var step = new WarmStep("s", "dotnet", ["restore"], "/w", () => false);
-        Assert.Equal(3, await new SandboxedStepRunner(new FakeSandbox(Ok(3)), false, [], new Dictionary<string, string>(), []).RunAsync(step, default));
-        Assert.Equal(-1, await new SandboxedStepRunner(new FakeSandbox(Ok(0, timedOut: true)), false, [], new Dictionary<string, string>(), []).RunAsync(step, default));
+        Assert.Equal(new StepExit(3, false, "boom"), await new SandboxedStepRunner(new FakeSandbox(new SandboxResult(3, "boom", false, TimeSpan.Zero)), false, [], new Dictionary<string, string>(), []).RunAsync(step, default));
+        Assert.True((await new SandboxedStepRunner(new FakeSandbox(Ok(0, timedOut: true)), false, [], new Dictionary<string, string>(), []).RunAsync(step, default)).TimedOut);
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public sealed class SandboxedStepRunnerTests
             using var root = new TempDir();
             var runner = new SandboxedStepRunner(new NoSandbox(), false, [], new Dictionary<string, string> { ["EXTRA"] = "1" }, []);
             var step = new WarmStep("env", "/bin/sh", ["-c", "test -z \"$CHARGEHAND_WARMER_TEST_SECRET\" && test \"$EXTRA\" = 1"], root.Path, () => false);
-            Assert.Equal(0, await runner.RunAsync(step, default));
+            Assert.Equal(0, (await runner.RunAsync(step, default)).Code);
         }
         finally
         {
