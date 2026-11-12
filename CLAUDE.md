@@ -55,6 +55,8 @@ names, budgets, absolute home paths, session or message ids, API keys, prompts f
 - Done means `scripts/check.sh` exits 0; its last test line reads `Passed!  - Failed:     0`. A bug fix starts with a
   failing test.
 - A mistake an agent makes twice becomes a line in this file.
+- Before reporting a PR as merged, check that its merge commit contains the branch's last commit
+  (`git merge-base --is-ancestor <head-sha> origin/main`): a PR once merged without its final fix commit.
 - A PR title may end with the maintainer's tracker key (`(CHARGEHAND-12)`); tracker URLs never appear in public text.
 - `.claude/settings.json` asks before edits under `schemas/<name>/v<N>/`: published majors take additive changes only.
   `SchemaCompatTests` fails `scripts/check.sh` and CI on a breaking change since the latest `v*` tag.
