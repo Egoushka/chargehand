@@ -83,13 +83,13 @@ Each is run by a machine; the implementing PR adds the tests, this PR adds none.
 2. **A live claim is not reported:** `ClaimDriftTests.Live_claims_of_every_form_pass` (file, symbol, text forms, all present) yields zero findings.
 3. **Each reason is reachable:** `ClaimDriftTests.Each_reason_has_a_case` covers `file-missing`, `symbol-missing`,
    `text-missing`, `test-missing` and `malformed`.
-4. **Fenced markers are ignored:** `ClaimMarkersTests.Marker_in_a_code_fence_is_not_a_claim`.
+4. **Fenced markers are ignored:** `ClaimDriftTests.Marker_in_a_code_fence_is_not_a_claim`.
 5. **CLI exit code:** `ClaimsCliTests.Check_exits_1_with_one_line_per_finding_and_0_when_clean` runs the command against the
    seeded temp repository, then against a clean one.
 6. **Changed-since narrows:** `ClaimsCliTests.Changed_since_checks_only_claims_whose_file_changed` (temp git repository with two commits).
-7. **Schedule posts without a model:** `SchedulerTests.Claim_drift_posts_findings_and_starts_no_run` asserts the notifier
+7. **Schedule posts without a model:** `ClaimDriftScheduleTests.Claim_drift_posts_findings_and_starts_no_run` asserts the notifier
    got the finding text and `IBatchStarter` was not called.
-8. **Reported once:** `SchedulerTests.Claim_drift_reports_a_finding_once_across_two_occurrences`.
+8. **Reported once:** `ClaimDriftScheduleTests.Claim_drift_reports_a_finding_once_across_two_occurrences`.
 9. **Template is valid config:** `ScheduleSettingsTests.Claim_drift_template_validates`, and
    `ScheduleTemplates.Names` contains `claim-drift`.
 10. **This repository is clean:** `dotnet run --project src/Chargehand.Cli -- claims check --root .` exits 0 (guards the markers

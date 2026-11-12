@@ -9,6 +9,7 @@ public sealed record ScheduleTemplate(string Name, ScheduleKind Kind, string? Go
 /// <summary>The built-in goals of <c>automation.schedules</c> (ADR 0068). Constants, not files: the release has nothing extra to ship and a goal cannot drift from the code that runs it.</summary>
 public static class ScheduleTemplates
 {
+    public const string ClaimDrift = "claim-drift";
     public const string DependencyUpgrades = "dependency-upgrades";
     public const string DocDrift = "doc-drift";
     public const string FlakyTests = "flaky-tests";
@@ -27,6 +28,7 @@ public static class ScheduleTemplates
         new(DependencyUpgrades, ScheduleKind.Driven,
             "Update this repository's dependencies to their latest compatible minor and patch versions. Do not take a major version. Run the repository's tests after the update. "
             + "Open one pull request. In its description list each dependency that changed (old and new version) and each one you skipped, with the reason."),
+        new(ClaimDrift, ScheduleKind.Report, null),
         new(DocDrift, ScheduleKind.ReadOnly,
             "Find statements in README.md and in docs/ that the current code contradicts: a command, option, default, path, name or behaviour the code no longer has. "
             + "Report each finding with the doc file and line and the code file and line that contradicts it. Report nothing you could not tie to a line of each. If you find none, say so."),

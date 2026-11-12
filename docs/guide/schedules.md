@@ -22,12 +22,12 @@ Scheduled work ([ADR 0068](../adr/0068-scheduled-work-within-a-monthly-cap.md)) 
 
 - `at`: `daily HH:MM`, `weekly <mon..sun> HH:MM` or `monthly <1-28> HH:MM`, always UTC. Not cron. Days stop at 28 so every month has one.
 - `template` or `goal`, exactly one. `goal` is free text and runs read-only on the `default` preset; add `"driven": true` to run it as a driven batch of one task that may open a pull request.
-- `repository.path`: the server's checkout, under `repository_roots`. Each run starts from the commit `origin/HEAD` points at after a fetch. Not used by `morning-report`.
+- `repository.path`: the server's checkout, under `repository_roots`. Each run starts from the commit `origin/HEAD` points at after a fetch. Not used by `morning-report`; `claim-drift` reads it as a plain directory (`src/Chargehand.Automation/Schedules/ClaimDrift.cs`).
 - `max_per_month`: 1 to 100, counted per calendar month in UTC. Default 4; 31 for `morning-report`. An occurrence over the cap is skipped and logged.
 - `budget_class`: S, M or L for a driven entry (default S).
 - `max_tasks`: `security-alerts` only, 1 to 10 (default 3): new alerts taken per run, one task each.
 - `batch`: with a read-only `goal` only. The work can wait: the goal goes as one prompt to the provider's batch endpoint (`automation.schedules.batch`) at half the token price instead of a worker run. The prompt has no tools and does not read the checkout, so `repository` is optional; the answer comes within the provider's batch window (up to 24 hours) and is posted to `notify_url` with its cost next to what the same tokens cost run live. See [Batch lane](#batch-lane).
-- `notify_url`: an ntfy-style URL. The text goes in the body, the `Title` header carries the title. The URL can hold a secret topic, so it is never logged. Required by `morning-report`.
+- `notify_url`: an ntfy-style URL. The text goes in the body, the `Title` header carries the title. The URL can hold a secret topic, so it is never logged. Required by `morning-report` and `claim-drift` (`tests/Chargehand.Tests/ScheduleSettingsTests.cs`).
 
 ## Templates
 
@@ -37,7 +37,31 @@ Scheduled work ([ADR 0068](../adr/0068-scheduled-work-within-a-monthly-cap.md)) 
 | `doc-drift` | read-only | Finds statements in README and docs/ that the code contradicts; each finding cites the doc line and the code line. |
 | `flaky-tests` | read-only | Reads the last 14 days of CI history through the forge and gives the worker the jobs that failed and then passed on the same commit, with the failed test names from each failed log; the worker explains each from the test code, then reads the rest of the tests for flake patterns (timing, ordering, shared state). Without history it reads the test code only and says so. See [CI history](#ci-history). |
 | `security-alerts` | driven | Reads the repository's open code-scanning and Dependabot alerts as the GitHub App and starts one batch with a task per alert not taken before, most severe first, at most `max_tasks`; each task fixes its alert and opens a pull request, or says why it is a false positive. Needs `driven.enabled`, the App and two more permissions. See [Security alerts](#security-alerts). |
+| `claim-drift` | none | No model call. Checks the citations in `docs/guide/*.md` against the checkout (see [Citations](#citations)) and POSTs findings not reported before to `notify_url`. Starts no run. Cap 4 per month. |
 | `morning-report` | none | No model call. Last 24 hours of top-level runs and batches (finished, failed, need you, denied, still going), spend, and the open inbox items, POSTed to `notify_url`. |
+
+## Citations
+
+A guide page marks a statement with an HTML comment that names the code it rests on; `claim-drift` and `chargehand claims check` then check that the place still exists. Markers inside code fences are ignored. The parser is `src/Chargehand.Automation/Schedules/ClaimMarkers.cs`.
+
+```
+<!-- cites: path -->              the file exists
+<!-- cites: path#Symbol -->       the file exists and holds Symbol as a whole word
+<!-- cites-text: path "literal" --> the file holds the literal
+```
+
+A marker that does not parse, or a path that is absolute, has a backslash or climbs with `..`, is a finding too. A symbol in a test file can also be checked against a `dotnet test --list-tests` listing given with `--test-list <file>`. The check is `src/Chargehand.Automation/Schedules/ClaimDrift.cs`.
+
+```
+chargehand claims check [--root <dir>] [--changed-since <ref>] [--test-list <file>] [--json]
+```
+
+Exit 0 when every citation holds, 1 with one `page:line: reason target` line per finding, 2 on a usage or git error. `--changed-since` checks only the claims whose cited file changed since the ref. CI runs it on every code pull request and on main. The template posts a finding once: its key stays in `schedules/state.json` under `taken` while the finding lasts. It only notifies; it opens no issue. The command is `src/Chargehand.Automation/Schedules/ClaimsCli.cs`, tested in `tests/Chargehand.Tests/ClaimsCliTests.cs`.
+
+The default cap of 4 is set in code. <!-- cites-text: src/Modules/Chargehand.Modules.Intake/Api/AutomationSchedules.cs "DefaultMaxPerMonth = 4" -->
+
+The clock grammar of `at` is parsed in code too. <!-- cites: src/Modules/Chargehand.Modules.Intake/Api/ScheduleAt.cs#ScheduleAt -->
+
 
 ## CI history
 
