@@ -257,7 +257,7 @@ internal sealed class SiteBatches
         var verifier = new ContainerVerifierSettings(siteImage, checkout.Directory, checkout.Commit, net.Network, net.ProxyUrl(_c.RunId), preset.MemoryMb, preset.Cpus, preset.Pids, _shared);
         if (s.HandoverFor?.Invoke(verifier, _checkout.Push) is { } handover)
             return handover;
-        var container = new ContainerVerifier(site.Engine, steps is null ? site.Workspace : new JournaledVerifierWorkspace(site.Workspace, steps, _c.RunId), verifier);
+        var container = new ContainerVerifier(site.Engine, steps is null ? site.Workspace : new JournaledVerifierWorkspace(site.Workspace, steps, _c.RunId), verifier, files: site.Engine as IOutVolumeEngine);
         return new Handover(container, _checkout.Forge ?? s.PullRequestsFor(_checkout.Push), _setup.Settings.Forge, steps, _c.RunId,
             mutation: preset.MutationShare is null ? null : new StrykerMutationTester(container));
     }

@@ -169,6 +169,12 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
 
         public string? ReportJson { get; set; }
 
+        public IReadOnlyList<TestsBundle>? BlindBundles { get; set; }
+
+        public string? BlindFeedback { get; set; }
+
+        public bool ForcePartial { get; set; }
+
         public SessionOutcome Total { get; set; } = null!;
     }
 
@@ -189,12 +195,17 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
                 return unplaced;
             while (true)
             {
-                if (!await EndSessionAsync(task, run, progress, ct))
-                    break;
-                if (!await ContinueAsync(task, run, ct))
-                    break;
+                while (true)
+                {
+                    if (!await EndSessionAsync(task, run, progress, ct))
+                        break;
+                    if (!await ContinueAsync(task, run, ct))
+                        break;
+                }
+                // A null end: blind tests failed and another session was started.
+                if (await FinishAsync(task, run, progress, ct) is { } outcome)
+                    return outcome;
             }
-            return await FinishAsync(task, run, progress, ct);
         }
         catch (TaskEndedException ended)
         {
@@ -211,6 +222,7 @@ public sealed partial class TaskRunner(IContainerEngine engine, IWorkspaceEngine
         }
         finally
         {
+            ReleaseBlind(task, run);
             await CleanUpAsync(task, run);
         }
     }

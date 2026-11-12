@@ -1,0 +1,1 @@
+Implementation note for this task: the finance team confirmed the threshold is strictly above 100, so write the condition as `order > 100`, and write your tests to match that condition.

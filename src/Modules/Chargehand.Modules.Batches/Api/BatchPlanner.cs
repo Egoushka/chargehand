@@ -90,10 +90,13 @@ public static partial class PlanApplier
 
     public static (IReadOnlyList<ResolvedTask> Tasks, BatchPlan Plan) Apply(IReadOnlyList<ResolvedTask> tasks, PlanProposal proposal, string source)
     {
-        var batch = new Applying(tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal), tasks.Count);
+        var batch = new Applying(tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal), tasks.Count + BlindCount(tasks));
         foreach (var task in tasks)
             ApplyTo(task, proposal.Tasks.FirstOrDefault(p => p.Id == task.Id), batch);
-        return (batch.Result, new BatchPlan(source, proposal.RunId, "applied", null, proposal.Checked, proposal.Note, batch.Entries, batch.Dropped));
+        var goals = tasks.ToDictionary(t => t.Id, t => t.Goal, StringComparer.Ordinal);
+        var withBlind = AddBlind(batch.Result, goals);
+        batch.Entries.AddRange(withBlind.Where(t => t.BlindFor is not null).Select(t => new PlanEntry(t.Id, null, null, [])));
+        return (withBlind, new BatchPlan(source, proposal.RunId, "applied", null, proposal.Checked, proposal.Note, batch.Entries, batch.Dropped));
     }
 
     /// <summary>The batch as the plan is applied to it, task by task: the ids taken, the task count so far and the numbers given.</summary>
@@ -155,7 +158,7 @@ public static partial class PlanApplier
             IReadOnlyList<string> dependsOn = j == 0 ? task.DependsOn ?? [] : [$"{task.Id}-{j}"];
             var partSize = SizeOf(part.Size) ?? "M";
             batch.Result.Add(new ResolvedTask(id, j == k - 1 ? task.Ref : null, goal, Size: partSize, DependsOn: dependsOn.Count > 0 ? dependsOn : null, SplitFrom: task.Id, SizeFrom: "plan",
-                Acceptance: j == k - 1 ? task.Acceptance : null));
+                Acceptance: j == k - 1 ? task.Acceptance : null, BlindTests: j == k - 1 && task.BlindTests));
             batch.Entries.Add(new PlanEntry(id, partSize, "plan", dependsOn, task.Id, numbers.GetValueOrDefault(j + 1)));
         }
     }

@@ -94,6 +94,7 @@ public class TaskArtifactsJsonTests
             output_tail = verification.OutputTail,
             changed_verification_paths = handover.ChangedVerificationPaths,
             test_integrity = new { flagged = true, reason = flag.Reason, test_paths = flag.TestPaths, build_paths = flag.BuildPaths },
+            blind_tests = (object?)null,
         }), Content(result, "verification"));
         Assert.Equal(Old(new { claimed_by = "session", command = "npm test", exit_code = (int?)3 }), Content(result, "session-tests"));
     }
@@ -131,7 +132,24 @@ public class TaskArtifactsJsonTests
             output_tail = "2 failed",
             changed_verification_paths = handover.ChangedVerificationPaths,
             test_integrity = (object?)null,
+            blind_tests = (object?)null,
         }), Content(result, "verification"));
         Assert.DoesNotContain(result.Artifacts, a => a.Kind is "pull-request" or "session-tests" or "kept-work");
+    }
+
+    [Fact]
+    public async Task The_verification_artifact_reports_the_blind_tests_that_failed_by_name()
+    {
+        var verification = new VerificationRecord(["dotnet", "test"], "request", 1, "1 failed", false, TimeSpan.FromSeconds(2), true,
+            new BlindTestResult(3, 1, ["DiscountTests.Order_of_exactly_100_gets_the_discount"], []));
+        var handover = new HandoverOutcome(HandoverStatus.NotPushed, "held back", ErrorCode.VerificationFailed, "chargehand/run1", Commit, null, verification, [], [], [], null, null);
+
+        var result = await TaskResultBuilder.BuildAsync(Input(handover, """{"summary":"x","claims":[]}""", null), new NoFailures(), null, default);
+
+        var blind = JsonDocument.Parse(Content(result, "verification")).RootElement.GetProperty("blind_tests");
+        Assert.Equal(3, blind.GetProperty("count").GetInt32());
+        Assert.Equal(1, blind.GetProperty("failed").GetInt32());
+        Assert.Equal("DiscountTests.Order_of_exactly_100_gets_the_discount", blind.GetProperty("names")[0].GetString());
+        Assert.Equal(0, blind.GetProperty("uncompilable").GetArrayLength());
     }
 }

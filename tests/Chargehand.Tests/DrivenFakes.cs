@@ -290,6 +290,9 @@ internal static class DrivenFakes
         /// <summary>Called with the number of the handover (1-based) once it pushed and opened its pull request, before it returns.</summary>
         public Action<int>? OnPushed { get; set; }
 
+        /// <summary>Refuses the nth handover (1-based) with the returned outcome when it returns one (issue 789: blind tests failing).</summary>
+        public Func<int, HandoverInput, HandoverOutcome?>? Refuse { get; set; }
+
         public Task<HandoverOutcome> RunAsync(HandoverInput input, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
@@ -301,6 +304,8 @@ internal static class DrivenFakes
                 Inputs.Add(input);
                 number = Inputs.Count;
             }
+            if (Refuse?.Invoke(number, input) is { } refused)
+                return Task.FromResult(refused);
             input.Report?.Invoke(new HandoverEvent(RunEventKind.VerifyFinished, "tests passed"));
             input.Report?.Invoke(new HandoverEvent(RunEventKind.Pushed, $"pushed {input.Branch}"));
             input.Report?.Invoke(new HandoverEvent(RunEventKind.PrOpened, "draft pull request opened", $"https://example.test/o/r/pull/{number}"));

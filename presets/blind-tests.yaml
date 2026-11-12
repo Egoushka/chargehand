@@ -1,0 +1,34 @@
+# blind-tests (issue 789): the sibling session of a task that opted in to blind tests. It reads the issue text alone and writes acceptance
+# tests, nothing else: it gets no plan, no implementer prompt and no diff, and its handover refuses any changed path that is not a test.
+# Same container limits as driven, a smaller budget: tests are shorter than the change.
+schema: preset/v1
+name: blind-tests
+version: 0.1.0
+allowed_actions: [answer, ask, deny]
+node_kinds:
+  session:
+    model: provider/worker-model
+    opencode_agent: build
+    permissions:
+      - { action: "*", resource: "*", effect: allow }
+      - { action: edit, resource: "*", effect: deny }
+      - { action: shell, resource: "*", effect: deny }
+      - { action: webfetch, resource: "*", effect: deny }
+      - { action: external_directory, resource: "*", effect: deny }
+      - { action: subagent, resource: "*", effect: deny }
+      - { action: read, resource: "*.env", effect: deny }
+      - { action: read, resource: "*.env.*", effect: deny }
+      - { action: read, resource: "*.env.example", effect: allow }
+      - { action: question, resource: "*", effect: deny }
+    budget: { max_input_tokens: 1000000, max_usd: 1.50 }
+driven:
+  max_minutes: 30
+  no_progress_minutes: 10
+  max_turns: 50
+  max_tokens: 1000000
+  memory_mb: 4096
+  cpus: 2
+  pids: 512
+  allow: [api.anthropic.com, registry.npmjs.org, api.nuget.org, pypi.org, files.pythonhosted.org]
+critic: { enabled: false }
+approval: {}
