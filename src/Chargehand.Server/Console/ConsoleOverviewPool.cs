@@ -1,3 +1,4 @@
+using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Pool.Api;
 
@@ -24,14 +25,9 @@ internal static class ConsoleOverviewPool
     {
         if (!who.IsOwner || c.Settings.Pool is not { } settings || c.Pool is not { } pool)
             return null;
-        var items = await pool.ItemsAsync(null, ct);
-        var workers = await pool.WorkersAsync(ct);
-        var queued = items.Where(i => i.Status == PoolStatus.Queued).OrderBy(i => i.EnqueuedAt).Take(Cap)
-            .Select(i => new OverviewPoolQueued(i.Key, i.Repository, i.Area, i.Title, i.Priority, i.PullRequest, i.EnqueuedAt, i.Reason)).ToList();
-        var live = workers.Where(w => w.ReleasedAt is null).OrderBy(w => w.StartedAt).Take(Cap)
-            .Select(w => new OverviewPoolWorker(w.Id, w.Scope.Repository, w.Scope.Area, w.Tokens, w.StartedAt, items.Count(i => i.Status == PoolStatus.Claimed && i.Worker == w.Id))).ToList();
-        var done = items.Where(i => i.Status == PoolStatus.Done && i.DoneAt is { } at && at >= since).OrderBy(i => i.DoneAt).Take(Cap)
-            .Select(i => new OverviewPoolDone(i.Key, i.Repository, i.Area, i.Title, i.DoneAt!.Value)).ToList();
+        var queued = (await pool.QueuedAsync(Cap, ct)).Select(i => new OverviewPoolQueued(i.Key, i.Repository, i.Area, Redaction.Scrub(i.Title), i.Priority, i.PullRequest, i.EnqueuedAt, i.Reason)).ToList();
+        var live = (await pool.LiveWorkersAsync(Cap, ct)).Select(w => new OverviewPoolWorker(w.Id, w.Scope.Repository, w.Scope.Area, w.Tokens, w.StartedAt, w.Items)).ToList();
+        var done = (await pool.DoneSinceAsync(since, Cap, ct)).Select(i => new OverviewPoolDone(i.Key, i.Repository, i.Area, Redaction.Scrub(i.Title), i.DoneAt)).ToList();
         return new OverviewPool(new OverviewPoolCeiling(settings.WorkerTokens, settings.MaxOpenDecisions), queued, live, done);
     }
 }

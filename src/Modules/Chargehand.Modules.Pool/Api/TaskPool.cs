@@ -126,6 +126,15 @@ public sealed class TaskPool(SqlitePoolStore store, TaskPoolSettings settings, I
 
     public Task<IReadOnlyList<PoolWorker>> WorkersAsync(CancellationToken ct) => store.WorkersAsync(ct);
 
+    /// <summary>The first queued items, without bodies.</summary>
+    public Task<IReadOnlyList<PoolQueuedRow>> QueuedAsync(int limit, CancellationToken ct) => store.QueuedAsync(limit, ct);
+
+    /// <summary>The newest items finished since a time, oldest first, without bodies.</summary>
+    public Task<IReadOnlyList<PoolDoneRow>> DoneSinceAsync(DateTimeOffset since, int limit, CancellationToken ct) => store.DoneSinceAsync(since, limit, ct);
+
+    /// <summary>The unreleased workers with the count of items each holds.</summary>
+    public Task<IReadOnlyList<PoolLiveWorker>> LiveWorkersAsync(int limit, CancellationToken ct) => store.LiveWorkersAsync(limit, ct);
+
     public Task<PoolWorker?> WorkerAsync(string worker, CancellationToken ct) => store.WorkerAsync(worker, ct);
 
     public Task<ResumeCard?> CardAsync(PoolScope scope, CancellationToken ct) => store.CardAsync(scope, ct);

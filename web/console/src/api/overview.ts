@@ -57,7 +57,7 @@ export interface OverviewPoolQueued {
   priority: number;
   pull_request?: number | null;
   enqueued_at: string;
-  /** The check (`decisions`, ...) or `starter`, `lost`, `ceiling` that last held the item; its detail text is not stored. */
+  /** The check (`decisions`, ...) or `starter`, `lost`, `ceiling`, `done` (released with no resume card) that last held or released the item; its detail text is not stored. */
   reason?: string | null;
 }
 
@@ -84,7 +84,7 @@ export interface OverviewPool {
   ceiling: OverviewPoolCeiling;
   queued: OverviewPoolQueued[];
   workers: OverviewPoolWorker[];
-  /** Items done since `?since=` (default the last 24 hours). */
+  /** Items done since `?since=` (default the last 24 hours): the newest 50 in the window, listed oldest first. */
   done: OverviewPoolDone[];
 }
 
