@@ -720,15 +720,24 @@ public sealed class Orchestrator(
             if (moved && events is not null)
                 await CheckoutAnnouncer.AnnounceAsync(events, $"{Path.GetFileName(Path.GetDirectoryName(dir))}/{commit[..12]}", ct);
         }
-        var denied = await DeniedFiles(dir, kind.Permissions, ct);
+        var label = RepositoryLabel.From(await Git(source, ct, "config", "--get", "remote.origin.url"), Path.GetFileName(source));
+        var all = await DeniedFiles(dir, kind.Permissions, ct);
+        var denied = WithoutPublic(all, label);
+        await Include(dir, [.. all.Except(denied)], ct);
         if (denied.Count > 0 && refuseDenied)
             throw new ChargehandException(ErrorCode.CheckoutHasSecrets, $"the repository tracks files the preset denies reading, which a session's shell would still reach: " +
                 $"{string.Join(", ", denied.Take(5))}{(denied.Count > 5 ? ", ..." : "")}",
                 "Pin a commit that does not track them, or remove them from the repository.");
         if (denied.Count > 0)
             await Exclude(dir, denied, ct);
-        return (dir, commit, RepositoryLabel.From(await Git(source, ct, "config", "--get", "remote.origin.url"), Path.GetFileName(source)), denied);
+        return (dir, commit, label, denied);
     }
+
+    /// <summary>Drops the denied files the profile's public_files declares hold no secret in this repository (issue 867), so a file such as a version pin named *.env neither refuses nor leaves the checkout.</summary>
+    private IReadOnlyList<string> WithoutPublic(IReadOnlyList<string> denied, string repository) =>
+        profile.PublicFiles?.GetValueOrDefault(repository) is { Count: > 0 } patterns
+            ? [.. denied.Where(f => !patterns.Any(p => Wildcard(f, p)))]
+            : denied;
 
     /// <summary>Removes a clone that lost the race to its final path; a leftover is only disk, so a failure is ignored.</summary>
     private static void TryDelete(string directory)
@@ -765,6 +774,22 @@ public sealed class Orchestrator(
         if (await Git(dir, ct, "config", "core.sparseCheckout", "true") is null || await Git(dir, ct, "read-tree", "-mu", "HEAD") is null
             || files.Any(f => File.Exists(Path.Combine(dir, f))))
             throw new ChargehandException(ErrorCode.CheckoutHasSecrets, $"could not leave the files the preset denies reading out of {dir}",
+                "Delete the checkout under worker_root/.checkouts and retry.");
+    }
+
+    /// <summary>Puts back the public files a clone reused from before public_files was set still leaves out (issue 867).</summary>
+    private static async Task Include(string dir, IReadOnlyList<string> files, CancellationToken ct)
+    {
+        var path = Path.Combine(dir, ".git", "info", "sparse-checkout");
+        if (files.Count == 0 || !File.Exists(path))
+            return;
+        var lines = await File.ReadAllLinesAsync(path, ct);
+        var rules = files.Select(f => "!/" + SparseLiteral(f)).ToHashSet(StringComparer.Ordinal);
+        if (!lines.Any(rules.Contains))
+            return;
+        await File.WriteAllLinesAsync(path, lines.Where(l => !rules.Contains(l)), ct);
+        if (await Git(dir, ct, "read-tree", "-mu", "HEAD") is null)
+            throw new ChargehandException(ErrorCode.CheckoutInvalid, $"could not put the public files back into {dir}",
                 "Delete the checkout under worker_root/.checkouts and retry.");
     }
 

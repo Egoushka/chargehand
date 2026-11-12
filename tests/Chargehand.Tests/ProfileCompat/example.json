@@ -415,6 +415,7 @@
     ]
   },
   "nuget_trusted_signers": null,
+  "public_files": null,
   "roots": [
     "/srv/chargehand/work",
     "/path/to/your/repositories"
