@@ -46,7 +46,7 @@ internal sealed class PoolService(TaskPool pool, Func<CancellationToken, Task<IR
                     log(line);
                 held = tick.Worker is null ? line : null;
             }
-            catch (Exception e) when (e is not OperationCanceledException and not OutOfMemoryException)
+            catch (Exception e) when (e is not OutOfMemoryException && (e is not OperationCanceledException || !ct.IsCancellationRequested))
             {
                 log($"pool: tick failed: {e.GetType().Name}");
             }

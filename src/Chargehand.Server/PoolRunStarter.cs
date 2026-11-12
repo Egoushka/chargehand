@@ -127,7 +127,8 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
         }
     }
 
-    /// <summary>How many workers of this worker's area, released just before it, stopped at the ceiling in a row.</summary>
+    /// <summary>How many workers of this worker's area, released just before it, stopped at the ceiling in a row. A worker the starter refused or a restart
+    /// lost did no work, so it neither counts nor breaks the row.</summary>
     private static async Task<int> HandOffsAsync(TaskPool target, string worker, CancellationToken ct)
     {
         if (await target.WorkerAsync(worker, ct).ConfigureAwait(false) is not { } self)
@@ -137,7 +138,7 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
 
     internal static int HandOffs(IEnumerable<PoolWorker> workers, PoolWorker self) =>
         workers.Where(w => w.Scope == self.Scope && w.Id != self.Id && w.ReleasedAt is not null && w.StartedAt < self.StartedAt)
-            .OrderByDescending(w => w.StartedAt).TakeWhile(w => w.Reason == "ceiling").Count();
+            .Where(w => w.Reason is not ("starter" or "lost")).OrderByDescending(w => w.StartedAt).TakeWhile(w => w.Reason == "ceiling").Count();
 
     /// <summary>The card a batch stopped at its token ceiling leaves; null for any other end. The batch's own error says only that a task did not finish; the
     /// ceiling is on the worker's row of the <c>driven-batch</c> artifact. A worker that used no tokens made no progress, so handing its items back would only
@@ -147,7 +148,7 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
         if (result is not { Status: ResultStatus.Failed } || result.Error?.Code == ErrorCode.Cancelled || Row(result, worker) is not { } row)
             return null;
         if (!row.TryGetProperty("error_code", out var code) || code.ValueKind != JsonValueKind.String || code.GetString() != "cost_cap_reached"
-            || !row.TryGetProperty("tokens", out var tokens) || tokens.ValueKind != JsonValueKind.Number || tokens.GetInt64() <= 0)
+            || !row.TryGetProperty("tokens", out var tokens) || tokens.ValueKind != JsonValueKind.Number || !tokens.TryGetInt64(out var used) || used <= 0)
             return null;
         var done = string.Join(" ", new[] { Field(row, "branch") is { } branch ? $"Branch {branch}." : null, Field(row, "detail") }.OfType<string>());
         done = string.IsNullOrWhiteSpace(done) ? "(the run left no summary)" : done.Trim();

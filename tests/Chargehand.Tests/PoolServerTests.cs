@@ -276,14 +276,15 @@ public class PoolServerTests
         Assert.Null(PoolRunStarter.Card(Result(ResultStatus.Failed, 10, ErrorCode.CostCapReached), "w-1", 10));
 
     [Fact]
-    public void Hand_offs_count_the_ceiling_stops_just_before_the_worker_in_its_area()
+    public void Hand_offs_count_the_ceiling_stops_just_before_the_worker_in_its_area_past_refused_and_lost_ones()
     {
         var docs = new PoolScope("owner/repo", "docs");
         var t0 = DateTimeOffset.UnixEpoch;
         PoolWorker W(string id, int minute, string? reason, PoolScope? scope = null, bool released = true) =>
             new(id, scope ?? docs, 0, t0.AddMinutes(minute), released ? t0.AddMinutes(minute + 1) : null, reason);
         var self = W("w-5", 5, null, released: false);
-        PoolWorker[] workers = [W("w-1", 1, "ceiling"), W("w-2", 2, "done"), W("w-3", 3, "ceiling"), W("w-x", 3, "ceiling", new PoolScope("owner/repo", "pool")), W("w-4", 4, "ceiling"), self];
+        PoolWorker[] workers = [W("w-1", 1, "ceiling"), W("w-2", 2, "done"), W("w-3", 3, "ceiling"), W("w-x", 3, "ceiling", new PoolScope("owner/repo", "pool")),
+            W("w-r", 3, "starter"), W("w-4", 4, "ceiling"), W("w-l", 4, "lost"), self];
 
         Assert.Equal(2, PoolRunStarter.HandOffs(workers, self));
     }

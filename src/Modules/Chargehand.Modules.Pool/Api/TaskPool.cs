@@ -54,7 +54,7 @@ public sealed class TaskPool(SqlitePoolStore store, TaskPoolSettings settings, I
             {
                 detail = await check.HoldAsync(scope, ct).ConfigureAwait(false);
             }
-            catch (Exception e) when (e is not OperationCanceledException and not OutOfMemoryException)
+            catch (Exception e) when (e is not OutOfMemoryException && (e is not OperationCanceledException || !ct.IsCancellationRequested))
             {
                 // A check that cannot answer holds: starting without it would skip the capacity it guards.
                 detail = $"the check failed: {e.GetType().Name}";
@@ -69,7 +69,7 @@ public sealed class TaskPool(SqlitePoolStore store, TaskPoolSettings settings, I
         {
             tick = await StartAsync(scope, ct).ConfigureAwait(false);
         }
-        catch (Exception e) when (e is not OperationCanceledException and not OutOfMemoryException)
+        catch (Exception e) when (e is not OutOfMemoryException && (e is not OperationCanceledException || !ct.IsCancellationRequested))
         {
             tick = new PoolTick(scope, null, "starter", $"the starter failed: {e.GetType().Name}");
         }

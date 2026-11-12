@@ -116,4 +116,15 @@ public class DrivenBatchTests
         Assert.Equal(new TaskLimits(1_500_000, null), limits.PerTask);
         Assert.Equal(2 * DrivenBatch.DefaultTaskTokens, DrivenBatch.Limits(two, On, new DrivenPreset(), 2m, priced: false, null).MaxTokensTotal);
     }
+
+    /// <summary>The scheduler reserves a whole per-task cap before it starts a task, so a batch whose token cap is below it could never start one: the
+    /// per-task cap shrinks to the batch's (a pool worker sends its token ceiling as the batch cap, ADR 0099).</summary>
+    [Fact]
+    public void A_batch_cap_below_the_per_task_cap_becomes_the_per_task_cap()
+    {
+        var one = Request(new RequestDriven([new DrivenTask("a", null, "g")], MaxTokensTotal: 150_000));
+
+        Assert.Equal(new TaskLimits(150_000, null), DrivenBatch.Limits(one, On, Preset, 2m, priced: false, null).PerTask);
+        Assert.Equal(new TaskLimits(150_000, null), DrivenBatch.Limits(one, On, new DrivenPreset(), 2m, priced: false, null).PerTask);
+    }
 }

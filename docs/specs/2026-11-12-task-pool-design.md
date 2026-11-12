@@ -59,7 +59,9 @@ ceiling, then writes a resume card for its successor.
    ceiling instead releases with a card, so its items go back to the queue for a successor. The ceiling is read from the
    worker's row of the batch's `driven-batch` artifact (`error_code` `cost_cap_reached`, tokens above 0; the batch's own
    error only says a task did not finish), and the card's "done" is that row's branch and detail. The third ceiling stop
-   in a row in one area ends its items as failed instead (`MaxHandOffs`, a starting value). After a restart, a worker whose batch the run service took up again stays live and is
+   in a row in one area ends its items as failed instead (`MaxHandOffs`, a starting value); a worker the starter refused
+   or a restart lost neither counts nor breaks that row. The worker's ceiling is the batch's `max_tokens_total`; the batch
+   module shrinks its per-task cap to a batch cap below it, since the scheduler reserves a whole per-task cap per start. After a restart, a worker whose batch the run service took up again stays live and is
    watched as before; every other claim is released as `lost`. A worker that pulls items one by
    one from inside the run needs a worker-facing tool; that is a later change (see Left for later).
 
