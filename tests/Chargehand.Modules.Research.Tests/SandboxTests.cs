@@ -169,6 +169,21 @@ public class SandboxTests
         Assert.DoesNotContain("CHARGEHAND_TEST_SECRET", launch.Environment.Keys);
     }
 
+    [Fact]
+    public async Task A_timed_out_run_returns_even_when_an_escaped_grandchild_holds_its_output_open()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+        using var work = new TempDir();
+        var env = new Dictionary<string, string> { ["PATH"] = Environment.GetEnvironmentVariable("PATH") ?? "/usr/bin:/bin" };
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        var result = await ProcessRunner.RunAsync("/bin/sh", ["-c", "(sleep 30 &) ; sleep 30"], env, work.Path, TimeSpan.FromSeconds(1), default);
+
+        Assert.True(result.TimedOut);
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(20), $"took {started.Elapsed}");
+    }
+
     [MacOsFact]
     public void A_wrapped_seatbelt_command_runs_under_the_generated_profile()
     {

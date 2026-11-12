@@ -69,6 +69,46 @@ public sealed class WarmPlanTests : IDisposable
         Assert.Empty(WarmPlan.For(dir));
     }
 
+    [Theory]
+    [InlineData(".pnpmfile.mjs", "")]
+    [InlineData(".npmrc", "registry=https://example.invalid\npnpmfile=./hooks.cjs\n")]
+    [InlineData(".npmrc", "  global-pnpmfile = /tmp/x.cjs\n")]
+    [InlineData("pnpm-workspace.yaml", "packages:\n  - a\npnpmfile: hooks.cjs\n")]
+    [InlineData("pnpm-workspace.yaml", "globalPnpmfile: x.cjs\n")]
+    [InlineData("pnpm-workspace.yaml", "configDependencies:\n  x: 1.0.0\n")]
+    [InlineData("pnpm-workspace.yaml", "{packages: [a], pnpmfile: hooks.cjs}\n")]
+    [InlineData("pnpm-workspace.yaml", "? configDependencies\n: {x: 1.0.0}\n")]
+    [InlineData("pnpm-workspace.yaml", "config-dependencies:\n  x: 1.0.0\n")]
+    [InlineData("pnpm-workspace.yaml", "\uFEFFconfigDependencies:\n  x: 1.0.0\n")]
+    public void A_pnpmfile_named_anywhere_pnpm_reads_stops_the_folder_being_warmed(string file, string text)
+    {
+        Touch("pnpm-lock.yaml");
+        Touch(file, text);
+        Assert.Empty(WarmPlan.For(dir));
+    }
+
+    [Fact]
+    public void An_ordinary_npmrc_and_workspace_still_warm()
+    {
+        Touch("pnpm-lock.yaml");
+        Touch(".npmrc", "registry=https://example.invalid\nignore-pnpmfile=true\n");
+        Touch("pnpm-workspace.yaml", "packages:\n  - a\n");
+        Assert.Equal(["pnpm-install"], Names());
+    }
+
+    // pnpm walks up to the workspace root and loads its settings, so a hooked root reaches every folder below it; npm reads none of them.
+    [Theory]
+    [InlineData(".pnpmfile.cjs", "")]
+    [InlineData(".npmrc", "pnpmfile=./hooks.cjs\n")]
+    [InlineData("pnpm-workspace.yaml", "packages:\n  - web\nconfigDependencies:\n  x: 1.0.0\n")]
+    public void A_hooked_checkout_root_stops_every_pnpm_folder_in_it(string file, string text)
+    {
+        Touch(file, text);
+        Touch("web/pnpm-lock.yaml");
+        Touch("api/package-lock.json");
+        Assert.Equal(["npm-ci"], Names());
+    }
+
     [Fact]
     public void A_pnpmfile_stops_the_folder_being_warmed()
     {

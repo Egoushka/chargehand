@@ -652,7 +652,7 @@ EventService? EventLog(EventsSettings? events) =>
         : new EventService(SqliteEventLog.Open(events.Database ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "events.db")),
             [.. (events.Tokens ?? []).Select(t => (t.Grant(), profile.Secret(t.Secret)))]);
 
-/// <summary>Restores each new checkout ahead of its agent (ADR 0090), each step in the sandbox sessions use (ADR 0035): pnpm packages go to one content-addressed store beside the checkouts, the only place besides the checkout a step may write; NuGet packages go to a per-run staging folder, and only the ones whose signature verifies are promoted, outside the sandbox, into the one shared cache. The network is the profile's <c>sandbox.network</c>, so a cold fill needs it on.</summary>
+/// <summary>Restores each new checkout ahead of its agent (ADR 0090), each step in the sandbox sessions use (ADR 0035): pnpm packages go to a content-addressed store of the checkout's own repository beside the checkouts, the only place besides the checkout a step may write, so one repository cannot plant packages another links; NuGet packages go to a per-run staging folder, and only the ones whose signature verifies are promoted, outside the sandbox, into the one shared cache. The network is the profile's <c>sandbox.network</c>, so a cold fill needs it on.</summary>
 CacheWarmer? CacheWarmerFor(EventService? events)
 {
     if (events is null)
@@ -663,17 +663,14 @@ CacheWarmer? CacheWarmerFor(EventService? events)
         return null;
     }
     var workerRoot = Path.GetFullPath(profile.WorkerRoot);
-    var store = Path.Combine(workerRoot, ".pnpm-store");
     var env = new Dictionary<string, string>
     {
-        ["pnpm_config_store_dir"] = store,
         ["pnpm_config_package_import_method"] = "auto",
-        ["pnpm_config_manage_package_manager_versions"] = "false",
         ["DOTNET_NOLOGO"] = "1",
         ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1",
     };
     string[] tools = ["DOTNET_ROOT", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"];
-    var runner = new Chargehand.Warming.SandboxedStepRunner(Chargehand.Modules.Research.Api.SandboxSelector.Select(profile.Sandbox), profile.Sandbox?.Network ?? false, [.. tools, .. profile.Sandbox?.Env ?? []], env, [store]);
+    var runner = new Chargehand.Warming.SandboxedStepRunner(Chargehand.Modules.Research.Api.SandboxSelector.Select(profile.Sandbox), profile.Sandbox?.Network ?? false, [.. tools, .. profile.Sandbox?.Env ?? []], env, [], Path.Combine(workerRoot, ".pnpm-stores"));
     var promoter = new Chargehand.Warming.NuGetPromoter(Path.Combine(workerRoot, ".nuget-packages"), Path.Combine(workerRoot, ".nuget-work"), profile.NugetTrustedSigners ?? [], Chargehand.Warming.DotnetProcess.RunAsync);
     return new CacheWarmer(events.Log, Path.Combine(workerRoot, ".checkouts"), runner, promoter: promoter, stagingRoot: Path.Combine(workerRoot, ".nuget-staging"));
 }

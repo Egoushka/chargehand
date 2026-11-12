@@ -10,6 +10,8 @@ public static class ProcessRunner
 
     private static readonly string[] Allowlist = ["PATH", "LANG", "LC_ALL", "TERM"];
 
+    private static readonly TimeSpan ReaderGrace = TimeSpan.FromSeconds(5);
+
     /// <summary>The fixed allowlist of a sandboxed command's environment; HOME and TMPDIR point at its private directory.</summary>
     internal static Dictionary<string, string> Environment(string tempDirectory, IReadOnlyList<string> passEnv, IReadOnlyDictionary<string, string>? values = null)
     {
@@ -58,7 +60,15 @@ public static class ProcessRunner
             if (!timedOut)
                 throw;
         }
-        await readers;
+        try
+        {
+            await readers.WaitAsync(ReaderGrace, CancellationToken.None);
+        }
+        catch (TimeoutException)
+        {
+            // Dropped on purpose: a grandchild that left the process tree can hold the pipes open after the child is gone,
+            // and its output is not waited for. The tail read so far is the result.
+        }
         return new SandboxResult(timedOut ? -1 : process.ExitCode, tail.Text(), timedOut, started.Elapsed);
     }
 
