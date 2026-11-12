@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Pool.Api;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,11 +46,15 @@ public static class EnqueueTool
     {
         if (context.Services!.GetService<TaskPool>() is not { } pool)
             return Error("the pool is off (http.pool)");
-        if (PrincipalHttp.Of(context.Services!.GetService<IHttpContextAccessor>()?.HttpContext) is { IsOwner: false })
+        var http = context.Services!.GetService<IHttpContextAccessor>()?.HttpContext;
+        // A session's run token resolves to the owner too; a run must not queue work for workers outside its own grant.
+        if (http is null || http.Items.ContainsKey(RunScope.ItemKey) || PrincipalHttp.Of(http) is not { IsOwner: true })
             return Error("forbidden: only the owner enqueues into the pool");
         var request = Read(context.Params?.Arguments);
         if (request is null)
             return Error("invalid: priority and pull_request are integers; the other arguments are strings");
+        if (request.Repository is { } repository && context.Services!.GetService<PoolRunStarter>() is { } starter && !starter.Knows(repository))
+            return Error("invalid: repository is not one of automation.github.repositories");
         var result = await pool.EnqueueAsync(request, ct).ConfigureAwait(false);
         if (result.Refusal is { } refusal)
             return Error($"{refusal.Code}: {refusal.Message}");

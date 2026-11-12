@@ -8,13 +8,19 @@ using Chargehand.Modules.Pool.Api;
 namespace Chargehand.Server;
 
 /// <summary>Starts one pool worker as a driven batch of one task on this server's run service (ADR 0099). The batch is admitted and charged like intake's (<see cref="RunServiceStarter"/>);
-/// when it ends, its token use is reported, the items it was given are marked done (with the status when it did not complete), and the worker is released so items enqueued
-/// into the scope meanwhile start a successor at the next tick.</summary>
+/// when it ends, its token use is reported and the worker is released so items enqueued into the scope meanwhile start a successor at the next tick. A batch stopped at the
+/// worker's token ceiling hands its items back with a resume card; any other end marks them done (with the status when it did not complete).</summary>
 internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, IReadOnlyDictionary<string, AutomationRepository>? repositories, Func<TaskPool> pool,
     TaskPoolSettings settings, Action<string> log) : IPoolStarter
 {
     /// <summary>The longest one-line title a pool batch gets; pull request titles are cut shorter anyway.</summary>
     public const int MaxTitle = 72;
+
+    /// <summary>The longest run summary a resume card carries.</summary>
+    public const int MaxCardDone = 2000;
+
+    /// <summary>Whether a worker can start on the repository: <c>enqueue</c> refuses the rest, so a queued item never names a scope the starter always refuses.</summary>
+    public bool Knows(string repository) => repositories?.ContainsKey(repository) == true;
 
     public async Task<string?> StartAsync(PoolStartRequest request, CancellationToken ct)
     {
@@ -36,28 +42,81 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
         var started = await new RunServiceStarter(runs, account).StartAsync(run, false, ct).ConfigureAwait(false);
         if (started.RunId is not { } id)
             return started.Refusal ?? "the run did not start";
-        _ = Task.Run(() => FinishAsync(id, request), CancellationToken.None);
+        _ = Task.Run(() => FinishAsync(id, request.Worker, request.Items), CancellationToken.None);
         return null;
     }
 
-    private async Task FinishAsync(string runId, PoolStartRequest request)
+    /// <summary>After a restart: each live worker whose batch the run service took up again stays live, and its end is watched as if this process had started it.
+    /// Returns those workers; the caller releases the rest as lost.</summary>
+    public async Task<IReadOnlySet<string>> AdoptAsync(CancellationToken ct)
+    {
+        var target = pool();
+        var workers = (await target.WorkersAsync(ct).ConfigureAwait(false)).Where(w => w.ReleasedAt is null).ToDictionary(w => w.Id, StringComparer.Ordinal);
+        var live = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var run in runs.Held)
+        {
+            foreach (var task in run.ResumedTasks)
+            {
+                if (!workers.TryGetValue(task, out var worker) || !live.Add(task))
+                    continue;
+                var items = (await target.ItemsAsync(worker.Scope, ct).ConfigureAwait(false)).Where(i => i.Worker == task && i.Status == PoolStatus.Claimed).ToList();
+                var id = run.Id;
+                _ = Task.Run(() => FinishAsync(id, task, items), CancellationToken.None);
+            }
+        }
+        return live;
+    }
+
+    private async Task FinishAsync(string runId, string worker, IReadOnlyList<PoolItem> items)
     {
         var ct = CancellationToken.None;
-        var keys = request.Items.Select(i => i.Key).ToList();
+        var target = pool();
         try
         {
             var result = runs.Find(runId) is { } handle ? await handle.Done.ConfigureAwait(false) : null;
-            var target = pool();
             if (result is not null)
-                await target.ReportAsync(request.Worker, result.Usage.Input + result.Usage.Output, ct).ConfigureAwait(false);
+                await target.ReportAsync(worker, result.Usage.Input + result.Usage.Output, ct).ConfigureAwait(false);
+            if (Card(result, settings.WorkerTokens) is { } card)
+            {
+                // The items are still claimed: the release puts them back in the queue and the card goes to the successor.
+                await target.ReleaseAsync(worker, card, ct).ConfigureAwait(false);
+                return;
+            }
             var reason = result is null ? "failed: lost" : result.Status == ResultStatus.Completed ? null : "failed: " + result.Status.ToString().ToLowerInvariant();
-            await target.DoneAsync(keys, reason, ct).ConfigureAwait(false);
-            await target.ReleaseAsync(request.Worker, null, ct).ConfigureAwait(false);
+            await target.DoneAsync([.. items.Select(i => i.Key)], reason, ct).ConfigureAwait(false);
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
-            log($"pool: worker {request.Worker} did not finish cleanly: {e.GetType().Name}");
+            log($"pool: worker {worker} did not finish cleanly: {e.GetType().Name}");
         }
+        finally
+        {
+            await ReleaseQuietlyAsync(target, worker).ConfigureAwait(false);
+        }
+    }
+
+    private async Task ReleaseQuietlyAsync(TaskPool target, string worker)
+    {
+        try
+        {
+            await target.ReleaseAsync(worker, null, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            log($"pool: worker {worker} could not be released: {e.GetType().Name}");
+        }
+    }
+
+    /// <summary>The card a batch stopped at its token ceiling leaves; null for any other end. A batch that used no tokens made no progress, so handing its items back
+    /// would only start the same stop again: those items end as failed instead.</summary>
+    internal static ResumeCard? Card(ResultContract? result, long ceiling)
+    {
+        if (result is not { Status: ResultStatus.Failed, Error.Code: ErrorCode.CostCapReached } || result.Usage.Input + result.Usage.Output <= 0)
+            return null;
+        var done = string.IsNullOrWhiteSpace(result.Summary) ? "(the run left no summary)" : result.Summary.Trim();
+        if (done.Length > MaxCardDone)
+            done = done[..(MaxCardDone - 1)] + "…";
+        return new ResumeCard(done, "Every item below; check each against the repository before redoing it.", $"The worker's token ceiling of {ceiling} tokens.");
     }
 
     internal static string Title(PoolStartRequest request)

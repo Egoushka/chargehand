@@ -226,7 +226,13 @@ public sealed partial class RunService(Orchestrator orchestrator, string presets
         var swept = await driven.SweepOrphansAsync(open, ct);
         foreach (var state in open)
         {
-            var run = new RunHandle(state.RunId, stopping) { Actor = state.Actor, IsBatch = true, ReservedUsd = Reserve(state.Request) };
+            var run = new RunHandle(state.RunId, stopping)
+            {
+                Actor = state.Actor,
+                IsBatch = true,
+                ReservedUsd = Reserve(state.Request),
+                ResumedTasks = [.. state.Request.Driven?.Tasks.Select(t => t.Id) ?? []],
+            };
             _runs[run.Id] = run;
             run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
             Track(() => Execute(run, state.Request, null, null, state));
@@ -344,6 +350,9 @@ public sealed class RunHandle(string id, CancellationToken stopping) : IDisposab
 
     /// <summary>A driven batch: its events can replay from the journal (ADR 0061).</summary>
     public bool IsBatch { get; init; }
+
+    /// <summary>A batch a restart took up: its task ids, so the pool can find the worker it carries (ADR 0099). Empty otherwise.</summary>
+    public IReadOnlyList<string> ResumedTasks { get; init; } = [];
 
     /// <summary>Completes at the next <see cref="Publish"/>.</summary>
     internal Task Changed

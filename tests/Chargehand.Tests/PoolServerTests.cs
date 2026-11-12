@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Chargehand.Config;
+using Chargehand.Contracts;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Pool.Api;
 using Chargehand.Server;
 using ModelContextProtocol.Client;
@@ -30,7 +32,21 @@ public class PoolServerTests
 
     private static Task<TestServer> StartWithPool(IReadOnlyList<AccountSettings>? accounts = null) =>
         TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), accounts: accounts,
-            tweak: (root, settings) => settings with { Pool = new TaskPoolSettings(Database: Path.Combine(root, "pool.db")) });
+            tweak: (root, settings) => settings with
+            {
+                Pool = new TaskPoolSettings(Database: Path.Combine(root, "pool.db")),
+                Profile = (settings.Profile ?? Runs.Profile(root)) with
+                {
+                    Automation = new AutomationSettings(new AutomationGitHub(new Dictionary<string, AutomationRepository> { ["owner/repo"] = new(root) })),
+                },
+            });
+
+    private static Dictionary<string, object?> Enqueue(string repository = "owner/repo", string title = "T", string body = "B") =>
+        new() { ["repository"] = repository, ["area"] = "docs", ["title"] = title, ["body"] = body };
+
+    private static ResultContract Result(ResultStatus status, long tokens, ErrorCode? error = null, string summary = "wrote the intro") =>
+        new("result/v1", "run-1", "driven", "trace", new PromptChain([], new AsSent("claude-code/1", "driven", "batch", "2026-10-13")), status, summary, [], [], [], [], 0.5,
+            new Usage(tokens, 0, 0, 0, null), error is { } code ? new ResultError(code, "stopped", false) : null);
 
     private static string Text(CallToolResult call) => string.Join(" | ", call.Content.OfType<TextContentBlock>().Select(c => c.Text));
 
@@ -165,4 +181,70 @@ public class PoolServerTests
         Assert.True(call.IsError);
         Assert.StartsWith("invalid:", Text(call), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task A_sessions_run_token_may_not_enqueue_though_it_acts_for_the_owner()
+    {
+        await using var s = await StartWithPool();
+        var token = s.Tokens.Issue(new RunTokenClaims("run-parent", s.WorkerRoot, "0000000", null, null, DateTimeOffset.UtcNow.AddHours(1)), DateTimeOffset.UtcNow);
+        await using var client = await Connect(s, token);
+
+        var call = await client.CallToolAsync(EnqueueTool.Name, Enqueue());
+
+        Assert.True(call.IsError);
+        Assert.StartsWith("forbidden:", Text(call), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_repository_the_server_does_not_work_on_is_refused_without_quoting_it()
+    {
+        await using var s = await StartWithPool();
+        await using var client = await Connect(s, TestServer.Key);
+
+        var call = await client.CallToolAsync(EnqueueTool.Name, Enqueue(repository: "someone/elsewhere"));
+
+        Assert.True(call.IsError);
+        Assert.StartsWith("invalid:", Text(call), StringComparison.Ordinal);
+        Assert.DoesNotContain("elsewhere", Text(call), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Bad_input_is_refused_through_the_tool_with_stable_codes_and_the_value_is_never_quoted()
+    {
+        await using var s = await StartWithPool();
+        await using var client = await Connect(s, TestServer.Key);
+        var secret = "AKIA" + "ABCDEFGHIJKLMNOP";
+
+        var missing = await client.CallToolAsync(EnqueueTool.Name, new Dictionary<string, object?> { ["repository"] = "owner/repo", ["area"] = "docs", ["body"] = "B" });
+        var large = await client.CallToolAsync(EnqueueTool.Name, Enqueue(body: new string('b', EnqueueRequest.MaxBodyBytes + 1)));
+        var leaked = await client.CallToolAsync(EnqueueTool.Name, Enqueue(body: "use " + secret));
+
+        Assert.Equal(("invalid:", "too_large:", "secret:"),
+            (Text(missing)[..8], Text(large)[..10], Text(leaked)[..7]));
+        Assert.True(missing.IsError == true && large.IsError == true && leaked.IsError == true);
+        Assert.DoesNotContain(secret, Text(leaked), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_batch_stopped_at_the_token_ceiling_leaves_a_card_for_its_successor()
+    {
+        var card = PoolRunStarter.Card(Result(ResultStatus.Failed, 150_000, ErrorCode.CostCapReached), 150_000);
+
+        Assert.Equal(new ResumeCard("wrote the intro", "Every item below; check each against the repository before redoing it.", "The worker's token ceiling of 150000 tokens."), card);
+    }
+
+    [Fact]
+    public void A_cards_summary_is_cut()
+    {
+        var card = PoolRunStarter.Card(Result(ResultStatus.Failed, 10, ErrorCode.CostCapReached, summary: new string('s', 5000)), 10)!;
+
+        Assert.Equal(new string('s', PoolRunStarter.MaxCardDone - 1) + "…", card.Done);
+    }
+
+    [Theory]
+    [InlineData(ResultStatus.Completed, 10, null)]
+    [InlineData(ResultStatus.Failed, 10, ErrorCode.SessionFailed)]
+    [InlineData(ResultStatus.Failed, 0, ErrorCode.CostCapReached)]
+    public void Any_other_end_or_a_ceiling_stop_with_no_progress_leaves_no_card(ResultStatus status, long tokens, ErrorCode? error) =>
+        Assert.Null(PoolRunStarter.Card(Result(status, tokens, error), 10));
 }

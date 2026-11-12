@@ -899,6 +899,33 @@
               }
             }
           }
+        },
+        "pool": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Turns on the task pool (ADR 0099): the owner's chats enqueue tasks with the MCP tool enqueue, and the governor hands each area's queue to one worker at a time. Absent: no pool and no enqueue tool.",
+          "properties": {
+            "worker_tokens": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The tokens one worker may use before it hands its area to a successor. Default: 150000."
+            },
+            "max_open_decisions": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Open decisions waiting on the owner at or below which the governor may start a worker. Default: 5."
+            },
+            "database": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The SQLite file. Default: pool.db beside the run log."
+            },
+            "max_batch_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The UTF-8 bytes of titles and bodies one claim may take; the rest stays queued. A single larger item is still claimed alone. Default: 65536."
+            }
+          }
         }
       }
     },
