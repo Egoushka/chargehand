@@ -4,7 +4,8 @@ name: prompt-ci
 # its token can post the "prompt-ci" status on a fork's pull request too. The evals run on the self-hosted runner
 # labelled chargehand-eval; no model, gateway or tracing key lives in GitHub. The runner builds main; the pull request
 # contributes only prompts/ and presets/ (scripts/prompt-ci.sh).
-# A fork's pull request or a preset change waits for an approval in the prompt-ci-review environment. The runner holds
+# Only a fork's pull request waits for an approval in the prompt-ci-review environment; a branch of this repository (its
+# writers are trusted) goes straight to the gate. The runner holds
 # one eval profile per runtime (PROMPT_CI_PROFILE_<RUNTIME>) and a default (PROMPT_CI_RUNTIME); a label
 # prompt-ci:<runtime> picks another.
 on:
@@ -59,16 +60,16 @@ jobs:
             exit 0
           fi
           review=false
-          if [ "$FORK" = true ] || echo "$files" | grep -q '^presets/'; then
+          if [ "$FORK" = true ]; then
             review=true
             gh api -X POST "repos/$REPO/statuses/$HEAD" -f state=pending -f context=prompt-ci \
-              -f description="owner review needed: fork or preset change" >/dev/null
+              -f description="owner review needed: fork" >/dev/null
           fi
           echo "gate=true" >> "$GITHUB_OUTPUT"
           echo "review=$review" >> "$GITHUB_OUTPUT"
 
   review:
-    # The owner reads the prompts/ and presets/ diff, then approves this deployment (scripts/prompt-ci.sh --reviewed).
+    # A fork only: the owner reads the prompts/ and presets/ diff, then approves this deployment (scripts/prompt-ci.sh --reviewed).
     needs: classify
     if: needs.classify.outputs.review == 'true'
     runs-on: ubuntu-latest

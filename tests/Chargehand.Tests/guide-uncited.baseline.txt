@@ -1477,12 +1477,12 @@ prompt-ci.md	840915f7e5	The `review/worker` cell shipped in 0.4.0, and [docs/ben
 prompt-ci.md	acc7aa4e13	[prompt-ci.yml](../../.github/workflows/prompt-ci.yml) runs on `pull_r
 prompt-ci.md	db93c69e88	It hands the gate to a self-hosted runner labelled `chargehand-eval`.
 prompt-ci.md	e8c50d1b40	The runner builds main and takes only `prompts/` and `presets/` from t
-prompt-ci.md	217128564c	A fork's pull request, or any change under `presets/`, first waits for
+prompt-ci.md	67c58b92b6	A fork's pull request first waits for the owner's approval in the `pro
 prompt-ci.md	4f411fb19f	The runner holds one eval profile per runtime and a default.
 prompt-ci.md	7761f52e31	A `prompt-ci:<runtime>` label picks another runtime, and it counts onl
 prompt-ci.md	56d37e5f3a	A push, an edit of the pull request body or a `prompt-ci:` label rerun
 prompt-ci.md	dc58b119f7	By hand, from the main checkout:
-prompt-ci.md	832dff15b3	`--reviewed` says you read the `prompts/` and `presets/` diff, which a
+prompt-ci.md	a464c68e5b	`--reviewed` says you read the `prompts/` and `presets/` diff, which a
 prompt-ci.md	9589c020e5	`--trusted-build` builds the runner from the pull request itself, so u
 prompt-ci.md	dd167a5a7f	`--no-status` prints the verdict without posting it.
 prompt-ci.md	0860b3501b	The eval profile comes from `CHARGEHAND_PROFILE`, default `profiles/lo
@@ -1518,7 +1518,7 @@ prompt-ci.md	0d8016ddb3	By a replay of logged runs, the gate catches a thinning 
 prompt-ci.md	2dbd0eb13e	Expect a paired eval for every cell your change touches.
 prompt-ci.md	af7b87b36d	If you trade quality for cost on purpose, declare the trade in the pul
 prompt-ci.md	7ae5ea328c	A change to the prompt block or preset file of `default`, `thorough` o
-prompt-ci.md	a8d19acc30	A change under `presets/`, or a pull request from a fork, waits for th
+prompt-ci.md	683ad55f52	A pull request from a fork waits for the owner's approval before any e
 prompt-ci.md	89c6c6f827	A prompt that merges facts into fewer claims on purpose reads as a thi
 prompt-ci.md	c23ebc453e	A pass means the gate saw no drop beyond its tolerances on its items.
 prompt-ci.md	a74ea98f83	It did not see #6.

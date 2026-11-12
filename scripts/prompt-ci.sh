@@ -3,14 +3,13 @@
 # the verdict as the commit status "prompt-ci". .github/workflows/prompt-ci.yml runs it on the eval runner; the owner
 # can still run it by hand from the main checkout, where the gitignored eval profile and run log live. The runner is
 # this checkout's build; the pull request contributes only prompts/ and presets/ (git archive), never code it builds
-# or runs. Those files still steer a worker, and a preset can give it tools, so a fork's pull request or a preset
-# change waits for --reviewed (in the workflow: an approval in the prompt-ci-review environment).
+# or runs. Those files still steer a worker, and a preset can give it tools, so a fork's pull request waits
+# for --reviewed (in the workflow: an approval in the prompt-ci-review environment).
 #
 # usage: scripts/prompt-ci.sh <pr-number> [--trusted-build] [--reviewed] [--allow-uncovered] [--no-status]
 #   --trusted-build    build the runner (and read evals/cells.json) from the pull request itself; this runs its
 #                      code, so only for your own branches
 #   --reviewed         you have read the pull request's prompts/ and presets/ diff; needed for a fork's pull request
-#                      and for any change under presets/
 #   --allow-uncovered  pass although a changed prompt or preset file has no eval cell
 #   --no-status        print the verdict without posting the commit status
 # env: CHARGEHAND_PROFILE  profile for the eval runs (default profiles/local.eval.json)
@@ -61,11 +60,11 @@ if ! grep -qE '^(prompts|presets)/' "$work/changed"; then
 fi
 
 # A prompt instructs a worker; a preset sets its permissions (a shell allow can run programs, ADR 0006), agent, model
-# and budget. Any preset change counts: a grep for permission lines misses quoted YAML keys.
-if [ -z "$reviewed" ] && { grep -q '^presets/' "$work/changed" ||
-  [ "$(gh pr view "$pr" --json isCrossRepository -q .isCrossRepository)" = true ]; }; then
-  status failure "owner review needed: fork or preset change (--reviewed)"
-  echo "prompt-ci: failure: a fork's pull request or a preset change; read the prompts/ and presets/ diff, then rerun with --reviewed" >&2
+# and budget. A fork's change is read by the owner first; a branch of this repository is written by trusted people.
+if [ -z "$reviewed" ] &&
+  [ "$(gh pr view "$pr" --json isCrossRepository -q .isCrossRepository)" = true ]; then
+  status failure "owner review needed: fork (--reviewed)"
+  echo "prompt-ci: failure: a fork's pull request; read the prompts/ and presets/ diff, then rerun with --reviewed" >&2
   exit 1
 fi
 

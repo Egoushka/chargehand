@@ -30,7 +30,7 @@ fork code on the owner's machine.
   `git log --format=tformat:<text> --output=<path>` writes `<text>` to `<path>`; `cheap` allows `git grep*` and
   `git log*`. A prompt from a pull request is therefore an instruction to a worker that can run programs. A grep for
   permission lines misses a rule written with quoted YAML keys, which YamlDotNet reads like any other. Since then
-  no preset gives workers a shell (ADR 0006), but a preset change can restore one, so `--reviewed` stays.
+  no preset gives workers a shell (ADR 0006), but a preset change can restore one, so `--reviewed` stays for a fork's pull request (amended 2026-11-12, ADR 0025: a branch of this repository no longer needs it).
 - Calibration (A/A: the same prompts and presets as base and change, small model, 2026-09-27). `cheap/worker`, 13
   items: quality change -0.033 (t -1.45; 2 items differ, by 0.25 and 0.18), cost change +15% (t 1.99), so with
   C = +15% identical prompts blocked on cost. Its per-item cost ratios run from 0.73 to 1.56 (log ratio SD 0.24): a
