@@ -70,9 +70,14 @@ internal sealed class FakeStarter : IPoolStarter
     /// <summary>When set, only this area is refused, with <see cref="Refusal"/>.</summary>
     public string? RefusedArea { get; set; }
 
+    /// <summary>When set, starting this area throws.</summary>
+    public string? ThrowingArea { get; set; }
+
     public Task<string?> StartAsync(PoolStartRequest request, CancellationToken ct)
     {
         Requests.Add(request);
+        if (ThrowingArea == request.Scope.Area)
+            throw new DirectoryNotFoundException("the checkout is gone");
         return Task.FromResult(RefusedArea is null || RefusedArea == request.Scope.Area ? Refusal : null);
     }
 }
@@ -83,5 +88,7 @@ internal sealed class FakeCheck(string name) : IPoolCheck
 
     public string Name => name;
 
-    public Task<string?> HoldAsync(PoolScope scope, CancellationToken ct) => Task.FromResult(Detail);
+    public bool Throws { get; set; }
+
+    public Task<string?> HoldAsync(PoolScope scope, CancellationToken ct) => Throws ? throw new InvalidOperationException("no answer") : Task.FromResult(Detail);
 }

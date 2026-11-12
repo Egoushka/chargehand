@@ -56,8 +56,10 @@ ceiling, then writes a resume card for its successor.
 9. **The worker is a run.** The server's starter composes a non-interactive run request from the scope's claimed items
    and the card, starts it through the same admission as intake, and binds the run to the worker: when the run ends,
    its usage is reported, the items it carried are done and the worker is released. A run stopped at the worker's token
-   ceiling (`cost_cap_reached` with tokens used) instead releases with a card built from its summary, so its items go back
-   to the queue for a successor. After a restart, a worker whose batch the run service took up again stays live and is
+   ceiling instead releases with a card, so its items go back to the queue for a successor. The ceiling is read from the
+   worker's row of the batch's `driven-batch` artifact (`error_code` `cost_cap_reached`, tokens above 0; the batch's own
+   error only says a task did not finish), and the card's "done" is that row's branch and detail. The third ceiling stop
+   in a row in one area ends its items as failed instead (`MaxHandOffs`, a starting value). After a restart, a worker whose batch the run service took up again stays live and is
    watched as before; every other claim is released as `lost`. A worker that pulls items one by
    one from inside the run needs a worker-facing tool; that is a later change (see Left for later).
 

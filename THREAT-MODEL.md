@@ -42,12 +42,12 @@ wrote); the server's availability.
 
 | Threat | Control | Where | Test that proves it |
 |---|---|---|---|
-| Spend outside a grant | Owner key only; a run token or account key gets `forbidden`; no caller identified, refused | `src/Chargehand.Server/EnqueueTool.cs` | `PoolServerTests`: account key, run token |
+| Spend outside a grant | Owner key only; a run token or account key gets `forbidden`; no caller identified, refused (that branch is not reachable over HTTP and has no test) | `src/Chargehand.Server/EnqueueTool.cs` | `PoolServerTests`: account key, run token |
 | Unknown repository | Refused unless in `automation.github.repositories`, without echoing it | `EnqueueTool.cs`, `PoolRunStarter.Knows` | `PoolServerTests`: unknown repository |
 | Credential in a task | Refused with `secret` before it is written; the value is not echoed | `EnqueueRequest.Validate` | `PoolServerTests`, `PoolTests.Enqueue_refuses_bad_input_with_stable_codes` |
-| Disk fill | `http.pool.max_queued` (default 1000 items, a starting value); body at most 16 KB | `TaskPool.EnqueueAsync` | `PoolTests.Enqueue_refuses_with_full_once_max_queued_items_wait` |
-| One area stalls the rest | A held scope carries its reason and the tick tries the next one | `TaskPool.TickAsync` | `PoolTests.A_scope_the_starter_refuses_does_not_stall_the_scopes_behind_it` |
-| Ceiling loss or loop | A ceiling stop hands its items back with a resume card; a stop with no tokens used ends them as failed | `PoolRunStarter.Card` | `PoolServerTests` card tests |
+| Disk fill | `http.pool.max_queued` (default 1000 queued items, a starting value); body at most 16 KB. Done and failed items stay in `pool.db`: no pruning yet | `TaskPool.EnqueueAsync` | `PoolTests.Enqueue_refuses_with_full_once_max_queued_items_wait` |
+| One area stalls the rest | A held scope carries its reason and the tick tries the next one; a check or starter that throws holds its scope too | `TaskPool.TickAsync` | `PoolTests.A_scope_the_starter_refuses_does_not_stall_the_scopes_behind_it` |
+| Ceiling loss or loop | A ceiling stop, read from the worker's row of the batch, hands its items back with a resume card; a stop with no tokens used, or the third ceiling stop in a row in one area, ends them as failed | `PoolRunStarter.Card` | `PoolServerTests` card tests |
 | Double run after restart | Workers whose batch resumed are adopted; only the rest are released | `PoolRunStarter.AdoptAsync`, `PoolService` | `PoolServerTests`: restart adoption |
 
 Text inside a queued item is the owner's instruction to the worker, so prompt injection through it is out of scope: only the

@@ -19,7 +19,7 @@
     },
     "area": {
       "type": "string",
-      "description": "The sense the task belongs to (docs, pool, wheelhouse-ui); items of one area share a worker",
+      "description": "The sense the task belongs to (docs, pool, console); items of one area share a worker",
       "minLength": 1,
       "maxLength": 64
     },

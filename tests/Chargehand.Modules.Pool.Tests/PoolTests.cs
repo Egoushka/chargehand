@@ -169,6 +169,35 @@ public sealed class PoolTests
     }
 
     [Fact]
+    public async Task A_scope_whose_start_throws_is_held_and_the_scope_behind_it_starts()
+    {
+        using var kit = new PoolKit();
+        await kit.AddAsync("a", "first in order", pullRequest: 4);
+        await kit.AddAsync("b", "behind it");
+        kit.Starter.ThrowingArea = "a";
+
+        var tick = await kit.Pool.TickAsync(None);
+
+        Assert.Equal(new PoolScope("owner/repo", "b"), tick.Scope);
+        Assert.NotNull(tick.Worker);
+        var held = Assert.Single(await kit.Pool.ItemsAsync(new PoolScope("owner/repo", "a"), None));
+        Assert.Equal((PoolStatus.Queued, "starter"), (held.Status, held.Reason));
+        Assert.Single(await kit.Pool.WorkersAsync(None), w => w.ReleasedAt is null);
+    }
+
+    [Fact]
+    public async Task A_check_that_throws_holds_rather_than_starts()
+    {
+        using var kit = new PoolKit(new FakeCheck("box") { Throws = true });
+        await kit.AddAsync("a", "one");
+
+        var tick = await kit.Pool.TickAsync(None);
+
+        Assert.Equal(("box", "the check failed: InvalidOperationException"), (tick.Reason, tick.Detail));
+        Assert.Empty(kit.Starter.Requests);
+    }
+
+    [Fact]
     public async Task When_no_scope_starts_the_tick_reports_the_first_ones_hold()
     {
         using var kit = new PoolKit(new FakeCheck("box") { Detail = "memory is short" });

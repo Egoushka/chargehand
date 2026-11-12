@@ -2,8 +2,10 @@ using System.Text.Json;
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Batches.Api;
 using Chargehand.Modules.Intake.Api;
 using Chargehand.Modules.Pool.Api;
+using Chargehand.Modules.Tasks.Api;
 using Chargehand.Server;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
@@ -237,28 +239,54 @@ public class PoolServerTests
         Assert.DoesNotContain(secret, Text(leaked), StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void A_batch_stopped_at_the_token_ceiling_leaves_a_card_for_its_successor()
-    {
-        var card = PoolRunStarter.Card(Result(ResultStatus.Failed, 150_000, ErrorCode.CostCapReached), 150_000);
+    /// <summary>A batch result as the batch module builds it: one task, the worker, with the given end.</summary>
+    private static ResultContract Batch(TaskState state, ErrorCode? error, long tokens, string? detail = "stopped: the task's cap was exceeded", string? branch = "pool/docs",
+        bool cancelled = false) =>
+        DrivenResult.BuildBatch("run-1", new string('0', 32), "Pool", new BatchOutcome([new TaskOutcome("w-1", state, "run-t", detail, error, Tokens: tokens, Branch: branch)], null),
+            "env", priced: false, "2.1.283", cancelledByCaller: cancelled);
 
-        Assert.Equal(new ResumeCard("wrote the intro", "Every item below; check each against the repository before redoing it.", "The worker's token ceiling of 150000 tokens."), card);
+    [Fact]
+    public void A_batch_whose_worker_stopped_at_the_token_ceiling_leaves_a_card_for_its_successor()
+    {
+        var card = PoolRunStarter.Card(Batch(TaskState.Failed, ErrorCode.CostCapReached, 150_000), "w-1", 150_000);
+
+        Assert.Equal(new ResumeCard("Branch pool/docs. stopped: the task's cap was exceeded", "Every item below; check each against the repository before redoing it.",
+            "The worker's token ceiling of 150000 tokens."), card);
     }
 
     [Fact]
-    public void A_cards_summary_is_cut()
+    public void A_cards_done_is_cut()
     {
-        var card = PoolRunStarter.Card(Result(ResultStatus.Failed, 10, ErrorCode.CostCapReached, summary: new string('s', 5000)), 10)!;
+        var card = PoolRunStarter.Card(Batch(TaskState.Failed, ErrorCode.CostCapReached, 10, detail: new string('s', 5000), branch: null), "w-1", 10)!;
 
         Assert.Equal(new string('s', PoolRunStarter.MaxCardDone - 1) + "…", card.Done);
     }
 
     [Theory]
-    [InlineData(ResultStatus.Completed, 10, null)]
-    [InlineData(ResultStatus.Failed, 10, ErrorCode.SessionFailed)]
-    [InlineData(ResultStatus.Failed, 0, ErrorCode.CostCapReached)]
-    public void Any_other_end_or_a_ceiling_stop_with_no_progress_leaves_no_card(ResultStatus status, long tokens, ErrorCode? error) =>
-        Assert.Null(PoolRunStarter.Card(Result(status, tokens, error), 10));
+    [InlineData(TaskState.Completed, null, 10, "w-1", false)]
+    [InlineData(TaskState.Failed, ErrorCode.SessionFailed, 10, "w-1", false)]
+    [InlineData(TaskState.Failed, ErrorCode.CostCapReached, 0, "w-1", false)]
+    [InlineData(TaskState.Failed, ErrorCode.CostCapReached, 10, "w-other", false)]
+    [InlineData(TaskState.Failed, ErrorCode.CostCapReached, 10, "w-1", true)]
+    public void Any_other_end_a_stop_with_no_progress_another_workers_row_or_a_cancel_leaves_no_card(TaskState state, ErrorCode? error, long tokens, string worker, bool cancelled) =>
+        Assert.Null(PoolRunStarter.Card(Batch(state, error, tokens, cancelled: cancelled), worker, 10));
+
+    [Fact]
+    public void A_result_with_no_batch_artifact_leaves_no_card() =>
+        Assert.Null(PoolRunStarter.Card(Result(ResultStatus.Failed, 10, ErrorCode.CostCapReached), "w-1", 10));
+
+    [Fact]
+    public void Hand_offs_count_the_ceiling_stops_just_before_the_worker_in_its_area()
+    {
+        var docs = new PoolScope("owner/repo", "docs");
+        var t0 = DateTimeOffset.UnixEpoch;
+        PoolWorker W(string id, int minute, string? reason, PoolScope? scope = null, bool released = true) =>
+            new(id, scope ?? docs, 0, t0.AddMinutes(minute), released ? t0.AddMinutes(minute + 1) : null, reason);
+        var self = W("w-5", 5, null, released: false);
+        PoolWorker[] workers = [W("w-1", 1, "ceiling"), W("w-2", 2, "done"), W("w-3", 3, "ceiling"), W("w-x", 3, "ceiling", new PoolScope("owner/repo", "pool")), W("w-4", 4, "ceiling"), self];
+
+        Assert.Equal(2, PoolRunStarter.HandOffs(workers, self));
+    }
 
     [Fact]
     public void After_a_restart_a_worker_whose_batch_was_resumed_stays_and_the_rest_do_not()
