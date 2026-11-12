@@ -93,6 +93,40 @@ export function overview(over: Partial<OverviewBody> = {}, now = Date.now()): Ov
     ],
     inbox: { questions: 1, pull_requests: 1, failures: 1, total: 3 },
     not_recorded: [],
+    pool: {
+      ceiling: { worker_tokens: 150_000, max_open_decisions: 5 },
+      queued: [
+        {
+          key: 'q-1',
+          repository: 'example/payments-api',
+          area: 'retry-policy',
+          title: 'Back off on 429 from the ledger',
+          priority: 0,
+          pull_request: 412,
+          enqueued_at: iso(now, 90),
+          reason: 'decisions',
+        },
+      ],
+      workers: [
+        {
+          id: 'w-1',
+          repository: 'example/payments-api',
+          area: 'invoices',
+          tokens: 48_200,
+          started_at: iso(now, 35),
+          items: 2,
+        },
+      ],
+      done: [
+        {
+          key: 'd-1',
+          repository: 'example/payments-api',
+          area: 'invoices',
+          title: 'Round totals half-even',
+          done_at: iso(now, 120),
+        },
+      ],
+    },
     ...over,
   };
 }
@@ -108,6 +142,7 @@ export function accountOverview(now = Date.now()): OverviewBody {
     standing: me({ name: 'ci-bot', owner: false, limits: { max_usd_per_day: 10 } }, now),
     accounts: null,
     inbox: { questions: 0, pull_requests: 0, failures: 0, total: 0 },
+    pool: null,
   };
 }
 

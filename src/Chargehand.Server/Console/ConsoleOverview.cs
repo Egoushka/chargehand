@@ -25,7 +25,7 @@ public sealed record OverviewDriven(bool Enabled, OverviewRunner? Runner, HostBo
 
 /// <summary><c>overview/v1</c>: the console's first screen. <c>Scope</c> is <c>owner</c> or <c>account</c>; an account's body holds its own runs, spend and inbox and nothing about the server's host or the other accounts.</summary>
 public sealed record OverviewBody(string ContractVersion, DateTimeOffset GeneratedAt, string Scope, string Account, OverviewServer Server, OverviewDriven Driven, AccountStandingBody Standing,
-    IReadOnlyList<AccountBody>? Accounts, InboxCounts Inbox, IReadOnlyList<string> NotRecorded);
+    IReadOnlyList<AccountBody>? Accounts, InboxCounts Inbox, IReadOnlyList<string> NotRecorded, OverviewPool? Pool = null);
 
 internal static class ConsoleOverview
 {
@@ -41,7 +41,7 @@ internal static class ConsoleOverview
 
     private static readonly IReadOnlyList<string> AccountNotRecorded = [PauseNote];
 
-    public static async Task<OverviewBody> BuildAsync(ConsoleContext c, Principal who, CancellationToken ct)
+    public static async Task<OverviewBody> BuildAsync(ConsoleContext c, Principal who, DateTimeOffset since, CancellationToken ct)
     {
         var standing = await AccountStanding.ReadAsync(who, c.Runs.Now, c.Runs.Unfinished(who.Name), c.Runs.Halted, c.Runs.Presets(), c.Runs.ReservedUsd(who.Name), c.Log, ct);
         var held = c.Runs.Held.Where(r => !r.IsChild && Principal.Sees(who, r.Actor)).ToList();
@@ -50,7 +50,8 @@ internal static class ConsoleOverview
         var driven = await DrivenAsync(c, who, ct);
         var accounts = who.IsOwner ? (await ConsoleAccounts.BuildAsync(c, null, null, ct)).Accounts : null;
         var inbox = await ConsoleInbox.CountsAsync(c, who, ct);
-        return new OverviewBody(Contract, c.Now, who.IsOwner ? "owner" : "account", who.Name, server, driven, standing, accounts, inbox, who.IsOwner ? OwnerNotRecorded : AccountNotRecorded);
+        return new OverviewBody(Contract, c.Now, who.IsOwner ? "owner" : "account", who.Name, server, driven, standing, accounts, inbox, who.IsOwner ? OwnerNotRecorded : AccountNotRecorded,
+            await ConsoleOverviewPool.ReadAsync(c, who, since, ct));
     }
 
     private static async Task<OverviewDriven> DrivenAsync(ConsoleContext c, Principal who, CancellationToken ct)

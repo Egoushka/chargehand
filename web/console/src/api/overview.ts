@@ -44,6 +44,50 @@ export interface OverviewDriven {
   rate_limit: OverviewRateLimit;
 }
 
+export interface OverviewPoolCeiling {
+  worker_tokens: number;
+  max_open_decisions: number;
+}
+
+export interface OverviewPoolQueued {
+  key: string;
+  repository: string;
+  area: string;
+  title: string;
+  priority: number;
+  pull_request?: number | null;
+  enqueued_at: string;
+  /** The check (`decisions`, ...) or `starter`, `lost`, `ceiling` that last held the item; its detail text is not stored. */
+  reason?: string | null;
+}
+
+export interface OverviewPoolWorker {
+  id: string;
+  repository: string;
+  area: string;
+  tokens: number;
+  started_at: string;
+  /** The items the worker holds now. */
+  items: number;
+}
+
+export interface OverviewPoolDone {
+  key: string;
+  repository: string;
+  area: string;
+  title: string;
+  done_at: string;
+}
+
+/** The task pool; lists are capped at 50, oldest first, and never carry an item's body. */
+export interface OverviewPool {
+  ceiling: OverviewPoolCeiling;
+  queued: OverviewPoolQueued[];
+  workers: OverviewPoolWorker[];
+  /** Items done since `?since=` (default the last 24 hours). */
+  done: OverviewPoolDone[];
+}
+
 /** `overview/v1`: the console's first screen. An account's body holds its own runs, spend and inbox, and no host, runner or other account. */
 export interface OverviewBody extends ContractMeta {
   contract_version: 'overview/v1';
@@ -54,6 +98,8 @@ export interface OverviewBody extends ContractMeta {
   standing: AccountStanding;
   accounts?: AccountBody[] | null;
   inbox: InboxCounts;
+  /** The owner's task pool; absent for an account and when the profile has no `http.pool`. */
+  pool?: OverviewPool | null;
 }
 
 export const overviewQuery = () =>
