@@ -18,6 +18,7 @@ using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.Oversight.Api;
 using Chargehand.Modules.PeerClones.Api;
+using Chargehand.Modules.Pool.Api;
 using Chargehand.Modules.Research.Api;
 using Chargehand.Modules.Runners.Api;
 using Chargehand.Modules.Sessions.Api;
@@ -219,9 +220,11 @@ internal sealed class MemoryListConverter : JsonConverter<IReadOnlyList<MemoryPr
 /// <param name="ProxySignIn">Sign in by the email a trusted single-sign-on proxy forwards, with no key (ADR 0071); null: keys only.</param>
 /// <param name="Conversations">Turns on <c>/v1/conversations</c> (ADR 0086): a person steers an agent while it works. Null: the routes are not there.</param>
 /// <param name="Events">Turns on the event log (ADR 0090): <c>/v1/events</c>, its stream and <c>/v1/threads</c>, in <c>events.db</c> beside the run log. Null: the routes are not there.</param>
+/// <param name="Pool">Turns on the task pool (ADR 0099): the MCP tool <c>enqueue</c> and the governor that starts workers, in <c>pool.db</c> beside the run log. Null: neither is there.</param>
 public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string Listen = "127.0.0.1", IReadOnlyList<string>? AllowedHosts = null,
     int MaxConcurrentRuns = 1, IReadOnlyList<AccountSettings>? Accounts = null, bool Ui = false, CloudflareAccessSettings? CloudflareAccess = null,
-    ProxySignInSettings? ProxySignIn = null, ConversationSettings? Conversations = null, EventsSettings? Events = null)
+    ProxySignInSettings? ProxySignIn = null, ConversationSettings? Conversations = null, EventsSettings? Events = null,
+    TaskPoolSettings? Pool = null)
 {
     /// <summary>Throws an invalid_request error naming the key when an account cannot work.</summary>
     internal void Validate()
@@ -236,6 +239,8 @@ public sealed record HttpSettings(string ApiKeySecret, int Port = 4300, string L
             throw new ChargehandException(ErrorCode.InvalidRequest, $"http.conversations: {string.Join("; ", conversations)}", "Fix http.conversations in the profile; docs/guide/server.md lists the keys.");
         if (Events?.Problems() is { Count: > 0 } events)
             throw new ChargehandException(ErrorCode.InvalidRequest, string.Join("; ", events), "Fix http.events in the profile; docs/guide/reference.md lists the keys.");
+        if (Pool?.Problems() is { Count: > 0 } pool)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"http.pool: {string.Join("; ", pool)}", "Fix http.pool in the profile; docs/guide/reference.md lists the keys.");
     }
 }
 

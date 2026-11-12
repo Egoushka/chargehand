@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:chargehand:schema:enqueue:v1",
+  "title": "chargehand Enqueue, v1",
+  "description": "The arguments of the MCP tool enqueue: one task for the pool (ADR 0099).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "repository",
+    "area",
+    "title",
+    "body"
+  ],
+  "properties": {
+    "repository": {
+      "type": "string",
+      "description": "owner/name, as listed in automation.github.repositories",
+      "maxLength": 100
+    },
+    "area": {
+      "type": "string",
+      "description": "The sense the task belongs to (docs, pool, console); items of one area share a worker",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "body": {
+      "type": "string",
+      "description": "What to do and how to check it is done; at most 16 KB"
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 0
+    },
+    "pull_request": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The pull request this task changes, when there is one"
+    }
+  }
+}

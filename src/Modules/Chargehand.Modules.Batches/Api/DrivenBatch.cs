@@ -87,7 +87,8 @@ public static class DrivenBatch
         var driven = request.Driven!;
         if (priced && driven.MaxUsdTotal is null)
             throw new ChargehandException(ErrorCode.InvalidRequest, "driven.max_usd_total is required with an API key: the batch needs a dollar cap", "Add max_usd_total to the driven block.");
-        var perTask = preset.MaxTokens ?? DefaultTaskTokens;
+        // The scheduler reserves a whole per-task cap before a start, so a per-task cap above the batch's would never let a task start.
+        var perTask = Math.Min(preset.MaxTokens ?? DefaultTaskTokens, driven.MaxTokensTotal ?? long.MaxValue);
         var parallel = Math.Clamp(Math.Min(driven.MaxParallel ?? profile.MaxParallel, profile.MaxParallel), 1, ParallelCeiling);
         return new BatchLimits(parallel, driven.MaxTokensTotal ?? (priced ? null : perTask * driven.Tasks.Count), priced ? driven.MaxUsdTotal : null,
             new TaskLimits(perTask, priced ? perTaskUsd : null), global, gate);

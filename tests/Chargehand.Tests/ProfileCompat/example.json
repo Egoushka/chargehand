@@ -227,7 +227,8 @@
     "cloudflare_access": null,
     "proxy_sign_in": null,
     "conversations": null,
-    "events": null
+    "events": null,
+    "pool": null
   },
   "claude_code": null,
   "repository_roots": [

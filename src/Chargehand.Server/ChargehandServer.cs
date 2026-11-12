@@ -14,6 +14,7 @@ using Chargehand.Modules.Events.Api;
 using Chargehand.Modules.Handover.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Oversight.Api;
+using Chargehand.Modules.Pool.Api;
 using Chargehand.Modules.Warmer.Api;
 using Chargehand.Server.Conversations;
 using Chargehand.Server.Events;
@@ -55,6 +56,7 @@ namespace Chargehand.Server;
 /// <param name="ConversationsDirectory">Where the conversations' journals live (<c>conversations/</c> beside the run log); needed with <paramref name="Conversations"/>.</param>
 /// <param name="ConversationRuntime">The runtime conversations reach agents through; null: the module's fake.</param>
 /// <param name="Warmer">Restores each checkout the event log announces (ADR 0090); null: none is warmed.</param>
+/// <param name="Pool">The profile's <c>http.pool</c> with its database path (ADR 0099); null: the pool is off and the <c>enqueue</c> tool refuses.</param>
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
     IReadOnlyList<string>? AllowedHosts = null, int MaxConcurrentRuns = 1, int MaxSessionCalls = 2, string? StateDirectory = null,
     IReadOnlyList<AccountSettings>? Accounts = null, string? AccountKeysFile = null, TimeProvider? Clock = null, bool Ui = false,
@@ -62,7 +64,7 @@ public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirec
     CloudflareAccessSettings? Access = null, Func<CancellationToken, Task<string>>? AccessCerts = null,
     ProxySignInSettings? ProxySignIn = null, Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? ProxyResolver = null,
     IReadOnlyList<DependencyProbe>? Probes = null, ConversationSettings? Conversations = null, string? ConversationsDirectory = null, IConversationRuntime? ConversationRuntime = null,
-    EventService? Events = null, CacheWarmer? Warmer = null);
+    EventService? Events = null, CacheWarmer? Warmer = null, TaskPoolSettings? Pool = null);
 
 /// <summary>
 /// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
@@ -114,7 +116,8 @@ public static partial class ChargehandServer
         AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory, driven, settings.MaxConcurrentRuns, settings.MaxSessionCalls, settings.StateDirectory, log, settings.Clock,
                 settings.Accounts, notify, new RunApprovalGate(settings.RunApprovalPath))
             // Hybrid: 2026-07-28 clients run stateless (tasks, input_required results); initialize clients get a session.
-            .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients);
+            .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients)
+            .WithTools(settings.Pool is null ? [] : [EnqueueTool.Create()]);
 
         // Before the listener opens: interrupted batches are taken up and leftovers swept, so no new batch can be mistaken for one.
         builder.Services.AddHostedService(sp => new BatchResumer(sp.GetRequiredService<RunService>(), log));
@@ -162,6 +165,7 @@ public static partial class ChargehandServer
         if (driven?.Learning is not null)
             builder.Services.AddHostedService(_ => new HeldPrReconciler(driven.PrCheckEvery, driven.ReconcileHeldPrsAsync));
 
+        PoolRegistration.AddPool(builder.Services, settings, log, driven, automationAccount);
         var app = builder.Build();
         app.UseHostFiltering();
         var expected = Encoding.UTF8.GetBytes($"Bearer {settings.ApiKey}");
