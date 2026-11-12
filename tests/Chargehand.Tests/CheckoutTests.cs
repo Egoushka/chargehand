@@ -73,6 +73,52 @@ public class CheckoutTests
     }
 
     [Fact]
+    public async Task A_reused_clone_puts_back_public_files_an_earlier_run_left_out()
+    {
+        // The clone is shared per commit: a run before public_files was set left the files out, and they come back.
+        using var root = new TempDir();
+        var repo = TrackingDeniedFiles(root.Path);
+        Runs.SetOrigin(repo, "https://example.com/owner/repo.git");
+        var runtime = new ScriptedRuntime(Runs.WorkerReply);
+        await Runs.Orchestrator(runtime, root.Path, new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")))
+            .RunAsync(Runs.CheapRequest(repo), CancellationToken.None);
+        Assert.False(File.Exists(Path.Combine(Assert.Single(runtime.Created).Directory, "sub", ".env")));
+        var profile = Runs.Profile(root.Path) with
+        {
+            PublicFiles = new Dictionary<string, IReadOnlyList<string>> { ["example.com/owner/repo"] = ["sub/.env", "x.env.local"] },
+        };
+
+        var driven = await new Orchestrator(profile, new ScriptedRuntime(Runs.WorkerReply), "2.0.16", Repo.Root,
+                new JsonlRunLog(Path.Combine(root.Path, "log2.jsonl")), new Dictionary<string, int>())
+            .CheckoutForDrivenAsync(repo, "driven", CancellationToken.None);
+
+        Assert.Equal(Assert.Single(runtime.Created).Directory, driven.Directory);
+        Assert.True(File.Exists(Path.Combine(driven.Directory, "sub", ".env")));
+        Assert.True(File.Exists(Path.Combine(driven.Directory, "x.env.local")));
+    }
+
+    [Fact]
+    public async Task Unlisted_denied_files_of_the_same_repository_still_refuse()
+    {
+        using var root = new TempDir();
+        var repo = TrackingDeniedFiles(root.Path);
+        Runs.SetOrigin(repo, "https://example.com/owner/repo.git");
+        var profile = Runs.Profile(root.Path) with
+        {
+            PublicFiles = new Dictionary<string, IReadOnlyList<string>> { ["example.com/owner/repo"] = ["sub/*"] },
+        };
+
+        var e = await Assert.ThrowsAsync<ChargehandException>(() =>
+            new Orchestrator(profile, new ScriptedRuntime(Runs.WorkerReply), "2.0.16", Repo.Root,
+                    new JsonlRunLog(Path.Combine(root.Path, "log.jsonl")), new Dictionary<string, int>())
+                .CheckoutForDrivenAsync(repo, "driven", CancellationToken.None));
+
+        Assert.Equal(ErrorCode.CheckoutHasSecrets, e.Code);
+        Assert.Contains("x.env.local", e.Message);
+        Assert.DoesNotContain("sub/.env", e.Message);
+    }
+
+    [Fact]
     public async Task Public_files_of_another_repository_do_not_lift_the_refusal()
     {
         using var root = new TempDir();

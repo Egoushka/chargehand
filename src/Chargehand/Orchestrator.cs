@@ -721,7 +721,9 @@ public sealed class Orchestrator(
                 await CheckoutAnnouncer.AnnounceAsync(events, $"{Path.GetFileName(Path.GetDirectoryName(dir))}/{commit[..12]}", ct);
         }
         var label = RepositoryLabel.From(await Git(source, ct, "config", "--get", "remote.origin.url"), Path.GetFileName(source));
-        var denied = WithoutPublic(await DeniedFiles(dir, kind.Permissions, ct), label);
+        var all = await DeniedFiles(dir, kind.Permissions, ct);
+        var denied = WithoutPublic(all, label);
+        await Include(dir, [.. all.Except(denied)], ct);
         if (denied.Count > 0 && refuseDenied)
             throw new ChargehandException(ErrorCode.CheckoutHasSecrets, $"the repository tracks files the preset denies reading, which a session's shell would still reach: " +
                 $"{string.Join(", ", denied.Take(5))}{(denied.Count > 5 ? ", ..." : "")}",
@@ -772,6 +774,22 @@ public sealed class Orchestrator(
         if (await Git(dir, ct, "config", "core.sparseCheckout", "true") is null || await Git(dir, ct, "read-tree", "-mu", "HEAD") is null
             || files.Any(f => File.Exists(Path.Combine(dir, f))))
             throw new ChargehandException(ErrorCode.CheckoutHasSecrets, $"could not leave the files the preset denies reading out of {dir}",
+                "Delete the checkout under worker_root/.checkouts and retry.");
+    }
+
+    /// <summary>Puts back the public files a clone reused from before public_files was set still leaves out (issue 867).</summary>
+    private static async Task Include(string dir, IReadOnlyList<string> files, CancellationToken ct)
+    {
+        var path = Path.Combine(dir, ".git", "info", "sparse-checkout");
+        if (files.Count == 0 || !File.Exists(path))
+            return;
+        var lines = await File.ReadAllLinesAsync(path, ct);
+        var rules = files.Select(f => "!/" + SparseLiteral(f)).ToHashSet(StringComparer.Ordinal);
+        if (!lines.Any(rules.Contains))
+            return;
+        await File.WriteAllLinesAsync(path, lines.Where(l => !rules.Contains(l)), ct);
+        if (await Git(dir, ct, "read-tree", "-mu", "HEAD") is null)
+            throw new ChargehandException(ErrorCode.CheckoutInvalid, $"could not put the public files back into {dir}",
                 "Delete the checkout under worker_root/.checkouts and retry.");
     }
 
