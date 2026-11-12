@@ -51,20 +51,30 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
     public async Task<IReadOnlySet<string>> AdoptAsync(CancellationToken ct)
     {
         var target = pool();
-        var workers = (await target.WorkersAsync(ct).ConfigureAwait(false)).Where(w => w.ReleasedAt is null).ToDictionary(w => w.Id, StringComparer.Ordinal);
         var live = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var run in runs.Held)
+        foreach (var (runId, worker) in Resumed(runs.Held, await target.WorkersAsync(ct).ConfigureAwait(false)))
+        {
+            live.Add(worker.Id);
+            var items = (await target.ItemsAsync(worker.Scope, ct).ConfigureAwait(false)).Where(i => i.Worker == worker.Id && i.Status == PoolStatus.Claimed).ToList();
+            _ = Task.Run(() => FinishAsync(runId, worker.Id, items), CancellationToken.None);
+        }
+        return live;
+    }
+
+    /// <summary>Each unreleased worker that a resumed batch carries as a task, with that batch's run id; a worker counts once.</summary>
+    internal static IReadOnlyList<(string RunId, PoolWorker Worker)> Resumed(IEnumerable<RunHandle> held, IEnumerable<PoolWorker> workers)
+    {
+        var open = workers.Where(w => w.ReleasedAt is null).ToDictionary(w => w.Id, StringComparer.Ordinal);
+        var found = new List<(string, PoolWorker)>();
+        foreach (var run in held)
         {
             foreach (var task in run.ResumedTasks)
             {
-                if (!workers.TryGetValue(task, out var worker) || !live.Add(task))
-                    continue;
-                var items = (await target.ItemsAsync(worker.Scope, ct).ConfigureAwait(false)).Where(i => i.Worker == task && i.Status == PoolStatus.Claimed).ToList();
-                var id = run.Id;
-                _ = Task.Run(() => FinishAsync(id, task, items), CancellationToken.None);
+                if (open.Remove(task, out var worker))
+                    found.Add((run.Id, worker));
             }
         }
-        return live;
+        return found;
     }
 
     private async Task FinishAsync(string runId, string worker, IReadOnlyList<PoolItem> items)

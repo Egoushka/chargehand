@@ -247,4 +247,17 @@ public class PoolServerTests
     [InlineData(ResultStatus.Failed, 0, ErrorCode.CostCapReached)]
     public void Any_other_end_or_a_ceiling_stop_with_no_progress_leaves_no_card(ResultStatus status, long tokens, ErrorCode? error) =>
         Assert.Null(PoolRunStarter.Card(Result(status, tokens, error), 10));
+
+    [Fact]
+    public void After_a_restart_a_worker_whose_batch_was_resumed_stays_and_the_rest_do_not()
+    {
+        var scope = new PoolScope("owner/repo", "docs");
+        PoolWorker Worker(string id, DateTimeOffset? released = null) => new(id, scope, 0, DateTimeOffset.UnixEpoch, released, released is null ? null : "done");
+        using var resumed = new RunHandle("run-1", CancellationToken.None) { IsBatch = true, ResumedTasks = ["w-live", "w-released"] };
+        using var fresh = new RunHandle("run-2", CancellationToken.None);
+
+        var found = PoolRunStarter.Resumed([resumed, fresh], [Worker("w-live"), Worker("w-gone"), Worker("w-released", DateTimeOffset.UnixEpoch)]);
+
+        Assert.Equal(("run-1", "w-live"), Assert.Single(found.Select(f => (f.RunId, f.Worker.Id))));
+    }
 }
