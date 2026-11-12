@@ -32,6 +32,17 @@ public sealed partial class NuGetPromoter(string sharedPackages, string workRoot
     [GeneratedRegex("^[0-9A-Fa-f]{64}$")]
     private static partial Regex FingerprintPattern();
 
+    private readonly List<string> _extraFingerprints = Validated(extraFingerprints);
+
+    /// <summary>A malformed signer is a configuration error, not something to drop quietly; the message names its position, never the value.</summary>
+    private static List<string> Validated(IReadOnlyList<string> fingerprints)
+    {
+        for (var i = 0; i < fingerprints.Count; i++)
+            if (!FingerprintPattern().IsMatch(fingerprints[i]))
+                throw new ArgumentException($"nuget_trusted_signers entry {i + 1} is not a 64-character SHA-256 hex fingerprint", nameof(fingerprints));
+        return [.. fingerprints.Select(f => f.ToUpperInvariant())];
+    }
+
     public async Task<PromotionResult> PromoteAsync(string stagingDir, CancellationToken ct)
     {
         var work = Path.Combine(workRoot, Guid.NewGuid().ToString("N"));
@@ -79,7 +90,7 @@ public sealed partial class NuGetPromoter(string sharedPackages, string workRoot
         }
     }
 
-    private List<string> Fingerprints() => [.. DefaultFingerprints, .. extraFingerprints.Where(f => FingerprintPattern().IsMatch(f)).Select(f => f.ToUpperInvariant())];
+    private List<string> Fingerprints() => [.. DefaultFingerprints, .. _extraFingerprints];
 
     /// <summary>The regular <c>.nupkg</c> files at <c>staging/id/version/id.version.nupkg</c> with a plain id and version; links and everything else are ignored.</summary>
     private static List<(string Id, string Version, string File)> Candidates(string stagingDir)

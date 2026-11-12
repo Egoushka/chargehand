@@ -38,7 +38,7 @@ public sealed class SandboxedStepRunnerTests
         Assert.Equal(root.Path, spec.WorkDirectory);
         Assert.True(spec.Network);
         Assert.Equal(["HTTPS_PROXY"], spec.PassEnv);
-        Assert.Equal(env, spec.Env);
+        Assert.Equal(cache, spec.Env!["pnpm_config_store_dir"]);
         Assert.Equal([cache], spec.WritablePaths);
         Assert.Equal(SandboxedStepRunner.Timeout, spec.Timeout);
         Assert.True(Directory.Exists(cache));
@@ -97,5 +97,48 @@ public sealed class SandboxedStepRunnerTests
         Assert.DoesNotContain(sharedNuget, spec.WritablePaths!);
         Assert.DoesNotContain(spec.WritablePaths!, p => p.Contains("nuget-packages", StringComparison.Ordinal));
         Assert.False(env.ContainsKey("NUGET_PACKAGES"));
+    }
+
+    [Fact]
+    public async Task A_scoped_step_gets_its_own_repository_pnpm_store_and_no_other()
+    {
+        using var root = new TempDir();
+        var stores = Path.Combine(root.Path, "pnpm-store");
+        var sandbox = new FakeSandbox(Ok());
+        var runner = new SandboxedStepRunner(sandbox, true, [], new Dictionary<string, string>(), [], stores);
+
+        await runner.RunAsync(new WarmStep("pnpm-install", "pnpm", ["install"], root.Path, () => false, Scope: "repo-1"), default);
+
+        var own = Path.Combine(stores, "repo-1");
+        Assert.Equal(own, sandbox.Seen!.Env!["pnpm_config_store_dir"]);
+        Assert.Equal([own], sandbox.Seen.WritablePaths);
+        Assert.True(Directory.Exists(own));
+    }
+
+    [Fact]
+    public async Task Every_step_runs_with_the_pnpm_package_manager_switch_off_whatever_the_caller_passes()
+    {
+        using var root = new TempDir();
+        var sandbox = new FakeSandbox(Ok());
+        var env = new Dictionary<string, string> { ["pnpm_config_manage_package_manager_versions"] = "true" };
+        var runner = new SandboxedStepRunner(sandbox, true, [], env, []);
+
+        await runner.RunAsync(new WarmStep("pnpm-install", "pnpm", ["install"], root.Path, () => false), default);
+
+        Assert.Equal("false", sandbox.Seen!.Env!["pnpm_config_manage_package_manager_versions"]);
+    }
+
+    [Theory]
+    [InlineData("..")]
+    [InlineData(".")]
+    [InlineData("a/b")]
+    [InlineData("")]
+    public async Task A_scope_that_is_not_one_plain_name_is_refused(string scope)
+    {
+        using var root = new TempDir();
+        var sandbox = new FakeSandbox(Ok());
+        var runner = new SandboxedStepRunner(sandbox, true, [], new Dictionary<string, string>(), [], Path.Combine(root.Path, "pnpm-store"));
+        await Assert.ThrowsAsync<ArgumentException>(() => runner.RunAsync(new WarmStep("pnpm-install", "pnpm", ["install"], root.Path, () => false, Scope: scope), default));
+        Assert.Null(sandbox.Seen);
     }
 }

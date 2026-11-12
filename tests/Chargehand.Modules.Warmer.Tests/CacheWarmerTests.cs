@@ -27,6 +27,8 @@ public sealed class CacheWarmerTests : IDisposable
     {
         public List<string> Ran { get; } = [];
 
+        public List<string?> Scopes { get; } = [];
+
         public Func<WarmStep, int> Exit { get; set; } = _ => 0;
 
         public Func<WarmStep, StepExit>? Ends { get; set; }
@@ -34,6 +36,7 @@ public sealed class CacheWarmerTests : IDisposable
         public Task<StepExit> RunAsync(WarmStep step, CancellationToken ct)
         {
             Ran.Add(step.Name);
+            Scopes.Add(step.Scope);
             return Task.FromResult(Ends?.Invoke(step) ?? new StepExit(Exit(step)));
         }
     }
@@ -254,6 +257,16 @@ public sealed class CacheWarmerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_backslash_is_refused_where_it_is_not_a_path_separator()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+        Checkout("repo-1/x\\b-1", "pnpm-lock.yaml");
+        Assert.False(await NewWarmer().WarmAsync(await Emit("e1", CacheWarmer.CreatedType, "repo-1/x\\b-1"), default));
+        Assert.Empty(runner.Ran);
+    }
+
+    [Fact]
     public async Task A_symlink_that_leaves_the_root_is_refused()
     {
         Directory.CreateDirectory(Path.Combine(root, "outside"));
@@ -357,6 +370,14 @@ public sealed class CacheWarmerTests : IDisposable
         };
         await NewWarmer().WarmAsync(await Emit("e1", CacheWarmer.CreatedType, "r/c"), default);
         Assert.Null(seen!.Staging);
+    }
+
+    [Fact]
+    public async Task Each_step_carries_the_repository_of_its_checkout_as_its_scope()
+    {
+        Checkout("repo-1/abc", "pnpm-lock.yaml");
+        await NewWarmer().WarmAsync(await Emit("e1", CacheWarmer.CreatedType, "repo-1/abc"), default);
+        Assert.Equal(["repo-1"], runner.Scopes);
     }
 }
 

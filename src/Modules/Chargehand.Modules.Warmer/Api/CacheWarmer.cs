@@ -47,7 +47,7 @@ public sealed class CacheWarmer(IEventLog log, string checkoutsRoot, IStepRunner
         if (Directory.Exists(dir))
         {
             foreach (var step in WarmPlan.For(dir))
-                steps.Add(await Run(step, ct).ConfigureAwait(false));
+                steps.Add(await Run(step with { Scope = name.Split(Separators)[0] }, ct).ConfigureAwait(false));
         }
         var outcome = !Directory.Exists(dir) ? "skipped" : steps.Any(s => s.Result == "failed") ? "failed" : steps.Any(s => s.Result == "miss") ? "miss" : "hit";
         var ms = (long)time.GetElapsedTime(started).TotalMilliseconds;
@@ -135,16 +135,20 @@ public sealed class CacheWarmer(IEventLog log, string checkoutsRoot, IStepRunner
             && data.TryGetProperty("checkout", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
     }
 
+    private static readonly char[] Separators = ['/', '\\'];
+
     private string? Resolve(string name)
     {
-        if (name.Length == 0 || Path.IsPathRooted(name) || name.Split('/', '\\').Contains("..") || name.Split('/', '\\', StringSplitOptions.RemoveEmptyEntries).Length < 2)
+        // On Unix a backslash is an ordinary file name character, so a name holding one would not mean what the separator checks read.
+        if (name.Length == 0 || Path.IsPathRooted(name) || (Path.DirectorySeparatorChar == '/' && name.Contains('\\')) || name.Split(Separators).Contains("..")
+            || name.Split(Separators, StringSplitOptions.RemoveEmptyEntries).Length < 2)
             return null;
         var root = Path.GetFullPath(checkoutsRoot);
         var full = Path.GetFullPath(Path.Combine(root, name));
         if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             return null;
         var walk = root;
-        foreach (var part in name.Split('/', '\\', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var part in name.Split(Separators, StringSplitOptions.RemoveEmptyEntries))
         {
             walk = Path.Combine(walk, part);
             if (new DirectoryInfo(walk).LinkTarget is not null)

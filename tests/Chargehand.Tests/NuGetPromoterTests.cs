@@ -132,18 +132,27 @@ public sealed class NuGetPromoterTests : IDisposable
     {
         Stage("pkg", "1.0.0", Signed);
         var extra = new string('a', 64);
-        await Promoter([extra, "not-a-fingerprint"]).PromoteAsync(Staging, default);
+        await Promoter([extra]).PromoteAsync(Staging, default);
 
         var verify = calls.First(c => c[1] == "verify");
         foreach (var fp in NuGetPromoter.DefaultFingerprints)
             Assert.Contains(fp, verify);
         Assert.Contains(extra.ToUpperInvariant(), verify);
-        Assert.DoesNotContain("not-a-fingerprint", verify);
         Assert.Contains("signatureValidationMode\" value=\"require\"", configSeen);
         Assert.Contains("<clear />", configSeen);
         Assert.Contains(NuGetPromoter.DefaultFingerprints[0], configSeen);
         Assert.Contains($"<author name=\"extra1\">", configSeen);
         Assert.Contains(extra.ToUpperInvariant(), configSeen);
+    }
+
+    [Fact]
+    public void An_invalid_trusted_signer_fails_at_startup_instead_of_being_dropped()
+    {
+        var bad = "not-a-fingerprint-" + new string('z', 40);
+        var ex = Assert.Throws<ArgumentException>(() => Promoter([new string('a', 64), bad]));
+        Assert.Contains("nuget_trusted_signers", ex.Message);
+        Assert.Contains("entry 2", ex.Message);
+        Assert.DoesNotContain(bad, ex.Message);
     }
 
     [Fact]
