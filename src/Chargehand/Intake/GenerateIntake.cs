@@ -17,7 +17,9 @@ public sealed record IntakeCall(DateTimeOffset Started, double LatencyMs, bool V
 /// retry. Only "answer" executes in v0; the caller logs the action intake chose.
 /// </summary>
 /// <param name="needsRepository">False for node kinds that run without a checkout (the draft preset).</param>
-public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, PromptBlock block, string runId, bool needsRepository = true) : IIntake
+/// <param name="allowedActions">The run's preset's allowed actions (Preset.AllowedActions), told to intake so it does not choose one the preset
+/// will clamp back to answer (issue 428: chosen 97 times, run once). Null: unconstrained, for a caller with no preset in scope.</param>
+public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, PromptBlock block, string runId, bool needsRepository = true, IReadOnlyList<string>? allowedActions = null) : IIntake
 {
     /// <summary>Characters of each caller input that intake reads. Intake runs on a small model, so the head of a long input (a diff)
     /// stands in for all of it; the worker gets the input whole (Orchestrator.Execute).</summary>
@@ -36,13 +38,17 @@ public sealed class GenerateIntake(IWorkerRuntime runtime, ModelRef? model, Prom
     private static string RepositoryText(RepositoryRef? repository) =>
         repository is null ? "" : $"Repository: {repository.Path} at commit {repository.Commit}. The worker reads this checkout; it is not your working directory, and a request that names no path is about it.\n";
 
+    /// <summary>Told so intake never spends a choice (or a split plan) on an action this run's preset will clamp to answer anyway (Preset.Executes).</summary>
+    private static string AllowedActionsText(IReadOnlyList<string>? allowedActions) =>
+        allowedActions is null ? "" : $"This run's preset allows only these actions: {string.Join(", ", allowedActions)}. Choose action from that list only, even when another action would fit the request better.\n";
+
     public async Task<IntakeOutcome> RunAsync(RunRequest request, CancellationToken ct)
     {
         if (Precheck(request, needsRepository) is { } needsInput)
             return new(null, needsInput, []);
 
         var calls = new List<IntakeCall>();
-        var prompt = $"{block.Text}\nJSON Schema:\n{ContractSchemas.Text(ContractSchemas.TaskSpec)}\n\nUse id \"{runId}\".\n{RepositoryText(request.Context.Repository)}Request:\n{request.Text}\n{InputsText(request.Inputs)}";
+        var prompt = $"{block.Text}\nJSON Schema:\n{ContractSchemas.Text(ContractSchemas.TaskSpec)}\n\nUse id \"{runId}\".\n{RepositoryText(request.Context.Repository)}{AllowedActionsText(allowedActions)}Request:\n{request.Text}\n{InputsText(request.Inputs)}";
         string? errors = null;
         for (var attempt = 0; attempt < 2; attempt++)
         {

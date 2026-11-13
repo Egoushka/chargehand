@@ -164,4 +164,24 @@ public class IntakeInputsTests
 
         Assert.DoesNotContain("inputs", prompt.Split("Request:")[1], StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task Intake_is_told_the_presets_allowed_actions_so_it_never_spends_a_choice_on_a_forbidden_one()
+    {
+        var runtime = new ScriptedRuntime("");
+        var request = new RunRequest("request/v1", "Explain the repo.", new RequestContext(false, "default"));
+        await new GenerateIntake(runtime, null, PromptBlock.Create("intake/task-spec", "0.0.0", "Intake."), "run-1", needsRepository: false, allowedActions: ["answer"])
+            .RunAsync(request, CancellationToken.None);
+
+        Assert.Contains("This run's preset allows only these actions: answer. Choose action from that list only, even when another action would fit the request better.",
+            runtime.IntakePrompts.Single(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task No_allowed_actions_restriction_is_named_when_none_is_given()
+    {
+        var prompt = await IntakePrompt();
+
+        Assert.DoesNotContain("allows only these actions", prompt, StringComparison.Ordinal);
+    }
 }

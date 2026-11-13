@@ -154,11 +154,12 @@ public sealed class EvalRunner(Func<string, Orchestrator> orchestratorFor, IWork
         var runId = RunIds.New();
         using var span = Telemetry.Source.StartActivity("chargehand.eval.intake");
         var traceId = span?.TraceId.ToHexString() ?? ActivityTraceId.CreateRandom().ToHexString();
-        var (_, kind) = Orchestrator.AnswerKind(Preset.Load(Path.Combine(root, "presets"), item.Request.Context.Preset));
+        var preset = Preset.Load(Path.Combine(root, "presets"), item.Request.Context.Preset);
+        var (_, kind) = Orchestrator.AnswerKind(preset);
         var block = new PromptRegistry(Path.Combine(root, "prompts")).Get("intake/task-spec");
         try
         {
-            var outcome = await new GenerateIntake(runtime, Orchestrator.ParseModel(intakeModel), block, runId, kind.Checkout).RunAsync(item.Request, ct);
+            var outcome = await new GenerateIntake(runtime, Orchestrator.ParseModel(intakeModel), block, runId, kind.Checkout, preset.AllowedActions).RunAsync(item.Request, ct);
             return (runId, traceId, Scoring.Intake(outcome.Spec, item.Expected.Action!), null);
         }
         catch (Exception e) when (ChargehandException.ErrorOf(e).Code == ErrorCode.RateLimited)
