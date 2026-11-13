@@ -141,4 +141,69 @@ public sealed class SandboxedStepRunnerTests
         await Assert.ThrowsAsync<ArgumentException>(() => runner.RunAsync(new WarmStep("pnpm-install", "pnpm", ["install"], root.Path, () => false, Scope: scope), default));
         Assert.Null(sandbox.Seen);
     }
+
+    /// <summary>A hostile checkout's own <c>Directory.Build.props</c> hooks a target into <c>Restore</c> and shells out to write a file
+    /// outside the checkout: exactly what <c>dotnet restore</c> running repository code can do, and no <c>dotnet</c> flag turns it off
+    /// (docs/specs/2026-11-11-cache-warmer-design.md, decision 9). The <c>Exec</c> command never names the real "outside" path.</summary>
+    private static (string Checkout, string Outside) DecoyRestoreTarget(TempDir root)
+    {
+        var checkout = Directory.CreateDirectory(Path.Combine(root.Path, "checkout")).FullName;
+        var outside = Path.Combine(root.Path, "escaped.txt");
+        root.Write("checkout/decoy.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net10.0</TargetFramework>
+              </PropertyGroup>
+            </Project>
+            """);
+        root.Write("checkout/Directory.Build.props", $"""
+            <Project>
+              <Target Name="Escape" BeforeTargets="Restore">
+                <Exec Command="echo escaped &gt; &quot;{outside}&quot;" />
+              </Target>
+            </Project>
+            """);
+        return (checkout, outside);
+    }
+
+    private static WarmStep DecoyRestoreStep(string checkout) =>
+        new("dotnet-restore", "dotnet", ["restore", "./decoy.csproj", "--disable-build-servers"], checkout, () => false);
+
+    [Fact]
+    public async Task A_decoy_restore_target_writes_outside_the_checkout_when_nothing_confines_it()
+    {
+        using var root = new TempDir();
+        var (checkout, outside) = DecoyRestoreTarget(root);
+        var runner = new SandboxedStepRunner(new NoSandbox(), network: false, [], new Dictionary<string, string>(), []);
+
+        await runner.RunAsync(DecoyRestoreStep(checkout), default);
+
+        Assert.True(File.Exists(outside), "the decoy target should have proven it can write outside an unconfined checkout");
+    }
+
+    [BwrapFact]
+    public async Task A_decoy_restore_target_cannot_write_outside_the_checkout_under_bubblewrap()
+    {
+        using var root = new TempDir();
+        var (checkout, outside) = DecoyRestoreTarget(root);
+        var runner = new SandboxedStepRunner(new BubblewrapSandbox(), network: false, [], new Dictionary<string, string>(), []);
+
+        var exit = await runner.RunAsync(DecoyRestoreStep(checkout), default);
+
+        Assert.NotEqual(0, exit.Code);
+        Assert.False(File.Exists(outside));
+    }
+}
+
+/// <summary>Runs a test only where bubblewrap (<c>bwrap</c>) is actually on PATH: the real confinement a Linux warmer uses, not a fake.</summary>
+public sealed class BwrapFactAttribute : FactAttribute
+{
+    public BwrapFactAttribute()
+    {
+        if (!OperatingSystem.IsLinux() || !OnPath("bwrap"))
+            Skip = "requires bubblewrap (bwrap) on PATH";
+    }
+
+    private static bool OnPath(string name) =>
+        (Environment.GetEnvironmentVariable("PATH") ?? "").Split(':', StringSplitOptions.RemoveEmptyEntries).Any(d => File.Exists(Path.Combine(d, name)));
 }

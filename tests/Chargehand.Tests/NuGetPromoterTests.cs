@@ -177,6 +177,29 @@ public sealed class NuGetPromoterTests : IDisposable
     }
 
     [Fact]
+    public async Task The_extraction_restore_never_evaluates_a_repository_authored_msbuild_file()
+    {
+        Stage("pkg", "1.0.0", Signed);
+        string? props = null, targets = null, packagesProps = null;
+        Task<(int ExitCode, string Output)> Capture(IReadOnlyList<string> args, string workDir, CancellationToken ct)
+        {
+            if (args[0] == "restore")
+            {
+                props = File.ReadAllText(Path.Combine(workDir, "Directory.Build.props"));
+                targets = File.ReadAllText(Path.Combine(workDir, "Directory.Build.targets"));
+                packagesProps = File.ReadAllText(Path.Combine(workDir, "Directory.Packages.props"));
+            }
+            return Fake(args, workDir, ct);
+        }
+
+        await Promoter(dotnet: Capture).PromoteAsync(Staging, default);
+
+        Assert.Equal("<Project />", props);
+        Assert.Equal("<Project />", targets);
+        Assert.Equal("<Project />", packagesProps);
+    }
+
+    [Fact]
     public async Task Real_dotnet_rejects_an_unsigned_package_and_nothing_reaches_the_shared_cache()
     {
         var dir = Path.Combine(Staging, "unsigned.pkg", "1.0.0");
