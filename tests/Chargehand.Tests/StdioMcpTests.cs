@@ -70,7 +70,7 @@ public sealed class StdioMcpTests : IAsyncDisposable
     public async Task The_tool_runs_over_stdio_with_the_http_servers_instructions()
     {
         await using var client = await Start(new ScriptedRuntime(Runs.DraftReply));
-        Assert.Equal([OrchestrateTool.Name, RepositoriesTool.Name, ResultTool.Name], (await client.ListToolsAsync()).Select(t => t.Name).Order(StringComparer.Ordinal));
+        Assert.Equal([EventsTool.Name, OrchestrateTool.Name, RepositoriesTool.Name, ResultTool.Name], (await client.ListToolsAsync()).Select(t => t.Name).Order(StringComparer.Ordinal));
         Assert.Equal(ChargehandServer.Instructions, client.ServerInstructions);
 
         var result = Result(await client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value)));
@@ -118,7 +118,7 @@ public sealed class StdioMcpTests : IAsyncDisposable
     {
         var error = new ChargehandException(ErrorCode.RuntimeUnavailable, "cannot start claude: no such file", "Install Claude Code.");
         await using var client = await Start(new UnavailableRuntime(error));
-        Assert.Equal(3, (await client.ListToolsAsync()).Count);
+        Assert.Equal(4, (await client.ListToolsAsync()).Count);
 
         var call = await client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value));
 

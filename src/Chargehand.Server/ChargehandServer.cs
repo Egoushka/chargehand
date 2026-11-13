@@ -496,7 +496,7 @@ public static partial class ChargehandServer
                 o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" };
                 o.ServerInstructions = Instructions;
             })
-            .WithTools([OrchestrateTool.Create(), ResultTool.Create(), RepositoriesTool.Create()])
+            .WithTools([OrchestrateTool.Create(), ResultTool.Create(), RepositoriesTool.Create(), EventsTool.Create()])
             .WithTasks(new InMemoryMcpTaskStore());
     }
 
