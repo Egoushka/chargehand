@@ -12,10 +12,16 @@ public class OrchestratorActionTests
     /// <summary>Intake only: generate returns the scripted spec; any worker call fails the test.</summary>
     private sealed class IntakeOnly(string detail, string action, string risk = "low", decimal usdHigh = 0.1m) : IWorkerRuntime
     {
-        public Task<string> GenerateAsync(ModelRef? model, string prompt, CancellationToken ct) => Task.FromResult($$"""
-            {"contract_version":"task-spec/v1","id":"x","goal":"g","constraints":[],"acceptance_criteria":[],"risk":"{{risk}}",
-             "estimate":{"tokens_low":1,"tokens_high":2,"usd_low":0.01,"usd_high":{{usdHigh.ToString(System.Globalization.CultureInfo.InvariantCulture)}},"basis":"b"},"action":"{{action}}","action_detail":{{detail}}}
-            """);
+        public string? LastPrompt { get; private set; }
+
+        public Task<string> GenerateAsync(ModelRef? model, string prompt, CancellationToken ct)
+        {
+            LastPrompt = prompt;
+            return Task.FromResult($$"""
+                {"contract_version":"task-spec/v1","id":"x","goal":"g","constraints":[],"acceptance_criteria":[],"risk":"{{risk}}",
+                 "estimate":{"tokens_low":1,"tokens_high":2,"usd_low":0.01,"usd_high":{{usdHigh.ToString(System.Globalization.CultureInfo.InvariantCulture)}},"basis":"b"},"action":"{{action}}","action_detail":{{detail}}}
+                """);
+        }
 
         public Task<WorkerSession> CreateAsync(NodeSpec spec, CancellationToken ct) => throw new InvalidOperationException("no worker expected");
         public Task SetInstructionAsync(string sessionId, string key, string value, CancellationToken ct) => throw new NotSupportedException();
@@ -112,6 +118,19 @@ public class OrchestratorActionTests
         var (r, run) = await Run(new IntakeOnly("""{"questions":["Which?"]}""", "ask"), "default");
         Assert.Contains("is not a git checkout", r.Summary, StringComparison.Ordinal);
         Assert.Equal("ask", run.IntakeAction);
+        Assert.Equal("answer", run.ExecutedAction);
+    }
+
+    [Fact]
+    public async Task A_no_split_preset_tells_intake_it_may_choose_answer_only()
+    {
+        // Issue 428: intake chose split 97 times under a preset that forbids it, and it ran once. Told up front, it should not spend a choice on split.
+        var runtime = new IntakeOnly("""{"subtasks":[{"id":"a","goal":"A","read_only":true},{"id":"b","goal":"B","read_only":true}]}""", "split");
+        var (r, run) = await Run(runtime, "default");
+
+        Assert.Contains("This run's preset allows only these actions: answer.", runtime.LastPrompt, StringComparison.Ordinal);
+        Assert.Contains("is not a git checkout", r.Summary, StringComparison.Ordinal);
+        Assert.Equal("split", run.IntakeAction);
         Assert.Equal("answer", run.ExecutedAction);
     }
 }

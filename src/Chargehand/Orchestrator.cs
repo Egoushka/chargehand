@@ -194,7 +194,7 @@ public sealed class Orchestrator(
                         intakeSkipped = given is not null;
                         span?.SetTag("chargehand.intake.skipped", intakeSkipped);
                         intake = given is not null ? GenerateIntake.Given(request, given, kind.Checkout)
-                            : await new GenerateIntake(worker, ParseModel(intakeModelId), intakeBlock, runId, kind.Checkout).RunAsync(request, ct);
+                            : await new GenerateIntake(worker, ParseModel(intakeModelId), intakeBlock, runId, kind.Checkout, preset.AllowedActions).RunAsync(request, ct);
                         span?.SetTag("chargehand.intake.action", intake.Spec?.Action.ToString().ToLowerInvariant() ?? "needs_input");
                         foreach (var c in intake.Calls)
                             await runLog.AppendAsync(new CallRecord(runId, "intake", "intake", null, null, intakeLabel, c.Started, c.LatencyMs, null, null, intakeChain), ct);
