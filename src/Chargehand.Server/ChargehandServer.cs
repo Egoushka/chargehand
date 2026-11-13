@@ -114,7 +114,7 @@ public static partial class ChargehandServer
         // The owner hears of a paused or resumed model credential where scheduled results go (automation.schedules.notify_url), else on the phone (automation.notify.ntfy_url).
         var notify = CredentialAlert.Notify(settings.Profile?.Automation);
         AddOrchestrate(builder.Services, orchestrator, settings.PresetsDirectory, driven, settings.MaxConcurrentRuns, settings.MaxSessionCalls, settings.StateDirectory, log, settings.Clock,
-                settings.Accounts, notify, new RunApprovalGate(settings.RunApprovalPath))
+                settings.Accounts, notify, new RunApprovalGate(settings.RunApprovalPath), settings.Events?.Log)
             // Hybrid: 2026-07-28 clients run stateless (tasks, input_required results); initialize clients get a session.
             .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.StatefulForInitializeClients)
             .WithTools(settings.Pool is null ? [] : [EnqueueTool.Create()]);
@@ -487,10 +487,10 @@ public static partial class ChargehandServer
     /// <summary>What both hosts share: the run service, the tool, the tasks store and the instructions.</summary>
     private static IMcpServerBuilder AddOrchestrate(IServiceCollection services, Orchestrator orchestrator, string presetsDirectory, Chargehand.Driven.DrivenRun? driven = null,
         int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null, IRunLog? log = null, TimeProvider? clock = null,
-        IReadOnlyList<AccountSettings>? accounts = null, Func<string, string, CancellationToken, Task>? notify = null, RunApprovalGate? approvals = null)
+        IReadOnlyList<AccountSettings>? accounts = null, Func<string, string, CancellationToken, Task>? notify = null, RunApprovalGate? approvals = null, IEventLog? events = null)
     {
         services.AddSingleton(sp => new RunService(orchestrator, presetsDirectory,
-            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping, driven, maxConcurrentRuns, maxSessionCalls, stateDirectory, log, clock, accounts, notify, approvals));
+            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping, driven, maxConcurrentRuns, maxSessionCalls, stateDirectory, log, clock, accounts, notify, approvals, events));
         return services.AddMcpServer(o =>
             {
                 o.ServerInfo = new() { Name = "chargehand", Version = typeof(Orchestrator).Assembly.GetName().Version?.ToString() ?? "0" };
