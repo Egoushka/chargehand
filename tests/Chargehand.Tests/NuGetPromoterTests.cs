@@ -177,6 +177,73 @@ public sealed class NuGetPromoterTests : IDisposable
     }
 
     [Fact]
+    public async Task The_extraction_restore_never_evaluates_a_repository_authored_msbuild_file()
+    {
+        Stage("pkg", "1.0.0", Signed);
+        string? props = null, targets = null, packagesProps = null;
+        Task<(int ExitCode, string Output)> Capture(IReadOnlyList<string> args, string workDir, CancellationToken ct)
+        {
+            if (args[0] == "restore")
+            {
+                props = File.ReadAllText(Path.Combine(workDir, "Directory.Build.props"));
+                targets = File.ReadAllText(Path.Combine(workDir, "Directory.Build.targets"));
+                packagesProps = File.ReadAllText(Path.Combine(workDir, "Directory.Packages.props"));
+            }
+            return Fake(args, workDir, ct);
+        }
+
+        await Promoter(dotnet: Capture).PromoteAsync(Staging, default);
+
+        Assert.Equal("<Project />", props);
+        Assert.Equal("<Project />", targets);
+        Assert.Equal("<Project />", packagesProps);
+    }
+
+    /// <summary>The literal-string check above only proves <c>ExtractAsync</c> still writes its own empty MSBuild files; it says nothing about what
+    /// real MSBuild does with them. This rebuilds the exact layout <c>ExtractAsync</c> creates (same file names, same empty content, same
+    /// <c>DisableImplicitFrameworkReferences</c>/<c>EnableDefaultItems</c> project) with one addition: a real <c>Directory.Build.props</c> one level
+    /// above the work folder, hooking an <c>Exec</c> target into <c>Restore</c> exactly like the decoy in <c>SandboxedStepRunnerTests</c>. The project's
+    /// own empty <c>Directory.Build.props</c> is the nearest one MSBuild's implicit SDK import finds, so it never imports the parent and the decoy
+    /// target never runs — proven here with the real <c>dotnet</c> binary, not the test's <c>Fake</c> stand-in.</summary>
+    [Fact]
+    public async Task A_decoy_directory_build_props_above_the_extraction_work_folder_never_runs_under_real_dotnet()
+    {
+        var work = Path.Combine(temp.Path, "work-real");
+        var project = Path.Combine(work, "project");
+        Directory.CreateDirectory(project);
+        var outside = Path.Combine(temp.Path, "escaped-real.txt");
+        File.WriteAllText(Path.Combine(work, "Directory.Build.props"), $"""
+            <Project>
+              <Target Name="Escape" BeforeTargets="Restore">
+                <Exec Command="echo escaped &gt; &quot;{outside}&quot;" />
+              </Target>
+            </Project>
+            """);
+        const string empty = "<Project />";
+        File.WriteAllText(Path.Combine(project, "Directory.Build.props"), empty);
+        File.WriteAllText(Path.Combine(project, "Directory.Build.targets"), empty);
+        File.WriteAllText(Path.Combine(project, "Directory.Packages.props"), empty);
+        var csproj = $"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net{Environment.Version.Major}.0</TargetFramework>
+                <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+                <EnableDefaultItems>false</EnableDefaultItems>
+              </PropertyGroup>
+              <ItemGroup>
+              </ItemGroup>
+            </Project>
+            """;
+        var projectFile = Path.Combine(project, "warm.csproj");
+        File.WriteAllText(projectFile, csproj);
+
+        var result = await DotnetProcess.RunAsync(["restore", projectFile, "--no-cache"], project, default);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.False(File.Exists(outside), "a Directory.Build.props above the extraction work folder must never be evaluated by the real restore");
+    }
+
+    [Fact]
     public async Task Real_dotnet_rejects_an_unsigned_package_and_nothing_reaches_the_shared_cache()
     {
         var dir = Path.Combine(Staging, "unsigned.pkg", "1.0.0");
