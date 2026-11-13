@@ -66,3 +66,5 @@ names, budgets, absolute home paths, session or message ids, API keys, prompts f
 - On the devbox, `/tmp`, `~/.cache` and rustup are wiped on deploy or restart: keep state under `/home/node/work`.
 - `gh pr checks` fails with the devbox token: use `gh run list --commit <sha>` or `ws wait`.
 - Never `pkill -f` or `pgrep -f` with a pattern that appears in your own command line; it matches your own shell.
+
+- `.claude/worktrees/agent-*` in a checkout come from Claude Code subagents, not from chargehand, and pile up (about 4 GB/day on nickel). `scripts/sweep-worktrees.sh [--apply] [repo]` removes the clean ones already in origin/main (ancestor or patch-id match); squash-merged ones it keeps, remove those by hand.
