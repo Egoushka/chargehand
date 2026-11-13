@@ -118,7 +118,7 @@ public sealed class StdioMcpTests : IAsyncDisposable
     {
         var error = new ChargehandException(ErrorCode.RuntimeUnavailable, "cannot start claude: no such file", "Install Claude Code.");
         await using var client = await Start(new UnavailableRuntime(error));
-        Assert.Equal(3, (await client.ListToolsAsync()).Count);
+        Assert.Equal(4, (await client.ListToolsAsync()).Count);
 
         var call = await client.CallToolAsync(OrchestrateTool.Name, Args(Runs.DraftRequest()).ToDictionary(a => a.Key, a => (object?)a.Value));
 
