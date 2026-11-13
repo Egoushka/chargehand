@@ -15,6 +15,9 @@ public sealed class RunEventEmitter : IAsyncDisposable
     public const string StatusChangedType = "chargehand.run.status_changed";
     public const string FinishedType = "chargehand.run.finished";
 
+    private const int Attempts = 4;
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(200);
+
     private static readonly EventGrant Grant = new("orchestrator", Source, [], ["*"]);
 
     private readonly IEventLog _log;
@@ -38,7 +41,14 @@ public sealed class RunEventEmitter : IAsyncDisposable
     }
 
     /// <summary>Queues one published status; <paramref name="repo"/> is the repository's folder name, never its path.</summary>
-    public void Offer(RunStatus e, string? repo) => _queue.Writer.TryWrite((e, repo));
+    public void Offer(RunStatus e, string? repo)
+    {
+        if (_queue.Writer.TryWrite((e, repo)))
+            return;
+        // Offered after dispose (a run that ended during shutdown): the writer is gone, so write it here rather than lose the end.
+        _writer.GetAwaiter().GetResult();
+        WriteOneAsync(e, repo).GetAwaiter().GetResult();
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -49,17 +59,33 @@ public sealed class RunEventEmitter : IAsyncDisposable
     private async Task WriteAsync()
     {
         await foreach (var (e, repo) in _queue.Reader.ReadAllAsync().ConfigureAwait(false))
+            await WriteOneAsync(e, repo).ConfigureAwait(false);
+    }
+
+    private async Task WriteOneAsync(RunStatus e, string? repo)
+    {
+        try
         {
-            try
+            if (Decide(e) is not var (type, seen, id))
+                return;
+            // The id is fixed before the first try and the log keeps the first of a repeated (source, id), so a retry cannot double an event; a lost end would leave a run open for ever.
+            for (var attempt = 1; ; attempt++)
             {
-                if (Decide(e) is var (type, seen, id))
+                try
+                {
                     await AppendAsync(type, id, seen, e, repo).ConfigureAwait(false);
+                    return;
+                }
+                catch (Exception) when (attempt < Attempts)
+                {
+                    await Task.Delay(RetryDelay * attempt).ConfigureAwait(false);
+                }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // The log is a view of the run, not part of it.
-                Console.Error.WriteLine($"run events: {e.RunId}: {ex.GetType().Name}");
-            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The log is a view of the run, not part of it.
+            Console.Error.WriteLine($"run events: {e.RunId}: {ex.GetType().Name}");
         }
     }
 
