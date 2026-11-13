@@ -149,7 +149,15 @@ public static partial class ContainerTemplate
     public const string SourceBundleFile = "source.bundle";
 
     /// <summary>The files chargehand writes into a session's output volume.</summary>
-    public static readonly IReadOnlyList<string> OutFilesIn = ["task.json", SeedFile, SourceBundleFile];
+    public const int MaxBlindBundles = 4;
+
+    /// <summary>The largest tests bundle the verifier carries into the container; test files are small, so a bigger bundle is not tests.</summary>
+    public const long MaxBlindBundleBytes = 8 * 1024 * 1024;
+
+    /// <summary>The out-volume name of the n-th tests bundle a verification lays over a branch (issue 789).</summary>
+    public static string BlindBundleFile(int n) => $"blind-{n}.bundle";
+
+    public static readonly IReadOnlyList<string> OutFilesIn = ["task.json", SeedFile, SourceBundleFile, .. Enumerable.Range(0, MaxBlindBundles).Select(BlindBundleFile)];
 
     /// <summary>The files chargehand reads out of it: the bundle, the report, the outcome, the running token tally, the handoff of a stopped session and the governor's log (CHARGEHAND-214). Nothing else leaves the volume.</summary>
     public static readonly IReadOnlyList<string> OutFilesOut = ["chargehand.bundle", "driven-report.json", "session-outcome.json", UsageFile, HandoffFile, ProgressFile, GovernorFile];

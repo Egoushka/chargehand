@@ -1,0 +1,1 @@
+Add a volume discount to Discount.Total: a discount of 10% applies to orders of 100 or more. Smaller orders pay the full price. Add tests.

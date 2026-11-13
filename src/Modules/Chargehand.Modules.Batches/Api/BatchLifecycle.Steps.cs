@@ -42,7 +42,7 @@ public sealed partial class BatchLifecycle
         var asked = c.Request.Driven?.Plan;
         async Task<(IReadOnlyList<ResolvedTask> Ready, BatchPlan? Plan)> Plan(CancellationToken token) => asked ?? byProfile
             ? await ApplyPlanAsync(c.Request, resolved, c.RunId, asked is not null ? "request" : "profile", planner, token)
-            : (resolved, null);
+            : (PlanApplier.AddBlind(resolved), null);
         var (ready, plan) = _batches is null ? await Plan(c.Ct) : await RecordedPlanAsync(c, Plan);
         if (plan is not null)
             c.Progress?.Invoke(RunStatus.Of(c.RunId, RunState.Running, RunEventKind.Plan) with { Detail = plan.Describe() });
@@ -64,15 +64,16 @@ public sealed partial class BatchLifecycle
     private static async Task<(IReadOnlyList<ResolvedTask> Tasks, BatchPlan Plan)> ApplyPlanAsync(RunRequest request, IReadOnlyList<ResolvedTask> tasks, string runId, string source, IBatchPlanner? planner,
         CancellationToken ct)
     {
+        var withBlind = PlanApplier.AddBlind(tasks);
         if (planner is null)
-            return (tasks, PlanApplier.Skipped(source, "this server has no planner", null, tasks));
+            return (withBlind, PlanApplier.Skipped(source, "this server has no planner", null, withBlind));
         try
         {
             return PlanApplier.Apply(tasks, await planner.ProposeAsync(new PlanInput(request, tasks, runId), ct), source);
         }
         catch (Exception e) when (e is PlanException or ChargehandException or HttpRequestException or IOException)
         {
-            return (tasks, PlanApplier.Skipped(source, e.Message, null, tasks));
+            return (withBlind, PlanApplier.Skipped(source, e.Message, null, withBlind));
         }
     }
 
@@ -102,9 +103,11 @@ public sealed partial class BatchLifecycle
     private static ResolvedTask Resumed(RunRequest request, TaskEntry entry)
     {
         var asked = request.Driven?.Tasks.FirstOrDefault(t => t.Id == entry.Id);
-        return new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, entry.Size ?? asked?.Size, asked?.BudgetUsd, entry.From, entry.DependsOn ?? asked?.DependsOn,
+        var task = new ResolvedTask(entry.Id, entry.Ref, entry.Goal, asked?.MaxTurns, asked?.MaxMinutes, entry.Size ?? asked?.Size,
+            asked?.BudgetUsd, entry.From, entry.DependsOn ?? asked?.DependsOn,
             SplitFrom: entry.SplitFrom, SizeFrom: entry.SizeFrom, Title: entry.Title, Runner: entry.Phase == TaskPhase.Pending ? null : entry.Runner ?? "",
-            Acceptance: asked?.Acceptance);
+            Acceptance: asked?.Acceptance, BlindTests: asked?.BlindTests == true, BlindFor: BlindIds.For(entry.Id), ImplementerNote: asked?.ImplementerNote);
+        return task.BlindFor is null ? task : task with { MaxTurns = BlindLimits.MaxTurns, MaxMinutes = BlindLimits.MaxMinutes, BudgetUsd = BlindLimits.BudgetUsd, Preset = BlindLimits.PresetName };
     }
 
     /// <summary>Runs the batch's tasks under its limits (<see cref="BatchScheduler"/>, ADR 0039): each end is journaled before the next step, and told as a <c>task_finished</c> event, as is a task that

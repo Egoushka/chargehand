@@ -72,7 +72,14 @@ public sealed record RequestDriven(
 /// <param name="Acceptance">Commands the session's branch must pass before the task counts as done; each is run in the session's working tree and its failure is sent back to the session.</param>
 public sealed record DrivenTask(string Id, string? Ref = null, string? Goal = null, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null,
     IReadOnlyList<string>? Answers = null, ContinueFrom? ContinueFrom = null, IReadOnlyList<string>? DependsOn = null, string? Title = null,
-    IReadOnlyList<AcceptanceCheck>? Acceptance = null);
+    IReadOnlyList<AcceptanceCheck>? Acceptance = null)
+{
+    /// <summary>True: a second session writes acceptance tests from the issue alone, and the task's branch must pass them (docs/specs/2026-11-11-blind-tests.md). Null or false: off.</summary>
+    public bool? BlindTests { get; init; }
+
+    /// <summary>Text for the implementing session only, appended to its goal: a name to use, a file to touch. The blind session never gets it. Null: none.</summary>
+    public string? ImplementerNote { get; init; }
+}
 
 /// <summary>A machine-checkable acceptance criterion: a shell command, the exit code it must end with and, when set, text its output must contain.</summary>
 public sealed record AcceptanceCheck(string Command, int ExitCode = 0, string? Output = null);

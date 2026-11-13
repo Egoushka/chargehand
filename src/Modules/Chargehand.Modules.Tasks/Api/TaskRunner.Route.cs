@@ -58,7 +58,7 @@ public sealed partial class TaskRunner
         var session = run.Session;
         if (!refused)
         {
-            run.Goal = ContinuationGoal(task.Goal, $"Continuation {run.Continuation} of {settings.Preset.MaxContinuations}. A previous session was stopped by {session.Reason.Replace('_', ' ')} after {session.Turns} turns; "
+            run.Goal = ContinuationGoal(task.WorkGoal, $"Continuation {run.Continuation} of {settings.Preset.MaxContinuations}. A previous session was stopped by {session.Reason.Replace('_', ' ')} after {session.Turns} turns; "
                 + "its work is on this branch (the last commit, 'WIP: ...').", ReadProgress(run.OutDirectory));
             run.StartDetail = $"session container started (continuation {run.Continuation} of {settings.Preset.MaxContinuations}, previous stopped by {session.Reason})";
             run.Seed = Path.Combine(run.OutDirectory, "chargehand.bundle");
@@ -67,7 +67,7 @@ public sealed partial class TaskRunner
         run.StartDetail = $"session container started (moved to the next budget pool, previous refused by its provider: {session.Reason})";
         if (run.Best is not { } best)
             return;
-        run.Goal = ContinuationGoal(task.Goal, $"Continuation {run.Continuation}. A previous session was cut off by its model provider ({session.Reason.Replace('_', ' ')}) after {session.Turns} turns; "
+        run.Goal = ContinuationGoal(task.WorkGoal, $"Continuation {run.Continuation}. A previous session was cut off by its model provider ({session.Reason.Replace('_', ' ')}) after {session.Turns} turns; "
             + "the work so far is on this branch.", ReadProgress(run.OutDirectory));
         run.Seed = Path.Combine(best.OutDirectory, "chargehand.bundle");
     }

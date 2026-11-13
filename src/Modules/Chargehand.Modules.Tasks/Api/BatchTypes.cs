@@ -31,9 +31,27 @@ public sealed record TaskLimits(long MaxTokens, decimal? MaxUsd);
 /// <param name="Runner">The runner the task runs on (ADR 0058): set from the batch state for a task a restart took up, so it stays where its session is, and by the scheduler when it places a new one.</param>
 /// <param name="Title">The request's title for the task's pull request; null: <see cref="PullRequestTitle.FromGoal"/> makes one.</param>
 /// <param name="Acceptance">The request's acceptance criteria; the session's branch must pass them (and the repository's checks) to complete.</param>
+/// <param name="BlindTests">The task opted in: the planning step adds a sibling blind task, <c>&lt;id&gt;.blind</c>, and the task's branch must pass what it writes.</param>
+/// <param name="ImplementerNote">Text for the implementing session only (a name to use, a file to touch). The blind sibling never gets it: it is not part of the issue.</param>
+/// <param name="Preset">The preset whose limits the task runs under when it is not the batch's: set on the blind sibling.</param>
+/// <param name="BlindFor">Set on the blind sibling: the id of the task it writes tests for. It hands over a bundle of tests only, no pull request.</param>
 public sealed record ResolvedTask(string Id, string? Ref, string Goal, int? MaxTurns = null, int? MaxMinutes = null, string? Size = null, decimal? BudgetUsd = null, ContinuedFrom? From = null,
     IReadOnlyList<string>? DependsOn = null, IReadOnlyList<UpstreamWork>? Upstream = null, string? SplitFrom = null, string? SizeFrom = null, string? Runner = null, string? Title = null,
-    IReadOnlyList<AcceptanceCheck>? Acceptance = null);
+    IReadOnlyList<AcceptanceCheck>? Acceptance = null, bool BlindTests = false, string? BlindFor = null, string? ImplementerNote = null, string? Preset = null)
+{
+    /// <summary>What the session is asked: the goal and, for the implementer only, its note. The pull request, the log and the blind sibling see <see cref="Goal"/> alone.</summary>
+    public string WorkGoal => ImplementerNote is { Length: > 0 } note ? $"{Goal}\n\n{note}" : Goal;
+}
+
+/// <summary>What the blind sibling runs under (presets/blind-tests.yaml): a session that writes tests gets fewer turns, less time and less money than one that makes a change.
+/// Per-task limits are the only per-task preset there is, so the sibling carries them.</summary>
+public static class BlindLimits
+{
+    public const string PresetName = "blind-tests";
+    public const int MaxTurns = 50;
+    public const int MaxMinutes = 30;
+    public const decimal BudgetUsd = 1.50m;
+}
 
 /// <summary>A finished task a later one starts from (ADR 0049): its last session, whose output volume holds the bundle of its branch, and the branch and pull request it ended in.</summary>
 /// <param name="Runner">The runner whose engine holds that session's output volume (ADR 0058); null: the only one.</param>

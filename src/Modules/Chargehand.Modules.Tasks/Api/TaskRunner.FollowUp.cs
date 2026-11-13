@@ -17,10 +17,15 @@ namespace Chargehand.Modules.Tasks.Api;
 /// <summary>The task's end: the handover, the task's own result in the run log, and on an opted-in repository the follow-up (ADR 0046).</summary>
 public sealed partial class TaskRunner
 {
-    private async Task<TaskOutcome> FinishAsync(ResolvedTask task, TaskRun run, IProgress<TaskUsage> progress, CancellationToken ct)
+    private async Task<TaskOutcome?> FinishAsync(ResolvedTask task, TaskRun run, IProgress<TaskUsage> progress, CancellationToken ct)
     {
+        await AwaitBlindAsync(task, run, ct);
         var handingOver = Stopwatch.GetTimestamp();
         var (partial, handoverRun, handed) = await HandOverTaskAsync(task, run, ct);
+        if (await BlindContinueAsync(task, run, handed, ct))
+            return null;
+        if (run.ForcePartial)
+            (partial, handoverRun, handed) = await HandOverTaskAsync(task, run, ct);
         PhasesOf(task.Id).Handover += Since(handingOver);
         if (handed?.Status is HandoverStatus.Pushed or HandoverStatus.PrFailed)
             run.Pushed = handed;
@@ -54,18 +59,20 @@ public sealed partial class TaskRunner
     private async Task<(bool Partial, (string RunId, string OutDirectory) Run, HandoverOutcome? Handed)> HandOverTaskAsync(ResolvedTask task, TaskRun run, CancellationToken ct)
     {
         var (session, best) = (run.Session, run.Best);
+        if (task.BlindFor is not null)
+            return await HandOverBlindAsync(task, run, ct);
         if (Bare)
             return await HandOverBareAsync(task, run, ct);
         var finished = session.Status == SessionStatus.Completed && run.ReportJson is not null && DrivenReport.Parse(run.ReportJson) is not null;
-        var partial = !finished && best is not null && (Salvageable(session) || session.Status == SessionStatus.NeedsInput || best.RunId != run.RunId);
-        var handoverRun = partial ? (best!.RunId, best.OutDirectory) : (run.RunId, run.OutDirectory);
+        var partial = run.ForcePartial || (!finished && best is not null && (Salvageable(session) || session.Status == SessionStatus.NeedsInput || best.RunId != run.RunId));
+        var handoverRun = partial && best is not null ? (best.RunId, best.OutDirectory) : (run.RunId, run.OutDirectory);
         HandoverOutcome? handed = null;
-        if (finished)
-            handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"{DrivenReport.Parse(run.ReportJson!)!.Summary}\n\nRun: {RunNames.Label(run.RunId)}\nTask: {task.Id}{ContinuationNote(run.Continuation)}{GoalSection(task.Goal)}{CostReceipt.Footer(run.Total, run.Continuation)}", partial: false, run.Stack, session, ct);
+        if (finished && !partial)
+            handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal), $"{DrivenReport.Parse(run.ReportJson!)!.Summary}\n\nRun: {RunNames.Label(run.RunId)}\nTask: {task.Id}{ContinuationNote(run.Continuation)}{GoalSection(task.Goal)}{CostReceipt.Footer(run.Total, run.Continuation)}", partial: false, run.Stack, session, ct, blindBundles: run.BlindBundles, blindSkipped: run.BlindSkipped);
         else if (partial)
         {
             await RestoreBundleAsync(handoverRun.Item1, ct);
-            handed = await HandOverAsync(task, handoverRun, run.Branch, $"[partial] {PullRequestTitle.Of(task.Title, task.Goal)}", PartialBody(task, handoverRun.Item1, session, run.Total, run.Continuation, run.StartFailure, ReadProgress(run.OutDirectory)), partial: true, run.Stack, run.Total, ct);
+            handed = await HandOverAsync(task, handoverRun, run.Branch, $"[partial] {PullRequestTitle.Of(task.Title, task.Goal)}", PartialBody(task, handoverRun.Item1, session, run.Total, run.Continuation, run.StartFailure, ReadProgress(run.OutDirectory)), partial: true, run.Stack, run.Total, ct, blindBundles: run.BlindBundles, blindSkipped: run.BlindSkipped);
         }
         return (partial, handoverRun, handed);
     }
@@ -263,14 +270,15 @@ public sealed partial class TaskRunner
     private static bool IsStartFailure(Exception e, CancellationToken ct) =>
         e is ChargehandException or HttpRequestException or IOException || (e is TaskCanceledException && !ct.IsCancellationRequested);
 
-    private Task<HandoverOutcome> HandOverAsync(ResolvedTask task, (string RunId, string OutDirectory) run, string branch, string title, string body, bool partial, StackBase? stack, SessionOutcome spent, CancellationToken ct, bool bare = false) =>
+    private Task<HandoverOutcome> HandOverAsync(ResolvedTask task, (string RunId, string OutDirectory) run, string branch, string title, string body, bool partial, StackBase? stack, SessionOutcome spent, CancellationToken ct, bool bare = false,
+        IReadOnlyList<TestsBundle>? blindBundles = null, bool blindTask = false, string? blindSkipped = null) =>
         handover.RunAsync(new HandoverInput(run.RunId, run.OutDirectory, settings.SourcePath, settings.BaseCommit, branch, settings.RemoteUrl, stack?.PullRequestBase ?? settings.BaseBranch,
             title, stack is null ? body : $"{body}\n\n{stack.Note}", settings.ScratchRoot, settings.Push, settings.Request.Context.Verify, [.. settings.ModelEnvironment.Values], AllowLocalRemote: settings.AllowLocalRemote, LocalOnly: settings.LocalOnly,
             Report: e => Publish(task.Id, e.Kind, e.Detail, s => s with { PrUrl = e.PrUrl, Branch = e.Kind == RunEventKind.Pushed ? branch : null }), Partial: partial,
             Goal: task.Goal, UpdateReused: !partial && task.From?.Pushed is null, PolicyNote: stack is null && settings.Integration is { } integrator && integrator.Remote(settings.RemoteUrl) is { } repository ? integrator.Describe(repository, partial) : null,
             FallbackBaseBranch: stack?.PullRequestBase is null ? null : settings.BaseBranch,
             Provenance: TaskProvenance.Of(task, run.RunId, spent, ModelOf(run.RunId), settings.ClaudeVersion), Bare: bare, CiVerifies: CiVerifies, PrePushCheck: PrePushCheck, Identity: settings.Identity,
-            MutationShare: settings.Preset.MutationShare), ct);
+            MutationShare: settings.Preset.MutationShare, BlindBundles: blindBundles, BlindTask: blindTask, BlindSkipped: blindSkipped), ct);
 
     /// <summary>ADR 0078: under mise the repository's CI verifies. ADR 0075: so it does for a Gradle repository whose session image has no JDK, where the detected command could only fail.</summary>
     private bool CiVerifies => settings.Mise is not null || settings.Shared is { NoJdk: true };

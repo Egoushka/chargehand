@@ -20,6 +20,7 @@ public sealed partial class Handover
             : string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"Verification (chargehand's own run in a fresh container, {VerificationSourceText(verification.Source)}): `{string.Join(' ', verification.Argv)}` exited {verification.ExitCode} in {verification.Duration.TotalSeconds:0}s.\n"));
         text.Append(System.Globalization.CultureInfo.InvariantCulture, $"Changed files: {changed.Count}.\n");
+        text.Append(BlindNote(verification));
         if (verificationPaths.Count > 0)
             text.Append("\nThe change touches files that decide what the tests mean; read them first: ").Append(string.Join(", ", verificationPaths.Take(20))).Append(".\n");
         return text.ToString();

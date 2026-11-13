@@ -12,8 +12,12 @@ public class ContainerVerifierTests
 {
     private const string Image = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
 
-    private sealed class FakeEngine : IContainerEngine, IWorkspaceEngine
+    private sealed class FakeEngine : IContainerEngine, IWorkspaceEngine, IOutVolumeEngine
     {
+        public Dictionary<string, byte[]> Written { get; } = [];
+        public Task WriteOutFileAsync(OutFileSpec spec, ReadOnlyMemory<byte> content, CancellationToken ct) { Calls.Add($"write {spec.OutVolume}/{spec.Name}"); Written[spec.Name] = content.ToArray(); return Task.CompletedTask; }
+        public Task<bool> ReadOutFileAsync(OutFileSpec spec, Stream destination, CancellationToken ct) => throw new NotSupportedException();
+
         public List<string> Calls { get; } = [];
         public ContainerSpec? Started { get; private set; }
         public WorkspaceSpec? Prepared { get; private set; }
@@ -86,6 +90,69 @@ public class ContainerVerifierTests
         Assert.Equal("http://run1:x@chargehand-egress-b1:3128", spec.Env["HTTPS_PROXY"]);
         Assert.DoesNotContain(spec.Env.Keys, k => k.Contains("ANTHROPIC", StringComparison.Ordinal) || k.Contains("OAUTH", StringComparison.Ordinal) || k.Contains("RUN_TOKEN", StringComparison.Ordinal));
         _ = ContainerTemplate.RunArgs(spec, "/dev/null");
+    }
+
+    private static string BlindLine(int exit, string blind) =>
+        ContainerVerifier.Marker + "{\"argv\":[\"npm\",\"test\"],\"exit_code\":" + exit + ",\"output_tail\":\"ok\",\"timed_out\":false,\"duration_ms\":10,\"commit\":\"c0ffee\",\"blind\":" + blind + "}";
+
+    private static ContainerVerifier BlindVerifier(FakeEngine engine) =>
+        new(engine, engine, new ContainerVerifierSettings(Image, "/srv/checkouts/repo-abc1234", "abc1234def", "chargehand-net-b1", "http://run1:x@chargehand-egress-b1:3128", 4096, 2, 512), TimeSpan.FromMilliseconds(5), files: engine);
+
+    private static BranchVerification WithBlind(string path) => Request() with { ExtraBundles = [new TestsBundle(path, "chargehand/run1.blind")] };
+
+    [Fact]
+    public async Task An_extra_tests_bundle_is_written_to_the_out_volume_and_applied_by_the_verification_container()
+    {
+        using var dir = new TempDir();
+        var file = System.IO.Path.Combine(dir.Path, "blind.bundle");
+        await File.WriteAllBytesAsync(file, [1, 2, 3]);
+        var engine = new FakeEngine { Logs = Line(0) + "\n" };
+        await BlindVerifier(engine).VerifyAsync(WithBlind(file), default);
+        Assert.Equal([1, 2, 3], engine.Written["blind-0.bundle"]);
+        Assert.True(engine.Calls.IndexOf("write chargehand-out-run1/blind-0.bundle") < engine.Calls.IndexOf("start"));
+        Assert.Equal(["--tests-bundle", "/out/blind-0.bundle@chargehand/run1.blind"], engine.Started!.Command.SkipWhile(a => a != "--tests-bundle").Take(2));
+        Assert.Equal(["HTTPS_PROXY", "HTTP_PROXY"], engine.Started.Env.Keys.Order(StringComparer.Ordinal));
+        Assert.DoesNotContain(engine.Started.Env.Keys, k => k.Contains("ANTHROPIC", StringComparison.Ordinal) || k.Contains("OAUTH", StringComparison.Ordinal) || k.Contains("TOKEN", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_tests_bundle_over_the_byte_cap_is_refused_before_anything_is_written()
+    {
+        using var dir = new TempDir();
+        var file = System.IO.Path.Combine(dir.Path, "blind.bundle");
+        await File.WriteAllBytesAsync(file, new byte[ContainerTemplate.MaxBlindBundleBytes + 1]);
+        var engine = new FakeEngine { Logs = Line(0) + "\n" };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => BlindVerifier(engine).VerifyAsync(WithBlind(file), default));
+        Assert.Empty(engine.Written);
+    }
+
+    [Fact]
+    public async Task Failures_of_the_blind_tests_appear_in_the_record()
+    {
+        using var dir = new TempDir();
+        var file = System.IO.Path.Combine(dir.Path, "blind.bundle");
+        await File.WriteAllBytesAsync(file, [1]);
+        var engine = new FakeEngine { Logs = BlindLine(0, "{\"count\":3,\"failed\":1,\"names\":[\"Discount.Applies_at_100\"],\"uncompilable\":[\"chargehand/x.blind\"]}") + "\n" };
+        var record = await BlindVerifier(engine).VerifyAsync(WithBlind(file), default);
+        Assert.Equal(0, record.ExitCode);
+        Assert.Equal(new BlindTestResult(3, 1, ["Discount.Applies_at_100"], ["chargehand/x.blind"]), record.BlindTests, BlindEquality.Instance);
+    }
+
+    [Fact]
+    public async Task Without_extra_bundles_nothing_is_written_and_the_record_has_no_blind_part()
+    {
+        var engine = new FakeEngine { Logs = Line(0) + "\n" };
+        var record = await BlindVerifier(engine).VerifyAsync(Request(), default);
+        Assert.Empty(engine.Written);
+        Assert.Null(record.BlindTests);
+        Assert.DoesNotContain("--tests-bundle", engine.Started!.Command);
+    }
+
+    private sealed class BlindEquality : IEqualityComparer<BlindTestResult?>
+    {
+        public static readonly BlindEquality Instance = new();
+        public bool Equals(BlindTestResult? a, BlindTestResult? b) => a is not null && b is not null && a.Count == b.Count && a.Failed == b.Failed && a.Names.SequenceEqual(b.Names) && a.Uncompilable.SequenceEqual(b.Uncompilable);
+        public int GetHashCode(BlindTestResult? o) => o?.Failed ?? 0;
     }
 
     [Fact]

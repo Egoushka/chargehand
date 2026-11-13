@@ -48,13 +48,13 @@ public static class DrivenBatch
             if (task.Goal is { Length: > 0 } goal)
             {
                 ready.Add(new ResolvedTask(task.Id, task.Ref, goal, task.MaxTurns, task.MaxMinutes, task.Size, task.BudgetUsd, DependsOn: task.DependsOn, Title: task.Title,
-                    Acceptance: task.Acceptance));
+                    Acceptance: task.Acceptance, BlindTests: task.BlindTests == true, ImplementerNote: task.ImplementerNote));
                 continue;
             }
             try
             {
                 ready.Add(new ResolvedTask(task.Id, task.Ref, await source!(task.Ref!, ct), task.MaxTurns, task.MaxMinutes, task.Size, task.BudgetUsd, DependsOn: task.DependsOn, Title: task.Title,
-                    Acceptance: task.Acceptance));
+                    Acceptance: task.Acceptance, BlindTests: task.BlindTests == true, ImplementerNote: task.ImplementerNote));
             }
             catch (TaskSourceException e)
             {

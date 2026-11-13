@@ -34,20 +34,24 @@ namespace Chargehand.Modules.Handover.Api;
 /// pre-push check is a filter. A repository with no CI and no check is refused unless the change is documentation only.</param>
 /// <param name="PrePushCheck">With <paramref name="CiVerifies"/>: the check the session driver ran before the push (<c>VerifyCommand.Declared</c>); null: none was declared.</param>
 /// <param name="FallbackBaseBranch">For a pull request stacked on another task's branch (ADR 0049), <paramref name="BaseBranch"/> is that branch: if the host refuses it, the pull request is opened against this one instead and says so.</param>
+/// <param name="BlindBundles">Issue 789: bundles of tests another worker wrote from the issue alone; the verifier applies each and the tests must pass. Null: no blind tests.</param>
+/// <param name="BlindTask">Issue 789: the input is the blind task's own handover; every changed path must be a test, and the bundle is the artifact.</param>
+/// <param name="BlindSkipped">Issue 789: why a blind task's tests are missing for this input (it asked for them); recorded in the verification as <c>blind: skipped</c>. Null: nothing to record.</param>
 /// <param name="MutationShare">Issue 788: the share of mutants of the changed lines the tests must kill, 0 to 1, checked by the handover's mutation tester; null: not checked.</param>
 public sealed record HandoverInput(string RunId, string OutDirectory, string SourceRepository, string BaseCommit, string Branch, string RemoteUrl, string BaseBranch,
     string Title, string Body, string ScratchRoot, PushCredential? Credential, IReadOnlyList<string>? VerifyCommand = null, IReadOnlyList<string>? Secrets = null,
     bool AllowCiChanges = false, bool AllowNoTests = false, bool AllowLocalRemote = false, TimeSpan? VerifyTimeout = null, Action<HandoverEvent>? Report = null, bool Partial = false, string? PolicyNote = null, string? Goal = null, bool UpdateReused = false, string? FallbackBaseBranch = null, bool LocalOnly = false, Provenance? Provenance = null, bool Bare = false,
-    bool CiVerifies = false, IReadOnlyList<string>? PrePushCheck = null, CommitIdentity? Identity = null, double? MutationShare = null);
+    bool CiVerifies = false, IReadOnlyList<string>? PrePushCheck = null, CommitIdentity? Identity = null, double? MutationShare = null,
+    IReadOnlyList<TestsBundle>? BlindBundles = null, bool BlindTask = false, string? BlindSkipped = null);
 
 /// <summary>One step of a handover that has just ended; <paramref name="Detail"/> never carries a credential.</summary>
 public sealed record HandoverEvent(RunEventKind Kind, string Detail, string? PrUrl = null);
 
 /// <summary>A verification run in a fresh container on the branch as the bundle holds it (ADR 0035's verifier, now in a container).</summary>
-public sealed record BranchVerification(string RunId, string BundlePath, string Branch, IReadOnlyList<string> Argv, TimeSpan Timeout);
+public sealed record BranchVerification(string RunId, string BundlePath, string Branch, IReadOnlyList<string> Argv, TimeSpan Timeout, IReadOnlyList<TestsBundle>? ExtraBundles = null);
 
 /// <param name="Source">"request" or "detected", as in <see cref="VerifyPlan"/>.</param>
-public sealed record VerificationRecord(IReadOnlyList<string> Argv, string Source, int ExitCode, string OutputTail, bool TimedOut, TimeSpan Duration, bool Network);
+public sealed record VerificationRecord(IReadOnlyList<string> Argv, string Source, int ExitCode, string OutputTail, bool TimedOut, TimeSpan Duration, bool Network, BlindTestResult? BlindTests = null);
 
 public interface IBranchVerifier
 {
@@ -112,10 +116,14 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             return historyRefused;
         if (await SummarizeAsync(run, ct) is { } ciRefused)
             return ciRefused;
+        if (BlindOutput(run) is { } notTests)
+            return notTests;
         if (await VerifyBranchAsync(run, ct) is { } notVerified)
             return notVerified;
         if (await MutationCheckAsync(run, ct) is { } weakTests)
             return weakTests;
+        if (await CommitBlindAsync(run, ct) is { } notCommitted)
+            return notCommitted;
         if (await StampAsync(run, ct) is { } notStamped)
             return notStamped;
         if (await PushBranchAsync(run, ct) is { } notPushed)
@@ -231,19 +239,21 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         VerificationRecord verification;
         try
         {
-            verification = await VerifyAsync(new BranchVerification(input.RunId, run.Bundle, input.Branch, plan.Argv, input.VerifyTimeout ?? TimeSpan.FromMinutes(10)), plan.Source, run.Secrets, ct);
+            verification = await VerifyAsync(new BranchVerification(input.RunId, run.Bundle, input.Branch, plan.Argv, input.VerifyTimeout ?? TimeSpan.FromMinutes(10), input.BlindBundles), plan.Source, run.Secrets, ct);
         }
         catch (Exception e) when (input.Partial && e is not OperationCanceledException)
         {
             // The work is kept whether or not the tests could run; say that they did not.
             verification = new VerificationRecord(plan.Argv, plan.Source, -1, Redact($"the verification could not run: {e.Message}", run.Secrets), false, TimeSpan.Zero, false);
         }
+        if (input.BlindSkipped is { } skipped && verification.BlindTests is null)
+            verification = verification with { BlindTests = new BlindTestResult(0, 0, [], []) { Skipped = skipped } };
         run.Verification = verification;
         Report(input, new HandoverEvent(RunEventKind.VerifyFinished, VerifyDetail(verification)));
         if ((verification.ExitCode != 0 || verification.TimedOut) && !input.Partial)
             return run.Refuse(verification.TimedOut ? "the tests timed out in chargehand's own verification" : $"the tests failed in chargehand's own verification (exit {verification.ExitCode})", ErrorCode.VerificationFailed,
                 verification, run.Changed, verificationPaths: run.VerificationPaths, commit: run.Commit);
-        return null;
+        return BlindFailed(run, verification);
     }
 
     private static string VerifyDetail(VerificationRecord verification)
@@ -313,42 +323,6 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         {
             return Redact($"draft pull request reused; its title and body could not be updated: {e.Message}", run.Secrets);
         }
-    }
-
-    /// <summary>What one handover has found so far, so that every phase of <see cref="RunAsync"/> refuses with the same fields.</summary>
-    private sealed class HandoverRun(HandoverInput input, List<string> secrets)
-    {
-        public HandoverInput Input { get; } = input;
-
-        /// <summary>The request's secrets and the push credential: a diff must not carry them, and no reason or detail shows them.</summary>
-        public List<string> Secrets { get; } = secrets;
-
-        public string Bundle { get; } = Path.Combine(input.OutDirectory, "chargehand.bundle");
-
-        public string Scratch { get; } = Path.Combine(input.ScratchRoot, input.RunId);
-
-        public Dictionary<string, string> Env { get; } = GitProcess.Environment(input.ScratchRoot);
-
-        public string Commit { get; set; } = "";
-        public List<string> Changed { get; set; } = [];
-
-        public ChangeSummary? Changes { get; set; }
-
-        public VerificationRecord? Verification { get; set; }
-
-        public MutationOutcome? Mutation { get; set; }
-
-        public IReadOnlyList<string> VerificationPaths { get; set; } = [];
-
-        /// <summary>Why a branch with no test command was pushed all the same (<see cref="NoTestsRuleAsync"/>); null otherwise.</summary>
-        public string? NoTestsRule { get; set; }
-
-        /// <summary>With <see cref="HandoverInput.CiVerifies"/>: what the pull request says verifies it (<see cref="CiVerdictAsync"/>); null otherwise.</summary>
-        public string? CiVerdict { get; set; }
-
-        public HandoverOutcome Refuse(string reason, ErrorCode error, VerificationRecord? verification = null, IReadOnlyList<string>? changed = null, IReadOnlyList<ScanFinding>? findings = null,
-            IReadOnlyList<string>? verificationPaths = null, string? commit = null) =>
-            new(HandoverStatus.NotPushed, Redact(reason, Secrets), error, Input.Branch, commit, null, verification, changed ?? [], verificationPaths ?? [], findings ?? [], Changes, Mutation: Mutation);
     }
 
     /// <summary><c>added\tremoved\tpath\0</c> per path; a binary file has <c>-</c> for both counts.</summary>

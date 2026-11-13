@@ -39,7 +39,9 @@ came from the requirement. A second worker that has seen only the issue cannot c
 5. **A broken blind test is not the implementer's fault.** If the blind tests fail on the base commit with the
    feature absent for the wrong reason (build error, missing symbol the issue never named), the check runs once on the
    base commit: tests that fail to compile there are dropped and reported as `blind_uncompilable`, not charged to the
-   implementer. Tests that compile and fail on base are the expected red.
+   implementer. Tests that compile and fail on base are the expected red. Known limit: the probe compiles against the
+   base commit, so tests of a newly introduced API also fail to compile there and are dropped as `blind_uncompilable`;
+   they are reported, not enforced.
 6. **Cost.** The blind task counts in the batch cap and `Fits` like any task; `max_parallel` is unchanged.
 
 ## Out of scope
@@ -69,7 +71,7 @@ Each is a command a machine runs; each test named here is written in the impleme
    and its failures appear in `VerificationRecord.BlindTests`; the verifier container still gets no model credential.
 5. `dotnet test --filter "FullyQualifiedName~HandoverBlindTests"` passes: a failing blind test triggers a continuation,
    and after `MaxContinuations` the task ends `partial` with the failing test names in the pull request body.
-6. `dotnet test --filter "FullyQualifiedName~BlindUncompilableTests"` passes: tests that do not compile on the base
+6. `dotnet test --filter "FullyQualifiedName~VerifyBranchCliTests"` passes: tests that do not compile on the base
    commit are reported `blind_uncompilable` and do not fail the implementer.
 7. `dotnet test tests/Chargehand.Architecture.Tests` passes (no new reference from Core to Driven).
 8. `scripts/check.sh` exits 0 and its last test line reads `Passed!  - Failed:     0`.

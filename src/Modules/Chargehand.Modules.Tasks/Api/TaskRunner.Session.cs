@@ -116,6 +116,7 @@ public sealed partial class TaskRunner
         run.Continuation++;
         run.Reroutes += refused ? 1 : 0;
         PlanContinuation(task, run, refused);
+        ApplyBlindGoal(task, run);
         run.Prior = run.Total;
         await RemoveSessionAsync(run.RunId, run.Container, CancellationToken.None);
         var (previousRun, previousOut) = (run.RunId, run.OutDirectory);

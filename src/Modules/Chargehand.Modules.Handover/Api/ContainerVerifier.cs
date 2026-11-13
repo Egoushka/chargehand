@@ -14,7 +14,7 @@ public sealed record ContainerVerifierSettings(string Image, string SourcePath, 
 /// <summary>Runs the repository's tests on a session's branch in a fresh container (ADR 0039). The session's own container and workspace are removed first; a new workspace is
 /// cloned at the base commit; only the bundle (in the session's output volume) is carried over, and the branch is checked out from it. The container gets the batch network's proxy
 /// and nothing else in its environment: no model credential and no run token. Its one stdout record is read after it ends, so nothing the tests print can be mistaken for a verdict.</summary>
-public sealed class ContainerVerifier(IContainerEngine engine, IWorkspaceEngine workspace, ContainerVerifierSettings settings, TimeSpan? poll = null, TimeSpan? slack = null) : IBranchVerifier
+public sealed class ContainerVerifier(IContainerEngine engine, IWorkspaceEngine workspace, ContainerVerifierSettings settings, TimeSpan? poll = null, TimeSpan? slack = null, IOutVolumeEngine? files = null) : IBranchVerifier
 {
     /// <summary>What starts the one record line <c>chargehand verify-branch</c> prints in the container.</summary>
     public const string Marker = "CHARGEHAND_VERIFICATION ";
@@ -32,9 +32,10 @@ public sealed class ContainerVerifier(IContainerEngine engine, IWorkspaceEngine 
         await workspace.PrepareWorkspaceAsync(new WorkspaceSpec(run, settings.Image, settings.SourcePath, RunnerNames.Work(run), verification.Branch, settings.BaseCommit), ct);
         Dictionary<string, string> env = new(settings.Shared?.Environment() ?? new Dictionary<string, string>(), StringComparer.Ordinal) { ["HTTPS_PROXY"] = settings.ProxyUrl, ["HTTP_PROXY"] = settings.ProxyUrl };
         settings.Shared?.BypassProxy(env);
+        var blind = await WriteBlindBundlesAsync(verification, ct);
         var spec = new ContainerSpec(run, settings.Image, RunnerNames.Work(run), RunnerNames.Out(run), settings.Network, env,
             settings.MemoryMb, settings.Cpus, settings.Pids,
-            ["verify-branch", "--bundle", "/out/chargehand.bundle", "--branch", verification.Branch, "--timeout-seconds", ((int)Math.Ceiling(verification.Timeout.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture), "--", .. verification.Argv],
+            ["verify-branch", "--bundle", "/out/chargehand.bundle", "--branch", verification.Branch, "--timeout-seconds", ((int)Math.Ceiling(verification.Timeout.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture), .. blind, "--", .. verification.Argv],
             Caches: settings.Shared?.Caches is { Count: > 0 } caches ? caches : null, Home: settings.Shared?.Home);
         var id = await engine.StartAsync(spec, ct);
         var started = Stopwatch.StartNew();
@@ -63,6 +64,35 @@ public sealed class ContainerVerifier(IContainerEngine engine, IWorkspaceEngine 
         }
     }
 
+    /// <summary>Puts each tests bundle in the session output volume and returns the <c>--tests-bundle</c> arguments that name them.</summary>
+    private async Task<List<string>> WriteBlindBundlesAsync(BranchVerification v, CancellationToken ct)
+    {
+        List<string> args = [];
+        if (v.ExtraBundles is not { Count: > 0 } bundles)
+            return args;
+        if (files is null || bundles.Count > ContainerTemplate.MaxBlindBundles)
+            throw new InvalidOperationException("the blind tests bundles cannot be carried into the verification container");
+        if (bundles.Any(b => new FileInfo(b.Path).Length > ContainerTemplate.MaxBlindBundleBytes))
+            throw new InvalidOperationException("a blind tests bundle is larger than the verification container accepts");
+        for (var i = 0; i < bundles.Count; i++)
+        {
+            var name = ContainerTemplate.BlindBundleFile(i);
+            await files.WriteOutFileAsync(new OutFileSpec(v.RunId, settings.Image, RunnerNames.Out(v.RunId), name), await File.ReadAllBytesAsync(bundles[i].Path, ct), ct);
+            args.AddRange(["--tests-bundle", $"/out/{name}@{bundles[i].Branch}"]);
+        }
+        return args;
+    }
+
+    private static BlindTestResult? BlindOf(JsonElement r)
+    {
+        if (!r.TryGetProperty("blind", out var b) || b.ValueKind != JsonValueKind.Object)
+            return null;
+        return new BlindTestResult(b.GetProperty("count").GetInt32(), b.GetProperty("failed").GetInt32(), Strings(b, "names"), Strings(b, "uncompilable"));
+    }
+
+    private static List<string> Strings(JsonElement o, string key) =>
+        o.TryGetProperty(key, out var a) && a.ValueKind == JsonValueKind.Array ? [.. a.EnumerateArray().Select(x => x.GetString() ?? "")] : [];
+
     /// <summary>The last <see cref="Marker"/> line of the logs; a container that ended without one failed, with its logs (and a note if it ran out of memory) as the reason.</summary>
     private static VerificationRecord Parse(string logs, BranchVerification v, ContainerState state, TimeSpan elapsed)
     {
@@ -74,7 +104,7 @@ public sealed class ContainerVerifier(IContainerEngine engine, IWorkspaceEngine 
                 using var doc = JsonDocument.Parse(line[Marker.Length..]);
                 var r = doc.RootElement;
                 return new VerificationRecord([.. r.GetProperty("argv").EnumerateArray().Select(a => a.GetString()!)], "detected", r.GetProperty("exit_code").GetInt32(),
-                    r.GetProperty("output_tail").GetString() ?? "", r.GetProperty("timed_out").GetBoolean(), TimeSpan.FromMilliseconds(r.GetProperty("duration_ms").GetInt64()), true);
+                    r.GetProperty("output_tail").GetString() ?? "", r.GetProperty("timed_out").GetBoolean(), TimeSpan.FromMilliseconds(r.GetProperty("duration_ms").GetInt64()), true, BlindOf(r));
             }
             catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException)
             {
