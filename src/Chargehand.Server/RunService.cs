@@ -6,6 +6,7 @@ using Chargehand.Driven;
 using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Batches.Api;
+using Chargehand.Modules.Events.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Tasks.Api;
 using Chargehand.Workspace;
@@ -23,7 +24,7 @@ namespace Chargehand.Server;
 /// <param name="approvals">The owner's approval gate for paid spend (ADR 0092); null: the threshold is the default and nothing is kept across a restart.</param>
 public sealed partial class RunService(Orchestrator orchestrator, string presetsDirectory, CancellationToken stopping, DrivenRun? driven = null,
     int maxConcurrentRuns = 1, int maxSessionCalls = 2, string? stateDirectory = null, IRunLog? log = null, TimeProvider? clock = null,
-    IReadOnlyList<AccountSettings>? accounts = null, Func<string, string, CancellationToken, Task>? notify = null, RunApprovalGate? approvals = null) : IDisposable, IAsyncDisposable
+    IReadOnlyList<AccountSettings>? accounts = null, Func<string, string, CancellationToken, Task>? notify = null, RunApprovalGate? approvals = null, IEventLog? events = null) : IDisposable, IAsyncDisposable
 {
     /// <summary>Unfinished top-level runs held at most; beyond it a new run is refused (HTTP 429). A session's research and review runs do not count: the child gate and the session count bound them.</summary>
     public const int MaxUnfinished = 10;
@@ -38,8 +39,16 @@ public sealed partial class RunService(Orchestrator orchestrator, string presets
     /// <summary>The runs' background work until it ends, so a stop can wait for it.</summary>
     private readonly ConcurrentDictionary<Task, byte> _executing = new();
 
+    private readonly RunEventEmitter? _emitter = events is null ? null : new RunEventEmitter(events);
+
     public void Dispose()
     {
+        // Runs the stop cancelled still publish their end; let them, briefly, before the emitter closes.
+        if (_emitter is not null)
+        {
+            Task.WhenAll(_executing.Keys).Wait(TimeSpan.FromSeconds(5));
+            _emitter.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
         _gate.Dispose();
         _childGate.Dispose();
         driven?.Dispose();
@@ -49,6 +58,8 @@ public sealed partial class RunService(Orchestrator orchestrator, string presets
     public async ValueTask DisposeAsync()
     {
         await Task.WhenAll(_executing.Keys).ConfigureAwait(false);
+        if (_emitter is not null)
+            await _emitter.DisposeAsync().ConfigureAwait(false);
         Dispose();
     }
 
@@ -208,11 +219,19 @@ public sealed partial class RunService(Orchestrator orchestrator, string presets
         // ponytail: count-then-add is not atomic; two racing calls can exceed the bound by one.
         if (chargeTo is null && _runs.Values.Count(r => !r.IsChild) >= MaxUnfinished)
             return null;
-        var run = new RunHandle(RunIds.New(), stopping) { IsChild = chargeTo is not null, ParentRunId = parentRunId, Actor = actor, IsBatch = request.Driven is not null, ReservedUsd = Reserve(request) };
+        var run = new RunHandle(RunIds.New(), stopping) { IsChild = chargeTo is not null, ParentRunId = parentRunId, Actor = actor, IsBatch = request.Driven is not null, ReservedUsd = Reserve(request), Sink = Sink(request) };
         _runs[run.Id] = run;
         run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
         Track(() => Execute(run, request, parentRunId, chargeTo, budgetIsCap: budgetIsCap));
         return run;
+    }
+
+    private Action<RunStatus>? Sink(RunRequest request)
+    {
+        if (_emitter is null)
+            return null;
+        var repo = request.Context.Repository?.Path is { Length: > 0 } path ? Path.GetFileName(path.TrimEnd('/', '\\')) : null;
+        return e => _emitter.Offer(e, repo);
     }
 
     /// <summary>Takes up the driven batches a restart interrupted, under their own run ids, then sweeps what no batch owns (ADR 0043). Each resumed batch holds a slot of the main gate
@@ -232,6 +251,7 @@ public sealed partial class RunService(Orchestrator orchestrator, string presets
                 IsBatch = true,
                 ReservedUsd = Reserve(state.Request),
                 ResumedTasks = [.. state.Request.Driven?.Tasks.Select(t => t.Id) ?? []],
+                Sink = Sink(state.Request),
             };
             _runs[run.Id] = run;
             run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
@@ -348,6 +368,9 @@ public sealed class RunHandle(string id, CancellationToken stopping) : IDisposab
     /// <summary>The run it was started under (its start record's parent); null for none.</summary>
     public string? ParentRunId { get; init; }
 
+    /// <summary>Told of every published status, for the event log.</summary>
+    internal Action<RunStatus>? Sink { get; init; }
+
     /// <summary>A driven batch: its events can replay from the journal (ADR 0061).</summary>
     public bool IsBatch { get; init; }
 
@@ -414,6 +437,8 @@ public sealed class RunHandle(string id, CancellationToken stopping) : IDisposab
             _events.Add(e.Actor is null && Actor is not null ? e with { Actor = Actor } : e);
             changed = _changed;
             _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            // Inside the lock, so the log sees statuses in the order the run published them.
+            Sink?.Invoke(e);
         }
         changed.TrySetResult();
     }
