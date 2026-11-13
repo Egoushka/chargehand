@@ -83,6 +83,16 @@ public class ChangeSkillTests
     }
 
     [Fact]
+    public void The_review_prompt_asks_for_a_verdict_with_every_value_the_schema_takes()
+    {
+        // Issue 446: 1 of 128 reviews gave an explicit verdict.
+        var review = File.ReadAllText(Repo.Path("prompts", "preset", "review.md"));
+        Assert.Contains("\"verdict\"", review, StringComparison.Ordinal);
+        foreach (var value in Enum.GetNames<Chargehand.Contracts.ReviewVerdict>())
+            Assert.Contains($"\"{System.Text.Json.JsonNamingPolicy.SnakeCaseLower.ConvertName(value)}\"", review, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_driven_session_reads_a_running_call_with_result_and_goes_on_without_research_that_fails()
     {
         // Seen in production: research returned only a run id, result was denied, and the session stopped to ask the owner for the permission (CHARGEHAND-246).
