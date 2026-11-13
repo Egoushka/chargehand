@@ -59,6 +59,45 @@ public sealed class RunEventsTests
         Assert.Equal("b", data.GetProperty("branch").GetString());
     }
 
+    [Fact]
+    public async Task A_log_that_fails_a_few_times_still_gets_the_finish_once()
+    {
+        using var dir = new TempDir();
+        using var inner = SqliteEventLog.Open(Path.Combine(dir.Path, "events.db"));
+        var log = new FlakyLog(inner, failures: 2);
+        await using (var emitter = new RunEventEmitter(log))
+        {
+            emitter.Offer(RunStatus.Of("r1", RunState.Completed, RunEventKind.RunFinished), "repo");
+        }
+
+        var events = await inner.ReadAsync(new EventFilter(), default);
+        Assert.Equal(RunEventEmitter.FinishedType, Assert.Single(events).Type);
+    }
+
+    [Fact]
+    public async Task A_status_offered_after_dispose_is_still_written()
+    {
+        using var dir = new TempDir();
+        using var log = SqliteEventLog.Open(Path.Combine(dir.Path, "events.db"));
+        var emitter = new RunEventEmitter(log);
+        await emitter.DisposeAsync();
+        emitter.Offer(RunStatus.Of("r1", RunState.Lost, RunEventKind.RunFinished), "repo");
+
+        Assert.Equal(RunEventEmitter.FinishedType, Assert.Single(await log.ReadAsync(new EventFilter(), default)).Type);
+    }
+
+    private sealed class FlakyLog(IEventLog inner, int failures) : IEventLog
+    {
+        private int _left = failures;
+
+        public Task<IReadOnlyList<long>> AppendAsync(IReadOnlyList<NewEvent> batch, CancellationToken ct) =>
+            Interlocked.Decrement(ref _left) >= 0 ? throw new IOException("busy") : inner.AppendAsync(batch, ct);
+
+        public Task<IReadOnlyList<StoredEvent>> ReadAsync(EventFilter filter, CancellationToken ct) => inner.ReadAsync(filter, ct);
+
+        public EventSignal Signal => inner.Signal;
+    }
+
     [Theory]
     [InlineData("https://github.com/o/r/pull/42", 42)]
     [InlineData("https://github.com/o/r/pull/42/", 42)]

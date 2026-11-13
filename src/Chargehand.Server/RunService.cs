@@ -43,7 +43,12 @@ public sealed partial class RunService(Orchestrator orchestrator, string presets
 
     public void Dispose()
     {
-        _emitter?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        // Runs the stop cancelled still publish their end; let them, briefly, before the emitter closes.
+        if (_emitter is not null)
+        {
+            Task.WhenAll(_executing.Keys).Wait(TimeSpan.FromSeconds(5));
+            _emitter.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
         _gate.Dispose();
         _childGate.Dispose();
         driven?.Dispose();
