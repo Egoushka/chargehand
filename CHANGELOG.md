@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.24](https://github.com/Egoushka/chargehand/compare/v0.19.23...v0.19.24) (2026-11-13)
+
+
+### Bug Fixes
+
+* **warmer:** a server with no sandbox starts with the cache warmer off ([#901](https://github.com/Egoushka/chargehand/issues/901)) ([bec6909](https://github.com/Egoushka/chargehand/commit/bec6909becd5045c354d573933e42fe275602115))
+
 ## [0.19.23](https://github.com/Egoushka/chargehand/compare/v0.19.22...v0.19.23) (2026-11-12)
 
 
