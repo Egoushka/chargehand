@@ -92,7 +92,7 @@ internal static class EventRoutes
         var limit = EventQuery.DefaultLimit;
         if (after is null || (q["limit"].ToString() is { Length: > 0 } l && !int.TryParse(l, NumberStyles.None, CultureInfo.InvariantCulture, out limit)))
             return null;
-        return new EventQuery(after.Value, Param(q, "type"), Param(q, "source"), Param(q, "scope"), Param(q, "subject"), limit, Param(q, "since"), Param(q, "until"), Param(q, "correlationid"));
+        return new EventQuery(after.Value, Param(q, "type"), Param(q, "source"), Param(q, "scope"), Param(q, "subject"), limit, Param(q, "since"), Param(q, "until"), Param(q, "correlationid"), Param(q, "actor"));
     }
 
     /// <summary><c>Last-Event-ID</c> when the client sends one (a reconnect), else <c>after</c>, else 0; null when either is not a number.</summary>

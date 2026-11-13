@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using Chargehand.Contracts;
 using Chargehand.Driven;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Events.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Sessions.Api;
 using Chargehand.Server;
@@ -55,7 +56,7 @@ public class McpTests
         await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply));
         await using var client = await Connect(s);
         var tools = await client.ListToolsAsync();
-        Assert.Equal([OrchestrateTool.Name, RepositoriesTool.Name, ResultTool.Name], tools.Select(t => t.Name).Order(StringComparer.Ordinal));
+        Assert.Equal([EventsTool.Name, OrchestrateTool.Name, RepositoriesTool.Name, ResultTool.Name], tools.Select(t => t.Name).Order(StringComparer.Ordinal));
         var tool = tools.Single(t => t.Name == OrchestrateTool.Name);
         Assert.Equal(ChargehandServer.Instructions, client.ServerInstructions);
         Assert.True(JsonNode.DeepEquals(JsonNode.Parse(ContractSchemas.Text(ContractSchemas.Request)), JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText())));
@@ -102,6 +103,30 @@ public class McpTests
         var listed = Assert.Single(JsonDocument.Parse(((TextContentBlock)call.Content[0]).Text).RootElement.EnumerateArray());
         Assert.Equal("repo", listed.GetProperty("name").GetString());
         Assert.Equal(repo.Commit, listed.GetProperty("commit").GetString());
+    }
+
+    [Fact]
+    public async Task The_events_tool_filters_the_log_by_actor()
+    {
+        EventService? events = null;
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), tweak: (root, settings) =>
+        {
+            events = new EventService(SqliteEventLog.Open(Path.Combine(root, "events", "events.db")), []);
+            return settings with { Events = events };
+        });
+        using var __ = events;
+        await events!.AppendAsync(EventGrant.Owner, JsonDocument.Parse("""
+            [{"specversion":"1.0","id":"a1","source":"claude","type":"claude.session.ended","time":"2026-11-13T10:00:00Z","actor":{"name":"infra-desk"}},
+             {"specversion":"1.0","id":"a2","source":"claude","type":"claude.session.ended","time":"2026-11-13T10:01:00Z","actor":{"name":"money-desk"}},
+             {"specversion":"1.0","id":"a3","source":"claude","type":"claude.session.ended","time":"2026-11-13T10:02:00Z"}]
+            """).RootElement, CancellationToken.None);
+        await using var client = await Connect(s);
+
+        var call = await client.CallToolAsync(EventsTool.Name, new Dictionary<string, object?> { ["actor"] = "infra-*" });
+
+        Assert.True(call.IsError != true);
+        var found = JsonDocument.Parse(((TextContentBlock)call.Content[0]).Text).RootElement.GetProperty("events");
+        Assert.Equal(["a1"], found.EnumerateArray().Select(e => e.GetProperty("id").GetString()).ToList());
     }
 
     [Fact]

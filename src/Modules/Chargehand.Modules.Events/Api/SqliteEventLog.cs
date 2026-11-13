@@ -162,6 +162,11 @@ public sealed class SqliteEventLog : IEventLog, IDisposable
             sql.Append(" AND correlationid = $correlation");
             cmd.Parameters.AddWithValue("$correlation", correlation);
         }
+        if (f.Actor is { } actor)
+        {
+            sql.Append(" AND (json_extract(envelope, '$.actor.name') GLOB $actor OR json_extract(envelope, '$.actor.id') GLOB $actor OR json_extract(envelope, '$.actor.run') GLOB $actor)");
+            cmd.Parameters.AddWithValue("$actor", Glob.ToSqlite(actor));
+        }
         if (f.Thread is { } thread)
         {
             sql.Append(" AND (subject = $thread OR correlationid = $thread)");
