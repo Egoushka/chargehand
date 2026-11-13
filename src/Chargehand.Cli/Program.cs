@@ -670,7 +670,14 @@ CacheWarmer? CacheWarmerFor(EventService? events)
         ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1",
     };
     string[] tools = ["DOTNET_ROOT", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"];
-    var runner = new Chargehand.Warming.SandboxedStepRunner(Chargehand.Modules.Research.Api.SandboxSelector.Select(profile.Sandbox), profile.Sandbox?.Network ?? false, [.. tools, .. profile.Sandbox?.Env ?? []], env, [], Path.Combine(workerRoot, ".pnpm-stores"));
+    Chargehand.Modules.Research.Api.ISandbox sandbox;
+    try { sandbox = Chargehand.Modules.Research.Api.SandboxSelector.Select(profile.Sandbox); }
+    catch (ChargehandException e) when (e.Code == ErrorCode.SandboxUnavailable)
+    {
+        Console.Error.WriteLine($"cache warmer off: {e.Message}");
+        return null;
+    }
+    var runner = new Chargehand.Warming.SandboxedStepRunner(sandbox, profile.Sandbox?.Network ?? false, [.. tools, .. profile.Sandbox?.Env ?? []], env, [], Path.Combine(workerRoot, ".pnpm-stores"));
     var promoter = new Chargehand.Warming.NuGetPromoter(Path.Combine(workerRoot, ".nuget-packages"), Path.Combine(workerRoot, ".nuget-work"), profile.NugetTrustedSigners ?? [], Chargehand.Warming.DotnetProcess.RunAsync);
     return new CacheWarmer(events.Log, Path.Combine(workerRoot, ".checkouts"), runner, promoter: promoter, stagingRoot: Path.Combine(workerRoot, ".nuget-staging"));
 }
