@@ -720,6 +720,11 @@ public sealed class Orchestrator(
             if (moved && events is not null)
                 await CheckoutAnnouncer.AnnounceAsync(events, $"{Path.GetFileName(Path.GetDirectoryName(dir))}/{commit[..12]}", ct);
         }
+        else if (events is not null)
+        {
+            // A queued branch on a checkout that already exists: tell the warmer so it is refreshed ahead of the worker.
+            await CheckoutAnnouncer.AnnounceQueuedAsync(events, $"{Path.GetFileName(Path.GetDirectoryName(dir))}/{commit[..12]}", ct);
+        }
         var label = RepositoryLabel.From(await Git(source, ct, "config", "--get", "remote.origin.url"), Path.GetFileName(source));
         var all = await DeniedFiles(dir, kind.Permissions, ct);
         var denied = WithoutPublic(all, label);

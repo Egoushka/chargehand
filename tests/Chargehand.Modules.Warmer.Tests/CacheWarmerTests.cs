@@ -66,6 +66,16 @@ public sealed class CacheWarmerTests : IDisposable
     private async Task<IReadOnlyList<JsonElement>> Warmed() =>
         [.. (await log.ReadAsync(new EventFilter(Type: CacheWarmer.WarmedType), default)).Select(e => JsonDocument.Parse(e.Json).RootElement.Clone())];
 
+    [Fact]
+    public async Task A_queued_branch_announced_by_the_orchestrator_is_warmed()
+    {
+        await CheckoutAnnouncer.AnnounceQueuedAsync(log, "repo-1/abc", default);
+        var queued = Assert.Single(await log.ReadAsync(new EventFilter(Type: CacheWarmer.QueuedType), default));
+
+        Assert.True(await NewWarmer().WarmAsync(queued, default));
+        Assert.Single(await Warmed());
+    }
+
     [Theory]
     [InlineData("chargehand.worktree.created")]
     [InlineData("chargehand.branch.queued")]

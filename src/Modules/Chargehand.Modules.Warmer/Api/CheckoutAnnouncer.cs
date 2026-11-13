@@ -11,7 +11,12 @@ public static class CheckoutAnnouncer
     private static readonly EventGrant Grant = new("orchestrator", Source, [], ["*"]);
 
     /// <summary>Best effort: a log that cannot take the event never stops a run.</summary>
-    public static async Task AnnounceAsync(IEventLog log, string checkout, CancellationToken ct)
+    public static Task AnnounceAsync(IEventLog log, string checkout, CancellationToken ct) => AnnounceAsync(log, checkout, CacheWarmer.CreatedType, ct);
+
+    /// <summary>Same, for a checkout a queued branch reuses (<see cref="CacheWarmer.QueuedType"/>), so the warmer refreshes it before its worker.</summary>
+    public static Task AnnounceQueuedAsync(IEventLog log, string checkout, CancellationToken ct) => AnnounceAsync(log, checkout, CacheWarmer.QueuedType, ct);
+
+    private static async Task AnnounceAsync(IEventLog log, string checkout, string type, CancellationToken ct)
     {
         try
         {
@@ -22,7 +27,7 @@ public static class CheckoutAnnouncer
                 w.WriteString("specversion", "1.0");
                 w.WriteString("id", $"wt-{Guid.NewGuid():N}");
                 w.WriteString("source", Source);
-                w.WriteString("type", CacheWarmer.CreatedType);
+                w.WriteString("type", type);
                 w.WriteString("time", DateTimeOffset.UtcNow.ToString(Envelope.Format, System.Globalization.CultureInfo.InvariantCulture));
                 w.WriteString("scope", "global");
                 w.WriteStartObject("data");
