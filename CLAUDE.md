@@ -63,3 +63,8 @@ names, budgets, absolute home paths, session or message ids, API keys, prompts f
 - Public text says "citations checked", not "claims verified", until the support check ships (ROADMAP.md, 0.8).
 - On the devbox `scripts/check.sh` stops at the Coyote rewrite step of `Chargehand.Modules.Batches.CoyoteTests` (`dotnet tool run coyote` exits 1) before any test runs. Run `dotnet test tests/Chargehand.Tests --filter ...` and `dotnet format --verify-no-changes` for the project you touched, and say so in the PR.
 - The `events` MCP tool and `GET /v1/events` share one filter set (`EventQuery`); a new filter goes into `EventFilter`, `SqliteEventLog.Select`, `EventRoutes.Query` and the tool's schema together. The tool list is asserted in `McpTests` and `StdioMcpTests`.
+- The CLI flag that should stop pnpm switching to the `packageManager` version does not work; set the environment
+  variable instead (`--ignore-pnpmfile` itself works).
+- On the devbox, `/tmp`, `~/.cache` and rustup are wiped on deploy or restart: keep state under `/home/node/work`.
+- `gh pr checks` fails with the devbox token: use `gh run list --commit <sha>` or `ws wait`.
+- Never `pkill -f` or `pgrep -f` with a pattern that appears in your own command line; it matches your own shell.
