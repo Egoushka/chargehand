@@ -61,3 +61,8 @@ names, budgets, absolute home paths, session or message ids, API keys, prompts f
 - `.claude/settings.json` asks before edits under `schemas/<name>/v<N>/`: published majors take additive changes only.
   `SchemaCompatTests` fails `scripts/check.sh` and CI on a breaking change since the latest `v*` tag.
 - Public text says "citations checked", not "claims verified", until the support check ships (ROADMAP.md, 0.8).
+- The CLI flag that should stop pnpm switching to the `packageManager` version does not work; set the environment
+  variable instead (`--ignore-pnpmfile` itself works).
+- On the devbox, `/tmp`, `~/.cache` and rustup are wiped on deploy or restart: keep state under `/home/node/work`.
+- `gh pr checks` fails with the devbox token: use `gh run list --commit <sha>` or `ws wait`.
+- Never `pkill -f` or `pgrep -f` with a pattern that appears in your own command line; it matches your own shell.
