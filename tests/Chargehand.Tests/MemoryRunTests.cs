@@ -162,7 +162,7 @@ public class MemoryRunTests
 
         Assert.Equal(ResultStatus.Completed, result.Status);
         Assert.Contains("- [hindsight] Deploys go through GitOps.", runtime.Prompts.First(), StringComparison.Ordinal);
-        Assert.Equal("chargehand", Assert.Single(server.Calls, c => c.Tool == "recall").Arguments["bank_id"].GetString());
+        Assert.Equal("chargehand", server.Calls.First(c => c.Tool == "recall").Arguments["bank_id"].GetString());
         var retain = Assert.Single(server.Calls, c => c.Tool == "retain").Arguments;
         Assert.Contains("- The README says hello. [README.md:1]", retain["content"].GetString(), StringComparison.Ordinal);
         Assert.Equal(result.TaskId, retain["document_id"].GetString());

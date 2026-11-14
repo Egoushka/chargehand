@@ -110,7 +110,7 @@ public class GoalSixTests
                       "- [chronicle] 2023-11-20T18:40:00: raw conversation two"],
             prompt.Split('\n').Where(l => l.StartsWith("- [", StringComparison.Ordinal)));
         Assert.Equal(["memory/recall/hindsight", "memory/recall/chronicle"], result.PromptChain.Blocks.Where(b => b.Source == BlockSource.Runtime).Select(b => b.Name));
-        var asked = Assert.Single(chronicle.Calls);
+        var asked = Assert.Single(chronicle.Calls, c => !c.Arguments["query"].GetString()!.StartsWith("Environment facts", StringComparison.Ordinal));
         Assert.Equal(("recall", 10), (asked.Tool, asked.Arguments["limit"].GetInt32()));
         Assert.NotEmpty(chronicle.Authorizations);                                                                // reached over the real SSE transport ...
         Assert.All(chronicle.Authorizations, a => Assert.Equal("", a));                                          // ... with no credential, as it asks for none

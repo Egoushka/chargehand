@@ -48,9 +48,10 @@ public sealed partial class MemoryStack(IReadOnlyList<MemorySource> sources)
     public MemoryStack? LocalOnly() => sources.Where(s => s.LocalOk).ToList() is { Count: > 0 } cleared ? new MemoryStack(cleared) : null;
 
     /// <summary>Asks every source at once, then merges in list order: one line per fact, labelled with the names of the sources that returned it.</summary>
-    public async Task<RecallOutcome> RecallAsync(string query, CancellationToken ct)
+    /// <param name="environmentQuery">A second question every source is asked; its facts come first, so the cap cuts task facts before them.</param>
+    public async Task<RecallOutcome> RecallAsync(string query, CancellationToken ct, string? environmentQuery = null)
     {
-        var answers = await Task.WhenAll(sources.Select(s => RecallFrom(s, query, ct)));
+        var answers = await Task.WhenAll(sources.Select(s => RecallFrom(s, query, environmentQuery, ct)));
         var lines = new List<Line>();
         var byText = new Dictionary<string, Line>(StringComparer.OrdinalIgnoreCase);
         var recalls = new List<SourceRecall>();
@@ -86,11 +87,15 @@ public sealed partial class MemoryStack(IReadOnlyList<MemorySource> sources)
     public async Task<IReadOnlyList<RetainReport>> RetainAsync(MemoryItem item, CancellationToken ct) =>
         await Task.WhenAll(sources.Where(s => s.Retain).Select(s => RetainTo(s, item, ct)));
 
-    private static async Task<(IReadOnlyList<RecalledMemory> Items, string? Skipped)> RecallFrom(MemorySource source, string query, CancellationToken ct)
+    private static async Task<(IReadOnlyList<RecalledMemory> Items, string? Skipped)> RecallFrom(MemorySource source, string query, string? environmentQuery, CancellationToken ct)
     {
         try
         {
-            return (await Bounded(t => source.Provider.RecallAsync(query, source.Scope, t), source.Limits, ct), null);
+            var task = Bounded(t => source.Provider.RecallAsync(query, source.Scope, t), source.Limits, ct);
+            if (environmentQuery is null)
+                return (await task, null);
+            var environment = Bounded(t => source.Provider.RecallAsync(environmentQuery, source.Scope, t), source.Limits, ct);
+            return ([.. (await environment).Concat(await task).DistinctBy(m => m.Id)], null);
         }
         catch (Exception e)
         {
