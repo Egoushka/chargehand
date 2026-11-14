@@ -329,7 +329,11 @@
             "retro": { "type": "boolean", "description": "After each batch, one cheap read-only run over the batch's records writes a short retro, the batch result's retro artifact. Default false." },
             "retro_preset": { "type": "string", "minLength": 1, "description": "The preset the retro run uses; it must be read-only. Default cheap." },
             "pr_days": { "type": "integer", "minimum": 1, "description": "How long after a task finished its pull request is read again until it is merged or closed. Default 14." },
-            "pr_check_minutes": { "type": "integer", "minimum": 1, "description": "How often the server reads the pull requests that are still open. Default 60." }
+            "pr_check_minutes": { "type": "integer", "minimum": 1, "description": "How often the server reads the pull requests that are still open. Default 60." },
+            "autopsy": { "type": "boolean", "description": "When a task ends failed or partial, one cheap read-only run over its own record writes a short root-cause class (auth, oom_kill, verification, turn_limit_no_commits, secret_guard, repo_path, other) into the learning log (issue 454). Default false." },
+            "autopsy_preset": { "type": "string", "minLength": 1, "description": "The preset the autopsy run uses; it must be read-only. Default cheap." },
+            "cluster_top": { "type": "integer", "minimum": 1, "description": "How many root-cause clusters the weekly job keeps, largest first. Default 5." },
+            "cluster_check_days": { "type": "integer", "minimum": 1, "description": "How often the weekly job looks at the window's autopsies, and how many days back it looks. Default 7." }
           }
         },
         "admission": {

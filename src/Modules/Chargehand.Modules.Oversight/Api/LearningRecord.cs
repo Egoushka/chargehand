@@ -83,8 +83,8 @@ public sealed record LearningRecord(string BatchId, string TaskId, string RunId,
 /// <summary>A pull request's outcome, read back from the forge; the latest line for a task wins.</summary>
 public sealed record PrOutcomeRecord(string RunId, DateTimeOffset At, string Outcome, string? HeadSha);
 
-/// <summary>A task's record with the latest outcome of its pull request, if one was read.</summary>
-public sealed record LearningEntry(LearningRecord Record, PrOutcomeRecord? PrOutcome);
+/// <summary>A task's record with the latest outcome of its pull request, if one was read, and its failure autopsy (issue #454), if one was written.</summary>
+public sealed record LearningEntry(LearningRecord Record, PrOutcomeRecord? PrOutcome, AutopsyRecord? Autopsy = null);
 
 /// <summary>The learning records of driven tasks (ADR 0045). The server owns the file; the CLI's <c>learn report</c> only reads it.</summary>
 public interface ILearningStore
@@ -92,6 +92,9 @@ public interface ILearningStore
     Task AppendAsync(LearningRecord record, CancellationToken ct);
 
     Task AppendAsync(PrOutcomeRecord record, CancellationToken ct);
+
+    /// <summary>The failure autopsy of a failed or partial task (issue #454); off unless <c>driven.learning.autopsy</c>.</summary>
+    Task AppendAsync(AutopsyRecord record, CancellationToken ct);
 
     /// <summary>One entry per task attempt (the latest record of a batch, task and run id), oldest first. Benchmark tasks are left out unless <paramref name="includeBench"/>.</summary>
     Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct, bool includeBench = false);
@@ -133,10 +136,24 @@ public sealed class JsonlLearningStore(string path) : ILearningStore
         }
     }
 
+    public async Task AppendAsync(AutopsyRecord record, CancellationToken ct)
+    {
+        await Gate.WaitAsync(ct);
+        try
+        {
+            await WriteLine("autopsy", JsonSerializer.SerializeToNode(record, LearningJsonContext.Default.AutopsyRecord)!, ct);
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
     public async Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct, bool includeBench = false)
     {
-        var (tasks, outcomes) = Parse(await Text(ct));
-        return [.. tasks.Values.Where(t => includeBench || !t.Bench).OrderBy(t => t.At).Select(t => new LearningEntry(t, outcomes.GetValueOrDefault(t.RunId)))];
+        var (tasks, outcomes, autopsies) = Parse(await Text(ct));
+        return [.. tasks.Values.Where(t => includeBench || !t.Bench).OrderBy(t => t.At)
+            .Select(t => new LearningEntry(t, outcomes.GetValueOrDefault(t.RunId), autopsies.GetValueOrDefault(t.RunId)))];
     }
 
     private static (string Batch, string Task, string Run) KeyOf(LearningRecord record) => (record.BatchId, record.TaskId, record.RunId);
@@ -153,10 +170,11 @@ public sealed class JsonlLearningStore(string path) : ILearningStore
         return text[..(text.LastIndexOf('\n') + 1)];
     }
 
-    private static (Dictionary<(string, string, string), LearningRecord> Tasks, Dictionary<string, PrOutcomeRecord> Outcomes) Parse(string text)
+    private static (Dictionary<(string, string, string), LearningRecord> Tasks, Dictionary<string, PrOutcomeRecord> Outcomes, Dictionary<string, AutopsyRecord> Autopsies) Parse(string text)
     {
         Dictionary<(string, string, string), LearningRecord> tasks = [];
         Dictionary<string, PrOutcomeRecord> outcomes = [];
+        Dictionary<string, AutopsyRecord> autopsies = [];
         foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             try
@@ -170,13 +188,16 @@ public sealed class JsonlLearningStore(string path) : ILearningStore
                     case "pr_outcome" when node.Deserialize(LearningJsonContext.Default.PrOutcomeRecord) is { } outcome:
                         outcomes[outcome.RunId] = outcome;
                         break;
+                    case "autopsy" when node.Deserialize(LearningJsonContext.Default.AutopsyRecord) is { } autopsy:
+                        autopsies[autopsy.RunId] = autopsy;
+                        break;
                 }
             }
             catch (Exception e) when (e is JsonException or InvalidOperationException)
             {
             }
         }
-        return (tasks, outcomes);
+        return (tasks, outcomes, autopsies);
     }
 
     private async Task WriteLine(string type, JsonNode node, CancellationToken ct)

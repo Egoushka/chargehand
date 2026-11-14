@@ -84,6 +84,8 @@ public class BudgetRefusalTests
 
         public Task AppendAsync(PrOutcomeRecord record, CancellationToken ct) => throw new NotSupportedException();
 
+        public Task AppendAsync(AutopsyRecord record, CancellationToken ct) => throw new NotSupportedException();
+
         public Task<IReadOnlyList<LearningEntry>> ReadAsync(CancellationToken ct, bool includeBench = false) => System.Threading.Tasks.Task.FromResult(entries);
     }
 }

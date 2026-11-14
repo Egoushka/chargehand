@@ -108,6 +108,10 @@ export interface DrivenLearning {
   retro_preset: string;
   pr_days: number;
   pr_check_minutes: number;
+  autopsy?: boolean;
+  autopsy_preset?: string;
+  cluster_top?: number;
+  cluster_check_days?: number;
 }
 
 export interface ProfileDriven {

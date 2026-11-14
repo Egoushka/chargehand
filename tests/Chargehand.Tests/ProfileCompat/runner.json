@@ -64,7 +64,11 @@
       "retro": false,
       "retro_preset": "cheap",
       "pr_days": 14,
-      "pr_check_minutes": 60
+      "pr_check_minutes": 60,
+      "autopsy": false,
+      "autopsy_preset": "cheap",
+      "cluster_top": 5,
+      "cluster_check_days": 7
     },
     "runners": null,
     "image_variants": null,

@@ -82,7 +82,11 @@
       "retro": false,
       "retro_preset": "default",
       "pr_days": 21,
-      "pr_check_minutes": 30
+      "pr_check_minutes": 30,
+      "autopsy": false,
+      "autopsy_preset": "cheap",
+      "cluster_top": 5,
+      "cluster_check_days": 7
     },
     "runners": [
       {
