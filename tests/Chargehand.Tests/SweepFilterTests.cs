@@ -23,6 +23,19 @@ public class SweepFilterTests
     }
 
     [Fact]
+    public void Parses_list_style_blockers() =>
+        Assert.Equal([new IssueRef("owner/app", 12), new IssueRef("owner/app", 13)], BlockerRefs.Parse("Blocked by:\n- #12\n* #13\n\n- #14\nnot a list #15", "owner/app"));
+
+    [Fact]
+    public void Parses_inline_forms()
+    {
+        Assert.Equal([new IssueRef("owner/app", 12)], BlockerRefs.Parse("after #12 merges", "owner/app"));
+        Assert.Equal([new IssueRef("owner/app", 3), new IssueRef("owner/app", 4)], BlockerRefs.Parse("depends on #3 and #4", "owner/app"));
+        Assert.Equal([new IssueRef("owner/lib", 7)], BlockerRefs.Parse("blocked by owner/lib#7", "owner/app"));
+        Assert.Empty(BlockerRefs.Parse("after it merges\n- #5", "owner/app"));
+    }
+
+    [Fact]
     public void A_missing_blocker_still_parses_as_a_ref() =>
         Assert.Equal([new IssueRef("owner/app", 99)], BlockerRefs.Parse("blocked by #99", "owner/app"));
 
