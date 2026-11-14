@@ -88,11 +88,15 @@ public sealed record TierSettings(string Name, IReadOnlyList<string> Models);
 /// <param name="RefillWeekday">A weekly pool: the day of the week it refills, in English (<c>sunday</c>).</param>
 /// <param name="RefillTime">A monthly or weekly pool: the time of day it refills, <c>HH:mm</c>.</param>
 /// <param name="NoTrainingModels">The models of <paramref name="Models"/> whose provider does not train on prompts through this pool (<c>*</c>: all of them). Only these may see <see cref="DataClass.Restricted"/> data; none listed: every model of the pool is assumed to train.</param>
+/// <param name="DailyShare">A weekly pool paced by the provider's usage reading: the share of the weekly cap one day may use, as a fraction; none: a seventh. Unused share carries forward to the days after it.</param>
 /// <param name="PaceDaily">Soft daily pacing: once today's allowance is spent the router prefers the next pool that has room, and returns here only when no other pool can take the call (it then still warns). Needs a metered pool (<paramref name="TotalUsd"/> or <paramref name="QuotaUsd"/>); false: the allowance only warns.</param>
 public sealed record PoolSettings(string Name, string Kind, IReadOnlyList<string> Models, decimal? TotalUsd = null, decimal? QuotaUsd = null, int? DailyRequests = null,
     DateOnly? Start = null, int? SpreadDays = null, DateOnly? Expires = null, int RefillDay = 1, string? RefillWeekday = null, string RefillTime = "00:00",
-    IReadOnlyList<string>? NoTrainingModels = null, bool PaceDaily = false)
+    IReadOnlyList<string>? NoTrainingModels = null, bool PaceDaily = false, double? DailyShare = null)
 {
+    /// <summary>A weekly pool that paces by the provider's utilization reading rather than by dollars.</summary>
+    internal bool PacesUtilization => PaceDaily && Kind == PoolKinds.Weekly && QuotaUsd is null;
+
     /// <summary>Whether <paramref name="model"/> may see restricted data through this pool.</summary>
     internal bool KeepsPrivate(string model) => NoTrainingModels is { } kept && (kept.Contains("*", StringComparer.Ordinal) || kept.Contains(model, StringComparer.Ordinal));
 
@@ -108,8 +112,12 @@ public sealed record PoolSettings(string Name, string Kind, IReadOnlyList<string
         };
         IEnumerable<string> common = [.. Models.Count == 0 ? ["lists no models"] : Array.Empty<string>(), .. PoolClock.Time(RefillTime) is null ? ["refill_time must be HH:mm"] : Array.Empty<string>(),
             .. (NoTrainingModels ?? []).Where(m => m != "*" && !Models.Contains(m, StringComparer.Ordinal)).Select(m => $"no_training_models names '{m}', which the pool does not pay for")];
-        if (PaceDaily && (Kind == PoolKinds.Free || (Kind == PoolKinds.Weekly && QuotaUsd is null)))
+        if (PaceDaily && Kind == PoolKinds.Free)
             common = [.. common, "pace_daily needs an amount to pace: total_usd, or quota_usd on a weekly pool"];
+        if (DailyShare is { } share && !PacesUtilization)
+            common = [.. common, "daily_share needs pace_daily on a weekly pool without quota_usd"];
+        else if (DailyShare is <= 0 or > 1)
+            common = [.. common, "daily_share must be above 0 and at most 1"];
         return common.Concat(own);
     }
 

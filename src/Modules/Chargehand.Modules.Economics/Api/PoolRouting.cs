@@ -56,7 +56,8 @@ public sealed class PoolRouting(PoolsSettings? settings, IRunLog log, TimeProvid
         if (_router is null)
             return new(unrouted, null);
         var now = _time.GetUtcNow();
-        return _router.Choose(_router.TierFor(kind, size), dataClass, await SpendAsync(ct), now, Exhausted(now)) switch
+        var runs = (await log.ReadRunsAsync(ct)).Runs;
+        return _router.Choose(_router.TierFor(kind, size), dataClass, SpendOf(runs), now, Exhausted(now), WeeklyOf(runs)) switch
         {
             RouteChoice choice => new(choice.Model, new RunRoute(choice.Pool, choice.Tier, choice.Model, DataClassName(dataClass)), choice.Warning is { } w ? $"pool '{choice.Pool}': {w}" : null),
             RouteWait wait => throw new PoolsWaitException(wait),
@@ -126,7 +127,13 @@ public sealed class PoolRouting(PoolsSettings? settings, IRunLog log, TimeProvid
 
     private HashSet<string> Exhausted(DateTimeOffset now) => [.. _exhausted.Where(e => e.Value > now).Select(e => e.Key)];
 
-    private async Task<IReadOnlyList<PoolSpend>> SpendAsync(CancellationToken ct) => SpendOf((await log.ReadRunsAsync(ct)).Runs);
+    /// <summary>Each pool's newest seven-day reading, from the run that ended last on it.</summary>
+    public static IReadOnlyDictionary<string, UsageWindow> WeeklyOf(IEnumerable<RunRecord> runs) =>
+        runs.Where(r => r.SubscriptionUsage?.SevenDay is not null && LastRoute(r) is not null)
+            .GroupBy(r => LastRoute(r)!.Pool)
+            .ToDictionary(g => g.Key, g => g.MaxBy(r => r.Finished)!.SubscriptionUsage!.SevenDay!, StringComparer.Ordinal);
+
+    private static RunRoute? LastRoute(RunRecord run) => run.Routes is { Count: > 0 } routes ? routes[^1] : run.Route;
 
     /// <summary>Each routed run's cost, charged to its pool when it finished; a run with no price counts nothing. A run whose sessions moved between pools (D-113) charges each pool what its own sessions cost.</summary>
     public static IReadOnlyList<PoolSpend> SpendOf(IEnumerable<RunRecord> runs) =>
