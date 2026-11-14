@@ -6,7 +6,7 @@ namespace Chargehand.Automation;
 public sealed record IssueRef(string Repository, int Number);
 
 /// <summary>Why the sweep leaves an issue alone before it asks a model.</summary>
-public enum SweepSkip { None, Owner, InProgress, Skip, Claimed, AlreadyQueued }
+public enum SweepSkip { None, Owner, InProgress, Skip, Claimed, AlreadyQueued, Stranger }
 
 /// <summary>Finds the issues a body says it waits on.</summary>
 public static partial class BlockerRefs
@@ -62,8 +62,10 @@ public static class SweepFilter
 {
     /// <param name="claimed">A live claim covers the issue.</param>
     /// <param name="queuedOrRunning">An open item, run or chargehand pull request already exists for it.</param>
-    public static SweepSkip Skip(IntakeIssue issue, bool claimed, bool queuedOrRunning)
+    /// <param name="trustedAuthors">The logins whose issues the sweep acts on (the allowed authors and the app's own login); compared case-insensitively.</param>
+    public static SweepSkip Skip(IntakeIssue issue, bool claimed, bool queuedOrRunning, IReadOnlySet<string> trustedAuthors)
     {
+        if (!trustedAuthors.Contains(issue.Author, StringComparer.OrdinalIgnoreCase)) return SweepSkip.Stranger;
         if (issue.Labels.Contains("you")) return SweepSkip.Owner;
         if (issue.Labels.Contains("in-progress")) return SweepSkip.InProgress;
         if (issue.Labels.Contains(SweepLabels.Skip)) return SweepSkip.Skip;

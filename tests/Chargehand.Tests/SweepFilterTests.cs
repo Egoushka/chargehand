@@ -4,8 +4,12 @@ namespace Chargehand.Tests;
 
 public class SweepFilterTests
 {
-    private static IntakeIssue Issue(params string[] labels) =>
-        new(5, "Title", "Body", "someone", false, labels, DateTimeOffset.UnixEpoch);
+    private static readonly IReadOnlySet<string> Trusted = new HashSet<string> { "someone" };
+
+    private static IntakeIssue Issue(params string[] labels) => By("someone", labels);
+
+    private static IntakeIssue By(string author, params string[] labels) =>
+        new(5, "Title", "Body", author, false, labels, DateTimeOffset.UnixEpoch);
 
     [Fact]
     public void Parses_blockers()
@@ -48,13 +52,29 @@ public class SweepFilterTests
     [InlineData("in-progress", SweepSkip.InProgress)]
     [InlineData(SweepLabels.Skip, SweepSkip.Skip)]
     public void Skips_owner_and_in_progress(string label, SweepSkip expected) =>
-        Assert.Equal(expected, SweepFilter.Skip(Issue(label), false, false));
+        Assert.Equal(expected, SweepFilter.Skip(Issue(label), false, false, Trusted));
 
     [Fact]
     public void Skips_claimed_and_queued_and_otherwise_none()
     {
-        Assert.Equal(SweepSkip.Claimed, SweepFilter.Skip(Issue(), true, true));
-        Assert.Equal(SweepSkip.AlreadyQueued, SweepFilter.Skip(Issue(), false, true));
-        Assert.Equal(SweepSkip.None, SweepFilter.Skip(Issue("bug"), false, false));
+        Assert.Equal(SweepSkip.Claimed, SweepFilter.Skip(Issue(), true, true, Trusted));
+        Assert.Equal(SweepSkip.AlreadyQueued, SweepFilter.Skip(Issue(), false, true, Trusted));
+        Assert.Equal(SweepSkip.None, SweepFilter.Skip(Issue("bug"), false, false, Trusted));
+    }
+
+    [Fact]
+    public void A_stranger_issue_is_skipped() =>
+        Assert.Equal(SweepSkip.Stranger, SweepFilter.Skip(By("someone-else"), false, false, new HashSet<string> { "owner" }));
+
+    [Fact]
+    public void Trusted_author_case_insensitive() =>
+        Assert.Equal(SweepSkip.None, SweepFilter.Skip(By("Owner"), false, false, new HashSet<string> { "owner" }));
+
+    [Fact]
+    public void The_app_counts_as_trusted()
+    {
+        var trusted = new HashSet<string> { "owner", "chargehand[bot]" };
+        Assert.Equal(SweepSkip.None, SweepFilter.Skip(By("chargehand[bot]"), false, false, trusted));
+        Assert.Equal(SweepSkip.Skip, SweepFilter.Skip(By("chargehand[bot]", SweepLabels.Skip), false, false, trusted));
     }
 }
