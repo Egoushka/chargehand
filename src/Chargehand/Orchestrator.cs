@@ -377,15 +377,19 @@ public sealed class Orchestrator(
     /// <summary>Records a run that was cancelled before it started (it was queued): a start record and a failed result with <c>cancelled</c>.</summary>
     /// <summary>The checkouts this server reads (<see cref="RepositoryNames"/>) with the commit each has checked out, for the repositories tool.</summary>
     /// <summary>Whether a run of <paramref name="actor"/> bills a priced API key, which a dollar budget binds (ADR 0082); an account that may use no credential spends nothing.</summary>
-    public bool Priced(string? actor)
+    public bool Priced(string? actor) => Billing(actor) is { Credential: "api_key" };
+
+    /// <summary>The credential kind a run of <paramref name="actor"/> bills and the subscription whose windows its runtime reports (ADR 0100); null for an account that may use no credential.</summary>
+    public (string Credential, string? UsageProvider)? Billing(string? actor)
     {
         try
         {
-            return (runtimeFor?.Invoke(actor) ?? runtime).Credential == "api_key";
+            var worker = runtimeFor?.Invoke(actor) ?? runtime;
+            return (worker.Credential, worker.UsageProvider);
         }
         catch (ChargehandException)
         {
-            return false;
+            return null;
         }
     }
 

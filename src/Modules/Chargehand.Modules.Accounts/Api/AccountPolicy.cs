@@ -8,7 +8,7 @@ namespace Chargehand.Modules.Accounts.Api;
 /// <summary>Why an account's run was not started. <c>Window</c>, <c>Unit</c>, <c>Limit</c>, <c>Spent</c>, <c>Remaining</c> and <c>ResetsAt</c> are set for
 /// <c>budget_exceeded</c> only.</summary>
 public sealed record AccountRefusal(string Code, string Message, [property: JsonIgnore] int Status, string? Window = null, string? Unit = null, decimal? Limit = null, decimal? Spent = null,
-    decimal? Remaining = null, DateTimeOffset? ResetsAt = null)
+    decimal? Remaining = null, DateTimeOffset? ResetsAt = null, decimal? Reserved = null)
 {
     public const int Forbidden = 403;
 
@@ -36,7 +36,8 @@ public static class AccountPolicy
         ? $"account '{account.Name}' has no model credential of its own and may not use the server's; set http.accounts[].model, or allow_server_credential to spend the server's"
         : null;
 
-    public static AccountRefusal? Refusal(AccountSettings account, RunRequest request, int unfinished, ActorSpend day, ActorSpend month, DateTimeOffset now)
+    public static AccountRefusal? Refusal(AccountSettings account, RunRequest request, int unfinished, ActorSpend day, ActorSpend month, DateTimeOffset now,
+        decimal reservedUsd = 0, SubscriptionStanding? subscription = null)
     {
         if (CredentialRefusal(account) is { } noCredential)
             return new("model_credential_missing", noCredential, AccountRefusal.Forbidden);
@@ -51,21 +52,25 @@ public static class AccountPolicy
         }
         if (account.MaxConcurrentRuns is { } most && unfinished >= most)
             return new("concurrency_exceeded", $"account '{account.Name}' has {unfinished} unfinished runs, its limit; retry when one ends", AccountRefusal.TooManyRequests);
-        return Exceeded("day", "usd", account.MaxUsdPerDay, day.Usd, NextDay(now))
-            ?? Exceeded("month", "usd", account.MaxUsdPerMonth, month.Usd, NextMonth(now))
+        return Exceeded("day", "usd", account.MaxUsdPerDay, day.Usd, NextDay(now), reservedUsd)
+            ?? Exceeded("month", "usd", account.MaxUsdPerMonth, month.Usd, NextMonth(now), reservedUsd)
             ?? Exceeded("day", "tokens", account.MaxTokensPerDay, day.Tokens, NextDay(now))
-            ?? Exceeded("month", "tokens", account.MaxTokensPerMonth, month.Tokens, NextMonth(now));
+            ?? Exceeded("month", "tokens", account.MaxTokensPerMonth, month.Tokens, NextMonth(now))
+            ?? SubscriptionCap.Refusal(account, subscription, now);
     }
 
     /// <summary>Spend counts runs that finished in the window and the calls of those still going; a cap is met once the spend reaches it.</summary>
-    private static AccountRefusal? Exceeded(string window, string unit, decimal? limit, decimal spent, DateTimeOffset resets)
+    private static AccountRefusal? Exceeded(string window, string unit, decimal? limit, decimal spent, DateTimeOffset resets, decimal reserved = 0)
     {
         if (limit is not { } cap || spent < cap)
             return null;
         var amount = unit == "usd" ? $"${cap.ToString("0.00", CultureInfo.InvariantCulture)}" : $"{cap.ToString("0", CultureInfo.InvariantCulture)} tokens";
-        var spentText = unit == "usd" ? $"${spent.ToString("0.00", CultureInfo.InvariantCulture)}" : $"{spent.ToString("0", CultureInfo.InvariantCulture)} tokens";
-        return new("budget_exceeded", $"the {(window == "day" ? "daily" : "monthly")} {(unit == "usd" ? "dollar" : "token")} cap of {amount} is used up ({spentText} spent, 0 remaining); it resets at {resets:yyyy-MM-dd'T'HH:mm:ss'Z'}",
-            AccountRefusal.TooManyRequests, window, unit, cap, spent, 0, resets);
+        // The caller adds the unfinished runs' budgets to the spend (ADR 0083); the message tells the two apart (ADR 0100).
+        var billed = spent - reserved;
+        var spentText = unit == "usd" ? $"${billed.ToString("0.00", CultureInfo.InvariantCulture)}" : $"{spent.ToString("0", CultureInfo.InvariantCulture)} tokens";
+        var held = reserved > 0 ? $", ${reserved.ToString("0.00", CultureInfo.InvariantCulture)} reserved by unfinished runs" : "";
+        return new("budget_exceeded", $"the {(window == "day" ? "daily" : "monthly")} {(unit == "usd" ? "dollar" : "token")} cap of {amount} is used up ({spentText} spent{held}, 0 remaining); it resets at {resets:yyyy-MM-dd'T'HH:mm:ss'Z'}",
+            AccountRefusal.TooManyRequests, window, unit, cap, billed, 0, resets, unit == "usd" ? reserved : null);
     }
 
     /// <summary>The request with its budgets cut to what the account has left, so one run cannot take more than the window holds: <c>budget_usd</c>, and for a batch

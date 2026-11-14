@@ -29,6 +29,8 @@ public sealed class ClaudeCodeWorkerRuntime : IWorkerRuntime, IServiceHealth
 {
     public string Credential => _credential.Subscription ? "subscription" : "api_key";
 
+    public string? UsageProvider => "claude";
+
     /// <summary>Prefix of the per-turn directories that hold the MCP config, which carries resolved secrets.</summary>
     private const string ConfigDirPrefix = "chargehand-mcp-";
     private const string ConfigFile = "mcp.json";

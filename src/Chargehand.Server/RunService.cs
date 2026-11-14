@@ -118,9 +118,10 @@ public sealed partial class RunService(Orchestrator orchestrator, string presets
         var day = log is not null && AccountPolicy.UsesDay(account) ? await log.SpendAsync(account.Name, AccountPolicy.DayStart(now), ct) : none;
         var month = log is not null && AccountPolicy.UsesMonth(account) ? await log.SpendAsync(account.Name, AccountPolicy.MonthStart(now), ct) : none;
         (day, month) = (day with { Usd = day.Usd + reserved }, month with { Usd = month.Usd + reserved });
+        var subscription = await SubscriptionStandingAsync(account, request.Driven is not null, ct);
         // ponytail: count-then-start is not atomic; two racing requests can exceed max_concurrent_runs by one.
         var unfinished = Unfinished(account.Name);
-        return AccountPolicy.Refusal(account, request, unfinished, day, month, now) is { } refusal
+        return AccountPolicy.Refusal(account, request, unfinished, day, month, now, reserved, subscription) is { } refusal
             ? (request, refusal)
             : (AccountPolicy.Clamp(account, request, day, month), null);
     }
@@ -219,7 +220,7 @@ public sealed partial class RunService(Orchestrator orchestrator, string presets
         // ponytail: count-then-add is not atomic; two racing calls can exceed the bound by one.
         if (chargeTo is null && _runs.Values.Count(r => !r.IsChild) >= MaxUnfinished)
             return null;
-        var run = new RunHandle(RunIds.New(), stopping) { IsChild = chargeTo is not null, ParentRunId = parentRunId, Actor = actor, IsBatch = request.Driven is not null, ReservedUsd = Reserve(request), Sink = Sink(request) };
+        var run = new RunHandle(RunIds.New(), stopping) { IsChild = chargeTo is not null, ParentRunId = parentRunId, Actor = actor, IsBatch = request.Driven is not null, ReservedUsd = Reserved(request, actor), Sink = Sink(request) };
         _runs[run.Id] = run;
         run.Publish(RunStatus.Of(run.Id, RunState.Queued, RunEventKind.Accepted));
         Track(() => Execute(run, request, parentRunId, chargeTo, budgetIsCap: budgetIsCap));
@@ -249,7 +250,7 @@ public sealed partial class RunService(Orchestrator orchestrator, string presets
             {
                 Actor = state.Actor,
                 IsBatch = true,
-                ReservedUsd = Reserve(state.Request),
+                ReservedUsd = Reserved(state.Request, state.Actor),
                 ResumedTasks = [.. state.Request.Driven?.Tasks.Select(t => t.Id) ?? []],
                 Sink = Sink(state.Request),
             };

@@ -112,7 +112,9 @@
         },
         "allow_server_credential": false,
         "pause_on_forecast": false,
-        "public_clone": false
+        "public_clone": false,
+        "max_pct_per_day_7d": null,
+        "max_pct_per_day_5h": null
       },
       {
         "name": "bob",
@@ -126,7 +128,9 @@
         "model": null,
         "allow_server_credential": true,
         "pause_on_forecast": false,
-        "public_clone": false
+        "public_clone": false,
+        "max_pct_per_day_7d": null,
+        "max_pct_per_day_5h": null
       }
     ],
     "ui": true,

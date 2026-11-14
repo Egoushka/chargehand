@@ -819,8 +819,10 @@
             "required": ["name"],
             "properties": {
               "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$", "not": { "const": "owner" }, "description": "Lowercase letters, digits and hyphens. Recorded as `actor` on the account's runs, results and events." },
-              "max_usd_per_day": { "type": "number", "exclusiveMinimum": 0, "description": "Dollars the account's runs may cost in a UTC day, by their results' usage. Counts priced runs only; a subscription run adds none, so pair it with a token cap." },
+              "max_usd_per_day": { "type": "number", "exclusiveMinimum": 0, "description": "Dollars the account's runs may cost in a UTC day, by their results' usage. Counts and reserves priced (API key) runs only; a subscription run adds none: cap it with max_pct_per_day_7d or a token cap." },
               "max_usd_per_month": { "type": "number", "exclusiveMinimum": 0, "description": "The same over a UTC calendar month." },
+              "max_pct_per_day_7d": { "type": "number", "exclusiveMinimum": 0, "maximum": 100, "description": "Points of the subscription's seven-day window the account's runs may use in a UTC day (ADR 0100). Measured from the usage readings of its runs; unset: no cap on that window." },
+              "max_pct_per_day_5h": { "type": "number", "exclusiveMinimum": 0, "maximum": 100, "description": "The same for the five-hour window, summed over the day's windows; unset: no cap." },
               "max_tokens_per_day": { "type": "integer", "minimum": 1, "description": "Input plus output tokens in a UTC day." },
               "max_tokens_per_month": { "type": "integer", "minimum": 1, "description": "Input plus output tokens in a UTC calendar month." },
               "max_concurrent_runs": { "type": "integer", "minimum": 1, "description": "Unfinished runs (queued or running) the account may have at once." },

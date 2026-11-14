@@ -25,6 +25,9 @@ public interface IRunLog
     /// <summary>What <paramref name="actor"/>'s runs cost since <paramref name="since"/> (ADR 0050).</summary>
     Task<ActorSpend> SpendAsync(string actor, DateTimeOffset since, CancellationToken ct) => throw new NotSupportedException();
 
+    /// <summary>The usage-window readings the calls of <paramref name="actor"/>'s runs carried since <paramref name="since"/>, oldest first (ADR 0100); a log that keeps none returns none.</summary>
+    Task<IReadOnlyList<SubscriptionReading>> SubscriptionReadingsAsync(string actor, DateTimeOffset since, CancellationToken ct) => Task.FromResult<IReadOnlyList<SubscriptionReading>>([]);
+
     /// <summary>Every record, for the operator console's read routes (batches, inbox, analytics); a log that cannot list them says so with <see cref="NotSupportedException"/>.</summary>
     Task<RunLogData> ReadAllAsync(CancellationToken ct) => throw new NotSupportedException();
 
@@ -40,6 +43,9 @@ public interface IRunLog
 /// apart: the batch's result holds its cost. <c>Usd</c> counts only what an API key was billed (ADR 0082): a subscription call adds tokens and no dollars, so a token cap is the
 /// bound that always binds there. <c>UsdAtApiPrice</c> is every call at the profile's table, whoever paid.</summary>
 public sealed record ActorSpend(decimal Usd, long Tokens, decimal UsdAtApiPrice = 0);
+
+/// <summary>The subscription windows as one call saw them (ADR 0098, 0100): at least one window is present.</summary>
+public sealed record SubscriptionReading(DateTimeOffset At, SubscriptionUsage Usage);
 
 /// <summary>Which credential paid for a call or run, from the runtime's auth source and never from the model's name.</summary>
 public static class CredentialKind
