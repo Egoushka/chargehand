@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.25](https://github.com/Egoushka/chargehand/compare/v0.19.24...v0.19.25) (2026-11-14)
+
+
+### Features
+
+* **events:** actor filter and an events MCP tool (D-147) ([#908](https://github.com/Egoushka/chargehand/issues/908)) ([3229553](https://github.com/Egoushka/chargehand/commit/3229553fea87e326d093aad4034ff166286afd0f))
+* **events:** emit chargehand.run.* events into the log ([#899](https://github.com/Egoushka/chargehand/issues/899)) ([#906](https://github.com/Egoushka/chargehand/issues/906)) ([39a894e](https://github.com/Egoushka/chargehand/commit/39a894e08703006850056b854b6bbd4c4514457f))
+* **forge:** carry Spec, Claim and Checks trailers into the squash commit ([#927](https://github.com/Egoushka/chargehand/issues/927)) ([7f498b5](https://github.com/Egoushka/chargehand/commit/7f498b59de548252acdbeddb7c58cd379a5501b9))
+* **intake:** tell intake which actions the preset allows ([#428](https://github.com/Egoushka/chargehand/issues/428)) ([#913](https://github.com/Egoushka/chargehand/issues/913)) ([fe152ac](https://github.com/Egoushka/chargehand/commit/fe152acc2d422c86b8aa67784353aa181261c82b))
+* **warmer:** announce a queued branch on a reused checkout; add worktree sweep script ([#893](https://github.com/Egoushka/chargehand/issues/893), [#894](https://github.com/Egoushka/chargehand/issues/894)) ([#909](https://github.com/Egoushka/chargehand/issues/909)) ([a4b0186](https://github.com/Egoushka/chargehand/commit/a4b01865c2cebc9889e1cf6f67d99af9af333ca9))
+
+
+### Bug Fixes
+
+* **intake:** hold a comment's cursor until its own slot-wait attempt runs ([#925](https://github.com/Egoushka/chargehand/issues/925)) ([b21c3cc](https://github.com/Egoushka/chargehand/commit/b21c3cc4f003c938599d0302faf47a810872bfcd))
+
 ## [0.19.24](https://github.com/Egoushka/chargehand/compare/v0.19.23...v0.19.24) (2026-11-13)
 
 
