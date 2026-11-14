@@ -201,6 +201,8 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
 
     private static void Findings(StringBuilder text, ResultContract result)
     {
+        if (result.Verdict is { } verdict)
+            text.Append(CultureInfo.InvariantCulture, $"Verdict: **{verdict.ToString().ToLowerInvariant()}**\n\n");
         text.Append(Plain(result.Summary, MaxSummary)).Append("\n\n");
         if (result.Claims.Count == 0)
         {

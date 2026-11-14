@@ -277,6 +277,19 @@ public class PullReviewTests
     }
 
     [Fact]
+    public async Task A_review_with_a_verdict_shows_it_before_the_summary()
+    {
+        using var rig = new IntakeRig(On());
+        rig.OpenPull(5, Sha);
+        await rig.Poll();
+        rig.Log.Finish("run-1", ResultStatus.Completed, "One bug.", [new Claim("The retry never stops.", ["e1"], 0.9)], [new Evidence("e1", EvidenceKind.File, "src/Retry.cs:12-20")], verdict: ReviewVerdict.Changes);
+        await rig.Poll();
+
+        var body = Assert.Single(rig.GitHub.Posted).Body;
+        Assert.Contains("Verdict: **changes**\n\nOne bug.", body);
+    }
+
+    [Fact]
     public async Task A_review_with_no_claims_says_no_findings()
     {
         using var rig = new IntakeRig(On());

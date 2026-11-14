@@ -61,6 +61,7 @@
       }
     },
     "open_questions": { "type": "array", "items": { "type": "string" } },
+    "verdict": { "enum": ["approve", "changes", "blocked"], "description": "The review preset's own judgement of the change (issue 446): approve when it found nothing that must change, changes for at least one actionable finding, blocked for a critical or security issue that must not ship. Absent for a result no preset scores this way." },
     "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "On a completed result, the share of its claims the support check found supported, or the worker's own figure when no claim was judged. Null when the run did not complete." },
     "usage": {
       "type": "object",
